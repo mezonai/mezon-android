@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/huy/dev/company/mezon/**)",
+      "Read(//Users/huy/dev/company/mezon-protocol/**)",
+      "Bash(xargs -I{} sh -c 'echo \"\"=== {} ===\"\" && head -5 {}')",
+      "Bash(ln -s /Users/huy/dev/company/mezon-protocol/api /Users/huy/AndroidStudioProjects/mezon/core-proto/src/main/proto_api)",
+      "Bash(ln -s /Users/huy/dev/company/mezon-protocol/rtapi /Users/huy/AndroidStudioProjects/mezon/core-proto/src/main/proto_rtapi)"
+    ]
+  }
+}
