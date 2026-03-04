@@ -1,0 +1,40 @@
+---
+description: Naming conventions for Kotlin files and classes
+alwaysApply: true
+---
+
+# Naming Conventions
+
+## Files and Classes
+
+| Type | Pattern | Example |
+|---|---|---|
+| Screen | `*Screen.kt` | `ChatScreen.kt`, `MessagesScreen.kt` |
+| ViewModel | `*ViewModel.kt` | `ChatViewModel.kt` |
+| Store | `*Store.kt` | `MessageStore.kt`, `DirectStore.kt` |
+| Repository | `*Repository.kt` | `ChatRepository.kt` |
+| Entity/Model | `*Entity.kt` or descriptive | `MessageEntity.kt`, `DirectMessage.kt` |
+| UiState | `*UiState` (sealed interface) | `ChatUiState`, `MessagesUiState` |
+| Intent | `*Intent` (sealed interface) | `ChatIntent`, `LoginIntent` |
+| Event | `*Event` (sealed interface) | `LoginEvent` |
+
+## Proto mapping extensions
+
+Place in the same file as the target entity:
+
+```kotlin
+fun ChannelMessage.toMessageEntity(currentUserId: Long): MessageEntity = ...
+fun ChannelDescription.toDirectMessage(currentUserId: Long): DirectMessage = ...
+```
+
+## File organization
+
+Group by feature folder:
+
+```
+home/
+  chat/        → ChatScreen, ChatViewModel, ChatRepository, MessageStore, MessageEntity
+  messages/    → MessagesScreen, MessagesViewModel, DirectRepository, DirectStore, DirectMessage
+  clans/       → ClansScreen, ...
+  profile/     → ProfileScreen, ProfileViewModel
+```

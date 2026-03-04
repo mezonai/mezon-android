@@ -1,0 +1,86 @@
+---
+description: MVI pattern for ViewModels — UiState, Intent, Event
+globs: "**/*ViewModel.kt"
+alwaysApply: false
+---
+
+# MVI Pattern
+
+Every ViewModel follows this structure:
+
+```kotlin
+sealed interface FooUiState {
+    data object Loading : FooUiState
+    data object Empty : FooUiState
+    data class Success(val items: List<Item>) : FooUiState
+    data class Error(val message: String) : FooUiState
+}
+
+sealed interface FooIntent {
+    data object Load : FooIntent
+    data object Refresh : FooIntent
+}
+
+sealed interface FooEvent {
+    data object NavigateBack : FooEvent
+}
+
+@HiltViewModel
+class FooViewModel @Inject constructor(
+    private val repository: FooRepository,
+    private val fooStore: FooStore
+) : ViewModel() {
+
+    val uiState: StateFlow<FooUiState> = fooStore.items
+        .map { ... }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), FooUiState.Loading)
+
+    private val _events = Channel<FooEvent>(Channel.BUFFERED)
+    val events = _events.receiveAsFlow()
+
+    fun onIntent(intent: FooIntent) { ... }
+}
+```
+
+## Rules
+
+- UiState, Intent, Event are `sealed interface` (not sealed class)
+- Singleton states use `data object`, payload states use `data class`
+- One `onIntent(intent)` entry point — no direct public methods for actions
+- One-shot events use `Channel<T>(BUFFERED)` + `receiveAsFlow()` (not SharedFlow)
+- UiState derived from Store via `combine`/`map` + `stateIn`
+- Constructor params are always `private val`
+
+## Error + Empty handling pattern
+
+Always surface errors and distinguish Loading/Empty/Error/Success:
+
+```kotlin
+private val _hasLoadedOnce = MutableStateFlow(false)
+private val _error = MutableStateFlow<String?>(null)
+
+val uiState: StateFlow<FooUiState> = combine(
+    fooStore.items,
+    _hasLoadedOnce,
+    _error
+) { list, hasLoaded, error ->
+    when {
+        error != null && list.isEmpty() -> FooUiState.Error(error)
+        list.isNotEmpty() -> FooUiState.Success(list)
+        hasLoaded -> FooUiState.Empty
+        else -> FooUiState.Loading
+    }
+}.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), FooUiState.Loading)
+```
+
+## LoadMore error pattern
+
+Expose pagination errors separately in Success state:
+
+```kotlin
+data class Success(
+    val items: List<Item>,
+    val isLoadingMore: Boolean,
+    val loadMoreError: String? = null
+) : FooUiState
+```

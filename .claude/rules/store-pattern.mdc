@@ -1,0 +1,95 @@
+---
+description: Store pattern — singleton per-channel state holders with dual-write Room persistence
+globs: "**/*Store.kt"
+alwaysApply: false
+---
+
+# Store Pattern: Per-Channel StateFlow + Dual-Write Room
+
+Stores are `@Singleton` in-memory caches backed by Room DB. Every write goes to the per-channel `MutableStateFlow` (instant UI) and the DAO (async persistence). On cold start, `init` loads from Room.
+
+## MessageStore — per-channel isolation with ConcurrentHashMap + LRU eviction
+
+```kotlin
+private const val MAX_MESSAGES_PER_CHANNEL = 200
+private const val MAX_CACHED_CHANNELS = 30
+
+@Singleton
+class MessageStore @Inject constructor(
+    private val messageDao: MessageDao,
+    private val socketEventDispatcher: SocketEventDispatcher,
+    private val sessionManager: SessionManager,
+    @ApplicationScope private val appScope: CoroutineScope
+) {
+    private val channels = ConcurrentHashMap<Long, MutableStateFlow<ChannelState>>()
+    private val channelAccessOrder = java.util.LinkedList<Long>()
+
+    fun getChannelFlow(channelId: Long): StateFlow<ChannelState> =
+        getOrCreate(channelId).asStateFlow()
+
+    fun setMessages(channelId: Long, messages: List<MessageEntity>, hasMoreTop: Boolean, hasMoreBottom: Boolean) {
+        getOrCreate(channelId).value = ChannelState(messages, hasMoreTop, hasMoreBottom)
+        appScope.launch { messageDao.upsertAll(messages) }
+    }
+
+    fun evictChannel(channelId: Long) {
+        channels.remove(channelId)
+    }
+
+    private fun getOrCreate(channelId: Long): MutableStateFlow<ChannelState> =
+        channels.getOrPut(channelId) {
+            evictLruIfNeeded()
+            MutableStateFlow(ChannelState())
+        }.also { touchAccessOrder(channelId) }
+
+    @Synchronized
+    private fun touchAccessOrder(channelId: Long) {
+        channelAccessOrder.remove(channelId)
+        channelAccessOrder.addLast(channelId)
+    }
+
+    @Synchronized
+    private fun evictLruIfNeeded() {
+        while (channels.size >= MAX_CACHED_CHANNELS && channelAccessOrder.isNotEmpty()) {
+            val oldest = channelAccessOrder.removeFirst()
+            channels.remove(oldest)
+        }
+    }
+}
+```
+
+Key: mutating channel A does NOT trigger emissions for channel B subscribers. LRU eviction caps memory at 30 channels.
+
+## DirectStore — flat list with ordered initialization
+
+```kotlin
+@Singleton
+class DirectStore @Inject constructor(...) {
+    private val _directs = MutableStateFlow<List<DirectMessage>>(emptyList())
+    val directs: StateFlow<List<DirectMessage>> = _directs.asStateFlow()
+    private val dbLoaded = CompletableDeferred<Unit>()
+
+    init {
+        appScope.launch {
+            loadFromDb()
+            dbLoaded.complete(Unit)
+        }
+        appScope.launch { dbLoaded.await(); observeNewMessages() }
+        appScope.launch { dbLoaded.await(); observePresenceChanges() }
+    }
+}
+```
+
+## Rules
+
+- Always `@Singleton` + `@Inject constructor`
+- Inject `DAO` as the first parameter
+- **MessageStore**: use `ConcurrentHashMap<Long, MutableStateFlow<ChannelState>>` — per-channel isolation
+- **MessageStore**: LRU eviction — cap at `MAX_CACHED_CHANNELS` (30), evict oldest on access
+- **DirectStore**: use `MutableStateFlow<List<DirectMessage>>` — flat list OK for small dataset
+- **DirectStore**: use `CompletableDeferred` to ensure DB loads before socket observers start
+- **Dual-write on every mutation**: update StateFlow first, then `appScope.launch { dao.upsert*() }`
+- `evictChannel()` removes from in-memory cache only (NOT from DB)
+- Cap message list at 200 per channel — trim oldest on append
+- Batch DAO writes in presence: collect changed IDs first, one `appScope.launch` after `_state.update`
+- Inject into `HomeViewModel` to ensure early initialization

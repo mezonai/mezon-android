@@ -1,0 +1,60 @@
+---
+description: Compose screen conventions — LazyColumn with keys, MVI pattern
+globs: "**/*Screen.kt"
+alwaysApply: false
+---
+
+# Compose Screen Conventions
+
+```kotlin
+@Composable
+fun FooScreen(
+    onNavigateBack: () -> Unit,
+    viewModel: FooViewModel = hiltViewModel()
+) {
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+    when (val state = uiState) {
+        FooUiState.Loading -> MezonLoadingScreen()
+        FooUiState.Empty -> MezonEmptyScreen(icon = ..., message = "...")
+        is FooUiState.Error -> MezonErrorScreen(
+            message = state.message,
+            onRetry = { viewModel.onIntent(FooIntent.Load) }
+        )
+        is FooUiState.Success -> { /* content */ }
+    }
+}
+```
+
+## Rules
+
+- Always use `collectAsStateWithLifecycle()` (not `collectAsState`)
+- Navigation callbacks are lambda params: `onNavigateBack`, `onOpenChat`, `onLogout`
+- ViewModel via `hiltViewModel()`
+- Use `MezonLoadingScreen`, `MezonErrorScreen`, `MezonEmptyScreen` for standard states
+- Private composables for sub-components: `@Composable private fun FooItem(...)`
+- `when (uiState)` must be exhaustive — handle all sealed branches including `Empty`
+- LazyColumn items must have unique `key` and `contentType`
+
+## Chat screen: LazyColumn with reverseLayout (zero-allocation)
+
+```kotlin
+LazyColumn(
+    modifier = Modifier.fillMaxSize(),
+    state = listState,
+    reverseLayout = true
+) {
+    items(
+        count = messages.size,
+        key = { messages[messages.size - 1 - it].id },
+        contentType = { if (messages[messages.size - 1 - it].isMe) 0 else 1 }
+    ) { index ->
+        MessageBubble(messages[messages.size - 1 - index])
+    }
+}
+```
+
+- Use index-based `items(count)` — zero allocation (no `asReversed()`)
+- `derivedStateOf` for load-more trigger and jump-to-bottom
+- Auto-scroll on new messages only when already at bottom
+- Use `remember(msg.content) { parseContentText(msg.content) }` in MessageBubble

@@ -1,0 +1,64 @@
+---
+description: Mezon Android architecture — MVI + Per-Channel Store + Room DB + LazyColumn
+alwaysApply: true
+---
+
+# Architecture: MVI + Per-Channel Store + Room + Compose
+
+```
+WebSocket → SocketEventDispatcher → Store (per-channel StateFlow + async Room write)
+REST      → Repository            → Store (same dual-write)
+Store     → ViewModel (flatMapLatest channel-scoped flow → UiState) → Screen
+DB cache  → Store.init() (load on cold start) → instant UI on relaunch
+```
+
+## Layers
+
+- **Room DB** (`MezonDatabase`): persistent SQLite with WAL mode. Entities: `MessageEntity` (composite PK `[channelId, id]`), `DirectMessage`. Accessed only through DAOs (`MessageDao`, `DirectMessageDao`). Provided by `DatabaseModule`.
+- **Store** (`@Singleton`): per-channel `MutableStateFlow<ChannelState>` in `ConcurrentHashMap` (MessageStore, LRU eviction at 30 channels) or flat `MutableStateFlow<List>` (DirectStore, `CompletableDeferred` for load ordering). Dual-write: update StateFlow first (UI instant), then `appScope.launch { dao.upsert*() }` async.
+- **Repository** (`@Singleton`): REST API calls via `MezonApi`, pushes results into Store. No business logic. `ApiCacheTracker` prevents redundant fetches.
+- **ViewModel** (`@HiltViewModel`): derives `UiState` via `flatMapLatest` on channel ID → `combine` channel-scoped Store flows + local state → `stateIn`. Handles `Intent` from UI.
+- **Screen** (`@Composable`): collects `uiState` with `collectAsStateWithLifecycle`, dispatches `Intent` via `viewModel.onIntent()`. Chat message list uses `LazyColumn` with `key`/`contentType`.
+- **Notification** (`NotificationHelper`, `NotificationObserver`, `MezonFirebaseService`): FCM push + local notifications from WebSocket. `ActiveChannelTracker` suppresses notifications for the currently viewed channel.
+- **Shared Util** (`util/ContentParser.kt`): cached Regex, `parseContentText()`, `parseContentPreview()`, `formatRelativeTime()`.
+
+## Package structure
+
+```
+app/src/main/java/ai/mezon/app/
+├── auth/           # AuthRepository, AuthViewModel, LoginScreen
+├── data/db/        # MezonDatabase, MessageDao, DirectMessageDao
+├── di/             # AppModule, DatabaseModule, CoroutineDispatchers
+├── home/
+│   ├── chat/       # MessageEntity, ChannelState, MessageStore, ChatRepository,
+│   │               # ChatViewModel, ChatScreen, MessageBubble
+│   └── messages/   # DirectMessage, DirectStore, DirectRepository,
+│                   # MessagesViewModel, MessagesScreen
+├── navigation/     # NavRoutes, AppNavGraph
+├── network/        # MezonApi, MezonSocket, SocketEventDispatcher,
+│                   # NetworkMonitor, ApiCacheTracker
+├── notification/   # NotificationHelper, NotificationObserver, MezonFirebaseService,
+│                   # FcmRepository, ActiveChannelTracker
+├── session/        # SessionManager (DataStore)
+├── ui/
+│   ├── components/ # MezonAvatar, MezonBadge, MezonScreenStates
+│   └── theme/      # Color, Theme (4 modes: Light/Dark/Abyss/System),
+│                   # ThemeManager, Dimens, Type
+└── util/           # ContentParser (shared Regex, parseContentText, formatRelativeTime)
+```
+
+## RN → Kotlin mapping reference
+
+| React Native | Kotlin |
+|---|---|
+| Redux slice (state + reducers) | Store (`MessageStore`, `DirectStore`) |
+| Redux slice (thunks/async) | Repository method → Store.set/upsert |
+| ChatContext socket callbacks | SocketEventDispatcher + Store.init observers |
+| Selector (selectDirectById) | `Store.getChannelFlow(id)` or `combine()` in ViewModel |
+| `useSelector` hook | `collectAsStateWithLifecycle()` |
+| `dispatch(action)` | `store.markAsRead()`, `store.upsert()` |
+| Redux Persist | Room DB (automatic via dual-write) |
+| FlatList | LazyColumn with key/contentType |
+| Notifee push | FCM + NotificationHelper + NotificationObserver |
+| i18n / react-intl | `strings.xml` + locale qualifiers + `stringResource()` |
+| ThemeContext | ThemeManager (DataStore) + Material3 ColorScheme |

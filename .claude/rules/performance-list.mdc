@@ -1,0 +1,81 @@
+---
+description: High-performance list rendering — LazyColumn with keys, contentType, remember
+globs: "**/*Screen.kt,**/*Bubble.kt"
+alwaysApply: false
+---
+
+# List Performance (Telegram-level)
+
+## Chat message list (ChatScreen) — LazyColumn
+
+```kotlin
+LazyColumn(
+    modifier = Modifier.fillMaxSize(),
+    state = listState,
+    reverseLayout = true
+) {
+    items(
+        count = messages.size,
+        key = { messages[messages.size - 1 - it].id },
+        contentType = { if (messages[messages.size - 1 - it].isMe) 0 else 1 }
+    ) { index ->
+        MessageBubble(messages[messages.size - 1 - index])
+    }
+}
+```
+
+### Rules
+- Always provide `key` (Long) for efficient diffing
+- Always provide `contentType` to enable item reuse across types
+- Use index-based `items(count)` with reverse indexing — zero allocation (no `asReversed()`)
+- Use `reverseLayout = true` for chat — newest at bottom
+- `derivedStateOf` for load-more trigger and jump-to-bottom visibility
+- Auto-scroll on new messages only when user is already at bottom
+
+## MessageBubble rules
+
+- `remember(msg.content)` for `parseContentText()` — avoid re-parsing on recomposition
+- `remember(msg.timestampSeconds)` for `formatRelativeTime()` — avoid re-computing
+- Pre-compute shapes as top-level vals: `BubbleShapeSent`, `BubbleShapeReceived`
+- All colors from `MaterialTheme.colorScheme` — dark mode works automatically
+
+```kotlin
+@Composable
+fun MessageBubble(msg: MessageEntity) {
+    val content = remember(msg.content) { parseContentText(msg.content) }
+    val time = remember(msg.timestampSeconds) { formatRelativeTime(msg.timestampSeconds) }
+    // ...
+}
+```
+
+## DM list (MessagesScreen) — LazyColumn
+
+For shorter lists (< 200 items), `LazyColumn` is ideal:
+
+```kotlin
+LazyColumn(modifier = Modifier.fillMaxSize()) {
+    items(
+        items = state.messages,
+        key = { it.channelId },
+        contentType = { it.type }
+    ) { dm ->
+        val timeText = remember(dm.lastMessageTimestamp) { formatRelativeTime(dm.lastMessageTimestamp) }
+        DmListItem(dm = dm, timeText = timeText, onClick = { ... })
+    }
+}
+```
+
+## Scroll performance rules
+
+- Auto-scroll to bottom only when user is within 1-2 items of the latest message
+- `loadMoreTop` trigger: when `lastVisiblePosition >= totalItems - 3`
+- Guard against duplicate loads: check `isLoadingMore` flag
+- FloatingActionButton for jump-to-bottom when `firstVisibleItemIndex > 5`
+
+## Shared parsing utility
+
+All content parsing and time formatting uses `util/ContentParser.kt`:
+- `parseContentText(content)` — full text with newlines
+- `parseContentPreview(content)` — single-line preview for DM list
+- `formatRelativeTime(epochSeconds)` — "now", "5m", "2h", "14:30"
+- Regex compiled once as `private val` at file level

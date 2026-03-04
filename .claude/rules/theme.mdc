@@ -1,0 +1,98 @@
+---
+description: Theme conventions — 4 theme modes, color usage, ThemeManager, windowBackground
+globs: "**/theme/*.kt,**/Theme*.kt,**/Color*.kt"
+alwaysApply: false
+---
+
+# Theme Conventions
+
+## 4 Theme Modes
+
+```kotlin
+enum class ThemeMode { LIGHT, DARK, ABYSS, SYSTEM }
+```
+
+- **LIGHT**: `MezonLightScheme` — white/gray surfaces
+- **DARK**: `MezonDarkScheme` — dark gray surfaces (`#1C1D22`)
+- **ABYSS**: `MezonAbyssScheme` — deep purple/navy (`#110B33`) — extends `darkColorScheme`
+- **SYSTEM**: follows device dark/light setting
+
+## ThemeManager (DataStore persistence)
+
+```kotlin
+@Singleton
+class ThemeManager @Inject constructor(
+    private val dataStore: DataStore<Preferences>
+) {
+    val themeMode: Flow<ThemeMode>
+    suspend fun setTheme(mode: ThemeMode)
+}
+```
+
+Located in `session/ThemeManager.kt`. Persists theme choice as string in DataStore.
+
+## Color Organization
+
+### Shared brand colors (top-level vals in `Color.kt`)
+
+```kotlin
+val Blurple = Color(0xFF5A62F4)     // Primary brand color
+val LinkBlue = Color(0xFF3297FF)    // Tertiary / links
+val MezonRed = Color(0xFFD30E0E)    // Error
+val MezonGreen = Color(0xFF00D4AA)  // Online indicator
+val SuccessGreen = Color(0xFF16A34A)
+```
+
+### Theme-specific palettes (objects in `Color.kt`)
+
+```kotlin
+object MezonDarkColors { val Primary, Secondary, Tertiary, Border, Text, TextStrong, ... }
+object MezonAbyssColors { val Primary, Secondary, SecondaryWeight, ... }
+object MezonLightColors { val Primary, Secondary, Tertiary, Border, Text, TextStrong, ... }
+```
+
+### Rules
+
+- NEVER use raw `Color(0xFF...)` in composables — always use `MaterialTheme.colorScheme.*`
+- Brand colors (`Blurple`, `LinkBlue`, `MezonRed`) may be used directly since they are theme-independent
+- Each theme scheme must map ALL Material3 `ColorScheme` slots — no defaults
+- Abyss theme reuses `MezonDarkColors.Text*` for text — this is intentional (consistent readability across dark variants)
+- Color constants are ALWAYS top-level vals or object properties — never created inside composition
+
+## XML Window Background
+
+Two XML theme files prevent flash during Activity recreation:
+
+- `values/themes.xml`: `windowBackground = #FFF2F3F5` (matches `MezonLightColors.Primary`)
+- `values-night/themes.xml`: `windowBackground = #FF1C1D22` (matches `MezonDarkColors.Primary`)
+
+Known limitation: Abyss theme will flash Dark background on Activity recreation since XML can't detect Compose theme mode.
+
+## MezonTheme Composable
+
+```kotlin
+@Composable
+fun MezonTheme(themeMode: ThemeMode = ThemeMode.SYSTEM, content: @Composable () -> Unit) {
+    val colorScheme = when (themeMode) { ... }
+    val dimens = rememberScreenDimens()
+    val typography = scaledTypography(dimens)
+
+    CompositionLocalProvider(
+        LocalDimens provides dimens,
+        LocalThemeMode provides themeMode
+    ) {
+        MaterialTheme(colorScheme = colorScheme, typography = typography, content = content)
+    }
+}
+```
+
+Theme integrates responsive typography via `scaledTypography(dimens)`.
+
+## Adding a New Theme
+
+1. Define color palette object in `Color.kt`
+2. Create `ColorScheme` in `Theme.kt` using `darkColorScheme()` or `lightColorScheme()`
+3. Add enum value to `ThemeMode`
+4. Add case to `when (themeMode)` in `MezonTheme`
+5. Add DataStore string mapping in `ThemeManager`
+6. If dark variant: XML `windowBackground` will show Dark theme colors on recreation (acceptable)
