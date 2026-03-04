@@ -4,16 +4,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Mezon is an Android chat/communication app (application ID: `ai.mezon.app`) built with Kotlin, Jetpack Compose, and a pragmatic Clean Architecture + MVI pattern. The project is currently bootstrapped as a single `:app` module but is planned to expand into a 12-module architecture (see README.MD for full migration roadmap).
+Mezon is an Android chat/communication app (application ID: `ai.mezon.app`) built with Kotlin, Jetpack Compose, and a high-performance architecture: **MVI + Per-Channel Store + Room SQLite + Compose**. The project is porting the React Native app to native Android.
 
 ## Build Commands
 
+All commands run from the `mezon/` subdirectory:
+
 ```bash
+cd mezon
 ./gradlew assembleDebug          # Build debug APK
 ./gradlew assembleRelease        # Build release APK
-./gradlew test                   # Run unit tests
-./gradlew connectedAndroidTest   # Run instrumented tests
+./gradlew test                   # Run all unit tests
 ./gradlew app:testDebugUnitTest  # Run unit tests for app module only
+./gradlew connectedAndroidTest   # Run instrumented tests (requires device/emulator)
 ```
 
 ## Build Configuration
@@ -23,15 +26,41 @@ Mezon is an Android chat/communication app (application ID: `ai.mezon.app`) buil
 - **Compile/Target SDK:** 34, **Min SDK:** 24, **Java/JVM target:** 1.8
 - **Annotation processing:** KSP (not kapt) for Room, Hilt
 - **Version catalog:** `gradle/libs.versions.toml` — all dependency versions managed here
+- **Modules:** `:app` (main application) and `:core-proto` (auto-generated protobuf classes)
+- **Proto path:** `mezonProtocolPath` in `gradle.properties` points to the proto source directory
 
 ## Architecture
 
-**Pattern:** MVI (Intent → ViewModel → UiState → UI) with Shared State layer
+**Pattern:** MVI (Intent → ViewModel → UiState → UI) with Per-Channel Store layer and Room persistence.
 
-- **No UseCase layer by default** — ViewModels call Repositories directly. Only add UseCases when there is real business logic to encapsulate.
-- **Shared State:** `@Singleton` `StateHolder` classes holding `StateFlow`/`SharedFlow` for cross-feature real-time state (messages, presence, typing, channels). These replace a Redux-style global store.
-- **Single Activity** (`MainActivity`) with Compose Navigation.
-- **`SocketEventDispatcher`** fans out WebSocket events to all StateHolders.
+### Data Flow
+
+```
+WebSocket → SocketEventDispatcher → Store (per-channel StateFlow + async DAO write)
+REST      → Repository            → Store (same dual-write)
+Store     → ViewModel (flatMapLatest → channel-scoped flow → UiState)
+Room DB   → Store.init()          → cold-start cache (instant UI on relaunch)
+```
+
+### Layer Responsibilities
+
+| Layer | Classes | Responsibility |
+|-------|---------|---------------|
+| **Room DB** | `MezonDatabase`, `*Dao` | Persistent SQLite with WAL mode. Composite PK for messages `[channelId, id]`. `@Upsert`, `@Index`, bounded queries (LIMIT 200) |
+| **Store** | `MessageStore`, `DirectStore` | `@Singleton` in-memory cache. MessageStore: `ConcurrentHashMap` + LRU eviction (30 channels). DirectStore: flat `MutableStateFlow<List>` + `CompletableDeferred` load ordering. Dual-write: StateFlow update (instant UI) then async DAO write |
+| **Repository** | `ChatRepository`, `DirectRepository` | REST fetch via `MezonApi` → push to Store. `ApiCacheTracker` prevents redundant fetches. `NetworkMonitor` for offline handling |
+| **ViewModel** | `ChatViewModel`, `MessagesViewModel` | `flatMapLatest` on channel ID → `combine` channel-scoped Store flows → `stateIn`. Single `onIntent()` entry point. `_hasLoadedOnce` + `_error` for proper Loading/Empty/Error/Success |
+| **Screen** | `ChatScreen`, `MessagesScreen` | Compose UI. `collectAsStateWithLifecycle()`. `LazyColumn` with `key`/`contentType`. Index-based items (zero allocation) |
+| **Notification** | `NotificationHelper`, `NotificationObserver`, `MezonFirebaseService` | FCM push notifications + local notifications from WebSocket events. `ActiveChannelTracker` suppresses for current channel |
+| **Util** | `ContentParser` | Shared cached Regex for content parsing and time formatting |
+
+### No UseCase layer by default
+
+ViewModels call Repositories directly. Only add UseCases for genuine multi-step business logic.
+
+### Single Activity
+
+`MainActivity` with Compose Navigation. `AppNavGraph` defines all routes. Deep-linking from notifications via `PendingIntent`.
 
 ### Planned Module Structure
 
@@ -43,60 +72,81 @@ core-data    → core-network, core-common
 core-network → core-common
 ```
 
+## Package Structure
+
+```
+app/src/main/java/ai/mezon/app/
+├── auth/             # AuthRepository, AuthViewModel, LoginScreen
+├── data/db/          # MezonDatabase, MessageDao, DirectMessageDao
+├── di/               # AppModule, DatabaseModule, CoroutineDispatchers
+├── home/
+│   ├── chat/         # MessageEntity, ChannelState, MessageStore, ChatRepository,
+│   │                 # ChatViewModel, ChatScreen, MessageBubble
+│   └── messages/     # DirectMessage, DirectStore, DirectRepository,
+│                     # MessagesViewModel, MessagesScreen
+├── navigation/       # NavRoutes, AppNavGraph
+├── network/          # MezonApi (REST), MezonSocket (WebSocket), SocketEventDispatcher,
+│                     # NetworkMonitor, ApiCacheTracker
+├── notification/     # NotificationHelper, NotificationObserver, MezonFirebaseService,
+│                     # FcmRepository, ActiveChannelTracker
+├── session/          # SessionManager (DataStore)
+├── ui/
+│   ├── components/   # MezonAvatar, MezonBadge, MezonScreenStates
+│   └── theme/        # Color, Theme (4 modes: Light/Dark/Abyss/System),
+│                     # ThemeManager, Dimens, Type
+└── util/             # ContentParser (shared Regex, parseContentText, formatRelativeTime)
+```
+
 ## Protocol & Code Generation
 
-**Do NOT convert mezon-js to Kotlin.** Use the `.proto` files from mezon-protocol to auto-generate all models, then write a pure Kotlin transport layer (Ktor/OkHttp) using `protoc-gen-grpc-kotlin`.
+**Do NOT convert mezon-js to Kotlin.** Use the `.proto` files from mezon-protocol to auto-generate all models via the `:core-proto` module, then write a pure Kotlin transport layer.
 
 ### Source Locations
 
 | Resource | Path |
 |----------|------|
 | Proto definitions | `/Users/huy/dev/company/mezon-protocol/` |
-| React Native reference app | `/Users/huy/dev/company/mezon/apps/mobile/` |
+| React Native reference app | `/Users/huy/AndroidStudioProjects/mezon-reactnative/mezon/apps/mobile/` |
 | mezon-js SDK (reference only) | [github.com/mezonai/mezon-js](https://github.com/mezonai/mezon-js) |
-| mezon-protocol repo | [github.com/mezonai/mezon-protocol](https://github.com/mezonai/mezon-protocol) |
 
 ### Proto Files
 
-There are exactly 2 proto files:
-- **`api/api.proto`** (~3700 lines) — REST/gRPC request/response message definitions. Package: `mezon.api`. Java package: `com.mezon.mezon.api`.
-- **`rtapi/realtime.proto`** (~1430 lines) — WebSocket realtime envelope. Package: `mezon.realtime`. Java package: `com.mezon.mezon.rtapi`.
+Two proto files, auto-generated into `:core-proto` as Protobuf Lite:
+- **`api/api.proto`** (~3700 lines) — REST request/response messages. Java package: `com.mezon.mezon.api`
+- **`rtapi/realtime.proto`** (~1430 lines) — WebSocket realtime envelope. Java package: `com.mezon.mezon.rtapi`
 
-Both protos already have Java/Kotlin options set (`java_multiple_files = true`, `java_package`, `java_outer_classname`). There are **no gRPC service definitions** in these protos — only message types. The REST endpoints are defined server-side.
+No gRPC service definitions — only message types. REST endpoints are defined server-side.
 
 ### WebSocket Protocol
 
-The realtime layer uses a single **`Envelope`** protobuf message as the WebSocket frame. It contains:
+Single **`Envelope`** protobuf message as the WebSocket frame:
 - `cid` — correlation ID for request-response pairing
-- `oneof message` — 94 distinct event types (fields 2–94)
+- `oneof message` — 94 distinct event types
 
-Key event categories in the Envelope:
-- **Messages:** `ChannelMessageSend` (C→S), `ChannelMessage` (S→C), `ChannelMessageUpdate`, `ChannelMessageRemove`, `ChannelMessageAck`
+Key event categories:
+- **Messages:** `ChannelMessageSend` (C→S), `ChannelMessage` (S→C), `ChannelMessageUpdate`, `ChannelMessageRemove`
 - **Presence:** `ChannelPresenceEvent`, `StatusPresenceEvent`, `MessageTypingEvent`
-- **Channels:** `ChannelJoin`/`ChannelLeave` (C→S), `ChannelCreatedEvent`/`ChannelUpdatedEvent`/`ChannelDeletedEvent` (S→C)
-- **Clans:** `ClanJoin` (C→S), `ClanUpdatedEvent`/`ClanDeletedEvent` (S→C)
-- **Voice/Video:** `VoiceJoinedEvent`, `VoiceLeavedEvent`, `VoiceStartedEvent`, `VoiceEndedEvent`, `WebrtcSignalingFwd`
-- **Friends:** `AddFriend`, `RemoveFriend`, `BlockFriend`, `UnblockFriend`
-- **Reactions:** `MessageReaction` (C↔S)
-- **Control:** `Ping`/`Pong`, `Error`, `LastSeenMessageEvent`, `MarkAsRead`
+- **Channels:** `ChannelJoin`/`ChannelLeave` (C→S), Created/Updated/Deleted (S→C)
+- **Clans:** `ClanJoin` (C→S), Updated/Deleted (S→C)
+- **Voice/Video:** `VoiceJoinedEvent`, `VoiceLeavedEvent`, `WebrtcSignalingFwd`
+- **Control:** `Ping`/`Pong`, `Error`, `MarkAsRead`, `LastSeenMessageEvent`
 
-WebSocket connect URL: `wss://<ws_url>/ws?token=<token>&status=true&platform=1&lang=<lang>` (platform=1 for mobile).
+WebSocket URL: `wss://<ws_url>/ws?token=<token>&status=true&platform=1&lang=en&format=protobuf`
 
-### REST API Patterns (from React Native reference)
+### REST API Patterns
 
-All REST calls use `Authorization: Bearer <session.token>`. Request/response bodies are protobuf-encoded (`Content-Type: application/proto`, `Accept: application/proto`). Key endpoints:
-- `POST /v2/account/authenticate/email` — email+password auth
-- `POST /v2/account/authenticate/mezon` — OAuth/phone auth
-- `POST /v2/session/refresh` — token refresh
-- `POST /v2/session/logout` — logout + FCM cleanup
-- `GET /v2/account` — current user account
-- `GET /v2/clans`, `GET /v2/channels` — list clans/channels
-- `GET /v2/channels/{id}/messages` — message history (paginated)
+Bearer token auth. Request/response bodies are protobuf-encoded (`Content-Type: application/proto`). Exception: auth endpoint uses JSON with Basic auth (API key).
+
+Key endpoints:
+- `POST /v2/account/authenticate/email` — email+password auth (JSON, Basic auth)
+- `POST $apiUrl/mezon.api.Mezon/<MethodName>` — all other RPCs (proto, Bearer token)
+- Message history: `listChannelMessages(channelId, clanId, messageId, direction, limit)` — direction 1=before, 2=after
+- DM/group list: `listChannelDescs(channelType, page, limit)` — type=3 DM, type=2 group
 
 ### Authentication Flow
 
 1. Authenticate via REST → receive `Session` (token, refresh_token, api_url, ws_url)
-2. `api_url` and `ws_url` come from the server in the session response — they configure the client's base URLs
+2. `api_url` and `ws_url` from the session response configure all subsequent base URLs
 3. Connect WebSocket with session token
 4. Join clan chats (`ClanJoin`) and channels (`ChannelJoin`)
 5. Token refresh uses `SessionRefreshRequest` with the refresh_token
@@ -108,12 +158,8 @@ All REST calls use `Authorization: Bearer <session.token>`. Request/response bod
 | `Session` | Auth result: token, refresh_token, user_id, api_url, ws_url |
 | `Account` / `User` | User profile (id, username, display_name, avatar, mezon_id) |
 | `ClanDesc` | Clan/server (name, logo, banner, community settings) |
-| `CategoryDesc` | Channel category within a clan |
-| `ChannelDescription` | Channel (type, label, private, E2EE, topic, last_msg) |
-| `ChannelMessage` | Message (content, reactions, mentions, attachments, references) |
-| `Friend` | Friend with state (FRIEND, INVITE_SENT, INVITE_RECEIVED, BLOCKED) |
-| `Role` / `Permission` | RBAC roles and permissions |
-| `Notification` | Push notification model |
+| `ChannelDescription` | Channel (type, label, private, topic, last_msg) |
+| `ChannelMessage` | Message (content JSON, reactions, mentions, attachments, references) |
 
 Channel types: CHANNEL(1), GROUP(2), DM(3), FORUM(5), STREAMING(6), THREAD(7), APP(8), ANNOUNCEMENT(9), MEZON_VOICE(10).
 
@@ -121,27 +167,79 @@ Channel types: CHANNEL(1), GROUP(2), DM(3), FORUM(5), STREAMING(6), THREAD(7), A
 
 | Layer | Technology | Notes |
 |-------|-----------|-------|
-| REST | Ktor client + OkHttp engine + Cronet (HTTP/3) | Bearer token plugin with auto-refresh |
-| WebSocket | OkHttp WebSocket + Protobuf binary | CID correlation for request-response |
-| Database | Room (WAL mode) + Paging 3 | Upsert support, compound indices |
-| DI | Hilt | `@HiltViewModel`, `@InstallIn(SingletonComponent)` |
-| UI | Jetpack Compose (Material3) | RecyclerView for message list (not LazyColumn — performance) |
-| Images | Coil 3 + ImgProxy | Server-side resize, 25% memory / 100MB disk cache |
-| Voice/Video | LiveKit Android SDK | WebRTC |
-| Crash reporting | Sentry | |
-| Logging | Timber | |
+| REST | Ktor client 2.3.12 + OkHttp engine | Bearer token, protobuf content-type |
+| WebSocket | OkHttp 4.12 WebSocket + Protobuf binary | `Envelope` oneof, CID correlation, 15s heartbeat, exponential backoff reconnect (1s→30s) |
+| Database | Room 2.6.1 + KSP | WAL mode, `@Upsert`, composite PK, `@Index`, LIMIT 200 |
+| DI | Hilt 2.51.1 | `@HiltViewModel`, `@InstallIn(SingletonComponent)` |
+| UI | Jetpack Compose (Material3) | LazyColumn with `key`/`contentType`, index-based items |
+| Theme | Material3 + ThemeManager | 4 modes: Light, Dark, Abyss, System. DataStore persistence |
+| i18n | `strings.xml` + locale qualifiers | `stringResource()`, `AppCompatDelegate.setApplicationLocales()` |
+| Images | Coil 2.6.0 | In-memory + disk cache, explicit `Modifier.size()` for avatars |
+| Session | DataStore Preferences | `SessionManager` with `sessionFlow`, Mutex-based refresh |
+| Push | Firebase Cloud Messaging | `MezonFirebaseService` + local `NotificationObserver` for WebSocket events |
+| Proto | Protobuf Lite 4.28.2 (auto-generated) | `:core-proto` module |
+| Responsive | `WindowSize` enum + `LocalDimens` | Compact/Medium/Expanded breakpoints, `scaledTypography()` |
 
 ## Code Conventions
 
-- **Sealed interfaces** (not sealed classes) for `UiState` and `Intent` types
-- **`StateFlow`** for UI state, **`SharedFlow`** for one-shot events
-- **Coroutine dispatchers** injected via qualifier annotations (`@IoDispatcher`)
-- **`@ApplicationScope`** qualifier for application-scoped coroutine scope
-- **`ConcurrentHashMap`** for thread-safe per-channel state storage
-- **`Mutex`** for token refresh coordination in `SessionManager`
-- **`CompletableDeferred`** pattern for WebSocket request-response (CID correlation)
-- **Proto DSL builders** (`envelope { ... }`) for Protobuf message construction
-- **`ListAdapter` + `DiffUtil.ItemCallback`** with change payloads for RecyclerView
-- **Kotlin code style:** `official` (set in `gradle.properties`)
-- **Non-transitive R classes** enabled
+### Critical Rules
 
+- **Never add comments** to Kotlin source — no KDoc, block comments, or inline comments. Write self-documenting code with clear names.
+- **Sealed interfaces** (not sealed classes) for `UiState`, `Intent`, and `Event` types
+- **Single `onIntent(intent)` entry point** per ViewModel — no direct public methods for actions
+- **Constructor params always `private val`**
+
+### State Management
+
+- **`StateFlow`** for UI state, derived from Store via `combine`/`map` + `stateIn`
+- **`Channel<T>(Channel.BUFFERED)` + `receiveAsFlow()`** for one-shot events (not SharedFlow)
+- **`collectAsStateWithLifecycle()`** in Compose (not `collectAsState()`)
+- **`flatMapLatest`** on channel ID in ChatViewModel — not global map combine
+- **Dual-write**: `_state.update { }` first (synchronous UI), then `appScope.launch { dao.upsert() }` (async persistence)
+- **Cap at 200 messages** per channel in-memory — trim oldest on append
+- **LRU eviction at 30 channels** in MessageStore — prevents unbounded memory growth
+- **`evictChannel()`** removes from memory only; data persists in Room
+- **`_hasLoadedOnce` + `_error`** pattern in list ViewModels for proper Loading/Empty/Error/Success
+- **`loadMoreError`** separate from main error — exposed in `Success` state for pagination failures
+
+### Threading & DI
+
+- **`@IoDispatcher`** for network/disk I/O, **`@MainDispatcher`** for main thread
+- **`@ApplicationScope`** for process-lifetime coroutine scope (Store observers, async DAO writes)
+- **`ConcurrentHashMap`** for thread-safe per-channel state storage
+- **`CompletableDeferred`** pattern for WebSocket request-response (CID correlation, 10s timeout)
+- **`CompletableDeferred`** in DirectStore to ensure DB loads before socket observers start
+
+### Compose & UI
+
+- **`remember(key) { compute() }`** for parsed content and formatted time in composables
+- **Top-level `private val`** for shapes/constants — never create inside composition
+- **Index-based `items(count)`** in LazyColumn — zero allocation (no `asReversed()`)
+- **Screens receive navigation via lambdas** — never access NavController directly
+
+### Proto & Network
+
+- **Proto DSL builders** (`envelope { ... }`) for outgoing WebSocket messages
+- **`Long` keys** everywhere for IDs — no `.toString()` conversions
+- **Batch API calls** with `async`/`awaitAll` where possible
+- **`ApiCacheTracker`** prevents redundant REST calls (20-min TTL)
+- **`NetworkMonitor`** for offline-aware data loading
+
+## RN → Kotlin Migration Guide
+
+When porting a feature from the React Native app:
+
+| RN Source | Kotlin Target | Notes |
+|-----------|--------------|-------|
+| Redux slice (state + reducers) | `*Store.kt` | Per-channel `ConcurrentHashMap` + Room dual-write + LRU eviction |
+| Redux thunk (async fetch) | `*Repository.kt` | REST fetch → push to Store |
+| ChatContext socket callbacks | `SocketEventDispatcher` + `Store.init` observers | Wire in `init` block, await DB load first |
+| Screen component | `*Screen.kt` | Compose + LazyColumn |
+| Hook / screen logic | `*ViewModel.kt` | MVI: `flatMapLatest` → `stateIn` |
+| `useSelector` hook | `collectAsStateWithLifecycle()` | |
+| Redux Persist | Room DB | Automatic via dual-write |
+| Notifee push | FCM + NotificationHelper + NotificationObserver | |
+| i18n / react-intl | `strings.xml` + locale qualifiers | |
+| ThemeContext | ThemeManager (DataStore) + Material3 ColorScheme | 4 themes |
+
+Steps: (1) Identify RN sources in `apps/mobile/src/`, (2) Create Kotlin files grouped by feature folder, (3) Add Room entity + DAO, (4) Wire socket events in Store.init, (5) Add route to `NavRoutes` + `AppNavGraph`, (6) Inject Store into `HomeViewModel` for eager initialization.
