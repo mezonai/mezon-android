@@ -22,6 +22,11 @@ android {
     }
 }
 
+// Proto sources are symlinked from mezon-protocol into src/main/proto/:
+//   src/main/proto/api/   -> $mezonProtocolPath/api/
+//   src/main/proto/rtapi/ -> $mezonProtocolPath/rtapi/
+// This preserves the import path "api/api.proto" used by realtime.proto.
+
 protobuf {
     protoc {
         artifact = "com.google.protobuf:protoc:${libs.versions.protobuf.get()}"
@@ -41,6 +46,6 @@ protobuf {
 }
 
 dependencies {
-    implementation(libs.protobuf.javalite)
-    implementation(libs.protobuf.kotlin.lite)
+    api(libs.protobuf.javalite)
+    api(libs.protobuf.kotlin.lite)
 }

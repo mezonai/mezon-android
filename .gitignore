@@ -1,15 +1,75 @@
-*.iml
-.gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
+# Built application files
+**/build/
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Files for the ART/Dalvik VM
+*.odex
+
+# Java class files
+*.class
+
+# Generated files
+bin/
+gen/
+out/
+
+# Gradle files
+.gradle/
+gradle-app.setting
+
+# Local configuration (contains machine-specific paths)
+local.properties
+gradle.properties
+
+# Android Studio
 /.idea/workspace.xml
 /.idea/navEditor.xml
 /.idea/assetWizardSettings.xml
+/.idea/libraries/
+/.idea/caches/
+/.idea/modules.xml
+/.idea/other.xml
+/.idea/deploymentTargetSelector.xml
+/.idea/.name
+*.iml
+captures/
+
+# External build tools
+.externalNativeBuild/
+.cxx/
+
+# macOS
 .DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
-local.properties
+**/.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Firebase / Secrets — contains API keys, project IDs
+app/google-services.json
+
+# Signing keys
+*.jks
+*.keystore
+signing.properties
+
+# Log files
+*.log
+
+# Protobuf generated (regenerated from proto source)
+core-proto/build/
+core-proto/src/main/java/
+
+# Crash / profiling
+*.hprof
+*.trace
+
+
+# Environment / secrets
+*.env
+.env.*
+secrets/
+credentials/

@@ -1,0 +1,217 @@
+<resources>
+    <string name="app_name">Mezon</string>
+
+    <!-- common -->
+    <string name="common_search">Tìm kiếm</string>
+    <string name="common_search_placeholder">Tìm kiếm</string>
+    <string name="common_yes">Có</string>
+    <string name="common_cancel">Hủy</string>
+    <string name="common_delete">Xóa</string>
+    <string name="common_save">Lưu</string>
+    <string name="common_confirm">Xác nhận</string>
+    <string name="common_close">Đóng</string>
+    <string name="common_retry">Thử lại</string>
+    <string name="common_refresh">Làm mới</string>
+    <string name="common_go_back">Quay lại</string>
+    <string name="common_settings">Cài đặt</string>
+    <string name="common_loading_data">Đang tải dữ liệu, vui lòng chờ trong giây lát.</string>
+    <string name="common_failed_to_load">Không thể tải dữ liệu</string>
+    <string name="common_something_went_wrong">Đã xảy ra lỗi</string>
+    <string name="common_log_out">Đăng xuất</string>
+    <string name="common_confirm_log_out">Bạn có chắc chắn muốn đăng xuất?</string>
+    <string name="common_appearance">Giao diện</string>
+    <string name="common_notifications">Thông báo</string>
+    <string name="common_save_changes">Lưu thay đổi</string>
+    <string name="common_accept">Chấp nhận</string>
+    <string name="common_ignore">Bỏ qua</string>
+    <string name="common_pending">Đang chờ</string>
+    <string name="common_member">Thành viên</string>
+    <string name="common_members">Thành viên</string>
+    <string name="common_friend">Bạn bè</string>
+    <string name="common_add_friend">Thêm bạn</string>
+    <string name="common_online">Trực tuyến</string>
+    <string name="common_offline">Ngoại tuyến</string>
+    <string name="common_copy">Sao chép</string>
+    <string name="common_forward">Chuyển tiếp</string>
+    <string name="common_share">Chia sẻ</string>
+    <string name="common_download">Tải xuống</string>
+    <string name="common_detail">Chi tiết</string>
+    <string name="common_forwarded">Đã chuyển tiếp</string>
+    <string name="common_send_message">Nhắn tin</string>
+    <string name="common_just_now">Vừa xong</string>
+    <string name="common_today">Hôm nay</string>
+    <string name="common_today_at">Hôm nay lúc</string>
+    <string name="common_yesterday_at">Hôm qua lúc</string>
+    <string name="common_is_typing"> đang nhập…</string>
+    <string name="common_several_people_typing">Một số người đang nhập…</string>
+    <string name="common_poor_connection">Bạn đang ngoại tuyến.</string>
+
+    <!-- common.login -->
+    <string name="common_login_welcome_to_mezon">Chào mừng đến với Mezon</string>
+    <string name="common_login_welcome_back">CHÀO MỪNG TRỞ LẠI</string>
+    <string name="common_login_glad_to_meet_again">Rất vui được gặp lại bạn!</string>
+    <string name="common_login_email">Email</string>
+    <string name="common_login_password">Mật khẩu</string>
+    <string name="common_login_enter_email">Nhập email của bạn</string>
+    <string name="common_login_log_in">Đăng nhập</string>
+    <string name="common_login_sign_in">Đăng nhập</string>
+    <string name="common_login_invalid_credentials">Email hoặc mật khẩu không hợp lệ</string>
+    <string name="common_login_login_failed">Email hoặc mật khẩu không hợp lệ. Vui lòng thử lại.</string>
+    <string name="common_login_login_too_fast">Đăng nhập quá nhanh. Vui lòng đợi %1$d giây trước khi thử lại.</string>
+    <string name="common_login_get_started">Bắt đầu nào</string>
+
+    <!-- common.sessionExpired -->
+    <string name="common_session_expired_title">Phiên đăng nhập đã hết hạn hoặc lỗi mạng</string>
+    <string name="common_session_expired_confirm">Đăng nhập lại</string>
+    <string name="common_session_expired_content">Phiên đăng nhập của bạn đã hết hạn. Vui lòng đăng nhập lại để tiếp tục.</string>
+
+    <!-- common.errorBoundary -->
+    <string name="common_error_network">Lỗi kết nối mạng</string>
+    <string name="common_error_offline">Không thể kết nối. Vui lòng kiểm tra kết nối internet và thử lại.</string>
+    <string name="common_error_connecting">Đang kết nối…</string>
+    <string name="common_error_connection_failed">Kết nối thất bại. Vui lòng thử lại.</string>
+
+    <!-- common.timeFormat.timeAgo -->
+    <string name="common_time_ago_years">%1$d năm</string>
+    <string name="common_time_ago_months">%1$d tháng</string>
+    <string name="common_time_ago_days">%1$d ngày</string>
+    <string name="common_time_ago_hours">%1$d giờ</string>
+    <string name="common_time_ago_minutes">%1$d phút</string>
+    <string name="common_time_ago_just_now">Vừa xong</string>
+
+    <!-- screen -->
+    <string name="screen_tab_messages">Tin nhắn</string>
+    <string name="screen_tab_notifications">Thông báo</string>
+    <string name="screen_tab_profile">Hồ sơ</string>
+    <string name="screen_header_settings">Cài đặt</string>
+    <string name="screen_header_friends">Bạn bè</string>
+    <string name="screen_header_language">Ngôn ngữ</string>
+    <string name="screen_header_new_message">Tin nhắn mới</string>
+    <string name="screen_header_chat">Trò chuyện</string>
+
+    <!-- dmMessage -->
+    <string name="dm_title">Tin nhắn</string>
+    <string name="dm_add_friend">Thêm bạn</string>
+    <string name="dm_friends">Những người bạn</string>
+    <string name="dm_menu_leave_group">Rời nhóm</string>
+    <string name="dm_menu_profile">Hồ sơ</string>
+    <string name="dm_menu_close_dm">Đóng tin nhắn</string>
+    <string name="dm_menu_mark_as_read">Đánh dấu là đã đọc</string>
+    <string name="dm_menu_favorite">Yêu thích</string>
+    <string name="dm_menu_mute">Tắt thông báo</string>
+    <string name="dm_menu_unmute">Bật thông báo</string>
+    <string name="dm_menu_block_user">Chặn người dùng</string>
+    <string name="dm_menu_unblock_user">Bỏ chặn người dùng</string>
+    <string name="dm_wave_welcome">Vẫy tay để chào!</string>
+    <string name="dm_no_messages">Chưa có tin nhắn</string>
+
+    <!-- message -->
+    <string name="message_actions_edit">Chỉnh sửa tin nhắn</string>
+    <string name="message_actions_reply">Trả lời</string>
+    <string name="message_actions_create_thread">Tạo chủ đề</string>
+    <string name="message_actions_copy_text">Sao chép văn bản</string>
+    <string name="message_actions_delete">Xóa tin nhắn</string>
+    <string name="message_actions_pin">Ghim tin nhắn</string>
+    <string name="message_actions_unpin">Bỏ ghim tin nhắn</string>
+    <string name="message_actions_mark_unread">Đánh dấu chưa đọc</string>
+    <string name="message_actions_forward">Chuyển tiếp tin nhắn</string>
+    <string name="message_chatbox_replying_to">Đang trả lời</string>
+    <string name="message_chatbox_editing">Đang chỉnh sửa tin nhắn</string>
+    <string name="message_edited">(đã chỉnh sửa)</string>
+    <string name="message_input_placeholder">Nhập tin nhắn…</string>
+    <string name="message_send">Gửi</string>
+    <string name="message_new_messages">TIN NHẮN MỚI</string>
+    <string name="message_no_send_permission">Bạn không có quyền gửi tin nhắn</string>
+    <string name="message_is_banned">Bạn đã bị cấm trò chuyện</string>
+    <string name="message_delete_title">Xóa tin nhắn</string>
+    <string name="message_delete_description">Bạn có muốn xóa tin nhắn này không?</string>
+    <string name="message_jump_to_latest">Đi đến tin nhắn mới nhất</string>
+    <string name="message_toast_copy_text">Đã sao chép văn bản tin nhắn</string>
+    <string name="message_forwarded">Đã chuyển tiếp</string>
+    <string name="message_slide_to_cancel">Vuốt để hủy</string>
+
+    <!-- notification -->
+    <string name="notification_header">Thông báo</string>
+    <string name="notification_tab_for_you">Dành cho bạn</string>
+    <string name="notification_tab_mention">Nhắc đến</string>
+    <string name="notification_tab_messages">Tin nhắn</string>
+    <string name="notification_nothing_here">Chưa có gì ở đây</string>
+    <string name="notification_come_back">Quay lại để nhận thông báo về sự kiện và nhiều hơn thế nữa</string>
+
+    <!-- clan -->
+    <string name="clan_title">Clan</string>
+    <string name="clan_customize_title">Tùy chỉnh Clan của bạn</string>
+    <string name="clan_customize_subtitle">Hãy tạo sắc màu cho clan mới của bạn bằng cách chọn một tên và biểu tượng nhé! Bạn có thể thay đổi sau nếu thích!</string>
+    <string name="clan_name_label">Tên clan</string>
+    <string name="clan_create">Tạo clan</string>
+    <string name="clan_add">Tạo clan</string>
+    <string name="clan_leave">Rời khỏi Clan</string>
+    <string name="clan_name_placeholder">Nhập vào tên clan</string>
+    <string name="clan_name_error">Vui lòng nhập tên clan hợp lệ (tối đa 64 ký tự, chỉ từ, số, _ hoặc -).</string>
+
+    <!-- profile -->
+    <string name="profile_title">Hồ sơ</string>
+    <string name="profile_user_id">User ID: %1$s</string>
+    <string name="profile_about_me">Về tôi</string>
+    <string name="profile_mezon_member_since">Thành viên Mezon từ</string>
+    <string name="profile_your_friends">Bạn bè của bạn</string>
+    <string name="profile_edit_status">Hồ sơ</string>
+    <string name="profile_message">Tin nhắn</string>
+    <string name="profile_call">Gọi</string>
+    <string name="profile_add_friend">Thêm bạn</string>
+    <string name="profile_copy_user_id">Sao chép ID người dùng</string>
+    <string name="profile_copy_success">Đã sao chép ID người dùng</string>
+    <string name="profile_sign_out">Đăng xuất</string>
+    <string name="profile_enable_wallet">Mở ví</string>
+
+    <!-- friends -->
+    <string name="friends_title">Bạn bè</string>
+    <string name="friends_request_title">Yêu cầu kết bạn</string>
+    <string name="friends_request_received">Đã nhận</string>
+    <string name="friends_request_sent">Đã gửi</string>
+    <string name="friends_no_results">Không tìm thấy kết quả bạn bè</string>
+    <string name="friends_add_title">Tìm bạn bè</string>
+    <string name="friends_add_placeholder">Nhập tên người dùng hoặc số điện thoại</string>
+    <string name="friends_add_send_request">Gửi yêu cầu kết bạn</string>
+
+    <!-- setting -->
+    <string name="setting_account_title">Cài đặt tài khoản</string>
+    <string name="setting_app_title">Cài đặt ứng dụng</string>
+    <string name="setting_app_language">Ngôn ngữ</string>
+    <string name="setting_app_appearance">Giao diện</string>
+    <string name="setting_app_notifications">Thông báo</string>
+    <string name="setting_language_title">Ngôn ngữ</string>
+    <string name="setting_language_description">Chọn ngôn ngữ.</string>
+    <string name="setting_language_english">English</string>
+    <string name="setting_language_vietnamese">Tiếng Việt</string>
+    <string name="setting_log_out">Đăng xuất</string>
+    <string name="setting_log_out_description">Bạn có chắc chắn muốn đăng xuất không?</string>
+    <string name="setting_log_out_no">Không</string>
+    <string name="setting_log_out_yes">Có</string>
+
+    <!-- theme -->
+    <string name="setting_theme_title">Giao diện</string>
+    <string name="setting_theme_light">Sáng</string>
+    <string name="setting_theme_dark">Tối</string>
+    <string name="setting_theme_abyss">Vực thẳm</string>
+    <string name="setting_theme_system">Theo hệ thống</string>
+
+    <!-- connection states -->
+    <string name="connection_connected">Đã kết nối</string>
+    <string name="connection_connecting">Đang kết nối…</string>
+    <string name="connection_disconnected">Mất kết nối</string>
+
+    <!-- notification channels (Android system) -->
+    <string name="notification_channel_messages">Tin nhắn kênh</string>
+    <string name="notification_channel_messages_desc">Thông báo tin nhắn kênh</string>
+    <string name="notification_channel_dm">Tin nhắn trực tiếp</string>
+    <string name="notification_channel_dm_desc">Thông báo tin nhắn trực tiếp</string>
+    <string name="notification_channel_system">Hệ thống</string>
+    <string name="notification_channel_system_desc">Thông báo hệ thống</string>
+
+    <!-- channelList -->
+    <string name="channel_list_favorite">Kênh yêu thích</string>
+    <string name="channel_list_public">Kênh công khai</string>
+    <string name="channel_list_events">Sự kiện</string>
+    <string name="channel_list_members">Thành viên</string>
+</resources>

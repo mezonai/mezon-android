@@ -1,3 +1,217 @@
 <resources>
     <string name="app_name">Mezon</string>
+
+    <!-- common -->
+    <string name="common_search">Search</string>
+    <string name="common_search_placeholder">Search</string>
+    <string name="common_yes">Yes</string>
+    <string name="common_cancel">Cancel</string>
+    <string name="common_delete">Delete</string>
+    <string name="common_save">Save</string>
+    <string name="common_confirm">Confirm</string>
+    <string name="common_close">Close</string>
+    <string name="common_retry">Retry</string>
+    <string name="common_refresh">Refresh</string>
+    <string name="common_go_back">Go Back</string>
+    <string name="common_settings">Settings</string>
+    <string name="common_loading_data">Loading data, please wait a moment!</string>
+    <string name="common_failed_to_load">Failed to load</string>
+    <string name="common_something_went_wrong">Something went wrong</string>
+    <string name="common_log_out">Log Out</string>
+    <string name="common_confirm_log_out">Please confirm if you would like to log out?</string>
+    <string name="common_appearance">Appearance</string>
+    <string name="common_notifications">Notifications</string>
+    <string name="common_save_changes">Save Changes</string>
+    <string name="common_accept">Accept</string>
+    <string name="common_ignore">Ignore</string>
+    <string name="common_pending">Pending</string>
+    <string name="common_member">Member</string>
+    <string name="common_members">Members</string>
+    <string name="common_friend">Friend</string>
+    <string name="common_add_friend">Add friend</string>
+    <string name="common_online">Online</string>
+    <string name="common_offline">Offline</string>
+    <string name="common_copy">Copy</string>
+    <string name="common_forward">Forward</string>
+    <string name="common_share">Share</string>
+    <string name="common_download">Download</string>
+    <string name="common_detail">Detail</string>
+    <string name="common_forwarded">Forwarded</string>
+    <string name="common_send_message">Message</string>
+    <string name="common_just_now">Just now</string>
+    <string name="common_today">Today</string>
+    <string name="common_today_at">Today at</string>
+    <string name="common_yesterday_at">Yesterday at</string>
+    <string name="common_is_typing"> is typing…</string>
+    <string name="common_several_people_typing">Several people are typing…</string>
+    <string name="common_poor_connection">You are currently offline.</string>
+
+    <!-- common.login -->
+    <string name="common_login_welcome_to_mezon">Welcome to Mezon</string>
+    <string name="common_login_welcome_back">WELCOME BACK</string>
+    <string name="common_login_glad_to_meet_again">So glad to meet you again!</string>
+    <string name="common_login_email">Email</string>
+    <string name="common_login_password">Password</string>
+    <string name="common_login_enter_email">Enter your email</string>
+    <string name="common_login_log_in">Log In</string>
+    <string name="common_login_sign_in">Sign In</string>
+    <string name="common_login_invalid_credentials">Email or password is invalid</string>
+    <string name="common_login_login_failed">Invalid email or password. Please try again.</string>
+    <string name="common_login_login_too_fast">Login too fast. Please wait %1$d seconds before trying again.</string>
+    <string name="common_login_get_started">Get Started</string>
+
+    <!-- common.sessionExpired -->
+    <string name="common_session_expired_title">Session Expired or Network Error</string>
+    <string name="common_session_expired_confirm">Login Again</string>
+    <string name="common_session_expired_content">Your session has expired. Please log in again to continue.</string>
+
+    <!-- common.errorBoundary -->
+    <string name="common_error_network">Network Error</string>
+    <string name="common_error_offline">Unable to connect. Please check your internet connection and try again.</string>
+    <string name="common_error_connecting">Connecting…</string>
+    <string name="common_error_connection_failed">Connection failed. Please try again.</string>
+
+    <!-- common.timeFormat.timeAgo -->
+    <string name="common_time_ago_years">%1$dy</string>
+    <string name="common_time_ago_months">%1$dmo</string>
+    <string name="common_time_ago_days">%1$dd</string>
+    <string name="common_time_ago_hours">%1$dh</string>
+    <string name="common_time_ago_minutes">%1$dm</string>
+    <string name="common_time_ago_just_now">Just now</string>
+
+    <!-- screen -->
+    <string name="screen_tab_messages">Messages</string>
+    <string name="screen_tab_notifications">Notifications</string>
+    <string name="screen_tab_profile">Profile</string>
+    <string name="screen_header_settings">Settings</string>
+    <string name="screen_header_friends">Friends</string>
+    <string name="screen_header_language">Language</string>
+    <string name="screen_header_new_message">New Message</string>
+    <string name="screen_header_chat">Chat</string>
+
+    <!-- dmMessage -->
+    <string name="dm_title">Messages</string>
+    <string name="dm_add_friend">Add Friend</string>
+    <string name="dm_friends">Friends</string>
+    <string name="dm_menu_leave_group">Leave Group</string>
+    <string name="dm_menu_profile">Profile</string>
+    <string name="dm_menu_close_dm">Close DM</string>
+    <string name="dm_menu_mark_as_read">Mark as Read</string>
+    <string name="dm_menu_favorite">Favorite</string>
+    <string name="dm_menu_mute">Mute Conversation</string>
+    <string name="dm_menu_unmute">Unmute Conversation</string>
+    <string name="dm_menu_block_user">Block User</string>
+    <string name="dm_menu_unblock_user">Unblock User</string>
+    <string name="dm_wave_welcome">Wave to say hi!</string>
+    <string name="dm_no_messages">No messages yet</string>
+
+    <!-- message -->
+    <string name="message_actions_edit">Edit Message</string>
+    <string name="message_actions_reply">Reply</string>
+    <string name="message_actions_create_thread">Create Thread</string>
+    <string name="message_actions_copy_text">Copy Text</string>
+    <string name="message_actions_delete">Delete Message</string>
+    <string name="message_actions_pin">Pin Message</string>
+    <string name="message_actions_unpin">Unpin Message</string>
+    <string name="message_actions_mark_unread">Mark Unread</string>
+    <string name="message_actions_forward">Forward Message</string>
+    <string name="message_chatbox_replying_to">Replying to</string>
+    <string name="message_chatbox_editing">Editing Message</string>
+    <string name="message_edited">(edited)</string>
+    <string name="message_input_placeholder">Write message…</string>
+    <string name="message_send">Send</string>
+    <string name="message_new_messages">NEW MESSAGES</string>
+    <string name="message_no_send_permission">You don\'t have permission to send message</string>
+    <string name="message_is_banned">You are banned</string>
+    <string name="message_delete_title">Delete Message</string>
+    <string name="message_delete_description">Please confirm if you would like to delete this message?</string>
+    <string name="message_jump_to_latest">Jump to latest</string>
+    <string name="message_toast_copy_text">Copied Message Text</string>
+    <string name="message_forwarded">Forwarded</string>
+    <string name="message_slide_to_cancel">Slide to cancel</string>
+
+    <!-- notification -->
+    <string name="notification_header">Notifications</string>
+    <string name="notification_tab_for_you">For you</string>
+    <string name="notification_tab_mention">Mention</string>
+    <string name="notification_tab_messages">Messages</string>
+    <string name="notification_nothing_here">Nothing here yet</string>
+    <string name="notification_come_back">Come back for notifications on events, streams and more</string>
+
+    <!-- clan -->
+    <string name="clan_title">Clans</string>
+    <string name="clan_customize_title">Customize Your Clan</string>
+    <string name="clan_customize_subtitle">Give your new clan a personality with a name and an icon. You can always change it later.</string>
+    <string name="clan_name_label">Clan Name</string>
+    <string name="clan_create">Create Clan</string>
+    <string name="clan_add">Add Clan</string>
+    <string name="clan_leave">Leave Clan</string>
+    <string name="clan_name_placeholder">Enter the clan name</string>
+    <string name="clan_name_error">Please enter a valid clan name (max 64 characters, only words, numbers, _ or -).</string>
+
+    <!-- profile -->
+    <string name="profile_title">Profile</string>
+    <string name="profile_user_id">User ID: %1$s</string>
+    <string name="profile_about_me">About Me</string>
+    <string name="profile_mezon_member_since">Mezon Member Since</string>
+    <string name="profile_your_friends">Your Friends</string>
+    <string name="profile_edit_status">Edit Profile</string>
+    <string name="profile_message">Message</string>
+    <string name="profile_call">Call</string>
+    <string name="profile_add_friend">Add Friend</string>
+    <string name="profile_copy_user_id">Copy User ID</string>
+    <string name="profile_copy_success">User ID Copied</string>
+    <string name="profile_sign_out">Sign Out</string>
+    <string name="profile_enable_wallet">Enable Wallet</string>
+
+    <!-- friends -->
+    <string name="friends_title">Friends</string>
+    <string name="friends_request_title">Friend Requests</string>
+    <string name="friends_request_received">Received</string>
+    <string name="friends_request_sent">Sent</string>
+    <string name="friends_no_results">No friends results found</string>
+    <string name="friends_add_title">Find your friends</string>
+    <string name="friends_add_placeholder">Enter a username or phone number</string>
+    <string name="friends_add_send_request">Send Friend Request</string>
+
+    <!-- setting -->
+    <string name="setting_account_title">Account Settings</string>
+    <string name="setting_app_title">App Settings</string>
+    <string name="setting_app_language">Language</string>
+    <string name="setting_app_appearance">Appearance</string>
+    <string name="setting_app_notifications">Notifications</string>
+    <string name="setting_language_title">Language</string>
+    <string name="setting_language_description">Select your preferred language.</string>
+    <string name="setting_language_english">English</string>
+    <string name="setting_language_vietnamese">Tiếng Việt</string>
+    <string name="setting_log_out">Logout</string>
+    <string name="setting_log_out_description">Please confirm if you would like to log out?</string>
+    <string name="setting_log_out_no">No</string>
+    <string name="setting_log_out_yes">Yes</string>
+
+    <!-- theme -->
+    <string name="setting_theme_title">Theme</string>
+    <string name="setting_theme_light">Light</string>
+    <string name="setting_theme_dark">Dark</string>
+    <string name="setting_theme_abyss">Abyss</string>
+    <string name="setting_theme_system">System</string>
+
+    <!-- connection states -->
+    <string name="connection_connected">Connected</string>
+    <string name="connection_connecting">Connecting…</string>
+    <string name="connection_disconnected">Disconnected</string>
+
+    <!-- notification channels (Android system) -->
+    <string name="notification_channel_messages">Channel Messages</string>
+    <string name="notification_channel_messages_desc">Notifications for channel messages</string>
+    <string name="notification_channel_dm">Direct Messages</string>
+    <string name="notification_channel_dm_desc">Notifications for direct messages</string>
+    <string name="notification_channel_system">System</string>
+    <string name="notification_channel_system_desc">System notifications</string>
+
+    <!-- channelList -->
+    <string name="channel_list_favorite">Favorite Channel</string>
+    <string name="channel_list_public">Public Channels</string>
+    <string name="channel_list_events">Events</string>
+    <string name="channel_list_members">Members</string>
 </resources>
