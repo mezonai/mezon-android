@@ -9,7 +9,7 @@
       "client_info": {
         "mobilesdk_app_id": "YOUR_MOBILE_SDK_APP_ID",
         "android_client_info": {
-          "package_name": "ai.mezon.app"
+          "package_name": "com.mezon.mobile"
         }
       },
       "api_key": [

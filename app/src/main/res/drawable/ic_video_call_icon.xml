@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="156.0"
+    android:viewportHeight="100.0">
+    <path
+        android:pathData="M 16.99 99.09 C9.71,96.80 4.15,92.01 1.55,85.78 C-0.59,80.66 -0.76,18.76 1.35,13.72 C3.44,8.72 7.56,4.43 12.48,2.11 C16.77,0.10 18.48,0.00 49.50,0.00 C80.52,0.00 82.23,0.10 86.52,2.11 C91.44,4.43 95.56,8.72 97.65,13.72 C99.76,18.76 99.59,80.66 97.45,85.78 C95.48,90.50 91.60,94.59 86.50,97.34 C82.67,99.41 81.18,99.51 51.00,99.69 C33.67,99.79 18.37,99.53 16.99,99.09 Z"
+        android:fillColor="#FFDFDFDF" />
+</vector>

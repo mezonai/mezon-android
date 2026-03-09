@@ -1,0 +1,150 @@
+package com.mezon.mobile.ui.cells
+
+import android.content.Context
+import android.graphics.Canvas
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffColorFilter
+import android.graphics.drawable.Drawable
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.PopupWindow
+import android.widget.ScrollView
+import androidx.annotation.DrawableRes
+import androidx.core.content.ContextCompat
+import com.mezon.mobile.core.LayoutHelper
+import com.mezon.mobile.core.ThemeColors
+
+class PopupMenu(private val context: Context, private val theme: ThemeColors) {
+
+    private val items = ArrayList<MenuItem>()
+    private var popupWindow: PopupWindow? = null
+    private var onItemClick: ((Int) -> Unit)? = null
+
+    data class MenuItem(
+        val text: String,
+        val icon: Drawable? = null,
+        val destructive: Boolean = false
+    )
+
+    fun addItem(text: String, icon: Drawable? = null, destructive: Boolean = false) {
+        items.add(MenuItem(text, icon, destructive))
+    }
+
+    fun addItem(text: String, @DrawableRes iconResId: Int, destructive: Boolean = false) {
+        val drawable = if (iconResId != 0) ContextCompat.getDrawable(context, iconResId)?.mutate() else null
+        items.add(MenuItem(text, drawable, destructive))
+    }
+
+    fun addItem(text: String, mezonIcon: MezonIcon, destructive: Boolean = false) {
+        addItem(text, mezonIcon.resId, destructive)
+    }
+
+    fun setOnItemClickListener(listener: (Int) -> Unit) {
+        onItemClick = listener
+    }
+
+    fun show(anchorView: View) {
+        val container = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(theme.surface)
+            elevation = LayoutHelper.dpf(8f)
+        }
+
+        items.forEachIndexed { index, item ->
+            val cell = PopupItemCell(context, theme)
+            cell.bind(item, index < items.size - 1)
+            cell.setOnClickListener {
+                onItemClick?.invoke(index)
+                dismiss()
+            }
+            container.addView(cell, LayoutHelper.createLinear(
+                LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT
+            ))
+        }
+
+        val scrollView = ScrollView(context).apply {
+            addView(container, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ))
+        }
+
+        val menuWidth = LayoutHelper.dp(200)
+        popupWindow = PopupWindow(scrollView, menuWidth, ViewGroup.LayoutParams.WRAP_CONTENT, true).apply {
+            elevation = LayoutHelper.dpf(8f)
+            isOutsideTouchable = true
+            isFocusable = true
+            showAsDropDown(anchorView, 0, 0, Gravity.END or Gravity.TOP)
+        }
+    }
+
+    fun dismiss() {
+        popupWindow?.dismiss()
+        popupWindow = null
+    }
+
+    private class PopupItemCell(context: Context, private val theme: ThemeColors) : View(context) {
+
+        private var menuItem: MenuItem? = null
+        private var needDivider = false
+        private val cellHeight = LayoutHelper.dp(44)
+        private val iconSize = LayoutHelper.dp(20)
+
+        init {
+            minimumHeight = cellHeight
+            isClickable = true
+            isFocusable = true
+        }
+
+        fun bind(item: MenuItem, divider: Boolean) {
+            menuItem = item
+            needDivider = divider
+            invalidate()
+        }
+
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            val w = MeasureSpec.getSize(widthMeasureSpec)
+            setMeasuredDimension(w, if (needDivider) cellHeight + 1 else cellHeight)
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            val item = menuItem ?: return
+            val leftPad = LayoutHelper.dp(16)
+            val textPaint = theme.settingsNamePaint
+
+            if (item.destructive) {
+                textPaint.color = theme.error
+            } else {
+                textPaint.color = theme.onSurface
+            }
+
+            item.icon?.let { d ->
+                d.mutate()
+                d.colorFilter = PorterDuffColorFilter(
+                    if (item.destructive) theme.error else theme.onSurfaceVariant,
+                    PorterDuff.Mode.SRC_IN
+                )
+                val iconTop = (cellHeight - iconSize) / 2
+                d.setBounds(leftPad, iconTop, leftPad + iconSize, iconTop + iconSize)
+                d.draw(canvas)
+            }
+
+            val textX = if (item.icon != null) LayoutHelper.dp(16 + 20 + 12) else leftPad
+            val textY = cellHeight / 2f - (textPaint.descent() + textPaint.ascent()) / 2
+            canvas.drawText(item.text, textX.toFloat(), textY, textPaint)
+
+            textPaint.color = theme.onSurface
+
+            if (needDivider) {
+                canvas.drawRect(
+                    leftPad.toFloat(), cellHeight.toFloat(),
+                    width.toFloat(), (cellHeight + 1).toFloat(),
+                    theme.dividerPaint
+                )
+            }
+        }
+    }
+}

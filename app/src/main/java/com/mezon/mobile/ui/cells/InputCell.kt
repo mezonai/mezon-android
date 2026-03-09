@@ -1,0 +1,172 @@
+package com.mezon.mobile.ui.cells
+
+import android.content.Context
+import android.graphics.Canvas
+import android.graphics.drawable.GradientDrawable
+import android.text.Editable
+import android.text.InputType
+import android.text.TextWatcher
+import android.view.Gravity
+import android.view.View
+import android.view.inputmethod.EditorInfo
+import android.widget.EditText
+import android.widget.FrameLayout
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.TextView
+import com.mezon.mobile.core.LayoutHelper
+import com.mezon.mobile.core.ThemeColors
+
+class InputCell(context: Context, private val theme: ThemeColors) : LinearLayout(context) {
+
+    private val labelView: TextView
+    private val requiredMark: TextView
+    val editText: EditText
+    private val errorView: TextView
+    private val clearButton: ImageView
+    private val charCountView: TextView
+    private val inputContainer: FrameLayout
+    private val bgDrawable: GradientDrawable
+    private var maxCharacter = 200
+    private var isTextarea = false
+    var onTextChanged: ((String) -> Unit)? = null
+
+    init {
+        orientation = VERTICAL
+
+        labelView = TextView(context).apply {
+            setTextColor(theme.onSurfaceVariant)
+            textSize = 14f
+            visibility = View.GONE
+        }
+        addView(labelView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.START, 0f, 0f, 0f, 4f))
+
+        requiredMark = TextView(context).apply {
+            text = " *"
+            setTextColor(theme.error)
+            textSize = 14f
+            visibility = View.GONE
+        }
+
+        bgDrawable = GradientDrawable().apply {
+            setColor(theme.surfaceVariant)
+            cornerRadius = LayoutHelper.dpf(8f)
+            setStroke(LayoutHelper.dp(1), theme.outline)
+        }
+
+        inputContainer = FrameLayout(context).apply {
+            background = bgDrawable
+            val pad = LayoutHelper.dp(12)
+            setPadding(pad, pad, pad, pad)
+        }
+
+        editText = EditText(context).apply {
+            setTextColor(theme.onSurface)
+            setHintTextColor(theme.onSurfaceVariant and 0x80FFFFFF.toInt())
+            textSize = 15f
+            background = null
+            setPadding(0, 0, 0, 0)
+            isSingleLine = true
+            imeOptions = EditorInfo.IME_ACTION_DONE
+        }
+        inputContainer.addView(editText, LayoutHelper.createFrame(
+            LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER_VERTICAL,
+            rightMargin = 32f
+        ))
+
+        clearButton = ImageView(context).apply {
+            setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
+            setColorFilter(theme.onSurfaceVariant)
+            visibility = View.GONE
+            setOnClickListener {
+                editText.text?.clear()
+            }
+        }
+        inputContainer.addView(clearButton, LayoutHelper.createFrame(
+            20, 20, Gravity.CENTER_VERTICAL or Gravity.END
+        ))
+
+        addView(inputContainer, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+
+        charCountView = TextView(context).apply {
+            setTextColor(theme.onSurfaceVariant)
+            textSize = 11f
+            gravity = Gravity.END
+            visibility = View.GONE
+        }
+        addView(charCountView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.END, 0f, 2f, 0f, 0f))
+
+        errorView = TextView(context).apply {
+            setTextColor(theme.error)
+            textSize = 12f
+            visibility = View.GONE
+        }
+        addView(errorView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.START, 0f, 4f, 0f, 0f))
+
+        editText.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                val text = s?.toString() ?: ""
+                if (text.length > maxCharacter) {
+                    editText.setText(text.substring(0, maxCharacter))
+                    editText.setSelection(maxCharacter)
+                    return
+                }
+                clearButton.visibility = if (text.isNotEmpty() && !isTextarea) View.VISIBLE else View.GONE
+                if (isTextarea) charCountView.text = "${text.length}/$maxCharacter"
+                onTextChanged?.invoke(text)
+            }
+        })
+    }
+
+    fun setLabel(label: String?, uppercase: Boolean = false, required: Boolean = false) {
+        if (label != null) {
+            labelView.text = if (uppercase) label.uppercase() else label
+            labelView.visibility = View.VISIBLE
+            requiredMark.visibility = if (required) View.VISIBLE else View.GONE
+        } else {
+            labelView.visibility = View.GONE
+        }
+    }
+
+    fun setHint(hint: String) {
+        editText.hint = hint
+    }
+
+    fun setText(text: String) {
+        editText.setText(text)
+    }
+
+    fun getText(): String = editText.text?.toString() ?: ""
+
+    fun setTextarea(textarea: Boolean, maxChars: Int = 200) {
+        isTextarea = textarea
+        maxCharacter = maxChars
+        if (textarea) {
+            editText.isSingleLine = false
+            editText.maxLines = 6
+            editText.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            editText.minHeight = LayoutHelper.dp(80)
+            charCountView.visibility = View.VISIBLE
+            charCountView.text = "0/$maxChars"
+        }
+    }
+
+    fun setError(message: String?) {
+        if (message != null) {
+            errorView.text = message
+            errorView.visibility = View.VISIBLE
+            bgDrawable.setStroke(LayoutHelper.dp(1), theme.error)
+        } else {
+            errorView.visibility = View.GONE
+            bgDrawable.setStroke(LayoutHelper.dp(1), theme.outline)
+        }
+    }
+
+    override fun setEnabled(enabled: Boolean) {
+        super.setEnabled(enabled)
+        editText.isEnabled = enabled
+        editText.alpha = if (enabled) 1f else 0.5f
+    }
+}
