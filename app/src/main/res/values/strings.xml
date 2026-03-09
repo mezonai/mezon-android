@@ -132,6 +132,11 @@
 
     <!-- notification -->
     <string name="notification_header">Notifications</string>
+    <string name="notif_inbox_title">Inbox</string>
+    <string name="notif_tab_mentions">Mentions</string>
+    <string name="notif_tab_messages">Messages</string>
+    <string name="notif_tab_for_you">For You</string>
+    <string name="notif_empty">No notifications</string>
     <string name="notification_tab_for_you">For you</string>
     <string name="notification_tab_mention">Mention</string>
     <string name="notification_tab_messages">Messages</string>
@@ -214,4 +219,98 @@
     <string name="channel_list_public">Public Channels</string>
     <string name="channel_list_events">Events</string>
     <string name="channel_list_members">Members</string>
+
+    <!-- Profile -->
+    <string name="profile_account_settings">Account Settings</string>
+
+    <!-- Account Settings -->
+    <string name="account_settings_title">Account</string>
+    <string name="account_info_title">Account Info</string>
+    <string name="account_users_title">Users</string>
+    <string name="account_management_title">Account Management</string>
+    <string name="account_username">Username</string>
+    <string name="account_display_name">Display Name</string>
+    <string name="account_link_email">Link email</string>
+    <string name="account_link_phone">Link phone</string>
+    <string name="account_phone">Phone Number</string>
+    <string name="account_blocked_users">Blocked Users</string>
+    <string name="account_set_password">Set Password</string>
+    <string name="account_delete_account">Delete Account</string>
+    <string name="account_set_password_link_email_required_title">Email Required</string>
+    <string name="account_set_password_link_email_required_desc">You need to link an email before setting a password.</string>
+    <string name="account_go_to_email">Link Email</string>
+    <string name="account_set_password_title">Set Password</string>
+    <string name="account_set_password_desc">You can set a password for your account.</string>
+    <string name="account_delete_title">Delete Account</string>
+    <string name="account_delete_description">This action is permanent and cannot be undone. Are you sure?</string>
+    <string name="account_delete_confirm">Delete</string>
+    <string name="account_delete_error">Failed to delete account. Please try again.</string>
+
+    <!-- Update Email -->
+    <string name="update_email_title">Update Your Email</string>
+    <string name="email_new_email_label">New Email Address</string>
+    <string name="email_next_button">Next</string>
+    <string name="email_invalid">Please enter a valid email address</string>
+    <string name="email_already_linked">This email is already linked to your account</string>
+    <string name="email_too_fast">Please wait %d seconds before requesting again</string>
+    <string name="email_link_failed">Failed to link email. Please try again.</string>
+
+    <!-- Update Phone -->
+    <string name="update_phone_title">Update Your Phone Number</string>
+    <string name="phone_new_number_label">Phone Number</string>
+    <string name="phone_number_hint">Enter phone number</string>
+    <string name="phone_next_button">Next</string>
+    <string name="phone_already_linked">This phone number is already linked to your account</string>
+    <string name="phone_link_failed">Failed to link phone number. Please try again.</string>
+
+    <!-- OTP Verify -->
+    <string name="verify_email_title">Verify Your Email</string>
+    <string name="verify_phone_title">Verify Your Phone Number</string>
+    <string name="otp_description_email">We sent a verification code to %s</string>
+    <string name="otp_description_phone">We sent an SMS verification code to %s</string>
+    <string name="otp_verify_button">Verify</string>
+    <string name="otp_verify_failed">Invalid verification code. Please try again.</string>
+
+    <!-- Blocked Users -->
+    <string name="blocked_users_title">Blocked Users</string>
+    <string name="blocked_users_empty">You have no blocked users</string>
+    <string name="blocked_unblock_button">Unblock</string>
+    <string name="blocked_unblock_title">Unblock User</string>
+    <string name="blocked_unblock_description">Are you sure you want to unblock %s?</string>
+    <string name="blocked_unblock_confirm">Unblock</string>
+    <string name="blocked_unblock_error">Failed to unblock user. Please try again.</string>
+
+    <!-- Edit Profile -->
+    <string name="edit_profile_title">Profile Settings</string>
+    <string name="edit_profile_display_name_hint">Enter display name</string>
+    <string name="edit_profile_about_me">About Me</string>
+    <string name="edit_profile_about_me_hint">Tell others about yourself</string>
+    <string name="edit_profile_save">Save Changes</string>
+    <string name="edit_profile_save_error">Failed to save profile. Please try again.</string>
+    <string name="edit_profile_username_hint">Username cannot be changed here</string>
+
+    <!-- Set Password -->
+    <string name="set_password_title">Set Password</string>
+    <string name="set_password_email_label">Email</string>
+    <string name="set_password_current_label">Current Password</string>
+    <string name="set_password_current_hint">Enter current password</string>
+    <string name="set_password_new_label">New Password</string>
+    <string name="set_password_new_hint">Enter new password</string>
+    <string name="set_password_confirm_label">Confirm Password</string>
+    <string name="set_password_confirm_hint">Re-enter new password</string>
+    <string name="set_password_description">Use 8+ characters with uppercase, lowercase, number and symbol.</string>
+    <string name="set_password_save">Save Password</string>
+    <string name="set_password_error_min_chars">Password must be at least 8 characters</string>
+    <string name="set_password_error_uppercase">Password must contain an uppercase letter</string>
+    <string name="set_password_error_lowercase">Password must contain a lowercase letter</string>
+    <string name="set_password_error_number">Password must contain a number</string>
+    <string name="set_password_error_symbol">Password must contain a special character</string>
+    <string name="set_password_error_same">New password must differ from current password</string>
+    <string name="set_password_error_not_equal">Passwords do not match</string>
+    <string name="set_password_error_failed">Failed to set password. Please try again.</string>
+    <string name="set_password_success_title">Password Set</string>
+    <string name="set_password_success_message">Your password has been updated successfully.</string>
+
+    <string name="common_ok">OK</string>
+    <string name="common_error">Error</string>
 </resources>

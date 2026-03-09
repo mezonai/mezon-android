@@ -1,0 +1,259 @@
+package com.mezon.mobile.home.profile
+
+import android.os.Bundle
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import android.widget.FrameLayout
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import com.mezon.mobile.R
+import com.mezon.mobile.core.AlertsCreator
+import com.mezon.mobile.core.BaseFragment
+import com.mezon.mobile.core.LayoutHelper
+import com.mezon.mobile.core.NotificationCenter
+import com.mezon.mobile.ui.cells.HeaderCell
+import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.ui.cells.ShadowSectionCell
+import com.mezon.mobile.ui.cells.TextSettingsCell
+import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
+
+@AndroidEntryPoint
+class AccountSettingFragment : BaseFragment() {
+
+    companion object {
+        private const val VIEW_TYPE_HEADER = 0
+        private const val VIEW_TYPE_ITEM = 1
+        private const val VIEW_TYPE_SHADOW = 2
+    }
+
+    @Inject lateinit var accountController: AccountController
+    @Inject lateinit var userController: UserController
+
+    var onNavigateUpdateEmail: ((currentEmail: String) -> Unit)? = null
+    var onNavigateUpdatePhone: ((currentPhone: String) -> Unit)? = null
+    var onNavigateBlockedUsers: (() -> Unit)? = null
+
+    private var rowCount = 0
+    private var headerAccountInfoRow = -1
+    private var usernameRow = -1
+    private var displayNameRow = -1
+    private var emailRow = -1
+    private var phoneRow = -1
+    private var shadowAccountRow = -1
+    private var headerUsersRow = -1
+    private var blockedUsersRow = -1
+    private var shadowUsersRow = -1
+    private var headerManagementRow = -1
+    private var setPasswordRow = -1
+    private var deleteAccountRow = -1
+    private var shadowManagementRow = -1
+
+    private lateinit var listView: RecyclerView
+    private lateinit var listAdapter: ListAdapter
+
+    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
+        listAdapter = ListAdapter()
+        listView = RecyclerView(requireContext()).apply {
+            layoutManager = LinearLayoutManager(requireContext())
+            adapter = listAdapter
+            overScrollMode = View.OVER_SCROLL_NEVER
+            setBackgroundColor(themeColors.background)
+        }
+        return wrapWithActionBar(getString(R.string.account_settings_title), listView)
+    }
+
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+
+        observe(NotificationCenter.accountInfoLoaded) { _, _ ->
+            userController.updateFromAccount(accountController.accountInfo.value)
+            updateRows()
+        }
+        observe(NotificationCenter.themeChanged) { _, _ ->
+            view.setBackgroundColor(themeColors.background)
+            listAdapter.notifyDataSetChanged()
+        }
+
+        accountController.loadAccount()
+        updateRows()
+    }
+
+    private fun updateRows() {
+        rowCount = 0
+        headerAccountInfoRow = rowCount++
+        usernameRow = rowCount++
+        displayNameRow = rowCount++
+        emailRow = rowCount++
+        phoneRow = rowCount++
+        shadowAccountRow = rowCount++
+        headerUsersRow = rowCount++
+        blockedUsersRow = rowCount++
+        shadowUsersRow = rowCount++
+        headerManagementRow = rowCount++
+        setPasswordRow = rowCount++
+        deleteAccountRow = rowCount++
+        shadowManagementRow = rowCount++
+        listAdapter.notifyDataSetChanged()
+    }
+
+    private fun onItemClick(position: Int) {
+        when (position) {
+            usernameRow, displayNameRow -> {
+                requireActivity().supportFragmentManager.beginTransaction()
+                    .setCustomAnimations(
+                        android.R.anim.fade_in, android.R.anim.fade_out,
+                        android.R.anim.fade_in, android.R.anim.fade_out
+                    )
+                    .replace(R.id.fragment_container, EditProfileFragment())
+                    .addToBackStack(null)
+                    .commit()
+            }
+            emailRow -> onNavigateUpdateEmail?.invoke(accountController.accountInfo.value.email)
+            phoneRow -> onNavigateUpdatePhone?.invoke(accountController.accountInfo.value.phoneNumber)
+            blockedUsersRow -> onNavigateBlockedUsers?.invoke()
+            setPasswordRow -> {
+                val email = accountController.accountInfo.value.email
+                if (email.isEmpty()) {
+                    AlertsCreator.createSimpleAlert(
+                        requireContext(),
+                        getString(R.string.account_set_password_link_email_required_title),
+                        getString(R.string.account_set_password_link_email_required_desc),
+                        getString(R.string.account_go_to_email)
+                    ) { onNavigateUpdateEmail?.invoke("") }.show()
+                } else {
+                    requireActivity().supportFragmentManager.beginTransaction()
+                        .setCustomAnimations(
+                            android.R.anim.fade_in, android.R.anim.fade_out,
+                            android.R.anim.fade_in, android.R.anim.fade_out
+                        )
+                        .replace(R.id.fragment_container, SetPasswordFragment())
+                        .addToBackStack(null)
+                        .commit()
+                }
+            }
+            deleteAccountRow -> confirmDeleteAccount()
+        }
+    }
+
+    private fun confirmDeleteAccount() {
+        AlertsCreator.createConfirmDialog(
+            requireContext(),
+            getString(R.string.account_delete_title),
+            getString(R.string.account_delete_description),
+            confirmText = getString(R.string.account_delete_confirm),
+            cancelText = getString(R.string.common_cancel),
+            destructive = true
+        ) {
+            accountController.deleteAccount { success ->
+                if (success) {
+                    notificationCenter.postNotificationOnMainThread(NotificationCenter.sessionExpired)
+                } else {
+                    AlertsCreator.showSimpleAlert(
+                        requireContext(),
+                        getString(R.string.common_error),
+                        getString(R.string.account_delete_error)
+                    )
+                }
+            }
+        }.show()
+    }
+
+    private fun maskEmail(email: String): String {
+        if (email.isEmpty()) return ""
+        val at = email.indexOf('@')
+        if (at <= 1) return email
+        return email[0] + "*".repeat(at - 1) + email.substring(at)
+    }
+
+    private fun maskPhone(phone: String): String {
+        if (phone.length < 6) return phone
+        return phone.take(3) + "****" + phone.takeLast(3)
+    }
+
+    private inner class ListAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+
+        override fun getItemCount() = rowCount
+
+        override fun getItemViewType(position: Int) = when (position) {
+            headerAccountInfoRow, headerUsersRow, headerManagementRow -> VIEW_TYPE_HEADER
+            shadowAccountRow, shadowUsersRow, shadowManagementRow -> VIEW_TYPE_SHADOW
+            else -> VIEW_TYPE_ITEM
+        }
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
+            val view: View = when (viewType) {
+                VIEW_TYPE_HEADER -> HeaderCell(parent.context, themeColors)
+                VIEW_TYPE_SHADOW -> ShadowSectionCell(parent.context, themeColors)
+                else -> TextSettingsCell(parent.context, themeColors)
+            }
+            if (view.layoutParams == null) {
+                view.layoutParams = RecyclerView.LayoutParams(
+                    RecyclerView.LayoutParams.MATCH_PARENT,
+                    RecyclerView.LayoutParams.WRAP_CONTENT
+                )
+            }
+            return object : RecyclerView.ViewHolder(view) {}
+        }
+
+        override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
+            val info = accountController.accountInfo.value
+            when (getItemViewType(position)) {
+                VIEW_TYPE_HEADER -> {
+                    val cell = holder.itemView as HeaderCell
+                    when (position) {
+                        headerAccountInfoRow -> cell.setText(getString(R.string.account_info_title))
+                        headerUsersRow -> cell.setText(getString(R.string.account_users_title))
+                        headerManagementRow -> cell.setText(getString(R.string.account_management_title))
+                    }
+                }
+                VIEW_TYPE_ITEM -> {
+                    val cell = holder.itemView as TextSettingsCell
+                    when (position) {
+                        usernameRow -> {
+                            cell.setTextAndValue(getString(R.string.account_username), userController.username.ifEmpty { info.username }, divider = true)
+                            cell.setIcon(MezonIcon.settingIcon)
+                            cell.setTitleColor(0)
+                        }
+                        displayNameRow -> {
+                            cell.setTextAndValue(getString(R.string.account_display_name), userController.displayName.ifEmpty { info.displayName }, divider = true)
+                            cell.setIcon(MezonIcon.settingIcon)
+                            cell.setTitleColor(0)
+                        }
+                        emailRow -> {
+                            val emailValue = userController.email.ifEmpty { info.email }
+                            val emailDesc = if (emailValue.isEmpty()) getString(R.string.account_link_email) else maskEmail(emailValue)
+                            cell.setTextAndValue("Email", emailDesc, divider = true)
+                            cell.setIcon(MezonIcon.mailIcon)
+                            cell.setTitleColor(0)
+                        }
+                        phoneRow -> {
+                            val phoneValue = userController.phoneNumber.ifEmpty { info.phoneNumber }
+                            val phoneDesc = if (phoneValue.isEmpty()) getString(R.string.account_link_phone) else maskPhone(phoneValue)
+                            cell.setTextAndValue(getString(R.string.account_phone), phoneDesc)
+                            cell.setIcon(MezonIcon.settingIcon)
+                            cell.setTitleColor(0)
+                        }
+                        blockedUsersRow -> {
+                            cell.setTextAndValue(getString(R.string.account_blocked_users))
+                            cell.setIcon(MezonIcon.lockIcon)
+                            cell.setTitleColor(0)
+                        }
+                        setPasswordRow -> {
+                            cell.setTextAndValue(getString(R.string.account_set_password), divider = true)
+                            cell.setIcon(MezonIcon.lockUnlockIcon)
+                            cell.setTitleColor(0)
+                        }
+                        deleteAccountRow -> {
+                            cell.setTextAndValue(getString(R.string.account_delete_account))
+                            cell.setIcon(MezonIcon.doorExitIcon)
+                            cell.setTitleColor(themeColors.error)
+                        }
+                    }
+                    cell.setOnClickListener { onItemClick(position) }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/tab_clans"
+        android:icon="@drawable/ic_clans"
+        android:title="@string/clan_title" />
+    <item
+        android:id="@+id/tab_messages"
+        android:icon="@drawable/ic_messages"
+        android:title="@string/screen_tab_messages" />
+    <item
+        android:id="@+id/tab_notifications"
+        android:icon="@drawable/ic_notifications"
+        android:title="@string/screen_tab_notifications" />
+    <item
+        android:id="@+id/tab_profile"
+        android:icon="@drawable/ic_profile"
+        android:title="@string/screen_tab_profile" />
+</menu>
