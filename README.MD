@@ -1,180 +1,222 @@
-# Getting Started
+# Mezon Android
 
-Step-by-step guide to set up and run the Mezon Android project.
+Kotlin chat app porting from React Native. Targets scroll performance using custom Canvas-drawn Views, a controller-based state layer, and `NotificationCenter` for decoupled UI updates.
 
-## Prerequisites
-
-- **Android Studio** Hedgehog (2023.1.1) or newer
-- **JDK 17** (bundled with Android Studio)
-- **Android SDK 34** (install via SDK Manager)
-- **Git**
-
-## 1. Clone the repository
+## Build
 
 ```bash
-git clone <repo-url>
 cd mezon
+./gradlew assembleDebug    # debug APK
+./gradlew assembleRelease  # release APK
+./gradlew test             # unit tests
 ```
 
-## 2. Clone mezon-protocol (for proto files)
-
-The `:core-proto` module uses symlinks to `.proto` files from the `mezon-protocol` repository:
-
-```bash
-git clone https://github.com/mezonai/mezon-protocol.git /path/to/mezon-protocol
-```
-
-Then create the symlinks (if they don't already exist):
-
-```bash
-mkdir -p core-proto/src/main/proto
-ln -s /path/to/mezon-protocol/api   core-proto/src/main/proto/api
-ln -s /path/to/mezon-protocol/rtapi core-proto/src/main/proto/rtapi
-```
-
-> Replace `/path/to/mezon-protocol` with the actual path where you cloned the repo.
-
-## 3. Open in Android Studio
-
-1. Open Android Studio
-2. **File > Open** > select the `mezon` project root folder
-3. Wait for Gradle Sync to complete (downloads all dependencies)
-
-## 4. Build the project
-
-**From Android Studio:**
-
-Click **Build > Make Project** (`Ctrl+F9` / `Cmd+F9`)
-
-**From command line:**
-
-```bash
-./gradlew assembleDebug
-```
-
-## 5. Run the app
-
-1. Connect a physical device (USB debugging enabled) or start an Android Emulator (API 24+)
-2. Select the device in the toolbar
-3. Click **Run** (`Shift+F10` / `Ctrl+R`)
-
-**From command line:**
-
-```bash
-./gradlew installDebug
-adb shell am start -n ai.mezon.app/.MainActivity
-```
-
-## 6. Login
-
-The app starts with a login screen. Use your Mezon account email and password.
-
-After login:
-- Bottom navigation: **Clans** | **Messages** | **Notifications** | **Profile**
-- WebSocket connects automatically (green indicator = connected)
-- Messages tab loads your DM/group chat list — cached from Room on relaunch, fresh from API otherwise
-
-## Project Structure
+## Architecture
 
 ```
-mezon/
-├── app/                              # Main application module
-│   └── src/main/java/ai/mezon/app/
-│       ├── auth/                     # Login (MVI: ViewModel, Repository, Screen)
-│       ├── data/db/                  # Room: MezonDatabase, MessageDao, DirectMessageDao
-│       ├── di/                       # Hilt DI: AppModule, DatabaseModule, qualifiers
-│       ├── home/                     # Home screen + bottom navigation
-│       │   ├── chat/                 # Chat thread: MessageEntity, MessageStore,
-│       │   │                         # ChatRepository, ChatViewModel, ChatScreen,
-│       │   │                         # MessageAdapter (RecyclerView)
-│       │   ├── messages/             # DM list: DirectMessage, DirectStore,
-│       │   │                         # DirectRepository, MessagesViewModel, MessagesScreen
-│       │   ├── clans/                # Clans tab
-│       │   ├── notifications/        # Notifications tab
-│       │   └── profile/              # Profile tab (with logout)
-│       ├── navigation/               # Compose Navigation (NavGraph, routes)
-│       ├── network/                  # MezonApi (REST), MezonSocket (WebSocket),
-│       │                             # SocketEventDispatcher
-│       └── session/                  # Session persistence (DataStore)
-│   └── src/main/res/
-│       ├── drawable/                 # bg_bubble_sent.xml, bg_bubble_received.xml,
-│       │                             # bg_avatar_circle.xml
-│       └── layout/                   # item_message_sent.xml, item_message_received.xml
-├── core-proto/                       # Protobuf code generation module
-│   └── src/main/proto/
-│       ├── api/   -> mezon-protocol/api/api.proto
-│       └── rtapi/ -> mezon-protocol/rtapi/realtime.proto
-├── gradle/libs.versions.toml         # Dependency version catalog
-├── CLAUDE.md                         # AI coding assistant instructions
-└── SETUP.md                          # This file
+WebSocket ──► SocketEventDispatcher ──► Controller (in-memory cache + async Room write)
+REST API  ──► Controller                ──► NotificationCenter.post(event)
+Room DB   ──► Controller.init()         ──► cold-start cache (instant UI on relaunch)
+NotificationCenter ──► Fragment.observe() ──► RecyclerView / custom View invalidate()
 ```
 
-## Key Commands
+### Layers
 
-| Command | Description |
-|---------|-------------|
-| `./gradlew assembleDebug` | Build debug APK |
-| `./gradlew assembleRelease` | Build release APK |
-| `./gradlew test` | Run unit tests |
-| `./gradlew connectedAndroidTest` | Run instrumented tests |
-| `./gradlew :core-proto:assembleDebug` | Generate protobuf classes only |
-| `./gradlew app:dependencies` | Show dependency tree |
+| Layer | Role |
+|-------|------|
+| **Controller** (`@Singleton`) | Owns in-memory state (`StateFlow`, `LongSparseArray`, `ConcurrentHashMap`). Dual-write: update cache first, then `appScope.launch { dao.upsert() }` async. Observes socket events in `init {}`. |
+| **NotificationCenter** | Custom event bus (integer IDs, `SparseArray<List<Observer>>`). Always dispatched on main thread via `postNotificationOnMainThread`. |
+| **BaseFragment** | Registers `NotificationCenter` observers on `onViewCreated`, auto-removes on `onDestroyView`. Provides `wrapWithActionBar()` helper. |
+| **Custom Views** | `onDraw(Canvas)` cells for high-performance lists (`ChatMessageCell`, `DialogCell`, `NotificationCell`, `ChannelItemCell`, `ClanCell`). Local `Paint` objects per instance — no shared mutable paint. |
+| **Room DB** | WAL mode. `@Upsert`, bounded queries (`LIMIT 200`). Accessed only from `@IoDispatcher`. |
+| **SocketEventDispatcher** | Fans out `Envelope` proto frames to 40+ typed `SharedFlow`s. |
+
+### Navigation
+
+Single `Activity` (`MainActivity`) with `FragmentManager` back-stack. Each screen is a `BaseFragment` subclass. No Jetpack Navigation — fragment transactions use `replace()` + `addToBackStack()` directly.
+
+### NotificationCenter Events
+
+| Event | Posted by | Consumed by |
+|-------|-----------|-------------|
+| `clansDidLoad` | `ClansController` | `ClansFragment` |
+| `channelsDidLoad` | `ChannelController` | `ClansFragment` |
+| `clanInfoUpdated` | `ClansController` | `ClansFragment` |
+| `messagesDidLoad` | `ChatController` | `ChatFragment` |
+| `didReceiveNewMessages` | `ChatController` | `ChatFragment` |
+| `messageDidUpdate` | `ChatController` | `ChatFragment` |
+| `messageDidDelete` | `ChatController` | `ChatFragment` |
+| `dialogsNeedReload` | `MessagesController` / `DialogsController` | `MessagesFragment` |
+| `notificationsDidLoad` | `NotificationStore` | `NotificationsFragment` |
+| `accountInfoLoaded` | `AccountController` | `ProfileFragment`, `EditProfileFragment` |
+| `blockedUsersLoaded` | `AccountController` | `BlockedUsersFragment` |
+| `userDataLoaded` | `UserController` | `ProfileFragment` |
+| `connectionStateChanged` | `ConnectionController` | `HomeFragment` |
+| `sessionExpired` | `AuthRepository` | `MainActivity` |
+| `themeChanged` | `ThemeManager` | all fragments via `BaseFragment` |
+
+## Package Structure
+
+```
+app/src/main/java/com/mezon/mobile/
+├── MainActivity.kt           # single Activity, fragment host
+├── MezonApplication.kt       # Hilt entry point
+├── auth/
+│   ├── AuthRepository.kt     # login, session save/refresh
+│   └── LoginFragment.kt
+├── core/
+│   ├── BaseFragment.kt       # NotificationCenter auto-wiring, ActionBar helper
+│   ├── NotificationCenter.kt # integer-keyed event bus
+│   ├── ThemeColors.kt        # singleton Paint/color tokens (4 themes)
+│   ├── LayoutHelper.kt       # dp/sp helpers, MeasureSpec utils
+│   └── AvatarDrawable.kt     # fallback initials avatar
+├── data/db/
+│   ├── MezonDatabase.kt      # Room DB, WAL mode
+│   ├── MessageDao.kt
+│   ├── DirectMessageDao.kt
+│   ├── ClanDao.kt
+│   └── ClanChannelDao.kt
+├── di/
+│   ├── AppModule.kt          # Hilt bindings
+│   ├── DatabaseModule.kt
+│   └── CoroutineDispatchers.kt  # @IoDispatcher, @ApplicationScope
+├── home/
+│   ├── ChatController.kt     # message cache (LongSparseArray), send, history, socket
+│   ├── MessagesController.kt # DM/group conversation list cache
+│   ├── DialogsController.kt  # dialog metadata cache
+│   ├── ConnectionController.kt  # WebSocket lifecycle
+│   ├── CachedChannel.kt
+│   ├── CachedUser.kt
+│   ├── HomeFragment.kt       # bottom nav tabs host
+│   ├── chat/
+│   │   ├── ChatFragment.kt
+│   │   ├── ChatAdapter.kt    # RecyclerView adapter, VIEW_TYPE_MESSAGE / LOADING
+│   │   ├── ChatMessageCell.kt  # Canvas-drawn bubble (local Paint per instance)
+│   │   ├── MessageEntity.kt
+│   │   └── ImageReceiver.kt  # Coil async image into custom View
+│   ├── clans/
+│   │   ├── ClansController.kt  # clan list StateFlow + Room dual-write
+│   │   ├── ChannelController.kt  # per-clan channel cache, findChannelById
+│   │   ├── ClansFragment.kt
+│   │   ├── ClanCell.kt       # Canvas-drawn clan icon cell
+│   │   ├── ChannelItemCell.kt
+│   │   ├── ChannelListView.kt
+│   │   ├── ChannelSectionCell.kt
+│   │   ├── ChannelThreadCell.kt
+│   │   ├── ClanEntity.kt
+│   │   └── ClanChannelEntity.kt
+│   ├── messages/
+│   │   ├── MessagesFragment.kt
+│   │   ├── DmListAdapter.kt
+│   │   ├── DialogCell.kt     # Canvas-drawn DM row
+│   │   └── DirectMessage.kt
+│   ├── notifications/
+│   │   ├── NotificationStore.kt  # load/clear notifications, proto + JSON parsing
+│   │   ├── NotificationsFragment.kt  # tab chips (All / Mentions)
+│   │   ├── NotificationAdapter.kt
+│   │   ├── NotificationCell.kt  # Canvas-drawn notification row
+│   │   └── NotificationEntity.kt  # DirectFcmProto + JSON content parser
+│   └── profile/
+│       ├── AccountController.kt  # account info, blocked users, password update
+│       ├── UserController.kt     # user profile cache
+│       ├── ProfileFragment.kt
+│       ├── AccountSettingFragment.kt
+│       ├── EditProfileFragment.kt
+│       ├── UpdateEmailFragment.kt
+│       ├── UpdatePhoneFragment.kt
+│       ├── VerifyOtpFragment.kt
+│       ├── SetPasswordFragment.kt
+│       └── BlockedUsersFragment.kt
+├── navigation/
+│   └── NavRoutes.kt          # fragment factory helpers
+├── network/
+│   ├── MezonApi.kt           # Ktor REST (proto content-type)
+│   ├── MezonSocket.kt        # OkHttp WebSocket, Envelope proto, heartbeat, reconnect
+│   ├── SocketEventDispatcher.kt  # 40+ typed SharedFlow<T> from Envelope oneof
+│   ├── NetworkMonitor.kt
+│   ├── ApiCacheTracker.kt    # 20-min TTL dedup for REST calls
+│   └── ConnectionState.kt
+├── notification/
+│   ├── MezonFirebaseService.kt  # FCM token + push dispatch
+│   ├── NotificationHelper.kt    # system notification builder
+│   ├── NotificationObserver.kt  # WebSocket new-message → local notification
+│   ├── FcmRepository.kt
+│   └── ActiveChannelTracker.kt  # suppress notifications for open channel
+├── session/
+│   ├── SessionManager.kt     # DataStore: token, apiUrl, wsUrl
+│   ├── ThemeManager.kt       # DataStore: theme mode
+│   ├── LocaleManager.kt
+│   └── SessionKeys.kt
+├── ui/
+│   ├── cells/                # reusable custom Views
+│   │   ├── ActionBarView.kt  # top action bar (title + back button)
+│   │   ├── ActionButton.kt
+│   │   ├── AvatarView.kt
+│   │   ├── HeaderCell.kt
+│   │   ├── InputCell.kt
+│   │   ├── TextSettingsCell.kt
+│   │   ├── TextDetailCell.kt
+│   │   ├── TextCheckCell.kt
+│   │   ├── SwitchView.kt
+│   │   ├── RadioCell.kt
+│   │   ├── TabPagerView.kt
+│   │   ├── SearchCell.kt
+│   │   ├── ProfileHeaderCell.kt
+│   │   ├── ScreenStateView.kt
+│   │   ├── ToastOverlay.kt
+│   │   ├── PopupMenu.kt
+│   │   ├── SelectPopup.kt
+│   │   ├── SlideOptionView.kt
+│   │   ├── MezonBottomSheetDialog.kt
+│   │   ├── MezonIcon.kt
+│   │   ├── CdnIconView.kt
+│   │   ├── BadgeDrawable.kt
+│   │   ├── ColoredImageSpan.kt
+│   │   ├── IconButton.kt
+│   │   ├── ImagePickerHelper.kt
+│   │   └── ShadowSectionCell.kt
+│   └── theme/
+│       ├── Color.kt
+│       ├── Theme.kt          # 4 modes: Light / Dark / Abyss / System
+│       ├── Type.kt
+│       └── Dimens.kt
+└── util/
+    ├── ContentParser.kt      # cached Regex, parseContentText(), parseContentPreview(), formatRelativeTime()
+    └── ImageProxy.kt         # imgproxy URL builder
+```
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
-| UI (screens) | Jetpack Compose + Material3 |
-| Chat message list | RecyclerView + ListAdapter + DiffUtil (via AndroidView) |
-| Architecture | MVI (ViewModel + StateFlow) + Dual-Write Store |
-| Persistence | Room 2.6.1 (SQLite, WAL mode, KSP generated) |
-| DI | Hilt (KSP) + DatabaseModule |
-| REST API | Ktor Client + OkHttp engine |
-| WebSocket | OkHttp WebSocket + Protobuf binary Envelope |
-| Images | Coil 2.6.0 |
-| Session | DataStore Preferences |
-| Proto | Protobuf Lite (auto-generated from .proto files) |
+| Language | Kotlin 1.9.0 |
+| Build | AGP 8.5.2, KSP 1.9.0-1.0.13 |
+| DI | Hilt 2.51.1 |
+| REST | Ktor 2.3.12 + OkHttp 4.12.0 engine |
+| WebSocket | OkHttp 4.12.0 + Protobuf binary (`Envelope` oneof) |
+| Database | Room 2.6.1, WAL mode, `@Upsert` |
+| Images | Coil 2.6.0 (loaded into custom Views via `ImageReceiver`) |
+| Session | DataStore Preferences 1.1.1 |
+| Push | Firebase Cloud Messaging (BOM 33.1.0) |
+| Proto | Protobuf Lite 4.28.2 (`:core-proto` module, auto-generated) |
+| Coroutines | kotlinx-coroutines 1.7.3 |
 
-## Architecture Overview
+## Key Performance Notes
 
-```
-WebSocket ──→ SocketEventDispatcher ──→ Store (StateFlow + async Room write)
-REST API  ──→ Repository            ──→ Store
-Room DB   ──→ Store.init()          ──→ instant UI on cold start
-Store     ──→ ViewModel             ──→ Screen (Compose + RecyclerView)
-```
+- **Local Paint per cell**: `ChatMessageCell`, `DialogCell`, `NotificationCell` each own their own `Paint` objects — no shared mutable state between recycled views.
+- **Dual-write**: Controllers update in-memory state first (instant UI), then `appScope.launch { dao.upsert() }` async.
+- **Cold-start**: Room cache loads in `Controller.init {}` → `NotificationCenter` event → Fragment renders before REST response arrives.
+- **ApiCacheTracker** (20-min TTL): prevents redundant REST fetches on repeated navigation.
+- **ChannelController pre-warm**: `ClansController.init` calls `channelController.loadChannelsForClan(firstClanId)` so channel list is ready immediately on relaunch.
+- **Bounded queries**: `getLatestByChannel(limit=200)` — never load unbounded lists from DB.
+- **`@IoDispatcher`** for all Room and network I/O; main thread is never blocked.
 
-- **Dual-write**: every socket event or REST response updates in-memory `StateFlow` first (instant UI), then writes to Room asynchronously (persistence).
-- **Cold start**: `Store.init()` loads from Room before making REST calls — user sees cached data immediately.
-- **RecyclerView**: used for chat message list for Telegram-level scroll performance. DM list uses `LazyColumn`.
+## Protocol
 
-## Troubleshooting
+Two proto files auto-generated into `:core-proto`:
+- `api/api.proto` — REST request/response messages (`com.mezon.mezon.api`)
+- `rtapi/realtime.proto` — WebSocket `Envelope` oneof 94 event types (`com.mezon.mezon.rtapi`)
 
-### Proto symlinks not working (Windows)
+WebSocket URL: `wss://<ws_url>/ws?token=<token>&status=true&platform=1&lang=en&format=protobuf`
 
-Windows requires admin privileges for symlinks. Copy instead:
-
-```bash
-xcopy /E /I \path\to\mezon-protocol\api   core-proto\src\main\proto\api
-xcopy /E /I \path\to\mezon-protocol\rtapi core-proto\src\main\proto\rtapi
-```
-
-### "Unresolved reference" errors in IDE
-
-Generated protobuf classes require a build first:
-
-```bash
-./gradlew :core-proto:assembleDebug
-```
-
-Then: **File > Sync Project with Gradle Files**
-
-### KSP version mismatch
-
-KSP version must match Kotlin version. Check `gradle/libs.versions.toml`:
-
-- Kotlin `1.9.0` requires KSP `1.9.0-1.0.13`
-
-### Room schema changes
-
-Room uses `fallbackToDestructiveMigration()` during development — the DB is dropped and recreated on schema changes. Before releasing to production, replace with proper `Migration` objects.
+REST: Bearer token, `Content-Type: application/proto`. Exception: auth uses JSON + Basic auth.
