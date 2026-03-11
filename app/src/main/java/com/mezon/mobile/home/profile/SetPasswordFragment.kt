@@ -1,10 +1,8 @@
 package com.mezon.mobile.home.profile
 
-import android.os.Bundle
+import android.content.Context
 import android.text.InputType
-import android.view.LayoutInflater
 import android.view.View
-import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -13,15 +11,13 @@ import com.mezon.mobile.core.AlertsCreator
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
+import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.ui.cells.ActionButton
 import com.mezon.mobile.ui.cells.InputCell
-import dagger.hilt.android.AndroidEntryPoint
-import javax.inject.Inject
 
-@AndroidEntryPoint
 class SetPasswordFragment : BaseFragment() {
 
-    @Inject lateinit var accountController: AccountController
+    private lateinit var accountController: AccountController
 
     private lateinit var emailCell: InputCell
     private lateinit var currentPasswordCell: InputCell
@@ -31,26 +27,30 @@ class SetPasswordFragment : BaseFragment() {
     private lateinit var saveButton: ActionButton
     private lateinit var loadingView: View
 
-    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
-        val content = LinearLayout(requireContext()).apply {
+    override fun onInject(entryPoint: FragmentEntryPoint) {
+        accountController = entryPoint.accountController()
+    }
+
+    override fun createView(context: Context): View {
+        val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(themeColors.background)
             val pad = LayoutHelper.dp(16)
             setPadding(pad, pad, pad, pad)
         }
 
-        emailCell = InputCell(requireContext(), themeColors).apply {
+        emailCell = InputCell(context, themeColors).apply {
             setLabel(getString(R.string.set_password_email_label))
             setHint("")
             isEnabled = false
         }
         content.addView(emailCell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, 0, 0f, 0f, 0f, 16f))
 
-        currentPasswordSection = LinearLayout(requireContext()).apply {
+        currentPasswordSection = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             visibility = View.GONE
         }
-        currentPasswordCell = InputCell(requireContext(), themeColors).apply {
+        currentPasswordCell = InputCell(context, themeColors).apply {
             setLabel(getString(R.string.set_password_current_label))
             setHint(getString(R.string.set_password_current_hint))
             editText.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
@@ -58,65 +58,64 @@ class SetPasswordFragment : BaseFragment() {
         currentPasswordSection.addView(currentPasswordCell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, 0, 0f, 0f, 0f, 12f))
         content.addView(currentPasswordSection, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
-        newPasswordCell = InputCell(requireContext(), themeColors).apply {
+        newPasswordCell = InputCell(context, themeColors).apply {
             setLabel(getString(R.string.set_password_new_label))
             setHint(getString(R.string.set_password_new_hint))
             editText.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
         }
         content.addView(newPasswordCell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, 0, 0f, 0f, 0f, 4f))
 
-        val descText = TextView(requireContext()).apply {
+        val descText = TextView(context).apply {
             text = getString(R.string.set_password_description)
             textSize = 12f
             setTextColor(themeColors.onSurfaceVariant)
         }
         content.addView(descText, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, 0, 0f, 0f, 0f, 16f))
 
-        confirmPasswordCell = InputCell(requireContext(), themeColors).apply {
+        confirmPasswordCell = InputCell(context, themeColors).apply {
             setLabel(getString(R.string.set_password_confirm_label))
             setHint(getString(R.string.set_password_confirm_hint))
             editText.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
         }
         content.addView(confirmPasswordCell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, 0, 0f, 0f, 0f, 24f))
+        content.addView(View(context), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
 
-        val spacer = View(requireContext())
-        content.addView(spacer, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
-
-        saveButton = ActionButton(requireContext(), themeColors).apply {
-            setText(getString(R.string.set_password_save))
-        }
+        saveButton = ActionButton(context, themeColors).apply { setText(getString(R.string.set_password_save)) }
         content.addView(saveButton, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 48))
 
-        val rootFrame = FrameLayout(requireContext())
+        val rootFrame = FrameLayout(context)
         rootFrame.addView(wrapWithActionBar(getString(R.string.set_password_title), content), LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
-        loadingView = View(requireContext()).apply {
+        loadingView = View(context).apply {
             setBackgroundColor(0x88000000.toInt())
             visibility = View.GONE
         }
         rootFrame.addView(loadingView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
-        return rootFrame
-    }
-
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
 
         val info = accountController.accountInfo.value
         emailCell.setText(info.email)
         currentPasswordSection.visibility = if (info.passwordSetted) View.VISIBLE else View.GONE
 
-        observe(NotificationCenter.accountInfoLoaded) { _, _ ->
+        wireValidation()
+        saveButton.setOnClickListener { handleSave() }
+        if (info.email.isEmpty()) accountController.loadAccount()
+
+        return rootFrame
+    }
+
+    override fun onFragmentCreate(): Boolean {
+        super.onFragmentCreate()
+
+        observe(NotificationCenter.accountInfoLoaded) { _, _, _ ->
+            if (fragmentView == null) return@observe
             val updated = accountController.accountInfo.value
             emailCell.setText(updated.email)
             currentPasswordSection.visibility = if (updated.passwordSetted) View.VISIBLE else View.GONE
         }
-        observe(NotificationCenter.themeChanged) { _, _ ->
-            view.setBackgroundColor(themeColors.background)
+        observe(NotificationCenter.themeChanged) { _, _, _ ->
+            fragmentView?.setBackgroundColor(themeColors.background)
         }
 
-        wireValidation()
-        saveButton.setOnClickListener { handleSave() }
-
-        if (info.email.isEmpty()) accountController.loadAccount()
+        return true
     }
 
     private fun wireValidation() {
@@ -135,24 +134,19 @@ class SetPasswordFragment : BaseFragment() {
                 confirmPasswordCell.setError(if (pw != confirmPw) getString(R.string.set_password_error_not_equal) else null)
             }
         }
-
         confirmPasswordCell.onTextChanged = { confirm ->
             val pw = newPasswordCell.getText()
-            confirmPasswordCell.setError(
-                if (confirm.isNotEmpty() && confirm != pw) getString(R.string.set_password_error_not_equal) else null
-            )
+            confirmPasswordCell.setError(if (confirm.isNotEmpty() && confirm != pw) getString(R.string.set_password_error_not_equal) else null)
         }
     }
 
-    private fun validatePassword(value: String): String {
-        return when {
-            value.length < 8 -> getString(R.string.set_password_error_min_chars)
-            !value.any { it.isUpperCase() } -> getString(R.string.set_password_error_uppercase)
-            !value.any { it.isLowerCase() } -> getString(R.string.set_password_error_lowercase)
-            !value.any { it.isDigit() } -> getString(R.string.set_password_error_number)
-            !value.any { !it.isLetterOrDigit() } -> getString(R.string.set_password_error_symbol)
-            else -> ""
-        }
+    private fun validatePassword(value: String): String = when {
+        value.length < 8 -> getString(R.string.set_password_error_min_chars)
+        !value.any { it.isUpperCase() } -> getString(R.string.set_password_error_uppercase)
+        !value.any { it.isLowerCase() } -> getString(R.string.set_password_error_lowercase)
+        !value.any { it.isDigit() } -> getString(R.string.set_password_error_number)
+        !value.any { !it.isLetterOrDigit() } -> getString(R.string.set_password_error_symbol)
+        else -> ""
     }
 
     private fun handleSave() {
@@ -163,8 +157,7 @@ class SetPasswordFragment : BaseFragment() {
 
         val pwError = validatePassword(newPw)
         val confirmError = if (newPw != confirmPw) getString(R.string.set_password_error_not_equal) else ""
-        val sameError = if (info.passwordSetted && currentPw.isNotEmpty() && newPw == currentPw)
-            getString(R.string.set_password_error_same) else ""
+        val sameError = if (info.passwordSetted && currentPw.isNotEmpty() && newPw == currentPw) getString(R.string.set_password_error_same) else ""
 
         newPasswordCell.setError(sameError.ifEmpty { pwError }.ifEmpty { null })
         confirmPasswordCell.setError(confirmError.ifEmpty { null })
@@ -181,7 +174,7 @@ class SetPasswordFragment : BaseFragment() {
                     requireContext(),
                     getString(R.string.set_password_success_title),
                     getString(R.string.set_password_success_message)
-                ) { requireActivity().supportFragmentManager.popBackStack() }
+                ) { finishFragment() }
             } else {
                 AlertsCreator.showSimpleAlert(
                     requireContext(),

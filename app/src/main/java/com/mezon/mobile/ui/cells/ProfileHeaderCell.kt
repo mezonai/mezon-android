@@ -1,44 +1,75 @@
 package com.mezon.mobile.ui.cells
 
 import android.content.Context
-import android.graphics.Canvas
-import android.text.Layout
-import android.text.StaticLayout
-import android.text.TextUtils
+import android.util.TypedValue
 import android.view.Gravity
 import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.TextView
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 
 class ProfileHeaderCell(context: Context, private val theme: ThemeColors) : FrameLayout(context) {
 
     private val avatarView = AvatarView(context)
-    private var nameText = ""
-    private var subtitleText = ""
-    private var nameLayout: StaticLayout? = null
-    private var subtitleLayout: StaticLayout? = null
+    val nameTextView: TextView
+    val subtitleTextView: TextView
+    private val textContainer: LinearLayout
 
     private val avatarSizeDp = 72
     private val cellPadTop = LayoutHelper.dp(24)
     private val avatarNameGap = LayoutHelper.dp(16)
-    private val nameSubGap = LayoutHelper.dp(4)
     private val cellPadBottom = LayoutHelper.dp(24)
 
     init {
-        setWillNotDraw(false)
         avatarView.setSizeDp(avatarSizeDp)
         addView(avatarView, LayoutHelper.createFrame(
-            avatarSizeDp, avatarSizeDp, Gravity.CENTER_HORIZONTAL or Gravity.TOP,
-            topMargin = cellPadTop.toFloat() / LayoutHelper.dpf(1f)
+            avatarSizeDp, avatarSizeDp,
+            Gravity.CENTER_HORIZONTAL or Gravity.TOP,
+            topMargin = 24f
+        ))
+
+        textContainer = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+        }
+
+        nameTextView = TextView(context).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
+            setTextColor(theme.onSurface)
+            typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.BOLD)
+            maxLines = 2
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            gravity = Gravity.CENTER
+        }
+        textContainer.addView(nameTextView, LayoutHelper.createLinear(
+            LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT
+        ))
+
+        subtitleTextView = TextView(context).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            setTextColor(theme.onSurfaceVariant)
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            gravity = Gravity.CENTER
+        }
+        textContainer.addView(subtitleTextView, LayoutHelper.createLinear(
+            LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT,
+            topMargin = 4f
+        ))
+
+        addView(textContainer, LayoutHelper.createFrame(
+            LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT,
+            Gravity.TOP or Gravity.CENTER_HORIZONTAL,
+            leftMargin = 16f, rightMargin = 16f
         ))
     }
 
     fun setInfo(userId: Long, name: String, subtitle: String) {
-        nameText = name
-        subtitleText = subtitle
         avatarView.setInfo(userId, name)
-        nameLayout = null
-        subtitleLayout = null
+        nameTextView.text = name
+        subtitleTextView.text = subtitle
+        subtitleTextView.visibility = if (subtitle.isNotEmpty()) VISIBLE else GONE
         requestLayout()
     }
 
@@ -48,57 +79,34 @@ class ProfileHeaderCell(context: Context, private val theme: ThemeColors) : Fram
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val w = MeasureSpec.getSize(widthMeasureSpec)
-        val textWidth = w - LayoutHelper.dp(32)
 
-        if (nameLayout == null && textWidth > 0 && nameText.isNotEmpty()) {
-            nameLayout = StaticLayout.Builder
-                .obtain(nameText, 0, nameText.length, theme.dialogNameBoldPaint, textWidth)
-                .setAlignment(Layout.Alignment.ALIGN_CENTER)
-                .setLineSpacing(0f, 1f)
-                .setMaxLines(2)
-                .setEllipsize(TextUtils.TruncateAt.END)
-                .build()
-        }
-        if (subtitleLayout == null && textWidth > 0 && subtitleText.isNotEmpty()) {
-            subtitleLayout = StaticLayout.Builder
-                .obtain(subtitleText, 0, subtitleText.length, theme.settingsValuePaint, textWidth)
-                .setAlignment(Layout.Alignment.ALIGN_CENTER)
-                .setLineSpacing(0f, 1f)
-                .setMaxLines(1)
-                .setEllipsize(TextUtils.TruncateAt.END)
-                .build()
-        }
+        textContainer.measure(
+            MeasureSpec.makeMeasureSpec(w - LayoutHelper.dp(32), MeasureSpec.EXACTLY),
+            MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED)
+        )
+        avatarView.measure(
+            MeasureSpec.makeMeasureSpec(LayoutHelper.dp(avatarSizeDp), MeasureSpec.EXACTLY),
+            MeasureSpec.makeMeasureSpec(LayoutHelper.dp(avatarSizeDp), MeasureSpec.EXACTLY)
+        )
 
-        var h = cellPadTop + LayoutHelper.dp(avatarSizeDp) + avatarNameGap
-        nameLayout?.let { h += it.height }
-        subtitleLayout?.let { h += nameSubGap + it.height }
-        h += cellPadBottom
+        val h = cellPadTop + LayoutHelper.dp(avatarSizeDp) + avatarNameGap +
+                textContainer.measuredHeight + cellPadBottom
 
-        val avatarLp = avatarView.layoutParams as LayoutParams
-        avatarLp.topMargin = cellPadTop
-        avatarView.layoutParams = avatarLp
+        val containerLp = textContainer.layoutParams as LayoutParams
+        containerLp.topMargin = cellPadTop + LayoutHelper.dp(avatarSizeDp) + avatarNameGap
+        textContainer.layoutParams = containerLp
 
+        setMeasuredDimension(w, h)
         super.onMeasure(
             MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY),
             MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY)
         )
     }
 
-    override fun onDraw(canvas: Canvas) {
-        val startY = (cellPadTop + LayoutHelper.dp(avatarSizeDp) + avatarNameGap).toFloat()
+    override fun hasOverlappingRendering(): Boolean = false
 
-        nameLayout?.let {
-            canvas.save()
-            canvas.translate(LayoutHelper.dp(16).toFloat(), startY)
-            it.draw(canvas)
-            canvas.restore()
-
-            subtitleLayout?.let { sub ->
-                canvas.save()
-                canvas.translate(LayoutHelper.dp(16).toFloat(), startY + it.height + nameSubGap)
-                sub.draw(canvas)
-                canvas.restore()
-            }
-        }
+    fun updateColors() {
+        nameTextView.setTextColor(theme.onSurface)
+        subtitleTextView.setTextColor(theme.onSurfaceVariant)
     }
 }

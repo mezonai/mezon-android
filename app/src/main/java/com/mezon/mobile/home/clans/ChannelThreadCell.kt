@@ -8,13 +8,15 @@ import android.graphics.RectF
 import android.text.TextPaint
 import android.text.TextUtils
 import android.view.View
+import com.mezon.mobile.core.BaseCell
 import com.mezon.mobile.core.LayoutHelper
+import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
 
 class ChannelThreadCell(
     context: Context,
     private val themeColors: ThemeColors
-) : View(context) {
+) : BaseCell(context) {
 
     companion object {
         private val namePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -36,7 +38,8 @@ class ChannelThreadCell(
         private val connectorPath = Path()
     }
 
-    private var thread: ClanChannelEntity? = null
+    var thread: ClanChannelEntity? = null
+        private set
     private var isFirst = false
     private var isActive = false
     private var truncatedName: CharSequence = ""
@@ -50,23 +53,47 @@ class ChannelThreadCell(
     private val paddingRightPx = LayoutHelper.dp(16)
     private val badgeSizePx = LayoutHelper.dp(18)
 
-    init {
-        setWillNotDraw(false)
-    }
+
 
     fun bind(thread: ClanChannelEntity, isFirst: Boolean, isActive: Boolean) {
-        val changed = this.thread?.channelId != thread.channelId
-            || this.thread?.channelLabel != thread.channelLabel
-            || this.thread?.unreadCount != thread.unreadCount
-            || this.isActive != isActive
-            || this.isFirst != isFirst
         this.thread = thread
         this.isFirst = isFirst
         this.isActive = isActive
-        if (changed) {
+        update(0)
+    }
+
+    fun update(mask: Int, newThread: ClanChannelEntity? = null): Boolean {
+        val th = newThread ?: thread ?: return false
+
+        if (mask == 0) {
+            if (newThread != null) thread = newThread
             truncatedName = ""
             invalidate()
+            return true
         }
+
+        var needInvalidate = false
+
+        if ((mask and NotificationCenter.UPDATE_MASK_BADGE) != 0) {
+            if (thread?.unreadCount != th.unreadCount) {
+                truncatedName = ""
+                needInvalidate = true
+            }
+        }
+
+        if ((mask and NotificationCenter.UPDATE_MASK_CHAT_NAME) != 0) {
+            if (thread?.channelLabel != th.channelLabel) {
+                truncatedName = ""
+                needInvalidate = true
+            }
+        }
+
+        if (newThread != null) thread = newThread
+
+        if (needInvalidate) {
+            invalidate()
+        }
+        return false
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {

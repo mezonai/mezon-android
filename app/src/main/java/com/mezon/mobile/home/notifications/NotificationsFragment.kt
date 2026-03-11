@@ -1,42 +1,37 @@
 package com.mezon.mobile.home.notifications
 
 import android.content.Context
-import android.os.Bundle
 import android.util.Log
 import android.view.Gravity
-import android.view.LayoutInflater
 import android.view.View
-import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.R
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
-import com.mezon.mobile.home.clans.ClansController
+import com.mezon.mobile.core.RecyclerListView
+import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.clans.ChannelController
-import dagger.hilt.android.AndroidEntryPoint
-import javax.inject.Inject
+import com.mezon.mobile.home.clans.ClansController
 
 private data class TabDef(val category: Int, val labelRes: Int)
 
-@AndroidEntryPoint
 class NotificationsFragment : BaseFragment() {
 
-    @Inject lateinit var store: NotificationStore
-    @Inject lateinit var clansController: ClansController
-    @Inject lateinit var channelController: ChannelController
+    private lateinit var store: NotificationStore
+    private lateinit var clansController: ClansController
+    private lateinit var channelController: ChannelController
 
     var onOpenChat: ((channelId: Long, channelName: String, clanId: Long, channelType: Int) -> Unit)? = null
 
     private lateinit var root: LinearLayout
     private lateinit var tabContainer: LinearLayout
-    private lateinit var recyclerView: RecyclerView
+    private lateinit var recyclerView: RecyclerListView
     private lateinit var loadingView: ProgressBar
     private lateinit var emptyView: TextView
     private lateinit var adapter: NotificationAdapter
@@ -49,19 +44,59 @@ class NotificationsFragment : BaseFragment() {
     private var currentCategory = NOTIF_CATEGORY_MENTIONS
     private val tabViews = mutableListOf<TextView>()
 
-    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
-        root = LinearLayout(requireContext()).apply {
+    override fun onInject(entryPoint: FragmentEntryPoint) {
+        store = entryPoint.notificationStore()
+        clansController = entryPoint.clansController()
+        channelController = entryPoint.channelController()
+    }
+
+    override fun onFragmentCreate(): Boolean {
+        super.onFragmentCreate()
+
+        observe(NotificationCenter.clansDidLoad) { _, _, _ ->
+            if (fragmentView == null || isPaused) return@observe
+            val id = clansController.selectedClanId.value
+            if (id != 0L) store.setCurrentClan(id)
+        }
+        observe(NotificationCenter.notificationsDidLoad) { _, _, args ->
+            if (fragmentView == null || isPaused) return@observe
+            val category = args.firstOrNull() as? Int ?: return@observe
+            if (category == currentCategory) refreshList()
+        }
+        observe(NotificationCenter.notificationsLoadError) { _, _, args ->
+            if (fragmentView == null || isPaused) return@observe
+            val category = args.firstOrNull() as? Int ?: return@observe
+            if (category == currentCategory) showEmpty()
+        }
+        observe(NotificationCenter.updateInterfaces) { _, _, args ->
+            if (fragmentView == null || isPaused) return@observe
+            val mask = args.firstOrNull() as? Int ?: 0
+            updateVisibleRows(mask)
+        }
+        observe(NotificationCenter.themeChanged) { _, _, _ ->
+            if (fragmentView == null) return@observe
+            root.setBackgroundColor(themeColors.background)
+            emptyView.setTextColor(themeColors.onSurfaceVariant)
+            rebuildTabChipColors()
+            adapter.notifyDataSetChanged()
+        }
+
+        return true
+    }
+
+    override fun createView(context: Context): View {
+        root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(themeColors.background)
         }
 
-        root.addView(buildHeader(), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+        root.addView(buildHeader(context), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
-        val tabScrollView = HorizontalScrollView(requireContext()).apply {
+        val tabScrollView = HorizontalScrollView(context).apply {
             isHorizontalScrollBarEnabled = false
             setBackgroundColor(themeColors.surface)
         }
-        tabContainer = LinearLayout(requireContext()).apply {
+        tabContainer = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             val pad = LayoutHelper.dp(12)
             setPadding(pad, LayoutHelper.dp(8), pad, LayoutHelper.dp(8))
@@ -69,22 +104,22 @@ class NotificationsFragment : BaseFragment() {
         tabScrollView.addView(tabContainer)
         root.addView(tabScrollView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
-        buildTabChips()
+        buildTabChips(context)
 
-        val contentFrame = FrameLayout(requireContext())
+        val contentFrame = FrameLayout(context)
         root.addView(contentFrame, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
 
-        recyclerView = RecyclerView(requireContext()).apply {
+        recyclerView = RecyclerListView(context).apply {
             layoutManager = LinearLayoutManager(context)
             setHasFixedSize(false)
             visibility = View.GONE
         }
         contentFrame.addView(recyclerView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
-        loadingView = ProgressBar(requireContext()).apply { visibility = View.GONE }
+        loadingView = ProgressBar(context).apply { visibility = View.GONE }
         contentFrame.addView(loadingView, LayoutHelper.createFrame(48, 48, Gravity.CENTER))
 
-        emptyView = TextView(requireContext()).apply {
+        emptyView = TextView(context).apply {
             text = getString(R.string.notif_empty)
             setTextColor(themeColors.onSurfaceVariant)
             textSize = 16f
@@ -93,73 +128,54 @@ class NotificationsFragment : BaseFragment() {
         }
         contentFrame.addView(emptyView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
-        adapter = NotificationAdapter(
-            theme = themeColors,
-            onPress = { entity -> handleNotificationPress(entity) },
-            onLongPress = { entity -> store.deleteNotification(entity.id, currentCategory) }
-        )
+        adapter = NotificationAdapter(theme = themeColors)
         recyclerView.adapter = adapter
+        recyclerView.setOnItemClickListener(RecyclerListView.OnItemClickListener { view, _ ->
+            if (view is NotificationCell) {
+                val entity = view.entity ?: return@OnItemClickListener
+                handleNotificationPress(entity)
+            }
+        })
+        recyclerView.setOnItemLongClickListener(RecyclerListView.OnItemLongClickListener { view, _ ->
+            if (view is NotificationCell) {
+                val entity = view.entity ?: return@OnItemLongClickListener false
+                store.deleteNotification(entity.id, currentCategory)
+                true
+            } else false
+        })
 
         return root
     }
 
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
+    override fun onBecomeFullyVisible() {
+        super.onBecomeFullyVisible()
 
         val clanId = clansController.selectedClanId.value
         store.setCurrentClan(clanId)
-
-        observe(NotificationCenter.clansDidLoad) { _, _ ->
-            val id = clansController.selectedClanId.value
-            if (id != 0L) {
-                store.setCurrentClan(id)
-            }
-        }
-
-        observe(NotificationCenter.notificationsDidLoad) { _, args ->
-            val category = args.firstOrNull() as? Int ?: return@observe
-            if (category == currentCategory) refreshList()
-        }
-
-        observe(NotificationCenter.notificationsLoadError) { _, args ->
-            val category = args.firstOrNull() as? Int ?: return@observe
-            if (category == currentCategory) showEmpty()
-        }
-
-        observe(NotificationCenter.themeChanged) { _, _ ->
-            root.setBackgroundColor(themeColors.background)
-            emptyView.setTextColor(themeColors.onSurfaceVariant)
-            rebuildTabChipColors()
-            adapter.notifyDataSetChanged()
-        }
 
         selectTab(currentCategory)
     }
 
     private fun handleNotificationPress(entity: NotificationEntity) {
-        Log.d("NotifNav", "press entity: id=${entity.id} channelId=${entity.channelId} channelType=${entity.channelType} clanId=${entity.clanId} channelLabel='${entity.channelLabel}' senderName='${entity.senderName}'")
+        Log.d("NotifNav", "press entity: id=${entity.id} channelId=${entity.channelId}")
         val channelId = entity.channelId
-        if (channelId == 0L) {
-            Log.w("NotifNav", "channelId == 0, skip navigate")
-            return
-        }
+        if (channelId == 0L) { Log.w("NotifNav", "channelId == 0, skip"); return }
         val channelName = entity.channelLabel
             .ifEmpty { channelController.findChannelById(channelId)?.channelLabel ?: "" }
             .ifEmpty { entity.subject.substringAfterLast("#").trimEnd(')').trim() }
             .ifEmpty { entity.clanName }
         val clanId = entity.clanId
         val channelType = entity.channelType.takeIf { it != 0 } ?: 1
-        Log.d("NotifNav", "invoking onOpenChat: channelId=$channelId name='$channelName' clanId=$clanId type=$channelType")
         onOpenChat?.invoke(channelId, channelName, clanId, channelType)
     }
 
-    private fun buildHeader(): View {
-        val header = FrameLayout(requireContext()).apply {
+    private fun buildHeader(context: Context): View {
+        val header = FrameLayout(context).apply {
             setBackgroundColor(themeColors.surface)
             val pad = LayoutHelper.dp(16)
             setPadding(pad, LayoutHelper.dp(16), pad, LayoutHelper.dp(12))
         }
-        val title = TextView(requireContext()).apply {
+        val title = TextView(context).apply {
             text = getString(R.string.notif_inbox_title)
             setTextColor(themeColors.onSurface)
             textSize = 22f
@@ -169,11 +185,11 @@ class NotificationsFragment : BaseFragment() {
         return header
     }
 
-    private fun buildTabChips() {
+    private fun buildTabChips(context: Context) {
         tabContainer.removeAllViews()
         tabViews.clear()
-        tabs.forEachIndexed { _, tab ->
-            val chip = buildChip(requireContext(), getString(tab.labelRes), tab.category == currentCategory)
+        tabs.forEach { tab ->
+            val chip = buildChip(context, getString(tab.labelRes), tab.category == currentCategory)
             chip.setOnClickListener { selectTab(tab.category) }
             val margin = LayoutHelper.dp(6)
             tabContainer.addView(chip, LayoutHelper.createLinear(
@@ -203,19 +219,22 @@ class NotificationsFragment : BaseFragment() {
             cornerRadius = LayoutHelper.dp(20).toFloat()
             setColor(if (active) themeColors.blurple else themeColors.surfaceVariant)
         }
-        val ripple = android.graphics.drawable.RippleDrawable(
+        return android.graphics.drawable.RippleDrawable(
             android.content.res.ColorStateList.valueOf(themeColors.onSurface and 0x33FFFFFF.toInt()),
             bg, null
         )
-        return ripple
     }
 
     private fun selectTab(category: Int) {
         currentCategory = category
         rebuildTabChipColors()
         store.loadCategory(category)
-        showLoading()
-        refreshList()
+        val cached = store.getForCategory(category).value
+        if (cached.isNotEmpty()) {
+            showList(cached)
+        } else {
+            showLoading()
+        }
     }
 
     private fun rebuildTabChipColors() {
@@ -227,13 +246,24 @@ class NotificationsFragment : BaseFragment() {
         }
     }
 
+    private fun updateVisibleRows(mask: Int) {
+        if (isPaused) return
+        if (mask == 0) {
+            refreshList()
+            return
+        }
+        val count = recyclerView.childCount
+        for (i in 0 until count) {
+            val child = recyclerView.getChildAt(i)
+            if (child is NotificationCell) {
+                child.update(mask)
+            }
+        }
+    }
+
     private fun refreshList() {
         val items = store.getForCategory(currentCategory).value
-        if (items.isEmpty()) {
-            showEmpty()
-        } else {
-            showList(items)
-        }
+        if (items.isEmpty()) showEmpty() else showList(items)
     }
 
     private fun showLoading() {

@@ -6,35 +6,36 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import android.util.LongSparseArray
-import android.view.View
 import coil.Coil
 import coil.request.ImageRequest
+import coil.size.Size
 import com.mezon.mobile.core.AvatarDrawable
+import com.mezon.mobile.core.BaseCell
 import com.mezon.mobile.core.LayoutHelper
+import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.util.createImgproxyUrl
 
 class ClanCell(
     context: Context,
     private val themeColors: ThemeColors
-) : View(context) {
+) : BaseCell(context) {
 
     companion object {
-        private const val ICON_SIZE_DP = 48
-        private const val UNREAD_DOT_DP = 8
-        private const val SELECTED_BAR_DP = 4
-        private val shapeRectF = RectF()
-        private val selectedBarRect = RectF()
-        private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-        private val unreadPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt() }
-        private val selectedBarPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt() }
-        private val clipPath = Path()
         private val cachedAvatars = LongSparseArray<AvatarDrawable>(30)
     }
 
-    private var clan: ClanEntity? = null
+    var currentClan: ClanEntity? = null
+        private set
     private var isSelected = false
     private var cornerRadius = LayoutHelper.dp(24).toFloat()
+
+    private val shapeRectF = RectF()
+    private val selectedBarRect = RectF()
+    private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val unreadPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt() }
+    private val selectedBarPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt() }
+    private val clipPath = Path()
 
     private val iconSizePx = LayoutHelper.dp(40)
     private val unreadDotPx = LayoutHelper.dp(8)
@@ -44,19 +45,62 @@ class ClanCell(
     private val paddingHPx = LayoutHelper.dp(6)
     private val paddingVPx = LayoutHelper.dp(6)
 
-    init {
-        setWillNotDraw(false)
-    }
+
 
     fun bind(clan: ClanEntity, selected: Boolean) {
-        val changed = this.clan?.clanId != clan.clanId || this.isSelected != selected
-        this.clan = clan
-        this.isSelected = selected
-        if (changed) {
-            ensureAvatar(clan)
-            loadLogoIfNeeded(clan)
+        currentClan = clan
+        isSelected = selected
+        update(0)
+    }
+
+    fun update(mask: Int, newClan: ClanEntity? = null, newSelected: Boolean? = null): Boolean {
+        val c = newClan ?: currentClan ?: return false
+        var needInvalidate = false
+
+        if (mask == 0) {
+            if (newClan != null) currentClan = newClan
+            if (newSelected != null) isSelected = newSelected
+            ensureAvatar(c)
+            loadLogoIfNeeded(c)
+            invalidate()
+            return true
+        }
+
+        if ((mask and NotificationCenter.UPDATE_MASK_BADGE) != 0) {
+            if (currentClan?.badgeCount != c.badgeCount || currentClan?.hasUnread != c.hasUnread) {
+                needInvalidate = true
+            }
+        }
+
+        if ((mask and NotificationCenter.UPDATE_MASK_CHAT_NAME) != 0) {
+            if (currentClan?.clanName != c.clanName) {
+                needInvalidate = true
+            }
+        }
+
+        if ((mask and NotificationCenter.UPDATE_MASK_CHAT_AVATAR) != 0) {
+            if (currentClan?.logo != c.logo) {
+                ensureAvatar(c)
+                loadLogoIfNeeded(c)
+                needInvalidate = true
+            }
+        }
+
+        if ((mask and NotificationCenter.UPDATE_MASK_SELECT_DIALOG) != 0) {
+            val sel = newSelected ?: isSelected
+            if (isSelected != sel) {
+                isSelected = sel
+                needInvalidate = true
+            }
+        }
+
+        if (newClan != null) currentClan = newClan
+        if (newSelected != null) isSelected = newSelected
+
+        if (needInvalidate) {
             invalidate()
         }
+        return false
     }
 
     private fun ensureAvatar(clan: ClanEntity) {
@@ -74,14 +118,11 @@ class ClanCell(
         val url = createImgproxyUrl(clan.logo, iconSizePx * 2, iconSizePx * 2, "fill")
         val request = ImageRequest.Builder(context)
             .data(url)
+            .size(Size(iconSizePx, iconSizePx))
             .allowHardware(false)
             .target(
                 onSuccess = { drawable ->
-                    val bmp = android.graphics.Bitmap.createBitmap(iconSizePx, iconSizePx, android.graphics.Bitmap.Config.ARGB_8888)
-                    val c = android.graphics.Canvas(bmp)
-                    drawable.setBounds(0, 0, iconSizePx, iconSizePx)
-                    drawable.draw(c)
-                    avatar.setPhoto(bmp)
+                    avatar.setPhoto(LayoutHelper.drawableToBitmap(drawable, iconSizePx))
                     invalidate()
                 }
             ).build()
@@ -96,7 +137,7 @@ class ClanCell(
     }
 
     override fun onDraw(canvas: Canvas) {
-        val clan = this.clan ?: return
+        val clan = currentClan ?: return
         val cx = (width / 2).toFloat()
         val cy = (height / 2).toFloat()
         val left = cx - iconSizePx / 2f
@@ -117,11 +158,11 @@ class ClanCell(
         canvas.clipPath(clipPath)
 
         val avatar = cachedAvatars.get(clan.clanId)
-        if (avatar != null) {
+        if (avatar != null && (avatar.hasPhoto() || clan.logo.isEmpty())) {
             avatar.setBounds(left.toInt(), top.toInt(), right.toInt(), bottom.toInt())
             avatar.draw(canvas)
         } else {
-            bgPaint.color = AvatarDrawable.colorForId(clan.clanId)
+            bgPaint.color = AvatarDrawable.getColorForId(clan.clanId)
             canvas.drawRoundRect(shapeRectF, cornerRadius, cornerRadius, bgPaint)
         }
 

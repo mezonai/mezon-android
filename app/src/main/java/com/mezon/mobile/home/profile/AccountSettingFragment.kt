@@ -1,10 +1,8 @@
 package com.mezon.mobile.home.profile
 
-import android.os.Bundle
-import android.view.LayoutInflater
+import android.content.Context
 import android.view.View
 import android.view.ViewGroup
-import android.widget.FrameLayout
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.R
@@ -12,14 +10,13 @@ import com.mezon.mobile.core.AlertsCreator
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
+import com.mezon.mobile.core.RecyclerListView
+import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.ui.cells.HeaderCell
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.ShadowSectionCell
 import com.mezon.mobile.ui.cells.TextSettingsCell
-import dagger.hilt.android.AndroidEntryPoint
-import javax.inject.Inject
 
-@AndroidEntryPoint
 class AccountSettingFragment : BaseFragment() {
 
     companion object {
@@ -28,8 +25,8 @@ class AccountSettingFragment : BaseFragment() {
         private const val VIEW_TYPE_SHADOW = 2
     }
 
-    @Inject lateinit var accountController: AccountController
-    @Inject lateinit var userController: UserController
+    private lateinit var accountController: AccountController
+    private lateinit var userController: UserController
 
     var onNavigateUpdateEmail: ((currentEmail: String) -> Unit)? = null
     var onNavigateUpdatePhone: ((currentPhone: String) -> Unit)? = null
@@ -50,34 +47,61 @@ class AccountSettingFragment : BaseFragment() {
     private var deleteAccountRow = -1
     private var shadowManagementRow = -1
 
-    private lateinit var listView: RecyclerView
+    private lateinit var listView: RecyclerListView
     private lateinit var listAdapter: ListAdapter
 
-    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
-        listAdapter = ListAdapter()
-        listView = RecyclerView(requireContext()).apply {
-            layoutManager = LinearLayoutManager(requireContext())
-            adapter = listAdapter
-            overScrollMode = View.OVER_SCROLL_NEVER
-            setBackgroundColor(themeColors.background)
-        }
-        return wrapWithActionBar(getString(R.string.account_settings_title), listView)
+    override fun onInject(entryPoint: FragmentEntryPoint) {
+        accountController = entryPoint.accountController()
+        userController = entryPoint.userController()
     }
 
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
+    override fun onFragmentCreate(): Boolean {
+        super.onFragmentCreate()
 
-        observe(NotificationCenter.accountInfoLoaded) { _, _ ->
+        observe(NotificationCenter.accountInfoLoaded) { _, _, _ ->
             userController.updateFromAccount(accountController.accountInfo.value)
-            updateRows()
+            if (fragmentView != null) updateRows()
         }
-        observe(NotificationCenter.themeChanged) { _, _ ->
-            view.setBackgroundColor(themeColors.background)
+        observe(NotificationCenter.updateInterfaces) { _, _, args ->
+            if (fragmentView == null) return@observe
+            val mask = args.firstOrNull() as? Int ?: 0
+            updateVisibleRows(mask)
+        }
+        observe(NotificationCenter.themeChanged) { _, _, _ ->
+            if (fragmentView == null) return@observe
+            fragmentView?.setBackgroundColor(themeColors.background)
             listAdapter.notifyDataSetChanged()
         }
 
         accountController.loadAccount()
+        return true
+    }
+
+    override fun createView(context: Context): View {
+        listAdapter = ListAdapter()
+        listView = RecyclerListView(context).apply {
+            layoutManager = LinearLayoutManager(context)
+            adapter = listAdapter
+            overScrollMode = View.OVER_SCROLL_NEVER
+            setBackgroundColor(themeColors.background)
+            setOnItemClickListener(RecyclerListView.OnItemClickListener { _, position ->
+                onItemClick(position)
+            })
+        }
+
         updateRows()
+        return wrapWithActionBar(getString(R.string.account_settings_title), listView)
+    }
+
+    private fun updateVisibleRows(mask: Int) {
+        if (mask == 0) {
+            updateRows()
+            return
+        }
+        if ((mask and NotificationCenter.UPDATE_MASK_NAME) != 0) {
+            if (usernameRow >= 0) listAdapter.notifyItemChanged(usernameRow)
+            if (displayNameRow >= 0) listAdapter.notifyItemChanged(displayNameRow)
+        }
     }
 
     private fun updateRows() {
@@ -100,19 +124,20 @@ class AccountSettingFragment : BaseFragment() {
 
     private fun onItemClick(position: Int) {
         when (position) {
-            usernameRow, displayNameRow -> {
-                requireActivity().supportFragmentManager.beginTransaction()
-                    .setCustomAnimations(
-                        android.R.anim.fade_in, android.R.anim.fade_out,
-                        android.R.anim.fade_in, android.R.anim.fade_out
-                    )
-                    .replace(R.id.fragment_container, EditProfileFragment())
-                    .addToBackStack(null)
-                    .commit()
+            usernameRow, displayNameRow -> presentFragment(EditProfileFragment())
+            emailRow -> {
+                val email = accountController.accountInfo.value.email
+                onNavigateUpdateEmail?.invoke(email)
+                    ?: presentFragment(UpdateEmailFragment.newInstance(email))
             }
-            emailRow -> onNavigateUpdateEmail?.invoke(accountController.accountInfo.value.email)
-            phoneRow -> onNavigateUpdatePhone?.invoke(accountController.accountInfo.value.phoneNumber)
-            blockedUsersRow -> onNavigateBlockedUsers?.invoke()
+            phoneRow -> {
+                val phone = accountController.accountInfo.value.phoneNumber
+                onNavigateUpdatePhone?.invoke(phone)
+                    ?: presentFragment(UpdatePhoneFragment.newInstance(phone))
+            }
+            blockedUsersRow -> {
+                onNavigateBlockedUsers?.invoke() ?: presentFragment(BlockedUsersFragment())
+            }
             setPasswordRow -> {
                 val email = accountController.accountInfo.value.email
                 if (email.isEmpty()) {
@@ -121,16 +146,9 @@ class AccountSettingFragment : BaseFragment() {
                         getString(R.string.account_set_password_link_email_required_title),
                         getString(R.string.account_set_password_link_email_required_desc),
                         getString(R.string.account_go_to_email)
-                    ) { onNavigateUpdateEmail?.invoke("") }.show()
+                    ) { onNavigateUpdateEmail?.invoke("") ?: presentFragment(UpdateEmailFragment.newInstance("")) }.show()
                 } else {
-                    requireActivity().supportFragmentManager.beginTransaction()
-                        .setCustomAnimations(
-                            android.R.anim.fade_in, android.R.anim.fade_out,
-                            android.R.anim.fade_in, android.R.anim.fade_out
-                        )
-                        .replace(R.id.fragment_container, SetPasswordFragment())
-                        .addToBackStack(null)
-                        .commit()
+                    presentFragment(SetPasswordFragment())
                 }
             }
             deleteAccountRow -> confirmDeleteAccount()
@@ -172,7 +190,12 @@ class AccountSettingFragment : BaseFragment() {
         return phone.take(3) + "****" + phone.takeLast(3)
     }
 
-    private inner class ListAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+    private inner class ListAdapter : RecyclerListView.SelectionAdapter() {
+
+        override fun isEnabled(holder: RecyclerView.ViewHolder): Boolean {
+            val type = getItemViewType(holder.adapterPosition)
+            return type == VIEW_TYPE_ITEM
+        }
 
         override fun getItemCount() = rowCount
 
@@ -251,7 +274,6 @@ class AccountSettingFragment : BaseFragment() {
                             cell.setTitleColor(themeColors.error)
                         }
                     }
-                    cell.setOnClickListener { onItemClick(position) }
                 }
             }
         }

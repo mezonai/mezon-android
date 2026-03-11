@@ -22,11 +22,46 @@ class ChatAdapter(
         private const val TYPE_LOADING_UP = 2
         private const val TYPE_LOADING_DOWN = 3
         private const val DIFF_BG_THRESHOLD = 50
+        private const val PRECACHE_COUNT = 10
     }
 
     private val items = ArrayList<MessageEntity>()
     private val scope = CoroutineScope(Dispatchers.Main)
     private var diffJob: Job? = null
+    private val cellCache = ArrayDeque<ChatMessageCell>(PRECACHE_COUNT)
+    private var cacheContext: android.content.Context? = null
+
+    fun precacheCells(context: android.content.Context) {
+        cacheContext = context
+        for (i in 0 until PRECACHE_COUNT) {
+            val cell = ChatMessageCell(context, themeColors).apply {
+                layoutParams = RecyclerView.LayoutParams(
+                    RecyclerView.LayoutParams.MATCH_PARENT,
+                    RecyclerView.LayoutParams.WRAP_CONTENT
+                )
+            }
+            cellCache.addLast(cell)
+        }
+    }
+
+    private fun obtainCell(context: android.content.Context): ChatMessageCell {
+        return cellCache.removeFirstOrNull() ?: ChatMessageCell(context, themeColors).apply {
+            layoutParams = RecyclerView.LayoutParams(
+                RecyclerView.LayoutParams.MATCH_PARENT,
+                RecyclerView.LayoutParams.WRAP_CONTENT
+            )
+        }
+    }
+
+    fun recycleCells(recyclerView: RecyclerView) {
+        val count = recyclerView.childCount
+        for (i in 0 until count) {
+            val child = recyclerView.getChildAt(i)
+            if (child is ChatMessageCell && cellCache.size < PRECACHE_COUNT) {
+                cellCache.addLast(child)
+            }
+        }
+    }
 
     var loadingUpRow = -1
         private set
@@ -141,21 +176,32 @@ class ChatAdapter(
                 LoadingViewHolder(pb)
             }
             else -> {
-                val cell = ChatMessageCell(parent.context, themeColors)
-                cell.layoutParams = RecyclerView.LayoutParams(
-                    RecyclerView.LayoutParams.MATCH_PARENT,
-                    RecyclerView.LayoutParams.WRAP_CONTENT
-                )
-                MessageViewHolder(cell)
+                MessageViewHolder(obtainCell(parent.context))
             }
         }
     }
 
+    var freezeDuringFastScroll = false
+    private var recyclerListView: com.mezon.mobile.core.RecyclerListView? = null
+
+    override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
+        super.onAttachedToRecyclerView(recyclerView)
+        recyclerListView = recyclerView as? com.mezon.mobile.core.RecyclerListView
+    }
+
+    override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+        super.onDetachedFromRecyclerView(recyclerView)
+        recyclerListView = null
+    }
+
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         if (holder is MessageViewHolder) {
+            if (freezeDuringFastScroll && recyclerListView?.isFastScrolling() == true) {
+                return
+            }
             val idx = position - messagesStartRow
             if (idx in items.indices) {
-                holder.cell.setMessage(items[idx])
+                holder.cell.update(0, items[idx])
             }
         }
     }

@@ -1,7 +1,6 @@
 package com.mezon.mobile.home.profile
 
-import android.os.Bundle
-import android.view.LayoutInflater
+import android.content.Context
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -13,7 +12,8 @@ import com.mezon.mobile.core.AlertsCreator
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
-import com.mezon.mobile.di.ApplicationScope
+import com.mezon.mobile.core.RecyclerListView
+import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.session.LocaleManager
 import com.mezon.mobile.ui.cells.HeaderCell
 import com.mezon.mobile.ui.cells.MezonIcon
@@ -22,12 +22,9 @@ import com.mezon.mobile.ui.cells.SelectPopup
 import com.mezon.mobile.ui.cells.ShadowSectionCell
 import com.mezon.mobile.ui.cells.TextSettingsCell
 import com.mezon.mobile.ui.theme.ThemeMode
-import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import javax.inject.Inject
 
-@AndroidEntryPoint
 class ProfileFragment : BaseFragment() {
 
     companion object {
@@ -37,9 +34,8 @@ class ProfileFragment : BaseFragment() {
         private const val VIEW_TYPE_SHADOW = 3
     }
 
-    @Inject lateinit var userController: UserController
-    @Inject lateinit var authRepository: AuthRepository
-    @Inject @ApplicationScope lateinit var appScope: CoroutineScope
+    private lateinit var userController: UserController
+    private lateinit var authRepository: AuthRepository
 
     var onLogout: (() -> Unit)? = null
 
@@ -57,45 +53,73 @@ class ProfileFragment : BaseFragment() {
     private var logoutRow = -1
     private var logoutShadowRow = -1
 
-    private lateinit var listView: RecyclerView
+    private lateinit var listView: RecyclerListView
     private lateinit var listAdapter: ListAdapter
 
-    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
-        val ctx = requireContext()
+    override fun onInject(entryPoint: FragmentEntryPoint) {
+        userController = entryPoint.userController()
+        authRepository = entryPoint.authRepository()
+    }
 
-        val root = FrameLayout(ctx).apply {
+    override fun onFragmentCreate(): Boolean {
+        super.onFragmentCreate()
+
+        observe(NotificationCenter.userDataLoaded) { _, _, _ ->
+            if (fragmentView == null || isPaused) return@observe
+            updateRows()
+        }
+        observe(NotificationCenter.updateInterfaces) { _, _, args ->
+            if (fragmentView == null || isPaused) return@observe
+            val mask = args.firstOrNull() as? Int ?: 0
+            updateVisibleRows(mask)
+        }
+        observe(NotificationCenter.themeChanged) { _, _, _ ->
+            if (fragmentView == null) return@observe
+            fragmentView?.setBackgroundColor(themeColors.background)
+            listAdapter.notifyDataSetChanged()
+        }
+        observe(NotificationCenter.languageChanged) { _, _, _ ->
+            if (fragmentView == null || isPaused) return@observe
+            if (languageRow >= 0) listAdapter.notifyItemChanged(languageRow)
+        }
+
+        return true
+    }
+
+    override fun createView(context: Context): View {
+        val root = FrameLayout(context).apply {
             setBackgroundColor(themeColors.background)
         }
 
         listAdapter = ListAdapter()
-        listView = RecyclerView(ctx).apply {
-            layoutManager = LinearLayoutManager(ctx)
+        listView = RecyclerListView(context).apply {
+            layoutManager = LinearLayoutManager(context)
             adapter = listAdapter
             overScrollMode = View.OVER_SCROLL_NEVER
+            setOnItemClickListener(RecyclerListView.OnItemClickListener { view, position ->
+                onItemClick(view, position)
+            })
         }
         root.addView(listView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
         return root
     }
 
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
+    override fun onBecomeFullyVisible() {
+        super.onBecomeFullyVisible()
+        if (userController.userIdStr.isNotEmpty()) updateRows()
+    }
 
-        observe(NotificationCenter.userDataLoaded) { _, _ ->
+    private fun updateVisibleRows(mask: Int) {
+        if (isPaused) return
+        if (mask == 0) {
             updateRows()
+            return
         }
-
-        observe(NotificationCenter.themeChanged) { _, _ ->
-            view.setBackgroundColor(themeColors.background)
-            listAdapter.notifyDataSetChanged()
-        }
-
-        observe(NotificationCenter.languageChanged) { _, _ ->
-            if (languageRow >= 0) listAdapter.notifyItemChanged(languageRow)
-        }
-
-        if (userController.userIdStr.isNotEmpty()) {
-            updateRows()
+        if ((mask and NotificationCenter.UPDATE_MASK_NAME) != 0 ||
+            (mask and NotificationCenter.UPDATE_MASK_AVATAR) != 0
+        ) {
+            if (profileHeaderRow >= 0) listAdapter.notifyItemChanged(profileHeaderRow)
         }
     }
 
@@ -113,7 +137,6 @@ class ProfileFragment : BaseFragment() {
         developerShadowRow = rowCount++
         logoutRow = rowCount++
         logoutShadowRow = rowCount++
-
         listAdapter.notifyDataSetChanged()
     }
 
@@ -122,16 +145,7 @@ class ProfileFragment : BaseFragment() {
             accountRow -> openAccountSetting()
             themeRow -> showThemeSelector(view)
             languageRow -> showLanguageSelector(view)
-            componentPreviewRow -> {
-                requireActivity().supportFragmentManager.beginTransaction()
-                    .setCustomAnimations(
-                        android.R.anim.fade_in, android.R.anim.fade_out,
-                        android.R.anim.fade_in, android.R.anim.fade_out
-                    )
-                    .replace(R.id.fragment_container, ComponentPreviewFragment())
-                    .addToBackStack(null)
-                    .commit()
-            }
+            componentPreviewRow -> presentFragment(ComponentPreviewFragment())
             logoutRow -> confirmLogout()
         }
     }
@@ -139,57 +153,35 @@ class ProfileFragment : BaseFragment() {
     private fun openAccountSetting() {
         val fragment = AccountSettingFragment().apply {
             onNavigateUpdateEmail = { currentEmail ->
-                val updateEmailFrag = UpdateEmailFragment.newInstance(currentEmail)
-                requireActivity().supportFragmentManager.beginTransaction()
-                    .setCustomAnimations(android.R.anim.fade_in, android.R.anim.fade_out, android.R.anim.fade_in, android.R.anim.fade_out)
-                    .replace(R.id.fragment_container, updateEmailFrag)
-                    .addToBackStack(null)
-                    .commit()
+                presentFragment(UpdateEmailFragment.newInstance(currentEmail))
             }
             onNavigateUpdatePhone = { currentPhone ->
-                val updatePhoneFrag = UpdatePhoneFragment.newInstance(currentPhone)
-                requireActivity().supportFragmentManager.beginTransaction()
-                    .setCustomAnimations(android.R.anim.fade_in, android.R.anim.fade_out, android.R.anim.fade_in, android.R.anim.fade_out)
-                    .replace(R.id.fragment_container, updatePhoneFrag)
-                    .addToBackStack(null)
-                    .commit()
+                presentFragment(UpdatePhoneFragment.newInstance(currentPhone))
             }
             onNavigateBlockedUsers = {
-                requireActivity().supportFragmentManager.beginTransaction()
-                    .setCustomAnimations(android.R.anim.fade_in, android.R.anim.fade_out, android.R.anim.fade_in, android.R.anim.fade_out)
-                    .replace(R.id.fragment_container, BlockedUsersFragment())
-                    .addToBackStack(null)
-                    .commit()
+                presentFragment(BlockedUsersFragment())
             }
         }
-        requireActivity().supportFragmentManager.beginTransaction()
-            .setCustomAnimations(android.R.anim.fade_in, android.R.anim.fade_out, android.R.anim.fade_in, android.R.anim.fade_out)
-            .replace(R.id.fragment_container, fragment)
-            .addToBackStack(null)
-            .commit()
+        presentFragment(fragment)
     }
 
     private fun showThemeSelector(anchor: View) {
-        val popup = SelectPopup(requireContext(), themeColors)
+        val popup = SelectPopup(anchor.context, themeColors)
         val entries = ThemeMode.entries
         val items = entries.map { getThemeDisplayName(it) }
         val currentName = getThemeDisplayName(userController.themeMode)
         popup.setItems(items, items.indexOf(currentName))
-        popup.setOnItemSelectedListener { index ->
-            userController.applyTheme(entries[index])
-        }
+        popup.setOnItemSelectedListener { index -> userController.applyTheme(entries[index]) }
         popup.show(anchor)
     }
 
     private fun showLanguageSelector(anchor: View) {
-        val popup = SelectPopup(requireContext(), themeColors)
+        val popup = SelectPopup(anchor.context, themeColors)
         val items = listOf(getString(R.string.setting_language_english), getString(R.string.setting_language_vietnamese))
         val tags = listOf(LocaleManager.ENGLISH, LocaleManager.VIETNAMESE)
         val currentIndex = tags.indexOf(userController.languageTag).let { if (it < 0) 0 else it }
         popup.setItems(items, currentIndex)
-        popup.setOnItemSelectedListener { index ->
-            userController.applyLanguage(tags[index])
-        }
+        popup.setOnItemSelectedListener { index -> userController.applyLanguage(tags[index]) }
         popup.show(anchor)
     }
 
@@ -202,7 +194,7 @@ class ProfileFragment : BaseFragment() {
             cancelText = getString(R.string.setting_log_out_no),
             destructive = true
         ) {
-            appScope.launch {
+            fragmentScope.launch(Dispatchers.Main) {
                 authRepository.logout()
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.sessionExpired)
             }
@@ -222,7 +214,12 @@ class ProfileFragment : BaseFragment() {
         else -> tag
     }
 
-    private inner class ListAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+    private inner class ListAdapter : RecyclerListView.SelectionAdapter() {
+
+        override fun isEnabled(holder: RecyclerView.ViewHolder): Boolean {
+            val type = getItemViewType(holder.adapterPosition)
+            return type == VIEW_TYPE_TEXT_SETTINGS
+        }
 
         override fun getItemCount(): Int = rowCount
 
@@ -238,12 +235,7 @@ class ProfileFragment : BaseFragment() {
             val view: View = when (viewType) {
                 VIEW_TYPE_PROFILE_HEADER -> ProfileHeaderCell(ctx, themeColors)
                 VIEW_TYPE_HEADER -> HeaderCell(ctx, themeColors)
-                VIEW_TYPE_TEXT_SETTINGS -> TextSettingsCell(ctx, themeColors).apply {
-                    layoutParams = RecyclerView.LayoutParams(
-                        RecyclerView.LayoutParams.MATCH_PARENT,
-                        RecyclerView.LayoutParams.WRAP_CONTENT
-                    )
-                }
+                VIEW_TYPE_TEXT_SETTINGS -> TextSettingsCell(ctx, themeColors)
                 VIEW_TYPE_SHADOW -> ShadowSectionCell(ctx, themeColors)
                 else -> View(ctx)
             }
@@ -305,7 +297,6 @@ class ProfileFragment : BaseFragment() {
                             cell.setTitleColor(themeColors.error)
                         }
                     }
-                    cell.setOnClickListener { v -> onItemClick(v, position) }
                 }
             }
         }

@@ -1,54 +1,47 @@
 package com.mezon.mobile.auth
 
-import android.os.Bundle
+import android.content.Context
 import android.text.InputType
+import android.util.Log
 import android.view.Gravity
-import android.view.LayoutInflater
 import android.view.View
-import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
-import android.widget.Button
-import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
-import android.util.Log
-import androidx.lifecycle.lifecycleScope
 import com.mezon.mobile.R
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
-import com.mezon.mobile.di.IoDispatcher
-import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.CoroutineDispatcher
+import com.mezon.mobile.di.FragmentEntryPoint
+import com.mezon.mobile.ui.cells.ActionButton
+import com.mezon.mobile.ui.cells.InputCell
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import javax.inject.Inject
 
-@AndroidEntryPoint
 class LoginFragment : BaseFragment() {
 
-    @Inject lateinit var authRepository: AuthRepository
-    @Inject @IoDispatcher lateinit var ioDispatcher: CoroutineDispatcher
+    private lateinit var authRepository: AuthRepository
 
     var onLoginSuccess: (() -> Unit)? = null
-        set(value) {
-            Log.d("LoginFragment", "onLoginSuccess set: ${value != null}, trace=${Thread.currentThread().stackTrace.take(5).joinToString()}")
-            field = value
-        }
 
-    private lateinit var emailInput: EditText
-    private lateinit var passwordInput: EditText
-    private lateinit var loginButton: Button
+    private lateinit var emailCell: InputCell
+    private lateinit var passwordCell: InputCell
+    private lateinit var loginButton: ActionButton
     private lateinit var errorText: TextView
     private lateinit var progressBar: ProgressBar
 
-    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
-        val root = FrameLayout(requireContext()).apply {
+    override fun onInject(entryPoint: FragmentEntryPoint) {
+        authRepository = entryPoint.authRepository()
+    }
+
+    override fun createView(context: Context): View {
+        val root = FrameLayout(context).apply {
             setBackgroundColor(themeColors.background)
         }
 
-        val form = LinearLayout(requireContext()).apply {
+        val form = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             val padH = LayoutHelper.dp(24)
@@ -58,71 +51,60 @@ class LoginFragment : BaseFragment() {
             LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER
         ))
 
-        val title = TextView(requireContext()).apply {
+        val title = TextView(context).apply {
             text = getString(R.string.common_login_welcome_back)
             setTextColor(themeColors.onSurface)
             textSize = 24f
         }
         form.addView(title, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.START, 0f, 0f, 0f, 24f))
 
-        emailInput = EditText(requireContext()).apply {
-            hint = getString(R.string.common_login_email)
-            setHintTextColor(themeColors.onSurfaceVariant)
-            setTextColor(themeColors.onSurface)
-            inputType = InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
-            imeOptions = EditorInfo.IME_ACTION_NEXT
-            isSingleLine = true
-            textSize = 16f
+        emailCell = InputCell(context, themeColors).apply {
+            setLabel(getString(R.string.common_login_email))
+            setHint(getString(R.string.common_login_email))
+            editText.inputType = InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+            editText.imeOptions = EditorInfo.IME_ACTION_NEXT
         }
-        form.addView(emailInput, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.START, 0f, 0f, 0f, 12f))
+        form.addView(emailCell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.START, 0f, 0f, 0f, 12f))
 
-        passwordInput = EditText(requireContext()).apply {
-            hint = getString(R.string.common_login_password)
-            setHintTextColor(themeColors.onSurfaceVariant)
-            setTextColor(themeColors.onSurface)
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            imeOptions = EditorInfo.IME_ACTION_DONE
-            isSingleLine = true
-            textSize = 16f
+        passwordCell = InputCell(context, themeColors).apply {
+            setLabel(getString(R.string.common_login_password))
+            setHint(getString(R.string.common_login_password))
+            editText.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            editText.imeOptions = EditorInfo.IME_ACTION_DONE
         }
-        form.addView(passwordInput, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.START, 0f, 0f, 0f, 12f))
+        form.addView(passwordCell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.START, 0f, 0f, 0f, 12f))
 
-        errorText = TextView(requireContext()).apply {
+        errorText = TextView(context).apply {
             setTextColor(themeColors.error)
             textSize = 12f
             visibility = View.GONE
         }
         form.addView(errorText, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.START, 0f, 0f, 0f, 8f))
 
-        val buttonFrame = FrameLayout(requireContext())
+        val buttonFrame = FrameLayout(context)
         form.addView(buttonFrame, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 48, 0f, Gravity.START, 0f, 8f, 0f, 0f))
 
-        loginButton = Button(requireContext()).apply {
-            text = getString(R.string.common_login_log_in)
-            setTextColor(themeColors.onPrimary)
-            textSize = 16f
+        loginButton = ActionButton(context, themeColors).apply {
+            setText(getString(R.string.common_login_log_in))
             setOnClickListener { doLogin() }
         }
         buttonFrame.addView(loginButton, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
-        progressBar = ProgressBar(requireContext()).apply {
+        progressBar = ProgressBar(context).apply {
             visibility = View.GONE
         }
         buttonFrame.addView(progressBar, LayoutHelper.createFrame(24, 24, Gravity.CENTER))
 
-        passwordInput.setOnEditorActionListener { _, actionId, _ ->
-            if (actionId == EditorInfo.IME_ACTION_DONE) {
-                doLogin()
-                true
-            } else false
+        passwordCell.editText.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_DONE) { doLogin(); true } else false
         }
 
         return root
     }
 
     private fun doLogin() {
-        val email = emailInput.text.toString().trim()
-        val password = passwordInput.text.toString()
+        val email = emailCell.getText().trim()
+        val password = passwordCell.getText()
 
         if (email.isBlank() || password.isBlank()) {
             showError("Email and password are required")
@@ -131,11 +113,11 @@ class LoginFragment : BaseFragment() {
 
         showLoading()
 
-        lifecycleScope.launch {
-            val result = withContext(ioDispatcher) {
+        fragmentScope.launch(Dispatchers.Main) {
+            val result = withContext(entryPoint().ioDispatcher()) {
                 authRepository.loginWithEmail(email, password)
             }
-            Log.d("LoginFragment", "loginWithEmail result: isSuccess=${result.isSuccess} isFailure=${result.isFailure}")
+            Log.d("LoginFragment", "loginWithEmail result: isSuccess=${result.isSuccess}")
             result
                 .onSuccess {
                     Log.d("LoginFragment", "onLoginSuccess invoking, callback=${onLoginSuccess != null}")

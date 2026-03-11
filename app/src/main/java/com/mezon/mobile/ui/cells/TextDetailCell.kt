@@ -2,94 +2,98 @@ package com.mezon.mobile.ui.cells
 
 import android.content.Context
 import android.graphics.Canvas
-import android.text.Layout
-import android.text.StaticLayout
-import android.view.View
+import android.util.TypedValue
+import android.view.Gravity
+import android.view.accessibility.AccessibilityNodeInfo
+import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.TextView
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 
-class TextDetailCell(context: Context, private val theme: ThemeColors) : View(context) {
+class TextDetailCell(context: Context, private val theme: ThemeColors) : FrameLayout(context) {
 
-    private var titleText = ""
-    private var valueText = ""
-    private var titleLayout: StaticLayout? = null
-    private var valueLayout: StaticLayout? = null
+    val textView: TextView
+    val valueTextView: TextView
+    private val textContainer: LinearLayout
     private var needDivider = false
 
     init {
-        minimumHeight = LayoutHelper.dp(60)
-        isClickable = true
-        isFocusable = true
+        val outValue = TypedValue()
+        context.theme.resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)
+        foreground = androidx.core.content.ContextCompat.getDrawable(context, outValue.resourceId)
+
+        textContainer = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        textView = TextView(context).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            setTextColor(theme.onSurface)
+            maxLines = 1
+            isSingleLine = true
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        textContainer.addView(textView, LayoutHelper.createLinear(
+            LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT
+        ))
+
+        valueTextView = TextView(context).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            setTextColor(theme.onSurfaceVariant)
+            maxLines = 2
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        textContainer.addView(valueTextView, LayoutHelper.createLinear(
+            LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT,
+            topMargin = 4f
+        ))
+
+        addView(textContainer, LayoutHelper.createFrame(
+            LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT,
+            Gravity.CENTER_VERTICAL,
+            leftMargin = 20f, topMargin = 12f, rightMargin = 20f, bottomMargin = 12f
+        ))
+
+        minimumHeight = LayoutHelper.dp(64)
+        setWillNotDraw(true)
     }
 
     fun setTextAndValue(title: String, value: String, divider: Boolean = false) {
-        titleText = title
-        valueText = value
+        textView.text = title
+        valueTextView.text = value
+        valueTextView.visibility = if (value.isNotEmpty()) VISIBLE else GONE
         needDivider = divider
-        titleLayout = null
-        valueLayout = null
-        requestLayout()
+        setWillNotDraw(!divider)
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val w = MeasureSpec.getSize(widthMeasureSpec)
-        val textWidth = w - LayoutHelper.dp(16 + 16)
-
-        if (titleLayout == null && textWidth > 0) {
-            titleLayout = StaticLayout.Builder
-                .obtain(titleText, 0, titleText.length, theme.settingsNamePaint, textWidth)
-                .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                .setLineSpacing(0f, 1f)
-                .setMaxLines(1)
-                .setEllipsize(android.text.TextUtils.TruncateAt.END)
-                .build()
-        }
-        if (valueText.isNotEmpty() && valueLayout == null && textWidth > 0) {
-            valueLayout = StaticLayout.Builder
-                .obtain(valueText, 0, valueText.length, theme.settingsValuePaint, textWidth)
-                .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                .setLineSpacing(0f, 1f)
-                .setMaxLines(2)
-                .setEllipsize(android.text.TextUtils.TruncateAt.END)
-                .build()
-        }
-
-        var h = LayoutHelper.dp(12)
-        titleLayout?.let { h += it.height }
-        valueLayout?.let { h += it.height + LayoutHelper.dp(4) }
-        h += LayoutHelper.dp(12)
-        h = h.coerceAtLeast(LayoutHelper.dp(60))
-        if (needDivider) h += 1
-
-        setMeasuredDimension(w, h)
+        super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED))
+        val h = measuredHeight.coerceAtLeast(LayoutHelper.dp(64)) + if (needDivider) 1 else 0
+        setMeasuredDimension(measuredWidth, h)
     }
 
+    override fun hasOverlappingRendering(): Boolean = false
+
     override fun onDraw(canvas: Canvas) {
-        val leftPad = LayoutHelper.dp(16).toFloat()
-        var top = LayoutHelper.dp(12).toFloat()
-
-        titleLayout?.let {
-            canvas.save()
-            canvas.translate(leftPad, top)
-            it.draw(canvas)
-            canvas.restore()
-            top += it.height
-        }
-
-        valueLayout?.let {
-            top += LayoutHelper.dp(4)
-            canvas.save()
-            canvas.translate(leftPad, top)
-            it.draw(canvas)
-            canvas.restore()
-        }
-
         if (needDivider) {
-            canvas.drawRect(
-                leftPad, (height - 1).toFloat(),
-                width.toFloat(), height.toFloat(),
-                theme.dividerPaint
-            )
+            val leftPad = LayoutHelper.dp(20).toFloat()
+            val y = (height - 1).toFloat()
+            canvas.drawRect(leftPad, y, width.toFloat(), y + 1f, theme.dividerPaint)
         }
+    }
+
+    override fun onInitializeAccessibilityNodeInfo(info: AccessibilityNodeInfo) {
+        super.onInitializeAccessibilityNodeInfo(info)
+        val value = if (valueTextView.visibility == VISIBLE) valueTextView.text else null
+        if (value != null) {
+            info.text = "${textView.text} $value"
+        }
+    }
+
+    fun updateColors() {
+        textView.setTextColor(theme.onSurface)
+        valueTextView.setTextColor(theme.onSurfaceVariant)
     }
 }

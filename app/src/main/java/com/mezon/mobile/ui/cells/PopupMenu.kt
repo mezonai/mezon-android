@@ -13,6 +13,7 @@ import android.widget.LinearLayout
 import android.widget.PopupWindow
 import android.widget.ScrollView
 import androidx.annotation.DrawableRes
+import com.mezon.mobile.core.BaseCell
 import androidx.core.content.ContextCompat
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
@@ -86,7 +87,7 @@ class PopupMenu(private val context: Context, private val theme: ThemeColors) {
         popupWindow = null
     }
 
-    private class PopupItemCell(context: Context, private val theme: ThemeColors) : View(context) {
+    private class PopupItemCell(context: Context, private val theme: ThemeColors) : BaseCell(context) {
 
         private var menuItem: MenuItem? = null
         private var needDivider = false
@@ -97,6 +98,12 @@ class PopupMenu(private val context: Context, private val theme: ThemeColors) {
             minimumHeight = cellHeight
             isClickable = true
             isFocusable = true
+
+            val outValue = android.util.TypedValue()
+            context.theme.resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)
+            if (outValue.resourceId != 0) {
+                foreground = androidx.core.content.ContextCompat.getDrawable(context, outValue.resourceId)
+            }
         }
 
         fun bind(item: MenuItem, divider: Boolean) {

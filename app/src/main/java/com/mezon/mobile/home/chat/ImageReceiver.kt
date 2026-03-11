@@ -20,6 +20,10 @@ class ImageReceiver(private val parentView: View) {
     private var thumbBitmap: Bitmap? = null
     private var currentUrl: String? = null
     private var currentThumbUrl: String? = null
+    private var attached = false
+    private var pendingLoad: Pair<String?, String?>? = null
+    private var currentDisposable: coil.request.Disposable? = null
+    private var thumbDisposable: coil.request.Disposable? = null
 
     private var imageX = 0f
     private var imageY = 0f
@@ -48,30 +52,54 @@ class ImageReceiver(private val parentView: View) {
         roundRadius.fill(radius)
     }
 
+    fun onAttachedToWindow() {
+        if (attached) return
+        attached = true
+        pendingLoad?.let { (url, thumbUrl) ->
+            pendingLoad = null
+            setImage(url, thumbUrl, parentView.context)
+        }
+    }
+
+    fun onDetachedFromWindow() {
+        attached = false
+        currentDisposable?.dispose()
+        currentDisposable = null
+        thumbDisposable?.dispose()
+        thumbDisposable = null
+    }
+
     fun setImage(url: String?, thumbUrl: String?, context: Context) {
         val urlChanged = url != currentUrl
         val thumbChanged = thumbUrl != currentThumbUrl
 
         if (!urlChanged && !thumbChanged) return
 
+        if (!attached) {
+            currentUrl = url
+            currentThumbUrl = thumbUrl
+            pendingLoad = Pair(url, thumbUrl)
+            return
+        }
+
         if (thumbChanged && thumbUrl != null) {
             currentThumbUrl = thumbUrl
-            loadBitmap(thumbUrl, context, isThumb = true)
+            thumbDisposable?.dispose()
+            thumbDisposable = loadBitmap(thumbUrl, context, isThumb = true)
         }
 
         if (urlChanged && url != null) {
-            if (urlChanged) {
-                imageBitmap = null
-                cachedShader = null
-                cachedShaderBitmap = null
-            }
+            imageBitmap = null
+            cachedShader = null
+            cachedShaderBitmap = null
             currentUrl = url
-            loadBitmap(url, context, isThumb = false)
+            currentDisposable?.dispose()
+            currentDisposable = loadBitmap(url, context, isThumb = false)
         }
     }
 
-    private fun loadBitmap(url: String, context: Context, isThumb: Boolean) {
-        if (url.isEmpty()) return
+    private fun loadBitmap(url: String, context: Context, isThumb: Boolean): coil.request.Disposable? {
+        if (url.isEmpty()) return null
         val request = ImageRequest.Builder(context)
             .data(url)
             .size(Size.ORIGINAL)
@@ -103,7 +131,7 @@ class ImageReceiver(private val parentView: View) {
                 }
             })
             .build()
-        Coil.imageLoader(context).enqueue(request)
+        return Coil.imageLoader(context).enqueue(request)
     }
 
     fun draw(canvas: Canvas): Boolean {
@@ -176,12 +204,17 @@ class ImageReceiver(private val parentView: View) {
     fun hasImage(): Boolean = imageBitmap != null || thumbBitmap != null
 
     fun recycle() {
+        currentDisposable?.dispose()
+        currentDisposable = null
+        thumbDisposable?.dispose()
+        thumbDisposable = null
         imageBitmap = null
         thumbBitmap = null
         cachedShader = null
         cachedShaderBitmap = null
         currentUrl = null
         currentThumbUrl = null
+        pendingLoad = null
     }
 
     fun getImageX() = imageX

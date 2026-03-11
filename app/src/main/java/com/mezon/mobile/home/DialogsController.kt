@@ -89,10 +89,12 @@ class DialogsController @Inject constructor(
                 val cacheKey = apiCacheKey("listChannelDescs", page)
                 val hasCache: Boolean
                 synchronized(this@DialogsController) { hasCache = dialogs.isNotEmpty() }
+                Log.d(TAG, "loadDialogs: hasCache=$hasCache dialogsLoaded=$dialogsLoaded online=${networkMonitor.isOnline.value}")
 
-                if (!networkMonitor.isOnline.value && hasCache) return@launch
-                if (hasCache && cacheTracker.shouldCall(cacheKey) == ApiCacheTracker.ShouldCall.SKIP) return@launch
+                if (!networkMonitor.isOnline.value && hasCache) { Log.d(TAG, "loadDialogs: offline+cache → skip"); return@launch }
+                if (hasCache && cacheTracker.shouldCall(cacheKey) == ApiCacheTracker.ShouldCall.SKIP) { Log.d(TAG, "loadDialogs: cache fresh → skip"); return@launch }
 
+                Log.d(TAG, "loadDialogs: fetching from API…")
                 sessionManager.withAutoRefresh { session ->
                     val currentUserId = session.userId.toLongOrNull() ?: 0L
 
@@ -108,11 +110,13 @@ class DialogsController @Inject constructor(
                         .map { it.toDirectMessage(currentUserId) }
                         .sortedByDescending { it.lastMessageTimestamp }
 
+                    Log.d(TAG, "loadDialogs: API returned ${merged.size} items")
                     putDialogs(merged)
                     cacheTracker.markCalled(cacheKey)
                 }
 
                 dialogsLoaded = true
+                Log.d(TAG, "loadDialogs: done, posting dialogsNeedReload")
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
             } catch (e: Exception) {
                 Log.e(TAG, "loadDialogs failed", e)
@@ -135,6 +139,9 @@ class DialogsController @Inject constructor(
         if (changed) {
             appScope.launch { directMessageDao.updateUnreadCount(channelId, 0) }
             notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
+            notificationCenter.postNotificationOnMainThread(
+                NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_READ_DIALOG_MESSAGE
+            )
         }
     }
 
@@ -185,7 +192,9 @@ class DialogsController @Inject constructor(
     }
 
     private suspend fun loadDialogsFromDb() {
+        Log.d(TAG, "loadDialogsFromDb: start")
         val cached = withContext(ioDispatcher) { directMessageDao.getAll() }
+        Log.d(TAG, "loadDialogsFromDb: Room returned ${cached.size} items")
         if (cached.isNotEmpty()) {
             synchronized(this) {
                 dialogs.clear()
@@ -194,8 +203,10 @@ class DialogsController @Inject constructor(
                 dialogs.addAll(sorted)
                 for (dm in sorted) dialogsDict.put(dm.channelId, dm)
             }
-            Log.d(TAG, "Loaded ${cached.size} dialogs from DB cache")
+            Log.d(TAG, "loadDialogsFromDb: done, posting dialogsNeedReload")
             notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
+        } else {
+            Log.d(TAG, "loadDialogsFromDb: empty cache, no notification")
         }
     }
 
@@ -226,6 +237,9 @@ class DialogsController @Inject constructor(
             if (changedDms.isNotEmpty()) {
                 appScope.launch { changedDms.forEach { directMessageDao.updateOnlineStatus(it.channelId, it.isOnline) } }
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.onlineStatusChanged)
+                notificationCenter.postNotificationOnMainThread(
+                    NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_STATUS
+                )
             }
         }
     }

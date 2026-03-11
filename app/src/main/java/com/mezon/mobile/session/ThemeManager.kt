@@ -18,6 +18,9 @@ class ThemeManager @Inject constructor(
         private val THEME_KEY = stringPreferencesKey("app_theme")
     }
 
+    var autoNightConfig: AutoNightConfig? = null
+        private set
+
     val themeMode: Flow<ThemeMode> = dataStore.data.map { prefs ->
         when (prefs[THEME_KEY]) {
             "light" -> ThemeMode.LIGHT
@@ -35,6 +38,22 @@ class ThemeManager @Inject constructor(
                 ThemeMode.ABYSS -> "abyss"
                 ThemeMode.SYSTEM -> "system"
             }
+        }
+    }
+
+    fun initAutoNight(config: AutoNightConfig) {
+        autoNightConfig = config
+    }
+
+    fun resolveEffectiveMode(userMode: ThemeMode, systemIsDark: Boolean): ThemeMode {
+        if (userMode != ThemeMode.SYSTEM) return userMode
+
+        val config = autoNightConfig ?: return if (systemIsDark) ThemeMode.DARK else ThemeMode.LIGHT
+
+        return if (config.shouldUseDarkTheme(systemIsDark)) {
+            config.nightThemeMode
+        } else {
+            ThemeMode.LIGHT
         }
     }
 }

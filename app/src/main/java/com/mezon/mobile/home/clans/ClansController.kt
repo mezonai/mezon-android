@@ -1,6 +1,11 @@
 package com.mezon.mobile.home.clans
 
+import android.content.Context
 import android.util.Log
+import coil.Coil
+import coil.request.ImageRequest
+import coil.size.Size
+import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.data.db.ClanDao
 import com.mezon.mobile.di.ApplicationScope
@@ -10,6 +15,8 @@ import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.network.SocketEventDispatcher
 import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.session.SessionManager
+import com.mezon.mobile.util.createImgproxyUrl
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,9 +29,11 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 private const val TAG = "ClansController"
+private val CLAN_ICON_SIZE_PX = LayoutHelper.dp(40)
 
 @Singleton
 class ClansController @Inject constructor(
+    @ApplicationContext private val appContext: Context,
     private val api: MezonApi,
     private val sessionManager: SessionManager,
     private val clanDao: ClanDao,
@@ -51,8 +60,8 @@ class ClansController @Inject constructor(
                 Log.d(TAG, "init Room cache (${cached.size} clans): ${cached.map { "${it.clanName}(order=${it.clanOrder})" }}")
                 _clans.value = cached
                 clansLoaded = true
+                preWarmLogos(cached)
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.clansDidLoad)
-                // Pre-warm channel cache for first clan so UI is instant on cold start
                 val firstClanId = cached.first().clanId
                 _selectedClanId.value = firstClanId
                 channelController.loadChannelsForClan(firstClanId)
@@ -101,6 +110,7 @@ class ClansController @Inject constructor(
                 _clans.value = entities
                 clansLoaded = true
                 cacheTracker.markCalled(cacheKey)
+                preWarmLogos(entities)
                 withContext(ioDispatcher) { clanDao.upsertAll(entities) }
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.clansDidLoad)
 
@@ -112,6 +122,22 @@ class ClansController @Inject constructor(
             } catch (e: Exception) {
                 Log.e(TAG, "loadClans failed", e)
             }
+        }
+    }
+
+    private fun preWarmLogos(clans: List<ClanEntity>) {
+        val loader = Coil.imageLoader(appContext)
+        val sizePx = CLAN_ICON_SIZE_PX
+        for (clan in clans) {
+            if (clan.logo.isEmpty()) continue
+            val url = createImgproxyUrl(clan.logo, sizePx * 2, sizePx * 2, "fill")
+            loader.enqueue(
+                ImageRequest.Builder(appContext)
+                    .data(url)
+                    .size(Size(sizePx, sizePx))
+                    .allowHardware(false)
+                    .build()
+            )
         }
     }
 
@@ -127,6 +153,16 @@ class ClansController @Inject constructor(
                 _clans.value = _clans.value.map { if (it.clanId == updated.clanId) updated else it }
                 appScope.launch(ioDispatcher) { clanDao.upsert(updated) }
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.clanInfoUpdated, event.clanId)
+                var mask = 0
+                if (event.clanName.isNotEmpty() && event.clanName != existing.clanName) {
+                    mask = mask or NotificationCenter.UPDATE_MASK_CHAT_NAME
+                }
+                if (event.logo.isNotEmpty() && event.logo != existing.logo) {
+                    mask = mask or NotificationCenter.UPDATE_MASK_CHAT_AVATAR
+                }
+                if (mask != 0) {
+                    notificationCenter.postNotificationOnMainThread(NotificationCenter.updateInterfaces, mask)
+                }
             }
         }
     }

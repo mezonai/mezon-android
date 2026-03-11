@@ -1,7 +1,6 @@
 package com.mezon.mobile.home.clans
 
-import android.os.Bundle
-import android.view.LayoutInflater
+import android.content.Context
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
@@ -12,47 +11,87 @@ import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
+import com.mezon.mobile.core.RecyclerListView
+import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.ChatController
-import dagger.hilt.android.AndroidEntryPoint
-import javax.inject.Inject
 
-@AndroidEntryPoint
 class ClansFragment : BaseFragment() {
 
-    @Inject lateinit var clansController: ClansController
-    @Inject lateinit var channelController: ChannelController
-    @Inject lateinit var chatController: ChatController
+    private lateinit var clansController: ClansController
+    private lateinit var channelController: ChannelController
+    private lateinit var chatController: ChatController
 
     var onOpenChat: ((channelId: Long, channelName: String, clanId: Long, channelType: Int) -> Unit)? = null
 
-    private lateinit var serverRail: RecyclerView
+    private lateinit var serverRail: RecyclerListView
     private lateinit var clanHeaderText: TextView
     private lateinit var channelListView: ChannelListView
     private lateinit var serverAdapter: ServerRailAdapter
 
-    override fun onCreateView(
-        inflater: LayoutInflater,
-        container: ViewGroup?,
-        savedInstanceState: Bundle?
-    ): View {
-        val root = LinearLayout(requireContext()).apply {
+    override fun onInject(entryPoint: FragmentEntryPoint) {
+        clansController = entryPoint.clansController()
+        channelController = entryPoint.channelController()
+        chatController = entryPoint.chatController()    
+    }
+
+    override fun onFragmentCreate(): Boolean {
+        super.onFragmentCreate()
+
+        observe(NotificationCenter.clansDidLoad) { _, _, _ ->
+            if (fragmentView == null || isPaused) return@observe
+            updateServerRail()
+        }
+        observe(NotificationCenter.channelsDidLoad) { _, _, args ->
+            if (fragmentView == null || isPaused) return@observe
+            val clanId = args.firstOrNull() as? Long ?: return@observe
+            if (clanId == clansController.selectedClanId.value) updateChannelList()
+        }
+        observe(NotificationCenter.clanInfoUpdated) { _, _, _ ->
+            if (fragmentView == null || isPaused) return@observe
+            updateServerRail()
+        }
+        observe(NotificationCenter.updateInterfaces) { _, _, args ->
+            if (fragmentView == null || isPaused) return@observe
+            val mask = args.firstOrNull() as? Int ?: 0
+            updateVisibleRows(mask)
+        }
+        observe(NotificationCenter.themeChanged) { _, _, _ ->
+            if (fragmentView == null) return@observe
+            fragmentView?.setBackgroundColor(themeColors.background)
+            serverRail.setBackgroundColor(themeColors.surface)
+            serverAdapter.notifyDataSetChanged()
+            channelListView.invalidateTheme()
+        }
+
+        clansController.loadClans()
+        return true
+    }
+
+    override fun createView(context: Context): View {
+        val root = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             setBackgroundColor(themeColors.background)
         }
 
-        serverRail = RecyclerView(requireContext()).apply {
-            layoutManager = LinearLayoutManager(requireContext())
+        serverRail = RecyclerListView(context).apply {
+            layoutManager = LinearLayoutManager(context)
             setBackgroundColor(themeColors.surface)
         }
         serverAdapter = ServerRailAdapter()
         serverRail.adapter = serverAdapter
+        serverRail.setOnItemClickListener(RecyclerListView.OnItemClickListener { view, position ->
+            if (view is ClanCell) {
+                val clan = view.currentClan ?: return@OnItemClickListener
+                onClanSelected(clan)
+            }
+        })
 
-        val channelPanel = LinearLayout(requireContext()).apply {
+        val channelPanel = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(themeColors.background)
         }
 
-        clanHeaderText = TextView(requireContext()).apply {
+        clanHeaderText = TextView(context).apply {
             setTextColor(themeColors.onSurface)
             textSize = 16f
             typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -61,7 +100,7 @@ class ClansFragment : BaseFragment() {
             setPadding(hPad, vPad, hPad, vPad)
         }
 
-        channelListView = ChannelListView(requireContext(), themeColors).apply {
+        channelListView = ChannelListView(context, themeColors).apply {
             onChannelClick = { channel -> onChannelSelected(channel) }
         }
 
@@ -71,31 +110,48 @@ class ClansFragment : BaseFragment() {
         root.addView(serverRail, LayoutHelper.createLinear(56, LayoutHelper.MATCH_PARENT))
         root.addView(channelPanel, LayoutHelper.createLinear(0, LayoutHelper.MATCH_PARENT, 1f))
 
+        if (clansController.clansLoaded) {
+            updateServerRail()
+            val selectedId = clansController.selectedClanId.value
+            if (selectedId != 0L) updateChannelList()
+        }
+
         return root
     }
 
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
-
-        observe(NotificationCenter.clansDidLoad) { _, _ -> updateServerRail() }
-        observe(NotificationCenter.channelsDidLoad) { _, args ->
-            val clanId = args.firstOrNull() as? Long ?: return@observe
-            if (clanId == clansController.selectedClanId.value) updateChannelList()
-        }
-        observe(NotificationCenter.clanInfoUpdated) { _, _ -> updateServerRail() }
-        observe(NotificationCenter.themeChanged) { _, _ ->
-            view.setBackgroundColor(themeColors.background)
-            serverRail.setBackgroundColor(themeColors.surface)
-            serverAdapter.notifyDataSetChanged()
-            channelListView.invalidateTheme()
-        }
+    override fun onBecomeFullyVisible() {
+        super.onBecomeFullyVisible()
 
         if (clansController.clansLoaded) {
             updateServerRail()
             val currentClanId = clansController.selectedClanId.value
             if (currentClanId != 0L) updateChannelList()
         }
-        clansController.loadClans()
+    }
+
+    private fun updateVisibleRows(mask: Int) {
+        if (isPaused) return
+        if ((mask and NotificationCenter.UPDATE_MASK_NEW_MESSAGE) != 0 || mask == 0) {
+            updateServerRail()
+            updateChannelList()
+            return
+        }
+        val count = serverRail.childCount
+        val clans = clansController.clans.value
+        val selectedId = clansController.selectedClanId.value
+        val clanMap = HashMap<Long, ClanEntity>(clans.size)
+        for (c in clans) clanMap[c.clanId] = c
+
+        for (i in 0 until count) {
+            val child = serverRail.getChildAt(i)
+            if (child is ClanCell) {
+                val entity = child.currentClan ?: continue
+                val updated = clanMap[entity.clanId]
+                child.update(mask, updated, entity.clanId == selectedId)
+            }
+        }
+
+        channelListView.updateVisibleRows(mask)
     }
 
     private fun updateServerRail() {
@@ -157,8 +213,7 @@ class ClansFragment : BaseFragment() {
 
         override fun onBindViewHolder(holder: VH, position: Int) {
             val clan = clans[position]
-            holder.cell.bind(clan, clan.clanId == selectedId)
-            holder.cell.setOnClickListener { onClanSelected(clan) }
+            holder.cell.update(0, clan, clan.clanId == selectedId)
         }
 
         inner class VH(val cell: ClanCell) : RecyclerView.ViewHolder(cell)

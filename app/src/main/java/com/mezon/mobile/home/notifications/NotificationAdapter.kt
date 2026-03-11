@@ -1,22 +1,29 @@
 package com.mezon.mobile.home.notifications
 
-import android.util.Log
 import android.view.ViewGroup
+import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.core.ThemeColors
 
 class NotificationAdapter(
-    private val theme: ThemeColors,
-    private val onPress: (NotificationEntity) -> Unit,
-    private val onLongPress: (NotificationEntity) -> Unit
+    private val theme: ThemeColors
 ) : RecyclerView.Adapter<NotificationAdapter.VH>() {
 
     private val items = ArrayList<NotificationEntity>()
 
+    fun getItem(position: Int): NotificationEntity? =
+        if (position in items.indices) items[position] else null
+
     fun setData(list: List<NotificationEntity>) {
+        val old = ArrayList(items)
         items.clear()
         items.addAll(list)
-        notifyDataSetChanged()
+        DiffUtil.calculateDiff(object : DiffUtil.Callback() {
+            override fun getOldListSize() = old.size
+            override fun getNewListSize() = list.size
+            override fun areItemsTheSame(o: Int, n: Int) = old[o].id == list[n].id
+            override fun areContentsTheSame(o: Int, n: Int) = old[o] == list[n]
+        }).dispatchUpdatesTo(this)
     }
 
     override fun getItemCount() = items.size
@@ -33,15 +40,7 @@ class NotificationAdapter(
 
     override fun onBindViewHolder(holder: VH, position: Int) {
         val entity = items[position]
-        holder.cell.setData(entity)
-        holder.cell.setOnClickListener {
-            Log.d("NotifNav", "cell clicked pos=$position entity.id=${entity.id}")
-            onPress(entity)
-        }
-        holder.cell.setOnLongClickListener {
-            onLongPress(entity)
-            true
-        }
+        holder.cell.update(0, entity)
     }
 
     class VH(val cell: NotificationCell) : RecyclerView.ViewHolder(cell)

@@ -6,19 +6,21 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import android.text.StaticLayout
-import android.view.View
 import coil.Coil
+import coil.request.Disposable
 import coil.request.ImageRequest
 import coil.size.Size
 import com.mezon.mobile.core.AvatarDrawable
+import com.mezon.mobile.core.BaseCell
 import com.mezon.mobile.core.LayoutHelper
+import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.util.createImgproxyUrl
 import com.mezon.mobile.util.formatRelativeTime
 import com.mezon.mobile.util.parseContentText
 import kotlin.math.min
 
-class ChatMessageCell(context: Context, private val theme: ThemeColors) : View(context) {
+class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCell(context) {
 
     var messageEntity: MessageEntity? = null
         private set
@@ -39,37 +41,111 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : View(c
     private var photoWidth = 0
     private var photoHeight = 0
 
-    private val bubblePaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val contentPaint = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = LayoutHelper.sp(15f)
+    private var currentBubblePaint = theme.chatBubblePaint
+    private var currentContentPaint = theme.chatContentPaint
+    private var currentTimePaint = theme.chatTimePaint
+    private val senderPaint get() = theme.chatSenderPaint
+
+    private var attachedToWindow = false
+    private var pendingMessage: MessageEntity? = null
+    private var avatarDisposable: Disposable? = null
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        attachedToWindow = true
+        photoImage.onAttachedToWindow()
+        pendingMessage?.let { msg ->
+            pendingMessage = null
+            update(0, msg)
+        }
     }
-    private val timePaint = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = LayoutHelper.sp(11f)
-    }
-    private val senderPaint = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = LayoutHelper.sp(12f)
-        typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        attachedToWindow = false
+        photoImage.onDetachedFromWindow()
+        avatarDisposable?.dispose()
+        avatarDisposable = null
     }
 
     fun setMessage(msg: MessageEntity) {
         messageEntity = msg
-        parsedContent = parseContentText(msg.content)
-        timeText = formatRelativeTime(msg.timestampSeconds)
-        drawPhotoImage = msg.hasMedia
-        updateColors(msg)
-        if (drawPhotoImage) {
-            computePhotoSize(msg)
+        if (!attachedToWindow) {
+            pendingMessage = msg
+            return
         }
-        buildLayouts(msg)
-        if (!msg.isMe) {
-            avatarDrawable.setInfo(msg.senderId, msg.senderName)
-            loadAvatar(msg.senderAvatar)
+        update(0)
+    }
+
+    fun update(mask: Int, newMsg: MessageEntity? = null): Boolean {
+        val msg = newMsg ?: messageEntity ?: return false
+        var rebuildLayout = false
+        var needInvalidate = false
+
+        if (mask == 0) {
+            if (newMsg != null) messageEntity = newMsg
+            parsedContent = parseContentText(msg.content)
+            timeText = formatRelativeTime(msg.timestampSeconds)
+            drawPhotoImage = msg.hasMedia
+            updateColors(msg)
+            if (drawPhotoImage) computePhotoSize(msg)
+            buildLayouts(msg)
+            if (!msg.isMe) {
+                avatarDrawable.setInfo(msg.senderId, msg.senderName)
+                loadAvatar(msg.senderAvatar)
+            }
+            if (drawPhotoImage) loadPhotoImage(msg)
+            requestLayout()
+            invalidate()
+            return true
         }
-        if (drawPhotoImage) {
-            loadPhotoImage(msg)
+
+        if ((mask and NotificationCenter.UPDATE_MASK_MESSAGE_TEXT) != 0) {
+            val newContent = parseContentText(msg.content)
+            if (newContent != parsedContent) {
+                parsedContent = newContent
+                rebuildLayout = true
+            }
         }
-        requestLayout()
-        invalidate()
+
+        if ((mask and NotificationCenter.UPDATE_MASK_SEND_STATE) != 0) {
+            needInvalidate = true
+        }
+
+        if ((mask and NotificationCenter.UPDATE_MASK_NAME) != 0) {
+            if (messageEntity?.senderName != msg.senderName) {
+                rebuildLayout = true
+            }
+        }
+
+        if ((mask and NotificationCenter.UPDATE_MASK_AVATAR) != 0) {
+            if (!msg.isMe && messageEntity?.senderAvatar != msg.senderAvatar) {
+                avatarDrawable.setInfo(msg.senderId, msg.senderName)
+                loadAvatar(msg.senderAvatar)
+                needInvalidate = true
+            }
+        }
+
+        if ((mask and NotificationCenter.UPDATE_MASK_REACTIONS) != 0) {
+            needInvalidate = true
+        }
+
+        if (newMsg != null) messageEntity = newMsg
+
+        if (rebuildLayout) {
+            val m = messageEntity ?: return false
+            timeText = formatRelativeTime(m.timestampSeconds)
+            drawPhotoImage = m.hasMedia
+            updateColors(m)
+            buildLayouts(m)
+            requestLayout()
+            invalidate()
+            return true
+        }
+        if (needInvalidate) {
+            invalidate()
+        }
+        return false
     }
 
     private fun computePhotoSize(msg: MessageEntity) {
@@ -120,14 +196,13 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : View(c
 
     private fun updateColors(msg: MessageEntity) {
         if (msg.isMe) {
-            bubblePaint.color = theme.primary
-            contentPaint.color = theme.onPrimary
-            timePaint.color = theme.onPrimary and 0x99FFFFFF.toInt()
+            currentBubblePaint = theme.chatBubbleOutPaint
+            currentContentPaint = theme.chatContentOutPaint
+            currentTimePaint = theme.chatTimeOutPaint
         } else {
-            bubblePaint.color = theme.surfaceVariant
-            contentPaint.color = theme.onSurfaceVariant
-            timePaint.color = theme.onSurfaceVariant
-            senderPaint.color = theme.primary
+            currentBubblePaint = theme.chatBubblePaint
+            currentContentPaint = theme.chatContentPaint
+            currentTimePaint = theme.chatTimePaint
         }
     }
 
@@ -137,13 +212,13 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : View(c
 
         val textWidth = if (drawPhotoImage) bubbleWidth - BUBBLE_PAD_H * 2 else bubbleWidth
 
-        timeLayout = StaticLayout.Builder.obtain(timeText, 0, timeText.length, timePaint, textWidth.coerceAtLeast(1))
+        timeLayout = StaticLayout.Builder.obtain(timeText, 0, timeText.length, currentTimePaint, textWidth.coerceAtLeast(1))
             .setMaxLines(1)
             .build()
 
         val hasText = parsedContent.isNotBlank() && parsedContent != "[file]"
         contentLayout = if (hasText) {
-            StaticLayout.Builder.obtain(parsedContent, 0, parsedContent.length, contentPaint, textWidth.coerceAtLeast(1))
+            StaticLayout.Builder.obtain(parsedContent, 0, parsedContent.length, currentContentPaint, textWidth.coerceAtLeast(1))
                 .setLineSpacing(LayoutHelper.dpf(2f), 1f)
                 .build()
         } else null
@@ -188,10 +263,13 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : View(c
         if (url == currentAvatarUrl && avatarDrawable.hasPhoto()) return
         currentAvatarUrl = url
         avatarDrawable.setPhoto(null)
+        avatarDisposable?.dispose()
+        avatarDisposable = null
 
         if (url.isNotEmpty()) {
+            val proxyUrl = createImgproxyUrl(url, AVATAR_SIZE * 2, AVATAR_SIZE * 2, "fill")
             val request = ImageRequest.Builder(context)
-                .data(url)
+                .data(proxyUrl)
                 .size(Size(AVATAR_SIZE, AVATAR_SIZE))
                 .allowHardware(false)
                 .target(onSuccess = { d ->
@@ -199,7 +277,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : View(c
                     post { invalidate() }
                 })
                 .build()
-            Coil.imageLoader(context).enqueue(request)
+            avatarDisposable = Coil.imageLoader(context).enqueue(request)
         }
     }
 
@@ -226,7 +304,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : View(c
 
         canvas.drawRoundRect(
             RectF(bubbleLeft.toFloat(), bubbleTop.toFloat(), (width - PAD_H).toFloat(), bubbleBottom.toFloat()),
-            BUBBLE_RADIUS, BUBBLE_RADIUS, bubblePaint
+            BUBBLE_RADIUS, BUBBLE_RADIUS, currentBubblePaint
         )
 
         var yOff = (bubbleTop + BUBBLE_PAD_V).toFloat()
@@ -276,7 +354,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : View(c
 
         canvas.drawRoundRect(
             RectF(bubbleLeft.toFloat(), bubbleTop.toFloat(), (bubbleLeft + innerWidth).toFloat(), bubbleBottom.toFloat()),
-            BUBBLE_RADIUS, BUBBLE_RADIUS, bubblePaint
+            BUBBLE_RADIUS, BUBBLE_RADIUS, currentBubblePaint
         )
 
         var yOff = (bubbleTop + BUBBLE_PAD_V).toFloat()

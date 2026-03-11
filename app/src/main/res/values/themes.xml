@@ -5,6 +5,12 @@
         <item name="android:windowBackground">@color/window_background</item>
     </style>
 
+    <style name="Theme.Mezon.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/window_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="postSplashScreenTheme">@style/Theme.Mezon</item>
+    </style>
+
     <!-- Match MezonLightColors.Primary (#F2F3F5) -->
     <color name="window_background">#FFF2F3F5</color>
 </resources>
