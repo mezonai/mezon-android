@@ -60,10 +60,18 @@ class UserController @Inject constructor(
         }
 
         notificationCenter.postNotificationOnMainThread(NotificationCenter.userDataLoaded)
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.updateInterfaces,
+            NotificationCenter.UPDATE_MASK_NAME or NotificationCenter.UPDATE_MASK_AVATAR
+        )
     }
 
     fun updateFromAccount(info: AccountInfo) {
+        val nameChanged: Boolean
+        val avatarChanged: Boolean
         synchronized(this) {
+            nameChanged = username != info.username || displayName != info.displayName
+            avatarChanged = avatarUrl != info.avatarUrl
             username = info.username
             displayName = info.displayName
             email = info.email
@@ -75,18 +83,24 @@ class UserController @Inject constructor(
             }
         }
         notificationCenter.postNotificationOnMainThread(NotificationCenter.userDataLoaded)
+        var mask = 0
+        if (nameChanged) mask = mask or NotificationCenter.UPDATE_MASK_NAME
+        if (avatarChanged) mask = mask or NotificationCenter.UPDATE_MASK_AVATAR
+        if (mask != 0) {
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.updateInterfaces, mask)
+        }
     }
 
     fun applyTheme(mode: ThemeMode) {
         synchronized(this) { themeMode = mode }
         appScope.launch { themeManager.setTheme(mode) }
-        notificationCenter.postNotificationOnMainThread(NotificationCenter.themeChanged, mode)
+        NotificationCenter.getGlobalInstance()
+            .postNotificationOnMainThread(NotificationCenter.themeChanged, mode)
     }
 
     fun applyLanguage(tag: String) {
         synchronized(this) { languageTag = tag }
         appScope.launch { localeManager.setLanguage(tag) }
-        notificationCenter.postNotificationOnMainThread(NotificationCenter.languageChanged, tag)
     }
 
     fun reload() {

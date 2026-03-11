@@ -7,14 +7,16 @@ import android.graphics.RectF
 import android.text.TextPaint
 import android.text.TextUtils
 import android.view.View
+import com.mezon.mobile.core.BaseCell
 import com.mezon.mobile.core.LayoutHelper
+import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
 
 class ChannelItemCell(
     context: Context,
     private val themeColors: ThemeColors
-) : View(context) {
+) : BaseCell(context) {
 
     companion object {
         private val namePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -48,7 +50,8 @@ class ChannelItemCell(
         }
     }
 
-    private var channel: ClanChannelEntity? = null
+    var channel: ClanChannelEntity? = null
+        private set
     private var isActive = false
     private var truncatedName: CharSequence = ""
 
@@ -58,21 +61,46 @@ class ChannelItemCell(
     private val iconMarginPx = LayoutHelper.dp(8)
     private val badgeSizePx = LayoutHelper.dp(20)
 
-    init {
-        setWillNotDraw(false)
-    }
+
 
     fun bind(channel: ClanChannelEntity, active: Boolean) {
-        val changed = this.channel?.channelId != channel.channelId
-            || this.channel?.channelLabel != channel.channelLabel
-            || this.channel?.unreadCount != channel.unreadCount
-            || this.isActive != active
         this.channel = channel
         this.isActive = active
-        if (changed) {
+        update(0)
+    }
+
+    fun update(mask: Int, newChannel: ClanChannelEntity? = null): Boolean {
+        val ch = newChannel ?: channel ?: return false
+
+        if (mask == 0) {
+            if (newChannel != null) channel = newChannel
             truncatedName = ""
             invalidate()
+            return true
         }
+
+        var needInvalidate = false
+
+        if ((mask and NotificationCenter.UPDATE_MASK_BADGE) != 0) {
+            if (channel?.unreadCount != ch.unreadCount) {
+                needInvalidate = true
+                truncatedName = ""
+            }
+        }
+
+        if ((mask and NotificationCenter.UPDATE_MASK_CHAT_NAME) != 0) {
+            if (channel?.channelLabel != ch.channelLabel) {
+                truncatedName = ""
+                needInvalidate = true
+            }
+        }
+
+        if (newChannel != null) channel = newChannel
+
+        if (needInvalidate) {
+            invalidate()
+        }
+        return false
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {

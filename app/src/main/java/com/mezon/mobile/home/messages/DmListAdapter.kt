@@ -11,8 +11,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class DmListAdapter(
-    private val themeColors: ThemeColors,
-    private val onClick: (DirectMessage) -> Unit
+    private val themeColors: ThemeColors
 ) : RecyclerView.Adapter<DmListAdapter.ViewHolder>() {
 
     companion object {
@@ -22,6 +21,9 @@ class DmListAdapter(
     private val items = ArrayList<DirectMessage>()
     private val scope = CoroutineScope(Dispatchers.Main)
     private var diffJob: Job? = null
+
+    fun getItem(position: Int): DirectMessage? =
+        if (position in items.indices) items[position] else null
 
     fun setData(newItems: List<DirectMessage>) {
         diffJob?.cancel()
@@ -45,16 +47,25 @@ class DmListAdapter(
         result.dispatchUpdatesTo(this)
     }
 
-    fun updateVisibleRows(recyclerView: RecyclerView, dialogs: List<DirectMessage>) {
-        val dialogMap = HashMap<Long, DirectMessage>(dialogs.size)
-        for (dm in dialogs) dialogMap[dm.channelId] = dm
+    fun updateVisibleRows(recyclerView: RecyclerView, mask: Int, dialogs: List<DirectMessage>? = null) {
+        val dialogMap: HashMap<Long, DirectMessage>?
+        if (dialogs != null) {
+            dialogMap = HashMap(dialogs.size)
+            for (dm in dialogs) dialogMap[dm.channelId] = dm
+        } else {
+            dialogMap = null
+        }
+
         val count = recyclerView.childCount
         for (i in 0 until count) {
             val child = recyclerView.getChildAt(i)
             if (child is DialogCell) {
                 val current = child.directMessage ?: continue
-                val updated = dialogMap[current.channelId] ?: continue
-                child.updateIfNeeded(updated)
+                val updated = dialogMap?.get(current.channelId)
+                if (child.update(mask, updated)) {
+                    setData(dialogs ?: items)
+                    break
+                }
             }
         }
     }
@@ -72,8 +83,7 @@ class DmListAdapter(
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val dm = items[position]
-        holder.cell.setData(dm)
-        holder.cell.setOnClickListener { onClick(dm) }
+        holder.cell.update(0, dm)
     }
 
     class ViewHolder(val cell: DialogCell) : RecyclerView.ViewHolder(cell)

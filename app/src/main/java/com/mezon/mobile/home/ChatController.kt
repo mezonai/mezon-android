@@ -190,7 +190,8 @@ class ChatController @Inject constructor(
                 CODE_CHAT_UPDATE -> {
                     appScope.launch { messageDao.upsert(entity) }
                     notificationCenter.postNotificationOnMainThread(
-                        NotificationCenter.messageDidUpdate, entity.channelId, entity
+                        NotificationCenter.messageDidUpdate, entity.channelId, entity,
+                        NotificationCenter.UPDATE_MASK_MESSAGE_TEXT
                     )
                 }
                 CODE_CHAT_REMOVE -> {
@@ -204,6 +205,9 @@ class ChatController @Inject constructor(
                     synchronized(this) { dialogMessage.put(entity.channelId, entity) }
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.didReceiveNewMessages, entity.channelId, entity
+                    )
+                    notificationCenter.postNotificationOnMainThread(
+                        NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_NEW_MESSAGE
                     )
                 }
             }

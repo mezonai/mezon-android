@@ -5,6 +5,7 @@ import android.graphics.Canvas
 import android.graphics.RectF
 import android.view.MotionEvent
 import android.view.View
+import android.view.accessibility.AccessibilityNodeInfo
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 
@@ -28,6 +29,7 @@ class ActionButton(context: Context, private val theme: ThemeColors) : View(cont
 
     fun setText(value: String) {
         text = value
+        contentDescription = value
         invalidate()
     }
 
@@ -60,6 +62,13 @@ class ActionButton(context: Context, private val theme: ThemeColors) : View(cont
 
         val textY = height / 2f - (theme.buttonTextPaint.descent() + theme.buttonTextPaint.ascent()) / 2
         canvas.drawText(text, width / 2f, textY, theme.buttonTextPaint)
+    }
+
+    override fun onInitializeAccessibilityNodeInfo(info: AccessibilityNodeInfo) {
+        super.onInitializeAccessibilityNodeInfo(info)
+        info.className = "android.widget.Button"
+        info.text = text
+        info.isEnabled = isEnabled
     }
 
     @Suppress("ClickableViewAccessibility")

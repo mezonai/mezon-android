@@ -5,52 +5,101 @@ import android.graphics.Canvas
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.Drawable
-import android.text.Layout
-import android.text.StaticLayout
-import android.view.View
+import android.util.TypedValue
+import android.view.Gravity
+import android.view.accessibility.AccessibilityNodeInfo
+import android.widget.FrameLayout
+import android.widget.ImageView
+import android.widget.TextView
 import androidx.annotation.DrawableRes
 import androidx.core.content.ContextCompat
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 
-class TextSettingsCell(context: Context, private val theme: ThemeColors) : View(context) {
+class TextSettingsCell(context: Context, private val theme: ThemeColors) : FrameLayout(context) {
 
-    private var titleText = ""
-    private var valueText = ""
-    private var icon: Drawable? = null
-    private var titleLayout: StaticLayout? = null
-    private var valueLayout: StaticLayout? = null
+    val textView: TextView
+    val valueTextView: TextView
+    private val imageView: ImageView
     private var needDivider = false
     private var titleColorOverride = 0
-    private val cellHeight = LayoutHelper.dp(48)
-    private val iconSize = LayoutHelper.dp(24)
 
     init {
-        minimumHeight = cellHeight
-        isClickable = true
-        isFocusable = true
+        imageView = ImageView(context).apply {
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            visibility = GONE
+        }
+        addView(imageView, LayoutHelper.createFrame(
+            24, 24,
+            Gravity.CENTER_VERTICAL or LayoutHelper.getAbsoluteGravityStart(),
+            leftMargin = 21f
+        ))
+
+        textView = TextView(context).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            setTextColor(theme.onSurface)
+            maxLines = 1
+            isSingleLine = true
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            gravity = Gravity.CENTER_VERTICAL or LayoutHelper.getAbsoluteGravityStart()
+        }
+        addView(textView, LayoutHelper.createFrame(
+            LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT,
+            Gravity.CENTER_VERTICAL or LayoutHelper.getAbsoluteGravityStart(),
+            leftMargin = 16f, rightMargin = 16f
+        ))
+
+        valueTextView = TextView(context).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            setTextColor(theme.onSurfaceVariant)
+            maxLines = 1
+            isSingleLine = true
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            gravity = Gravity.CENTER_VERTICAL or LayoutHelper.getAbsoluteGravityEnd()
+            visibility = GONE
+        }
+        addView(valueTextView, LayoutHelper.createFrame(
+            LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT,
+            Gravity.CENTER_VERTICAL or LayoutHelper.getAbsoluteGravityEnd(),
+            rightMargin = 16f
+        ))
+
+        val outValue = TypedValue()
+        context.theme.resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)
+        foreground = ContextCompat.getDrawable(context, outValue.resourceId)
+
+        minimumHeight = LayoutHelper.dp(50)
+        setWillNotDraw(true)
     }
 
     fun setTextAndValue(title: String, value: String = "", divider: Boolean = false) {
-        titleText = title
-        valueText = value
+        textView.text = title
+        if (value.isNotEmpty()) {
+            valueTextView.text = value
+            valueTextView.visibility = VISIBLE
+        } else {
+            valueTextView.visibility = GONE
+        }
         needDivider = divider
-        titleLayout = null
-        valueLayout = null
-        requestLayout()
+        setWillNotDraw(!divider)
+        updateTextMargins()
     }
 
     fun setIcon(drawable: Drawable?) {
-        icon = drawable?.mutate()
-        icon?.colorFilter = PorterDuffColorFilter(theme.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
-        invalidate()
+        if (drawable != null) {
+            imageView.setImageDrawable(drawable.mutate())
+            imageView.colorFilter = PorterDuffColorFilter(theme.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
+            imageView.visibility = VISIBLE
+        } else {
+            imageView.visibility = GONE
+        }
+        updateTextMargins()
     }
 
     fun setIcon(@DrawableRes resId: Int) {
         if (resId == 0) {
-            icon = null
-            titleLayout = null
-            requestLayout()
+            imageView.visibility = GONE
+            updateTextMargins()
             return
         }
         setIcon(ContextCompat.getDrawable(context, resId))
@@ -67,81 +116,52 @@ class TextSettingsCell(context: Context, private val theme: ThemeColors) : View(
 
     fun setTitleColor(color: Int) {
         titleColorOverride = color
-        titleLayout = null
-        requestLayout()
+        textView.setTextColor(if (color != 0) color else theme.onSurface)
+    }
+
+    private fun updateTextMargins() {
+        val hasIcon = imageView.visibility == VISIBLE
+        val leftDp = if (hasIcon) 71f else 20f
+        val hasValue = valueTextView.visibility == VISIBLE
+        val rightDp = if (hasValue) 80f else 20f
+
+        val lp = textView.layoutParams as LayoutParams
+        lp.leftMargin = LayoutHelper.dp(leftDp)
+        lp.rightMargin = LayoutHelper.dp(rightDp)
+        textView.layoutParams = lp
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val w = MeasureSpec.getSize(widthMeasureSpec)
-        val leftPad = if (icon != null) LayoutHelper.dp(16 + 24 + 16) else LayoutHelper.dp(16)
-        val rightPad = LayoutHelper.dp(16)
-
-        val valueWidth = if (valueText.isNotEmpty()) {
-            theme.settingsValuePaint.measureText(valueText).toInt() + LayoutHelper.dp(8)
-        } else 0
-        val titleWidth = w - leftPad - rightPad - valueWidth
-
-        if (titleLayout == null && titleWidth > 0) {
-            titleLayout = StaticLayout.Builder
-                .obtain(titleText, 0, titleText.length, theme.settingsNamePaint, titleWidth)
-                .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                .setLineSpacing(0f, 1f)
-                .setMaxLines(1)
-                .setEllipsize(android.text.TextUtils.TruncateAt.END)
-                .build()
-        }
-        if (valueText.isNotEmpty() && valueLayout == null) {
-            valueLayout = StaticLayout.Builder
-                .obtain(valueText, 0, valueText.length, theme.settingsValuePaint, valueWidth)
-                .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                .setLineSpacing(0f, 1f)
-                .setMaxLines(1)
-                .setEllipsize(android.text.TextUtils.TruncateAt.END)
-                .build()
-        }
-
-        val h = if (needDivider) cellHeight + 1 else cellHeight
-        setMeasuredDimension(w, h)
+        val h = if (needDivider) LayoutHelper.dp(50) + 1 else LayoutHelper.dp(50)
+        super.onMeasure(
+            MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY),
+            MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY)
+        )
     }
 
+    override fun hasOverlappingRendering(): Boolean = false
+
     override fun onDraw(canvas: Canvas) {
-        val leftPad = if (icon != null) LayoutHelper.dp(16 + 24 + 16) else LayoutHelper.dp(16)
-
-        icon?.let { d ->
-            val iconLeft = LayoutHelper.dp(16)
-            val iconTop = (cellHeight - iconSize) / 2
-            d.setBounds(iconLeft, iconTop, iconLeft + iconSize, iconTop + iconSize)
-            d.draw(canvas)
-        }
-
-        val savedTitleColor = theme.settingsNamePaint.color
-        if (titleColorOverride != 0) theme.settingsNamePaint.color = titleColorOverride
-
-        titleLayout?.let {
-            val titleY = (cellHeight - it.height) / 2f
-            canvas.save()
-            canvas.translate(leftPad.toFloat(), titleY)
-            it.draw(canvas)
-            canvas.restore()
-        }
-
-        if (titleColorOverride != 0) theme.settingsNamePaint.color = savedTitleColor
-
-        valueLayout?.let {
-            val valueX = width - LayoutHelper.dp(16) - it.width
-            val valueY = (cellHeight - it.height) / 2f
-            canvas.save()
-            canvas.translate(valueX.toFloat(), valueY)
-            it.draw(canvas)
-            canvas.restore()
-        }
-
         if (needDivider) {
-            canvas.drawRect(
-                leftPad.toFloat(), (cellHeight).toFloat(),
-                width.toFloat(), (cellHeight + 1).toFloat(),
-                theme.dividerPaint
-            )
+            val hasIcon = imageView.visibility == VISIBLE
+            val leftPad = LayoutHelper.dp(if (hasIcon) 71 else 20).toFloat()
+            val y = (height - 1).toFloat()
+            canvas.drawRect(leftPad, y, width.toFloat(), y + 1f, theme.dividerPaint)
         }
+    }
+
+    override fun onInitializeAccessibilityNodeInfo(info: AccessibilityNodeInfo) {
+        super.onInitializeAccessibilityNodeInfo(info)
+        val value = if (valueTextView.visibility == VISIBLE) valueTextView.text else null
+        if (value != null) {
+            info.text = "${textView.text} $value"
+        }
+    }
+
+    fun updateColors() {
+        textView.setTextColor(if (titleColorOverride != 0) titleColorOverride else theme.onSurface)
+        valueTextView.setTextColor(theme.onSurfaceVariant)
+        imageView.drawable?.colorFilter = PorterDuffColorFilter(theme.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
     }
 }

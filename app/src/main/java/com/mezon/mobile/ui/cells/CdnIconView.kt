@@ -10,6 +10,7 @@ import android.graphics.Shader
 import android.graphics.drawable.BitmapDrawable
 import android.view.View
 import coil.ImageLoader
+import coil.request.Disposable
 import coil.request.ImageRequest
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
@@ -22,6 +23,8 @@ class CdnIconView(context: Context, private val theme: ThemeColors) : View(conte
     private var sizeDp = 24
     private var isCircular = false
     private var currentUrl: String? = null
+    private var disposable: Disposable? = null
+    private var attachedToWindow = false
 
     fun setSizeDp(dp: Int) {
         sizeDp = dp
@@ -36,11 +39,18 @@ class CdnIconView(context: Context, private val theme: ThemeColors) : View(conte
     fun setImageUrl(url: String?, loader: ImageLoader) {
         if (url == currentUrl) return
         currentUrl = url
+        disposable?.dispose()
+        disposable = null
         bitmap = null
         if (url.isNullOrEmpty()) {
             invalidate()
             return
         }
+        if (!attachedToWindow) return
+        loadImage(url, loader)
+    }
+
+    private fun loadImage(url: String, loader: ImageLoader) {
         val px = LayoutHelper.dp(sizeDp)
         val request = ImageRequest.Builder(context)
             .data(url)
@@ -56,7 +66,7 @@ class CdnIconView(context: Context, private val theme: ThemeColors) : View(conte
                 }
             )
             .build()
-        loader.enqueue(request)
+        disposable = loader.enqueue(request)
     }
 
     fun setBitmap(bmp: Bitmap?) {
@@ -64,10 +74,29 @@ class CdnIconView(context: Context, private val theme: ThemeColors) : View(conte
         invalidate()
     }
 
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        attachedToWindow = true
+        val url = currentUrl
+        if (url != null && bitmap == null && disposable == null) {
+            val loader = coil.ImageLoader(context)
+            loadImage(url, loader)
+        }
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        attachedToWindow = false
+        disposable?.dispose()
+        disposable = null
+    }
+
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val size = LayoutHelper.dp(sizeDp)
         setMeasuredDimension(size, size)
     }
+
+    override fun hasOverlappingRendering(): Boolean = false
 
     override fun onDraw(canvas: Canvas) {
         val bmp = bitmap

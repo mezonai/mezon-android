@@ -7,13 +7,14 @@ import android.graphics.Path
 import android.text.TextPaint
 import android.text.TextUtils
 import android.view.View
+import com.mezon.mobile.core.BaseCell
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 
 class ChannelSectionCell(
     context: Context,
     private val themeColors: ThemeColors
-) : View(context) {
+) : BaseCell(context) {
 
     companion object {
         private val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -38,9 +39,7 @@ class ChannelSectionCell(
     private val arrowSizePx = LayoutHelper.dp(10)
     private val cellHeightPx = LayoutHelper.dp(36)
 
-    init {
-        setWillNotDraw(false)
-    }
+
 
     fun bind(name: String, expanded: Boolean) {
         categoryName = name.uppercase()

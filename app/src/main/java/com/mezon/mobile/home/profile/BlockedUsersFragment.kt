@@ -1,15 +1,15 @@
 package com.mezon.mobile.home.profile
 
-import android.os.Bundle
-import android.view.LayoutInflater
+import android.content.Context
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import android.widget.ImageView
 import coil.load
 import coil.transform.CircleCropTransformation
 import com.mezon.mezon.api.Friend
@@ -18,57 +18,76 @@ import com.mezon.mobile.core.AlertsCreator
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
-import dagger.hilt.android.AndroidEntryPoint
-import javax.inject.Inject
+import com.mezon.mobile.core.RecyclerListView
+import com.mezon.mobile.di.FragmentEntryPoint
 
-@AndroidEntryPoint
 class BlockedUsersFragment : BaseFragment() {
 
-    @Inject lateinit var accountController: AccountController
+    private lateinit var accountController: AccountController
 
-    private lateinit var recyclerView: RecyclerView
+    private lateinit var recyclerView: RecyclerListView
     private lateinit var emptyView: TextView
     private lateinit var listAdapter: BlockedAdapter
 
-    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
-        val contentFrame = FrameLayout(requireContext()).apply {
-            setBackgroundColor(themeColors.background)
-        }
-
-        listAdapter = BlockedAdapter()
-        recyclerView = RecyclerView(requireContext()).apply {
-            layoutManager = LinearLayoutManager(requireContext())
-            adapter = listAdapter
-            overScrollMode = View.OVER_SCROLL_NEVER
-        }
-        contentFrame.addView(recyclerView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
-
-        emptyView = TextView(requireContext()).apply {
-            text = getString(R.string.blocked_users_empty)
-            textSize = 15f
-            setTextColor(themeColors.onSurfaceVariant)
-            gravity = android.view.Gravity.CENTER
-            visibility = View.GONE
-        }
-        contentFrame.addView(emptyView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
-
-        return wrapWithActionBar(getString(R.string.blocked_users_title), contentFrame)
+    override fun onInject(entryPoint: FragmentEntryPoint) {
+        accountController = entryPoint.accountController()
     }
 
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
+    override fun onFragmentCreate(): Boolean {
+        super.onFragmentCreate()
 
-        observe(NotificationCenter.blockedUsersLoaded) { _, _ ->
-            updateList()
+        observe(NotificationCenter.blockedUsersLoaded) { _, _, _ ->
+            if (fragmentView != null) updateList()
         }
-        observe(NotificationCenter.themeChanged) { _, _ ->
-            view.setBackgroundColor(themeColors.background)
+        observe(NotificationCenter.updateInterfaces) { _, _, args ->
+            if (fragmentView == null) return@observe
+            val mask = args.firstOrNull() as? Int ?: 0
+            if ((mask and NotificationCenter.UPDATE_MASK_NAME) != 0 ||
+                (mask and NotificationCenter.UPDATE_MASK_AVATAR) != 0 || mask == 0
+            ) {
+                updateList()
+            }
+        }
+        observe(NotificationCenter.themeChanged) { _, _, _ ->
+            if (fragmentView == null) return@observe
+            fragmentView?.setBackgroundColor(themeColors.background)
             emptyView.setTextColor(themeColors.onSurfaceVariant)
             listAdapter.notifyDataSetChanged()
         }
 
         accountController.loadBlockedUsers()
+        return true
+    }
+
+    override fun createView(context: Context): View {
+        val contentFrame = FrameLayout(context).apply {
+            setBackgroundColor(themeColors.background)
+        }
+
+        listAdapter = BlockedAdapter()
+        recyclerView = RecyclerListView(context).apply {
+            layoutManager = LinearLayoutManager(context)
+            adapter = listAdapter
+            overScrollMode = View.OVER_SCROLL_NEVER
+            setOnItemClickListener(RecyclerListView.OnItemClickListener { view, position ->
+                val friend = listAdapter.getItem(position) ?: return@OnItemClickListener
+                onUnblockClicked(friend)
+            })
+        }
+        contentFrame.addView(recyclerView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
+
+        emptyView = TextView(context).apply {
+            text = getString(R.string.blocked_users_empty)
+            textSize = 15f
+            setTextColor(themeColors.onSurfaceVariant)
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+        }
+        contentFrame.addView(emptyView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
+
         updateList()
+
+        return wrapWithActionBar(getString(R.string.blocked_users_title), contentFrame)
     }
 
     private fun updateList() {
@@ -98,7 +117,7 @@ class BlockedUsersFragment : BaseFragment() {
         }.show()
     }
 
-    private inner class BlockedAdapter : RecyclerView.Adapter<BlockedAdapter.VH>() {
+    private inner class BlockedAdapter : RecyclerListView.SelectionAdapter() {
         private val items = mutableListOf<Friend>()
 
         fun submitList(newItems: List<Friend>) {
@@ -107,28 +126,49 @@ class BlockedUsersFragment : BaseFragment() {
             notifyDataSetChanged()
         }
 
+        fun getItem(position: Int): Friend? = items.getOrNull(position)
+
+        override fun isEnabled(holder: RecyclerView.ViewHolder): Boolean = true
+
         override fun getItemCount() = items.size
 
-        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
-            val row = LinearLayout(parent.context).apply {
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
+            val cell = BlockedUserCell(parent.context)
+            cell.layoutParams = RecyclerView.LayoutParams(
+                RecyclerView.LayoutParams.MATCH_PARENT,
+                RecyclerView.LayoutParams.WRAP_CONTENT
+            )
+            return object : RecyclerView.ViewHolder(cell) {}
+        }
+
+        override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
+            val friend = items[position]
+            (holder.itemView as BlockedUserCell).bind(friend, position < items.size - 1)
+        }
+    }
+
+    private inner class BlockedUserCell(context: Context) : FrameLayout(context) {
+        private val avatar: ImageView
+        private val nameText: TextView
+        private val unblockBtn: TextView
+
+        init {
+            val outValue = android.util.TypedValue()
+            context.theme.resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)
+            foreground = androidx.core.content.ContextCompat.getDrawable(context, outValue.resourceId)
+
+            val row = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
-                gravity = android.view.Gravity.CENTER_VERTICAL
-                setBackgroundColor(themeColors.surface)
+                gravity = Gravity.CENTER_VERTICAL
                 val vPad = LayoutHelper.dp(12)
                 val hPad = LayoutHelper.dp(16)
                 setPadding(hPad, vPad, hPad, vPad)
-                layoutParams = RecyclerView.LayoutParams(
-                    RecyclerView.LayoutParams.MATCH_PARENT,
-                    RecyclerView.LayoutParams.WRAP_CONTENT
-                ).apply { bottomMargin = LayoutHelper.dp(1) }
             }
 
-            val avatar = ImageView(parent.context).apply {
-                scaleType = ImageView.ScaleType.CENTER_CROP
-            }
+            avatar = ImageView(context).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
             row.addView(avatar, LayoutHelper.createLinear(40, 40, 0f, 0, 0f, 0f, 12f, 0f))
 
-            val nameText = TextView(parent.context).apply {
+            nameText = TextView(context).apply {
                 textSize = 15f
                 setTextColor(themeColors.onSurface)
                 maxLines = 1
@@ -136,7 +176,7 @@ class BlockedUsersFragment : BaseFragment() {
             }
             row.addView(nameText, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f))
 
-            val unblockBtn = TextView(parent.context).apply {
+            unblockBtn = TextView(context).apply {
                 text = context.getString(R.string.blocked_unblock_button)
                 textSize = 13f
                 setTextColor(themeColors.primary)
@@ -144,36 +184,37 @@ class BlockedUsersFragment : BaseFragment() {
             }
             row.addView(unblockBtn, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT))
 
-            return VH(row, avatar, nameText, unblockBtn)
+            addView(row, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+
+            setWillNotDraw(true)
         }
 
-        override fun onBindViewHolder(holder: VH, position: Int) {
-            val friend = items[position]
+        fun bind(friend: Friend, divider: Boolean) {
             val user = friend.user
-            val displayName = user.displayName.ifEmpty { user.username }
-
-            holder.nameText.text = displayName
-            holder.nameText.setTextColor(themeColors.onSurface)
-            holder.unblockBtn.setTextColor(themeColors.primary)
-            holder.row.setBackgroundColor(themeColors.surface)
+            nameText.text = user.displayName.ifEmpty { user.username }
+            nameText.setTextColor(themeColors.onSurface)
+            unblockBtn.setTextColor(themeColors.primary)
 
             if (user.avatarUrl.isNotEmpty()) {
-                holder.avatar.load(user.avatarUrl) {
+                avatar.load(user.avatarUrl) {
                     transformations(CircleCropTransformation())
                     placeholder(R.drawable.ic_profile)
                 }
             } else {
-                holder.avatar.setImageResource(R.drawable.ic_profile)
+                avatar.setImageResource(R.drawable.ic_profile)
             }
 
-            holder.unblockBtn.setOnClickListener { onUnblockClicked(friend) }
+            unblockBtn.setOnClickListener { onUnblockClicked(friend) }
+
+            setWillNotDraw(!divider)
         }
 
-        inner class VH(
-            val row: LinearLayout,
-            val avatar: ImageView,
-            val nameText: TextView,
-            val unblockBtn: TextView
-        ) : RecyclerView.ViewHolder(row)
+        override fun hasOverlappingRendering(): Boolean = false
+
+        override fun onDraw(canvas: android.graphics.Canvas) {
+            val leftPad = LayoutHelper.dp(68).toFloat()
+            val y = (height - 1).toFloat()
+            canvas.drawRect(leftPad, y, width.toFloat(), y + 1f, themeColors.dividerPaint)
+        }
     }
 }

@@ -3,25 +3,23 @@ package com.mezon.mobile.home.notifications
 import android.content.Context
 import android.graphics.Canvas
 import android.text.StaticLayout
-import android.text.TextPaint
 import android.text.TextUtils
-import android.util.Log
-import android.view.View
 import coil.Coil
+import coil.request.Disposable
 import coil.request.ImageRequest
 import coil.size.Size
 import com.mezon.mobile.core.AvatarDrawable
+import com.mezon.mobile.core.BaseCell
 import com.mezon.mobile.core.LayoutHelper
+import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.util.createImgproxyUrl
 import com.mezon.mobile.util.formatRelativeTime
 
-private const val TAG = "NotificationCell"
-
-class NotificationCell(context: Context, private val theme: ThemeColors) : View(context) {
+class NotificationCell(context: Context, private val theme: ThemeColors) : BaseCell(context) {
 
     init {
         isClickable = true
-        isFocusable = true
         val outValue = android.util.TypedValue()
         context.theme.resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)
         setBackgroundResource(outValue.resourceId)
@@ -32,14 +30,24 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : View(
 
     private val avatarDrawable = AvatarDrawable()
     private var currentAvatarUrl: String? = null
+    private var avatarDisposable: Disposable? = null
+    private var attachedToWindow = false
 
     private var subjectLayout: StaticLayout? = null
     private var bodyLayout: StaticLayout? = null
     private var timeLayout: StaticLayout? = null
 
-    private val subjectPaint = TextPaint(theme.dialogNameBoldPaint)
-    private val bodyPaint = TextPaint(theme.dialogMessagePaint)
-    private val timePaint = TextPaint(theme.dialogTimePaint)
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        attachedToWindow = true
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        attachedToWindow = false
+        avatarDisposable?.dispose()
+        avatarDisposable = null
+    }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), CELL_HEIGHT)
@@ -52,11 +60,55 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : View(
 
     fun setData(n: NotificationEntity) {
         entity = n
-        val displayName = n.senderName.ifEmpty { n.subject }
-        avatarDrawable.setInfo(n.id, displayName)
-        buildLayouts()
-        loadAvatar(n.avatarUrl)
-        invalidate()
+        update(0)
+    }
+
+    fun update(mask: Int, newEntity: NotificationEntity? = null): Boolean {
+        val n = newEntity ?: entity ?: return false
+
+        if (mask == 0) {
+            if (newEntity != null) entity = newEntity
+            val displayName = n.senderName.ifEmpty { n.subject }
+            avatarDrawable.setInfo(n.id, displayName)
+            buildLayouts()
+            loadAvatar(n.avatarUrl)
+            invalidate()
+            return true
+        }
+
+        var rebuildLayout = false
+        var needInvalidate = false
+
+        if ((mask and NotificationCenter.UPDATE_MASK_MESSAGE_TEXT) != 0) {
+            if (entity?.messageText != n.messageText) {
+                rebuildLayout = true
+            }
+        }
+
+        if ((mask and NotificationCenter.UPDATE_MASK_AVATAR) != 0) {
+            if (entity?.avatarUrl != n.avatarUrl) {
+                loadAvatar(n.avatarUrl)
+                needInvalidate = true
+            }
+        }
+
+        if ((mask and NotificationCenter.UPDATE_MASK_NAME) != 0) {
+            if (entity?.senderName != n.senderName) {
+                rebuildLayout = true
+            }
+        }
+
+        if (newEntity != null) entity = newEntity
+
+        if (rebuildLayout) {
+            buildLayouts()
+            invalidate()
+            return true
+        }
+        if (needInvalidate) {
+            invalidate()
+        }
+        return false
     }
 
     private fun buildLayouts() {
@@ -65,6 +117,7 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : View(
         if (contentWidth <= 0) return
 
         val timeText = formatRelativeTime(n.createTimeSeconds)
+        val timePaint = theme.dialogTimePaint
         timePaint.color = theme.onSurfaceVariant
         timeLayout = StaticLayout.Builder
             .obtain(timeText, 0, timeText.length, timePaint, contentWidth)
@@ -76,7 +129,7 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : View(
         val firstLineWidth = (contentWidth - timeWidth).coerceAtLeast(1)
 
         val subjectText = buildSubjectText(n)
-        subjectPaint.color = theme.onSurface
+        val subjectPaint = theme.dialogNameBoldPaint
         subjectLayout = StaticLayout.Builder
             .obtain(subjectText, 0, subjectText.length, subjectPaint, firstLineWidth)
             .setMaxLines(1)
@@ -84,7 +137,7 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : View(
             .build()
 
         val bodyText = n.messageText.ifEmpty { n.subject }
-        bodyPaint.color = theme.onSurfaceVariant
+        val bodyPaint = theme.dialogMessagePaint
         bodyLayout = StaticLayout.Builder
             .obtain(bodyText, 0, bodyText.length, bodyPaint, contentWidth)
             .setMaxLines(2)
@@ -107,9 +160,12 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : View(
         if (url == currentAvatarUrl && avatarDrawable.hasPhoto()) return
         currentAvatarUrl = url
         avatarDrawable.setPhoto(null)
+        avatarDisposable?.dispose()
+        avatarDisposable = null
         if (url.isNotEmpty()) {
+            val proxyUrl = createImgproxyUrl(url, AVATAR_SIZE * 2, AVATAR_SIZE * 2, "fill")
             val request = ImageRequest.Builder(context)
-                .data(url)
+                .data(proxyUrl)
                 .size(Size(AVATAR_SIZE, AVATAR_SIZE))
                 .allowHardware(false)
                 .target(onSuccess = { d ->
@@ -117,7 +173,7 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : View(
                     post { invalidate() }
                 })
                 .build()
-            Coil.imageLoader(context).enqueue(request)
+            avatarDisposable = Coil.imageLoader(context).enqueue(request)
         }
     }
 
@@ -140,7 +196,7 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : View(
         timeLayout?.let {
             val tx = width - PADDING_H - it.getLineWidth(0)
             canvas.save()
-            canvas.translate(tx, textTop + (subjectPaint.textSize - timePaint.textSize) / 2)
+            canvas.translate(tx, textTop + (theme.dialogNameBoldPaint.textSize - theme.dialogTimePaint.textSize) / 2)
             it.draw(canvas)
             canvas.restore()
         }

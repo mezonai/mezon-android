@@ -92,10 +92,17 @@ class SelectPopup(private val context: Context, private val theme: ThemeColors) 
             gravity = Gravity.CENTER_VERTICAL
         }
         private var needDivider = false
+        private var isSelected = false
 
         init {
             setWillNotDraw(false)
             minimumHeight = LayoutHelper.dp(48)
+
+            val outValue = android.util.TypedValue()
+            context.theme.resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)
+            if (outValue.resourceId != 0) {
+                foreground = androidx.core.content.ContextCompat.getDrawable(context, outValue.resourceId)
+            }
 
             addView(radioCell, LayoutHelper.createFrame(
                 LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT,
@@ -111,9 +118,12 @@ class SelectPopup(private val context: Context, private val theme: ThemeColors) 
 
         fun bind(label: String, selected: Boolean, divider: Boolean) {
             textCell.text = label
+            isSelected = selected
             radioCell.setChecked(selected, animated = false)
             needDivider = divider
         }
+
+        override fun hasOverlappingRendering(): Boolean = false
 
         override fun onDraw(canvas: android.graphics.Canvas) {
             super.onDraw(canvas)
@@ -121,6 +131,14 @@ class SelectPopup(private val context: Context, private val theme: ThemeColors) 
                 val left = LayoutHelper.dp(16).toFloat()
                 canvas.drawRect(left, (height - 1).toFloat(), width.toFloat(), height.toFloat(), theme.dividerPaint)
             }
+        }
+
+        override fun onInitializeAccessibilityNodeInfo(info: android.view.accessibility.AccessibilityNodeInfo) {
+            super.onInitializeAccessibilityNodeInfo(info)
+            info.className = "android.widget.RadioButton"
+            info.isCheckable = true
+            info.isChecked = isSelected
+            info.text = textCell.text
         }
     }
 }

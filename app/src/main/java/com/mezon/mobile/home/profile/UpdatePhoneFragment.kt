@@ -1,9 +1,8 @@
 package com.mezon.mobile.home.profile
 
-import android.os.Bundle
+import android.content.Context
 import android.text.Editable
 import android.text.TextWatcher
-import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.AdapterView
@@ -15,10 +14,9 @@ import com.mezon.mobile.R
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
+import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.ui.cells.ActionButton
 import com.mezon.mobile.ui.cells.InputCell
-import dagger.hilt.android.AndroidEntryPoint
-import javax.inject.Inject
 
 private const val ARG_CURRENT_PHONE = "current_phone"
 
@@ -37,18 +35,17 @@ private val COUNTRY_CODES = listOf(
     CountryCode("India", "+91", "🇮🇳")
 )
 
-@AndroidEntryPoint
 class UpdatePhoneFragment : BaseFragment() {
 
     companion object {
         fun newInstance(currentPhone: String): UpdatePhoneFragment {
             return UpdatePhoneFragment().apply {
-                arguments = Bundle().apply { putString(ARG_CURRENT_PHONE, currentPhone) }
+                arguments = android.os.Bundle().apply { putString(ARG_CURRENT_PHONE, currentPhone) }
             }
         }
     }
 
-    @Inject lateinit var accountController: AccountController
+    private lateinit var accountController: AccountController
 
     var onPhoneVerified: (() -> Unit)? = null
 
@@ -62,28 +59,30 @@ class UpdatePhoneFragment : BaseFragment() {
     private var selectedCountry = COUNTRY_CODES[0]
     private val otpCooldownCache = mutableMapOf<String, Long>()
 
-    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
-        val content = LinearLayout(requireContext()).apply {
+    override fun onInject(entryPoint: FragmentEntryPoint) {
+        accountController = entryPoint.accountController()
+    }
+
+    override fun createView(context: Context): View {
+        val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(themeColors.background)
             val pad = LayoutHelper.dp(16)
             setPadding(pad, pad, pad, pad)
         }
 
-        val phoneRow = LinearLayout(requireContext()).apply {
-            orientation = LinearLayout.HORIZONTAL
-        }
+        val phoneRow = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
 
-        countrySpinner = Spinner(requireContext()).apply {
+        countrySpinner = Spinner(context).apply {
             val items = COUNTRY_CODES.map { "${it.flag} ${it.prefix}" }
-            adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_item, items).also {
+            adapter = ArrayAdapter(context, android.R.layout.simple_spinner_item, items).also {
                 it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
             }
             setBackgroundColor(themeColors.surface)
         }
         phoneRow.addView(countrySpinner, LinearLayout.LayoutParams(LayoutHelper.dp(110), LayoutHelper.dp(52)))
 
-        phoneCell = InputCell(requireContext(), themeColors).apply {
+        phoneCell = InputCell(context, themeColors).apply {
             setLabel(getString(R.string.phone_new_number_label))
             setHint(getString(R.string.phone_number_hint))
             editText.inputType = android.text.InputType.TYPE_CLASS_PHONE
@@ -95,30 +94,22 @@ class UpdatePhoneFragment : BaseFragment() {
         phoneRow.addView(phoneCell, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
             marginStart = LayoutHelper.dp(8)
         })
-
         content.addView(phoneRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, 0, 0f, 0f, 0f, 24f))
+        content.addView(View(context), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
 
-        val spacer = View(requireContext())
-        content.addView(spacer, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
-
-        nextButton = ActionButton(requireContext(), themeColors).apply {
+        nextButton = ActionButton(context, themeColors).apply {
             setText(getString(R.string.phone_next_button))
             isEnabled = false
         }
         content.addView(nextButton, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 48))
 
-        val rootFrame = FrameLayout(requireContext())
+        val rootFrame = FrameLayout(context)
         rootFrame.addView(wrapWithActionBar(getString(R.string.update_phone_title), content), LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
-        loadingView = View(requireContext()).apply {
+        loadingView = View(context).apply {
             setBackgroundColor(0x88000000.toInt())
             visibility = View.GONE
         }
         rootFrame.addView(loadingView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
-        return rootFrame
-    }
-
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
 
         if (currentPhone.isNotEmpty()) {
             val country = COUNTRY_CODES.find { currentPhone.startsWith(it.prefix) }
@@ -137,19 +128,24 @@ class UpdatePhoneFragment : BaseFragment() {
         }
 
         phoneCell.onTextChanged = { updateButtonState() }
-
         nextButton.setOnClickListener { handleNext() }
 
-        observe(NotificationCenter.themeChanged) { _, _ ->
-            view.setBackgroundColor(themeColors.background)
+        return rootFrame
+    }
+
+    override fun onFragmentCreate(): Boolean {
+        super.onFragmentCreate()
+
+        observe(NotificationCenter.themeChanged) { _, _, _ ->
+            fragmentView?.setBackgroundColor(themeColors.background)
         }
+
+        return true
     }
 
     private fun isValidPhone(number: String): Boolean {
         if (number.isEmpty()) return false
-        if (selectedCountry.prefix == "+84") {
-            return Regex("^0?(3|5|7|8|9)[0-9]{8}$").matches(number)
-        }
+        if (selectedCountry.prefix == "+84") return Regex("^0?(3|5|7|8|9)[0-9]{8}$").matches(number)
         return number.length >= 7 && number.all { it.isDigit() }
     }
 
@@ -169,28 +165,21 @@ class UpdatePhoneFragment : BaseFragment() {
             phoneCell.setError(getString(R.string.phone_already_linked))
             return
         }
-
         val lastSent = otpCooldownCache[fullPhone] ?: 0L
         val elapsed = ((System.currentTimeMillis() - lastSent) / 1000).toInt()
         if (elapsed < 60) {
             phoneCell.setError(getString(R.string.email_too_fast, 60 - elapsed))
             return
         }
-
         loadingView.visibility = View.VISIBLE
         nextButton.isEnabled = false
-
         accountController.linkPhone(fullPhone) { success, reqId, errorMsg ->
             loadingView.visibility = View.GONE
             if (success) {
                 otpCooldownCache[fullPhone] = System.currentTimeMillis()
                 val fragment = VerifyOtpFragment.newInstance(fullPhone, reqId, isPhone = true)
                 fragment.onVerified = { onPhoneVerified?.invoke() }
-                requireActivity().supportFragmentManager.beginTransaction()
-                    .setCustomAnimations(android.R.anim.fade_in, android.R.anim.fade_out, android.R.anim.fade_in, android.R.anim.fade_out)
-                    .replace(R.id.fragment_container, fragment)
-                    .addToBackStack(null)
-                    .commit()
+                presentFragment(fragment)
             } else {
                 phoneCell.setError(errorMsg.ifEmpty { getString(R.string.phone_link_failed) })
                 nextButton.isEnabled = true

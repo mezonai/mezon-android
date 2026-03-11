@@ -5,31 +5,63 @@ import android.graphics.Canvas
 import android.graphics.RectF
 import android.text.StaticLayout
 import android.text.TextUtils
-import android.view.View
 import coil.Coil
+import coil.request.Disposable
 import coil.request.ImageRequest
 import coil.size.Size
 import com.mezon.mobile.core.AvatarDrawable
+import com.mezon.mobile.core.BaseCell
 import com.mezon.mobile.core.LayoutHelper
+import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
+import com.mezon.mobile.util.createImgproxyUrl
 import com.mezon.mobile.util.formatRelativeTime
 
-class DialogCell(context: Context, private val theme: ThemeColors) : View(context) {
+class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(context) {
 
     var directMessage: DirectMessage? = null
         private set
 
     private val avatarDrawable = AvatarDrawable()
     private var currentAvatarUrl: String? = null
+    private var avatarDisposable: Disposable? = null
+    private var attachedToWindow = false
+    private var needsLayout = false
+    private var visibleOnScreen = true
 
     private var nameLayout: StaticLayout? = null
     private var previewLayout: StaticLayout? = null
     private var timeLayout: StaticLayout? = null
     private var badgeLayout: StaticLayout? = null
 
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        attachedToWindow = true
+        if (needsLayout) {
+            needsLayout = false
+            buildLayouts()
+            invalidate()
+        }
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        attachedToWindow = false
+        avatarDisposable?.dispose()
+        avatarDisposable = null
+    }
+
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), CELL_HEIGHT)
+    }
+
+    override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
+        super.onLayout(changed, l, t, r, b)
+        if (needsLayout) {
+            needsLayout = false
+            buildLayouts()
+        }
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -37,22 +69,82 @@ class DialogCell(context: Context, private val theme: ThemeColors) : View(contex
         buildLayouts()
     }
 
-    fun setData(dm: DirectMessage) {
-        directMessage = dm
-        avatarDrawable.setInfo(dm.channelId, dm.displayName.ifEmpty { dm.label })
-        buildLayouts()
-        loadAvatar(dm.avatarUrl)
-        invalidate()
+    fun setVisibleOnScreen(visible: Boolean) {
+        visibleOnScreen = visible
     }
 
-    fun updateIfNeeded(dm: DirectMessage) {
-        if (directMessage?.channelId == dm.channelId &&
-            directMessage?.unreadCount == dm.unreadCount &&
-            directMessage?.lastMessageContent == dm.lastMessageContent &&
-            directMessage?.lastMessageTimestamp == dm.lastMessageTimestamp &&
-            directMessage?.isOnline == dm.isOnline
-        ) return
-        setData(dm)
+    fun setData(dm: DirectMessage) {
+        directMessage = dm
+        update(0)
+    }
+
+    fun update(mask: Int, newDm: DirectMessage? = null): Boolean {
+        val dm = newDm ?: directMessage ?: return false
+        var rebuildLayout = false
+        var needInvalidate = false
+
+        if (mask == 0) {
+            if (newDm != null) directMessage = newDm
+            avatarDrawable.setInfo(dm.channelId, dm.displayName.ifEmpty { dm.label })
+            buildLayouts()
+            loadAvatar(dm.avatarUrl)
+            invalidate()
+            return true
+        }
+
+        if ((mask and NotificationCenter.UPDATE_MASK_STATUS) != 0) {
+            if (directMessage?.isOnline != dm.isOnline) {
+                needInvalidate = true
+            }
+        }
+
+        if ((mask and NotificationCenter.UPDATE_MASK_NAME) != 0) {
+            val oldName = directMessage?.displayName ?: ""
+            if (oldName != dm.displayName) {
+                rebuildLayout = true
+            }
+        }
+
+        if ((mask and NotificationCenter.UPDATE_MASK_AVATAR) != 0) {
+            if (directMessage?.avatarUrl != dm.avatarUrl) {
+                loadAvatar(dm.avatarUrl)
+                needInvalidate = true
+            }
+        }
+
+        if ((mask and NotificationCenter.UPDATE_MASK_NEW_MESSAGE) != 0 ||
+            (mask and NotificationCenter.UPDATE_MASK_MESSAGE_TEXT) != 0
+        ) {
+            if (directMessage?.lastMessageContent != dm.lastMessageContent ||
+                directMessage?.lastMessageTimestamp != dm.lastMessageTimestamp
+            ) {
+                rebuildLayout = true
+            }
+        }
+
+        if ((mask and NotificationCenter.UPDATE_MASK_READ_DIALOG_MESSAGE) != 0 ||
+            (mask and NotificationCenter.UPDATE_MASK_BADGE) != 0
+        ) {
+            if (directMessage?.unreadCount != dm.unreadCount) {
+                rebuildLayout = true
+            }
+        }
+
+        if ((mask and NotificationCenter.UPDATE_MASK_SEND_STATE) != 0) {
+            needInvalidate = true
+        }
+
+        if (newDm != null) directMessage = newDm
+
+        if (rebuildLayout) {
+            buildLayouts()
+            invalidate()
+            return true
+        }
+        if (needInvalidate) {
+            invalidate()
+        }
+        return false
     }
 
     private fun buildLayouts() {
@@ -102,10 +194,13 @@ class DialogCell(context: Context, private val theme: ThemeColors) : View(contex
         if (url == currentAvatarUrl && avatarDrawable.hasPhoto()) return
         currentAvatarUrl = url
         avatarDrawable.setPhoto(null)
+        avatarDisposable?.dispose()
+        avatarDisposable = null
 
         if (url.isNotEmpty()) {
+            val proxyUrl = createImgproxyUrl(url, AVATAR_SIZE * 2, AVATAR_SIZE * 2, "fill")
             val request = ImageRequest.Builder(context)
-                .data(url)
+                .data(proxyUrl)
                 .size(Size(AVATAR_SIZE, AVATAR_SIZE))
                 .allowHardware(false)
                 .target(onSuccess = { d ->
@@ -113,11 +208,12 @@ class DialogCell(context: Context, private val theme: ThemeColors) : View(contex
                     post { invalidate() }
                 })
                 .build()
-            Coil.imageLoader(context).enqueue(request)
+            avatarDisposable = Coil.imageLoader(context).enqueue(request)
         }
     }
 
     override fun onDraw(canvas: Canvas) {
+        if (!visibleOnScreen) return
         val dm = directMessage ?: return
         val cx = PADDING_H
         val cy = (height - AVATAR_SIZE) / 2

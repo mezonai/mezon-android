@@ -28,11 +28,14 @@ class NotificationHelper @Inject constructor(
         const val CHANNEL_DM = "mezon_dm"
         const val CHANNEL_SYSTEM = "mezon_system"
 
+        const val ACTION_OPEN_CHAT = "com.mezon.openchat"
+
         const val EXTRA_CHANNEL_ID = "notification_channel_id"
         const val EXTRA_CLAN_ID = "notification_clan_id"
         const val EXTRA_CHANNEL_NAME = "notification_channel_name"
         const val EXTRA_CHANNEL_TYPE = "notification_channel_type"
         const val EXTRA_DM_ID = "notification_dm_id"
+        const val EXTRA_MESSAGE_ID = "notification_message_id"
     }
 
     init {
@@ -89,21 +92,24 @@ class NotificationHelper @Inject constructor(
         channelId: Long,
         clanId: Long,
         channelName: String,
-        channelType: Int
+        channelType: Int,
+        messageId: Long = 0L
     ) {
         val intent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            action = ACTION_OPEN_CHAT + Math.random() + Int.MAX_VALUE
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra(EXTRA_CHANNEL_ID, channelId)
             putExtra(EXTRA_CLAN_ID, clanId)
             putExtra(EXTRA_CHANNEL_NAME, channelName)
             putExtra(EXTRA_CHANNEL_TYPE, channelType)
+            if (messageId != 0L) putExtra(EXTRA_MESSAGE_ID, messageId)
         }
 
         val pendingIntent = PendingIntent.getActivity(
             context,
             channelId.toInt(),
             intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_ONE_SHOT
         )
 
         val notifChannel = if (channelType == CHANNEL_TYPE_DM) CHANNEL_DM else CHANNEL_MESSAGES
@@ -126,18 +132,21 @@ class NotificationHelper @Inject constructor(
     fun showDmNotification(
         title: String,
         body: String,
-        dmChannelId: Long
+        dmChannelId: Long,
+        messageId: Long = 0L
     ) {
         val intent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            action = ACTION_OPEN_CHAT + Math.random() + Int.MAX_VALUE
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra(EXTRA_DM_ID, dmChannelId)
+            if (messageId != 0L) putExtra(EXTRA_MESSAGE_ID, messageId)
         }
 
         val pendingIntent = PendingIntent.getActivity(
             context,
             dmChannelId.toInt(),
             intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_ONE_SHOT
         )
 
         val notification = NotificationCompat.Builder(context, CHANNEL_DM)

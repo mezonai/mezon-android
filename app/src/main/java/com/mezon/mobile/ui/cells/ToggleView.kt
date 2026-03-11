@@ -6,6 +6,7 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
 import android.view.View
+import android.view.accessibility.AccessibilityNodeInfo
 import android.view.animation.DecelerateInterpolator
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
@@ -24,9 +25,6 @@ class ToggleView(
     private val thumbPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val trackRect = RectF()
     var onCheckedChange: ((Boolean) -> Unit)? = null
-
-    private val onColor = 0xFF008ECC.toInt()
-    private val offColor = 0xFFC3C3C3.toInt()
 
     init {
         isClickable = true
@@ -65,6 +63,13 @@ class ToggleView(
         setMeasuredDimension(LayoutHelper.dp(widthDp), LayoutHelper.dp(heightDp))
     }
 
+    override fun onInitializeAccessibilityNodeInfo(info: AccessibilityNodeInfo) {
+        super.onInitializeAccessibilityNodeInfo(info)
+        info.className = "android.widget.Switch"
+        info.isCheckable = true
+        info.isChecked = checked
+    }
+
     override fun onDraw(canvas: Canvas) {
         val w = width.toFloat()
         val h = height.toFloat()
@@ -72,6 +77,8 @@ class ToggleView(
 
         trackRect.set(0f, 0f, w, h)
 
+        val onColor = theme.primary
+        val offColor = theme.outline
         val r = lerpColor(offColor, onColor, progress)
         trackPaint.color = r
         canvas.drawRoundRect(trackRect, trackRadius, trackRadius, trackPaint)

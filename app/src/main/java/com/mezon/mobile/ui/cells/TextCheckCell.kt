@@ -2,45 +2,86 @@ package com.mezon.mobile.ui.cells
 
 import android.content.Context
 import android.graphics.Canvas
-import android.text.Layout
-import android.text.StaticLayout
+import android.util.TypedValue
 import android.view.Gravity
-import android.view.View
+import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.TextView
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 
 class TextCheckCell(context: Context, private val theme: ThemeColors) : FrameLayout(context) {
 
+    val textView: TextView
+    val subtitleTextView: TextView
     private val switchView = SwitchView(context, theme)
-    private var titleText = ""
-    private var subtitleText = ""
-    private var titleLayout: StaticLayout? = null
-    private var subtitleLayout: StaticLayout? = null
+    private val textContainer: LinearLayout
     private var needDivider = false
+
     var onCheckedChange: ((Boolean) -> Unit)?
         get() = switchView.onCheckedChange
         set(value) { switchView.onCheckedChange = value }
 
     init {
-        setWillNotDraw(false)
-        val switchLp = LayoutHelper.createFrame(
+        val outValue = TypedValue()
+        context.theme.resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)
+        foreground = androidx.core.content.ContextCompat.getDrawable(context, outValue.resourceId)
+
+        textContainer = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        textView = TextView(context).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            setTextColor(theme.onSurface)
+            maxLines = 2
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        textContainer.addView(textView, LayoutHelper.createLinear(
+            LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT
+        ))
+
+        subtitleTextView = TextView(context).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            setTextColor(theme.onSurfaceVariant)
+            maxLines = 2
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            visibility = GONE
+        }
+        textContainer.addView(subtitleTextView, LayoutHelper.createLinear(
+            LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT,
+            topMargin = 4f
+        ))
+
+        addView(textContainer, LayoutHelper.createFrame(
+            LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT,
+            Gravity.CENTER_VERTICAL,
+            leftMargin = 20f, topMargin = 12f, rightMargin = 66f, bottomMargin = 12f
+        ))
+
+        addView(switchView, LayoutHelper.createFrame(
             LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT,
             Gravity.CENTER_VERTICAL or Gravity.END,
             rightMargin = 16f
-        )
-        addView(switchView, switchLp)
-        minimumHeight = LayoutHelper.dp(48)
+        ))
+
+        minimumHeight = LayoutHelper.dp(50)
+        setWillNotDraw(true)
     }
 
     fun setTextAndCheck(title: String, subtitle: String = "", checked: Boolean, divider: Boolean = false) {
-        titleText = title
-        subtitleText = subtitle
+        textView.text = title
+        if (subtitle.isNotEmpty()) {
+            subtitleTextView.text = subtitle
+            subtitleTextView.visibility = VISIBLE
+        } else {
+            subtitleTextView.visibility = GONE
+        }
         switchView.setChecked(checked, animated = false)
         needDivider = divider
-        titleLayout = null
-        subtitleLayout = null
-        requestLayout()
+        setWillNotDraw(!divider)
     }
 
     fun isChecked(): Boolean = switchView.isChecked()
@@ -50,67 +91,30 @@ class TextCheckCell(context: Context, private val theme: ThemeColors) : FrameLay
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val w = MeasureSpec.getSize(widthMeasureSpec)
-        val textWidth = w - LayoutHelper.dp(16 + 16 + 50)
-
-        if (titleLayout == null && textWidth > 0) {
-            titleLayout = StaticLayout.Builder
-                .obtain(titleText, 0, titleText.length, theme.settingsNamePaint, textWidth)
-                .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                .setLineSpacing(0f, 1f)
-                .setMaxLines(2)
-                .setEllipsize(android.text.TextUtils.TruncateAt.END)
-                .build()
-        }
-        if (subtitleText.isNotEmpty() && subtitleLayout == null && textWidth > 0) {
-            subtitleLayout = StaticLayout.Builder
-                .obtain(subtitleText, 0, subtitleText.length, theme.settingsValuePaint, textWidth)
-                .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                .setLineSpacing(0f, 1f)
-                .setMaxLines(2)
-                .setEllipsize(android.text.TextUtils.TruncateAt.END)
-                .build()
-        }
-
-        var h = LayoutHelper.dp(16)
-        titleLayout?.let { h += it.height }
-        subtitleLayout?.let { h += it.height + LayoutHelper.dp(4) }
-        h += LayoutHelper.dp(16)
-        h = h.coerceAtLeast(LayoutHelper.dp(48))
-        if (needDivider) h += 1
-
-        super.onMeasure(
-            MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY),
-            MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY)
-        )
+        super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED))
+        val h = measuredHeight.coerceAtLeast(LayoutHelper.dp(50)) + if (needDivider) 1 else 0
+        setMeasuredDimension(measuredWidth, h)
     }
 
+    override fun hasOverlappingRendering(): Boolean = false
+
     override fun onDraw(canvas: Canvas) {
-        val leftPad = LayoutHelper.dp(16).toFloat()
-        var top = LayoutHelper.dp(16).toFloat()
-
-        titleLayout?.let {
-            canvas.save()
-            canvas.translate(leftPad, top)
-            it.draw(canvas)
-            canvas.restore()
-            top += it.height
-        }
-
-        subtitleLayout?.let {
-            top += LayoutHelper.dp(4)
-            canvas.save()
-            canvas.translate(leftPad, top)
-            it.draw(canvas)
-            canvas.restore()
-        }
-
         if (needDivider) {
-            canvas.drawRect(
-                leftPad, (height - 1).toFloat(),
-                width.toFloat(), height.toFloat(),
-                theme.dividerPaint
-            )
+            val leftPad = LayoutHelper.dp(20).toFloat()
+            val y = (height - 1).toFloat()
+            canvas.drawRect(leftPad, y, width.toFloat(), y + 1f, theme.dividerPaint)
         }
+    }
+
+    override fun onInitializeAccessibilityNodeInfo(info: AccessibilityNodeInfo) {
+        super.onInitializeAccessibilityNodeInfo(info)
+        info.className = "android.widget.Switch"
+        info.isCheckable = true
+        info.isChecked = switchView.isChecked()
+    }
+
+    fun updateColors() {
+        textView.setTextColor(theme.onSurface)
+        subtitleTextView.setTextColor(theme.onSurfaceVariant)
     }
 }

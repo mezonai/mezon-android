@@ -5,11 +5,13 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Path
 import android.view.View
+import android.view.accessibility.AccessibilityNodeInfo
 import android.view.animation.DecelerateInterpolator
+import com.mezon.mobile.core.BaseCell
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 
-class RadioCell(context: Context, private val theme: ThemeColors) : View(context) {
+class RadioCell(context: Context, private val theme: ThemeColors) : BaseCell(context) {
 
     private var checked = false
     private var progress = 0f
@@ -47,6 +49,13 @@ class RadioCell(context: Context, private val theme: ThemeColors) : View(context
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         setMeasuredDimension(LayoutHelper.dp(22), LayoutHelper.dp(22))
+    }
+
+    override fun onInitializeAccessibilityNodeInfo(info: AccessibilityNodeInfo) {
+        super.onInitializeAccessibilityNodeInfo(info)
+        info.className = "android.widget.RadioButton"
+        info.isCheckable = true
+        info.isChecked = checked
     }
 
     override fun onDraw(canvas: Canvas) {

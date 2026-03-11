@@ -6,7 +6,9 @@ import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.Drawable
+import android.util.TypedValue
 import android.view.View
+import android.view.accessibility.AccessibilityNodeInfo
 import androidx.annotation.DrawableRes
 import androidx.core.content.ContextCompat
 import com.mezon.mobile.core.LayoutHelper
@@ -18,6 +20,7 @@ class IconButton(context: Context, private val theme: ThemeColors) : View(contex
     private var icon: Drawable? = null
     private val btnSize = LayoutHelper.dp(40)
     private val iconSize = LayoutHelper.dp(24)
+    private var descriptionText: String? = null
     var showBackground = true
         set(value) {
             field = value
@@ -27,6 +30,12 @@ class IconButton(context: Context, private val theme: ThemeColors) : View(contex
     init {
         isClickable = true
         isFocusable = true
+
+        val outValue = TypedValue()
+        context.theme.resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, outValue, true)
+        if (outValue.resourceId != 0) {
+            foreground = ContextCompat.getDrawable(context, outValue.resourceId)
+        }
     }
 
     fun setIcon(drawable: Drawable) {
@@ -48,9 +57,16 @@ class IconButton(context: Context, private val theme: ThemeColors) : View(contex
         invalidate()
     }
 
+    fun setDescription(text: String) {
+        descriptionText = text
+        contentDescription = text
+    }
+
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         setMeasuredDimension(btnSize, btnSize)
     }
+
+    override fun hasOverlappingRendering(): Boolean = false
 
     override fun onDraw(canvas: Canvas) {
         val cx = width / 2f
@@ -66,6 +82,14 @@ class IconButton(context: Context, private val theme: ThemeColors) : View(contex
             val top = (height - iconSize) / 2
             d.setBounds(left, top, left + iconSize, top + iconSize)
             d.draw(canvas)
+        }
+    }
+
+    override fun onInitializeAccessibilityNodeInfo(info: AccessibilityNodeInfo) {
+        super.onInitializeAccessibilityNodeInfo(info)
+        info.className = "android.widget.Button"
+        if (descriptionText != null) {
+            info.text = descriptionText
         }
     }
 }
