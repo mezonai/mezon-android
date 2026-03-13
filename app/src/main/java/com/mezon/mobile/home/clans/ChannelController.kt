@@ -6,7 +6,10 @@ import com.mezon.mobile.data.db.ClanChannelDao
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.network.ApiCacheTracker
+import com.mezon.mobile.network.CODE_CHAT_REMOVE
+import com.mezon.mobile.network.CODE_CHAT_UPDATE
 import com.mezon.mobile.network.MezonApi
+import com.mezon.mobile.network.STREAM_MODE_DM
 import com.mezon.mobile.network.SocketEventDispatcher
 import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.session.SessionManager
@@ -60,7 +63,16 @@ class ChannelController @Inject constructor(
                 val result = withContext(ioDispatcher) {
                     api.listChannelsByClan(session.apiUrl, session.token, clanId)
                 }
+                Log.d(TAG, "API returned ${result.channeldescCount} channels for clanId=$clanId")
+                for (ch in result.channeldescList) {
+                    Log.d(TAG, "  raw: label=${ch.channelLabel} type=${ch.type} countMessUnread=${ch.countMessUnread} active=${ch.active} parentId=${ch.parentId} hasSeen=${ch.hasLastSeenMessage()} hasSent=${ch.hasLastSentMessage()}")
+                }
                 val entities = result.channeldescList.map { it.toClanChannelEntity() }
+                for (e in entities) {
+                    if (e.unreadCount > 0 || e.isThread) {
+                        Log.d(TAG, "Channel: ${e.channelLabel} id=${e.channelId} unread=${e.unreadCount} active=${e.active} isThread=${e.isThread} lastSeen=${e.lastSeenMessageId} lastSent=${e.lastSentMessageId}")
+                    }
+                }
                 updateCache(clanId, entities)
                 cacheTracker.markCalled(cacheKey)
                 withContext(ioDispatcher) { clanChannelDao.upsertAll(entities) }
@@ -106,6 +118,46 @@ class ChannelController @Inject constructor(
         _channelsByClan.value = updated
     }
 
+    private var currentOpenChannelId = 0L
+
+    fun setCurrentChannel(channelId: Long) { currentOpenChannelId = channelId }
+    fun clearCurrentChannel() { currentOpenChannelId = 0L }
+
+    fun incrementUnread(channelId: Long, messageId: Long = 0L) {
+        for ((clanId, channels) in _channelsByClan.value) {
+            val idx = channels.indexOfFirst { it.channelId == channelId }
+            if (idx >= 0) {
+                val ch = channels[idx]
+                val newLastSent = if (messageId > ch.lastSentMessageId) messageId else ch.lastSentMessageId
+                val updated = channels.toMutableList()
+                updated[idx] = ch.copy(lastSentMessageId = newLastSent)
+                val map = _channelsByClan.value.toMutableMap()
+                map[clanId] = updated
+                _channelsByClan.value = map
+                return
+            }
+        }
+    }
+
+    fun markChannelAsRead(channelId: Long) {
+        for ((clanId, channels) in _channelsByClan.value) {
+            val idx = channels.indexOfFirst { it.channelId == channelId }
+            if (idx >= 0) {
+                val ch = channels[idx]
+                if (!ch.hasUnread && ch.unreadCount == 0) return
+                val updated = channels.toMutableList()
+                updated[idx] = ch.copy(
+                    unreadCount = 0,
+                    lastSeenMessageId = ch.lastSentMessageId
+                )
+                val map = _channelsByClan.value.toMutableMap()
+                map[clanId] = updated
+                _channelsByClan.value = map
+                return
+            }
+        }
+    }
+
     private fun observeSocketEvents() {
         appScope.launch {
             dispatcher.channelCreatedEvents.collect { event ->
@@ -137,6 +189,18 @@ class ChannelController @Inject constructor(
                 updateCache(clanId, existing.filter { it.channelId != event.channelId })
                 appScope.launch(ioDispatcher) { clanChannelDao.delete(clanId, event.channelId) }
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
+            }
+        }
+
+        appScope.launch {
+            dispatcher.channelMessages.collect { msg ->
+                if (msg.mode == STREAM_MODE_DM) return@collect
+                if (msg.code == CODE_CHAT_UPDATE || msg.code == CODE_CHAT_REMOVE) return@collect
+                if (msg.channelId == currentOpenChannelId) return@collect
+                incrementUnread(msg.channelId, msg.messageId)
+                notificationCenter.postNotificationOnMainThread(
+                    NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_BADGE
+                )
             }
         }
 

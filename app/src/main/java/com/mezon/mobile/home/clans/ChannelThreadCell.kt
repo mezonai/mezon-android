@@ -3,11 +3,10 @@ package com.mezon.mobile.home.clans
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
-import android.graphics.Path
 import android.graphics.RectF
+import android.graphics.Typeface
 import android.text.TextPaint
 import android.text.TextUtils
-import android.view.View
 import com.mezon.mobile.core.BaseCell
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
@@ -31,33 +30,35 @@ class ChannelThreadCell(
         private val unreadBadgeTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             textSize = LayoutHelper.sp(10f)
             color = 0xFFFFFFFF.toInt()
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            typeface = Typeface.DEFAULT_BOLD
             textAlign = Paint.Align.CENTER
         }
+        private val unreadDotPaint = Paint(Paint.ANTI_ALIAS_FLAG)
         private val activeBgRectF = RectF()
-        private val connectorPath = Path()
+        private val arcRectF = RectF()
     }
 
     var thread: ClanChannelEntity? = null
         private set
     private var isFirst = false
+    private var isLast = false
     private var isActive = false
     private var truncatedName: CharSequence = ""
 
     private val cellHeightPx = LayoutHelper.dp(36)
-    private val indentPx = LayoutHelper.dp(28)
-    private val connectorStrokePx = LayoutHelper.dp(2).toFloat()
-    private val cornerRadiusPx = LayoutHelper.dp(6).toFloat()
-    private val iconSizePx = LayoutHelper.dp(14)
-    private val textMarginPx = LayoutHelper.dp(6)
+    private val connectorLineX = LayoutHelper.dp(26).toFloat()
+    private val branchEndX = LayoutHelper.dp(40).toFloat()
+    private val textStartX = LayoutHelper.dp(44)
+    private val connectorStrokePx = LayoutHelper.dp(1.5f).toFloat()
+    private val cornerRadius = LayoutHelper.dp(6).toFloat()
     private val paddingRightPx = LayoutHelper.dp(16)
     private val badgeSizePx = LayoutHelper.dp(18)
+    private val unreadDotRadius = LayoutHelper.dp(3f).toFloat()
 
-
-
-    fun bind(thread: ClanChannelEntity, isFirst: Boolean, isActive: Boolean) {
+    fun bind(thread: ClanChannelEntity, isFirst: Boolean, isLast: Boolean, isActive: Boolean) {
         this.thread = thread
         this.isFirst = isFirst
+        this.isLast = isLast
         this.isActive = isActive
         update(0)
     }
@@ -104,55 +105,55 @@ class ChannelThreadCell(
         val th = thread ?: return
         val cy = height / 2f
 
-        val connectorColor = 0xFF535353.toInt()
-        connectorPaint.color = connectorColor
+        connectorPaint.color = 0xFF535353.toInt()
         connectorPaint.strokeWidth = connectorStrokePx
 
-        // L-shaped connector line: vertical line down from top (or mid) + horizontal to icon
-        val lineX = (indentPx / 2).toFloat()
-        val iconRight = indentPx.toFloat()
-        connectorPath.reset()
-        if (isFirst) {
-            // Short corner: starts from vertical center, goes right
-            connectorPath.moveTo(lineX, 0f)
-            connectorPath.lineTo(lineX, cy)
-            connectorPath.lineTo(iconRight, cy)
-        } else {
-            // Long corner: full height vertical + horizontal
-            connectorPath.moveTo(lineX, 0f)
-            connectorPath.lineTo(lineX, cy)
-            connectorPath.lineTo(iconRight, cy)
-        }
-        canvas.drawPath(connectorPath, connectorPaint)
+        val verticalBottom = if (isLast) cy - cornerRadius else height.toFloat()
+        canvas.drawLine(connectorLineX, 0f, connectorLineX, verticalBottom, connectorPaint)
+
+        arcRectF.set(
+            connectorLineX, cy - cornerRadius * 2,
+            connectorLineX + cornerRadius * 2, cy
+        )
+        canvas.drawArc(arcRectF, 180f, -90f, false, connectorPaint)
+
+        canvas.drawLine(connectorLineX + cornerRadius, cy, branchEndX, cy, connectorPaint)
 
         if (isActive) {
             activeBgPaint.color = themeColors.primaryContainer
             val r = LayoutHelper.dp(6).toFloat()
             activeBgRectF.set(
-                indentPx - LayoutHelper.dp(4).toFloat(), LayoutHelper.dp(2).toFloat(),
+                textStartX - LayoutHelper.dp(6).toFloat(), LayoutHelper.dp(2).toFloat(),
                 width - LayoutHelper.dp(8).toFloat(), height - LayoutHelper.dp(2).toFloat()
             )
             canvas.drawRoundRect(activeBgRectF, r, r, activeBgPaint)
         }
 
-        val hasUnread = th.unreadCount > 0
+        val hasUnread = th.hasUnread
+        val hasMentionBadge = th.unreadCount > 0
         val textColor = when {
             isActive || hasUnread -> themeColors.onSurface
             else -> themeColors.onSurfaceVariant
         }
         namePaint.color = textColor
+        namePaint.typeface = if (hasUnread) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
 
-        val textX = indentPx + textMarginPx
-        val badgeWidth = if (hasUnread) badgeSizePx + LayoutHelper.dp(4) else 0
-        val availW = width - textX - paddingRightPx - badgeWidth
+        if (hasUnread && !isActive) {
+            unreadDotPaint.color = themeColors.onSurface
+            val dotX = connectorLineX - LayoutHelper.dp(10).toFloat()
+            canvas.drawCircle(dotX, cy, unreadDotRadius, unreadDotPaint)
+        }
+
+        val badgeWidth = if (hasMentionBadge) badgeSizePx + LayoutHelper.dp(4) else 0
+        val availW = width - textStartX - paddingRightPx - badgeWidth
 
         if (truncatedName.isEmpty()) {
             truncatedName = TextUtils.ellipsize(th.channelLabel, namePaint, availW.toFloat(), TextUtils.TruncateAt.END)
         }
         val textY = cy - (namePaint.descent() + namePaint.ascent()) / 2
-        canvas.drawText(truncatedName.toString(), textX.toFloat(), textY, namePaint)
+        canvas.drawText(truncatedName.toString(), textStartX.toFloat(), textY, namePaint)
 
-        if (hasUnread) {
+        if (hasMentionBadge) {
             val badgeText = if (th.unreadCount > 99) "99+" else th.unreadCount.toString()
             val textW = unreadBadgeTextPaint.measureText(badgeText)
             val badgeW = (textW + LayoutHelper.dp(8)).coerceAtLeast(badgeSizePx.toFloat())

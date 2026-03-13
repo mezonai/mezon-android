@@ -33,6 +33,7 @@ class ChannelListView(
         recyclerView = RecyclerListView(context).apply {
             layoutManager = LinearLayoutManager(context)
             overScrollMode = OVER_SCROLL_NEVER
+            isVerticalScrollBarEnabled = false
         }
         recyclerView.adapter = adapter
         recyclerView.setOnItemClickListener(RecyclerListView.OnItemClickListener { view, _ ->
@@ -103,18 +104,35 @@ class ChannelListView(
                 rows.add(ChannelRow.Section(section.categoryId, section.categoryName, expanded))
             }
             if (expanded || section.categoryName.isEmpty()) {
+                val visibleThreads = mutableListOf<Triple<ClanChannelEntity, Boolean, Boolean>>()
                 var lastParentId = 0L
                 for (ch in section.channels) {
                     if (ch.isThread) {
                         val isFirst = ch.parentId != lastParentId
                         lastParentId = ch.parentId
-                        if (ch.unreadCount > 0 || ch.channelId == activeChannelId) {
-                            rows.add(ChannelRow.Thread(ch, isFirst, ch.channelId == activeChannelId))
+                        if (ch.active == 1 || ch.hasUnread || ch.unreadCount > 0 || ch.channelId == activeChannelId) {
+                            visibleThreads.add(Triple(ch, isFirst, ch.channelId == activeChannelId))
                         }
                     } else {
+                        if (visibleThreads.isNotEmpty()) {
+                            for ((idx, t) in visibleThreads.withIndex()) {
+                                val isLast = idx == visibleThreads.size - 1 ||
+                                    visibleThreads.getOrNull(idx + 1)?.first?.parentId != t.first.parentId
+                                rows.add(ChannelRow.Thread(t.first, t.second, isLast, t.third))
+                            }
+                            visibleThreads.clear()
+                        }
                         lastParentId = 0L
                         rows.add(ChannelRow.Channel(ch, ch.channelId == activeChannelId))
                     }
+                }
+                if (visibleThreads.isNotEmpty()) {
+                    for ((idx, t) in visibleThreads.withIndex()) {
+                        val isLast = idx == visibleThreads.size - 1 ||
+                            visibleThreads.getOrNull(idx + 1)?.first?.parentId != t.first.parentId
+                        rows.add(ChannelRow.Thread(t.first, t.second, isLast, t.third))
+                    }
+                    visibleThreads.clear()
                 }
             }
         }
@@ -183,7 +201,7 @@ class ChannelListView(
                     (holder as ChannelVH).cell.bind(row.channel, row.isActive)
                 }
                 is ChannelRow.Thread -> {
-                    (holder as ThreadVH).cell.bind(row.thread, row.isFirst, row.isActive)
+                    (holder as ThreadVH).cell.bind(row.thread, row.isFirst, row.isLast, row.isActive)
                 }
             }
         }
@@ -197,5 +215,5 @@ class ChannelListView(
 sealed class ChannelRow {
     data class Section(val categoryId: Long, val categoryName: String, val isExpanded: Boolean) : ChannelRow()
     data class Channel(val channel: ClanChannelEntity, val isActive: Boolean) : ChannelRow()
-    data class Thread(val thread: ClanChannelEntity, val isFirst: Boolean, val isActive: Boolean) : ChannelRow()
+    data class Thread(val thread: ClanChannelEntity, val isFirst: Boolean, val isLast: Boolean, val isActive: Boolean) : ChannelRow()
 }

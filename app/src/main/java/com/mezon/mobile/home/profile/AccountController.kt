@@ -5,7 +5,10 @@ import com.mezon.mezon.api.Friend
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
+import com.mezon.mobile.network.ApiCacheTracker
 import com.mezon.mobile.network.MezonApi
+import com.mezon.mobile.network.SocketEventDispatcher
+import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.session.SessionManager
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -27,6 +30,7 @@ data class AccountInfo(
     val email: String = "",
     val phoneNumber: String = "",
     val avatarUrl: String = "",
+    val logo: String = "",
     val passwordSetted: Boolean = false
 )
 
@@ -34,7 +38,10 @@ data class AccountInfo(
 class AccountController @Inject constructor(
     private val api: MezonApi,
     private val sessionManager: SessionManager,
+    private val userController: UserController,
+    private val dispatcher: SocketEventDispatcher,
     private val notificationCenter: NotificationCenter,
+    private val cacheTracker: ApiCacheTracker,
     @ApplicationScope private val appScope: CoroutineScope,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) {
@@ -47,26 +54,59 @@ class AccountController @Inject constructor(
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
-    fun loadAccount() {
+    init {
         appScope.launch {
-            try {
-                val session = withContext(ioDispatcher) { sessionManager.sessionFlow.first() } ?: return@launch
-                val account = withContext(ioDispatcher) { api.getAccount(session.apiUrl, session.token) }
-                val user = account.user
-                _accountInfo.value = AccountInfo(
-                    userId = user.id,
-                    username = user.username,
-                    displayName = user.displayName,
-                    email = account.email,
-                    phoneNumber = user.phoneNumber,
-                    avatarUrl = user.avatarUrl,
-                    passwordSetted = account.passwordSetted
-                )
-                notificationCenter.postNotificationOnMainThread(NotificationCenter.accountInfoLoaded)
-            } catch (e: Exception) {
-                Log.e(TAG, "loadAccount failed", e)
-            }
+            sessionManager.sessionFlow.first { it != null }
+            loadAccountInternal()
         }
+        appScope.launch { observeProfileUpdates() }
+    }
+
+    private suspend fun observeProfileUpdates() {
+        dispatcher.userProfileUpdatedEvents.collect { event ->
+            val current = _accountInfo.value
+            if (current.userId == 0L || event.userId != current.userId) return@collect
+            val updated = current.copy(
+                displayName = event.displayName.ifEmpty { current.displayName },
+                avatarUrl = event.avatar.ifEmpty { current.avatarUrl }
+            )
+            _accountInfo.value = updated
+            userController.updateFromAccount(updated)
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.accountInfoLoaded)
+        }
+    }
+
+    private val cacheKey = apiCacheKey("getAccount")
+
+    private suspend fun loadAccountInternal(noCache: Boolean = false) {
+        try {
+            val session = withContext(ioDispatcher) { sessionManager.sessionFlow.first() } ?: return
+            if (!noCache && _accountInfo.value.userId != 0L &&
+                cacheTracker.shouldCall(cacheKey, noCache = false) == ApiCacheTracker.ShouldCall.SKIP
+            ) return
+            val account = withContext(ioDispatcher) { api.getAccount(session.apiUrl, session.token) }
+            val user = account.user
+            val info = AccountInfo(
+                userId = user.id,
+                username = user.username,
+                displayName = user.displayName,
+                email = account.email,
+                phoneNumber = user.phoneNumber,
+                avatarUrl = user.avatarUrl,
+                logo = account.logo,
+                passwordSetted = account.passwordSetted
+            )
+            _accountInfo.value = info
+            cacheTracker.markCalled(cacheKey)
+            userController.updateFromAccount(info)
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.accountInfoLoaded)
+        } catch (e: Exception) {
+            Log.e(TAG, "loadAccount failed", e)
+        }
+    }
+
+    fun loadAccount(noCache: Boolean = false) {
+        appScope.launch { loadAccountInternal(noCache) }
     }
 
     fun loadBlockedUsers() {
@@ -111,6 +151,7 @@ class AccountController @Inject constructor(
             try {
                 val session = withContext(ioDispatcher) { sessionManager.sessionFlow.first() } ?: return@launch
                 withContext(ioDispatcher) { api.confirmLinkOTP(session.apiUrl, session.token, reqId, otpCode) }
+                cacheTracker.invalidate(cacheKey)
                 loadAccount()
                 withContext(kotlinx.coroutines.Dispatchers.Main) {
                     onResult(true, "")
@@ -215,10 +256,13 @@ class AccountController @Inject constructor(
                     )
                 }
                 val current = _accountInfo.value
-                _accountInfo.value = current.copy(
+                val updated = current.copy(
                     displayName = displayName.ifEmpty { current.displayName },
                     avatarUrl = avatarUrl.ifEmpty { current.avatarUrl }
                 )
+                _accountInfo.value = updated
+                cacheTracker.invalidate(cacheKey)
+                userController.updateFromAccount(updated)
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.accountInfoLoaded)
                 withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(true, "") }
             } catch (e: Exception) {

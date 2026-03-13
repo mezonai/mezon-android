@@ -21,7 +21,9 @@ data class DirectMessage(
     val unreadCount: Int,
     val isOnline: Boolean,
     val isMute: Boolean,
-    val otherUserId: Long = 0L
+    val otherUserId: Long = 0L,
+    val lastSeenMessageId: Long = 0L,
+    val lastSentMessageId: Long = 0L
 )
 
 
@@ -63,7 +65,9 @@ fun ChannelDescription.toDirectMessage(currentUserId: Long): DirectMessage {
         unreadCount = countMessUnread,
         isOnline = isOnline,
         isMute = isMute,
-        otherUserId = otherUserId
+        otherUserId = otherUserId,
+        lastSeenMessageId = if (hasLastSeenMessage()) lastSeenMessage.id else 0L,
+        lastSentMessageId = if (hasLastSentMessage()) lastSentMessage.id else 0L
     )
 }
 

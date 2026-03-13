@@ -69,6 +69,7 @@ class BlockedUsersFragment : BaseFragment() {
             layoutManager = LinearLayoutManager(context)
             adapter = listAdapter
             overScrollMode = View.OVER_SCROLL_NEVER
+            isVerticalScrollBarEnabled = false
             setOnItemClickListener(RecyclerListView.OnItemClickListener { view, position ->
                 val friend = listAdapter.getItem(position) ?: return@OnItemClickListener
                 onUnblockClicked(friend)

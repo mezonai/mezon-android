@@ -18,6 +18,7 @@ import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.clans.ClansFragment
 import com.mezon.mobile.home.messages.MessagesFragment
 import com.mezon.mobile.home.notifications.NotificationsFragment
+import com.mezon.mobile.home.profile.AccountController
 import com.mezon.mobile.home.profile.ProfileFragment
 import com.mezon.mobile.network.ConnectionState
 import com.mezon.mobile.ui.cells.BottomTabBar
@@ -33,6 +34,8 @@ class MainTabsActivity : ViewPagerActivity() {
 
     private lateinit var connectionController: ConnectionController
     private lateinit var messagesController: MessagesController
+    @Suppress("unused")
+    private lateinit var accountController: AccountController
 
     var onLogout: (() -> Unit)? = null
     var onOpenChat: ((channelId: Long, channelName: String, clanId: Long, channelType: Int) -> Unit)? = null
@@ -50,6 +53,9 @@ class MainTabsActivity : ViewPagerActivity() {
         TAB_CLANS -> ClansFragment().also { f ->
             f.onOpenChat = { channelId, channelName, clanId, channelType ->
                 onOpenChat?.invoke(channelId, channelName, clanId, channelType)
+            }
+            f.onSwitchToMessages = {
+                viewPager.scrollToPosition(TAB_MESSAGES)
             }
         }
         TAB_MESSAGES -> MessagesFragment().also { f ->
@@ -74,6 +80,7 @@ class MainTabsActivity : ViewPagerActivity() {
     override fun onInject(entryPoint: FragmentEntryPoint) {
         connectionController = entryPoint.connectionController()
         messagesController = entryPoint.messagesController()
+        accountController = entryPoint.accountController()
     }
 
     override fun onFragmentCreate(): Boolean {

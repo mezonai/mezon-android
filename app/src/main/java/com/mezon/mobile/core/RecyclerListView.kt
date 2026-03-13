@@ -19,10 +19,10 @@ import android.view.ViewGroup
 import android.view.accessibility.AccessibilityEvent
 import androidx.recyclerview.widget.RecyclerView
 
-open class RecyclerListView @JvmOverloads constructor(
+open class RecyclerListView(
     context: Context,
     private val resourcesProvider: ThemeColors.ResourcesProvider? = null
-) : RecyclerView(context) {
+) : RecyclerView(context, null, com.mezon.mobile.R.attr.mezonRecyclerListViewStyle) {
 
     companion object {
         const val SECTIONS_TYPE_SIMPLE = 0

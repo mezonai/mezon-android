@@ -76,6 +76,9 @@ class ThemeColors @Inject constructor() {
     }
     val chatBubblePaint = Paint(Paint.ANTI_ALIAS_FLAG)
     val chatBubbleOutPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    val systemMessageTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = LayoutHelper.sp(13f)
+    }
 
     val settingsNamePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = LayoutHelper.sp(16f)
@@ -263,6 +266,7 @@ class ThemeColors @Inject constructor() {
         chatTimeOutPaint.color = onPrimary and 0x99FFFFFF.toInt()
         chatBubblePaint.color = surfaceVariant
         chatBubbleOutPaint.color = primary
+        systemMessageTextPaint.color = onSurfaceVariant
         settingsNamePaint.color = onSurface
         settingsValuePaint.color = onSurfaceVariant
         headerPaint.color = primary
@@ -333,6 +337,7 @@ class ThemeColors @Inject constructor() {
     }
 
     val error: Int get() = 0xFFD30E0E.toInt()
+    val success: Int get() = 0xFF00D4AA.toInt()
 
     val primaryContainer: Int get() = when (resolvedMode) {
         ThemeMode.LIGHT -> 0xFFEADDFF.toInt()
@@ -353,6 +358,23 @@ class ThemeColors @Inject constructor() {
     val disconnectedColor: Int get() = 0xFFF04747.toInt()
 
     val blurple: Int get() = 0xFF5A62F4.toInt()
+
+    val textLink: Int get() = 0xFF3297FF.toInt()
+    val midnightBlue: Int get() = when (resolvedMode) {
+        ThemeMode.LIGHT -> 0xFFD1E0FF.toInt()
+        ThemeMode.DARK, ThemeMode.ABYSS -> 0xFF3B426E.toInt()
+        else -> 0xFF3B426E.toInt()
+    }
+    val textRoleLink: Int get() = when (resolvedMode) {
+        ThemeMode.LIGHT -> 0xFF00B098.toInt()
+        ThemeMode.DARK, ThemeMode.ABYSS -> 0xFF009C67.toInt()
+        else -> 0xFF009C67.toInt()
+    }
+    val darkMossGreen: Int get() = when (resolvedMode) {
+        ThemeMode.LIGHT -> 0xFFE2F1E5.toInt()
+        ThemeMode.DARK, ThemeMode.ABYSS -> 0xFF3C4C43.toInt()
+        else -> 0xFF3C4C43.toInt()
+    }
 
     val badgeRed: Int get() = 0xFFD30E0E.toInt()
     val onlineGreen: Int get() = 0xFF43B581.toInt()
