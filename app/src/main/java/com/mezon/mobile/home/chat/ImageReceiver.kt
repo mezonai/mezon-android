@@ -9,6 +9,8 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Shader
+import android.graphics.drawable.Animatable
+import android.graphics.drawable.Drawable
 import android.view.View
 import coil.Coil
 import coil.request.ImageRequest
@@ -18,6 +20,7 @@ class ImageReceiver(private val parentView: View) {
 
     private var imageBitmap: Bitmap? = null
     private var thumbBitmap: Bitmap? = null
+    private var animatedDrawable: Drawable? = null
     private var currentUrl: String? = null
     private var currentThumbUrl: String? = null
     private var attached = false
@@ -41,6 +44,8 @@ class ImageReceiver(private val parentView: View) {
     private var cachedShader: BitmapShader? = null
     private var cachedShaderBitmap: Bitmap? = null
 
+    private val invalidateRunnable = Runnable { parentView.invalidate() }
+
     fun setImageCoords(x: Float, y: Float, w: Float, h: Float) {
         imageX = x
         imageY = y
@@ -55,18 +60,24 @@ class ImageReceiver(private val parentView: View) {
     fun onAttachedToWindow() {
         if (attached) return
         attached = true
+        (animatedDrawable as? Animatable)?.start()
         pendingLoad?.let { (url, thumbUrl) ->
             pendingLoad = null
+            currentUrl = null
+            currentThumbUrl = null
             setImage(url, thumbUrl, parentView.context)
         }
     }
 
     fun onDetachedFromWindow() {
         attached = false
+        (animatedDrawable as? Animatable)?.stop()
         currentDisposable?.dispose()
         currentDisposable = null
         thumbDisposable?.dispose()
         thumbDisposable = null
+        currentUrl = null
+        currentThumbUrl = null
     }
 
     fun setImage(url: String?, thumbUrl: String?, context: Context) {
@@ -76,8 +87,6 @@ class ImageReceiver(private val parentView: View) {
         if (!urlChanged && !thumbChanged) return
 
         if (!attached) {
-            currentUrl = url
-            currentThumbUrl = thumbUrl
             pendingLoad = Pair(url, thumbUrl)
             return
         }
@@ -85,26 +94,48 @@ class ImageReceiver(private val parentView: View) {
         if (thumbChanged && thumbUrl != null) {
             currentThumbUrl = thumbUrl
             thumbDisposable?.dispose()
-            thumbDisposable = loadBitmap(thumbUrl, context, isThumb = true)
+            thumbDisposable = loadDrawable(thumbUrl, context, isThumb = true)
         }
 
         if (urlChanged && url != null) {
             imageBitmap = null
+            stopAnimation()
+            animatedDrawable = null
             cachedShader = null
             cachedShaderBitmap = null
             currentUrl = url
             currentDisposable?.dispose()
-            currentDisposable = loadBitmap(url, context, isThumb = false)
+            currentDisposable = loadDrawable(url, context, isThumb = false)
         }
     }
 
-    private fun loadBitmap(url: String, context: Context, isThumb: Boolean): coil.request.Disposable? {
+    private fun loadDrawable(url: String, context: Context, isThumb: Boolean): coil.request.Disposable? {
         if (url.isEmpty()) return null
         val request = ImageRequest.Builder(context)
             .data(url)
             .size(Size.ORIGINAL)
             .allowHardware(false)
+            .listener(
+                onError = { _, result ->
+                    if (!isThumb && url.endsWith("@webp")) {
+                        loadDrawable(url.removeSuffix("@webp"), context, isThumb)
+                    }
+                }
+            )
             .target(onSuccess = { drawable ->
+                if (drawable is Animatable) {
+                    if (!isThumb) {
+                        imageBitmap = null
+                        thumbBitmap = null
+                        cachedShader = null
+                        cachedShaderBitmap = null
+                        animatedDrawable = drawable
+                        drawable.callback = animationCallback
+                        if (attached) drawable.start()
+                        parentView.post { parentView.invalidate() }
+                    }
+                    return@target
+                }
                 val bmp = when (drawable) {
                     is android.graphics.drawable.BitmapDrawable -> drawable.bitmap
                     else -> {
@@ -118,13 +149,14 @@ class ImageReceiver(private val parentView: View) {
                     }
                 }
                 if (isThumb) {
-                    if (imageBitmap == null) {
+                    if (imageBitmap == null && animatedDrawable == null) {
                         thumbBitmap = bmp
                         parentView.post { parentView.invalidate() }
                     }
                 } else {
                     imageBitmap = bmp
                     thumbBitmap = null
+                    animatedDrawable = null
                     cachedShader = null
                     cachedShaderBitmap = null
                     parentView.post { parentView.invalidate() }
@@ -134,10 +166,52 @@ class ImageReceiver(private val parentView: View) {
         return Coil.imageLoader(context).enqueue(request)
     }
 
+    private val animationCallback = object : Drawable.Callback {
+        override fun invalidateDrawable(who: Drawable) {
+            if (attached) parentView.post(invalidateRunnable)
+        }
+        override fun scheduleDrawable(who: Drawable, what: Runnable, `when`: Long) {
+            parentView.postDelayed(what, `when` - android.os.SystemClock.uptimeMillis())
+        }
+        override fun unscheduleDrawable(who: Drawable, what: Runnable) {
+            parentView.removeCallbacks(what)
+        }
+    }
+
     fun draw(canvas: Canvas): Boolean {
-        val bmp = imageBitmap ?: thumbBitmap ?: return false
         if (imageW <= 0f || imageH <= 0f) return false
 
+        val anim = animatedDrawable
+        if (anim != null) {
+            return drawAnimated(canvas, anim)
+        }
+
+        val bmp = imageBitmap ?: thumbBitmap ?: return false
+        return drawBitmap(canvas, bmp)
+    }
+
+    private fun drawAnimated(canvas: Canvas, drawable: Drawable): Boolean {
+        val hasRound = roundRadius.any { it > 0 }
+        if (hasRound) {
+            roundRect.set(imageX, imageY, imageX + imageW, imageY + imageH)
+            for (i in roundRadius.indices) {
+                radii[i * 2] = roundRadius[i].toFloat()
+                radii[i * 2 + 1] = roundRadius[i].toFloat()
+            }
+            roundPath.reset()
+            roundPath.addRoundRect(roundRect, radii, Path.Direction.CW)
+            canvas.save()
+            canvas.clipPath(roundPath)
+        }
+        drawable.setBounds(imageX.toInt(), imageY.toInt(), (imageX + imageW).toInt(), (imageY + imageH).toInt())
+        drawable.draw(canvas)
+        if (hasRound) {
+            canvas.restore()
+        }
+        return true
+    }
+
+    private fun drawBitmap(canvas: Canvas, bmp: Bitmap): Boolean {
         val bmpW = bmp.width.toFloat()
         val bmpH = bmp.height.toFloat()
         if (bmpW <= 0f || bmpH <= 0f) return false
@@ -201,13 +275,20 @@ class ImageReceiver(private val parentView: View) {
         return shader
     }
 
-    fun hasImage(): Boolean = imageBitmap != null || thumbBitmap != null
+    private fun stopAnimation() {
+        (animatedDrawable as? Animatable)?.stop()
+        animatedDrawable?.callback = null
+    }
+
+    fun hasImage(): Boolean = imageBitmap != null || thumbBitmap != null || animatedDrawable != null
 
     fun recycle() {
         currentDisposable?.dispose()
         currentDisposable = null
         thumbDisposable?.dispose()
         thumbDisposable = null
+        stopAnimation()
+        animatedDrawable = null
         imageBitmap = null
         thumbBitmap = null
         cachedShader = null
@@ -215,6 +296,15 @@ class ImageReceiver(private val parentView: View) {
         currentUrl = null
         currentThumbUrl = null
         pendingLoad = null
+    }
+
+    fun setBitmapDirectly(bmp: Bitmap) {
+        stopAnimation()
+        animatedDrawable = null
+        imageBitmap = bmp
+        thumbBitmap = null
+        cachedShader = null
+        cachedShaderBitmap = null
     }
 
     fun getImageX() = imageX

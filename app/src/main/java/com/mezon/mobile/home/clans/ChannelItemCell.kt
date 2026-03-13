@@ -29,6 +29,7 @@ class ChannelItemCell(
             strokeJoin = Paint.Join.ROUND
         }
         private val activeBgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val unreadDotPaint = Paint(Paint.ANTI_ALIAS_FLAG)
         private val unreadBadgePaint = Paint(Paint.ANTI_ALIAS_FLAG)
         private val unreadBadgeTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             textSize = LayoutHelper.sp(10f)
@@ -60,6 +61,7 @@ class ChannelItemCell(
     private val iconSizePx = LayoutHelper.dp(20)
     private val iconMarginPx = LayoutHelper.dp(8)
     private val badgeSizePx = LayoutHelper.dp(20)
+    private val unreadDotRadius = LayoutHelper.dp(3f).toFloat()
 
 
 
@@ -109,13 +111,15 @@ class ChannelItemCell(
 
     override fun onDraw(canvas: Canvas) {
         val ch = channel ?: return
+        val hasUnread = ch.hasUnread
+        val hasMentionBadge = ch.unreadCount > 0
 
         val textColor = when {
-            isActive -> themeColors.onSurface
-            ch.unreadCount > 0 -> themeColors.onSurface
+            isActive || hasUnread -> themeColors.onSurface
             else -> themeColors.onSurfaceVariant
         }
         namePaint.color = textColor
+        namePaint.typeface = if (hasUnread) android.graphics.Typeface.DEFAULT_BOLD else android.graphics.Typeface.DEFAULT
         iconPaint.color = textColor
         iconTextPaint.color = textColor
 
@@ -130,11 +134,17 @@ class ChannelItemCell(
         }
 
         val cy = height / 2f
+
+        if (hasUnread && !isActive) {
+            unreadDotPaint.color = themeColors.onSurface
+            canvas.drawCircle(paddingHPx / 2f, cy, unreadDotRadius, unreadDotPaint)
+        }
+
         val iconX = paddingHPx.toFloat() + iconSizePx / 2f
         drawChannelIcon(canvas, ch.type, iconX, cy)
 
         val textX = paddingHPx + iconSizePx + iconMarginPx
-        val badgeWidth = if (ch.unreadCount > 0) badgeSizePx + LayoutHelper.dp(4) else 0
+        val badgeWidth = if (hasMentionBadge) badgeSizePx + LayoutHelper.dp(4) else 0
         val availW = width - textX - paddingHPx - badgeWidth
 
         if (truncatedName.isEmpty()) {
@@ -143,7 +153,7 @@ class ChannelItemCell(
         val textY = cy - (namePaint.descent() + namePaint.ascent()) / 2
         canvas.drawText(truncatedName.toString(), textX.toFloat(), textY, namePaint)
 
-        if (ch.unreadCount > 0) {
+        if (hasMentionBadge) {
             val badgeText = if (ch.unreadCount > 99) "99+" else ch.unreadCount.toString()
             val textW = unreadBadgeTextPaint.measureText(badgeText)
             val badgeW = (textW + LayoutHelper.dp(8)).coerceAtLeast(badgeSizePx.toFloat())

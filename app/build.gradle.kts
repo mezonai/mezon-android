@@ -159,6 +159,14 @@ dependencies {
 
     // Image loading
     implementation("io.coil-kt:coil:2.6.0")
+    implementation("io.coil-kt:coil-gif:2.6.0")
+
+    // Media playback
+    implementation("androidx.media3:media3-exoplayer:1.3.1")
+    implementation("androidx.media3:media3-ui:1.3.1")
+
+    // Lottie for animated stickers (TGS)
+    implementation("com.airbnb.android:lottie:6.4.0")
 
     // Firebase
     implementation(platform(libs.firebase.bom))

@@ -3,12 +3,20 @@
 
     <style name="Theme.Mezon" parent="Theme.AppCompat.Light.NoActionBar">
         <item name="android:windowBackground">@color/window_background</item>
+        <item name="mezonRecyclerListViewStyle">@style/MezonRecyclerListView</item>
     </style>
 
     <style name="Theme.Mezon.Splash" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">@color/window_background</item>
         <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
         <item name="postSplashScreenTheme">@style/Theme.Mezon</item>
+    </style>
+
+    <style name="MezonRecyclerListView" parent="android:Widget">
+        <item name="android:scrollbars">vertical</item>
+        <item name="android:fadeScrollbars">true</item>
+        <item name="android:scrollbarFadeDuration">300</item>
+        <item name="android:scrollbarDefaultDelayBeforeFade">1000</item>
     </style>
 
     <!-- Match MezonLightColors.Primary (#F2F3F5) -->

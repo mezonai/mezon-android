@@ -59,7 +59,6 @@ class AccountSettingFragment : BaseFragment() {
         super.onFragmentCreate()
 
         observe(NotificationCenter.accountInfoLoaded) { _, _, _ ->
-            userController.updateFromAccount(accountController.accountInfo.value)
             if (fragmentView != null) updateRows()
         }
         observe(NotificationCenter.updateInterfaces) { _, _, args ->
@@ -83,6 +82,7 @@ class AccountSettingFragment : BaseFragment() {
             layoutManager = LinearLayoutManager(context)
             adapter = listAdapter
             overScrollMode = View.OVER_SCROLL_NEVER
+            isVerticalScrollBarEnabled = false
             setBackgroundColor(themeColors.background)
             setOnItemClickListener(RecyclerListView.OnItemClickListener { _, position ->
                 onItemClick(position)

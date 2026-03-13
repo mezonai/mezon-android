@@ -96,6 +96,7 @@ class ProfileFragment : BaseFragment() {
             layoutManager = LinearLayoutManager(context)
             adapter = listAdapter
             overScrollMode = View.OVER_SCROLL_NEVER
+            isVerticalScrollBarEnabled = false
             setOnItemClickListener(RecyclerListView.OnItemClickListener { view, position ->
                 onItemClick(view, position)
             })
@@ -255,9 +256,10 @@ class ProfileFragment : BaseFragment() {
 
             when (getItemViewType(position)) {
                 VIEW_TYPE_PROFILE_HEADER -> {
+                    val name = userController.displayName.ifEmpty { userController.username }
                     (holder.itemView as ProfileHeaderCell).setInfo(
                         userController.userId,
-                        userController.userIdStr,
+                        name,
                         userIdStr
                     )
                 }
