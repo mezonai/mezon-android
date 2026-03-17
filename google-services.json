@@ -22,6 +22,14 @@
           }
         },
         {
+          "client_id": "285548761692-cuba91gq0n6rt8fsmje2uuf66jg8d5in.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.mezon.mobile",
+            "certificate_hash": "ac6c07ddd320a77c0acdd64dd5b39d55418fae41"
+          }
+        },
+        {
           "client_id": "285548761692-i672579oq9k4b80np8bkjre6o8ikgl95.apps.googleusercontent.com",
           "client_type": 3
         }
