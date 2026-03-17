@@ -169,9 +169,6 @@ dependencies {
     implementation(libs.google.material)
     implementation(libs.androidx.fragment.ktx)
 
-    // Image loading
-    implementation("io.coil-kt:coil:2.6.0")
-    implementation("io.coil-kt:coil-gif:2.6.0")
 
     // Media playback
     implementation("androidx.media3:media3-exoplayer:1.3.1")

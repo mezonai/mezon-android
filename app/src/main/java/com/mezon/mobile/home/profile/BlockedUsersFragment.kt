@@ -10,8 +10,9 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import coil.load
-import coil.transform.CircleCropTransformation
+import android.graphics.drawable.BitmapDrawable
+import com.mezon.mobile.home.chat.MezonImageLoader
+import com.mezon.mobile.util.createImgproxyUrl
 import com.mezon.mezon.api.Friend
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AlertsCreator
@@ -152,6 +153,8 @@ class BlockedUsersFragment : BaseFragment() {
         private val avatar: ImageView
         private val nameText: TextView
         private val unblockBtn: TextView
+        private var avatarCancellable: MezonImageLoader.Cancellable? = null
+        private var currentAvatarUrl: String? = null
 
         init {
             val outValue = android.util.TypedValue()
@@ -196,18 +199,43 @@ class BlockedUsersFragment : BaseFragment() {
             nameText.setTextColor(themeColors.onSurface)
             unblockBtn.setTextColor(themeColors.primary)
 
+            avatarCancellable?.cancel()
+            avatarCancellable = null
+
             if (user.avatarUrl.isNotEmpty()) {
-                avatar.load(user.avatarUrl) {
-                    transformations(CircleCropTransformation())
-                    placeholder(R.drawable.ic_profile)
+                val sizePx = LayoutHelper.dp(40)
+                val proxyUrl = createImgproxyUrl(user.avatarUrl, sizePx * 2, sizePx * 2, "fill")
+                if (proxyUrl == currentAvatarUrl) {
+                    unblockBtn.setOnClickListener { onUnblockClicked(friend) }
+                    setWillNotDraw(!divider)
+                    return
+                }
+                currentAvatarUrl = proxyUrl
+                avatar.setImageResource(R.drawable.ic_profile)
+
+                val loader = MezonImageLoader.getInstance(context)
+                val cached = loader.getBitmapFromMemory(proxyUrl, sizePx, sizePx)
+                if (cached != null) {
+                    avatar.setImageDrawable(BitmapDrawable(context.resources, cached))
+                } else {
+                    avatarCancellable = loader.load(proxyUrl, sizePx, sizePx, onSuccess = { bmp ->
+                        avatar.setImageDrawable(BitmapDrawable(context.resources, bmp))
+                    })
                 }
             } else {
+                currentAvatarUrl = null
                 avatar.setImageResource(R.drawable.ic_profile)
             }
 
             unblockBtn.setOnClickListener { onUnblockClicked(friend) }
 
             setWillNotDraw(!divider)
+        }
+
+        override fun onDetachedFromWindow() {
+            super.onDetachedFromWindow()
+            avatarCancellable?.cancel()
+            avatarCancellable = null
         }
 
         override fun hasOverlappingRendering(): Boolean = false

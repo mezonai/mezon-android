@@ -4,15 +4,12 @@ import android.content.Context
 import android.graphics.Canvas
 import android.text.StaticLayout
 import android.text.TextUtils
-import coil.Coil
-import coil.request.Disposable
-import coil.request.ImageRequest
-import coil.size.Size
 import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.BaseCell
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.util.createImgproxyUrl
 import com.mezon.mobile.util.formatRelativeTime
 
@@ -30,7 +27,7 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : BaseC
 
     private val avatarDrawable = AvatarDrawable()
     private var currentAvatarUrl: String? = null
-    private var avatarDisposable: Disposable? = null
+    private var avatarDisposable: MezonImageLoader.Cancellable? = null
     private var attachedToWindow = false
 
     private var subjectLayout: StaticLayout? = null
@@ -45,7 +42,7 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : BaseC
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         attachedToWindow = false
-        avatarDisposable?.dispose()
+        avatarDisposable?.cancel()
         avatarDisposable = null
     }
 
@@ -160,20 +157,17 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : BaseC
         if (url == currentAvatarUrl && avatarDrawable.hasPhoto()) return
         currentAvatarUrl = url
         avatarDrawable.setPhoto(null)
-        avatarDisposable?.dispose()
+        avatarDisposable?.cancel()
         avatarDisposable = null
         if (url.isNotEmpty()) {
             val proxyUrl = createImgproxyUrl(url, AVATAR_SIZE * 2, AVATAR_SIZE * 2, "fill")
-            val request = ImageRequest.Builder(context)
-                .data(proxyUrl)
-                .size(Size(AVATAR_SIZE, AVATAR_SIZE))
-                .allowHardware(false)
-                .target(onSuccess = { d ->
-                    avatarDrawable.setPhoto(LayoutHelper.drawableToBitmap(d, AVATAR_SIZE))
+            avatarDisposable = MezonImageLoader.getInstance(context).load(
+                proxyUrl, AVATAR_SIZE, AVATAR_SIZE,
+                onSuccess = { bmp ->
+                    avatarDrawable.setPhoto(bmp)
                     post { invalidate() }
-                })
-                .build()
-            avatarDisposable = Coil.imageLoader(context).enqueue(request)
+                }
+            )
         }
     }
 

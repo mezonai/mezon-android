@@ -36,6 +36,7 @@ class SystemMessageCell(context: Context, private val theme: ThemeColors) : View
 
     private fun resolveIcon(msg: MessageEntity): Drawable? {
         val icon = when (msg.code) {
+            MessageEntity.CODE_FIRST_MESSAGE -> MezonIcon.auditLog
             MessageEntity.CODE_WELCOME -> MezonIcon.auditLog
             MessageEntity.CODE_CREATE_THREAD -> MezonIcon.channelText
             MessageEntity.CODE_CREATE_PIN -> MezonIcon.pinIcon
@@ -46,6 +47,7 @@ class SystemMessageCell(context: Context, private val theme: ThemeColors) : View
 
         val d = icon.getDrawable(context).mutate()
         val tint = when (msg.code) {
+            MessageEntity.CODE_FIRST_MESSAGE -> theme.success
             MessageEntity.CODE_WELCOME -> theme.success
             MessageEntity.CODE_AUDIT_LOG -> theme.primary
             MessageEntity.CODE_UPCOMING_EVENT -> theme.error
@@ -79,7 +81,10 @@ class SystemMessageCell(context: Context, private val theme: ThemeColors) : View
         measuredCellHeight = h.coerceAtLeast(CELL_MIN_HEIGHT)
     }
 
+    var channelName: String = ""
+
     private fun systemFallbackText(msg: MessageEntity): String = when (msg.code) {
+        MessageEntity.CODE_FIRST_MESSAGE -> if (channelName.isNotEmpty()) "Welcome to #$channelName" else "Welcome!"
         MessageEntity.CODE_WELCOME -> "Welcome!"
         MessageEntity.CODE_CREATE_THREAD -> "started a thread"
         MessageEntity.CODE_CREATE_PIN -> "pinned a message"

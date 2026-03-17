@@ -2,12 +2,10 @@ package com.mezon.mobile.home.clans
 
 import android.content.Context
 import android.util.Log
-import coil.Coil
-import coil.request.ImageRequest
-import coil.size.Size
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.data.db.ClanDao
+import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.network.ApiCacheTracker
@@ -126,18 +124,12 @@ class ClansController @Inject constructor(
     }
 
     private fun preWarmLogos(clans: List<ClanEntity>) {
-        val loader = Coil.imageLoader(appContext)
+        val loader = MezonImageLoader.getInstance(appContext)
         val sizePx = CLAN_ICON_SIZE_PX
         for (clan in clans) {
             if (clan.logo.isEmpty()) continue
             val url = createImgproxyUrl(clan.logo, sizePx * 2, sizePx * 2, "fill")
-            loader.enqueue(
-                ImageRequest.Builder(appContext)
-                    .data(url)
-                    .size(Size(sizePx, sizePx))
-                    .allowHardware(false)
-                    .build()
-            )
+            loader.load(url, sizePx, sizePx, onSuccess = {})
         }
     }
 

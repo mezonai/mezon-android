@@ -150,7 +150,7 @@ class AvatarDrawable : Drawable() {
             }
             canvas.drawCircle(cx, cy, radius, photoPaint)
             photoPaint.shader = null
-        } else {
+        } else if (drawableByInfo) {
             if (hasGradient) {
                 val gradient = LinearGradient(0f, 0f, 0f, size.toFloat(), bgColor, bgColor2, Shader.TileMode.CLAMP)
                 bgPaint.shader = gradient

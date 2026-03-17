@@ -2,22 +2,18 @@ package com.mezon.mobile.ui.cells
 
 import android.content.Context
 import android.graphics.Canvas
-import android.graphics.drawable.BitmapDrawable
 import android.view.View
-import coil.ImageLoader
-import coil.request.Disposable
-import coil.request.ImageRequest
 import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.LayoutHelper
+import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.util.createImgproxyUrl
 
 class AvatarView(context: Context) : View(context) {
 
     private val avatarDrawable = AvatarDrawable()
     private var sizeDp = 40
-    private var imageLoader: ImageLoader? = null
     private var currentUrl: String? = null
-    private var disposable: Disposable? = null
+    private var cancellable: MezonImageLoader.Cancellable? = null
     private var attachedToWindow = false
 
     fun setSizeDp(dp: Int) {
@@ -30,40 +26,34 @@ class AvatarView(context: Context) : View(context) {
         invalidate()
     }
 
-    fun setImageUrl(url: String?, loader: ImageLoader) {
-        imageLoader = loader
+    fun setImageUrl(url: String?) {
         if (url == currentUrl) return
         currentUrl = url
-        disposable?.dispose()
-        disposable = null
+        cancellable?.cancel()
+        cancellable = null
         if (url.isNullOrEmpty()) {
             avatarDrawable.setPhoto(null)
             invalidate()
             return
         }
         if (!attachedToWindow) return
-        loadImage(url, loader)
+        loadImage(url)
     }
 
-    private fun loadImage(url: String, loader: ImageLoader) {
+    private fun loadImage(url: String) {
         val sizePx = LayoutHelper.dp(sizeDp)
         val proxyUrl = createImgproxyUrl(url, sizePx * 2, sizePx * 2, "fill")
-        val request = ImageRequest.Builder(context)
-            .data(proxyUrl)
-            .size(sizePx)
-            .target(
-                onSuccess = { result ->
-                    val bmp = (result as? BitmapDrawable)?.bitmap
-                    avatarDrawable.setPhoto(bmp)
-                    invalidate()
-                },
-                onError = {
-                    avatarDrawable.setPhoto(null)
-                    invalidate()
-                }
-            )
-            .build()
-        disposable = loader.enqueue(request)
+        cancellable = MezonImageLoader.getInstance(context).load(
+            proxyUrl, sizePx, sizePx,
+            onSuccess = { bmp ->
+                avatarDrawable.setPhoto(bmp)
+                invalidate()
+            },
+            onError = {
+                avatarDrawable.setPhoto(null)
+                invalidate()
+            }
+        )
     }
 
     fun setPhoto(bitmap: android.graphics.Bitmap?) {
@@ -75,17 +65,16 @@ class AvatarView(context: Context) : View(context) {
         super.onAttachedToWindow()
         attachedToWindow = true
         val url = currentUrl
-        val loader = imageLoader
-        if (url != null && loader != null && disposable == null) {
-            loadImage(url, loader)
+        if (url != null && cancellable == null) {
+            loadImage(url)
         }
     }
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         attachedToWindow = false
-        disposable?.dispose()
-        disposable = null
+        cancellable?.cancel()
+        cancellable = null
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {

@@ -1,10 +1,12 @@
 package com.mezon.mobile.ui.cells
 
 import android.content.Context
-import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
@@ -13,10 +15,9 @@ import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.Fragment
-import coil.ImageLoader
-import coil.request.ImageRequest
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
+import java.util.concurrent.Executors
 
 class ImagePickerHelper(
     private val fragment: Fragment,
@@ -73,18 +74,39 @@ class ImagePickerView(context: Context, private val theme: ThemeColors) : FrameL
         }
     }
 
-    fun setImageUri(uri: Uri, loader: ImageLoader) {
-        val request = ImageRequest.Builder(context)
-            .data(uri)
-            .target(
-                onSuccess = { result ->
-                    imageView.setImageDrawable(result)
-                    imageView.visibility = View.VISIBLE
-                    placeholderIcon.visibility = View.GONE
+    fun setImageUri(uri: Uri) {
+        DECODE_EXECUTOR.execute {
+            try {
+                val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
+
+                val maxPx = LayoutHelper.dp(200)
+                opts.inSampleSize = calculateInSampleSize(opts.outWidth, opts.outHeight, maxPx, maxPx)
+                opts.inJustDecodeBounds = false
+                opts.inPreferredConfig = android.graphics.Bitmap.Config.ARGB_8888
+
+                val bitmap = context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
+                if (bitmap != null) {
+                    MAIN_HANDLER.post {
+                        imageView.setImageDrawable(BitmapDrawable(context.resources, bitmap))
+                        imageView.visibility = View.VISIBLE
+                        placeholderIcon.visibility = View.GONE
+                    }
                 }
-            )
-            .build()
-        loader.enqueue(request)
+            } catch (_: Exception) {}
+        }
+    }
+
+    companion object {
+        private val DECODE_EXECUTOR = Executors.newSingleThreadExecutor()
+        private val MAIN_HANDLER = Handler(Looper.getMainLooper())
+
+        private fun calculateInSampleSize(w: Int, h: Int, reqW: Int, reqH: Int): Int {
+            var sample = 1
+            if (reqW <= 0 || reqH <= 0) return 1
+            while (w / (sample * 2) >= reqW && h / (sample * 2) >= reqH) sample *= 2
+            return sample
+        }
     }
 
     private fun updateShape() {

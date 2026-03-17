@@ -15,6 +15,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.mezon.mobile.auth.LoginFragment
+import com.mezon.mobile.auth.OTPVerificationFragment
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.ActionBarLayout
 import com.mezon.mobile.core.SharedConfig
@@ -362,6 +363,7 @@ class MainActivity : AppCompatActivity(),
     private fun rewireTopFragmentCallbacks() {
         when (val top = mainFragmentsStack.lastOrNull()) {
             is LoginFragment -> top.onLoginSuccess = { showHome() }
+            is OTPVerificationFragment -> top.onVerifySuccess = { showHome() }
             is MainTabsActivity -> {
                 top.onLogout = { switchToLogin() }
                 top.onOpenChat = { channelId, channelName, clanId, channelType ->

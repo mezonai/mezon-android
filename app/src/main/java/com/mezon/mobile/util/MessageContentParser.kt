@@ -6,9 +6,12 @@ import android.text.Spanned
 import android.text.style.BackgroundColorSpan
 import android.text.style.ForegroundColorSpan
 import android.text.style.RelativeSizeSpan
+import android.text.style.StrikethroughSpan
 import android.text.style.StyleSpan
 import android.text.style.TypefaceSpan
 import android.view.View
+import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.home.chat.CodeFenceSpan
 import com.mezon.mobile.home.chat.EmojiSpan
 import com.mezon.mobile.home.chat.HashtagSpan
 import com.mezon.mobile.home.chat.LinkSpan
@@ -62,17 +65,44 @@ data class ContentElement(
     val index: Int? = null
 )
 
-private const val CODE_BG_DARK = 0xFF2A2D31.toInt()
-private const val CODE_BG_LIGHT = 0xFFE7E0EC.toInt()
-private const val CODE_TEXT_DARK = 0xFFE06C75.toInt()
-private const val CODE_TEXT_LIGHT = 0xFFD63384.toInt()
+private val HEADING_REGEX = Regex("^(#{1,6})\\s+(.+)$")
+
+fun applyHeadingSpans(sb: SpannableStringBuilder, start: Int, end: Int, level: Int) {
+    val sizeFactor = when (level) {
+        1 -> 1.8f
+        2 -> 1.5f
+        3 -> 1.3f
+        4 -> 1.15f
+        5 -> 1.05f
+        else -> 1.0f
+    }
+    sb.setSpan(StyleSpan(Typeface.BOLD), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+    sb.setSpan(RelativeSizeSpan(sizeFactor), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+}
+
+fun applyPlainTextWithHeadings(sb: SpannableStringBuilder, text: String, theme: ThemeColors) {
+    val lines = text.split("\n")
+    lines.forEachIndexed { idx, line ->
+        val spanStart = sb.length
+        val headingMatch = HEADING_REGEX.matchEntire(line)
+        if (headingMatch != null) {
+            val level = headingMatch.groupValues[1].length
+            val headingText = headingMatch.groupValues[2].trim()
+            sb.append(headingText)
+            applyHeadingSpans(sb, spanStart, sb.length, level)
+        } else {
+            sb.append(line)
+        }
+        if (idx < lines.size - 1) sb.append("\n")
+    }
+}
 
 fun parseContentToSpannable(
     content: String,
     linkColor: Int,
     view: View? = null,
     mentionColors: MentionColors? = null,
-    isDark: Boolean = true
+    theme: ThemeColors
 ): SpannableStringBuilder {
     val sb = SpannableStringBuilder()
     val text = parseContentText(content)
@@ -104,12 +134,12 @@ fun parseContentToSpannable(
 
     elements.sortBy { it.s }
     var last = 0
-    val linkColorSpan = linkColor
     val viewRef = view?.let { java.lang.ref.WeakReference(it) }
 
     for (el in elements) {
         if (el.s > last && last < text.length) {
-            sb.append(text.substring(last, minOf(el.s, text.length)))
+            val plainText = text.substring(last, minOf(el.s, text.length))
+            applyPlainTextWithHeadings(sb, plainText, theme)
         }
         val segText = if (el.e <= text.length) text.substring(el.s, el.e) else ""
         val spanStart = sb.length
@@ -122,15 +152,16 @@ fun parseContentToSpannable(
                     mentionColors != null ->
                         mentionColors.userText to mentionColors.userBg
                     else ->
-                        linkColorSpan to android.graphics.Color.TRANSPARENT
+                        linkColor to android.graphics.Color.TRANSPARENT
                 }
                 sb.setSpan(MentionSpan(el.user_id, el.role_id, textColor, bgColor), spanStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 sb.setSpan(StyleSpan(Typeface.BOLD), spanStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             }
             "h" -> {
                 sb.append(segText)
-                sb.setSpan(HashtagSpan(el.channelId, linkColorSpan), spanStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                sb.setSpan(HashtagSpan(el.channelId, linkColor), spanStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 sb.setSpan(StyleSpan(Typeface.BOLD), spanStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                sb.setSpan(BackgroundColorSpan(theme.midnightBlue), spanStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             }
             "e" -> {
                 if (viewRef != null && el.emojiid != null) {
@@ -138,7 +169,7 @@ fun parseContentToSpannable(
                     sb.setSpan(EmojiSpan(el.emojiid, viewRef), spanStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 } else {
                     sb.append(segText)
-                    sb.setSpan(ForegroundColorSpan(linkColorSpan), spanStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    sb.setSpan(ForegroundColorSpan(linkColor), spanStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
             }
             "k" -> when (el.type) {
@@ -146,29 +177,49 @@ fun parseContentToSpannable(
                     sb.append(segText)
                     sb.setSpan(StyleSpan(Typeface.BOLD), spanStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
-                "c", "s" -> {
+                "i" -> {
+                    sb.append(segText)
+                    sb.setSpan(StyleSpan(Typeface.ITALIC), spanStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                "s" -> {
+                    sb.append(segText)
+                    sb.setSpan(StrikethroughSpan(), spanStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                "c" -> {
                     val codeText = segText.removeSurrounding("`").trim()
                     sb.append(" $codeText ")
                     sb.setSpan(TypefaceSpan("monospace"), spanStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                    sb.setSpan(ForegroundColorSpan(if (isDark) CODE_TEXT_DARK else CODE_TEXT_LIGHT), spanStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                    sb.setSpan(BackgroundColorSpan(if (isDark) CODE_BG_DARK else CODE_BG_LIGHT), spanStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    sb.setSpan(ForegroundColorSpan(theme.codeInlineText), spanStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    sb.setSpan(BackgroundColorSpan(theme.codeInlineBg), spanStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
                 "pre", "t" -> {
-                    val codeText = segText.removeSurrounding("```").trim()
-                    sb.append("\n$codeText\n")
-                    sb.setSpan(TypefaceSpan("monospace"), spanStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                    sb.setSpan(RelativeSizeSpan(0.9f), spanStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                    sb.setSpan(ForegroundColorSpan(if (isDark) CODE_TEXT_DARK else CODE_TEXT_LIGHT), spanStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                    sb.setSpan(BackgroundColorSpan(if (isDark) CODE_BG_DARK else CODE_BG_LIGHT), spanStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    val stripped = segText
+                        .removeSurrounding("```")
+                        .replace(Regex("^\\n+|\\n+$"), "")
+                        .trim()
+                    if (sb.isNotEmpty() && sb.last() != '\n') sb.append("\n")
+                    val fenceStart = sb.length
+                    sb.append(" \n")
+                    sb.append(stripped)
+                    sb.append("\n ")
+                    val fenceEnd = sb.length
+                    sb.append("\n")
+                    sb.setSpan(TypefaceSpan("monospace"), fenceStart, fenceEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    sb.setSpan(RelativeSizeSpan(0.875f), fenceStart, fenceEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    sb.setSpan(ForegroundColorSpan(theme.codeInlineText), fenceStart, fenceEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    sb.setSpan(
+                        CodeFenceSpan(theme.codeFenceBg),
+                        fenceStart, fenceEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                    )
                 }
                 "lk", "vk", "lk_yt", "lk_fb", "lk_tt" -> {
                     sb.append(segText)
-                    sb.setSpan(LinkSpan(segText, linkColorSpan), spanStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    sb.setSpan(LinkSpan(segText, linkColor), spanStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
                 "lk_ogp" -> {
                     val url = extractOgpUrl(text, el.index)
                     sb.append(segText)
-                    sb.setSpan(LinkSpan(url ?: segText, linkColorSpan), spanStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    sb.setSpan(LinkSpan(url ?: segText, linkColor), spanStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
                 else -> sb.append(segText)
             }
@@ -177,7 +228,7 @@ fun parseContentToSpannable(
         last = el.e
     }
     if (last < text.length) {
-        sb.append(text.substring(last))
+        applyPlainTextWithHeadings(sb, text.substring(last), theme)
     }
     return sb
 }

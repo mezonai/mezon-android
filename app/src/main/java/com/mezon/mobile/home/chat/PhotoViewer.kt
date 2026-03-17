@@ -9,22 +9,25 @@ import android.content.Context
 import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.PointF
+import android.graphics.Bitmap
+import android.graphics.drawable.AnimatedImageDrawable
+import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ColorDrawable
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
 import android.view.GestureDetector
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.ViewGroup
+import android.view.ViewTreeObserver
 import android.view.Window
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.Toast
-import coil.Coil
-import coil.request.ImageRequest
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.util.createImgproxyUrl
 
@@ -150,36 +153,75 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
         } catch (_: Exception) {}
     }
 
-    fun show(url: String, animated: Boolean = false, gallery: List<String> = emptyList(), index: Int = 0) {
+    private var switchedToMatrix = false
+
+    fun show(url: String, animated: Boolean = false, gallery: List<String> = emptyList(), index: Int = 0, thumbBitmap: Bitmap? = null) {
         urls = if (gallery.isEmpty()) listOf(url) else gallery
         currentIndex = if (index in urls.indices) index else 0
         currentUrl = urls[currentIndex]
         isAnimated = animated
-        val loadUrl = if (animated) url else {
-            val screenW = context.resources.displayMetrics.widthPixels
-            val screenH = context.resources.displayMetrics.heightPixels
-            createImgproxyUrl(url, screenW, screenH, "fit")
-        }
+        switchedToMatrix = false
 
-        val request = ImageRequest.Builder(context)
-            .data(loadUrl)
-            .allowHardware(false)
-            .target(onSuccess = { drawable ->
-                if (animated) {
-                    imageView.scaleType = ImageView.ScaleType.FIT_CENTER
-                    imageView.setImageDrawable(drawable)
-                    (drawable as? android.graphics.drawable.Animatable)?.start()
-                } else {
-                    imageView.setImageDrawable(drawable)
-                    imageView.post { fitImageToScreen() }
-                }
-            })
-            .build()
-        Coil.imageLoader(context).enqueue(request)
+        if (thumbBitmap != null && !animated) {
+            imageView.scaleType = ImageView.ScaleType.FIT_CENTER
+            imageView.setImageDrawable(BitmapDrawable(context.resources, thumbBitmap))
+        }
 
         backgroundDrawable.alpha = 0
         super.show()
         ObjectAnimator.ofInt(backgroundDrawable, "alpha", 0, 255).setDuration(200).start()
+
+        if (!animated) {
+            imageView.viewTreeObserver.addOnGlobalLayoutListener(object : ViewTreeObserver.OnGlobalLayoutListener {
+                override fun onGlobalLayout() {
+                    imageView.viewTreeObserver.removeOnGlobalLayoutListener(this)
+                    if (!switchedToMatrix && imageView.drawable != null) {
+                        imageView.scaleType = ImageView.ScaleType.MATRIX
+                        fitImageToScreen()
+                        switchedToMatrix = true
+                    }
+                }
+            })
+        }
+
+        val screenW = context.resources.displayMetrics.widthPixels
+        val screenH = context.resources.displayMetrics.heightPixels
+        val loader = MezonImageLoader.getInstance(context)
+
+        if (animated) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                loader.loadDrawable(url, screenW, screenH,
+                    onSuccess = { drawable ->
+                        imageView.scaleType = ImageView.ScaleType.FIT_CENTER
+                        imageView.setImageDrawable(drawable)
+                        if (drawable is AnimatedImageDrawable) {
+                            drawable.repeatCount = AnimatedImageDrawable.REPEAT_INFINITE
+                            drawable.start()
+                        }
+                    }
+                )
+            } else {
+                loader.load(url, screenW, screenH,
+                    onSuccess = { bmp ->
+                        imageView.scaleType = ImageView.ScaleType.FIT_CENTER
+                        imageView.setImageDrawable(BitmapDrawable(context.resources, bmp))
+                    }
+                )
+            }
+        } else {
+            val loadUrl = createImgproxyUrl(url, screenW, screenH, "fit")
+            loader.load(loadUrl, screenW, screenH,
+                onSuccess = { bmp ->
+                    val drawable = BitmapDrawable(context.resources, bmp)
+                    imageView.setImageDrawable(drawable)
+                    if (switchedToMatrix) {
+                        fitImageToScreen()
+                    } else {
+                        imageView.scaleType = ImageView.ScaleType.FIT_CENTER
+                    }
+                }
+            )
+        }
     }
 
     private fun navigateTo(index: Int) {
@@ -194,27 +236,35 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
     }
 
     private fun loadCurrentImage() {
-        val loadUrl = if (isAnimated) currentUrl else {
-            val screenW = context.resources.displayMetrics.widthPixels
-            val screenH = context.resources.displayMetrics.heightPixels
-            createImgproxyUrl(currentUrl, screenW, screenH, "fit")
-        }
-        val request = ImageRequest.Builder(context)
-            .data(loadUrl)
-            .allowHardware(false)
-            .target(onSuccess = { drawable ->
-                if (isAnimated) {
+        val screenW = context.resources.displayMetrics.widthPixels
+        val screenH = context.resources.displayMetrics.heightPixels
+        val loader = MezonImageLoader.getInstance(context)
+
+        if (isAnimated && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            loader.loadDrawable(currentUrl, screenW, screenH,
+                onSuccess = { drawable ->
                     imageView.scaleType = ImageView.ScaleType.FIT_CENTER
                     imageView.setImageDrawable(drawable)
-                    (drawable as? android.graphics.drawable.Animatable)?.start()
-                } else {
-                    imageView.scaleType = ImageView.ScaleType.MATRIX
-                    imageView.setImageDrawable(drawable)
-                    imageView.post { fitImageToScreen() }
+                    if (drawable is AnimatedImageDrawable) {
+                        drawable.repeatCount = AnimatedImageDrawable.REPEAT_INFINITE
+                        drawable.start()
+                    }
                 }
-            })
-            .build()
-        Coil.imageLoader(context).enqueue(request)
+            )
+        } else {
+            val loadUrl = if (isAnimated) currentUrl else createImgproxyUrl(currentUrl, screenW, screenH, "fit")
+            loader.load(loadUrl, screenW, screenH,
+                onSuccess = { bmp ->
+                    imageView.setImageDrawable(BitmapDrawable(context.resources, bmp))
+                    if (isAnimated) {
+                        imageView.scaleType = ImageView.ScaleType.FIT_CENTER
+                    } else {
+                        imageView.scaleType = ImageView.ScaleType.MATRIX
+                        fitImageToScreen()
+                    }
+                }
+            )
+        }
     }
 
     private fun fitImageToScreen() {

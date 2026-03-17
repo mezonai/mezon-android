@@ -8,6 +8,8 @@ import com.mezon.mobile.core.ThemeColors
 
 class ChatAdapter(
     private val themeColors: ThemeColors,
+    private val messages: ArrayList<MessageEntity>,
+    var channelName: String = "",
     var cellDelegate: ChatMessageCell.ChatMessageCellDelegate? = null
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
@@ -17,9 +19,8 @@ class ChatAdapter(
         private const val TYPE_LOADING_UP = 2
         private const val TYPE_LOADING_DOWN = 3
         private const val TYPE_SYSTEM = 4
+        private const val TYPE_WELCOME = 5
     }
-
-    private val items = ArrayList<MessageEntity>()
 
     var loadingUpRow = -1
         private set
@@ -34,16 +35,16 @@ class ChatAdapter(
     var showLoadingUp = false
     var showLoadingDown = false
 
-    private fun updateRowsInternal() {
+    fun updateRowsInternal() {
         rowCount = 0
-        if (items.isNotEmpty()) {
+        if (messages.isNotEmpty()) {
             if (showLoadingDown) {
                 loadingDownRow = rowCount++
             } else {
                 loadingDownRow = -1
             }
             messagesStartRow = rowCount
-            rowCount += items.size
+            rowCount += messages.size
             messagesEndRow = rowCount
             if (showLoadingUp) {
                 loadingUpRow = rowCount++
@@ -58,16 +59,29 @@ class ChatAdapter(
         }
     }
 
-    fun setData(newItems: List<MessageEntity>) {
-        items.clear()
-        items.addAll(newItems)
+    fun updateRowsSafe() {
+        val prevRowCount = rowCount
+        val prevLoadingUpRow = loadingUpRow
+        val prevLoadingDownRow = loadingDownRow
+        val prevMessagesStartRow = messagesStartRow
+        val prevMessagesEndRow = messagesEndRow
+        updateRowsInternal()
+        if (prevRowCount != rowCount || prevLoadingUpRow != loadingUpRow ||
+            prevLoadingDownRow != loadingDownRow || prevMessagesStartRow != messagesStartRow ||
+            prevMessagesEndRow != messagesEndRow
+        ) {
+            notifyDataSetChanged()
+        }
+    }
+
+    fun notifyMessagesUpdated() {
         updateRowsInternal()
         notifyDataSetChanged()
     }
 
     fun getMessage(position: Int): MessageEntity? {
         val idx = position - messagesStartRow
-        return if (idx in items.indices) items[idx] else null
+        return if (idx in messages.indices) messages[idx] else null
     }
 
     override fun getItemCount(): Int = rowCount
@@ -77,10 +91,11 @@ class ChatAdapter(
         loadingDownRow -> TYPE_LOADING_DOWN
         else -> {
             val idx = position - messagesStartRow
-            if (idx !in items.indices) TYPE_RECEIVED
+            if (idx !in messages.indices) TYPE_RECEIVED
             else {
-                val msg = items[idx]
+                val msg = messages[idx]
                 when {
+                    msg.isWelcomeMessage -> TYPE_WELCOME
                     msg.isSystemMessage -> TYPE_SYSTEM
                     msg.isMe -> TYPE_SENT
                     else -> TYPE_RECEIVED
@@ -99,6 +114,15 @@ class ChatAdapter(
                     )
                 }
                 LoadingViewHolder(pb)
+            }
+            TYPE_WELCOME -> {
+                val cell = WelcomeMessageCell(parent.context, themeColors).apply {
+                    layoutParams = RecyclerView.LayoutParams(
+                        RecyclerView.LayoutParams.MATCH_PARENT,
+                        RecyclerView.LayoutParams.WRAP_CONTENT
+                    )
+                }
+                WelcomeViewHolder(cell)
             }
             TYPE_SYSTEM -> {
                 val cell = SystemMessageCell(parent.context, themeColors).apply {
@@ -123,15 +147,23 @@ class ChatAdapter(
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         val idx = position - messagesStartRow
-        if (idx !in items.indices) return
+        if (idx !in messages.indices) return
         when (holder) {
             is MessageViewHolder -> {
                 holder.cell.delegate = cellDelegate
                 holder.cell.isCombined = computeCombined(idx)
-                holder.cell.update(0, items[idx])
+                holder.cell.update(0, messages[idx])
+            }
+            is WelcomeViewHolder -> {
+                holder.cell.channelName = channelName
+                holder.cell.channelType = channelType
+                holder.cell.clanId = clanId
+                holder.cell.isPrivate = isChannelPrivate
+                holder.cell.update(messages[idx])
             }
             is SystemViewHolder -> {
-                holder.cell.update(0, items[idx])
+                holder.cell.channelName = channelName
+                holder.cell.update(0, messages[idx])
             }
         }
     }
@@ -143,16 +175,21 @@ class ChatAdapter(
     }
 
     private fun computeCombined(idx: Int): Boolean {
-        if (idx + 1 >= items.size) return false
-        val current = items[idx]
-        val prev = items[idx + 1]
+        if (idx + 1 >= messages.size) return false
+        val current = messages[idx]
+        val prev = messages[idx + 1]
         if (current.senderId != prev.senderId) return false
         if (prev.isSystemMessage || current.isSystemMessage) return false
         val diff = current.timestampSeconds - prev.timestampSeconds
         return diff in 0..ChatMessageCell.COMBINE_TIME_THRESHOLD
     }
 
+    var channelType = 0
+    var clanId = 0L
+    var isChannelPrivate = false
+
     class MessageViewHolder(val cell: ChatMessageCell) : RecyclerView.ViewHolder(cell)
+    class WelcomeViewHolder(val cell: WelcomeMessageCell) : RecyclerView.ViewHolder(cell)
     class SystemViewHolder(val cell: SystemMessageCell) : RecyclerView.ViewHolder(cell)
     class LoadingViewHolder(view: android.view.View) : RecyclerView.ViewHolder(view)
 }

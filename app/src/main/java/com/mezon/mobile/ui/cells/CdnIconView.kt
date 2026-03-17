@@ -7,13 +7,10 @@ import android.graphics.Canvas
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Shader
-import android.graphics.drawable.BitmapDrawable
 import android.view.View
-import coil.ImageLoader
-import coil.request.Disposable
-import coil.request.ImageRequest
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.home.chat.MezonImageLoader
 
 class CdnIconView(context: Context, private val theme: ThemeColors) : View(context) {
 
@@ -23,7 +20,7 @@ class CdnIconView(context: Context, private val theme: ThemeColors) : View(conte
     private var sizeDp = 24
     private var isCircular = false
     private var currentUrl: String? = null
-    private var disposable: Disposable? = null
+    private var cancellable: MezonImageLoader.Cancellable? = null
     private var attachedToWindow = false
 
     fun setSizeDp(dp: Int) {
@@ -36,37 +33,33 @@ class CdnIconView(context: Context, private val theme: ThemeColors) : View(conte
         invalidate()
     }
 
-    fun setImageUrl(url: String?, loader: ImageLoader) {
+    fun setImageUrl(url: String?) {
         if (url == currentUrl) return
         currentUrl = url
-        disposable?.dispose()
-        disposable = null
+        cancellable?.cancel()
+        cancellable = null
         bitmap = null
         if (url.isNullOrEmpty()) {
             invalidate()
             return
         }
         if (!attachedToWindow) return
-        loadImage(url, loader)
+        loadImage(url)
     }
 
-    private fun loadImage(url: String, loader: ImageLoader) {
+    private fun loadImage(url: String) {
         val px = LayoutHelper.dp(sizeDp)
-        val request = ImageRequest.Builder(context)
-            .data(url)
-            .size(px)
-            .target(
-                onSuccess = { result ->
-                    bitmap = (result as? BitmapDrawable)?.bitmap
-                    invalidate()
-                },
-                onError = {
-                    bitmap = null
-                    invalidate()
-                }
-            )
-            .build()
-        disposable = loader.enqueue(request)
+        cancellable = MezonImageLoader.getInstance(context).load(
+            url, px, px,
+            onSuccess = { bmp ->
+                bitmap = bmp
+                invalidate()
+            },
+            onError = {
+                bitmap = null
+                invalidate()
+            }
+        )
     }
 
     fun setBitmap(bmp: Bitmap?) {
@@ -78,17 +71,16 @@ class CdnIconView(context: Context, private val theme: ThemeColors) : View(conte
         super.onAttachedToWindow()
         attachedToWindow = true
         val url = currentUrl
-        if (url != null && bitmap == null && disposable == null) {
-            val loader = coil.ImageLoader(context)
-            loadImage(url, loader)
+        if (url != null && bitmap == null && cancellable == null) {
+            loadImage(url)
         }
     }
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         attachedToWindow = false
-        disposable?.dispose()
-        disposable = null
+        cancellable?.cancel()
+        cancellable = null
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {

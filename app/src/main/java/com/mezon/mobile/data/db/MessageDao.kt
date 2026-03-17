@@ -9,13 +9,16 @@ import androidx.room.Upsert
 interface MessageDao {
 
     @Query("SELECT * FROM (SELECT * FROM messages WHERE channelId = :channelId ORDER BY timestampSeconds DESC LIMIT :limit) ORDER BY timestampSeconds ASC")
-    suspend fun getLatestByChannel(channelId: Long, limit: Int = 200): List<MessageEntity>
+    suspend fun getLatestByChannel(channelId: Long, limit: Int = 50): List<MessageEntity>
 
     @Upsert
     suspend fun upsertAll(messages: List<MessageEntity>)
 
     @Upsert
     suspend fun upsert(message: MessageEntity)
+
+    @Query("DELETE FROM messages WHERE channelId = :channelId AND id NOT IN (SELECT id FROM messages WHERE channelId = :channelId ORDER BY timestampSeconds DESC LIMIT :keep)")
+    suspend fun trimToLatest(channelId: Long, keep: Int = 50)
 
     @Query("DELETE FROM messages WHERE channelId = :channelId AND id = :messageId")
     suspend fun delete(channelId: Long, messageId: Long)

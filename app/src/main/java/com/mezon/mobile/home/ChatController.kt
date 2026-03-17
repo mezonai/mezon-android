@@ -75,10 +75,9 @@ class ChatController @Inject constructor(
             try {
                 val fromDb = messageDao.getLatestByChannel(channelId, PAGE_SIZE)
                 if (fromDb.isNotEmpty()) {
-                    Log.d(TAG, "Loaded ${fromDb.size} messages from DB for channel $channelId")
-                    val hasMoreTop = fromDb.size >= PAGE_SIZE
+                    Log.d(TAG, "Loaded ${fromDb.size} cached messages for channel $channelId")
                     notificationCenter.postNotificationOnMainThread(
-                        NotificationCenter.messagesDidLoad, channelId, ArrayList(fromDb), hasMoreTop, false, true
+                        NotificationCenter.messagesDidLoad, channelId, ArrayList(fromDb), true, false, true
                     )
                 }
 
@@ -95,43 +94,24 @@ class ChatController @Inject constructor(
 
                 sessionManager.withAutoRefresh { session ->
                     val currentUserId = session.userId.toLongOrNull() ?: 0L
-                    val newestCached = fromDb.lastOrNull()
-                    val hadInitialFetch = synchronized(this@ChatController) { channelId in initialFetchDone }
+                    val response = api.listChannelMessages(
+                        session.apiUrl, session.token, channelId, clanId, limit = PAGE_SIZE
+                    )
+                    val allMessages = response.messagesList.map { it.toMessageEntity(currentUserId) }
+                    val firstMessageReached = allMessages.any { it.code == MessageEntity.CODE_FIRST_MESSAGE }
+                    val hasMoreTop = !firstMessageReached
 
-                    if (newestCached != null && hadInitialFetch) {
-                        val response = api.listChannelMessages(
-                            session.apiUrl, session.token, channelId, clanId,
-                            newestCached.id, DIRECTION_AFTER, PAGE_SIZE
-                        )
-                        val newer = response.messagesList
-                            .map { it.toMessageEntity(currentUserId) }
-                            .filter { it.isRenderable }
-                            .sortedBy { it.timestampSeconds }
+                    val messages = allMessages
+                        .filter { it.isRenderable }
+                        .sortedBy { it.timestampSeconds }
 
-                        if (newer.isNotEmpty()) {
-                            messageDao.upsertAll(newer)
-                            val hasMoreBottom = response.messagesList.size >= PAGE_SIZE
-                            notificationCenter.postNotificationOnMainThread(
-                                NotificationCenter.messagesDidLoad, channelId, ArrayList(newer), false, hasMoreBottom, false
-                            )
-                        }
-                    } else {
-                        val response = api.listChannelMessages(
-                            session.apiUrl, session.token, channelId, clanId, limit = PAGE_SIZE
-                        )
-                        val messages = response.messagesList
-                            .map { it.toMessageEntity(currentUserId) }
-                            .filter { it.isRenderable }
-                            .sortedBy { it.timestampSeconds }
-
-                        messageDao.upsertAll(messages)
-                        synchronized(this@ChatController) { initialFetchDone.add(channelId) }
-                        val hasMoreTop = response.messagesList.size >= PAGE_SIZE
-                        notificationCenter.postNotificationOnMainThread(
-                            NotificationCenter.messagesDidLoad, channelId, ArrayList(messages), hasMoreTop, false, false
-                        )
-                    }
-
+                    messageDao.deleteByChannel(channelId)
+                    messageDao.upsertAll(messages)
+                    synchronized(this@ChatController) { initialFetchDone.add(channelId) }
+                    Log.d(TAG, "loadMessages hasMoreTop=$hasMoreTop firstMessageReached=$firstMessageReached size=${response.messagesList.size}")
+                    notificationCenter.postNotificationOnMainThread(
+                        NotificationCenter.messagesDidLoad, channelId, ArrayList(messages), hasMoreTop, false, false
+                    )
                     cacheTracker.markCalled(cacheKey)
                 }
             } catch (e: Exception) {
@@ -155,16 +135,21 @@ class ChatController @Inject constructor(
                         session.apiUrl, session.token, channelId, clanId,
                         anchorMessageId, DIRECTION_AROUND, PAGE_SIZE
                     )
-                    val msgs = response.messagesList
-                        .map { it.toMessageEntity(currentUserId) }
+                    val allMsgs = response.messagesList.map { it.toMessageEntity(currentUserId) }
+                    val firstMessageReached = allMsgs.any { it.code == MessageEntity.CODE_FIRST_MESSAGE }
+                    val hasMoreTop = !firstMessageReached
+
+                    val msgs = allMsgs
                         .filter { it.isRenderable }
                         .sortedBy { it.timestampSeconds }
 
                     if (msgs.isNotEmpty()) {
+                        messageDao.deleteByChannel(channelId)
                         messageDao.upsertAll(msgs)
                         synchronized(this@ChatController) { initialFetchDone.add(channelId) }
+                        Log.d(TAG, "loadMessagesAround: anchor=$anchorMessageId count=${msgs.size} hasMoreTop=$hasMoreTop firstMessageReached=$firstMessageReached")
                         notificationCenter.postNotificationOnMainThread(
-                            NotificationCenter.messagesDidLoad, channelId, ArrayList(msgs), true, true, false
+                            NotificationCenter.messagesDidLoad, channelId, ArrayList(msgs), hasMoreTop, true, false
                         )
                     }
                     cacheTracker.markCalled(cacheKey)
@@ -179,6 +164,7 @@ class ChatController @Inject constructor(
     }
 
     fun loadMoreBottom(channelId: Long, clanId: Long, newestMessageId: Long) {
+        Log.d(TAG, "loadMoreBottom channelId=$channelId newestMessageId=$newestMessageId")
         appScope.launch(ioDispatcher) {
             try {
                 sessionManager.withAutoRefresh { session ->
@@ -192,17 +178,10 @@ class ChatController @Inject constructor(
                         .filter { it.isRenderable }
                         .sortedBy { it.timestampSeconds }
 
-                    if (newer.isNotEmpty()) {
-                        messageDao.upsertAll(newer)
-                        val hasMoreBottom = response.messagesList.size >= PAGE_SIZE
-                        notificationCenter.postNotificationOnMainThread(
-                            NotificationCenter.messagesDidLoad, channelId, ArrayList(newer), false, hasMoreBottom, false
-                        )
-                    } else {
-                        notificationCenter.postNotificationOnMainThread(
-                            NotificationCenter.messagesDidLoad, channelId, ArrayList<MessageEntity>(), false, false, false
-                        )
-                    }
+                    val hasMoreBottom = response.messagesList.size >= PAGE_SIZE
+                    notificationCenter.postNotificationOnMainThread(
+                        NotificationCenter.messagesDidLoad, channelId, ArrayList(newer), false, hasMoreBottom, false
+                    )
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "loadMoreBottom failed", e)
@@ -214,6 +193,7 @@ class ChatController @Inject constructor(
     }
 
     fun loadMoreTop(channelId: Long, clanId: Long, oldestMessageId: Long) {
+        Log.d(TAG, "loadMoreTop channelId=$channelId oldestMessageId=$oldestMessageId")
         appScope.launch(ioDispatcher) {
             try {
                 sessionManager.withAutoRefresh { session ->
@@ -222,13 +202,14 @@ class ChatController @Inject constructor(
                         session.apiUrl, session.token, channelId, clanId,
                         oldestMessageId, DIRECTION_BEFORE, PAGE_SIZE
                     )
-                    val older = response.messagesList
-                        .map { it.toMessageEntity(currentUserId) }
+                    val allOlder = response.messagesList.map { it.toMessageEntity(currentUserId) }
+                    val firstMessageReached = allOlder.any { it.code == MessageEntity.CODE_FIRST_MESSAGE }
+                    val hasMoreTop = !firstMessageReached
+
+                    val older = allOlder
                         .filter { it.isRenderable }
                         .sortedBy { it.timestampSeconds }
-
-                    messageDao.upsertAll(older)
-                    val hasMoreTop = response.messagesList.size >= PAGE_SIZE
+                    Log.d(TAG, "loadMoreTop returned ${older.size} hasMoreTop=$hasMoreTop firstMessageReached=$firstMessageReached")
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.messagesDidLoad, channelId, ArrayList(older), hasMoreTop, false, false
                     )

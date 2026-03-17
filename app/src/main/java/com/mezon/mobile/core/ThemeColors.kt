@@ -379,6 +379,34 @@ class ThemeColors @Inject constructor() {
     val badgeRed: Int get() = 0xFFD30E0E.toInt()
     val onlineGreen: Int get() = 0xFF43B581.toInt()
 
+    val tertiary: Int get() = when (resolvedMode) {
+        ThemeMode.LIGHT -> 0xFFF2F3F6.toInt()
+        ThemeMode.DARK -> 0xFF383A43.toInt()
+        ThemeMode.ABYSS -> 0xFF141319.toInt()
+        else -> 0xFF383A43.toInt()
+    }
+
+    val textDisabled: Int get() = when (resolvedMode) {
+        ThemeMode.LIGHT -> 0xFF9E9E9E.toInt()
+        ThemeMode.DARK -> 0xFF6B6B6B.toInt()
+        ThemeMode.ABYSS -> 0xFF5A5A6E.toInt()
+        else -> 0xFF6B6B6B.toInt()
+    }
+
+    val buzzRed: Int get() = 0xFFD9534F.toInt()
+
+    val codeInlineBg: Int get() = tertiary
+
+    val codeInlineText: Int get() = onSurface
+
+    val codeFenceBg: Int get() = tertiary
+
+    val codeFenceBorder: Int get() = when (resolvedMode) {
+        ThemeMode.LIGHT -> 0xFF000000.toInt()
+        ThemeMode.DARK, ThemeMode.ABYSS -> 0xFF000000.toInt()
+        else -> 0xFF000000.toInt()
+    }
+
     companion object {
         @Volatile
         lateinit var instance: ThemeColors
