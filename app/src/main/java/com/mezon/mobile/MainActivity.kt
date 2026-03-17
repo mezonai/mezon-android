@@ -1,13 +1,18 @@
 package com.mezon.mobile
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.view.ActionMode
 import android.view.Menu
 import android.view.ViewGroup
 import android.view.WindowManager
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.mezon.mobile.auth.LoginFragment
 import com.mezon.mobile.core.AndroidUtilities
@@ -24,6 +29,7 @@ import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.MainTabsActivity
 import com.mezon.mobile.home.chat.ChatFragment
 import com.mezon.mobile.home.notifications.NotificationStore
+import com.mezon.mobile.notification.FcmRepository
 import com.mezon.mobile.notification.NotificationHelper
 import com.mezon.mobile.session.AutoNightConfig
 import com.mezon.mobile.session.LocaleManager
@@ -41,6 +47,9 @@ class MainActivity : AppCompatActivity(),
     NotificationCenter.NotificationCenterDelegate {
 
     companion object {
+        private const val TAG = "MainActivity"
+        private const val REQUEST_NOTIFICATION_PERMISSION = 1001
+
         var instance: MainActivity? = null
             private set
 
@@ -65,6 +74,7 @@ class MainActivity : AppCompatActivity(),
     @Inject lateinit var themeManager: ThemeManager
     @Inject lateinit var themeColors: ThemeColors
     @Inject lateinit var notificationCenter: NotificationCenter
+    @Inject lateinit var fcmRepository: FcmRepository
     @Suppress("unused") @Inject lateinit var connectionController: ConnectionController
     @Suppress("unused") @Inject lateinit var chatController: ChatController
     @Suppress("unused") @Inject lateinit var dialogsController: DialogsController
@@ -119,12 +129,18 @@ class MainActivity : AppCompatActivity(),
 
         if (mainFragmentsStack.isEmpty()) {
             val stored = runBlocking { sessionManager.sessionFlow.first() }
-            if (stored != null) showHome() else showLogin()
+            if (stored != null) {
+                showHome()
+                fcmRepository.getAndRegisterToken()
+            } else {
+                showLogin()
+            }
             handleNotificationIntent(intent)
         } else {
             actionBarLayout.showLastFragment()
             rewireTopFragmentCallbacks()
         }
+        requestNotificationPermission()
 
         NotificationCenter.getGlobalInstance().addObserver(this, NotificationCenter.themeChanged)
         NotificationCenter.getGlobalInstance().addObserver(this, NotificationCenter.languageChanged)
@@ -380,6 +396,21 @@ class MainActivity : AppCompatActivity(),
                 openChat(dmId, "", 0L, 3, messageId, noAnimation = isFromNotification)
             }
             intent.removeExtra(NotificationHelper.EXTRA_DM_ID)
+        }
+    }
+
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(
+                    this, Manifest.permission.POST_NOTIFICATIONS
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                    REQUEST_NOTIFICATION_PERMISSION
+                )
+            }
         }
     }
 

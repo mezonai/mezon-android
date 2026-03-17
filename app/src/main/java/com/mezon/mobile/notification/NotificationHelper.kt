@@ -171,4 +171,12 @@ class NotificationHelper @Inject constructor(
     fun cancelAllNotifications() {
         notificationManager.cancelAll()
     }
+
+    fun showInAppToast(title: String, body: String) {
+        val handler = android.os.Handler(android.os.Looper.getMainLooper())
+        handler.post {
+            val message = if (title.isNotBlank()) "$title: $body" else body
+            android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
 }

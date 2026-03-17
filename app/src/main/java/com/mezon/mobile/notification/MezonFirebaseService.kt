@@ -4,6 +4,7 @@ import android.provider.Settings
 import android.util.Log
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import com.mezon.mobile.MainActivity
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
@@ -12,6 +13,7 @@ class MezonFirebaseService : FirebaseMessagingService() {
 
     @Inject lateinit var notificationHelper: NotificationHelper
     @Inject lateinit var fcmRepository: FcmRepository
+    @Inject lateinit var activeChannelTracker: ActiveChannelTracker
 
     companion object {
         private const val TAG = "MezonFirebaseService"
@@ -41,14 +43,21 @@ class MezonFirebaseService : FirebaseMessagingService() {
 
     private fun handleNotificationPayload(message: RemoteMessage) {
         val notification = message.notification ?: return
-        notificationHelper.showMessageNotification(
-            title = notification.title ?: getString(com.mezon.mobile.R.string.app_name),
-            body = notification.body ?: "",
-            channelId = 0L,
-            clanId = 0L,
-            channelName = "",
-            channelType = 0
-        )
+        val title = notification.title ?: getString(com.mezon.mobile.R.string.app_name)
+        val body = notification.body ?: ""
+
+        if (isAppInForeground()) {
+            notificationHelper.showInAppToast(title, body)
+        } else {
+            notificationHelper.showMessageNotification(
+                title = title,
+                body = body,
+                channelId = 0L,
+                clanId = 0L,
+                channelName = "",
+                channelType = 0
+            )
+        }
     }
 
     private fun handleDataPayload(data: Map<String, String>) {
@@ -63,25 +72,43 @@ class MezonFirebaseService : FirebaseMessagingService() {
         val channelType = data["channel_type"]?.toIntOrNull() ?: 0
         val channelName = data["channel_label"] ?: ""
 
-        val isDm = link.contains("direct/") || channel.isNotEmpty()
-
-        if (isDm && channel.isNotEmpty()) {
-            val dmId = channel.toLongOrNull() ?: 0L
-            notificationHelper.showDmNotification(
-                title = title,
-                body = body,
-                dmChannelId = dmId
-            )
-        } else {
-            notificationHelper.showMessageNotification(
-                title = title,
-                body = body,
-                channelId = channelId,
-                clanId = clanId,
-                channelName = channelName,
-                channelType = channelType
-            )
+        if (channelId != 0L && activeChannelTracker.isViewing(channelId)) {
+            Log.d(TAG, "Suppressing notification: user is viewing channel $channelId")
+            return
         }
+
+        val isDm = link.contains("direct/") || channel.isNotEmpty()
+        val dmId = if (isDm && channel.isNotEmpty()) channel.toLongOrNull() ?: 0L else 0L
+
+        if (dmId != 0L && activeChannelTracker.isViewing(dmId)) {
+            Log.d(TAG, "Suppressing notification: user is viewing DM $dmId")
+            return
+        }
+
+        if (isAppInForeground()) {
+            notificationHelper.showInAppToast(title, body)
+        } else {
+            if (isDm && channel.isNotEmpty()) {
+                notificationHelper.showDmNotification(
+                    title = title,
+                    body = body,
+                    dmChannelId = dmId
+                )
+            } else {
+                notificationHelper.showMessageNotification(
+                    title = title,
+                    body = body,
+                    channelId = channelId,
+                    clanId = clanId,
+                    channelName = channelName,
+                    channelType = channelType
+                )
+            }
+        }
+    }
+
+    private fun isAppInForeground(): Boolean {
+        return MainActivity.isResumed
     }
 
     private fun extractChannelIdFromLink(link: String): Long {

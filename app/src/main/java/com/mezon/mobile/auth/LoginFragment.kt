@@ -121,6 +121,11 @@ class LoginFragment : BaseFragment() {
             result
                 .onSuccess {
                     Log.d("LoginFragment", "onLoginSuccess invoking, callback=${onLoginSuccess != null}")
+                    try {
+                        entryPoint().fcmRepository().getAndRegisterToken()
+                    } catch (e: Exception) {
+                        Log.e("LoginFragment", "FCM token registration failed", e)
+                    }
                     onLoginSuccess?.invoke()
                 }
                 .onFailure { err ->
