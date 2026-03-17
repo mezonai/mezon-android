@@ -11,6 +11,7 @@ import com.mezon.mobile.home.notifications.NotificationStore
 import com.mezon.mobile.home.profile.AccountController
 import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.network.MezonApi
+import com.mezon.mobile.notification.FcmRepository
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
@@ -31,6 +32,7 @@ interface FragmentEntryPoint {
     fun accountController(): AccountController
     fun userController(): UserController
     fun mezonApi(): MezonApi
+    fun fcmRepository(): FcmRepository
 
     @IoDispatcher
     fun ioDispatcher(): CoroutineDispatcher

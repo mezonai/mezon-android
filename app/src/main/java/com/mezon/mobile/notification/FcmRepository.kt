@@ -1,21 +1,27 @@
 package com.mezon.mobile.notification
 
+import android.content.Context
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.session.SessionManager
+import android.provider.Settings
 import android.util.Log
+import com.google.firebase.messaging.FirebaseMessaging
 import com.mezon.mezon.api.RegistFcmDeviceTokenResponse
 import com.mezon.mezon.api.registFcmDeviceTokenRequest
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class FcmRepository @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val mezonApi: MezonApi,
     private val sessionManager: SessionManager,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
@@ -26,6 +32,26 @@ class FcmRepository @Inject constructor(
         private const val PLATFORM = "android"
         private const val MAX_RETRIES = 3
         private const val RETRY_DELAY_MS = 1000L
+    }
+
+    fun getAndRegisterToken() {
+        appScope.launch {
+            try {
+                val fcmToken = FirebaseMessaging.getInstance().token.await()
+                if (fcmToken.isNullOrBlank()) {
+                    Log.w(TAG, "FCM token is null or blank")
+                    return@launch
+                }
+                val deviceId = Settings.Secure.getString(
+                    context.contentResolver,
+                    Settings.Secure.ANDROID_ID
+                )
+                Log.d(TAG, "Got FCM token, registering with backend...")
+                registerToken(fcmToken, deviceId)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error getting/registering FCM token", e)
+            }
+        }
     }
 
     fun registerTokenAsync(fcmToken: String, deviceId: String) {
