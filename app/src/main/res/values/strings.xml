@@ -59,6 +59,37 @@
     <string name="common_login_login_failed">Invalid email or password. Please try again.</string>
     <string name="common_login_login_too_fast">Login too fast. Please wait %1$d seconds before trying again.</string>
     <string name="common_login_get_started">Get Started</string>
+    <string name="common_login_enter_phone">Enter phone number</string>
+    <string name="common_login_enter_email_address">Enter email address</string>
+    <string name="common_login_choose_another_option">Choose another option</string>
+    <string name="common_login_phone_number">Phone number</string>
+    <string name="common_login_email_address">Email address</string>
+    <string name="common_login_show_password">Show password</string>
+    <string name="common_login_send">Send</string>
+    <string name="common_login_cannot_access_email">Cannot access your email?</string>
+    <string name="common_login_cannot_access_phone">Cannot access your phone?</string>
+    <string name="common_login_with_sms">Login with SMS</string>
+    <string name="common_login_with_email_otp">Login with Email OTP</string>
+    <string name="common_login_with_password">Login with Password</string>
+    <string name="common_login_invalid_phone">Invalid phone number</string>
+    <string name="common_login_invalid_email">Invalid email address</string>
+    <string name="common_login_country_vietnam">Vietnam</string>
+    <string name="common_login_country_japan">Japan</string>
+    <string name="common_login_country_usa">USA</string>
+
+    <string name="otp_login_to_mezon">Login to Mezon</string>
+    <string name="otp_enter_code_from">Enter code from</string>
+    <string name="otp_verify">Verify OTP (%1$d)</string>
+    <string name="otp_resend">Resend OTP</string>
+    <string name="otp_did_not_receive">Didn\'t receive code?</string>
+    <string name="otp_change_email">Change email</string>
+    <string name="otp_change_phone">Change phone</string>
+    <string name="otp_not_match">OTP does not match</string>
+    <string name="otp_resend_failed">Failed to resend OTP</string>
+    <!-- <string name="otp_verify_failed">Failed to verify OTP</string> -->
+    <string name="otp_send_failed">Failed to send OTP</string>
+    <string name="otp_change_confirm_title">Change %1$s?</string>
+    <string name="otp_change_confirm_message">This will take you back to the login screen.</string>
 
     <!-- common.sessionExpired -->
     <string name="common_session_expired_title">Session Expired or Network Error</string>

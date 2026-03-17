@@ -73,8 +73,8 @@ class ProfileHeaderCell(context: Context, private val theme: ThemeColors) : Fram
         requestLayout()
     }
 
-    fun setAvatarUrl(url: String?, loader: coil.ImageLoader) {
-        avatarView.setImageUrl(url, loader)
+    fun setAvatarUrl(url: String?) {
+        avatarView.setImageUrl(url)
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {

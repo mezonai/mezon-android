@@ -49,9 +49,9 @@ class InputCell(context: Context, private val theme: ThemeColors) : LinearLayout
         }
 
         bgDrawable = GradientDrawable().apply {
-            setColor(theme.surfaceVariant)
-            cornerRadius = LayoutHelper.dpf(8f)
-            setStroke(LayoutHelper.dp(1), theme.outline)
+            setColor(0xFFF6F6F6.toInt())
+            cornerRadius = LayoutHelper.dpf(12f)
+            setStroke(LayoutHelper.dp(1), 0xFFCCCCCC.toInt())
         }
 
         inputContainer = FrameLayout(context).apply {

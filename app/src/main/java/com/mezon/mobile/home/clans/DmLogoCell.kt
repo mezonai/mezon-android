@@ -4,17 +4,15 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Typeface
-import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.text.TextPaint
 import android.view.View
-import coil.Coil
-import coil.request.ImageRequest
-import coil.size.Size
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.ui.cells.MezonIcon
 
 class DmLogoCell(
@@ -27,9 +25,13 @@ class DmLogoCell(
     }
 
     private val iconSizePx = LayoutHelper.dp(40)
+    private val cornerRadius = LayoutHelper.dp(12).toFloat()
     private val fallbackDrawable: Drawable = MezonIcon.logoMezon.getDrawable(context).mutate()
     private var logoBitmap: Bitmap? = null
     private var currentLogoUrl: String = ""
+    private var logoCancellable: MezonImageLoader.Cancellable? = null
+    private val clipPath = Path()
+    private val clipRect = RectF()
 
     private val badgeBgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val badgeTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -44,19 +46,34 @@ class DmLogoCell(
 
     fun setLogoUrl(url: String) {
         val effectiveUrl = url.ifEmpty { DEFAULT_LOGO_URL }
-        if (currentLogoUrl == effectiveUrl) return
+        if (currentLogoUrl == effectiveUrl && logoBitmap != null) return
         currentLogoUrl = effectiveUrl
+
+        logoCancellable?.cancel()
+        logoCancellable = null
+
+        val loader = MezonImageLoader.getInstance(context)
+        val cached = loader.getBitmapFromMemory(effectiveUrl, iconSizePx, iconSizePx)
+        if (cached != null) {
+            logoBitmap = cached
+            invalidate()
+            return
+        }
+
         logoBitmap = null
-        val request = ImageRequest.Builder(context)
-            .data(effectiveUrl)
-            .size(Size(iconSizePx, iconSizePx))
-            .allowHardware(false)
-            .target(onSuccess = { d ->
-                logoBitmap = (d as? BitmapDrawable)?.bitmap
+        logoCancellable = loader.load(
+            effectiveUrl, iconSizePx, iconSizePx,
+            onSuccess = { bmp ->
+                logoBitmap = bmp
                 post { invalidate() }
-            })
-            .build()
-        Coil.imageLoader(context).enqueue(request)
+            }
+        )
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        logoCancellable?.cancel()
+        logoCancellable = null
     }
 
     fun setPendingFriendCount(count: Int) {
@@ -85,6 +102,13 @@ class DmLogoCell(
         val right = (cx + half).toInt()
         val bottom = (cy + half).toInt()
 
+        clipRect.set(left.toFloat(), top.toFloat(), right.toFloat(), bottom.toFloat())
+        clipPath.reset()
+        clipPath.addRoundRect(clipRect, cornerRadius, cornerRadius, Path.Direction.CW)
+
+        canvas.save()
+        canvas.clipPath(clipPath)
+
         val bmp = logoBitmap
         if (bmp != null && !bmp.isRecycled) {
             canvas.drawBitmap(bmp, null, android.graphics.Rect(left, top, right, bottom), null)
@@ -92,6 +116,8 @@ class DmLogoCell(
             fallbackDrawable.setBounds(left, top, right, bottom)
             fallbackDrawable.draw(canvas)
         }
+
+        canvas.restore()
 
         if (pendingCount > 0) {
             badgeBgPaint.color = themeColors.badgeRed

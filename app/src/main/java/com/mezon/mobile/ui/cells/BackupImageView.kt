@@ -3,17 +3,13 @@ package com.mezon.mobile.ui.cells
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Path
+import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.view.View
 import android.view.accessibility.AccessibilityNodeInfo
-import coil.dispose
-import coil.request.Disposable
-import coil.size.Scale
-import coil.size.Size
-import coil.transform.CircleCropTransformation
-import coil.transform.RoundedCornersTransformation
 import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.LayoutHelper
+import com.mezon.mobile.home.chat.MezonImageLoader
 import kotlin.math.min
 
 class BackupImageView(context: Context) : View(context) {
@@ -21,7 +17,7 @@ class BackupImageView(context: Context) : View(context) {
     private val avatarDrawable = AvatarDrawable()
     private var imageUrl: String? = null
     private var loadedDrawable: Drawable? = null
-    private var disposable: Disposable? = null
+    private var cancellable: MezonImageLoader.Cancellable? = null
     private var roundImage = false
     private var attached = false
     private var decodeWidth = -1
@@ -80,7 +76,7 @@ class BackupImageView(context: Context) : View(context) {
         imageUrl = url
         loadedDrawable = placeholder
         if (placeholder != null) invalidate()
-        if (attached && url != null) loadImage(url, filter, placeholder)
+        if (attached && url != null) loadImage(url)
         invalidate()
     }
 
@@ -88,21 +84,21 @@ class BackupImageView(context: Context) : View(context) {
         if (id != 0L) avatarDrawable.setInfo(id, name)
         imageUrl = url
         loadedDrawable = null
-        if (attached && url != null) loadImage(url, null, null)
+        if (attached && url != null) loadImage(url)
         invalidate()
     }
 
     fun setImageResource(resId: Int) {
-        disposable?.dispose()
-        disposable = null
+        cancellable?.cancel()
+        cancellable = null
         imageUrl = null
         loadedDrawable = context.resources.getDrawable(resId, null)
         invalidate()
     }
 
     fun setImageDrawable(drawable: Drawable?) {
-        disposable?.dispose()
-        disposable = null
+        cancellable?.cancel()
+        cancellable = null
         imageUrl = null
         loadedDrawable = drawable
         invalidate()
@@ -112,55 +108,34 @@ class BackupImageView(context: Context) : View(context) {
 
     fun getLoadedDrawable(): Drawable? = loadedDrawable
 
-    private fun loadImage(url: String, filter: String?, placeholder: Drawable?) {
-        disposable?.dispose()
+    private fun loadImage(url: String) {
+        cancellable?.cancel()
         val w = if (decodeWidth > 0) decodeWidth else measuredWidth.coerceAtLeast(LayoutHelper.dp(48))
         val h = if (decodeHeight > 0) decodeHeight else measuredHeight.coerceAtLeast(LayoutHelper.dp(48))
-        val scale = if (aspectFit) Scale.FIT else Scale.FILL
-        val transformations = mutableListOf<coil.transform.Transformation>()
-        when {
-            roundImage -> transformations.add(CircleCropTransformation())
-            roundRadius > 0 -> transformations.add(RoundedCornersTransformation(roundRadius.toFloat()))
-            roundRadiusTL != 0 || roundRadiusTR != 0 || roundRadiusBR != 0 || roundRadiusBL != 0 -> {
-                val tl = roundRadiusTL.toFloat()
-                val tr = roundRadiusTR.toFloat()
-                val bl = roundRadiusBL.toFloat()
-                val br = roundRadiusBR.toFloat()
-                transformations.add(RoundedCornersTransformation(tl, tr, bl, br))
+        cancellable = MezonImageLoader.getInstance(context).load(
+            url, w, h,
+            onSuccess = { bmp ->
+                loadedDrawable = BitmapDrawable(context.resources, bmp)
+                invalidate()
+            },
+            onError = {
+                loadedDrawable = null
+                invalidate()
             }
-        }
-        disposable = coil.Coil.imageLoader(context).enqueue(
-            coil.request.ImageRequest.Builder(context)
-                .data(url)
-                .apply { if (transformations.isNotEmpty()) transformations(transformations) }
-                .size(Size(w, h))
-                .scale(scale)
-                .placeholder(placeholder)
-                .target(
-                    onSuccess = { result ->
-                        loadedDrawable = result
-                        invalidate()
-                    },
-                    onError = {
-                        loadedDrawable = null
-                        invalidate()
-                    }
-                )
-                .build()
         )
     }
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         attached = true
-        imageUrl?.let { loadImage(it, null, null) }
+        imageUrl?.let { loadImage(it) }
     }
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         attached = false
-        disposable?.dispose()
-        disposable = null
+        cancellable?.cancel()
+        cancellable = null
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {

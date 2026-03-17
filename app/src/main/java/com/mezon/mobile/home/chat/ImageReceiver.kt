@@ -12,9 +12,6 @@ import android.graphics.Shader
 import android.graphics.drawable.Animatable
 import android.graphics.drawable.Drawable
 import android.view.View
-import coil.Coil
-import coil.request.ImageRequest
-import coil.size.Size
 
 class ImageReceiver(private val parentView: View) {
 
@@ -25,14 +22,23 @@ class ImageReceiver(private val parentView: View) {
     private var currentThumbUrl: String? = null
     private var attached = false
     private var pendingLoad: Pair<String?, String?>? = null
-    private var currentDisposable: coil.request.Disposable? = null
-    private var thumbDisposable: coil.request.Disposable? = null
+    private var mainCancellable: MezonImageLoader.Cancellable? = null
+    private var thumbCancellable: MezonImageLoader.Cancellable? = null
+    private var isAnimatedRequest = false
 
     private var imageX = 0f
     private var imageY = 0f
     private var imageW = 0f
     private var imageH = 0f
+    private var requestW = 0
+    private var requestH = 0
     private val roundRadius = IntArray(4)
+
+    private var crossfadeAlpha = 255
+    private var crossfadeStartTime = 0L
+    private val crossfadeDuration = 200L
+    private var allowStartAnimation = true
+    private var skipUpdateFrame = false
 
     private val roundPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val shaderMatrix = Matrix()
@@ -57,10 +63,28 @@ class ImageReceiver(private val parentView: View) {
         roundRadius.fill(radius)
     }
 
+    fun setRequestedSize(w: Int, h: Int) {
+        requestW = w
+        requestH = h
+    }
+
+    fun setAllowStartAnimation(allow: Boolean) {
+        allowStartAnimation = allow
+        if (!allow) {
+            (animatedDrawable as? Animatable)?.stop()
+        } else if (attached) {
+            (animatedDrawable as? Animatable)?.start()
+        }
+    }
+
+    fun setSkipUpdateFrame(skip: Boolean) {
+        skipUpdateFrame = skip
+    }
+
     fun onAttachedToWindow() {
         if (attached) return
         attached = true
-        (animatedDrawable as? Animatable)?.start()
+        if (allowStartAnimation) (animatedDrawable as? Animatable)?.start()
         pendingLoad?.let { (url, thumbUrl) ->
             pendingLoad = null
             currentUrl = null
@@ -72,12 +96,10 @@ class ImageReceiver(private val parentView: View) {
     fun onDetachedFromWindow() {
         attached = false
         (animatedDrawable as? Animatable)?.stop()
-        currentDisposable?.dispose()
-        currentDisposable = null
-        thumbDisposable?.dispose()
-        thumbDisposable = null
-        currentUrl = null
-        currentThumbUrl = null
+        mainCancellable?.cancel()
+        mainCancellable = null
+        thumbCancellable?.cancel()
+        thumbCancellable = null
     }
 
     fun setImage(url: String?, thumbUrl: String?, context: Context) {
@@ -91,84 +113,113 @@ class ImageReceiver(private val parentView: View) {
             return
         }
 
+        val loader = MezonImageLoader.getInstance(context)
+
         if (thumbChanged && thumbUrl != null) {
             currentThumbUrl = thumbUrl
-            thumbDisposable?.dispose()
-            thumbDisposable = loadDrawable(thumbUrl, context, isThumb = true)
+            thumbCancellable?.cancel()
+            val tw = if (requestW > 0) requestW / 4 else 200
+            val th = if (requestH > 0) requestH / 4 else 200
+            thumbCancellable = loader.load(thumbUrl, tw, th, onSuccess = { bmp ->
+                if (imageBitmap == null && animatedDrawable == null) {
+                    thumbBitmap = bmp
+                    parentView.invalidate()
+                }
+            })
         }
 
         if (urlChanged && url != null) {
-            imageBitmap = null
+            currentUrl = url
+            mainCancellable?.cancel()
+            val rw = if (requestW > 0) requestW else 800
+            val rh = if (requestH > 0) requestH else 800
+
+            val cached = loader.getBitmapFromMemory(url, rw, rh)
+            if (cached != null) {
+                imageBitmap = cached
+                stopAnimation()
+                animatedDrawable = null
+                cachedShader = null
+                cachedShaderBitmap = null
+                crossfadeAlpha = 255
+                thumbBitmap = null
+                parentView.invalidate()
+                return
+            }
+
             stopAnimation()
             animatedDrawable = null
             cachedShader = null
             cachedShaderBitmap = null
-            currentUrl = url
-            currentDisposable?.dispose()
-            currentDisposable = loadDrawable(url, context, isThumb = false)
+
+            isAnimatedRequest = url.contains(".gif", true) ||
+                (url.contains(".webp", true) && !url.endsWith("@webp"))
+
+            if (isAnimatedRequest) {
+                mainCancellable = loader.loadDrawable(url, rw, rh,
+                    onSuccess = { drawable ->
+                        if (drawable is Animatable) {
+                            imageBitmap = null
+                            thumbBitmap = null
+                            cachedShader = null
+                            cachedShaderBitmap = null
+                            animatedDrawable = drawable
+                            (drawable as Drawable).callback = animationCallback
+                            if (attached && allowStartAnimation) (drawable as Animatable).start()
+                        } else if (drawable is android.graphics.drawable.BitmapDrawable) {
+                            imageBitmap = drawable.bitmap
+                            cachedShader = null
+                            cachedShaderBitmap = null
+                            crossfadeAlpha = 255
+                            thumbBitmap = null
+                        }
+                        parentView.invalidate()
+                    },
+                    onError = { onLoadError(url, rw, rh, loader) }
+                )
+            } else {
+                mainCancellable = loader.load(url, rw, rh,
+                    onSuccess = { bmp ->
+                        val hadThumb = thumbBitmap != null
+                        imageBitmap = bmp
+                        animatedDrawable = null
+                        cachedShader = null
+                        cachedShaderBitmap = null
+                        if (hadThumb) {
+                            crossfadeAlpha = 0
+                            crossfadeStartTime = System.currentTimeMillis()
+                        } else {
+                            crossfadeAlpha = 255
+                            thumbBitmap = null
+                        }
+                        parentView.invalidate()
+                    },
+                    onError = { onLoadError(url, rw, rh, loader) }
+                )
+            }
         }
     }
 
-    private fun loadDrawable(url: String, context: Context, isThumb: Boolean): coil.request.Disposable? {
-        if (url.isEmpty()) return null
-        val request = ImageRequest.Builder(context)
-            .data(url)
-            .size(Size.ORIGINAL)
-            .allowHardware(false)
-            .listener(
-                onError = { _, result ->
-                    if (!isThumb && url.endsWith("@webp")) {
-                        loadDrawable(url.removeSuffix("@webp"), context, isThumb)
-                    }
-                }
-            )
-            .target(onSuccess = { drawable ->
-                if (drawable is Animatable) {
-                    if (!isThumb) {
-                        imageBitmap = null
-                        thumbBitmap = null
-                        cachedShader = null
-                        cachedShaderBitmap = null
-                        animatedDrawable = drawable
-                        drawable.callback = animationCallback
-                        if (attached) drawable.start()
-                        parentView.post { parentView.invalidate() }
-                    }
-                    return@target
-                }
-                val bmp = when (drawable) {
-                    is android.graphics.drawable.BitmapDrawable -> drawable.bitmap
-                    else -> {
-                        val w = drawable.intrinsicWidth.coerceAtLeast(1)
-                        val h = drawable.intrinsicHeight.coerceAtLeast(1)
-                        val b = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                        val c = Canvas(b)
-                        drawable.setBounds(0, 0, w, h)
-                        drawable.draw(c)
-                        b
-                    }
-                }
-                if (isThumb) {
-                    if (imageBitmap == null && animatedDrawable == null) {
-                        thumbBitmap = bmp
-                        parentView.post { parentView.invalidate() }
-                    }
-                } else {
+    private fun onLoadError(url: String, rw: Int, rh: Int, loader: MezonImageLoader) {
+        if (url.endsWith("@webp")) {
+            val fallbackUrl = url.removeSuffix("@webp")
+            currentUrl = fallbackUrl
+            mainCancellable = loader.load(fallbackUrl, rw, rh,
+                onSuccess = { bmp ->
                     imageBitmap = bmp
-                    thumbBitmap = null
-                    animatedDrawable = null
                     cachedShader = null
                     cachedShaderBitmap = null
-                    parentView.post { parentView.invalidate() }
+                    crossfadeAlpha = 255
+                    thumbBitmap = null
+                    parentView.invalidate()
                 }
-            })
-            .build()
-        return Coil.imageLoader(context).enqueue(request)
+            )
+        }
     }
 
     private val animationCallback = object : Drawable.Callback {
         override fun invalidateDrawable(who: Drawable) {
-            if (attached) parentView.post(invalidateRunnable)
+            if (attached) parentView.post { parentView.invalidate() }
         }
         override fun scheduleDrawable(who: Drawable, what: Runnable, `when`: Long) {
             parentView.postDelayed(what, `when` - android.os.SystemClock.uptimeMillis())
@@ -186,8 +237,28 @@ class ImageReceiver(private val parentView: View) {
             return drawAnimated(canvas, anim)
         }
 
-        val bmp = imageBitmap ?: thumbBitmap ?: return false
-        return drawBitmap(canvas, bmp)
+        val mainBmp = imageBitmap
+        val thumbBmp = thumbBitmap
+
+        if (mainBmp != null && crossfadeAlpha < 255) {
+            val elapsed = System.currentTimeMillis() - crossfadeStartTime
+            crossfadeAlpha = ((elapsed.toFloat() / crossfadeDuration) * 255).toInt().coerceIn(0, 255)
+
+            if (thumbBmp != null) {
+                drawBitmap(canvas, thumbBmp, 255)
+            }
+            drawBitmap(canvas, mainBmp, crossfadeAlpha)
+
+            if (crossfadeAlpha < 255) {
+                parentView.postInvalidateOnAnimation()
+            } else {
+                thumbBitmap = null
+            }
+            return true
+        }
+
+        val bmp = mainBmp ?: thumbBmp ?: return false
+        return drawBitmap(canvas, bmp, 255)
     }
 
     private fun drawAnimated(canvas: Canvas, drawable: Drawable): Boolean {
@@ -211,7 +282,7 @@ class ImageReceiver(private val parentView: View) {
         return true
     }
 
-    private fun drawBitmap(canvas: Canvas, bmp: Bitmap): Boolean {
+    private fun drawBitmap(canvas: Canvas, bmp: Bitmap, alpha: Int = 255): Boolean {
         val bmpW = bmp.width.toFloat()
         val bmpH = bmp.height.toFloat()
         if (bmpW <= 0f || bmpH <= 0f) return false
@@ -230,6 +301,8 @@ class ImageReceiver(private val parentView: View) {
             imageX + (scaledW + imageW) / 2f,
             imageY + (scaledH + imageH) / 2f
         )
+
+        roundPaint.alpha = alpha
 
         if (hasRound) {
             val shader = getOrCreateShader(bmp)
@@ -262,6 +335,7 @@ class ImageReceiver(private val parentView: View) {
         }
 
         roundPaint.shader = null
+        roundPaint.alpha = 255
         return true
     }
 
@@ -281,12 +355,13 @@ class ImageReceiver(private val parentView: View) {
     }
 
     fun hasImage(): Boolean = imageBitmap != null || thumbBitmap != null || animatedDrawable != null
+    fun hasMainImage(): Boolean = imageBitmap != null || animatedDrawable != null
 
     fun recycle() {
-        currentDisposable?.dispose()
-        currentDisposable = null
-        thumbDisposable?.dispose()
-        thumbDisposable = null
+        mainCancellable?.cancel()
+        mainCancellable = null
+        thumbCancellable?.cancel()
+        thumbCancellable = null
         stopAnimation()
         animatedDrawable = null
         imageBitmap = null
@@ -311,4 +386,5 @@ class ImageReceiver(private val parentView: View) {
     fun getImageY() = imageY
     fun getImageWidth() = imageW
     fun getImageHeight() = imageH
+    fun getBitmap(): Bitmap? = imageBitmap ?: thumbBitmap
 }

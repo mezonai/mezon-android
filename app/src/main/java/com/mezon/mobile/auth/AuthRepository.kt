@@ -39,6 +39,50 @@ class AuthRepository @Inject constructor(
             }
         }
 
+    suspend fun requestEmailOTP(email: String): Result<String> =
+        withContext(ioDispatcher) {
+            runCatching {
+                val response = api.authenticateEmailOTP(
+                    gatewayUrl = BuildConfig.MEZON_GATEWAY_URL,
+                    email = email,
+                    vars = mapOf("m" to "true")
+                )
+                response.reqId
+            }
+        }
+
+    suspend fun requestSmsOTP(phone: String): Result<String> =
+        withContext(ioDispatcher) {
+            runCatching {
+                val response = api.authenticateSmsOTP(
+                    gatewayUrl = BuildConfig.MEZON_GATEWAY_URL,
+                    phone = phone,
+                    vars = mapOf("m" to "true")
+                )
+                response.reqId
+            }
+        }
+
+    suspend fun confirmOTP(reqId: String, otpCode: String): Result<StoredSession> =
+        withContext(ioDispatcher) {
+            runCatching {
+                val session = api.confirmAuthenticateOTP(
+                    gatewayUrl = BuildConfig.MEZON_GATEWAY_URL,
+                    reqId = reqId,
+                    otpCode = otpCode
+                )
+                val stored = StoredSession(
+                    token = session.token,
+                    refreshToken = session.refreshToken,
+                    apiUrl = session.apiUrl,
+                    wsUrl = session.wsUrl,
+                    userId = session.userId
+                )
+                sessionManager.saveSession(stored)
+                stored
+            }
+        }
+
     suspend fun refreshSession(): Result<StoredSession> =
         withContext(ioDispatcher) {
             runCatching { sessionManager.refresh() }

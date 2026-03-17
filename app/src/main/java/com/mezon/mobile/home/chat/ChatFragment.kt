@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
+import android.util.Log
 import android.util.LongSparseArray
 import android.view.Gravity
 import android.view.View
@@ -30,15 +31,25 @@ import com.mezon.mobile.ui.cells.PageDownButton
 
 class ChatFragment : BaseFragment() {
 
+    private data class SavedScrollState(
+        val messageId: Long,
+        val offset: Int,
+        val atBottom: Boolean,
+        val timestamp: Long
+    )
+
     companion object {
+        private const val TAG = "ChatFragment"
         private const val ARG_CHANNEL_ID = "channelId"
         private const val ARG_CHANNEL_NAME = "channelName"
         private const val ARG_CLAN_ID = "clanId"
         private const val ARG_CHANNEL_TYPE = "channelType"
         private const val ARG_MESSAGE_ID = "message_id"
         private const val VIEWPORT_LIMIT = 100
-        private const val VIEWPORT_TARGET = 50
         private const val PAGE_DOWN_SCROLL_THRESHOLD = 15
+        private const val SCROLL_STATE_TTL_MS = 5 * 60 * 1000L
+
+        private val scrollStates = HashMap<Long, SavedScrollState>()
 
         fun newInstance(
             channelId: Long,
@@ -76,8 +87,13 @@ class ChatFragment : BaseFragment() {
     private var clanId = 0L
     private var channelType = 0
     private var startLoadFromMessageId = 0L
+    private var startLoadFromMessageOffset = Int.MAX_VALUE
+    private var loadingFromOldPosition = false
+    private var pausedOnLastMessage = false
+    private var needScrollRestore = false
     private var isLoading = false
     private var isLoadingMore = false
+    private var loadMoreDirection = 0
     private var hasMoreTop = false
     private var hasMoreBottom = false
     private var isViewingOlder = false
@@ -111,6 +127,28 @@ class ChatFragment : BaseFragment() {
         val isSeenUpToDate = lastSentMessageId == 0L || lastSeenMessageId >= lastSentMessageId
         val hasUnread = !isSeenUpToDate && lastSeenMessageId != 0L
 
+        if (startLoadFromMessageId == 0L) {
+            val saved = scrollStates[channelId]
+            if (saved != null && System.currentTimeMillis() - saved.timestamp < SCROLL_STATE_TTL_MS) {
+                if (saved.atBottom) {
+                    Log.d(TAG, "Was at bottom (in-memory), skipping hasUnread check")
+                    pausedOnLastMessage = true
+                } else if (saved.messageId != 0L) {
+                    loadingFromOldPosition = true
+                    needScrollRestore = true
+                    startLoadFromMessageOffset = saved.offset
+                    startLoadFromMessageId = saved.messageId
+                    Log.d(TAG, "Restored scroll position (in-memory): msgId=${saved.messageId} offset=${saved.offset} age=${System.currentTimeMillis() - saved.timestamp}ms")
+                }
+            } else if (saved != null) {
+                Log.d(TAG, "Saved scroll position expired (age=${System.currentTimeMillis() - saved.timestamp}ms), removed")
+                scrollStates.remove(channelId)
+            }
+        }
+        if (hasUnread && startLoadFromMessageId == 0L && !pausedOnLastMessage) {
+            needScrollRestore = true
+        }
+
         observe(NotificationCenter.messagesDidLoad) { _, _, args ->
             if (args.size < 5 || args[0] != channelId) return@observe
             @Suppress("UNCHECKED_CAST")
@@ -118,6 +156,91 @@ class ChatFragment : BaseFragment() {
             val moreTop = args[2] as? Boolean ?: false
             val moreBottom = args[3] as? Boolean ?: false
             val isCache = args[4] as? Boolean ?: false
+
+            Log.d(TAG, "messagesDidLoad: loaded=${loadedMessages.size} isCache=$isCache moreTop=$moreTop moreBottom=$moreBottom existing=${messages.size} isLoading=$isLoading isLoadingMore=$isLoadingMore")
+
+            val wasLoadingMore = isLoadingMore
+            val direction = loadMoreDirection
+
+            if (wasLoadingMore && fragmentView != null && messages.isNotEmpty()) {
+                var newRowsCount = 0
+                val newMessages = ArrayList<MessageEntity>()
+                for (m in loadedMessages) {
+                    if (messagesDict.get(m.id) == null) {
+                        messagesDict.put(m.id, m)
+                        newMessages.add(m)
+                    }
+                }
+                newMessages.sortByDescending { it.timestampSeconds }
+                newRowsCount = newMessages.size
+
+                if (direction == 1) {
+                    messages.addAll(newMessages)
+                    hasMoreTop = moreTop
+                } else {
+                    messages.addAll(0, newMessages)
+                    hasMoreBottom = if (lastSentMessageId != 0L && messages.isNotEmpty()) {
+                        messages.first().id < lastSentMessageId
+                    } else {
+                        moreBottom
+                    }
+                    if (!hasMoreBottom) {
+                        isViewingOlder = false
+                        clearSavedScrollPosition()
+                    }
+                }
+
+                if (newRowsCount > 0) {
+                    var scrollToMessageId = 0L
+                    var top = 0
+                    for (i in 0 until recyclerView.childCount) {
+                        val v = recyclerView.getChildAt(i)
+                        val msgId = when (v) {
+                            is ChatMessageCell -> v.messageEntity?.id
+                            is SystemMessageCell -> v.messageEntity?.id
+                            else -> null
+                        } ?: continue
+                        scrollToMessageId = msgId
+                        top = getScrollingOffsetForView(v)
+                        break
+                    }
+
+                    if (direction == 1) {
+                        val insertAt = adapter.messagesEndRow
+                        val oldLoadingUpRow = adapter.loadingUpRow
+                        adapter.showLoadingUp = hasMoreTop
+                        adapter.updateRowsInternal()
+                        if (oldLoadingUpRow >= 0 && adapter.loadingUpRow < 0) {
+                            adapter.notifyItemRemoved(oldLoadingUpRow)
+                        }
+                        adapter.notifyItemRangeInserted(insertAt, newRowsCount)
+                    } else {
+                        adapter.showLoadingDown = hasMoreBottom
+                        adapter.notifyItemRangeInserted(1, newRowsCount)
+                        adapter.updateRowsSafe()
+                    }
+
+                    if (scrollToMessageId != 0L) {
+                        val scrollToIndex = messages.indexOfFirst { it.id == scrollToMessageId }
+                        if (scrollToIndex >= 0) {
+                            val lm = recyclerView.layoutManager as? LinearLayoutManager
+                            lm?.scrollToPositionWithOffset(adapter.messagesStartRow + scrollToIndex, top)
+                        }
+                    }
+                } else {
+                    if (direction == 1) adapter.showLoadingUp = hasMoreTop
+                    else adapter.showLoadingDown = hasMoreBottom
+                    adapter.updateRowsSafe()
+                }
+
+                isLoadingMore = false
+                loadMoreDirection = 0
+                return@observe
+            }
+
+            isLoading = false
+            isLoadingMore = false
+            loadMoreDirection = 0
 
             if (isCache) {
                 var addedFromCache = false
@@ -143,37 +266,55 @@ class ChatFragment : BaseFragment() {
                     hasMoreTop = moreTop
                     hasMoreBottom = moreBottom
                 } else {
-                    var addedNew = false
                     for (m in loadedMessages) {
                         if (messagesDict.get(m.id) == null) {
-                            if (m.timestampSeconds >= (messages.firstOrNull()?.timestampSeconds ?: 0L)) {
-                                messages.add(0, m)
-                            } else {
-                                messages.add(m)
-                            }
                             messagesDict.put(m.id, m)
-                            addedNew = true
                         }
                     }
-                    if (moreTop) hasMoreTop = true
-                    if (!moreTop && addedNew) hasMoreTop = false
-                    if (moreBottom) hasMoreBottom = true
-                    if (!moreBottom && addedNew) hasMoreBottom = false
-                    trimViewport()
+                    messages.clear()
+                    val all = ArrayList<MessageEntity>(messagesDict.size())
+                    for (i in 0 until messagesDict.size()) all.add(messagesDict.valueAt(i))
+                    all.sortByDescending { it.timestampSeconds }
+                    messages.addAll(all)
+                    hasMoreTop = moreTop
+                    hasMoreBottom = moreBottom
                 }
             }
 
-            isLoading = false
-            isLoadingMore = false
+            if (lastSentMessageId != 0L && messages.isNotEmpty()) {
+                val newestInList = messages.first().id
+                if (newestInList < lastSentMessageId) {
+                    hasMoreBottom = true
+                }
+            }
+
+            Log.d(TAG, "messagesDidLoad processed: messages=${messages.size} hasMoreBottom=$hasMoreBottom lastSentMessageId=$lastSentMessageId newestInList=${messages.firstOrNull()?.id} fragmentView=${fragmentView != null} firstLoad=$firstLoad")
+
             if (fragmentView != null) {
                 val wasFirstLoad = firstLoad
                 firstLoad = false
                 refreshUI()
                 if (startLoadFromMessageId != 0L) {
-                    scrollToMessageId(startLoadFromMessageId)
+                    scrollToMessageWithOffset(startLoadFromMessageId, startLoadFromMessageOffset)
+                    if (loadingFromOldPosition) {
+                        val newestInList = messages.firstOrNull()?.id ?: 0L
+                        val moreBelow = lastSentMessageId != 0L && newestInList < lastSentMessageId
+                        if (moreBelow) {
+                            isViewingOlder = true
+                            hasMoreBottom = true
+                            updatePageDownVisibility()
+                        }
+                    }
                     startLoadFromMessageId = 0L
+                    startLoadFromMessageOffset = Int.MAX_VALUE
+                    loadingFromOldPosition = false
                 } else if (wasFirstLoad && lastSeenMessageId != 0L && hasUnread) {
                     scrollToMessageId(lastSeenMessageId)
+                    val newestInList = messages.firstOrNull()?.id ?: 0L
+                    if (lastSentMessageId != 0L && newestInList < lastSentMessageId) {
+                        isViewingOlder = true
+                        hasMoreBottom = true
+                    }
                     updatePageDownVisibility()
                 } else if (wasFirstLoad) {
                     forceScrollToBottom()
@@ -186,6 +327,7 @@ class ChatFragment : BaseFragment() {
             if (args.size < 2 || args[0] != channelId) return@observe
             val entity = args[1] as? MessageEntity ?: return@observe
             if (messagesDict.get(entity.id) != null) return@observe
+            if (entity.id > lastSentMessageId) lastSentMessageId = entity.id
             if (isViewingOlder) {
                 newUnreadCount++
                 hasMoreBottom = true
@@ -255,7 +397,10 @@ class ChatFragment : BaseFragment() {
             adapter.notifyDataSetChanged()
         }
 
-        if (hasUnread && startLoadFromMessageId == 0L) {
+        Log.d(TAG, "onFragmentCreate: channelId=$channelId channelName=$channelName clanId=$clanId channelType=$channelType hasUnread=$hasUnread startLoadFromMessageId=$startLoadFromMessageId loadingFromOldPosition=$loadingFromOldPosition pausedOnLastMessage=$pausedOnLastMessage")
+        if (startLoadFromMessageId != 0L) {
+            chatController.loadMessagesAround(channelId, clanId, startLoadFromMessageId)
+        } else if (hasUnread && !pausedOnLastMessage) {
             chatController.loadMessagesAround(channelId, clanId, lastSeenMessageId)
         } else {
             chatController.loadMessages(channelId, clanId)
@@ -290,6 +435,7 @@ class ChatFragment : BaseFragment() {
             lm.reverseLayout = true
             lm.stackFromEnd = false
             layoutManager = lm
+            itemAnimator = null
             visibility = View.GONE
         }
         contentFrame.addView(recyclerView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
@@ -367,22 +513,24 @@ class ChatFragment : BaseFragment() {
             if (actionId == EditorInfo.IME_ACTION_SEND) { sendMessage(); true } else false
         }
 
-        adapter = ChatAdapter(themeColors, cellDelegate = object : ChatMessageCell.ChatMessageCellDelegate {
-            override fun didClickMedia(cell: ChatMessageCell, msg: MessageEntity) {
-                val url = msg.attachmentUrl
+        adapter = ChatAdapter(themeColors, messages, channelName, cellDelegate = object : ChatMessageCell.ChatMessageCellDelegate {
+            override fun didClickMedia(cell: ChatMessageCell, msg: MessageEntity, attachmentIndex: Int) {
+                val allMedia = msg.allImageAttachments
+                val att = allMedia.getOrNull(attachmentIndex) ?: allMedia.firstOrNull() ?: return
+                val url = att.url
                 if (url.isEmpty()) return
-                when (msg.messageType) {
-                    MessageEntity.TYPE_VIDEO -> {
-                        VideoPlayerDialog(context).play(url)
-                    }
-                    MessageEntity.TYPE_PHOTO -> {
-                        val gallery = messages.filter { it.messageType == MessageEntity.TYPE_PHOTO && it.attachmentUrl.isNotEmpty() }
-                            .map { it.attachmentUrl }
+
+                val isVideo = att.filetype.startsWith("video/")
+                val isGif = att.filetype.contains("gif", true) || url.contains("tenor.com", true)
+                val thumbBmp = cell.getMediaBitmap(attachmentIndex)
+
+                when {
+                    isVideo -> VideoPlayerDialog(context).play(url)
+                    isGif -> PhotoViewer(context).show(url, animated = true, thumbBitmap = thumbBmp)
+                    else -> {
+                        val gallery = allMedia.filter { !it.filetype.startsWith("video/") }.map { it.url }
                         val idx = gallery.indexOf(url).coerceAtLeast(0)
-                        PhotoViewer(context).show(url, gallery = gallery, index = idx)
-                    }
-                    MessageEntity.TYPE_GIF -> {
-                        PhotoViewer(context).show(url, animated = true)
+                        PhotoViewer(context).show(url, gallery = gallery, index = idx, thumbBitmap = thumbBmp)
                     }
                 }
             }
@@ -412,9 +560,29 @@ class ChatFragment : BaseFragment() {
                 }
             }
         })
+        adapter.channelType = channelType
+        adapter.clanId = clanId
+        adapter.isChannelPrivate = resolveChannelPrivate()
         recyclerView.adapter = adapter
 
         recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrollStateChanged(rv: RecyclerView, newState: Int) {
+                when (newState) {
+                    RecyclerView.SCROLL_STATE_DRAGGING, RecyclerView.SCROLL_STATE_SETTLING -> {
+                        for (i in 0 until rv.childCount) {
+                            (rv.getChildAt(i) as? ChatMessageCell)?.stopHeavyOperations()
+                        }
+                    }
+                    RecyclerView.SCROLL_STATE_IDLE -> {
+                        for (i in 0 until rv.childCount) {
+                            val child = rv.getChildAt(i) as? ChatMessageCell ?: continue
+                            child.startHeavyOperations()
+                            updateCellVisibility(rv, child)
+                        }
+                    }
+                }
+            }
+
             override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) {
                 val lm = rv.layoutManager as LinearLayoutManager
                 val firstVisible = lm.findFirstVisibleItemPosition()
@@ -426,20 +594,22 @@ class ChatFragment : BaseFragment() {
                     if (!isViewingOlder && !hasMoreBottom) markAsRead()
                 }
 
-                if (!isLoadingMore && hasMoreTop) {
+                if (!isLoadingMore && hasMoreTop && messages.size >= 10) {
                     val lastVisible = lm.findLastVisibleItemPosition()
                     val totalCount = adapter.itemCount
                     if (totalCount > 0 && lastVisible >= totalCount - 5) {
                         val oldest = messages.lastOrNull()?.id ?: return
                         isLoadingMore = true
+                        loadMoreDirection = 1
                         chatController.loadMoreTop(channelId, clanId, oldest)
                     }
                 }
 
-                if (!isLoadingMore && hasMoreBottom) {
-                    if (firstVisible <= 3 && messages.isNotEmpty()) {
+                if (!isLoadingMore && hasMoreBottom && messages.size >= 10) {
+                    if (firstVisible <= 3) {
                         val newest = messages.firstOrNull()?.id ?: return
                         isLoadingMore = true
+                        loadMoreDirection = 2
                         chatController.loadMoreBottom(channelId, clanId, newest)
                     }
                 }
@@ -451,17 +621,65 @@ class ChatFragment : BaseFragment() {
 
     override fun onBecomeFullyVisible() {
         super.onBecomeFullyVisible()
+        pausedOnLastMessage = false
+        Log.d(TAG, "onBecomeFullyVisible: channelId=$channelId messages=${messages.size} isLoading=$isLoading firstLoad=$firstLoad")
         dialogsController.setCurrentChannel(channelId)
         if (clanId != 0L) {
             channelController.setCurrentChannel(channelId)
             channelController.markChannelAsRead(channelId)
         }
         if (messages.isNotEmpty()) {
+            Log.d(TAG, "onBecomeFullyVisible: showing ${messages.size} messages")
             showMessages()
             if (!isViewingOlder) markAsRead()
-        } else {
+        } else if (!isLoading) {
+            Log.d(TAG, "onBecomeFullyVisible: messages empty, not loading → triggering loadMessages")
             isLoading = true
             showLoading()
+            chatController.loadMessages(channelId, clanId)
+        } else {
+            Log.d(TAG, "onBecomeFullyVisible: messages empty, already loading → showLoading")
+            showLoading()
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        saveScrollPosition()
+    }
+
+    private fun saveScrollPosition() {
+        if (pausedOnLastMessage || firstLoad || !::recyclerView.isInitialized) return
+
+        val lm = recyclerView.layoutManager as? LinearLayoutManager ?: return
+        var messageId = 0L
+        var offset = 0
+        val position = lm.findFirstVisibleItemPosition()
+
+        if (position != 0) {
+            val holder = recyclerView.findViewHolderForAdapterPosition(position)
+            if (holder != null) {
+                val msgId = when (val v = holder.itemView) {
+                    is ChatMessageCell -> v.messageEntity?.id
+                    is SystemMessageCell -> v.messageEntity?.id
+                    is WelcomeMessageCell -> null
+                    else -> null
+                }
+                if (msgId != null && msgId != 0L) {
+                    messageId = msgId
+                    offset = holder.itemView.bottom - recyclerView.measuredHeight
+                }
+            }
+        }
+
+        val now = System.currentTimeMillis()
+        if (messageId != 0L) {
+            scrollStates[channelId] = SavedScrollState(messageId, offset, atBottom = false, timestamp = now)
+            Log.d(TAG, "saveScrollPosition: msgId=$messageId offset=$offset")
+        } else {
+            pausedOnLastMessage = true
+            scrollStates[channelId] = SavedScrollState(0L, 0, atBottom = true, timestamp = now)
+            Log.d(TAG, "saveScrollPosition: at bottom")
         }
     }
 
@@ -474,8 +692,10 @@ class ChatFragment : BaseFragment() {
     }
 
     private fun refreshUI() {
+        Log.d(TAG, "refreshUI: messages=${messages.size} isLoading=$isLoading")
         if (messages.isNotEmpty()) showMessages()
         else if (isLoading) showLoading()
+        else showEmpty()
     }
 
     private fun showLoading() {
@@ -492,12 +712,20 @@ class ChatFragment : BaseFragment() {
     }
 
     private fun showMessages() {
+        Log.d(TAG, "showMessages: count=${messages.size} hasMoreTop=$hasMoreTop hasMoreBottom=$hasMoreBottom needScrollRestore=$needScrollRestore")
+        loadingView.visibility = View.GONE
+        errorView.visibility = View.GONE
+        recyclerView.visibility = if (needScrollRestore) View.INVISIBLE else View.VISIBLE
+        adapter.showLoadingUp = hasMoreTop
+        adapter.showLoadingDown = hasMoreBottom
+        adapter.notifyMessagesUpdated()
+    }
+
+    private fun showEmpty() {
         loadingView.visibility = View.GONE
         recyclerView.visibility = View.VISIBLE
         errorView.visibility = View.GONE
-        adapter.showLoadingUp = hasMoreTop
-        adapter.showLoadingDown = hasMoreBottom
-        adapter.setData(messages)
+        adapter.notifyMessagesUpdated()
     }
 
     private fun forceScrollToBottom() {
@@ -512,11 +740,44 @@ class ChatFragment : BaseFragment() {
         }
     }
 
+    private fun scrollToMessageWithOffset(messageId: Long, pixelOffset: Int) {
+        val idx = messages.indexOfFirst { it.id == messageId }
+        if (idx >= 0) {
+            val lm = recyclerView.layoutManager as? LinearLayoutManager ?: return
+            val yOffset = if (pixelOffset != Int.MAX_VALUE) {
+                -pixelOffset - recyclerView.paddingBottom
+            } else {
+                recyclerView.height / 3
+            }
+            lm.scrollToPositionWithOffset(adapter.messagesStartRow + idx, yOffset)
+            recyclerView.post {
+                recyclerView.visibility = View.VISIBLE
+                needScrollRestore = false
+            }
+            Log.d(TAG, "scrollToMessageWithOffset: msgId=$messageId idx=$idx offset=$pixelOffset yOffset=$yOffset")
+        } else {
+            Log.d(TAG, "scrollToMessageWithOffset: msgId=$messageId NOT FOUND, showing at current position")
+            recyclerView.visibility = View.VISIBLE
+            needScrollRestore = false
+        }
+    }
+
     private fun scrollToMessageId(messageId: Long) {
         val idx = messages.indexOfFirst { it.id == messageId }
         if (idx >= 0) {
             val lm = recyclerView.layoutManager as? LinearLayoutManager ?: return
-            recyclerView.post { lm.scrollToPositionWithOffset(idx, recyclerView.height / 3) }
+            lm.scrollToPositionWithOffset(adapter.messagesStartRow + idx, recyclerView.height / 3)
+            if (needScrollRestore) {
+                recyclerView.post {
+                    recyclerView.visibility = View.VISIBLE
+                    needScrollRestore = false
+                }
+            }
+        } else {
+            if (needScrollRestore) {
+                recyclerView.visibility = View.VISIBLE
+                needScrollRestore = false
+            }
         }
     }
 
@@ -524,14 +785,21 @@ class ChatFragment : BaseFragment() {
         newUnreadCount = 0
         isViewingOlder = false
         hasMoreBottom = false
+        pausedOnLastMessage = true
         pageDownButton.show(false)
         pageDownButton.setUnreadCount(0)
+
+        clearSavedScrollPosition()
 
         messages.clear()
         messagesDict.clear()
         firstLoad = true
         chatController.loadMessages(channelId, clanId)
         markAsRead()
+    }
+
+    private fun clearSavedScrollPosition() {
+        scrollStates[channelId] = SavedScrollState(0L, 0, atBottom = true, timestamp = System.currentTimeMillis())
     }
 
     private fun markAsRead() {
@@ -551,21 +819,8 @@ class ChatFragment : BaseFragment() {
         }
     }
 
-    private fun trimViewport() {
-        if (messages.size <= VIEWPORT_LIMIT) return
-        if (isViewingOlder) {
-            while (messages.size > VIEWPORT_TARGET) {
-                val removed = messages.removeAt(0)
-                messagesDict.delete(removed.id)
-            }
-            hasMoreBottom = true
-        } else {
-            while (messages.size > VIEWPORT_TARGET) {
-                val removed = messages.removeAt(messages.size - 1)
-                messagesDict.delete(removed.id)
-            }
-            hasMoreTop = true
-        }
+    private fun getScrollingOffsetForView(v: android.view.View): Int {
+        return recyclerView.measuredHeight - v.bottom - recyclerView.paddingBottom
     }
 
     private fun trimViewportOldest() {
@@ -599,6 +854,27 @@ class ChatFragment : BaseFragment() {
                 }
             }
         }
+    }
+
+    private fun updateCellVisibility(rv: RecyclerView, cell: ChatMessageCell) {
+        val rvTop = rv.paddingTop
+        val rvBottom = rv.height - rv.paddingBottom
+        val cellTop = cell.top
+        val cellBottom = cell.bottom
+        if (cellBottom <= rvTop || cellTop >= rvBottom) {
+            cell.setVisibleOnScreen(false)
+        } else {
+            val clipTop = (rvTop - cellTop).coerceAtLeast(0).toFloat()
+            val clipBottom = (cellBottom - rvBottom).coerceAtLeast(0).toFloat()
+            cell.setVisibleOnScreen(true, clipTop, clipBottom)
+        }
+    }
+
+    private fun resolveChannelPrivate(): Boolean {
+        if (clanId != 0L) {
+            return channelController.findChannelById(channelId)?.isPrivate ?: false
+        }
+        return false
     }
 
     private fun sendMessage() {

@@ -67,6 +67,41 @@ data class AuthSessionResponse(
     @SerialName("id_token") val idToken: String = ""
 )
 
+@Serializable
+data class AuthSmsOtpBody(
+    val account: AccountSmsOtpBody
+)
+
+@Serializable
+data class AccountSmsOtpBody(
+    val phoneno: String,
+    val vars: Map<String, String> = emptyMap()
+)
+
+@Serializable
+data class AuthEmailOtpBody(
+    val account: AccountEmailOtpBody
+)
+
+@Serializable
+data class AccountEmailOtpBody(
+    val email: String,
+    val vars: Map<String, String> = emptyMap()
+)
+
+@Serializable
+data class ConfirmOtpBody(
+    @SerialName("req_id") val reqId: String,
+    @SerialName("otp_code") val otpCode: String
+)
+
+@Serializable
+data class OtpRequestResponse(
+    @SerialName("req_id") val reqId: String = "",
+    @SerialName("otp_code") val otpCode: String = "",
+    val status: Int = 0
+)
+
 private val CONTENT_TYPE_PROTO = ContentType("application", "proto")
 
 @Singleton
@@ -273,6 +308,60 @@ class MezonApi @Inject constructor(
             this.otpCode = otpCode
         }
         return rpc(apiUrl, token, "ConfirmLinkMezonOTP", request.toByteArray())
+    }
+
+    suspend fun authenticateEmailOTP(gatewayUrl: String, email: String, vars: Map<String, String> = emptyMap()): OtpRequestResponse {
+        val basicCreds = Base64.encodeToString("$SERVER_KEY:".toByteArray(), Base64.NO_WRAP)
+        val url = "$gatewayUrl/v2/account/authenticate/emailotp"
+        val response = httpClient.post(url) {
+            header(HttpHeaders.Authorization, "Basic $basicCreds")
+            contentType(ContentType.Application.Json)
+            setBody(AuthEmailOtpBody(account = AccountEmailOtpBody(email = email, vars = vars)))
+        }
+        if (!response.status.isSuccess()) {
+            val errorBody = response.bodyAsText()
+            Log.e(TAG, "AuthenticateEmailOTP failed: ${response.status} - $errorBody")
+            throw RuntimeException("AuthenticateEmailOTP failed (${response.status.value}): $errorBody")
+        }
+        val result: OtpRequestResponse = response.body()
+        Log.d(TAG, "AuthenticateEmailOTP success: reqId=${result.reqId}")
+        return result
+    }
+
+    suspend fun authenticateSmsOTP(gatewayUrl: String, phone: String, vars: Map<String, String> = emptyMap()): OtpRequestResponse {
+        val basicCreds = Base64.encodeToString("$SERVER_KEY:".toByteArray(), Base64.NO_WRAP)
+        val url = "$gatewayUrl/v2/account/authenticate/smsotp"
+        val response = httpClient.post(url) {
+            header(HttpHeaders.Authorization, "Basic $basicCreds")
+            contentType(ContentType.Application.Json)
+            setBody(AuthSmsOtpBody(account = AccountSmsOtpBody(phoneno = phone, vars = vars)))
+        }
+        if (!response.status.isSuccess()) {
+            val errorBody = response.bodyAsText()
+            Log.e(TAG, "AuthenticateSmsOTP failed: ${response.status} - $errorBody")
+            throw RuntimeException("AuthenticateSmsOTP failed (${response.status.value}): $errorBody")
+        }
+        val result: OtpRequestResponse = response.body()
+        Log.d(TAG, "AuthenticateSmsOTP success: reqId=${result.reqId}")
+        return result
+    }
+
+    suspend fun confirmAuthenticateOTP(gatewayUrl: String, reqId: String, otpCode: String): AuthSessionResponse {
+        val basicCreds = Base64.encodeToString("$SERVER_KEY:".toByteArray(), Base64.NO_WRAP)
+        val url = "$gatewayUrl/v2/account/authenticate/confirmotp"
+        val response = httpClient.post(url) {
+            header(HttpHeaders.Authorization, "Basic $basicCreds")
+            contentType(ContentType.Application.Json)
+            setBody(ConfirmOtpBody(reqId = reqId, otpCode = otpCode))
+        }
+        if (!response.status.isSuccess()) {
+            val errorBody = response.bodyAsText()
+            Log.e(TAG, "ConfirmAuthenticateOTP failed: ${response.status} - $errorBody")
+            throw RuntimeException("ConfirmAuthenticateOTP failed (${response.status.value}): $errorBody")
+        }
+        val session: AuthSessionResponse = response.body()
+        Log.d(TAG, "ConfirmAuthenticateOTP success: userId=${session.userId}")
+        return session
     }
 
     suspend fun deleteAccount(apiUrl: String, token: String): ByteArray {

@@ -6,14 +6,12 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import android.util.LongSparseArray
-import coil.Coil
-import coil.request.ImageRequest
-import coil.size.Size
 import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.BaseCell
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.util.createImgproxyUrl
 
 class ClanCell(
@@ -29,6 +27,8 @@ class ClanCell(
         private set
     private var isSelected = false
     private var cornerRadius = LayoutHelper.dp(24).toFloat()
+    private var logoCancellable: MezonImageLoader.Cancellable? = null
+    private var currentLogoUrl: String? = null
 
     private val shapeRectF = RectF()
     private val selectedBarRect = RectF()
@@ -114,19 +114,35 @@ class ClanCell(
     private fun loadLogoIfNeeded(clan: ClanEntity) {
         if (clan.logo.isEmpty()) return
         val avatar = cachedAvatars.get(clan.clanId) ?: return
-        if (avatar.hasPhoto()) return
         val url = createImgproxyUrl(clan.logo, iconSizePx * 2, iconSizePx * 2, "fill")
-        val request = ImageRequest.Builder(context)
-            .data(url)
-            .size(Size(iconSizePx, iconSizePx))
-            .allowHardware(false)
-            .target(
-                onSuccess = { drawable ->
-                    avatar.setPhoto(LayoutHelper.drawableToBitmap(drawable, iconSizePx))
-                    invalidate()
-                }
-            ).build()
-        Coil.imageLoader(context).enqueue(request)
+        if (url == currentLogoUrl && avatar.hasPhoto()) return
+        currentLogoUrl = url
+
+        logoCancellable?.cancel()
+        logoCancellable = null
+
+        if (avatar.hasPhoto()) return
+
+        val loader = MezonImageLoader.getInstance(context)
+        val cached = loader.getBitmapFromMemory(url, iconSizePx, iconSizePx)
+        if (cached != null) {
+            avatar.setPhoto(cached)
+            return
+        }
+
+        logoCancellable = loader.load(
+            url, iconSizePx, iconSizePx,
+            onSuccess = { bmp ->
+                avatar.setPhoto(bmp)
+                post { invalidate() }
+            }
+        )
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        logoCancellable?.cancel()
+        logoCancellable = null
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {

@@ -2,7 +2,9 @@ package com.mezon.mobile.ui.cells
 
 import android.content.Context
 import android.graphics.Canvas
+import android.graphics.LinearGradient
 import android.graphics.RectF
+import android.graphics.Shader
 import android.view.MotionEvent
 import android.view.View
 import android.view.accessibility.AccessibilityNodeInfo
@@ -20,9 +22,20 @@ class ActionButton(context: Context, private val theme: ThemeColors) : View(cont
             field = value
             invalidate()
         }
+    var useGradient = false
+        set(value) {
+            field = value
+            gradientShader = null
+            invalidate()
+        }
+    var gradientStartColor = 0xFF501794.toInt()
+    var gradientEndColor = 0xFF3E70A1.toInt()
+    var disabledColor = 0xFF88888C.toInt()
+    private var gradientShader: LinearGradient? = null
+    private var lastWidth = 0
 
     init {
-        minimumHeight = LayoutHelper.dp(48)
+        minimumHeight = LayoutHelper.dp(50)
         isClickable = true
         isFocusable = true
     }
@@ -35,7 +48,7 @@ class ActionButton(context: Context, private val theme: ThemeColors) : View(cont
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val w = MeasureSpec.getSize(widthMeasureSpec)
-        setMeasuredDimension(w, LayoutHelper.dp(48))
+        setMeasuredDimension(w, LayoutHelper.dp(50))
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -45,17 +58,39 @@ class ActionButton(context: Context, private val theme: ThemeColors) : View(cont
             theme.buttonBgPaint.style = android.graphics.Paint.Style.STROKE
             theme.buttonBgPaint.strokeWidth = LayoutHelper.dp(1.5f).toFloat()
             theme.buttonBgPaint.color = theme.primary
+            theme.buttonBgPaint.shader = null
             canvas.drawRoundRect(rect, cornerRadius, cornerRadius, theme.buttonBgPaint)
             theme.buttonBgPaint.style = android.graphics.Paint.Style.FILL
             theme.buttonTextPaint.color = theme.primary
+        } else if (useGradient) {
+            theme.buttonBgPaint.style = android.graphics.Paint.Style.FILL
+            if (isEnabled) {
+                if (gradientShader == null || lastWidth != width) {
+                    gradientShader = LinearGradient(
+                        0f, 0f, width.toFloat(), 0f,
+                        gradientStartColor, gradientEndColor,
+                        Shader.TileMode.CLAMP
+                    )
+                    lastWidth = width
+                }
+                theme.buttonBgPaint.shader = gradientShader
+            } else {
+                theme.buttonBgPaint.shader = null
+                theme.buttonBgPaint.color = disabledColor
+            }
+            canvas.drawRoundRect(rect, cornerRadius, cornerRadius, theme.buttonBgPaint)
+            theme.buttonBgPaint.shader = null
+            theme.buttonTextPaint.color = 0xFFFFFFFF.toInt()
         } else {
             theme.buttonBgPaint.style = android.graphics.Paint.Style.FILL
+            theme.buttonBgPaint.shader = null
             theme.buttonBgPaint.color = if (isEnabled) theme.primary else theme.outline
             canvas.drawRoundRect(rect, cornerRadius, cornerRadius, theme.buttonBgPaint)
             theme.buttonTextPaint.color = theme.onPrimary
         }
 
         if (isPressed && isEnabled) {
+            theme.buttonBgPaint.shader = null
             theme.buttonBgPaint.color = 0x1A000000
             canvas.drawRoundRect(rect, cornerRadius, cornerRadius, theme.buttonBgPaint)
         }

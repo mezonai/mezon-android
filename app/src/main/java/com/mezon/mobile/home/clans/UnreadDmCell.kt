@@ -6,12 +6,10 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.text.TextPaint
-import coil.Coil
-import coil.request.ImageRequest
-import coil.size.Size
 import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.home.messages.DirectMessage
 import com.mezon.mobile.util.createImgproxyUrl
 import android.view.View
@@ -36,6 +34,8 @@ class UnreadDmCell(
     private val badgeRect = RectF()
     private val onlineDotPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var badgeText = ""
+    private var currentAvatarUrl: String? = null
+    private var avatarCancellable: MezonImageLoader.Cancellable? = null
 
     fun setData(dm: DirectMessage) {
         directMessage = dm
@@ -52,19 +52,38 @@ class UnreadDmCell(
     private fun loadAvatar(url: String) {
         if (url.isEmpty()) {
             avatar.setPhoto(null)
+            currentAvatarUrl = null
+            avatarCancellable?.cancel()
+            avatarCancellable = null
             return
         }
         val imgUrl = createImgproxyUrl(url, avatarSizePx * 2, avatarSizePx * 2, "fill")
-        val request = ImageRequest.Builder(context)
-            .data(imgUrl)
-            .size(Size(avatarSizePx, avatarSizePx))
-            .allowHardware(false)
-            .target(onSuccess = { d ->
-                avatar.setPhoto(LayoutHelper.drawableToBitmap(d, avatarSizePx))
+        if (imgUrl == currentAvatarUrl && avatar.hasPhoto()) return
+        currentAvatarUrl = imgUrl
+
+        avatarCancellable?.cancel()
+        avatarCancellable = null
+
+        val loader = MezonImageLoader.getInstance(context)
+        val cached = loader.getBitmapFromMemory(imgUrl, avatarSizePx, avatarSizePx)
+        if (cached != null) {
+            avatar.setPhoto(cached)
+            return
+        }
+
+        avatarCancellable = loader.load(
+            imgUrl, avatarSizePx, avatarSizePx,
+            onSuccess = { bmp ->
+                avatar.setPhoto(bmp)
                 post { invalidate() }
-            })
-            .build()
-        Coil.imageLoader(context).enqueue(request)
+            }
+        )
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        avatarCancellable?.cancel()
+        avatarCancellable = null
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
