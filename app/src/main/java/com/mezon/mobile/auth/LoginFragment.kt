@@ -174,6 +174,11 @@ class LoginFragment : BaseFragment() {
         passwordRow.addView(showPasswordRow, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.START, 0f, 0f, 0f, 12f))
 
         showPasswordCheck = CheckBox(context).apply {
+            minWidth = 0
+            minimumWidth = 0
+            minHeight = 0
+            minimumHeight = 0
+            setPadding(0, 0, 0, 0)
             setOnCheckedChangeListener { _, isChecked ->
                 passwordCell.editText.inputType = if (isChecked) {
                     InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
@@ -183,16 +188,20 @@ class LoginFragment : BaseFragment() {
                 passwordCell.editText.setSelection(passwordCell.getText().length)
             }
         }
-        showPasswordRow.addView(showPasswordCheck, LinearLayout.LayoutParams(LayoutHelper.dp(18), LayoutHelper.dp(18)))
+        showPasswordRow.addView(showPasswordCheck, LinearLayout.LayoutParams(
+            LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT
+        ).apply { gravity = Gravity.CENTER_VERTICAL })
 
         showPasswordLabel = TextView(context).apply {
             text = getString(R.string.common_login_show_password)
             setTextColor(themeColors.onSurfaceVariant)
             textSize = 14f
-            setPadding(LayoutHelper.dp(8), 0, 0, 0)
+            setPadding(LayoutHelper.dp(4), 0, 0, 0)
             setOnClickListener { showPasswordCheck.toggle() }
         }
-        showPasswordRow.addView(showPasswordLabel)
+        showPasswordRow.addView(showPasswordLabel, LinearLayout.LayoutParams(
+            LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT
+        ).apply { gravity = Gravity.CENTER_VERTICAL })
 
         errorText = TextView(context).apply {
             setTextColor(themeColors.error)

@@ -153,7 +153,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.play.services)
 
     // Core
-    implementation(libs.androidx.appcompat)
+    // implementation(libs.androidx.appcompat)
     implementation(libs.androidx.core.ktx)
 
     // Splash Screen

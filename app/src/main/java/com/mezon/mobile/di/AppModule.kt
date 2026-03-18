@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
+import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.core.NotificationCenter
 import dagger.Module
 import dagger.Provides
@@ -62,19 +63,25 @@ object AppModule {
     @Singleton
     fun provideOkHttpClient(): OkHttpClient = OkHttpClient.Builder()
         .readTimeout(0, TimeUnit.MILLISECONDS)
+        .addInterceptor(
+            okhttp3.logging.HttpLoggingInterceptor { message ->
+                Log.d("OkHttp", message)
+            }.apply {
+                level = if (BuildConfig.DEBUG)
+                    okhttp3.logging.HttpLoggingInterceptor.Level.BASIC
+                else
+                    okhttp3.logging.HttpLoggingInterceptor.Level.NONE
+            }
+        )
         .build()
 
     @Provides
     @Singleton
-    fun provideHttpClient(): HttpClient = HttpClient(OkHttp) {
+    fun provideHttpClient(okHttpClient: OkHttpClient): HttpClient = HttpClient(OkHttp) {
         engine {
-            addInterceptor(
-                okhttp3.logging.HttpLoggingInterceptor { message ->
-                    Log.d("OkHttp", message)
-                }.apply {
-                    level = okhttp3.logging.HttpLoggingInterceptor.Level.BODY
-                }
-            )
+            preconfigured = okHttpClient.newBuilder()
+                .readTimeout(30, TimeUnit.SECONDS)
+                .build()
         }
         install(ContentNegotiation) {
             json(Json {
