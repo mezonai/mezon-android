@@ -1,5 +1,6 @@
 package com.mezon.mobile.session
 
+import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.ui.theme.ThemeMode
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -31,6 +32,7 @@ class ThemeManager @Inject constructor(
     }
 
     suspend fun setTheme(mode: ThemeMode) {
+        StartupCache.themeMode = mode
         dataStore.edit { prefs ->
             prefs[THEME_KEY] = when (mode) {
                 ThemeMode.LIGHT -> "light"

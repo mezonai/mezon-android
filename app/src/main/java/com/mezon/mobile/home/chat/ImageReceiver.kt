@@ -134,33 +134,23 @@ class ImageReceiver(private val parentView: View) {
             val rw = if (requestW > 0) requestW else 800
             val rh = if (requestH > 0) requestH else 800
 
-            val cached = loader.getBitmapFromMemory(url, rw, rh)
-            if (cached != null) {
-                imageBitmap = cached
-                stopAnimation()
-                animatedDrawable = null
-                cachedShader = null
-                cachedShaderBitmap = null
-                crossfadeAlpha = 255
-                thumbBitmap = null
-                parentView.invalidate()
-                return
-            }
-
-            stopAnimation()
-            animatedDrawable = null
-            cachedShader = null
-            cachedShaderBitmap = null
-
             isAnimatedRequest = url.contains(".gif", true) ||
                 (url.contains(".webp", true) && !url.endsWith("@webp"))
 
             if (isAnimatedRequest) {
+                // Use cached first-frame bitmap as instant placeholder (no flicker)
+                val cachedFirstFrame = loader.getBitmapFromMemory(url, rw, rh)
+                if (cachedFirstFrame != null && thumbBitmap == null) {
+                    thumbBitmap = cachedFirstFrame
+                    parentView.invalidate()
+                }
+                // Keep existing animatedDrawable visible until new one arrives
+
                 mainCancellable = loader.loadDrawable(url, rw, rh,
                     onSuccess = { drawable ->
                         if (drawable is Animatable) {
                             imageBitmap = null
-                            thumbBitmap = null
+                            // Keep thumbBitmap — draw() prefers animated over thumb naturally
                             cachedShader = null
                             cachedShaderBitmap = null
                             animatedDrawable = drawable
@@ -178,6 +168,25 @@ class ImageReceiver(private val parentView: View) {
                     onError = { onLoadError(url, rw, rh, loader) }
                 )
             } else {
+                // Static image path — existing anti-flicker logic
+                val cached = loader.getBitmapFromMemory(url, rw, rh)
+                if (cached != null) {
+                    imageBitmap = cached
+                    stopAnimation()
+                    animatedDrawable = null
+                    cachedShader = null
+                    cachedShaderBitmap = null
+                    crossfadeAlpha = 255
+                    thumbBitmap = null
+                    parentView.invalidate()
+                    return
+                }
+
+                stopAnimation()
+                animatedDrawable = null
+                cachedShader = null
+                cachedShaderBitmap = null
+
                 mainCancellable = loader.load(url, rw, rh,
                     onSuccess = { bmp ->
                         val hadThumb = thumbBitmap != null
@@ -263,6 +272,32 @@ class ImageReceiver(private val parentView: View) {
 
     private fun drawAnimated(canvas: Canvas, drawable: Drawable): Boolean {
         val hasRound = roundRadius.any { it > 0 }
+
+        val intrW = drawable.intrinsicWidth.toFloat()
+        val intrH = drawable.intrinsicHeight.toFloat()
+
+        val drawLeft: Int
+        val drawTop: Int
+        val drawRight: Int
+        val drawBottom: Int
+
+        if (intrW > 0f && intrH > 0f) {
+            val scaleW = intrW / imageW
+            val scaleH = intrH / imageH
+            val scale = 1f / minOf(scaleW, scaleH)
+            val scaledW = intrW * scale
+            val scaledH = intrH * scale
+            drawLeft = (imageX - (scaledW - imageW) / 2f).toInt()
+            drawTop = (imageY - (scaledH - imageH) / 2f).toInt()
+            drawRight = (drawLeft + scaledW).toInt()
+            drawBottom = (drawTop + scaledH).toInt()
+        } else {
+            drawLeft = imageX.toInt()
+            drawTop = imageY.toInt()
+            drawRight = (imageX + imageW).toInt()
+            drawBottom = (imageY + imageH).toInt()
+        }
+
         if (hasRound) {
             roundRect.set(imageX, imageY, imageX + imageW, imageY + imageH)
             for (i in roundRadius.indices) {
@@ -273,12 +308,14 @@ class ImageReceiver(private val parentView: View) {
             roundPath.addRoundRect(roundRect, radii, Path.Direction.CW)
             canvas.save()
             canvas.clipPath(roundPath)
+        } else {
+            canvas.save()
+            canvas.clipRect(imageX, imageY, imageX + imageW, imageY + imageH)
         }
-        drawable.setBounds(imageX.toInt(), imageY.toInt(), (imageX + imageW).toInt(), (imageY + imageH).toInt())
+
+        drawable.setBounds(drawLeft, drawTop, drawRight, drawBottom)
         drawable.draw(canvas)
-        if (hasRound) {
-            canvas.restore()
-        }
+        canvas.restore()
         return true
     }
 

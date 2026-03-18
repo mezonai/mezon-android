@@ -15,8 +15,10 @@ import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ViewPagerActivity
 import com.mezon.mobile.core.ViewPagerFixed
 import com.mezon.mobile.di.FragmentEntryPoint
+import com.mezon.mobile.home.ChatController
 import com.mezon.mobile.home.clans.ClansFragment
 import com.mezon.mobile.home.messages.MessagesFragment
+import com.mezon.mobile.home.notifications.NotificationStore
 import com.mezon.mobile.home.notifications.NotificationsFragment
 import com.mezon.mobile.home.profile.AccountController
 import com.mezon.mobile.home.profile.ProfileFragment
@@ -80,7 +82,10 @@ class MainTabsActivity : ViewPagerActivity() {
     override fun onInject(entryPoint: FragmentEntryPoint) {
         connectionController = entryPoint.connectionController()
         messagesController = entryPoint.messagesController()
-        accountController = entryPoint.accountController()
+        AndroidUtilities.runOnUIThread({
+            accountController = entryPoint.accountController()
+            entryPoint.notificationStore()
+        }, 0)
     }
 
     override fun onFragmentCreate(): Boolean {
