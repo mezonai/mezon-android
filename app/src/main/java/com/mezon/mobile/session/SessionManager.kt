@@ -1,5 +1,6 @@
 package com.mezon.mobile.session
 
+import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.network.NetworkMonitor
@@ -162,6 +163,7 @@ class SessionManager @Inject constructor(
     }
 
     suspend fun saveSession(session: StoredSession) {
+        StartupCache.hasSession = true
         dataStore.edit { prefs ->
             prefs[SessionKeys.TOKEN] = session.token
             prefs[SessionKeys.REFRESH_TOKEN] = session.refreshToken
@@ -185,6 +187,7 @@ class SessionManager @Inject constructor(
     }
 
     suspend fun clearSession() {
+        StartupCache.hasSession = false
         dataStore.edit { it.clear() }
     }
 }

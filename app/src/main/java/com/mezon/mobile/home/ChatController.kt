@@ -53,6 +53,10 @@ class ChatController @Inject constructor(
 
     init {
         appScope.launch { observeIncomingMessages() }
+        appScope.launch(ioDispatcher) {
+            val session = sessionManager.sessionFlow.first { it != null }
+            cachedCurrentUserId = session?.userId?.toLongOrNull() ?: 0L
+        }
     }
 
     fun openChannel(channelId: Long, clanId: Long, channelType: Int) {
@@ -252,6 +256,30 @@ class ChatController @Inject constructor(
                 Log.d(TAG, "Message sent: channelId=$channelId")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to send message", e)
+            }
+        }
+    }
+
+    @Volatile private var cachedCurrentUserId = 0L
+
+    fun getCurrentUserId(): Long {
+        if (cachedCurrentUserId != 0L) return cachedCurrentUserId
+        appScope.launch(ioDispatcher) {
+            val session = sessionManager.sessionFlow.first()
+            cachedCurrentUserId = session?.userId?.toLongOrNull() ?: 0L
+        }
+        return cachedCurrentUserId
+    }
+
+    fun deleteMessage(channelId: Long, clanId: Long, channelType: Int, messageId: Long) {
+        val mode = channelTypeToStreamMode(channelType)
+        val isPublic = channelType != CHANNEL_TYPE_DM
+        appScope.launch {
+            try {
+                mezonSocket.removeChatMessage(clanId, channelId, mode, isPublic, messageId)
+                Log.d(TAG, "Message deleted: channelId=$channelId messageId=$messageId")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to delete message", e)
             }
         }
     }

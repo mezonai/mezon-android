@@ -1,36 +1,75 @@
 package com.mezon.mobile.core
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.AnimatorSet
+import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
 import android.app.Dialog
 import android.content.Context
 import android.content.DialogInterface
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Rect
+import android.graphics.Region
+import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.os.Bundle
 import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.VelocityTracker
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.ViewGroup
+import android.view.Window
+import android.view.WindowInsets
 import android.view.WindowManager
-import android.view.animation.DecelerateInterpolator
+import android.view.animation.Interpolator
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.graphics.ColorUtils
 import androidx.core.view.NestedScrollingParent3
 import androidx.core.view.NestedScrollingParentHelper
 import androidx.core.view.ViewCompat
 
-open class BottomSheet(context: Context, private val needFocusable: Boolean = false) : Dialog(context) {
+/**
+ * BottomSheet — ported from Telegram's BottomSheet.java
+ * Full-featured bottom sheet dialog with:
+ * - Swipe-to-dismiss gesture
+ * - Nested scroll support (NestedScrollingParent3)
+ * - Proper WindowInsets / navigation bar handling
+ * - Smooth open/close animations with configurable interpolator
+ * - Touch-outside dismiss
+ * - Custom view / items list support
+ * - Light status bar / nav bar control
+ * - Dim behind control
+ * - Keyboard awareness
+ */
+open class BottomSheet(
+    context: Context,
+    private val needFocusable: Boolean = false
+) : Dialog(context) {
+
+    // ─── Interfaces ───────────────────────────────────────────────────────
 
     interface BottomSheetDelegateInterface {
         fun onOpenAnimationStart() {}
         fun onOpenAnimationEnd() {}
         fun canDismiss(): Boolean = true
     }
+
+    fun interface OnClickListener {
+        fun onClick(dialog: BottomSheet, which: Int)
+    }
+
+    // ─── BottomSheetCell ──────────────────────────────────────────────────
 
     class BottomSheetCell(context: Context) : FrameLayout(context) {
         val textView: TextView = TextView(context).apply {
@@ -45,6 +84,7 @@ open class BottomSheet(context: Context, private val needFocusable: Boolean = fa
             scaleType = ImageView.ScaleType.CENTER
         }
         private var checked = false
+        var isItemSelected = false
 
         init {
             val outValue = TypedValue()
@@ -65,33 +105,37 @@ open class BottomSheet(context: Context, private val needFocusable: Boolean = fa
             }
         }
 
-        fun setTextColor(color: Int) {
-            textView.setTextColor(color)
-        }
-
-        fun setIconColor(color: Int) {
-            imageView.setColorFilter(color)
-        }
-
-        fun setChecked(value: Boolean) {
-            checked = value
-        }
+        fun setTextColor(color: Int) { textView.setTextColor(color) }
+        fun setIconColor(color: Int) { imageView.setColorFilter(color) }
+        fun setChecked(value: Boolean) { checked = value }
+        fun isChecked(): Boolean = checked
     }
 
+    // ─── Theme / State ─────────────────────────────────────────────────────
+
     private val theme: ThemeColors get() = ThemeColors.instance
-    private var containerView: ContainerView? = null
+
+    // Container hierarchy: root (ContainerView) > containerView (content wrapper)
+    var containerView: ViewGroup? = null
+        private set
+    lateinit var container: ContainerView
+        private set
+
     private var customView: View? = null
     private var containerHeight = ViewGroup.LayoutParams.WRAP_CONTENT
     private var dismissed = false
     private var allowCustomAnimation = true
-    private var canDismissWithSwipe = true
+    @JvmField protected var canDismissWithSwipe = true
     private var canDismissWithTouchOutside = true
-    private var dimAlpha = 0.5f
-    private var dimBehind = true
+    private var dimAlpha = 51  // 0-255, Telegram default ~ 51 (0.2 * 255)
+    @JvmField protected var dimBehind = true
     private var useFullWidth = false
-    private var useFullscreen = false
-    private var drawNavigationBar = false
+    protected var isFullscreen = false
+    @JvmField protected var drawNavigationBar = false
     private var navBarColor = 0
+    private var navBarColorKey = ThemeColors.key_sheetBackground
+    protected var scrollNavBar = false
+    protected var drawDoubleNavigationBar = false
 
     var delegate: BottomSheetDelegateInterface? = null
     var keyboardVisible = false
@@ -104,62 +148,129 @@ open class BottomSheet(context: Context, private val needFocusable: Boolean = fa
         private set
     var rightInset = 0
         private set
+    var statusBarHeight = AndroidUtilities.statusBarHeight
+        private set
 
     protected var titleText: CharSequence? = null
     private var bigTitle = false
+    private var multipleLinesTitle = false
     private var titleView: TextView? = null
     private var items: Array<CharSequence>? = null
     private var itemIcons: IntArray? = null
     private var itemClickListener: OnClickListener? = null
-    private var contentLayout: LinearLayout? = null
+    private val itemViews = ArrayList<BottomSheetCell>()
+
+    protected var contentLayout: LinearLayout? = null
     private var showWithoutAnimation = false
     private var applyTopPadding = true
     private var applyBottomPadding = true
-    private var allowNestedScroll = true
-    private var overlayNavBarColor = 0
-    private var calcMandatoryInsets = false
+    @JvmField protected var allowNestedScroll = true
     private var onHideListener: DialogInterface.OnDismissListener? = null
+    private var touchSlop: Int = 0
+    private var useFastDismiss = false
+    private var skipDismissAnimation = false
 
-    fun interface OnClickListener {
-        fun onClick(dialog: BottomSheet, which: Int)
+    // Background / shadow
+    protected var shadowDrawable: Drawable? = null
+    protected var backgroundPaddingTop = 0
+    protected var backgroundPaddingLeft = 0
+    private var useBackgroundTopPadding = true
+    protected var customViewGravity = Gravity.LEFT or Gravity.TOP
+
+    // Dim overlay
+    protected val backDrawable = object : ColorDrawable(0xff000000.toInt()) {
+        override fun setAlpha(alpha: Int) {
+            super.setAlpha(alpha)
+            if (::container.isInitialized) container.invalidate()
+        }
     }
 
-    val container: ContainerView? get() = containerView
+    // Open animation
+    protected var openInterpolator: Interpolator = CubicBezierInterpolator.EASE_OUT_QUINT
+    protected var currentSheetAnimation: AnimatorSet? = null
+    protected var currentSheetAnimationType = 0
+    protected var navigationBarAnimation: ValueAnimator? = null
+    protected var navigationBarAlpha = 0f
+    private var behindKeyboardColor = 0
+    private var currentPanTranslationY = 0f
+    private var lastInsets: WindowInsets? = null
+    private var lastKeyboardHeight = 0
+    private var layoutCount = 0
+    protected var startAnimationRunnable: Runnable? = null
+    private var openNoDelay = false
+    private var allowDrawContent = true
+    private var useHardwareLayer = true
+    private var useLightStatusBar = true
+    protected var nestedScrollChild: View? = null
+    private var disableScroll = false
+    private val dismissRunnable = Runnable { dismiss() }
+    protected var isPortrait = true
+    private var overlayDrawNavBarColor = 0
 
+    // Swipe-to-back (horizontal) — not commonly used for message menu
+    private var transitionFromRight = false
+
+    // ─── Public Setters ────────────────────────────────────────────────────
+
+    val sheetContainer: ViewGroup? get() = containerView
     fun setCustomView(view: View?) { customView = view }
     fun getCustomView(): View? = customView
     override fun setTitle(title: CharSequence?) { titleText = title }
     fun setTitle(title: CharSequence?, big: Boolean) { titleText = title; bigTitle = big }
+    fun setTitleMultipleLines(allow: Boolean) { multipleLinesTitle = allow }
     fun setApplyTopPadding(value: Boolean) { applyTopPadding = value }
     fun setApplyBottomPadding(value: Boolean) { applyBottomPadding = value }
-    fun setAllowNestedScroll(value: Boolean) { allowNestedScroll = value }
+    fun setAllowNestedScroll(value: Boolean) {
+        allowNestedScroll = value
+        if (!value) containerView?.translationY = 0f
+    }
     fun setCanDismissWithSwipe(value: Boolean) { canDismissWithSwipe = value }
     fun setCanDismissWithTouchOutside(value: Boolean) { canDismissWithTouchOutside = value }
     fun setOnHideListener(listener: DialogInterface.OnDismissListener?) { onHideListener = listener }
     override fun isShowing(): Boolean = !dismissed
-    fun getContainerView(): ViewGroup? = containerView
-    fun getSheetContainer(): ViewGroup? = containerView
+    fun isDismissed(): Boolean = dismissed
+
     fun setOverlayNavBarColor(color: Int) {
-        overlayNavBarColor = color
+        overlayDrawNavBarColor = color
         navBarColor = color
         if (color != 0) drawNavigationBar = true
+        container.invalidate()
     }
-    fun setCalcMandatoryInsets(value: Boolean) {
-        calcMandatoryInsets = value
-        if (value) drawNavigationBar = true
-    }
+
     fun setAllowCustomAnimation(value: Boolean) { allowCustomAnimation = value }
-    fun setDimBehind(dim: Boolean) { dimBehind = dim; dimAlpha = if (dim) 0.5f else 0f }
-    fun setDimBehindAlpha(alpha: Float) { dimAlpha = alpha }
+    fun setDimBehind(dim: Boolean) { dimBehind = dim; dimAlpha = if (dim) 51 else 0 }
+    fun setDimBehindAlpha(alpha: Int) { dimAlpha = alpha }
     fun setUseFullWidth(value: Boolean) { useFullWidth = value }
-    fun setUseFullscreen(value: Boolean) { useFullscreen = value }
+    fun setUseFullscreen(value: Boolean) { isFullscreen = value }
     fun setShowWithoutAnimation(value: Boolean) { showWithoutAnimation = value }
     fun setDrawNavigationBar(draw: Boolean) { drawNavigationBar = draw }
     fun setNavigationBarColor(color: Int) { navBarColor = color }
+    fun setDisableScroll(b: Boolean) { disableScroll = b }
+    fun setOpenNoDelay(value: Boolean) { openNoDelay = value }
+    fun setUseHardwareLayer(value: Boolean) { useHardwareLayer = value }
+    fun setAllowDrawContent(value: Boolean) {
+        if (allowDrawContent != value) {
+            allowDrawContent = value
+            container.background = if (allowDrawContent) backDrawable else null
+            container.invalidate()
+        }
+    }
 
     fun fixNavigationBar() {
+        fixNavigationBar(theme.getColor(ThemeColors.key_sheetBackground))
+    }
+
+    fun fixNavigationBar(bgColor: Int) {
         drawNavigationBar = true
-        navBarColor = theme.getColor(ThemeColors.key_sheetBackground)
+        drawDoubleNavigationBar = true
+        scrollNavBar = true
+        navBarColorKey = -1
+        navBarColor = bgColor
+        setOverlayNavBarColor(bgColor)
+    }
+
+    open fun setBackgroundColor(color: Int) {
+        shadowDrawable?.setTint(color)
     }
 
     fun setItems(itemTexts: Array<CharSequence>, icons: IntArray? = null, listener: OnClickListener?) {
@@ -169,36 +280,63 @@ open class BottomSheet(context: Context, private val needFocusable: Boolean = fa
     }
 
     fun setItemText(index: Int, text: CharSequence) {
-        contentLayout?.let { layout ->
-            for (i in 0 until layout.childCount) {
-                val child = layout.getChildAt(i)
-                if (child is BottomSheetCell && child.tag == index) {
-                    child.textView.text = text
-                    return
-                }
-            }
-        }
+        itemViews.getOrNull(index)?.textView?.text = text
     }
 
     fun setItemColor(index: Int, textColor: Int, iconColor: Int) {
-        contentLayout?.let { layout ->
-            for (i in 0 until layout.childCount) {
-                val child = layout.getChildAt(i)
-                if (child is BottomSheetCell && child.tag == index) {
-                    child.setTextColor(textColor)
-                    child.setIconColor(iconColor)
-                    return
-                }
-            }
+        itemViews.getOrNull(index)?.let { cell ->
+            cell.setTextColor(textColor)
+            cell.setIconColor(iconColor)
         }
     }
+
+    fun getItemViews(): ArrayList<BottomSheetCell> = itemViews
+
+    fun getTitleView(): TextView? = titleView
+
+    fun setCurrentPanTranslationY(y: Float) {
+        currentPanTranslationY = y
+        container.invalidate()
+    }
+
+    fun transitionFromRight(value: Boolean) { transitionFromRight = value }
+
+    // ─── Lifecycle ──────────────────────────────────────────────────────────
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val root = FrameLayout(context)
-        containerView = ContainerView(context)
+        val vc = ViewConfiguration.get(context)
+        touchSlop = vc.scaledTouchSlop
 
+        // Shadow drawable for rounded top corners
+        val padding = Rect()
+        shadowDrawable = context.resources.getDrawable(android.R.drawable.dialog_holo_light_frame, null)?.mutate()?.also {
+            it.setTint(theme.getColor(ThemeColors.key_sheetBackground))
+            it.getPadding(padding)
+        }
+        backgroundPaddingLeft = padding.left
+        backgroundPaddingTop = padding.top
+
+        // --- Container (full-screen overlay) ---
+        container = ContainerView(context)
+        container.clipChildren = false
+        container.clipToPadding = false
+        container.background = backDrawable
+        container.fitsSystemWindows = true
+        container.setOnApplyWindowInsetsListener { v, insets ->
+            val newTopInset = insets.systemWindowInsetTop
+            if (newTopInset != 0 && statusBarHeight != newTopInset) {
+                statusBarHeight = newTopInset
+            }
+            lastInsets = insets
+            v.requestLayout()
+            if (Build.VERSION.SDK_INT >= 30) WindowInsets.CONSUMED else insets.consumeSystemWindowInsets()
+        }
+
+        backDrawable.alpha = 0
+
+        // --- containerView (content panel) ---
         val bgDrawable = GradientDrawable().apply {
             setColor(theme.getColor(ThemeColors.key_sheetBackground))
             cornerRadii = floatArrayOf(
@@ -207,12 +345,28 @@ open class BottomSheet(context: Context, private val needFocusable: Boolean = fa
                 0f, 0f, 0f, 0f
             )
         }
-        containerView!!.background = bgDrawable
 
+        containerView = FrameLayout(context).apply {
+            background = bgDrawable
+            setPadding(
+                backgroundPaddingLeft,
+                (if (applyTopPadding) LayoutHelper.dp(8) else 0) + backgroundPaddingTop,
+                backgroundPaddingLeft,
+                if (applyBottomPadding) LayoutHelper.dp(8) else 0
+            )
+            visibility = View.INVISIBLE
+        }
+
+        container.addView(containerView, LayoutHelper.createFrame(
+            LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.BOTTOM
+        ))
+
+        // --- Content layout ---
         contentLayout = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
         }
 
+        // Handle bar
         val handleView = View(context).apply {
             background = GradientDrawable().apply {
                 setColor(theme.getColor(ThemeColors.key_sheetHandle))
@@ -225,11 +379,12 @@ open class BottomSheet(context: Context, private val needFocusable: Boolean = fa
             bottomMargin = if (applyBottomPadding) LayoutHelper.dp(10) else 0
         })
 
+        // Title
         titleText?.let { title ->
             titleView = TextView(context).apply {
                 text = title
                 setTextColor(theme.getColor(if (bigTitle) ThemeColors.key_dialogTextBlack else ThemeColors.key_sheetTitle))
-                setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, if (bigTitle) 20f else 16f)
+                setTextSize(TypedValue.COMPLEX_UNIT_DIP, if (bigTitle) 20f else 16f)
                 if (bigTitle) setTypeface(typeface, android.graphics.Typeface.BOLD)
                 setPadding(
                     LayoutHelper.dp(24),
@@ -238,12 +393,22 @@ open class BottomSheet(context: Context, private val needFocusable: Boolean = fa
                     LayoutHelper.dp(12)
                 )
                 gravity = Gravity.START
+                if (multipleLinesTitle) {
+                    isSingleLine = false
+                    maxLines = 5
+                    ellipsize = TextUtils.TruncateAt.END
+                } else {
+                    setLines(1)
+                    isSingleLine = true
+                    ellipsize = TextUtils.TruncateAt.MIDDLE
+                }
             }
             contentLayout!!.addView(titleView, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
             ))
         }
 
+        // Item cells
         items?.let { itemList ->
             for (i in itemList.indices) {
                 val cell = BottomSheetCell(context).apply {
@@ -254,11 +419,13 @@ open class BottomSheet(context: Context, private val needFocusable: Boolean = fa
                 contentLayout!!.addView(cell, LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LayoutHelper.dp(48)
                 ))
+                itemViews.add(cell)
             }
         }
 
+        // Custom view
         customView?.let { view ->
-            if (view.parent is ViewGroup) (view.parent as ViewGroup).removeView(view)
+            (view.parent as? ViewGroup)?.removeView(view)
             contentLayout!!.addView(view, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 if (containerHeight == ViewGroup.LayoutParams.WRAP_CONTENT) LinearLayout.LayoutParams.WRAP_CONTENT
@@ -270,245 +437,734 @@ open class BottomSheet(context: Context, private val needFocusable: Boolean = fa
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT
         ))
 
-        root.addView(containerView, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM
-        ))
-
-        setContentView(root, ViewGroup.LayoutParams(
+        setContentView(container, ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
         ))
-        configureWindow()
 
-        root.setOnClickListener { if (isShowing && canDismissWithTouchOutside) dismiss() }
+        configureWindow()
     }
 
     private fun configureWindow() {
         window?.let { w ->
+            w.setWindowAnimations(0) // no system animation
             w.setBackgroundDrawableResource(android.R.color.transparent)
             val lp = w.attributes
-            lp.width = if (useFullWidth) WindowManager.LayoutParams.MATCH_PARENT else WindowManager.LayoutParams.MATCH_PARENT
+            lp.width = WindowManager.LayoutParams.MATCH_PARENT
             lp.height = WindowManager.LayoutParams.MATCH_PARENT
-            lp.gravity = Gravity.BOTTOM
-            lp.dimAmount = dimAlpha
-            if (dimBehind) lp.flags = lp.flags or WindowManager.LayoutParams.FLAG_DIM_BEHIND
+            lp.gravity = Gravity.TOP or Gravity.LEFT
+            lp.dimAmount = 0f // we control dim ourselves via backDrawable
+            lp.flags = lp.flags and WindowManager.LayoutParams.FLAG_DIM_BEHIND.inv()
             if (needFocusable) {
                 lp.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+            } else {
+                lp.flags = lp.flags or WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM
             }
+            if (isFullscreen) {
+                lp.flags = lp.flags or (WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                        or WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR
+                        or WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS
+                        or WindowManager.LayoutParams.FLAG_FULLSCREEN)
+            }
+            if (Build.VERSION.SDK_INT >= 28) {
+                lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+            w.attributes = lp
             if (drawNavigationBar && navBarColor != 0) {
                 w.navigationBarColor = navBarColor
             }
-            w.attributes = lp
         }
     }
+
+    // ─── Show / Dismiss ────────────────────────────────────────────────────
 
     override fun show() {
         super.show()
         dismissed = false
-        delegate?.onOpenAnimationStart()
-        if (allowCustomAnimation && SharedConfig.animationsEnabled() && !showWithoutAnimation) {
-            containerView?.let { cv ->
-                cv.translationY = cv.height.toFloat().coerceAtLeast(AndroidUtilities.dp(300).toFloat())
-                cv.animate()
-                    .translationY(0f)
-                    .setDuration(250)
-                    .setInterpolator(DecelerateInterpolator(1.5f))
-                    .withEndAction { delegate?.onOpenAnimationEnd() }
-                    .start()
-            }
-        } else {
-            delegate?.onOpenAnimationEnd()
+        cancelSheetAnimation()
+
+        containerView?.let { cv ->
+            cv.measure(
+                View.MeasureSpec.makeMeasureSpec(AndroidUtilities.displaySize.x + backgroundPaddingLeft * 2, View.MeasureSpec.AT_MOST),
+                View.MeasureSpec.makeMeasureSpec(AndroidUtilities.displaySize.y, View.MeasureSpec.AT_MOST)
+            )
         }
+
+        if (showWithoutAnimation || !SharedConfig.animationsEnabled()) {
+            backDrawable.alpha = if (dimBehind) dimAlpha else 0
+            containerView?.translationY = 0f
+            containerView?.visibility = View.VISIBLE
+            delegate?.onOpenAnimationStart()
+            delegate?.onOpenAnimationEnd()
+            onOpenAnimationEnd()
+            return
+        }
+
+        backDrawable.alpha = 0
+        layoutCount = 2
+
+        containerView?.translationY = (statusBarHeight +
+                (containerView?.measuredHeight ?: AndroidUtilities.dp(300)) +
+                (if (scrollNavBar) AndroidUtilities.navigationBarHeight.coerceAtMost(getBottomInsetInternal()).coerceAtLeast(0) else 0)
+                ).toFloat()
+
+        val delay = if (openNoDelay) 0L else 150L
+        startAnimationRunnable = Runnable {
+            if (startAnimationRunnable != this@BottomSheet.startAnimationRunnable || dismissed) return@Runnable
+            startAnimationRunnable = null
+            startOpenAnimation()
+        }
+        AndroidUtilities.runOnUIThread(startAnimationRunnable!!, delay)
+    }
+
+    private fun startOpenAnimation() {
+        if (dismissed) return
+        containerView?.visibility = View.VISIBLE
+
+        if (!onCustomOpenAnimation()) {
+            if (useHardwareLayer) {
+                container.setLayerType(View.LAYER_TYPE_HARDWARE, null)
+            }
+
+            val cv = containerView ?: return
+            if (transitionFromRight) {
+                cv.translationX = LayoutHelper.dp(48).toFloat()
+                cv.alpha = 0f
+                cv.translationY = 0f
+            } else {
+                cv.translationY = (getContainerViewHeight() + keyboardHeight + LayoutHelper.dp(10) +
+                        AndroidUtilities.navigationBarHeight.coerceAtMost(getBottomInsetInternal()).coerceAtLeast(0)
+                        ).toFloat()
+            }
+
+            currentSheetAnimationType = 1
+            navigationBarAnimation?.cancel()
+            navigationBarAnimation = ValueAnimator.ofFloat(navigationBarAlpha, 1f).apply {
+                addUpdateListener {
+                    navigationBarAlpha = it.animatedValue as Float
+                    container.invalidate()
+                }
+            }
+
+            currentSheetAnimation = AnimatorSet().apply {
+                val animators = ArrayList<Animator>()
+                animators.add(ObjectAnimator.ofFloat(cv, View.TRANSLATION_X, 0f))
+                animators.add(ObjectAnimator.ofFloat(cv, View.ALPHA, 1f))
+                animators.add(ObjectAnimator.ofFloat(cv, View.TRANSLATION_Y, 0f))
+                animators.add(ObjectAnimator.ofInt(backDrawable, "alpha", if (dimBehind) dimAlpha else 0))
+                navigationBarAnimation?.let { animators.add(it) }
+                playTogether(animators)
+
+                if (transitionFromRight) {
+                    duration = 250
+                    interpolator = CubicBezierInterpolator.DEFAULT
+                } else {
+                    duration = 400
+                    interpolator = openInterpolator
+                    startDelay = 20
+                }
+
+                addListener(object : AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: Animator) {
+                        if (currentSheetAnimation?.equals(animation) == true) {
+                            currentSheetAnimation = null
+                            currentSheetAnimationType = 0
+                            onOpenAnimationEnd()
+                            delegate?.onOpenAnimationEnd()
+                            if (useHardwareLayer) {
+                                container.setLayerType(View.LAYER_TYPE_NONE, null)
+                            }
+                        }
+                    }
+
+                    override fun onAnimationCancel(animation: Animator) {
+                        if (currentSheetAnimation?.equals(animation) == true) {
+                            currentSheetAnimation = null
+                            currentSheetAnimationType = 0
+                        }
+                    }
+                })
+                start()
+            }
+        }
+
+        delegate?.onOpenAnimationStart()
+    }
+
+    protected open fun onOpenAnimationEnd() {}
+
+    protected open fun onCustomOpenAnimation(): Boolean = false
+    protected open fun onCustomCloseAnimation(): Boolean = false
+
+    fun cancelSheetAnimation() {
+        currentSheetAnimation?.cancel()
+        currentSheetAnimation = null
+        currentSheetAnimationType = 0
     }
 
     override fun dismiss() {
-        if (dismissed) return
         if (delegate?.canDismiss() == false) return
+        if (dismissed) return
         dismissed = true
         onHideListener?.onDismiss(this)
-        if (allowCustomAnimation && SharedConfig.animationsEnabled() && !showWithoutAnimation) {
-            containerView?.let { cv ->
-                cv.animate()
-                    .translationY(cv.height.toFloat())
-                    .setDuration(200)
-                    .setInterpolator(DecelerateInterpolator(1.5f))
-                    .withEndAction { super.dismiss() }
-                    .start()
-            } ?: super.dismiss()
-        } else {
-            super.dismiss()
+        cancelSheetAnimation()
+        onDismissAnimationStart()
+
+        if (skipDismissAnimation) {
+            AndroidUtilities.runOnUIThread { dismissInternal() }
+        } else if (!allowCustomAnimation || !onCustomCloseAnimation()) {
+            currentSheetAnimationType = 2
+            navigationBarAnimation?.cancel()
+            navigationBarAnimation = ValueAnimator.ofFloat(navigationBarAlpha, 0f).apply {
+                addUpdateListener {
+                    navigationBarAlpha = it.animatedValue as Float
+                    container.invalidate()
+                }
+            }
+
+            currentSheetAnimation = AnimatorSet().apply {
+                val animators = ArrayList<Animator>()
+                val cv = containerView
+                if (cv != null) {
+                    if (transitionFromRight) {
+                        animators.add(ObjectAnimator.ofFloat(cv, View.TRANSLATION_X, LayoutHelper.dp(48).toFloat()))
+                        animators.add(ObjectAnimator.ofFloat(cv, View.ALPHA, 0f))
+                    } else {
+                        animators.add(ObjectAnimator.ofFloat(cv, View.TRANSLATION_Y,
+                            (getContainerViewHeight() + keyboardHeight + LayoutHelper.dp(10) +
+                                    AndroidUtilities.navigationBarHeight.coerceAtMost(getBottomInsetInternal()).coerceAtLeast(0)
+                                    ).toFloat()
+                        ))
+                    }
+                }
+                animators.add(ObjectAnimator.ofInt(backDrawable, "alpha", 0))
+                navigationBarAnimation?.let { animators.add(it) }
+                playTogether(animators)
+
+                if (transitionFromRight) {
+                    duration = 200
+                    interpolator = CubicBezierInterpolator.DEFAULT
+                } else {
+                    duration = 250
+                    interpolator = CubicBezierInterpolator.EASE_OUT
+                }
+
+                addListener(object : AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: Animator) {
+                        if (currentSheetAnimation?.equals(animation) == true) {
+                            currentSheetAnimation = null
+                            currentSheetAnimationType = 0
+                            AndroidUtilities.runOnUIThread { dismissInternal() }
+                        }
+                    }
+
+                    override fun onAnimationCancel(animation: Animator) {
+                        if (currentSheetAnimation?.equals(animation) == true) {
+                            currentSheetAnimation = null
+                            currentSheetAnimationType = 0
+                        }
+                    }
+                })
+                start()
+            }
         }
     }
+
+    protected open fun onDismissAnimationStart() {}
 
     fun dismissWithButtonClick(which: Int) {
         if (dismissed) return
         dismissed = true
-        if (allowCustomAnimation && SharedConfig.animationsEnabled() && !showWithoutAnimation) {
-            containerView?.let { cv ->
-                cv.animate()
-                    .translationY(cv.height.toFloat())
-                    .setDuration(200)
-                    .setInterpolator(DecelerateInterpolator(1.5f))
-                    .withEndAction {
-                        itemClickListener?.onClick(this, which)
-                        onHideListener?.onDismiss(this)
-                        super.dismiss()
+        cancelSheetAnimation()
+        currentSheetAnimationType = 2
+
+        currentSheetAnimation = AnimatorSet().apply {
+            val cv = containerView ?: return
+            playTogether(
+                ObjectAnimator.ofFloat(cv, View.TRANSLATION_Y,
+                    (getContainerViewHeight() + keyboardHeight + LayoutHelper.dp(10) +
+                            AndroidUtilities.navigationBarHeight.coerceAtMost(getBottomInsetInternal()).coerceAtLeast(0)
+                            ).toFloat()
+                ),
+                ObjectAnimator.ofInt(backDrawable, "alpha", 0)
+            )
+            duration = 180
+            interpolator = CubicBezierInterpolator.EASE_OUT
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    if (currentSheetAnimation?.equals(animation) == true) {
+                        currentSheetAnimation = null
+                        currentSheetAnimationType = 0
+                        itemClickListener?.onClick(this@BottomSheet, which)
+                        AndroidUtilities.runOnUIThread {
+                            onHideListener?.onDismiss(this@BottomSheet)
+                            dismissInternal()
+                        }
                     }
-                    .start()
-            } ?: run {
-                itemClickListener?.onClick(this, which)
-                onHideListener?.onDismiss(this)
-                super.dismiss()
-            }
-        } else {
-            itemClickListener?.onClick(this, which)
-            onHideListener?.onDismiss(this)
-            super.dismiss()
+                }
+
+                override fun onAnimationCancel(animation: Animator) {
+                    if (currentSheetAnimation?.equals(animation) == true) {
+                        currentSheetAnimation = null
+                        currentSheetAnimationType = 0
+                    }
+                }
+            })
+            start()
         }
     }
+
+    fun dismissInternal() {
+        try {
+            super.dismiss()
+        } catch (_: Exception) {}
+    }
+
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (dismissed) return false
+        return super.dispatchTouchEvent(ev)
+    }
+
+    fun getContainerViewHeight(): Int = containerView?.measuredHeight ?: 0
+
+    fun backDrawableValue(): ColorDrawable = backDrawable
+
+    fun backgroundPaddingTopValue(): Int = backgroundPaddingTop
+    fun backgroundPaddingLeftValue(): Int = backgroundPaddingLeft
+
+    private fun getBottomInsetInternal(): Int = bottomInset
+
+    protected fun bottomInsetValue(): Int = bottomInset
+
+    protected fun leftInsetValue(): Int = leftInset
+    protected fun rightInsetValue(): Int = rightInset
+
+    // ─── Touch outside ─────────────────────────────────────────────────────
+
+    protected open fun canDismissWithSwipe(): Boolean = canDismissWithSwipe
+    protected open fun canDismissWithTouchOutside(): Boolean = canDismissWithTouchOutside
+
+    protected open fun isTouchOutside(x: Float, y: Float): Boolean {
+        val cv = containerView ?: return false
+        return y < cv.top || x < cv.left || x > cv.right
+    }
+
+    protected open fun onDismissWithTouchOutside() { dismiss() }
+
+    protected open fun onContainerTouchEvent(ev: MotionEvent): Boolean = false
+    protected open fun onScrollUp(translationY: Float): Boolean = false
+    protected open fun onScrollUpEnd(translationY: Float) {}
+    protected open fun onScrollUpBegin(translationY: Float) {}
+    protected open fun onContainerViewTranslation() {}
+    protected open fun onSwipeStarts() {}
+    protected open fun canSwipeToBack(ev: MotionEvent?): Boolean = false
+
+    // ─── ContainerView (NestedScrolling aware) ─────────────────────────────
 
     inner class ContainerView(context: Context) : FrameLayout(context), NestedScrollingParent3 {
 
         private val nestedHelper = NestedScrollingParentHelper(this)
-        private var startedTrackingY = 0f
         private var velocityTracker: VelocityTracker? = null
+        private var startedTrackingX = 0
+        private var startedTrackingY = 0
+        private var startedTrackingPointerId = -1
+        private var maybeStartTracking = false
         private var startedTracking = false
-        private var maybeTracking = false
-        private var nestedScrollingY = 0f
+        private var currentAnimation: AnimatorSet? = null
+        private val rect = Rect()
+        private val backgroundPaint = Paint()
+        private var swipeY = 0f
+        private var swipeBackX = 0f
+        private var allowedSwipeToBack = false
+
+        init {
+            setWillNotDraw(false)
+        }
+
+        // ── NestedScrollingParent3 ──
 
         override fun onStartNestedScroll(child: View, target: View, axes: Int, type: Int): Boolean {
-            return allowNestedScroll && canDismissWithSwipe && (axes and ViewCompat.SCROLL_AXIS_VERTICAL) != 0
+            return (nestedScrollChild == null || child == nestedScrollChild) &&
+                    !dismissed && allowNestedScroll &&
+                    (axes and ViewCompat.SCROLL_AXIS_VERTICAL) != 0 &&
+                    !canDismissWithSwipe()
         }
 
         override fun onNestedScrollAccepted(child: View, target: View, axes: Int, type: Int) {
             nestedHelper.onNestedScrollAccepted(child, target, axes, type)
-            nestedScrollingY = 0f
+            if (dismissed || !allowNestedScroll) return
+            cancelCurrentAnimation()
         }
 
         override fun onNestedPreScroll(target: View, dx: Int, dy: Int, consumed: IntArray, type: Int) {
-            if (translationY > 0 && dy > 0) {
-                val newTy = (translationY - dy).coerceAtLeast(0f)
-                val consumedDy = translationY - newTy
-                translationY = newTy
-                consumed[1] = consumedDy.toInt()
+            if (dismissed || !allowNestedScroll) return
+            cancelCurrentAnimation()
+            val cv = containerView ?: return
+            val currentTranslation = cv.translationY
+            if (currentTranslation > 0 && dy > 0) {
+                var newTy = currentTranslation - dy
+                consumed[1] = dy
+                if (newTy < 0) newTy = 0f
+                cv.translationY = newTy
+                onContainerViewTranslation()
+                this@ContainerView.invalidate()
             }
         }
 
-        override fun onNestedScroll(target: View, dxConsumed: Int, dyConsumed: Int, dxUnconsumed: Int, dyUnconsumed: Int, type: Int, consumed: IntArray) {
-            if (dyUnconsumed < 0 && canDismissWithSwipe) {
-                translationY = (translationY - dyUnconsumed).coerceAtLeast(0f)
-                consumed[1] = dyUnconsumed
+        override fun onNestedScroll(
+            target: View, dxConsumed: Int, dyConsumed: Int,
+            dxUnconsumed: Int, dyUnconsumed: Int, type: Int, consumed: IntArray
+        ) {
+            if (dismissed || !allowNestedScroll) return
+            cancelCurrentAnimation()
+            val cv = containerView ?: return
+            if (dyUnconsumed != 0) {
+                var currentTranslation = cv.translationY
+                currentTranslation -= dyUnconsumed
+                if (currentTranslation < 0) currentTranslation = 0f
+                cv.translationY = currentTranslation
+                onContainerViewTranslation()
+                this@ContainerView.invalidate()
             }
         }
 
-        override fun onNestedScroll(target: View, dxConsumed: Int, dyConsumed: Int, dxUnconsumed: Int, dyUnconsumed: Int, type: Int) {
+        override fun onNestedScroll(
+            target: View, dxConsumed: Int, dyConsumed: Int,
+            dxUnconsumed: Int, dyUnconsumed: Int, type: Int
+        ) {
             onNestedScroll(target, dxConsumed, dyConsumed, dxUnconsumed, dyUnconsumed, type, IntArray(2))
-        }
-
-        override fun onNestedPreFling(target: View, velocityX: Float, velocityY: Float): Boolean {
-            return false
-        }
-
-        override fun onNestedFling(target: View, velocityX: Float, velocityY: Float, consumed: Boolean): Boolean {
-            return false
         }
 
         override fun onStopNestedScroll(target: View, type: Int) {
             nestedHelper.onStopNestedScroll(target, type)
-            val ty = translationY
-            if (ty > 0) {
-                if (ty > height / 3f) {
-                    dismiss()
-                } else {
-                    animate().translationY(0f).setDuration(200)
-                        .setInterpolator(DecelerateInterpolator(1.5f))
-                        .start()
-                }
-            }
+            if (dismissed || !allowNestedScroll) return
+            checkDismiss(0f, 0f)
         }
 
-        override fun onStartNestedScroll(child: View, target: View, axes: Int): Boolean {
-            return onStartNestedScroll(child, target, axes, ViewCompat.TYPE_TOUCH)
-        }
+        override fun onNestedPreFling(target: View, velocityX: Float, velocityY: Float): Boolean = false
 
-        override fun onNestedScrollAccepted(child: View, target: View, axes: Int) {
+        override fun onNestedFling(target: View, velocityX: Float, velocityY: Float, consumed: Boolean): Boolean = false
+
+        // Legacy NestedScrollingParent methods
+        override fun onStartNestedScroll(child: View, target: View, axes: Int): Boolean =
+            onStartNestedScroll(child, target, axes, ViewCompat.TYPE_TOUCH)
+
+        override fun onNestedScrollAccepted(child: View, target: View, axes: Int) =
             onNestedScrollAccepted(child, target, axes, ViewCompat.TYPE_TOUCH)
-        }
 
-        override fun onNestedPreScroll(target: View, dx: Int, dy: Int, consumed: IntArray) {
+        override fun onNestedPreScroll(target: View, dx: Int, dy: Int, consumed: IntArray) =
             onNestedPreScroll(target, dx, dy, consumed, ViewCompat.TYPE_TOUCH)
-        }
 
-        override fun onNestedScroll(target: View, dxConsumed: Int, dyConsumed: Int, dxUnconsumed: Int, dyUnconsumed: Int) {
+        override fun onNestedScroll(target: View, dxConsumed: Int, dyConsumed: Int, dxUnconsumed: Int, dyUnconsumed: Int) =
             onNestedScroll(target, dxConsumed, dyConsumed, dxUnconsumed, dyUnconsumed, ViewCompat.TYPE_TOUCH)
-        }
 
-        override fun onStopNestedScroll(target: View) {
+        override fun onStopNestedScroll(target: View) =
             onStopNestedScroll(target, ViewCompat.TYPE_TOUCH)
-        }
 
         override fun getNestedScrollAxes(): Int = nestedHelper.nestedScrollAxes
 
-        override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
-            if (!canDismissWithSwipe) return super.onInterceptTouchEvent(ev)
-            when (ev.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    startedTrackingY = ev.y
-                    maybeTracking = true
-                    velocityTracker?.recycle()
-                    velocityTracker = VelocityTracker.obtain()
-                    velocityTracker?.addMovement(ev)
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    velocityTracker?.addMovement(ev)
-                    val dy = ev.y - startedTrackingY
-                    if (dy > AndroidUtilities.touchSlop.toFloat() && !startedTracking) {
-                        startedTracking = true
-                        startedTrackingY = ev.y
-                        return true
+        // ── Check dismiss ──
+
+        private fun checkDismiss(velX: Float, velY: Float) {
+            val cv = containerView ?: return
+            val translationY = cv.translationY
+            val backAnimation = (translationY < AndroidUtilities.getPixelsInCM(0.8f, false)
+                    && (velY < 3500 || Math.abs(velY) < Math.abs(velX)))
+                    || (velY < 0 && Math.abs(velY) >= 3500)
+
+            if (!backAnimation) {
+                val allowOld = allowCustomAnimation
+                allowCustomAnimation = false
+                useFastDismiss = true
+                dismiss()
+                allowCustomAnimation = allowOld
+            } else {
+                maybeStartTracking = false
+                currentAnimation = AnimatorSet().apply {
+                    val invalidator = ValueAnimator.ofFloat(0f, 1f).apply {
+                        addUpdateListener {
+                            this@ContainerView.invalidate()
+                            onContainerViewTranslation()
+                        }
                     }
-                }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    maybeTracking = false
-                    startedTracking = false
-                    velocityTracker?.recycle()
-                    velocityTracker = null
+                    playTogether(
+                        ObjectAnimator.ofFloat(cv, "translationY", 0f),
+                        invalidator
+                    )
+                    duration = (250 * (translationY.coerceAtLeast(0f) / AndroidUtilities.getPixelsInCM(0.8f, false))).toLong()
+                    interpolator = CubicBezierInterpolator.DEFAULT
+                    addListener(object : AnimatorListenerAdapter() {
+                        override fun onAnimationEnd(animation: Animator) {
+                            if (currentAnimation?.equals(animation) == true) {
+                                currentAnimation = null
+                            }
+                        }
+                    })
+                    start()
                 }
             }
-            return super.onInterceptTouchEvent(ev)
+        }
+
+        private fun cancelCurrentAnimation() {
+            currentAnimation?.cancel()
+            currentAnimation = null
+            onSwipeStarts()
+        }
+
+        // ── Touch event processing ──
+
+        fun processTouchEvent(ev: MotionEvent?, intercept: Boolean): Boolean {
+            if (dismissed) return false
+            if (ev != null && onContainerTouchEvent(ev)) return true
+
+            if (canDismissWithTouchOutside() && ev != null
+                && (ev.action == MotionEvent.ACTION_DOWN || ev.action == MotionEvent.ACTION_MOVE)
+                && !startedTracking && !maybeStartTracking && ev.pointerCount == 1
+            ) {
+                startedTrackingX = ev.x.toInt()
+                startedTrackingY = ev.y.toInt()
+                if (isTouchOutside(startedTrackingX.toFloat(), startedTrackingY.toFloat())) {
+                    onDismissWithTouchOutside()
+                    return true
+                }
+                onScrollUpBegin(swipeY)
+                startedTrackingPointerId = ev.getPointerId(0)
+                maybeStartTracking = true
+                cancelCurrentAnimation()
+                velocityTracker?.clear()
+            } else if (canDismissWithSwipe() && ev != null
+                && ev.action == MotionEvent.ACTION_MOVE
+                && ev.getPointerId(0) == startedTrackingPointerId
+            ) {
+                if (velocityTracker == null) velocityTracker = VelocityTracker.obtain()
+                velocityTracker?.addMovement(ev)
+                val dx = Math.abs(ev.x.toInt() - startedTrackingX).toFloat()
+                val dy = (ev.y.toInt() - startedTrackingY).toFloat()
+                val canScrollUp = onScrollUp(swipeY + dy)
+
+                if (!disableScroll && maybeStartTracking && !startedTracking
+                    && dy > 0 && dy / 3.0f > dx && Math.abs(dy) >= touchSlop
+                ) {
+                    startedTrackingY = ev.y.toInt()
+                    maybeStartTracking = false
+                    startedTracking = true
+                    requestDisallowInterceptTouchEvent(true)
+                } else if (startedTracking) {
+                    swipeY += dy
+                    if (!canScrollUp) swipeY = swipeY.coerceAtLeast(0f)
+                    containerView?.translationY = swipeY.coerceAtLeast(0f)
+                    onContainerViewTranslation()
+                    startedTrackingY = ev.y.toInt()
+                    this@ContainerView.invalidate()
+                }
+            } else if (ev == null ||
+                (ev.getPointerId(0) == startedTrackingPointerId
+                        && (ev.action == MotionEvent.ACTION_CANCEL
+                        || ev.action == MotionEvent.ACTION_UP
+                        || ev.action == MotionEvent.ACTION_POINTER_UP))
+            ) {
+                if (velocityTracker == null) velocityTracker = VelocityTracker.obtain()
+                velocityTracker?.computeCurrentVelocity(1000)
+                onScrollUpEnd(swipeY)
+                if (startedTracking || swipeY > 0) {
+                    checkDismiss(velocityTracker?.xVelocity ?: 0f, velocityTracker?.yVelocity ?: 0f)
+                } else {
+                    maybeStartTracking = false
+                }
+                startedTracking = false
+                velocityTracker?.recycle()
+                velocityTracker = null
+                startedTrackingPointerId = -1
+            }
+
+            return (!intercept && maybeStartTracking) || startedTracking || !(canDismissWithSwipe() || canSwipeToBack(ev))
+        }
+
+        override fun onInterceptTouchEvent(event: MotionEvent): Boolean {
+            if (canDismissWithSwipe() || canSwipeToBack(event)) {
+                return processTouchEvent(event, true)
+            }
+            return super.onInterceptTouchEvent(event)
         }
 
         override fun onTouchEvent(ev: MotionEvent): Boolean {
-            if (!canDismissWithSwipe || !startedTracking) return super.onTouchEvent(ev)
-            when (ev.actionMasked) {
-                MotionEvent.ACTION_MOVE -> {
-                    velocityTracker?.addMovement(ev)
-                    translationY = (ev.y - startedTrackingY).coerceAtLeast(0f)
+            return processTouchEvent(ev, false)
+        }
+
+        override fun requestDisallowInterceptTouchEvent(disallowIntercept: Boolean) {
+            if (maybeStartTracking && !startedTracking) {
+                onTouchEvent(null!!) // force cancel
+            }
+            super.requestDisallowInterceptTouchEvent(disallowIntercept)
+        }
+
+        override fun hasOverlappingRendering(): Boolean = false
+
+        // ── Measure / Layout ──
+
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            var width = MeasureSpec.getSize(widthMeasureSpec)
+            var height = MeasureSpec.getSize(heightMeasureSpec)
+
+            // Keyboard detection
+            val rootView = rootView
+            getWindowVisibleDisplayFrame(rect)
+            val oldKeyboardHeight = keyboardHeight
+            if (rect.bottom != 0 && rect.top != 0) {
+                val usableViewHeight = rootView.height - (if (rect.top != 0) statusBarHeight else 0)
+                keyboardHeight = Math.max(0, usableViewHeight - (rect.bottom - rect.top))
+                if (keyboardHeight < LayoutHelper.dp(20)) {
+                    keyboardHeight = 0
+                } else {
+                    lastKeyboardHeight = keyboardHeight
                 }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    velocityTracker?.computeCurrentVelocity(1000)
-                    val vy = velocityTracker?.yVelocity ?: 0f
-                    if (vy > 1200 || translationY > height / 3f) {
-                        dismiss()
-                    } else {
-                        animate().translationY(0f).setDuration(200)
-                            .setInterpolator(DecelerateInterpolator(1.5f)).start()
-                    }
-                    startedTracking = false
-                    maybeTracking = false
-                    velocityTracker?.recycle()
-                    velocityTracker = null
+            } else {
+                keyboardHeight = 0
+            }
+            keyboardVisible = keyboardHeight > LayoutHelper.dp(20)
+
+            if (lastInsets != null) {
+                bottomInset = lastInsets!!.systemWindowInsetBottom
+                leftInset = lastInsets!!.systemWindowInsetLeft
+                rightInset = lastInsets!!.systemWindowInsetRight
+                if (keyboardVisible && rect.bottom != 0 && rect.top != 0) {
+                    bottomInset -= keyboardHeight
+                }
+                if (!drawNavigationBar) {
+                    height -= this@BottomSheet.bottomInset
                 }
             }
-            return true
+
+            setMeasuredDimension(width, height + (if (lastInsets != null && !drawNavigationBar) this@BottomSheet.bottomInset else 0))
+
+            if (lastInsets != null) {
+                width -= this@BottomSheet.rightInset + this@BottomSheet.leftInset
+            }
+            isPortrait = width < height
+
+            containerView?.let { cv ->
+                val widthSpec = if (!useFullWidth) {
+                    val sheetWidth = getBottomSheetWidth(isPortrait, width, height)
+                    MeasureSpec.makeMeasureSpec(sheetWidth + backgroundPaddingLeft * 2, MeasureSpec.EXACTLY)
+                } else {
+                    MeasureSpec.makeMeasureSpec(width + backgroundPaddingLeft * 2, MeasureSpec.EXACTLY)
+                }
+                cv.measure(widthSpec, MeasureSpec.makeMeasureSpec(height, MeasureSpec.AT_MOST))
+            }
+
+            val childCount = childCount
+            for (i in 0 until childCount) {
+                val child = getChildAt(i)
+                if (child.visibility == GONE || child == containerView) continue
+                measureChildWithMargins(
+                    child,
+                    MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), 0,
+                    MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY), 0
+                )
+            }
+        }
+
+        override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+            val adjustedBottom = bottom - (if (lastInsets != null && !drawNavigationBar) this@BottomSheet.bottomInset else 0)
+
+            containerView?.let { cv ->
+                val t = (adjustedBottom - top) - cv.measuredHeight
+                val l = ((right - left) - cv.measuredWidth) / 2 + this@BottomSheet.leftInset
+                cv.layout(l, t, l + cv.measuredWidth, t + cv.measuredHeight)
+            }
+
+            val count = childCount
+            for (i in 0 until count) {
+                val child = getChildAt(i)
+                if (child.visibility == GONE || child == containerView) continue
+                val lp = child.layoutParams as LayoutParams
+                val childWidth = child.measuredWidth
+                val childHeight = child.measuredHeight
+                var gravity = lp.gravity
+                if (gravity == -1) gravity = Gravity.TOP or Gravity.LEFT
+                val absoluteGravity = gravity and Gravity.HORIZONTAL_GRAVITY_MASK
+                val verticalGravity = gravity and Gravity.VERTICAL_GRAVITY_MASK
+                val childLeft = when (absoluteGravity) {
+                    Gravity.CENTER_HORIZONTAL -> (right - left - childWidth) / 2 + lp.leftMargin - lp.rightMargin
+                    Gravity.RIGHT -> right - childWidth - lp.rightMargin
+                    else -> lp.leftMargin
+                } + this@BottomSheet.leftInset
+                val childTop = when (verticalGravity) {
+                    Gravity.CENTER_VERTICAL -> (adjustedBottom - top - childHeight) / 2 + lp.topMargin - lp.bottomMargin
+                    Gravity.BOTTOM -> (adjustedBottom - top) - childHeight - lp.bottomMargin
+                    else -> lp.topMargin
+                }
+                child.layout(childLeft, childTop, childLeft + childWidth, childTop + childHeight)
+            }
+
+            if (layoutCount == 0 && startAnimationRunnable != null) {
+                AndroidUtilities.cancelRunOnUIThread(startAnimationRunnable!!)
+                startAnimationRunnable?.run()
+                startAnimationRunnable = null
+            }
+            layoutCount = (layoutCount - 1).coerceAtLeast(0)
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+        }
+
+        override fun dispatchDraw(canvas: Canvas) {
+            super.dispatchDraw(canvas)
+            // Draw navigation bar color if needed
+            if (drawNavigationBar && bottomInset != 0) {
+                val navBarHeight = if (drawNavigationBar) this@BottomSheet.bottomInset else 0
+                if (navBarColorKey >= 0) {
+                    backgroundPaint.color = theme.getColor(navBarColorKey)
+                } else if (navBarColor != 0) {
+                    backgroundPaint.color = navBarColor
+                } else {
+                    backgroundPaint.color = 0xff000000.toInt()
+                }
+                val wasAlpha = backgroundPaint.alpha
+                backgroundPaint.alpha = (wasAlpha * navigationBarAlpha).toInt()
+                val cv = containerView
+                if (cv != null) {
+                    canvas.drawRect(
+                        cv.left.toFloat() + backgroundPaddingLeft,
+                        (measuredHeight - navBarHeight).toFloat(),
+                        cv.right.toFloat() - backgroundPaddingLeft,
+                        measuredHeight.toFloat(),
+                        backgroundPaint
+                    )
+                }
+                backgroundPaint.alpha = wasAlpha
+            }
         }
     }
 
-    class Builder(private val context: Context) {
-        private val sheet = BottomSheet(context)
+    protected open fun getBottomSheetWidth(isPortrait: Boolean, width: Int, height: Int): Int {
+        return if (isPortrait) width else Math.max(width * 0.8f, Math.min(LayoutHelper.dp(480).toFloat(), width.toFloat())).toInt()
+    }
+
+    // ─── Navigation bar color blending ──────────────────────────────────────
+
+    fun getNavigationBarColor(defaultColor: Int): Int {
+        val cv = containerView ?: return defaultColor
+        val fullHeight = (getContainerViewHeight() + keyboardHeight + LayoutHelper.dp(10) +
+                (if (scrollNavBar) AndroidUtilities.navigationBarHeight.coerceAtMost(getBottomInsetInternal()).coerceAtLeast(0) else 0)).toFloat()
+        val t = if (fullHeight > 0) (1f - cv.translationY / fullHeight).coerceIn(0f, 1f) else 0f
+        return ColorUtils.blendARGB(defaultColor, navBarColor, t)
+    }
+
+    // ─── Builder ────────────────────────────────────────────────────────────
+
+    class Builder(private val context: Context, needFocusable: Boolean = false) {
+        private val sheet = BottomSheet(context, needFocusable)
+
+        init {
+            sheet.fixNavigationBar()
+        }
 
         fun setTitle(title: CharSequence?): Builder { sheet.setTitle(title); return this }
         fun setTitle(title: CharSequence?, big: Boolean): Builder { sheet.setTitle(title, big); return this }
+        fun setTitleMultipleLines(allow: Boolean): Builder { sheet.setTitleMultipleLines(allow); return this }
         fun setCustomView(view: View?): Builder { sheet.setCustomView(view); return this }
+        fun getCustomView(): View? = sheet.getCustomView()
         fun setApplyTopPadding(value: Boolean): Builder { sheet.setApplyTopPadding(value); return this }
         fun setApplyBottomPadding(value: Boolean): Builder { sheet.setApplyBottomPadding(value); return this }
         fun setCanDismissWithSwipe(value: Boolean): Builder { sheet.setCanDismissWithSwipe(value); return this }
@@ -516,11 +1172,16 @@ open class BottomSheet(context: Context, private val needFocusable: Boolean = fa
         fun setShowWithoutAnimation(value: Boolean): Builder { sheet.setShowWithoutAnimation(value); return this }
         fun setOnHideListener(listener: DialogInterface.OnDismissListener?): Builder { sheet.setOnHideListener(listener); return this }
         fun setOverlayNavBarColor(color: Int): Builder { sheet.setOverlayNavBarColor(color); return this }
-        fun setCalcMandatoryInsets(value: Boolean): Builder { sheet.setCalcMandatoryInsets(value); return this }
         fun setDimBehind(value: Boolean): Builder { sheet.setDimBehind(value); return this }
         fun setItems(items: Array<CharSequence>, listener: OnClickListener?): Builder { sheet.setItems(items, null, listener); return this }
         fun setItems(items: Array<CharSequence>, icons: IntArray?, listener: OnClickListener?): Builder { sheet.setItems(items, icons, listener); return this }
         fun setDelegate(delegate: BottomSheetDelegateInterface?): Builder { sheet.delegate = delegate; return this }
+        fun setUseHardwareLayer(value: Boolean): Builder { sheet.setUseHardwareLayer(value); return this }
+        fun setUseFullWidth(value: Boolean): Builder { sheet.setUseFullWidth(value); return this }
+        fun setUseFullscreen(value: Boolean): Builder { sheet.setUseFullscreen(value); return this }
+        fun setOnPreDismissListener(listener: DialogInterface.OnDismissListener?): Builder { sheet.setOnHideListener(listener); return this }
+        fun getDismissRunnable(): Runnable = sheet.dismissRunnable
+
         fun create(): BottomSheet = sheet
         fun show(): BottomSheet { sheet.show(); return sheet }
     }

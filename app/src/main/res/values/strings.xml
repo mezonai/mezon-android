@@ -146,6 +146,11 @@
     <string name="message_actions_unpin">Unpin Message</string>
     <string name="message_actions_mark_unread">Mark Unread</string>
     <string name="message_actions_forward">Forward Message</string>
+    <string name="message_actions_save_media">Save Media</string>
+    <string name="message_actions_copy_link">Copy Media Link</string>
+    <string name="message_actions_copy_image">Copy Image</string>
+    <string name="message_actions_share_image">Share Image</string>
+    <string name="message_actions_report">Report Message</string>
     <string name="message_chatbox_replying_to">Replying to</string>
     <string name="message_chatbox_editing">Editing Message</string>
     <string name="message_edited">(edited)</string>
@@ -159,6 +164,22 @@
     <string name="message_jump_to_latest">Jump to latest</string>
     <string name="message_toast_copy_text">Copied Message Text</string>
     <string name="message_forwarded">Forwarded</string>
+
+    <!-- message action aliases (used by MessageActionBottomSheet) -->
+    <string name="action_reply">Reply</string>
+    <string name="action_forward">Forward</string>
+    <string name="action_edit">Edit Message</string>
+    <string name="action_create_thread">Create Thread</string>
+    <string name="action_copy_text">Copy Text</string>
+    <string name="action_pin">Pin Message</string>
+    <string name="action_unpin">Unpin Message</string>
+    <string name="action_mark_unread">Mark Unread</string>
+    <string name="action_delete">Delete Message</string>
+    <string name="action_report">Report</string>
+    <string name="action_save_media">Save Media</string>
+    <string name="action_copy_link">Copy Media Link</string>
+    <string name="action_copy_image">Copy Image</string>
+    <string name="action_share_image">Share Image</string>
     <string name="message_slide_to_cancel">Slide to cancel</string>
 
     <!-- notification -->
@@ -344,4 +365,19 @@
 
     <string name="common_ok">OK</string>
     <string name="common_error">Error</string>
+
+    <string name="permission_open_settings">Open Settings</string>
+    <string name="permission_not_now">Not Now</string>
+    <string name="permission_no_storage">Mezon needs access to your storage to send and save media. Please go to Settings and enable the permission.</string>
+    <string name="permission_no_camera">Mezon needs access to your camera. Please go to Settings and enable the permission.</string>
+    <string name="permission_no_audio">Mezon needs access to your microphone. Please go to Settings and enable the permission.</string>
+    <string name="permission_no_camera_mic_video">Mezon needs access to your camera and microphone for video messages. Please go to Settings and enable the permissions.</string>
+    <string name="permission_no_location">Mezon needs access to your location. Please go to Settings and enable the permission.</string>
+
+    <!-- UserProfile BottomSheet -->
+    <string name="user_profile_send_message">Message</string>
+    <string name="user_profile_voice_call">Call</string>
+    <string name="user_profile_add_friend">Add Friend</string>
+    <string name="user_profile_member_since">Mezon Member Since</string>
+    <string name="user_profile_about_me">About Me</string>
 </resources>

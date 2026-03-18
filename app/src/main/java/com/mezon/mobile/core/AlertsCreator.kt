@@ -2,10 +2,7 @@ package com.mezon.mobile.core
 
 import android.app.Activity
 import android.content.Context
-import android.content.DialogInterface
 import android.widget.LinearLayout
-import android.widget.TextView
-import androidx.appcompat.app.AlertDialog
 
 object AlertsCreator {
 
@@ -19,17 +16,11 @@ object AlertsCreator {
         onNegative: (() -> Unit)? = null
     ): AlertDialog {
         val builder = AlertDialog.Builder(context)
-        builder.setTitle(title)
-        builder.setMessage(message)
-        builder.setPositiveButton(positiveButton) { dialog, _ ->
-            onPositive?.invoke()
-            dialog.dismiss()
-        }
+            .setTitle(title)
+            .setMessage(message)
+            .setPositiveButton(positiveButton) { _, _ -> onPositive?.invoke() }
         negativeButton?.let {
-            builder.setNegativeButton(it) { dialog, _ ->
-                onNegative?.invoke()
-                dialog.dismiss()
-            }
+            builder.setNegativeButton(it) { _, _ -> onNegative?.invoke() }
         }
         return builder.create()
     }
@@ -57,18 +48,13 @@ object AlertsCreator {
         onConfirm: () -> Unit
     ): AlertDialog {
         val builder = AlertDialog.Builder(context)
-        builder.setTitle(title)
-        builder.setMessage(message)
-        builder.setPositiveButton(confirmText) { dialog, _ ->
-            onConfirm()
-            dialog.dismiss()
-        }
-        builder.setNegativeButton(cancelText) { dialog, _ -> dialog.dismiss() }
+            .setTitle(title)
+            .setMessage(message)
+            .setPositiveButton(confirmText) { _, _ -> onConfirm() }
+            .setNegativeButton(cancelText, null)
         val dialog = builder.create()
         if (destructive) {
-            dialog.setOnShowListener {
-                dialog.getButton(DialogInterface.BUTTON_POSITIVE)?.setTextColor(0xFFD30E0E.toInt())
-            }
+            dialog.setDestructiveButton(0)
         }
         return dialog
     }
@@ -79,13 +65,12 @@ object AlertsCreator {
         items: Array<String>,
         onItemClick: (Int) -> Unit
     ): AlertDialog {
-        val builder = AlertDialog.Builder(context)
-        builder.setTitle(title)
-        builder.setItems(items) { dialog, which ->
-            onItemClick(which)
-            dialog.dismiss()
-        }
-        return builder.create()
+        return AlertDialog.Builder(context)
+            .setTitle(title)
+            .setItems(items.map { it as CharSequence }.toTypedArray()) { _, which ->
+                onItemClick(which)
+            }
+            .create()
     }
 
     fun createCustomDialog(
@@ -105,14 +90,11 @@ object AlertsCreator {
             ))
         }
         val builder = AlertDialog.Builder(context)
-        builder.setTitle(title)
-        builder.setView(container)
-        builder.setPositiveButton(positiveButton) { dialog, _ ->
-            onPositive?.invoke()
-            dialog.dismiss()
-        }
+            .setTitle(title)
+            .setView(container)
+            .setPositiveButton(positiveButton) { _, _ -> onPositive?.invoke() }
         negativeButton?.let {
-            builder.setNegativeButton(it) { dialog, _ -> dialog.dismiss() }
+            builder.setNegativeButton(it, null)
         }
         return builder.create()
     }
