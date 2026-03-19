@@ -16,6 +16,8 @@ import com.mezon.mezon.api.ListFriendsRequest
 import com.mezon.mezon.api.ListNotificationsRequest
 import com.mezon.mezon.api.NotificationList
 import com.mezon.mezon.api.Session
+import com.mezon.mezon.api.UploadAttachment
+import com.mezon.mezon.api.uploadAttachmentRequest
 import com.mezon.mezon.api.accountEmail
 import com.mezon.mezon.api.blockFriendsRequest
 import com.mezon.mezon.api.deleteNotificationsRequest
@@ -31,6 +33,7 @@ import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
+import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.client.statement.readBytes
@@ -444,6 +447,45 @@ class MezonApi @Inject constructor(
             this.category = category
         }
         return rpc(apiUrl, token, "DeleteNotifications", request.toByteArray())
+    }
+
+    suspend fun uploadAttachmentFile(
+        apiUrl: String,
+        token: String,
+        filename: String,
+        filetype: String,
+        size: Int,
+        width: Int = 0,
+        height: Int = 0
+    ): UploadAttachment {
+        val request = uploadAttachmentRequest {
+            this.filename = filename
+            this.filetype = filetype
+            this.size = size
+            if (width > 0) this.width = width
+            if (height > 0) this.height = height
+        }
+        val bytes = rpc(apiUrl, token, "UploadAttachmentFile", request.toByteArray())
+        val result = UploadAttachment.parseFrom(bytes)
+        Log.d(TAG, "UploadAttachmentFile: filename=${result.filename} url=${result.url.take(60)}...")
+        return result
+    }
+
+    suspend fun putFileToPresignedUrl(
+        presignedUrl: String,
+        fileBytes: ByteArray,
+        contentType: String
+    ) {
+        val response = httpClient.put(presignedUrl) {
+            header(HttpHeaders.ContentType, contentType)
+            setBody(fileBytes)
+        }
+        if (!response.status.isSuccess()) {
+            val errorBody = response.bodyAsText()
+            Log.e(TAG, "PUT upload failed: ${response.status} - $errorBody")
+            throw RuntimeException("File upload failed (${response.status.value})")
+        }
+        Log.d(TAG, "PUT upload success")
     }
 }
 

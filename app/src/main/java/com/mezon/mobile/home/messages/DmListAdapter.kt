@@ -7,6 +7,8 @@ import com.mezon.mobile.core.ThemeColors
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -19,8 +21,15 @@ class DmListAdapter(
     }
 
     private val items = ArrayList<DirectMessage>()
-    private val scope = CoroutineScope(Dispatchers.Main)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var diffJob: Job? = null
+
+    init {
+        setHasStableIds(true)
+    }
+
+    override fun getItemId(position: Int): Long =
+        if (position in items.indices) items[position].channelId else RecyclerView.NO_ID
 
     fun getItem(position: Int): DirectMessage? =
         if (position in items.indices) items[position] else null
@@ -84,6 +93,11 @@ class DmListAdapter(
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val dm = items[position]
         holder.cell.update(0, dm)
+    }
+
+    override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+        diffJob?.cancel()
+        scope.cancel()
     }
 
     class ViewHolder(val cell: DialogCell) : RecyclerView.ViewHolder(cell)
