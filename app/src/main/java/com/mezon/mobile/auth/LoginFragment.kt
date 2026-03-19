@@ -21,6 +21,7 @@ import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import com.mezon.mobile.R
+import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.di.FragmentEntryPoint
@@ -369,6 +370,7 @@ class LoginFragment : BaseFragment() {
     }
 
     private fun doSubmit() {
+        AndroidUtilities.hideKeyboard(fragmentView)
         when (currentMode) {
             LoginMode.SMS -> doSmsOTP()
             LoginMode.OTP -> doEmailOTP()

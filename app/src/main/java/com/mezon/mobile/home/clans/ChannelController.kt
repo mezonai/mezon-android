@@ -44,6 +44,11 @@ class ChannelController @Inject constructor(
         observeSocketEvents()
     }
 
+    fun cleanup() {
+        _channelsByClan.value = emptyMap()
+        currentOpenChannelId = 0L
+    }
+
     fun loadChannelsForClan(clanId: Long, force: Boolean = false) {
         val cacheKey = apiCacheKey("listChannelsByClan", clanId.toString())
         appScope.launch {

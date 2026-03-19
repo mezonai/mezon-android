@@ -38,6 +38,13 @@ class NotificationStore @Inject constructor(
 
     private var currentClanId: Long = 0L
 
+    fun cleanup() {
+        _mentions.value = emptyList()
+        _messages.value = emptyList()
+        _forYou.value = emptyList()
+        currentClanId = 0L
+    }
+
     fun setCurrentClan(clanId: Long) {
         if (currentClanId == clanId) return
         currentClanId = clanId

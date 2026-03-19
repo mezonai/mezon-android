@@ -65,6 +65,15 @@ class DialogsController @Inject constructor(
         appScope.launch { observeMarkAsRead() }
     }
 
+    fun cleanup() {
+        synchronized(this) {
+            dialogs.clear()
+            dialogsDict.clear()
+            dialogsLoaded = false
+            currentChannelId = null
+        }
+    }
+
     @Synchronized
     fun getDialogs(): List<DirectMessage> = ArrayList(dialogs)
 

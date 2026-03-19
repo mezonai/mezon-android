@@ -63,6 +63,14 @@ class ChatController @Inject constructor(
         }
     }
 
+    fun cleanup() {
+        synchronized(this) {
+            dialogMessage.clear()
+            initialFetchDone.clear()
+            cachedCurrentUserId = 0L
+        }
+    }
+
     fun openChannel(channelId: Long, clanId: Long, channelType: Int, isChannelPrivate: Boolean = false) {
         val isPublic = !isChannelPrivate
         val mode = channelTypeToStreamMode(channelType)
