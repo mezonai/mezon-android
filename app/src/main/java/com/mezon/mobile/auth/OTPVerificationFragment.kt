@@ -16,6 +16,7 @@ import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import com.mezon.mobile.R
+import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.di.FragmentEntryPoint
@@ -279,6 +280,7 @@ class OTPVerificationFragment : BaseFragment() {
         val code = getOtpCode()
         if (code.length != OTP_LENGTH) return
 
+        AndroidUtilities.hideKeyboard(fragmentView)
         showLoading()
 
         fragmentScope.launch(Dispatchers.Main) {
