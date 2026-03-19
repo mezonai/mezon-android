@@ -7,7 +7,6 @@ import android.text.Editable
 import android.text.InputType
 import android.text.TextWatcher
 import android.view.Gravity
-import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.EditText
@@ -142,35 +141,46 @@ class OTPVerificationFragment : BaseFragment() {
             if (i < OTP_LENGTH - 1) params.marginEnd = LayoutHelper.dp(8)
             otpRow.addView(field, params)
 
+            field.setText(ZERO_WIDTH_SPACE)
+            field.setSelection(1)
+
             field.addTextChangedListener(object : TextWatcher {
+                private var isUpdating = false
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
                 override fun afterTextChanged(s: Editable?) {
-                    val text = s?.toString() ?: ""
-                    if (text.length > 1) {
-                        field.setText(text.last().toString())
-                        field.setSelection(1)
+                    if (isUpdating) return
+                    isUpdating = true
+
+                    val raw = s?.toString() ?: ""
+                    val digits = raw.replace(ZERO_WIDTH_SPACE, "").filter { it.isDigit() }
+
+                    if (digits.length >= 2) {
+                        distributePastedOtp(digits, i)
+                    } else if (digits.length == 1) {
+                        field.setText(ZERO_WIDTH_SPACE + digits)
+                        field.setSelection(field.text!!.length)
+                        updateOtpFieldState(i, true)
+                        if (i < OTP_LENGTH - 1) {
+                            otpFields[i + 1].requestFocus()
+                        }
+                    } else {
+                        field.setText(ZERO_WIDTH_SPACE)
+                        field.setSelection(field.text!!.length)
+                        updateOtpFieldState(i, false)
+                        if (i > 0) {
+                            otpFields[i - 1].requestFocus()
+                            otpFields[i - 1].setSelection(otpFields[i - 1].text!!.length)
+                        }
                     }
-                    updateOtpFieldState(i, text.isNotEmpty())
-                    if (text.length == 1 && i < OTP_LENGTH - 1) {
-                        otpFields[i + 1].requestFocus()
-                    }
+
                     if (getOtpCode().length == OTP_LENGTH && !isResendEnabled) {
                         doVerify()
                     }
+
+                    isUpdating = false
                 }
             })
-
-            field.setOnKeyListener { _, keyCode, event ->
-                if (keyCode == KeyEvent.KEYCODE_DEL && event.action == KeyEvent.ACTION_DOWN) {
-                    if (field.text.isNullOrEmpty() && i > 0) {
-                        otpFields[i - 1].requestFocus()
-                        otpFields[i - 1].text?.clear()
-                        return@setOnKeyListener true
-                    }
-                }
-                false
-            }
         }
 
         errorText = TextView(context).apply {
@@ -245,7 +255,8 @@ class OTPVerificationFragment : BaseFragment() {
         }
     }
 
-    private fun getOtpCode(): String = otpFields.joinToString("") { it.text?.toString() ?: "" }
+    private fun getOtpCode(): String =
+        otpFields.joinToString("") { it.text?.toString()?.replace(ZERO_WIDTH_SPACE, "") ?: "" }
 
     private fun startCountdown() {
         isResendEnabled = false
@@ -308,9 +319,24 @@ class OTPVerificationFragment : BaseFragment() {
         }
     }
 
+    private fun distributePastedOtp(digits: String, startIndex: Int) {
+        val digitsToFill = digits.take(OTP_LENGTH - startIndex)
+        for ((offset, digit) in digitsToFill.withIndex()) {
+            val idx = startIndex + offset
+            if (idx < OTP_LENGTH) {
+                otpFields[idx].setText(ZERO_WIDTH_SPACE + digit)
+                otpFields[idx].setSelection(otpFields[idx].text!!.length)
+                updateOtpFieldState(idx, true)
+            }
+        }
+        val nextEmpty = (startIndex + digitsToFill.length).coerceAtMost(OTP_LENGTH - 1)
+        otpFields[nextEmpty].requestFocus()
+    }
+
     private fun clearOtpFields() {
         for (i in 0 until OTP_LENGTH) {
-            otpFields[i].text?.clear()
+            otpFields[i].setText(ZERO_WIDTH_SPACE)
+            otpFields[i].setSelection(1)
             updateOtpFieldState(i, false)
         }
         otpFields.firstOrNull()?.requestFocus()
@@ -344,6 +370,7 @@ class OTPVerificationFragment : BaseFragment() {
     }
 
     companion object {
+        private const val ZERO_WIDTH_SPACE = "\u200B"
         private const val OTP_LENGTH = 6
         private const val COUNTDOWN_MS = 59_000L
         private val OTP_BORDER_EMPTY = 0xFFD1D5DB.toInt()

@@ -113,8 +113,8 @@ class MezonImageLoader private constructor(context: Context) {
         onSuccess: (Bitmap) -> Unit,
         onError: ((Exception) -> Unit)? = null
     ): Cancellable {
-        if (url.isEmpty()) {
-            onError?.invoke(IllegalArgumentException("Empty URL"))
+        if (url.isEmpty() || !isValidHttpUrl(url)) {
+            onError?.invoke(IllegalArgumentException("Invalid URL: $url"))
             return Cancellable.EMPTY
         }
 
@@ -149,8 +149,8 @@ class MezonImageLoader private constructor(context: Context) {
         onSuccess: (Drawable) -> Unit,
         onError: ((Exception) -> Unit)? = null
     ): Cancellable {
-        if (url.isEmpty()) {
-            onError?.invoke(IllegalArgumentException("Empty URL"))
+        if (url.isEmpty() || !isValidHttpUrl(url)) {
+            onError?.invoke(IllegalArgumentException("Invalid URL: $url"))
             return Cancellable.EMPTY
         }
 
@@ -418,6 +418,10 @@ class MezonImageLoader private constructor(context: Context) {
                 LinkedBlockingQueue(MAX_DECODE_QUEUE),
                 ThreadPoolExecutor.DiscardOldestPolicy()
             )
+        }
+
+        private fun isValidHttpUrl(url: String): Boolean {
+            return url.startsWith("http://") || url.startsWith("https://")
         }
 
         private fun calculateInSampleSize(options: BitmapFactory.Options, reqWidth: Int, reqHeight: Int): Int {

@@ -26,6 +26,8 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
     private var attachedToWindow = false
     private var needsLayout = false
     private var visibleOnScreen = true
+    private var onlineProgress = 0f
+    private val tmpRect = RectF()
 
     private var nameLayout: StaticLayout? = null
     private var previewLayout: StaticLayout? = null
@@ -70,6 +72,11 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         visibleOnScreen = visible
     }
 
+    override fun invalidate() {
+        if (directMessage == null) return
+        super.invalidate()
+    }
+
     fun setData(dm: DirectMessage) {
         directMessage = dm
         update(0)
@@ -83,6 +90,7 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         if (mask == 0) {
             if (newDm != null) directMessage = newDm
             avatarDrawable.setInfo(dm.channelId, dm.displayName.ifEmpty { dm.label })
+            onlineProgress = if (dm.type == CHANNEL_TYPE_DM && dm.isOnline) 1f else 0f
             buildLayouts()
             loadAvatar(dm.avatarUrl)
             invalidate()
@@ -161,7 +169,7 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
             .setEllipsize(TextUtils.TruncateAt.END)
             .build()
 
-        val timeWidth = timeLayout?.let { it.getLineWidth(0).toInt() + LayoutHelper.dp(8) } ?: 0
+        val timeWidth = timeLayout?.let { it.getLineWidth(0).toInt() + TIME_GAP } ?: 0
         val nameWidth = contentWidth - timeWidth
         val nameText = dm.displayName.ifEmpty { dm.label }
         nameLayout = StaticLayout.Builder.obtain(nameText, 0, nameText.length, namePaint, nameWidth.coerceAtLeast(0))
@@ -178,7 +186,7 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
                 .build()
         }
 
-        val badgeSpace = if (badgeLayout != null) BADGE_MIN_W + LayoutHelper.dp(8) else 0
+        val badgeSpace = if (badgeLayout != null) BADGE_MIN_W + BADGE_GAP else 0
         val previewWidth = contentWidth - badgeSpace
         val previewText = dm.lastMessageContent.ifEmpty { "No messages" }
         previewLayout = StaticLayout.Builder.obtain(previewText, 0, previewText.length, previewPaint, previewWidth.coerceAtLeast(0))
@@ -200,7 +208,7 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
                 proxyUrl, AVATAR_SIZE, AVATAR_SIZE,
                 onSuccess = { bmp ->
                     avatarDrawable.setPhoto(bmp)
-                    post { invalidate() }
+                    invalidate()
                 }
             )
         }
@@ -209,6 +217,7 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
     override fun onDraw(canvas: Canvas) {
         if (!visibleOnScreen) return
         val dm = directMessage ?: return
+        var needInvalidate = false
         val cx = PADDING_H
         val cy = (height - AVATAR_SIZE) / 2
         val isUnread = dm.unreadCount > 0
@@ -216,12 +225,20 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         avatarDrawable.setBounds(cx, cy, cx + AVATAR_SIZE, cy + AVATAR_SIZE)
         avatarDrawable.draw(canvas)
 
-        if (dm.type == CHANNEL_TYPE_DM && dm.isOnline) {
+        val isOnline = dm.type == CHANNEL_TYPE_DM && dm.isOnline
+        if (isOnline || onlineProgress != 0f) {
             val dotR = ONLINE_DOT / 2f
-            val dotCx = (cx + AVATAR_SIZE - dotR)
-            val dotCy = (cy + AVATAR_SIZE - dotR)
-            canvas.drawCircle(dotCx, dotCy, dotR + ONLINE_BORDER / 2f, theme.dialogOnlineBorderPaint)
-            canvas.drawCircle(dotCx, dotCy, dotR - 1f, theme.dialogOnlinePaint)
+            val dotCx = cx + AVATAR_SIZE - dotR
+            val dotCy = cy + AVATAR_SIZE - dotR
+            canvas.drawCircle(dotCx, dotCy, (dotR + ONLINE_BORDER / 2f) * onlineProgress, theme.dialogOnlineBorderPaint)
+            canvas.drawCircle(dotCx, dotCy, (dotR - 1f) * onlineProgress, theme.dialogOnlinePaint)
+            if (isOnline && onlineProgress < 1f) {
+                onlineProgress = (onlineProgress + ONLINE_ANIM_STEP).coerceAtMost(1f)
+                needInvalidate = true
+            } else if (!isOnline && onlineProgress > 0f) {
+                onlineProgress = (onlineProgress - ONLINE_ANIM_STEP).coerceAtLeast(0f)
+                needInvalidate = true
+            }
         }
 
         val textLeft = (cx + AVATAR_SIZE + GAP_H).toFloat()
@@ -255,11 +272,12 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         badgeLayout?.let { badge ->
             if (dm.unreadCount > 0) {
                 val btw = badge.getLineWidth(0)
-                val bw = maxOf(BADGE_MIN_W.toFloat(), btw + LayoutHelper.dp(10))
+                val bw = maxOf(BADGE_MIN_W.toFloat(), btw + BADGE_PAD)
                 val bh = BADGE_H.toFloat()
                 val bx = width - PADDING_H - bw
                 val by = textTop + (previewLayout?.height ?: 0) / 2f - bh / 2f
-                canvas.drawRoundRect(RectF(bx, by, bx + bw, by + bh), bh / 2, bh / 2, theme.dialogBadgePaint)
+                tmpRect.set(bx, by, bx + bw, by + bh)
+                canvas.drawRoundRect(tmpRect, bh / 2, bh / 2, theme.dialogBadgePaint)
                 canvas.save()
                 canvas.translate(bx + (bw - btw) / 2, by + (bh - badge.height) / 2)
                 badge.draw(canvas)
@@ -269,6 +287,10 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
 
         val divLeft = (cx + AVATAR_SIZE + GAP_H).toFloat()
         canvas.drawRect(divLeft, height - 1f, width.toFloat(), height.toFloat(), theme.dividerPaint)
+
+        if (needInvalidate) {
+            invalidate()
+        }
     }
 
     companion object {
@@ -282,5 +304,9 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         private val BADGE_MIN_W = LayoutHelper.dp(20)
         private val BADGE_H = LayoutHelper.dp(20)
         private val CELL_HEIGHT = LayoutHelper.dp(72)
+        private val BADGE_PAD = LayoutHelper.dp(10)
+        private val BADGE_GAP = LayoutHelper.dp(8)
+        private val TIME_GAP = LayoutHelper.dp(8)
+        private val ONLINE_ANIM_STEP = 16f / 150f
     }
 }

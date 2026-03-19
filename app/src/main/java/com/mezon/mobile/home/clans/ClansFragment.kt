@@ -205,7 +205,7 @@ class ClansFragment : BaseFragment() {
     }
 
     private fun onChannelSelected(channel: ClanChannelEntity) {
-        chatController.openChannel(channel.channelId, channel.clanId, channel.type)
+        chatController.openChannel(channel.channelId, channel.clanId, channel.type, channel.isPrivate)
         onOpenChat?.invoke(channel.channelId, channel.channelLabel, channel.clanId, channel.type)
     }
 

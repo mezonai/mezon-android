@@ -63,14 +63,14 @@ class ThemeColors @Inject constructor() {
     val dividerPaint = Paint()
 
     val chatSenderPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = LayoutHelper.sp(12f)
+        textSize = LayoutHelper.sp(14f)
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }
     val chatContentPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = LayoutHelper.sp(15f)
+        textSize = LayoutHelper.sp(14f) 
     }
     val chatContentOutPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = LayoutHelper.sp(15f)
+        textSize = LayoutHelper.sp(14f)
     }
     val chatTimePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = LayoutHelper.sp(11f)
