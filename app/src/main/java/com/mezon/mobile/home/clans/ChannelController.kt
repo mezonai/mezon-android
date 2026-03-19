@@ -1,6 +1,5 @@
 package com.mezon.mobile.home.clans
 
-import android.util.Log
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.data.db.ClanChannelDao
 import com.mezon.mobile.di.ApplicationScope
@@ -23,8 +22,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
-
-private const val TAG = "ChannelController"
 
 @Singleton
 class ChannelController @Inject constructor(
@@ -63,22 +60,12 @@ class ChannelController @Inject constructor(
                 val result = withContext(ioDispatcher) {
                     api.listChannelsByClan(session.apiUrl, session.token, clanId)
                 }
-                Log.d(TAG, "API returned ${result.channeldescCount} channels for clanId=$clanId")
-                for (ch in result.channeldescList) {
-                    Log.d(TAG, "  raw: label=${ch.channelLabel} type=${ch.type} countMessUnread=${ch.countMessUnread} active=${ch.active} parentId=${ch.parentId} hasSeen=${ch.hasLastSeenMessage()} hasSent=${ch.hasLastSentMessage()}")
-                }
                 val entities = result.channeldescList.map { it.toClanChannelEntity() }
-                for (e in entities) {
-                    if (e.unreadCount > 0 || e.isThread) {
-                        Log.d(TAG, "Channel: ${e.channelLabel} id=${e.channelId} unread=${e.unreadCount} active=${e.active} isThread=${e.isThread} lastSeen=${e.lastSeenMessageId} lastSent=${e.lastSentMessageId}")
-                    }
-                }
                 updateCache(clanId, entities)
                 cacheTracker.markCalled(cacheKey)
                 withContext(ioDispatcher) { clanChannelDao.upsertAll(entities) }
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
-            } catch (e: Exception) {
-                Log.e(TAG, "loadChannelsForClan clanId=$clanId failed", e)
+            } catch (_: Exception) {
             }
         }
     }
@@ -88,6 +75,26 @@ class ChannelController @Inject constructor(
 
     fun findChannelById(channelId: Long): ClanChannelEntity? =
         _channelsByClan.value.values.flatten().firstOrNull { it.channelId == channelId }
+
+    suspend fun findOrFetchChannelLabel(channelId: Long, clanId: Long = 0L): String {
+        findChannelById(channelId)?.let { return it.channelLabel }
+        val fromDb = withContext(ioDispatcher) { clanChannelDao.getByChannelId(channelId) }
+        if (fromDb != null) {
+            val existing = _channelsByClan.value[fromDb.clanId] ?: emptyList()
+            updateCache(fromDb.clanId, existing.filter { it.channelId != fromDb.channelId } + fromDb)
+            return fromDb.channelLabel
+        }
+        if (clanId != 0L) {
+            val session = sessionManager.sessionFlow.first() ?: return ""
+            val result = runCatching {
+                withContext(ioDispatcher) { api.listChannelsByClan(session.apiUrl, session.token, clanId) }
+            }.getOrNull() ?: return ""
+            val entities = result.channeldescList.map { it.toClanChannelEntity() }
+            updateCache(clanId, entities)
+            withContext(ioDispatcher) { clanChannelDao.upsertAll(entities) }
+        }
+        return findChannelById(channelId)?.channelLabel.orEmpty()
+    }
 
     fun getChannelSections(clanId: Long): List<ChannelSection> {
         val channels = getChannels(clanId)

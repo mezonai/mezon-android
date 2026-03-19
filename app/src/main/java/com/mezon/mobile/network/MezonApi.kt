@@ -2,7 +2,6 @@ package com.mezon.mobile.network
 
 import com.mezon.mobile.BuildConfig
 import android.util.Base64
-import android.util.Log
 import com.mezon.mezon.api.Account
 import com.mezon.mezon.api.AccountEmail
 import com.mezon.mezon.api.BlockFriendsRequest
@@ -110,7 +109,6 @@ class MezonApi @Inject constructor(
 ) {
     companion object {
         private val SERVER_KEY = BuildConfig.MEZON_API_KEY
-        private const val TAG = "MezonApi"
     }
 
     suspend fun authenticateEmail(
@@ -130,12 +128,10 @@ class MezonApi @Inject constructor(
 
         if (!response.status.isSuccess()) {
             val errorBody = response.bodyAsText()
-            Log.e(TAG, "Auth failed: ${response.status} - $errorBody")
             throw RuntimeException("Auth failed (${response.status.value}): $errorBody")
         }
 
         val session: AuthSessionResponse = response.body()
-        Log.d(TAG, "Auth success: userId=${session.userId}, apiUrl=${session.apiUrl}")
         return session
     }
 
@@ -155,7 +151,6 @@ class MezonApi @Inject constructor(
 
         if (!response.status.isSuccess()) {
             val errorBody = response.bodyAsText()
-            Log.e(TAG, "RPC $method failed: ${response.status} - $errorBody")
             if (response.status == HttpStatusCode.Unauthorized) {
                 throw UnauthorizedException("RPC $method: 401 Unauthorized")
             }
@@ -188,12 +183,10 @@ class MezonApi @Inject constructor(
 
         if (!response.status.isSuccess()) {
             val errorBody = response.bodyAsText()
-            Log.e(TAG, "SessionRefresh failed: ${response.status} - $errorBody")
             throw RuntimeException("SessionRefresh failed (${response.status.value}): $errorBody")
         }
 
         val session = Session.parseFrom(response.readBytes())
-        Log.d(TAG, "SessionRefresh success")
         return session
     }
 
@@ -215,7 +208,6 @@ class MezonApi @Inject constructor(
 
         val bytes = rpc(apiUrl, token, "ListChannelDescs", request.toByteArray())
         val result = ChannelDescList.parseFrom(bytes)
-        Log.d(TAG, "ListChannelDescs: ${result.channeldescCount} channels (type=$channelType, page=$page)")
         return result
     }
 
@@ -231,7 +223,6 @@ class MezonApi @Inject constructor(
         }
         val bytes = rpc(apiUrl, token, "ListClanDescs", request.toByteArray())
         val result = ClanDescList.parseFrom(bytes)
-        Log.d(TAG, "ListClanDescs: ${result.clandescCount} clans")
         return result
     }
 
@@ -251,7 +242,6 @@ class MezonApi @Inject constructor(
         }
         val bytes = rpc(apiUrl, token, "ListChannelDescs", request.toByteArray())
         val result = ChannelDescList.parseFrom(bytes)
-        Log.d(TAG, "ListChannelsByClan clanId=$clanId: ${result.channeldescCount} channels")
         return result
     }
 
@@ -320,11 +310,9 @@ class MezonApi @Inject constructor(
         }
         if (!response.status.isSuccess()) {
             val errorBody = response.bodyAsText()
-            Log.e(TAG, "AuthenticateEmailOTP failed: ${response.status} - $errorBody")
             throw RuntimeException("AuthenticateEmailOTP failed (${response.status.value}): $errorBody")
         }
         val result: OtpRequestResponse = response.body()
-        Log.d(TAG, "AuthenticateEmailOTP success: reqId=${result.reqId}")
         return result
     }
 
@@ -338,11 +326,9 @@ class MezonApi @Inject constructor(
         }
         if (!response.status.isSuccess()) {
             val errorBody = response.bodyAsText()
-            Log.e(TAG, "AuthenticateSmsOTP failed: ${response.status} - $errorBody")
             throw RuntimeException("AuthenticateSmsOTP failed (${response.status.value}): $errorBody")
         }
         val result: OtpRequestResponse = response.body()
-        Log.d(TAG, "AuthenticateSmsOTP success: reqId=${result.reqId}")
         return result
     }
 
@@ -356,11 +342,9 @@ class MezonApi @Inject constructor(
         }
         if (!response.status.isSuccess()) {
             val errorBody = response.bodyAsText()
-            Log.e(TAG, "ConfirmAuthenticateOTP failed: ${response.status} - $errorBody")
             throw RuntimeException("ConfirmAuthenticateOTP failed (${response.status.value}): $errorBody")
         }
         val session: AuthSessionResponse = response.body()
-        Log.d(TAG, "ConfirmAuthenticateOTP success: userId=${session.userId}")
         return session
     }
 
@@ -411,7 +395,6 @@ class MezonApi @Inject constructor(
         }
         val bytes = rpc(apiUrl, token, "ListChannelMessages", request.toByteArray())
         val result = ChannelMessageList.parseFrom(bytes)
-        Log.d(TAG, "ListChannelMessages: ${result.messagesCount} msgs (channelId=$channelId)")
         return result
     }
 
@@ -466,4 +449,12 @@ fun channelTypeToStreamMode(channelType: Int): Int = when (channelType) {
     CHANNEL_TYPE_DM -> STREAM_MODE_DM
     CHANNEL_TYPE_THREAD -> STREAM_MODE_THREAD
     else -> STREAM_MODE_CHANNEL
+}
+
+fun streamModeToChannelType(streamMode: Int): Int = when (streamMode) {
+    STREAM_MODE_CHANNEL -> CHANNEL_TYPE_CHANNEL
+    STREAM_MODE_GROUP -> CHANNEL_TYPE_GROUP
+    STREAM_MODE_DM -> CHANNEL_TYPE_DM
+    STREAM_MODE_THREAD -> CHANNEL_TYPE_THREAD
+    else -> CHANNEL_TYPE_CHANNEL
 }
