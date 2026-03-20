@@ -43,6 +43,7 @@ class NotificationHelper @Inject constructor(
         context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
     companion object {
+        private const val MAX_NOTI_DELAY: Long = 3000L
         const val GROUP_MESSAGES = "mezon_messages"
         const val CHANNEL_MESSAGES = "mezon_channel_messages"
         const val CHANNEL_DM = "mezon_dm"
@@ -118,9 +119,9 @@ class NotificationHelper @Inject constructor(
         appScope.launch {
             val computedChannelName = channelName.ifEmpty {
                 if (channelId != null && clanId != null) {
-                    (withTimeoutOrNull(3000L) {
+                    (withTimeoutOrNull(MAX_NOTI_DELAY) {
                         channelController.findOrFetchChannelLabel(channelId, clanId)
-                    } ?: "").ifEmpty { title }
+                    } ?: title).ifEmpty { title }
                 } else title
             }
             val notificationId = channelId?.toInt() ?: System.nanoTime().toInt().and(0x7FFFFFFF)
@@ -213,7 +214,7 @@ class NotificationHelper @Inject constructor(
                 dmId != 0L -> dialogsController.get().getDialog(dmId)?.let { dm ->
                     dm.displayName.ifEmpty { dm.label }
                 } ?: title
-                clanId != 0L && channelId != 0L -> (withTimeoutOrNull(3000L) {
+                clanId != 0L && channelId != 0L -> (withTimeoutOrNull(MAX_NOTI_DELAY) {
                     channelController.findOrFetchChannelLabel(channelId, clanId)
                 } ?: title).ifEmpty { title }
                 else -> title
