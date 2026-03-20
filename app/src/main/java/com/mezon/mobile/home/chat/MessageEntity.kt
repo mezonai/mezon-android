@@ -103,6 +103,20 @@ data class MessageEntity(
     val isFileAttachment: Boolean
         get() = messageType == TYPE_FILE && attachmentUrl.isNotEmpty()
 
+    fun hasMention(userId: String): Boolean {
+        if (content.isBlank()) return false
+        return try {
+            val obj = JSONObject(content)
+            val mk = obj.optJSONArray("mk") ?: return false
+            for (i in 0 until mk.length()) {
+                val item = mk.getJSONObject(i)
+                if (item.optString("user_id") == userId) return true
+                if (item.optString("username") == "here") return true
+            }
+            false
+        } catch (_: Exception) { false }
+    }
+
     val extraAttachments: List<AttachmentInfo>
         get() {
             if (extraAttachmentsJson.isEmpty()) return emptyList()

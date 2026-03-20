@@ -197,7 +197,7 @@ class ProfileFragment : BaseFragment() {
         ) {
             fragmentScope.launch(Dispatchers.Main) {
                 authRepository.logout()
-                notificationCenter.postNotificationOnMainThread(NotificationCenter.sessionExpired)
+                onLogout?.invoke()
             }
         }.show()
     }

@@ -10,6 +10,7 @@ class ChatAdapter(
     private val themeColors: ThemeColors,
     private val messages: ArrayList<MessageEntity>,
     var channelName: String = "",
+    var currentUserId: String = "",
     var cellDelegate: ChatMessageCell.ChatMessageCellDelegate? = null
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
@@ -152,7 +153,10 @@ class ChatAdapter(
             is MessageViewHolder -> {
                 holder.cell.delegate = cellDelegate
                 holder.cell.isCombined = computeCombined(idx)
-                holder.cell.update(0, messages[idx])
+                val msg = messages[idx]
+                holder.cell.hasMentionHighlight = currentUserId.isNotEmpty() &&
+                    msg.hasMention(currentUserId)
+                holder.cell.update(0, msg)
             }
             is WelcomeViewHolder -> {
                 holder.cell.channelName = channelName

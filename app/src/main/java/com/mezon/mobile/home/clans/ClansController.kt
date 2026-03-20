@@ -68,6 +68,12 @@ class ClansController @Inject constructor(
         observeSocketEvents()
     }
 
+    fun cleanup() {
+        _clans.value = emptyList()
+        _selectedClanId.value = 0L
+        clansLoaded = false
+    }
+
     fun selectClan(clanId: Long) {
         if (_selectedClanId.value == clanId) return
         _selectedClanId.value = clanId

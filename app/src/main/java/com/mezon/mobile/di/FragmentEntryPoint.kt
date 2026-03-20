@@ -4,6 +4,7 @@ import com.mezon.mobile.auth.AuthRepository
 import com.mezon.mobile.home.ChatController
 import com.mezon.mobile.home.ConnectionController
 import com.mezon.mobile.home.DialogsController
+import com.mezon.mobile.home.chat.MediaController
 import com.mezon.mobile.home.MessagesController
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.ClansController
@@ -33,6 +34,7 @@ interface FragmentEntryPoint {
     fun userController(): UserController
     fun mezonApi(): MezonApi
     fun fcmRepository(): FcmRepository
+    fun mediaController(): MediaController
 
     @IoDispatcher
     fun ioDispatcher(): CoroutineDispatcher
