@@ -14,16 +14,20 @@ import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.mezon.mobile.auth.LoginFragment
 import com.mezon.mobile.auth.OTPVerificationFragment
-import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.ActionBarLayout
-import com.mezon.mobile.core.SharedConfig
+import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.DrawerLayoutContainer
 import com.mezon.mobile.core.INavigationLayout
 import com.mezon.mobile.core.NotificationCenter
+import com.mezon.mobile.core.SharedConfig
+import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.MainTabsActivity
 import com.mezon.mobile.home.chat.ChatFragment
+import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
+import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.notification.FcmRepository
 import com.mezon.mobile.notification.NotificationHelper
 import com.mezon.mobile.session.AutoNightConfig
@@ -31,8 +35,6 @@ import com.mezon.mobile.session.LocaleManager
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.session.ThemeManager
 import com.mezon.mobile.ui.theme.ThemeMode
-import com.mezon.mobile.core.StartupCache
-import com.mezon.mobile.di.FragmentEntryPoint
 import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.EntryPointAccessors
 import javax.inject.Inject
@@ -392,13 +394,15 @@ class MainActivity : BasePermissionsActivity(),
         clanId: Long,
         channelType: Int,
         messageId: Long = 0L,
-        noAnimation: Boolean = false
+        noAnimation: Boolean = false,
+        fromNotification: Boolean = false
     ) {
         val lastFragment = actionBarLayout.getLastFragment()
         if (lastFragment is ChatFragment && lastFragment.getChannelId() == channelId && messageId == 0L) {
             return
         }
-        val fragment = ChatFragment.newInstance(channelId, channelName, clanId, channelType, messageId)
+        val fromDmNotification = fromNotification && clanId == 0L
+        val fragment = ChatFragment.newInstance(channelId, channelName, clanId, channelType, messageId, forceLatest = fromNotification, fromDmNotification = fromDmNotification)
         val params = INavigationLayout.NavigationParams(fragment).setNoAnimation(noAnimation)
         actionBarLayout.presentFragment(params)
     }
@@ -422,21 +426,27 @@ class MainActivity : BasePermissionsActivity(),
         val isFromNotification = action != null && action.startsWith(NotificationHelper.ACTION_OPEN_CHAT)
         val extras = intent.extras ?: return
 
+        val clanId = extras.getLong(NotificationHelper.EXTRA_CLAN_ID, 0L)
         val channelId = extras.getLong(NotificationHelper.EXTRA_CHANNEL_ID, 0L)
         val dmId = extras.getLong(NotificationHelper.EXTRA_DM_ID, 0L)
         val messageId = extras.getLong(NotificationHelper.EXTRA_MESSAGE_ID, 0L)
+        val channelName = extras.getString(NotificationHelper.EXTRA_CHANNEL_NAME, "") ?: ""
 
-        if (channelId != 0L) {
-            val channelName = extras.getString(NotificationHelper.EXTRA_CHANNEL_NAME, "") ?: ""
-            val clanId = extras.getLong(NotificationHelper.EXTRA_CLAN_ID, 0L)
-            val channelType = extras.getInt(NotificationHelper.EXTRA_CHANNEL_TYPE, 0)
+        if (clanId != 0L && channelId != 0L) {
+            val channelType = extras.getInt(NotificationHelper.EXTRA_CHANNEL_TYPE, CHANNEL_TYPE_CHANNEL)
+            val entryPoint = EntryPointAccessors.fromApplication(
+                applicationContext, FragmentEntryPoint::class.java
+            )
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.navigateToClansTab)
+            entryPoint.clansController().selectClan(clanId)
+            entryPoint.chatController().openChannel(channelId, clanId, channelType)
             if (StartupCache.hasSession) {
-                openChat(channelId, channelName, clanId, channelType, messageId, noAnimation = isFromNotification)
+                openChat(channelId, channelName, clanId, channelType, messageId, noAnimation = isFromNotification, fromNotification = true)
             }
             intent.removeExtra(NotificationHelper.EXTRA_CHANNEL_ID)
         } else if (dmId != 0L) {
             if (StartupCache.hasSession) {
-                openChat(dmId, "", 0L, 3, messageId, noAnimation = isFromNotification)
+                openChat(dmId, channelName, 0L, CHANNEL_TYPE_DM, messageId, noAnimation = isFromNotification, fromNotification = isFromNotification)
             }
             intent.removeExtra(NotificationHelper.EXTRA_DM_ID)
         }

@@ -106,6 +106,16 @@ class MainTabsActivity : ViewPagerActivity() {
             applyTheme()
         }
 
+        observe(NotificationCenter.navigateToMessagesTab) { _, _, _ ->
+            if (fragmentView == null) return@observe
+            viewPager.scrollToPosition(TAB_MESSAGES)
+        }
+
+        observe(NotificationCenter.navigateToClansTab) { _, _, _ ->
+            if (fragmentView == null) return@observe
+            viewPager.scrollToPosition(TAB_CLANS)
+        }
+
         return true
     }
 

@@ -1,8 +1,5 @@
 package com.mezon.mobile.notification
 
-import com.mezon.mobile.MainActivity
-import com.mezon.mobile.R
-import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import android.app.NotificationChannel
 import android.app.NotificationChannelGroup
 import android.app.NotificationManager
@@ -11,18 +8,42 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import com.mezon.mobile.MainActivity
+import com.mezon.mobile.R
+import com.mezon.mobile.core.NotificationCenter
+import com.mezon.mobile.di.ApplicationScope
+import com.mezon.mobile.home.ChatController
+import com.mezon.mobile.home.DialogsController
+import com.mezon.mobile.home.clans.ChannelController
+import com.mezon.mobile.home.clans.ClansController
+import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
+import com.mezon.mobile.network.CHANNEL_TYPE_DM
+import com.mezon.mobile.ui.cells.ToastOverlay
+import dagger.Lazy
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class NotificationHelper @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val notificationCenter: NotificationCenter,
+    private val channelController: ChannelController,
+    private val clansController: ClansController,
+    private val dialogsController: Lazy<DialogsController>,
+    private val chatController: Lazy<ChatController>,
+    @ApplicationScope private val appScope: CoroutineScope
 ) {
     private val notificationManager =
         context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
     companion object {
+        private const val MAX_NOTI_DELAY: Long = 3000L
         const val GROUP_MESSAGES = "mezon_messages"
         const val CHANNEL_MESSAGES = "mezon_channel_messages"
         const val CHANNEL_DM = "mezon_dm"
@@ -89,44 +110,50 @@ class NotificationHelper @Inject constructor(
     fun showMessageNotification(
         title: String,
         body: String,
-        channelId: Long,
-        clanId: Long,
-        channelName: String,
-        channelType: Int,
+        channelId: Long? = null,
+        clanId: Long? = null,
+        channelName: String = "",
+        channelType: Int? = null,
         messageId: Long = 0L
     ) {
-        val intent = Intent(context, MainActivity::class.java).apply {
-            action = ACTION_OPEN_CHAT + Math.random() + Int.MAX_VALUE
-            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra(EXTRA_CHANNEL_ID, channelId)
-            putExtra(EXTRA_CLAN_ID, clanId)
-            putExtra(EXTRA_CHANNEL_NAME, channelName)
-            putExtra(EXTRA_CHANNEL_TYPE, channelType)
-            if (messageId != 0L) putExtra(EXTRA_MESSAGE_ID, messageId)
+        appScope.launch {
+            val computedChannelName = channelName.ifEmpty {
+                if (channelId != null && clanId != null) {
+                    (withTimeoutOrNull(MAX_NOTI_DELAY) {
+                        channelController.findOrFetchChannelLabel(channelId, clanId)
+                    } ?: title).ifEmpty { title }
+                } else title
+            }
+            val notificationId = channelId?.toInt() ?: System.nanoTime().toInt().and(0x7FFFFFFF)
+            val intent = Intent(context, MainActivity::class.java).apply {
+                action = ACTION_OPEN_CHAT + "_" + System.nanoTime()
+                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP
+                if (channelId != null) putExtra(EXTRA_CHANNEL_ID, channelId)
+                if (clanId != null) putExtra(EXTRA_CLAN_ID, clanId)
+                if (computedChannelName.isNotEmpty()) putExtra(EXTRA_CHANNEL_NAME, computedChannelName)
+                if (channelType != null) putExtra(EXTRA_CHANNEL_TYPE, channelType)
+                if (messageId != 0L) putExtra(EXTRA_MESSAGE_ID, messageId)
+            }
+            val pendingIntent = PendingIntent.getActivity(
+                context,
+                notificationId,
+                intent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_ONE_SHOT
+            )
+            val notifChannel = if (clanId == 0L) CHANNEL_DM else CHANNEL_MESSAGES
+            val notification = NotificationCompat.Builder(context, notifChannel)
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle(title)
+                .setContentText(body)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+                .setGroup(GROUP_MESSAGES)
+                .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                .setVibrate(longArrayOf(300, 500, 300, 500))
+                .build()
+            notificationManager.notify(notificationId, notification)
         }
-
-        val pendingIntent = PendingIntent.getActivity(
-            context,
-            channelId.toInt(),
-            intent,
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_ONE_SHOT
-        )
-
-        val notifChannel = if (channelType == CHANNEL_TYPE_DM) CHANNEL_DM else CHANNEL_MESSAGES
-
-        val notification = NotificationCompat.Builder(context, notifChannel)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(title)
-            .setContentText(body)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setAutoCancel(true)
-            .setContentIntent(pendingIntent)
-            .setGroup(GROUP_MESSAGES)
-            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-            .setVibrate(longArrayOf(300, 500, 300, 500))
-            .build()
-
-        notificationManager.notify(channelId.toInt(), notification)
     }
 
     fun showDmNotification(
@@ -135,33 +162,36 @@ class NotificationHelper @Inject constructor(
         dmChannelId: Long,
         messageId: Long = 0L
     ) {
-        val intent = Intent(context, MainActivity::class.java).apply {
-            action = ACTION_OPEN_CHAT + Math.random() + Int.MAX_VALUE
-            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra(EXTRA_DM_ID, dmChannelId)
-            if (messageId != 0L) putExtra(EXTRA_MESSAGE_ID, messageId)
+        appScope.launch {
+            val dmName = dialogsController.get().getDialog(dmChannelId)?.let { dm ->
+                dm.displayName.ifEmpty { dm.label }
+            } ?: title
+            val intent = Intent(context, MainActivity::class.java).apply {
+                action = ACTION_OPEN_CHAT + "_" + System.nanoTime()
+                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putExtra(EXTRA_DM_ID, dmChannelId)
+                if (dmName.isNotEmpty()) putExtra(EXTRA_CHANNEL_NAME, dmName)
+                if (messageId != 0L) putExtra(EXTRA_MESSAGE_ID, messageId)
+            }
+            val pendingIntent = PendingIntent.getActivity(
+                context,
+                dmChannelId.toInt(),
+                intent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_ONE_SHOT
+            )
+            val notification = NotificationCompat.Builder(context, CHANNEL_DM)
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle(title)
+                .setContentText(body)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+                .setGroup(GROUP_MESSAGES)
+                .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                .setVibrate(longArrayOf(300, 500, 300, 500))
+                .build()
+            notificationManager.notify(dmChannelId.toInt(), notification)
         }
-
-        val pendingIntent = PendingIntent.getActivity(
-            context,
-            dmChannelId.toInt(),
-            intent,
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_ONE_SHOT
-        )
-
-        val notification = NotificationCompat.Builder(context, CHANNEL_DM)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(title)
-            .setContentText(body)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setAutoCancel(true)
-            .setContentIntent(pendingIntent)
-            .setGroup(GROUP_MESSAGES)
-            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-            .setVibrate(longArrayOf(300, 500, 300, 500))
-            .build()
-
-        notificationManager.notify(dmChannelId.toInt(), notification)
     }
 
     fun cancelNotification(notificationId: Int) {
@@ -172,11 +202,45 @@ class NotificationHelper @Inject constructor(
         notificationManager.cancelAll()
     }
 
-    fun showInAppToast(title: String, body: String) {
-        val handler = android.os.Handler(android.os.Looper.getMainLooper())
-        handler.post {
-            val message = if (title.isNotBlank()) "$title: $body" else body
-            android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show()
+    fun showInAppToast(
+        title: String,
+        body: String,
+        channelId: Long = 0L,
+        clanId: Long = 0L,
+        dmId: Long = 0L
+    ) {
+        appScope.launch {
+            val channelName = when {
+                dmId != 0L -> dialogsController.get().getDialog(dmId)?.let { dm ->
+                    dm.displayName.ifEmpty { dm.label }
+                } ?: title
+                clanId != 0L && channelId != 0L -> (withTimeoutOrNull(MAX_NOTI_DELAY) {
+                    channelController.findOrFetchChannelLabel(channelId, clanId)
+                } ?: title).ifEmpty { title }
+                else -> title
+            }
+            withContext(Dispatchers.Main) {
+                val activity = MainActivity.instance ?: return@withContext
+                val onTap: (() -> Unit)? = when {
+                    dmId != 0L -> { { activity.openChat(dmId, channelName, 0L, CHANNEL_TYPE_DM, fromNotification = true) } }
+                    clanId != 0L && channelId != 0L -> {
+                        {
+                            notificationCenter.postNotificationOnMainThread(NotificationCenter.navigateToClansTab)
+                            clansController.selectClan(clanId)
+                            chatController.get().openChannel(channelId, clanId, CHANNEL_TYPE_CHANNEL)
+                            activity.openChat(channelId, channelName, clanId, CHANNEL_TYPE_CHANNEL, fromNotification = true)
+                        }
+                    }
+                    else -> null
+                }
+                ToastOverlay(activity, activity.themeColors).show(
+                    parent = activity.drawerLayoutContainer,
+                    type = ToastOverlay.ToastType.INFO,
+                    title = title,
+                    description = body,
+                    onTap = onTap
+                )
+            }
         }
     }
 }
