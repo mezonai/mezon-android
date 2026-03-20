@@ -12,6 +12,7 @@ import com.mezon.mobile.MainActivity
 import com.mezon.mobile.R
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.ApplicationScope
+import com.mezon.mobile.home.ChatController
 import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.ClansController
@@ -24,6 +25,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -34,6 +36,7 @@ class NotificationHelper @Inject constructor(
     private val channelController: ChannelController,
     private val clansController: ClansController,
     private val dialogsController: Lazy<DialogsController>,
+    private val chatController: Lazy<ChatController>,
     @ApplicationScope private val appScope: CoroutineScope
 ) {
     private val notificationManager =
@@ -106,28 +109,33 @@ class NotificationHelper @Inject constructor(
     fun showMessageNotification(
         title: String,
         body: String,
-        channelId: Long,
-        clanId: Long,
+        channelId: Long? = null,
+        clanId: Long? = null,
         channelName: String = "",
         channelType: Int? = null,
         messageId: Long = 0L
     ) {
         appScope.launch {
             val computedChannelName = channelName.ifEmpty {
-                channelController.findOrFetchChannelLabel(channelId, clanId)
+                if (channelId != null && clanId != null) {
+                    (withTimeoutOrNull(3000L) {
+                        channelController.findOrFetchChannelLabel(channelId, clanId)
+                    } ?: "").ifEmpty { title }
+                } else title
             }
+            val notificationId = channelId?.toInt() ?: System.nanoTime().toInt().and(0x7FFFFFFF)
             val intent = Intent(context, MainActivity::class.java).apply {
-                action = ACTION_OPEN_CHAT + Math.random() + Int.MAX_VALUE
+                action = ACTION_OPEN_CHAT + "_" + System.nanoTime()
                 flags = Intent.FLAG_ACTIVITY_CLEAR_TOP
-                putExtra(EXTRA_CHANNEL_ID, channelId)
-                putExtra(EXTRA_CLAN_ID, clanId)
+                if (channelId != null) putExtra(EXTRA_CHANNEL_ID, channelId)
+                if (clanId != null) putExtra(EXTRA_CLAN_ID, clanId)
                 if (computedChannelName.isNotEmpty()) putExtra(EXTRA_CHANNEL_NAME, computedChannelName)
                 if (channelType != null) putExtra(EXTRA_CHANNEL_TYPE, channelType)
                 if (messageId != 0L) putExtra(EXTRA_MESSAGE_ID, messageId)
             }
             val pendingIntent = PendingIntent.getActivity(
                 context,
-                channelId.toInt(),
+                notificationId,
                 intent,
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_ONE_SHOT
             )
@@ -143,7 +151,7 @@ class NotificationHelper @Inject constructor(
                 .setCategory(NotificationCompat.CATEGORY_MESSAGE)
                 .setVibrate(longArrayOf(300, 500, 300, 500))
                 .build()
-            notificationManager.notify(channelId.toInt(), notification)
+            notificationManager.notify(notificationId, notification)
         }
     }
 
@@ -156,9 +164,9 @@ class NotificationHelper @Inject constructor(
         appScope.launch {
             val dmName = dialogsController.get().getDialog(dmChannelId)?.let { dm ->
                 dm.displayName.ifEmpty { dm.label }
-            }.orEmpty()
+            } ?: title
             val intent = Intent(context, MainActivity::class.java).apply {
-                action = ACTION_OPEN_CHAT + Math.random() + Int.MAX_VALUE
+                action = ACTION_OPEN_CHAT + "_" + System.nanoTime()
                 flags = Intent.FLAG_ACTIVITY_CLEAR_TOP
                 putExtra(EXTRA_DM_ID, dmChannelId)
                 if (dmName.isNotEmpty()) putExtra(EXTRA_CHANNEL_NAME, dmName)
@@ -204,9 +212,11 @@ class NotificationHelper @Inject constructor(
             val channelName = when {
                 dmId != 0L -> dialogsController.get().getDialog(dmId)?.let { dm ->
                     dm.displayName.ifEmpty { dm.label }
-                }.orEmpty()
-                clanId != 0L && channelId != 0L -> channelController.findOrFetchChannelLabel(channelId, clanId)
-                else -> ""
+                } ?: title
+                clanId != 0L && channelId != 0L -> (withTimeoutOrNull(3000L) {
+                    channelController.findOrFetchChannelLabel(channelId, clanId)
+                } ?: title).ifEmpty { title }
+                else -> title
             }
             withContext(Dispatchers.Main) {
                 val activity = MainActivity.instance ?: return@withContext
@@ -216,7 +226,8 @@ class NotificationHelper @Inject constructor(
                         {
                             notificationCenter.postNotificationOnMainThread(NotificationCenter.navigateToClansTab)
                             clansController.selectClan(clanId)
-                            activity.openChat(channelId, channelName, clanId, CHANNEL_TYPE_CHANNEL)
+                            chatController.get().openChannel(channelId, clanId, CHANNEL_TYPE_CHANNEL)
+                            activity.openChat(channelId, channelName, clanId, CHANNEL_TYPE_CHANNEL, fromNotification = true)
                         }
                     }
                     else -> null

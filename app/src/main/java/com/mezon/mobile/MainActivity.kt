@@ -85,9 +85,6 @@ class MainActivity : BasePermissionsActivity(),
     private val dismissSplashRunnable = Runnable { isContentReady = true }
     private var splashContentObserver: NotificationCenter.NotificationCenterDelegate? = null
 
-    var openedDmFromNotification = false
-        private set
-
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
         instance = this
@@ -404,14 +401,10 @@ class MainActivity : BasePermissionsActivity(),
         if (lastFragment is ChatFragment && lastFragment.getChannelId() == channelId && messageId == 0L) {
             return
         }
-        if (fromNotification && clanId == 0L) openedDmFromNotification = true
-        val fragment = ChatFragment.newInstance(channelId, channelName, clanId, channelType, messageId)
+        val fromDmNotification = fromNotification && clanId == 0L
+        val fragment = ChatFragment.newInstance(channelId, channelName, clanId, channelType, messageId, forceLatest = fromNotification, fromDmNotification = fromDmNotification)
         val params = INavigationLayout.NavigationParams(fragment).setNoAnimation(noAnimation)
         actionBarLayout.presentFragment(params)
-    }
-
-    fun resetOpenedDmFromNotification() {
-        openedDmFromNotification = false
     }
 
     private fun rewireTopFragmentCallbacks() {
@@ -446,8 +439,9 @@ class MainActivity : BasePermissionsActivity(),
             )
             notificationCenter.postNotificationOnMainThread(NotificationCenter.navigateToClansTab)
             entryPoint.clansController().selectClan(clanId)
+            entryPoint.chatController().openChannel(channelId, clanId, channelType)
             if (StartupCache.hasSession) {
-                openChat(channelId, channelName, clanId, channelType, messageId, noAnimation = isFromNotification)
+                openChat(channelId, channelName, clanId, channelType, messageId, noAnimation = isFromNotification, fromNotification = true)
             }
             intent.removeExtra(NotificationHelper.EXTRA_CHANNEL_ID)
         } else if (dmId != 0L) {

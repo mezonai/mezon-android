@@ -29,10 +29,23 @@ class MezonFirebaseService : FirebaseMessagingService() {
         super.onMessageReceived(message)
         val data = message.data
         if (data.isEmpty()) {
+            handleNotificationPayload(message)
             return
         }
 
         handleDataPayload(data)
+    }
+
+    private fun handleNotificationPayload(message: RemoteMessage) {
+        val notification = message.notification ?: return
+        val title = notification.title ?: getString(com.mezon.mobile.R.string.app_name)
+        val body = notification.body ?: ""
+
+        if (isAppInForeground()) {
+            notificationHelper.showInAppToast(title, body)
+        } else {
+            notificationHelper.showMessageNotification(title, body)
+        }
     }
 
     private fun handleDataPayload(data: Map<String, String>) {
