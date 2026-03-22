@@ -26,9 +26,6 @@ import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.util.parseContentPreview
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -92,7 +89,7 @@ class DialogsController @Inject constructor(
         activeChannelTracker.clear()
     }
 
-    fun loadDialogs(page: Int = 1, limit: Int = 50) {
+    fun loadDialogs(page: Int = 1, limit: Int = 500) {
         appScope.launch(ioDispatcher) {
             try {
                 val cacheKey = apiCacheKey("listChannelDescs", page)
@@ -107,15 +104,18 @@ class DialogsController @Inject constructor(
                 sessionManager.withAutoRefresh { session ->
                     val currentUserId = session.userId.toLongOrNull() ?: 0L
 
-                    val (dmResponse, groupResponse) = coroutineScope {
-                        val dm = async { api.listChannelDescs(session.apiUrl, session.token, CHANNEL_TYPE_DM, page, limit) }
-                        val group = async { api.listChannelDescs(session.apiUrl, session.token, CHANNEL_TYPE_GROUP, page, limit) }
-                        awaitAll(dm, group).let { it[0] to it[1] }
-                    }
+                    val response = api.listChannelDescs(session.apiUrl, session.token, CHANNEL_TYPE_GROUP, page, limit)
 
-                    val merged = (dmResponse.channeldescList + groupResponse.channeldescList)
+                    val rawList = response.channeldescList
+                    val activeCount = rawList.count { it.active == 1 }
+                    val inactiveCount = rawList.size - activeCount
+                    // Log.d(TAG, "loadDialogs: raw=${rawList.size} active=$activeCount inactive=$inactiveCount")
+                    // rawList.forEachIndexed { i, ch ->
+                    //     Log.d(TAG, "  [$i] channelId=${ch.channelId} type=${ch.type} active=${ch.active} label='${ch.channelLabel}'")
+                    // }
+
+                    val merged = rawList
                         .filter { it.active == 1 }
-                        .distinctBy { it.channelId }
                         .map { it.toDirectMessage(currentUserId) }
                         .sortedByDescending { it.lastMessageTimestamp }
 
@@ -173,9 +173,12 @@ class DialogsController @Inject constructor(
                 parseContentPreview(msg.content) else dm.lastMessageContent
             val newTimestamp = if (!isContentMutation) msg.createTimeSeconds.toLong() else dm.lastMessageTimestamp
 
+            val newSentMessageId = if (!isContentMutation) msg.messageId else dm.lastSentMessageId
+
             val result = dm.copy(
                 lastMessageContent = newPreview.ifBlank { dm.lastMessageContent },
                 lastMessageTimestamp = newTimestamp.takeIf { it > 0 } ?: dm.lastMessageTimestamp,
+                lastSentMessageId = newSentMessageId.takeIf { it > 0 } ?: dm.lastSentMessageId,
                 unreadCount = newUnread
             )
             updatedDm = result
@@ -208,7 +211,7 @@ class DialogsController @Inject constructor(
             synchronized(this) {
                 dialogs.clear()
                 dialogsDict.clear()
-                val sorted = cached.distinctBy { it.channelId }.sortedByDescending { it.lastMessageTimestamp }
+                val sorted = cached.sortedByDescending { it.lastMessageTimestamp }
                 dialogs.addAll(sorted)
                 for (dm in sorted) dialogsDict.put(dm.channelId, dm)
             }

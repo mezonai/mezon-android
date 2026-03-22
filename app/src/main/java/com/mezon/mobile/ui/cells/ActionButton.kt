@@ -3,6 +3,7 @@ package com.mezon.mobile.ui.cells
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.LinearGradient
+import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Shader
 import android.view.MotionEvent
@@ -15,6 +16,7 @@ class ActionButton(context: Context, private val theme: ThemeColors) : View(cont
 
     private val rect = RectF()
     private val cornerRadius = LayoutHelper.dpf(12f)
+    private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var text = ""
     private var isPressed = false
     var isOutlined = false
@@ -40,6 +42,15 @@ class ActionButton(context: Context, private val theme: ThemeColors) : View(cont
         isFocusable = true
     }
 
+    override fun setEnabled(enabled: Boolean) {
+        val changed = enabled != isEnabled
+        super.setEnabled(enabled)
+        if (changed) {
+            gradientShader = null
+            invalidate()
+        }
+    }
+
     fun setText(value: String) {
         text = value
         contentDescription = value
@@ -54,16 +65,18 @@ class ActionButton(context: Context, private val theme: ThemeColors) : View(cont
     override fun onDraw(canvas: Canvas) {
         rect.set(0f, 0f, width.toFloat(), height.toFloat())
 
+        bgPaint.reset()
+        bgPaint.isAntiAlias = true
+
         if (isOutlined) {
-            theme.buttonBgPaint.style = android.graphics.Paint.Style.STROKE
-            theme.buttonBgPaint.strokeWidth = LayoutHelper.dp(1.5f).toFloat()
-            theme.buttonBgPaint.color = theme.primary
-            theme.buttonBgPaint.shader = null
-            canvas.drawRoundRect(rect, cornerRadius, cornerRadius, theme.buttonBgPaint)
-            theme.buttonBgPaint.style = android.graphics.Paint.Style.FILL
+            bgPaint.style = Paint.Style.STROKE
+            bgPaint.strokeWidth = LayoutHelper.dp(1.5f).toFloat()
+            bgPaint.color = theme.primary
+            canvas.drawRoundRect(rect, cornerRadius, cornerRadius, bgPaint)
+            bgPaint.style = Paint.Style.FILL
             theme.buttonTextPaint.color = theme.primary
         } else if (useGradient) {
-            theme.buttonBgPaint.style = android.graphics.Paint.Style.FILL
+            bgPaint.style = Paint.Style.FILL
             if (isEnabled) {
                 if (gradientShader == null || lastWidth != width) {
                     gradientShader = LinearGradient(
@@ -73,26 +86,23 @@ class ActionButton(context: Context, private val theme: ThemeColors) : View(cont
                     )
                     lastWidth = width
                 }
-                theme.buttonBgPaint.shader = gradientShader
+                bgPaint.shader = gradientShader
             } else {
-                theme.buttonBgPaint.shader = null
-                theme.buttonBgPaint.color = disabledColor
+                bgPaint.color = disabledColor
             }
-            canvas.drawRoundRect(rect, cornerRadius, cornerRadius, theme.buttonBgPaint)
-            theme.buttonBgPaint.shader = null
+            canvas.drawRoundRect(rect, cornerRadius, cornerRadius, bgPaint)
             theme.buttonTextPaint.color = 0xFFFFFFFF.toInt()
         } else {
-            theme.buttonBgPaint.style = android.graphics.Paint.Style.FILL
-            theme.buttonBgPaint.shader = null
-            theme.buttonBgPaint.color = if (isEnabled) theme.primary else theme.outline
-            canvas.drawRoundRect(rect, cornerRadius, cornerRadius, theme.buttonBgPaint)
+            bgPaint.style = Paint.Style.FILL
+            bgPaint.color = if (isEnabled) theme.primary else theme.outline
+            canvas.drawRoundRect(rect, cornerRadius, cornerRadius, bgPaint)
             theme.buttonTextPaint.color = theme.onPrimary
         }
 
         if (isPressed && isEnabled) {
-            theme.buttonBgPaint.shader = null
-            theme.buttonBgPaint.color = 0x1A000000
-            canvas.drawRoundRect(rect, cornerRadius, cornerRadius, theme.buttonBgPaint)
+            bgPaint.shader = null
+            bgPaint.color = 0x1A000000
+            canvas.drawRoundRect(rect, cornerRadius, cornerRadius, bgPaint)
         }
 
         val textY = height / 2f - (theme.buttonTextPaint.descent() + theme.buttonTextPaint.ascent()) / 2
