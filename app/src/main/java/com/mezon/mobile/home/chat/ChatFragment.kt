@@ -4,7 +4,6 @@ import android.content.Context
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
-import android.util.Log
 import android.util.LongSparseArray
 import android.view.Gravity
 import android.view.View
@@ -39,12 +38,13 @@ class ChatFragment : BaseFragment() {
     )
 
     companion object {
-        private const val TAG = "ChatFragment"
         private const val ARG_CHANNEL_ID = "channelId"
         private const val ARG_CHANNEL_NAME = "channelName"
         private const val ARG_CLAN_ID = "clanId"
         private const val ARG_CHANNEL_TYPE = "channelType"
         private const val ARG_MESSAGE_ID = "message_id"
+        private const val ARG_FORCE_LATEST = "force_latest"
+        private const val ARG_FROM_DM_NOTIFICATION = "fromDmNotification"
         private const val VIEWPORT_LIMIT = 100
         private const val PAGE_DOWN_SCROLL_THRESHOLD = 15
         private const val SCROLL_STATE_TTL_MS = 5 * 60 * 1000L
@@ -58,7 +58,9 @@ class ChatFragment : BaseFragment() {
             channelName: String,
             clanId: Long = 0L,
             channelType: Int = 0,
-            messageId: Long = 0L
+            messageId: Long = 0L,
+            forceLatest: Boolean = false,
+            fromDmNotification: Boolean = false
         ): ChatFragment = ChatFragment().apply {
             arguments = Bundle().apply {
                 putLong(ARG_CHANNEL_ID, channelId)
@@ -66,6 +68,8 @@ class ChatFragment : BaseFragment() {
                 putLong(ARG_CLAN_ID, clanId)
                 putInt(ARG_CHANNEL_TYPE, channelType)
                 if (messageId != 0L) putLong(ARG_MESSAGE_ID, messageId)
+                if (forceLatest) putBoolean(ARG_FORCE_LATEST, true)
+                if (fromDmNotification) putBoolean(ARG_FROM_DM_NOTIFICATION, true)
             }
         }
     }
@@ -91,6 +95,7 @@ class ChatFragment : BaseFragment() {
     private var channelName = ""
     private var clanId = 0L
     private var channelType = 0
+    private var forceLatest = false
     private var startLoadFromMessageId = 0L
     private var startLoadFromMessageOffset = Int.MAX_VALUE
     private var loadingFromOldPosition = false
@@ -106,6 +111,7 @@ class ChatFragment : BaseFragment() {
     private var newUnreadCount = 0
     private var lastSeenMessageId = 0L
     private var lastSentMessageId = 0L
+    private var fromDmNotification = false
 
     private val messages = ArrayList<MessageEntity>()
     private val messagesDict = LongSparseArray<MessageEntity>()
@@ -118,6 +124,8 @@ class ChatFragment : BaseFragment() {
         channelName = arguments?.getString(ARG_CHANNEL_NAME) ?: ""
         clanId = arguments?.getLong(ARG_CLAN_ID) ?: 0L
         channelType = arguments?.getInt(ARG_CHANNEL_TYPE) ?: 0
+        forceLatest = arguments?.getBoolean(ARG_FORCE_LATEST) ?: false
+        fromDmNotification = arguments?.getBoolean(ARG_FROM_DM_NOTIFICATION) ?: false
         startLoadFromMessageId = arguments?.getLong(ARG_MESSAGE_ID) ?: 0L
 
         if (clanId == 0L) {
@@ -132,25 +140,22 @@ class ChatFragment : BaseFragment() {
         val isSeenUpToDate = lastSentMessageId == 0L || lastSeenMessageId >= lastSentMessageId
         val hasUnread = !isSeenUpToDate && lastSeenMessageId != 0L
 
-        if (startLoadFromMessageId == 0L) {
+        if (startLoadFromMessageId == 0L && !forceLatest) {
             val saved = scrollStates[channelId]
             if (saved != null && System.currentTimeMillis() - saved.timestamp < SCROLL_STATE_TTL_MS) {
                 if (saved.atBottom) {
-                    Log.d(TAG, "Was at bottom (in-memory), skipping hasUnread check")
                     pausedOnLastMessage = true
                 } else if (saved.messageId != 0L) {
                     loadingFromOldPosition = true
                     needScrollRestore = true
                     startLoadFromMessageOffset = saved.offset
                     startLoadFromMessageId = saved.messageId
-                    Log.d(TAG, "Restored scroll position (in-memory): msgId=${saved.messageId} offset=${saved.offset} age=${System.currentTimeMillis() - saved.timestamp}ms")
                 }
             } else if (saved != null) {
-                Log.d(TAG, "Saved scroll position expired (age=${System.currentTimeMillis() - saved.timestamp}ms), removed")
                 scrollStates.remove(channelId)
             }
         }
-        if (hasUnread && startLoadFromMessageId == 0L && !pausedOnLastMessage) {
+        if (hasUnread && startLoadFromMessageId == 0L && !pausedOnLastMessage && !forceLatest) {
             needScrollRestore = true
         }
 
@@ -161,8 +166,6 @@ class ChatFragment : BaseFragment() {
             val moreTop = args[2] as? Boolean ?: false
             val moreBottom = args[3] as? Boolean ?: false
             val isCache = args[4] as? Boolean ?: false
-
-            Log.d(TAG, "messagesDidLoad: loaded=${loadedMessages.size} isCache=$isCache moreTop=$moreTop moreBottom=$moreBottom existing=${messages.size} isLoading=$isLoading isLoadingMore=$isLoadingMore")
 
             val wasLoadingMore = isLoadingMore
             val direction = loadMoreDirection
@@ -293,13 +296,14 @@ class ChatFragment : BaseFragment() {
                 }
             }
 
-            Log.d(TAG, "messagesDidLoad processed: messages=${messages.size} hasMoreBottom=$hasMoreBottom lastSentMessageId=$lastSentMessageId newestInList=${messages.firstOrNull()?.id} fragmentView=${fragmentView != null} firstLoad=$firstLoad")
-
             if (fragmentView != null) {
                 val wasFirstLoad = firstLoad
                 firstLoad = false
                 refreshUI()
-                if (startLoadFromMessageId != 0L) {
+                if (forceLatest && wasFirstLoad) {
+                    forceScrollToBottom()
+                    markAsRead()
+                } else if (startLoadFromMessageId != 0L) {
                     scrollToMessageWithOffset(startLoadFromMessageId, startLoadFromMessageOffset)
                     if (loadingFromOldPosition) {
                         val newestInList = messages.firstOrNull()?.id ?: 0L
@@ -420,8 +424,9 @@ class ChatFragment : BaseFragment() {
             adapter.notifyDataSetChanged()
         }
 
-        Log.d(TAG, "onFragmentCreate: channelId=$channelId channelName=$channelName clanId=$clanId channelType=$channelType hasUnread=$hasUnread startLoadFromMessageId=$startLoadFromMessageId loadingFromOldPosition=$loadingFromOldPosition pausedOnLastMessage=$pausedOnLastMessage")
-        if (startLoadFromMessageId != 0L) {
+        if (forceLatest) {
+            chatController.loadMessages(channelId, clanId)
+        } else if (startLoadFromMessageId != 0L) {
             chatController.loadMessagesAround(channelId, clanId, startLoadFromMessageId)
         } else if (hasUnread && !pausedOnLastMessage) {
             chatController.loadMessagesAround(channelId, clanId, lastSeenMessageId)
@@ -698,23 +703,19 @@ class ChatFragment : BaseFragment() {
     override fun onBecomeFullyVisible() {
         super.onBecomeFullyVisible()
         pausedOnLastMessage = false
-        Log.d(TAG, "onBecomeFullyVisible: channelId=$channelId messages=${messages.size} isLoading=$isLoading firstLoad=$firstLoad")
         dialogsController.setCurrentChannel(channelId)
         if (clanId != 0L) {
             channelController.setCurrentChannel(channelId)
             channelController.markChannelAsRead(channelId)
         }
         if (messages.isNotEmpty()) {
-            Log.d(TAG, "onBecomeFullyVisible: showing ${messages.size} messages")
             showMessages()
             if (!isViewingOlder) markAsRead()
         } else if (!isLoading) {
-            Log.d(TAG, "onBecomeFullyVisible: messages empty, not loading → triggering loadMessages")
             isLoading = true
             showLoading()
             chatController.loadMessages(channelId, clanId)
         } else {
-            Log.d(TAG, "onBecomeFullyVisible: messages empty, already loading → showLoading")
             showLoading()
         }
     }
@@ -751,15 +752,16 @@ class ChatFragment : BaseFragment() {
         val now = System.currentTimeMillis()
         if (messageId != 0L) {
             scrollStates[channelId] = SavedScrollState(messageId, offset, atBottom = false, timestamp = now)
-            Log.d(TAG, "saveScrollPosition: msgId=$messageId offset=$offset")
         } else {
             pausedOnLastMessage = true
             scrollStates[channelId] = SavedScrollState(0L, 0, atBottom = true, timestamp = now)
-            Log.d(TAG, "saveScrollPosition: at bottom")
         }
     }
 
     override fun onFragmentDestroy() {
+        if (fromDmNotification) {
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.navigateToMessagesTab)
+        }
         dialogsController.clearCurrentChannel()
         if (clanId != 0L) channelController.clearCurrentChannel()
         messages.clear()
@@ -768,7 +770,6 @@ class ChatFragment : BaseFragment() {
     }
 
     private fun refreshUI() {
-        Log.d(TAG, "refreshUI: messages=${messages.size} isLoading=$isLoading")
         if (messages.isNotEmpty()) showMessages()
         else if (isLoading) showLoading()
         else showEmpty()
@@ -788,7 +789,6 @@ class ChatFragment : BaseFragment() {
     }
 
     private fun showMessages() {
-        Log.d(TAG, "showMessages: count=${messages.size} hasMoreTop=$hasMoreTop hasMoreBottom=$hasMoreBottom needScrollRestore=$needScrollRestore")
         loadingView.visibility = View.GONE
         errorView.visibility = View.GONE
         recyclerView.visibility = if (needScrollRestore) View.INVISIBLE else View.VISIBLE
@@ -830,9 +830,7 @@ class ChatFragment : BaseFragment() {
                 recyclerView.visibility = View.VISIBLE
                 needScrollRestore = false
             }
-            Log.d(TAG, "scrollToMessageWithOffset: msgId=$messageId idx=$idx offset=$pixelOffset yOffset=$yOffset")
         } else {
-            Log.d(TAG, "scrollToMessageWithOffset: msgId=$messageId NOT FOUND, showing at current position")
             recyclerView.visibility = View.VISIBLE
             needScrollRestore = false
         }

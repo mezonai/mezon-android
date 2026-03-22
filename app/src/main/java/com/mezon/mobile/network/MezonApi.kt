@@ -2,7 +2,6 @@ package com.mezon.mobile.network
 
 import com.mezon.mobile.BuildConfig
 import android.util.Base64
-import android.util.Log
 import com.mezon.mezon.api.Account
 import com.mezon.mezon.api.AccountEmail
 import com.mezon.mezon.api.BlockFriendsRequest
@@ -16,6 +15,8 @@ import com.mezon.mezon.api.ListFriendsRequest
 import com.mezon.mezon.api.ListNotificationsRequest
 import com.mezon.mezon.api.NotificationList
 import com.mezon.mezon.api.Session
+import com.mezon.mezon.api.UploadAttachment
+import com.mezon.mezon.api.uploadAttachmentRequest
 import com.mezon.mezon.api.accountEmail
 import com.mezon.mezon.api.blockFriendsRequest
 import com.mezon.mezon.api.deleteNotificationsRequest
@@ -31,6 +32,7 @@ import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
+import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.client.statement.readBytes
@@ -110,7 +112,6 @@ class MezonApi @Inject constructor(
 ) {
     companion object {
         private val SERVER_KEY = BuildConfig.MEZON_API_KEY
-        private const val TAG = "MezonApi"
     }
 
     suspend fun authenticateEmail(
@@ -130,12 +131,10 @@ class MezonApi @Inject constructor(
 
         if (!response.status.isSuccess()) {
             val errorBody = response.bodyAsText()
-            Log.e(TAG, "Auth failed: ${response.status} - $errorBody")
             throw RuntimeException("Auth failed (${response.status.value}): $errorBody")
         }
 
         val session: AuthSessionResponse = response.body()
-        Log.d(TAG, "Auth success: userId=${session.userId}, apiUrl=${session.apiUrl}")
         return session
     }
 
@@ -155,7 +154,6 @@ class MezonApi @Inject constructor(
 
         if (!response.status.isSuccess()) {
             val errorBody = response.bodyAsText()
-            Log.e(TAG, "RPC $method failed: ${response.status} - $errorBody")
             if (response.status == HttpStatusCode.Unauthorized) {
                 throw UnauthorizedException("RPC $method: 401 Unauthorized")
             }
@@ -188,12 +186,10 @@ class MezonApi @Inject constructor(
 
         if (!response.status.isSuccess()) {
             val errorBody = response.bodyAsText()
-            Log.e(TAG, "SessionRefresh failed: ${response.status} - $errorBody")
             throw RuntimeException("SessionRefresh failed (${response.status.value}): $errorBody")
         }
 
         val session = Session.parseFrom(response.readBytes())
-        Log.d(TAG, "SessionRefresh success")
         return session
     }
 
@@ -215,7 +211,6 @@ class MezonApi @Inject constructor(
 
         val bytes = rpc(apiUrl, token, "ListChannelDescs", request.toByteArray())
         val result = ChannelDescList.parseFrom(bytes)
-        Log.d(TAG, "ListChannelDescs: ${result.channeldescCount} channels (type=$channelType, page=$page)")
         return result
     }
 
@@ -231,7 +226,6 @@ class MezonApi @Inject constructor(
         }
         val bytes = rpc(apiUrl, token, "ListClanDescs", request.toByteArray())
         val result = ClanDescList.parseFrom(bytes)
-        Log.d(TAG, "ListClanDescs: ${result.clandescCount} clans")
         return result
     }
 
@@ -251,7 +245,6 @@ class MezonApi @Inject constructor(
         }
         val bytes = rpc(apiUrl, token, "ListChannelDescs", request.toByteArray())
         val result = ChannelDescList.parseFrom(bytes)
-        Log.d(TAG, "ListChannelsByClan clanId=$clanId: ${result.channeldescCount} channels")
         return result
     }
 
@@ -320,11 +313,9 @@ class MezonApi @Inject constructor(
         }
         if (!response.status.isSuccess()) {
             val errorBody = response.bodyAsText()
-            Log.e(TAG, "AuthenticateEmailOTP failed: ${response.status} - $errorBody")
             throw RuntimeException("AuthenticateEmailOTP failed (${response.status.value}): $errorBody")
         }
         val result: OtpRequestResponse = response.body()
-        Log.d(TAG, "AuthenticateEmailOTP success: reqId=${result.reqId}")
         return result
     }
 
@@ -338,11 +329,9 @@ class MezonApi @Inject constructor(
         }
         if (!response.status.isSuccess()) {
             val errorBody = response.bodyAsText()
-            Log.e(TAG, "AuthenticateSmsOTP failed: ${response.status} - $errorBody")
             throw RuntimeException("AuthenticateSmsOTP failed (${response.status.value}): $errorBody")
         }
         val result: OtpRequestResponse = response.body()
-        Log.d(TAG, "AuthenticateSmsOTP success: reqId=${result.reqId}")
         return result
     }
 
@@ -356,11 +345,9 @@ class MezonApi @Inject constructor(
         }
         if (!response.status.isSuccess()) {
             val errorBody = response.bodyAsText()
-            Log.e(TAG, "ConfirmAuthenticateOTP failed: ${response.status} - $errorBody")
             throw RuntimeException("ConfirmAuthenticateOTP failed (${response.status.value}): $errorBody")
         }
         val session: AuthSessionResponse = response.body()
-        Log.d(TAG, "ConfirmAuthenticateOTP success: userId=${session.userId}")
         return session
     }
 
@@ -411,7 +398,6 @@ class MezonApi @Inject constructor(
         }
         val bytes = rpc(apiUrl, token, "ListChannelMessages", request.toByteArray())
         val result = ChannelMessageList.parseFrom(bytes)
-        Log.d(TAG, "ListChannelMessages: ${result.messagesCount} msgs (channelId=$channelId)")
         return result
     }
 
@@ -560,6 +546,43 @@ class MezonApi @Inject constructor(
             throw RuntimeException("reactToMessageRest failed (${response.status.value}): $errorBody")
         }
         Log.d(TAG, "reactToMessageRest success: messageId=$messageId emoji=$emoji actionDelete=$actionDelete")
+    suspend fun uploadAttachmentFile(
+        apiUrl: String,
+        token: String,
+        filename: String,
+        filetype: String,
+        size: Int,
+        width: Int = 0,
+        height: Int = 0
+    ): UploadAttachment {
+        val request = uploadAttachmentRequest {
+            this.filename = filename
+            this.filetype = filetype
+            this.size = size
+            if (width > 0) this.width = width
+            if (height > 0) this.height = height
+        }
+        val bytes = rpc(apiUrl, token, "UploadAttachmentFile", request.toByteArray())
+        val result = UploadAttachment.parseFrom(bytes)
+        Log.d(TAG, "UploadAttachmentFile: filename=${result.filename} url=${result.url.take(60)}...")
+        return result
+    }
+
+    suspend fun putFileToPresignedUrl(
+        presignedUrl: String,
+        fileBytes: ByteArray,
+        contentType: String
+    ) {
+        val response = httpClient.put(presignedUrl) {
+            header(HttpHeaders.ContentType, contentType)
+            setBody(fileBytes)
+        }
+        if (!response.status.isSuccess()) {
+            val errorBody = response.bodyAsText()
+            Log.e(TAG, "PUT upload failed: ${response.status} - $errorBody")
+            throw RuntimeException("File upload failed (${response.status.value})")
+        }
+        Log.d(TAG, "PUT upload success")
     }
 }
 
@@ -582,4 +605,12 @@ fun channelTypeToStreamMode(channelType: Int): Int = when (channelType) {
     CHANNEL_TYPE_DM -> STREAM_MODE_DM
     CHANNEL_TYPE_THREAD -> STREAM_MODE_THREAD
     else -> STREAM_MODE_CHANNEL
+}
+
+fun streamModeToChannelType(streamMode: Int): Int = when (streamMode) {
+    STREAM_MODE_CHANNEL -> CHANNEL_TYPE_CHANNEL
+    STREAM_MODE_GROUP -> CHANNEL_TYPE_GROUP
+    STREAM_MODE_DM -> CHANNEL_TYPE_DM
+    STREAM_MODE_THREAD -> CHANNEL_TYPE_THREAD
+    else -> CHANNEL_TYPE_CHANNEL
 }

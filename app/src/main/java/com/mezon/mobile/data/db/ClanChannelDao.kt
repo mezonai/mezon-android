@@ -19,6 +19,9 @@ interface ClanChannelDao {
     @Query("DELETE FROM clan_channels WHERE clanId = :clanId AND channelId = :channelId")
     suspend fun delete(clanId: Long, channelId: Long)
 
+    @Query("SELECT * FROM clan_channels WHERE channelId = :channelId")
+    suspend fun getByChannelId(channelId: Long): ClanChannelEntity?
+
     @Query("UPDATE clan_channels SET unreadCount = :count WHERE channelId = :channelId")
     suspend fun updateUnread(channelId: Long, count: Int)
 }

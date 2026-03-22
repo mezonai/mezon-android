@@ -113,8 +113,8 @@ class MezonImageLoader private constructor(context: Context) {
         onSuccess: (Bitmap) -> Unit,
         onError: ((Exception) -> Unit)? = null
     ): Cancellable {
-        if (url.isEmpty()) {
-            onError?.invoke(IllegalArgumentException("Empty URL"))
+        if (url.isEmpty() || !isValidHttpUrl(url)) {
+            onError?.invoke(IllegalArgumentException("Invalid URL: $url"))
             return Cancellable.EMPTY
         }
 
@@ -149,8 +149,8 @@ class MezonImageLoader private constructor(context: Context) {
         onSuccess: (Drawable) -> Unit,
         onError: ((Exception) -> Unit)? = null
     ): Cancellable {
-        if (url.isEmpty()) {
-            onError?.invoke(IllegalArgumentException("Empty URL"))
+        if (url.isEmpty() || !isValidHttpUrl(url)) {
+            onError?.invoke(IllegalArgumentException("Invalid URL: $url"))
             return Cancellable.EMPTY
         }
 
@@ -306,6 +306,12 @@ class MezonImageLoader private constructor(context: Context) {
     private fun decodeAnimatedInBackground(file: File, cacheKey: String) {
         DECODE_EXECUTOR.execute {
             try {
+                // Decode first frame as Bitmap and cache it for instant placeholder on rebind
+                val firstFrame = BitmapFactory.decodeFile(file.absolutePath)
+                if (firstFrame != null) {
+                    putToMemory(cacheKey, firstFrame, 800, 800)
+                }
+
                 if (Build.VERSION.SDK_INT >= 28) {
                     val source = ImageDecoder.createSource(file)
                     val drawable = ImageDecoder.decodeDrawable(source) { decoder, _, _ ->
@@ -313,9 +319,8 @@ class MezonImageLoader private constructor(context: Context) {
                     }
                     dispatchSuccess(cacheKey, drawable)
                 } else {
-                    val bmp = BitmapFactory.decodeFile(file.absolutePath)
-                    if (bmp != null) {
-                        val drawable = android.graphics.drawable.BitmapDrawable(null, bmp)
+                    if (firstFrame != null) {
+                        val drawable = android.graphics.drawable.BitmapDrawable(null, firstFrame)
                         dispatchSuccess(cacheKey, drawable)
                     } else {
                         dispatchError(cacheKey, IOException("Decode failed"))
@@ -413,6 +418,10 @@ class MezonImageLoader private constructor(context: Context) {
                 LinkedBlockingQueue(MAX_DECODE_QUEUE),
                 ThreadPoolExecutor.DiscardOldestPolicy()
             )
+        }
+
+        private fun isValidHttpUrl(url: String): Boolean {
+            return url.startsWith("http://") || url.startsWith("https://")
         }
 
         private fun calculateInSampleSize(options: BitmapFactory.Options, reqWidth: Int, reqHeight: Int): Int {

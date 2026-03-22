@@ -93,6 +93,8 @@ class NotificationCenter(val currentAccount: Int) {
         val startAllHeavyOperations = nextId()
         val closeChats = nextId()
         val needCheckSystemBarColors = nextId()
+        val navigateToMessagesTab = nextId()
+        val navigateToClansTab = nextId()
 
         const val UPDATE_MASK_NAME = 1
         const val UPDATE_MASK_AVATAR = 2

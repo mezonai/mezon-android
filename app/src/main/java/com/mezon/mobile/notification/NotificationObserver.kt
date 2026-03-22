@@ -6,9 +6,9 @@ import com.mezon.mobile.network.CODE_CHAT_UPDATE
 import com.mezon.mobile.network.STREAM_MODE_DM
 import com.mezon.mobile.network.STREAM_MODE_GROUP
 import com.mezon.mobile.network.SocketEventDispatcher
+import com.mezon.mobile.network.streamModeToChannelType
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.util.parseContentPreview
-import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -23,10 +23,6 @@ class NotificationObserver @Inject constructor(
     private val sessionManager: SessionManager,
     @ApplicationScope private val appScope: CoroutineScope
 ) {
-    companion object {
-        private const val TAG = "NotificationObserver"
-    }
-
     init {
         appScope.launch { observeMessages() }
     }
@@ -62,11 +58,9 @@ class NotificationObserver @Inject constructor(
                     channelId = msg.channelId,
                     clanId = msg.clanId,
                     channelName = channelLabel,
-                    channelType = msg.mode
+                    channelType = streamModeToChannelType(msg.mode)
                 )
             }
-
-            Log.d(TAG, "Local notification: sender=$senderName, ch=${msg.channelId}, isDm=$isDm")
         }
     }
 }

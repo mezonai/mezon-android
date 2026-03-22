@@ -10,6 +10,7 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.R
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
@@ -30,6 +31,7 @@ class MessagesFragment : BaseFragment() {
     private lateinit var emptyView: TextView
     private lateinit var errorView: TextView
     private lateinit var adapter: DmListAdapter
+    private var scrollingManually = false
 
     var onOpenChat: ((channelId: Long, channelName: String, clanId: Long, channelType: Int) -> Unit)? = null
 
@@ -106,6 +108,14 @@ class MessagesFragment : BaseFragment() {
                 onOpenChat?.invoke(dm.channelId, dm.displayName.ifEmpty { dm.label }, 0L, dm.type)
             }
         })
+        recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
+                scrollingManually = newState != RecyclerView.SCROLL_STATE_IDLE
+                if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                    updateCellVisibility()
+                }
+            }
+        })
 
         loadingView = ProgressBar(context).apply { visibility = View.GONE }
         contentFrame.addView(loadingView, LayoutHelper.createFrame(48, 48, Gravity.CENTER))
@@ -152,11 +162,25 @@ class MessagesFragment : BaseFragment() {
     }
 
     private fun updateVisibleRows(mask: Int) {
+        if (scrollingManually) return
         if ((mask and NotificationCenter.UPDATE_MASK_NEW_MESSAGE) != 0 || mask == 0) {
             updateDialogsList()
             return
         }
         adapter.updateVisibleRows(recyclerView, mask, controller.getDialogs())
+    }
+
+    private fun updateCellVisibility() {
+        val count = recyclerView.childCount
+        for (i in 0 until count) {
+            val child = recyclerView.getChildAt(i)
+            if (child is DialogCell) {
+                val top = child.top
+                val bottom = child.bottom
+                val visible = bottom > 0 && top < recyclerView.height
+                child.setVisibleOnScreen(visible)
+            }
+        }
     }
 
     private fun updateDialogsList() {

@@ -8,6 +8,7 @@ import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.home.chat.EmojiRepository
 import com.mezon.mobile.home.chat.IEmoji
+import com.mezon.mobile.home.chat.AttachmentPickerItem
 import com.mezon.mobile.home.chat.MessageEntity
 import com.mezon.mobile.home.chat.MessageReactions
 import com.mezon.mobile.home.chat.WriteMessageReactionArgs
@@ -24,7 +25,10 @@ import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.network.channelTypeToStreamMode
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.session.SessionManager
+import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.util.buildTextContent
+import com.mezon.mezon.api.MessageAttachment
+import com.mezon.mezon.api.messageAttachment
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -85,11 +89,28 @@ class ChatController @Inject constructor(
 
     fun openChannel(channelId: Long, clanId: Long, channelType: Int) {
         val isPublic = channelType != CHANNEL_TYPE_DM
+        appScope.launch(ioDispatcher) {
+            val session = sessionManager.sessionFlow.first { it != null }
+            cachedCurrentUserId = session?.userId?.toLongOrNull() ?: 0L
+        }
+    }
+
+    fun cleanup() {
+        synchronized(this) {
+            dialogMessage.clear()
+            initialFetchDone.clear()
+            cachedCurrentUserId = 0L
+        }
+    }
+
+    fun openChannel(channelId: Long, clanId: Long, channelType: Int, isChannelPrivate: Boolean = false) {
+        val isPublic = !isChannelPrivate
+        val mode = channelTypeToStreamMode(channelType)
         cacheTracker.invalidate(apiCacheKey("fetchMessages", clanId, channelId))
         appScope.launch {
             try {
                 mezonSocket.joinChat(clanId, channelId, channelType, isPublic)
-                Log.d(TAG, "Joined channel $channelId (clanId=$clanId type=$channelType)")
+                Log.d(TAG, "Joined channel $channelId (clanId=$clanId type=$channelType isPublic=$isPublic)")
             } catch (e: Exception) {
                 Log.e(TAG, "joinChat failed channelId=$channelId", e)
             }
@@ -279,16 +300,111 @@ class ChatController @Inject constructor(
         }
     }
 
-    fun sendMessage(channelId: Long, clanId: Long, channelType: Int, text: String) {
+    fun sendMessage(channelId: Long, clanId: Long, channelType: Int, isChannelPrivate: Boolean, text: String) {
         val mode = channelTypeToStreamMode(channelType)
-        val isPublic = channelType != CHANNEL_TYPE_DM
+        val isPublic = !isChannelPrivate
         val content = buildTextContent(text)
         appScope.launch {
             try {
                 mezonSocket.writeChatMessage(clanId, channelId, mode, isPublic, content)
-                Log.d(TAG, "Message sent: channelId=$channelId")
+                Log.d(TAG, "Message sent: channelId=$channelId isPublic=$isPublic")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to send message", e)
+            }
+        }
+    }
+
+    fun sendMessageWithAttachments(
+        channelId: Long,
+        clanId: Long,
+        channelType: Int,
+        isChannelPrivate: Boolean,
+        text: String,
+        attachments: List<AttachmentPickerItem>,
+        contentResolver: android.content.ContentResolver
+    ) {
+        val mode = channelTypeToStreamMode(channelType)
+        val isPublic = !isChannelPrivate
+        val content = if (text.isNotBlank()) buildTextContent(text) else "{\"t\":\"\"}"
+
+        appScope.launch(ioDispatcher) {
+            try {
+                val session = sessionManager.sessionFlow.first() ?: return@launch
+                val cdnBaseUrl = BuildConfig.MEZON_BASE_IMG_URL
+                val uploadedAttachments = ArrayList<MessageAttachment>()
+
+                for (item in attachments) {
+                    try {
+                        val timestamp = System.currentTimeMillis() / 1000
+                        val sanitizedName = item.filename.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+                        val uploadFilename = "${timestamp}_$sanitizedName"
+
+                        val presignResult = api.uploadAttachmentFile(
+                            session.apiUrl, session.token,
+                            uploadFilename, item.mimeType,
+                            item.size.toInt(), item.width, item.height
+                        )
+
+                        val fileBytes = contentResolver.openInputStream(item.uri)?.use { it.readBytes() }
+                        if (fileBytes == null) {
+                            Log.e(TAG, "Failed to read file: ${item.filename}")
+                            continue
+                        }
+
+                        api.putFileToPresignedUrl(presignResult.url, fileBytes, item.mimeType)
+
+                        val cdnUrl = "$cdnBaseUrl/${presignResult.filename}"
+                        val attachment = messageAttachment {
+                            this.filename = item.filename
+                            this.url = cdnUrl
+                            this.filetype = item.mimeType
+                            this.size = item.size.toInt()
+                            this.width = item.width
+                            this.height = item.height
+                            if (item.duration > 0) this.duration = item.duration
+                        }
+                        uploadedAttachments.add(attachment)
+                        Log.d(TAG, "Uploaded: ${item.filename} → $cdnUrl")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to upload attachment: ${item.filename}", e)
+                    }
+                }
+
+                if (uploadedAttachments.isNotEmpty()) {
+                    mezonSocket.writeChatMessage(
+                        clanId, channelId, mode, isPublic, content,
+                        attachments = uploadedAttachments
+                    )
+                    Log.d(TAG, "Message with ${uploadedAttachments.size} attachments sent: channelId=$channelId")
+                } else {
+                    Log.e(TAG, "No attachments uploaded successfully")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to send message with attachments", e)
+            }
+        }
+    }
+
+    @Volatile private var cachedCurrentUserId = 0L
+
+    fun getCurrentUserId(): Long {
+        if (cachedCurrentUserId != 0L) return cachedCurrentUserId
+        appScope.launch(ioDispatcher) {
+            val session = sessionManager.sessionFlow.first()
+            cachedCurrentUserId = session?.userId?.toLongOrNull() ?: 0L
+        }
+        return cachedCurrentUserId
+    }
+
+    fun deleteMessage(channelId: Long, clanId: Long, channelType: Int, isChannelPrivate: Boolean, messageId: Long) {
+        val mode = channelTypeToStreamMode(channelType)
+        val isPublic = !isChannelPrivate
+        appScope.launch {
+            try {
+                mezonSocket.removeChatMessage(clanId, channelId, mode, isPublic, messageId)
+                Log.d(TAG, "Message deleted: channelId=$channelId messageId=$messageId isPublic=$isPublic")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to delete message", e)
             }
         }
     }

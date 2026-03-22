@@ -2,7 +2,6 @@ package com.mezon.mobile.ui.cells
 
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
-import android.animation.ObjectAnimator
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -13,9 +12,11 @@ import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 
@@ -30,11 +31,19 @@ class ToastOverlay(context: Context, private val theme: ThemeColors) : FrameLayo
         isFocusable = false
     }
 
-    fun show(parent: ViewGroup, type: ToastType, title: String, description: String? = null, durationMs: Long = 3000L) {
+    fun show(
+        parent: ViewGroup,
+        type: ToastType,
+        title: String,
+        description: String? = null,
+        durationMs: Long = 3000L,
+        onTap: (() -> Unit)? = null
+    ) {
         val toastView = ToastView(context, theme, type, title, description)
+        val statusBarHeight = AndroidUtilities.statusBarHeight
         val lp = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            topMargin = LayoutHelper.dp(16)
+            topMargin = statusBarHeight + LayoutHelper.dp(8)
             leftMargin = LayoutHelper.dp(16)
             rightMargin = LayoutHelper.dp(16)
         }
@@ -47,19 +56,46 @@ class ToastOverlay(context: Context, private val theme: ThemeColors) : FrameLayo
             parent.addView(this, overlayLp)
         }
 
+        if (onTap != null) {
+            toastView.isClickable = true
+            toastView.setOnClickListener {
+                handler.removeCallbacksAndMessages(null)
+                dismiss()
+                onTap()
+            }
+        }
+
+        var startY = 0f
+        toastView.setOnTouchListener { _, ev ->
+            when (ev.action) {
+                MotionEvent.ACTION_DOWN -> startY = ev.y
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (startY - ev.y > AndroidUtilities.touchSlop) {
+                        handler.removeCallbacksAndMessages(null)
+                        dismiss()
+                        return@setOnTouchListener true
+                    }
+                }
+            }
+            false
+        }
+
         toastView.translationY = -LayoutHelper.dpf(80f)
         toastView.alpha = 0f
         toastView.animate().translationY(0f).alpha(1f).setDuration(250).start()
 
-        handler.postDelayed({
-            toastView.animate().translationY(-LayoutHelper.dpf(80f)).alpha(0f).setDuration(250)
-                .setListener(object : AnimatorListenerAdapter() {
-                    override fun onAnimationEnd(animation: Animator) {
-                        removeAllViews()
-                        (this@ToastOverlay.parent as? ViewGroup)?.removeView(this@ToastOverlay)
-                    }
-                }).start()
-        }, durationMs)
+        handler.postDelayed({ dismiss() }, durationMs)
+    }
+
+    private fun dismiss() {
+        val view = if (childCount > 0) getChildAt(0) else null
+        view?.animate()?.translationY(-LayoutHelper.dpf(80f))?.alpha(0f)?.setDuration(250)
+            ?.setListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    removeAllViews()
+                    (this@ToastOverlay.parent as? ViewGroup)?.removeView(this@ToastOverlay)
+                }
+            })?.start()
     }
 
     private class ToastView(

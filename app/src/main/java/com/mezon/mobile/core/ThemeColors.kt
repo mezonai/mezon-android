@@ -11,6 +11,10 @@ import javax.inject.Singleton
 @Singleton
 class ThemeColors @Inject constructor() {
 
+    init {
+        instance = this
+    }
+
     interface ResourcesProvider {
         fun getColor(key: Int): Int?
         fun getColorOrDefault(key: Int): Int = getColor(key) ?: instance.getColor(key)
@@ -59,14 +63,14 @@ class ThemeColors @Inject constructor() {
     val dividerPaint = Paint()
 
     val chatSenderPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = LayoutHelper.sp(12f)
+        textSize = LayoutHelper.sp(14f)
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }
     val chatContentPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = LayoutHelper.sp(15f)
+        textSize = LayoutHelper.sp(14f) 
     }
     val chatContentOutPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = LayoutHelper.sp(15f)
+        textSize = LayoutHelper.sp(14f)
     }
     val chatTimePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = LayoutHelper.sp(11f)
@@ -242,6 +246,15 @@ class ThemeColors @Inject constructor() {
         currentColors[key_profile_tabSelectedText] = primary
         currentColors[key_profile_tabText] = onSurfaceVariant
         currentColors[key_profile_tabSelector] = (primary and 0x00FFFFFF) or 0x29000000
+
+        currentColors[key_sheetItemBackground] = when (resolvedMode) {
+            ThemeMode.LIGHT -> 0xFFF2F3F6.toInt()
+            ThemeMode.DARK -> 0xFF2B2B33.toInt()
+            ThemeMode.ABYSS -> 0xFF14142A.toInt()
+            else -> 0xFF2B2B33.toInt()
+        }
+        currentColors[key_dialogTextRed] = error
+        currentColors[key_dialogIcon] = onSurfaceVariant
 
         System.arraycopy(currentColors, 0, defaultColors, 0, NUM_KEYS)
     }
@@ -510,6 +523,10 @@ class ThemeColors @Inject constructor() {
         const val key_profile_tabText = 108
         const val key_profile_tabSelector = 109
 
-        const val NUM_KEYS = 110
+        const val key_sheetItemBackground = 110
+        const val key_dialogTextRed = 111
+        const val key_dialogIcon = 112
+
+        const val NUM_KEYS = 113
     }
 }

@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.jetbrains.kotlin.android)
@@ -10,6 +12,18 @@ plugins {
 android {
     namespace = "com.mezon.mobile"
     compileSdk = 34
+
+    val signingPropsFile = rootProject.file("signing.properties")
+    val signingProps = Properties().apply {
+        if (signingPropsFile.exists()) {
+            signingPropsFile.inputStream().use { load(it) }
+        }
+    }
+
+    fun signingProp(name: String): String =
+        requireNotNull(signingProps.getProperty(name)) {
+            "Missing '$name' in signing.properties"
+        }
 
     defaultConfig {
         applicationId = "com.mezon.mobile"
@@ -97,6 +111,15 @@ android {
             keyAlias = "androiddebugkey"
             keyPassword = "android"
         }
+
+        if (signingPropsFile.exists()) {
+            create("release") {
+                storeFile = rootProject.file(signingProp("MYAPP_RELEASE_STORE_FILE"))
+                storePassword = signingProp("MYAPP_RELEASE_STORE_PASSWORD")
+                keyAlias = signingProp("MYAPP_RELEASE_KEY_ALIAS")
+                keyPassword = signingProp("MYAPP_RELEASE_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
@@ -104,6 +127,9 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
         release {
+            if (signingPropsFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -153,7 +179,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.play.services)
 
     // Core
-    implementation(libs.androidx.appcompat)
+    // implementation(libs.androidx.appcompat)
     implementation(libs.androidx.core.ktx)
 
     // Splash Screen

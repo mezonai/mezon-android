@@ -5,31 +5,29 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.util.Log
 import android.view.ActionMode
 import android.view.Menu
 import android.view.ViewGroup
 import android.view.WindowManager
-import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.mezon.mobile.auth.LoginFragment
 import com.mezon.mobile.auth.OTPVerificationFragment
-import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.ActionBarLayout
-import com.mezon.mobile.core.SharedConfig
+import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.DrawerLayoutContainer
 import com.mezon.mobile.core.INavigationLayout
 import com.mezon.mobile.core.NotificationCenter
+import com.mezon.mobile.core.SharedConfig
+import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.core.ThemeColors
-import com.mezon.mobile.home.ChatController
-import com.mezon.mobile.home.ConnectionController
-import com.mezon.mobile.home.DialogsController
+import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.MainTabsActivity
 import com.mezon.mobile.home.chat.ChatFragment
-import com.mezon.mobile.home.notifications.NotificationStore
+import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
+import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.notification.FcmRepository
 import com.mezon.mobile.notification.NotificationHelper
 import com.mezon.mobile.session.AutoNightConfig
@@ -38,18 +36,16 @@ import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.session.ThemeManager
 import com.mezon.mobile.ui.theme.ThemeMode
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
+import dagger.hilt.android.EntryPointAccessors
 import javax.inject.Inject
 
 @AndroidEntryPoint
-class MainActivity : AppCompatActivity(),
+class MainActivity : BasePermissionsActivity(),
     INavigationLayout.INavigationLayoutDelegate,
     NotificationCenter.NotificationCenterDelegate {
 
     companion object {
         private const val TAG = "MainActivity"
-        private const val REQUEST_NOTIFICATION_PERMISSION = 1001
 
         var instance: MainActivity? = null
             private set
@@ -76,22 +72,21 @@ class MainActivity : AppCompatActivity(),
     @Inject lateinit var themeColors: ThemeColors
     @Inject lateinit var notificationCenter: NotificationCenter
     @Inject lateinit var fcmRepository: FcmRepository
-    @Suppress("unused") @Inject lateinit var connectionController: ConnectionController
-    @Suppress("unused") @Inject lateinit var chatController: ChatController
-    @Suppress("unused") @Inject lateinit var dialogsController: DialogsController
-    @Suppress("unused") @Inject lateinit var notificationStore: NotificationStore
 
     lateinit var actionBarLayout: ActionBarLayout
     lateinit var drawerLayoutContainer: DrawerLayoutContainer
         private set
 
-    private var currentAccount = 0
     private var currentConnectionState = 0
     lateinit var autoNightConfig: AutoNightConfig
         private set
 
+    private var isContentReady = false
+    private val dismissSplashRunnable = Runnable { isContentReady = true }
+    private var splashContentObserver: NotificationCenter.NotificationCenterDelegate? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
-        installSplashScreen()
+        val splashScreen = installSplashScreen()
         instance = this
         isActive = true
         super.onCreate(savedInstanceState)
@@ -100,10 +95,21 @@ class MainActivity : AppCompatActivity(),
         SharedConfig.init(this)
         autoNightConfig = AutoNightConfig(this)
         themeManager.initAutoNight(autoNightConfig)
-        runBlocking { localeManager.restoreOnColdStart() }
+
+        val themeMode = StartupCache.themeMode
+        val hasSession = StartupCache.hasSession
+        localeManager.restoreFromCache()
+
+        applyLocaleToActivity()
         lastLocaleTag = resources.configuration.locales[0]?.toLanguageTag()
-        val themeMode = runBlocking { themeManager.themeMode.first() }
         themeColors.setTheme(themeMode, isSystemDarkMode())
+
+        if (hasSession) {
+            splashScreen.setKeepOnScreenCondition { !isContentReady }
+            preInitControllers()
+        } else {
+            isContentReady = true
+        }
 
         actionBarLayout = ActionBarLayout(this, this)
         actionBarLayout.setDependencies(themeColors, notificationCenter)
@@ -129,9 +135,9 @@ class MainActivity : AppCompatActivity(),
         applySystemBarColors(themeMode)
 
         if (mainFragmentsStack.isEmpty()) {
-            val stored = runBlocking { sessionManager.sessionFlow.first() }
-            if (stored != null) {
+            if (hasSession) {
                 showHome()
+                setupSplashDismiss()
                 fcmRepository.getAndRegisterToken()
             } else {
                 showLogin()
@@ -175,6 +181,12 @@ class MainActivity : AppCompatActivity(),
     override fun onDestroy() {
         super.onDestroy()
         actionBarLayout.unregisterBackCallback()
+        AndroidUtilities.cancelRunOnUIThread(dismissSplashRunnable)
+        splashContentObserver?.let {
+            notificationCenter.removeObserver(it, NotificationCenter.clansDidLoad)
+            notificationCenter.removeObserver(it, NotificationCenter.dialogsNeedReload)
+            splashContentObserver = null
+        }
 
         autoNightConfig.stopSensorListening()
         NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.themeChanged)
@@ -235,6 +247,7 @@ class MainActivity : AppCompatActivity(),
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (!checkPermissionsResult(requestCode, permissions, grantResults)) return
         actionBarLayout.onRequestPermissionsResult(requestCode, permissions, grantResults)
     }
 
@@ -244,13 +257,15 @@ class MainActivity : AppCompatActivity(),
         when (id) {
             NotificationCenter.themeChanged -> {
                 val mode = args.firstOrNull() as? ThemeMode
-                    ?: runBlocking { themeManager.themeMode.first() }
+                    ?: StartupCache.themeMode
                 themeColors.setTheme(mode, isSystemDarkMode())
                 drawerLayoutContainer.setBehindKeyboardColor(themeColors.surface)
                 applySystemBarColors(mode)
                 rebuildAllFragments(true)
             }
             NotificationCenter.languageChanged -> {
+                applyLocaleToActivity()
+                rebuildAllFragments(true)
             }
             NotificationCenter.autoNightModeChanged -> {
                 val userMode = themeColors.currentMode
@@ -308,6 +323,30 @@ class MainActivity : AppCompatActivity(),
         actionBarLayout.rebuildAllFragmentViews(last, last)
     }
 
+    private fun preInitControllers() {
+        val entryPoint = EntryPointAccessors.fromApplication(
+            applicationContext, FragmentEntryPoint::class.java
+        )
+        entryPoint.clansController()
+        entryPoint.dialogsController()
+    }
+
+    private fun setupSplashDismiss() {
+        val observer = object : NotificationCenter.NotificationCenterDelegate {
+            override fun didReceivedNotification(id: Int, account: Int, vararg args: Any?) {
+                isContentReady = true
+                AndroidUtilities.cancelRunOnUIThread(dismissSplashRunnable)
+                notificationCenter.removeObserver(this, NotificationCenter.clansDidLoad)
+                notificationCenter.removeObserver(this, NotificationCenter.dialogsNeedReload)
+                splashContentObserver = null
+            }
+        }
+        splashContentObserver = observer
+        notificationCenter.addObserver(observer, NotificationCenter.clansDidLoad)
+        notificationCenter.addObserver(observer, NotificationCenter.dialogsNeedReload)
+        AndroidUtilities.runOnUIThread(dismissSplashRunnable, 3000)
+    }
+
     private fun showLogin() {
         mainFragmentsStack.clear()
         val fragment = LoginFragment().apply {
@@ -324,12 +363,18 @@ class MainActivity : AppCompatActivity(),
                 openChat(channelId, channelName, clanId, channelType)
             }
         }
+        actionBarLayout.removeAllFragments()
+        actionBarLayout.containerView.removeAllViews()
+        actionBarLayout.containerViewBack.removeAllViews()
         mainFragmentsStack.clear()
         actionBarLayout.addFragmentToStack(mainTabsActivity)
         actionBarLayout.showLastFragment()
     }
 
     private fun switchToLogin() {
+        actionBarLayout.removeAllFragments()
+        actionBarLayout.containerView.removeAllViews()
+        actionBarLayout.containerViewBack.removeAllViews()
         mainFragmentsStack.clear()
         showLogin()
     }
@@ -349,13 +394,15 @@ class MainActivity : AppCompatActivity(),
         clanId: Long,
         channelType: Int,
         messageId: Long = 0L,
-        noAnimation: Boolean = false
+        noAnimation: Boolean = false,
+        fromNotification: Boolean = false
     ) {
         val lastFragment = actionBarLayout.getLastFragment()
         if (lastFragment is ChatFragment && lastFragment.getChannelId() == channelId && messageId == 0L) {
             return
         }
-        val fragment = ChatFragment.newInstance(channelId, channelName, clanId, channelType, messageId)
+        val fromDmNotification = fromNotification && clanId == 0L
+        val fragment = ChatFragment.newInstance(channelId, channelName, clanId, channelType, messageId, forceLatest = fromNotification, fromDmNotification = fromDmNotification)
         val params = INavigationLayout.NavigationParams(fragment).setNoAnimation(noAnimation)
         actionBarLayout.presentFragment(params)
     }
@@ -379,23 +426,27 @@ class MainActivity : AppCompatActivity(),
         val isFromNotification = action != null && action.startsWith(NotificationHelper.ACTION_OPEN_CHAT)
         val extras = intent.extras ?: return
 
+        val clanId = extras.getLong(NotificationHelper.EXTRA_CLAN_ID, 0L)
         val channelId = extras.getLong(NotificationHelper.EXTRA_CHANNEL_ID, 0L)
         val dmId = extras.getLong(NotificationHelper.EXTRA_DM_ID, 0L)
         val messageId = extras.getLong(NotificationHelper.EXTRA_MESSAGE_ID, 0L)
+        val channelName = extras.getString(NotificationHelper.EXTRA_CHANNEL_NAME, "") ?: ""
 
-        if (channelId != 0L) {
-            val channelName = extras.getString(NotificationHelper.EXTRA_CHANNEL_NAME, "") ?: ""
-            val clanId = extras.getLong(NotificationHelper.EXTRA_CLAN_ID, 0L)
-            val channelType = extras.getInt(NotificationHelper.EXTRA_CHANNEL_TYPE, 0)
-            val stored = runBlocking { sessionManager.sessionFlow.first() }
-            if (stored != null) {
-                openChat(channelId, channelName, clanId, channelType, messageId, noAnimation = isFromNotification)
+        if (clanId != 0L && channelId != 0L) {
+            val channelType = extras.getInt(NotificationHelper.EXTRA_CHANNEL_TYPE, CHANNEL_TYPE_CHANNEL)
+            val entryPoint = EntryPointAccessors.fromApplication(
+                applicationContext, FragmentEntryPoint::class.java
+            )
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.navigateToClansTab)
+            entryPoint.clansController().selectClan(clanId)
+            entryPoint.chatController().openChannel(channelId, clanId, channelType)
+            if (StartupCache.hasSession) {
+                openChat(channelId, channelName, clanId, channelType, messageId, noAnimation = isFromNotification, fromNotification = true)
             }
             intent.removeExtra(NotificationHelper.EXTRA_CHANNEL_ID)
         } else if (dmId != 0L) {
-            val stored = runBlocking { sessionManager.sessionFlow.first() }
-            if (stored != null) {
-                openChat(dmId, "", 0L, 3, messageId, noAnimation = isFromNotification)
+            if (StartupCache.hasSession) {
+                openChat(dmId, channelName, 0L, CHANNEL_TYPE_DM, messageId, noAnimation = isFromNotification, fromNotification = isFromNotification)
             }
             intent.removeExtra(NotificationHelper.EXTRA_DM_ID)
         }
@@ -410,7 +461,7 @@ class MainActivity : AppCompatActivity(),
                 ActivityCompat.requestPermissions(
                     this,
                     arrayOf(Manifest.permission.POST_NOTIFICATIONS),
-                    REQUEST_NOTIFICATION_PERMISSION
+                    REQUEST_CODE_NOTIFICATION
                 )
             }
         }
@@ -441,6 +492,14 @@ class MainActivity : AppCompatActivity(),
                 rebuildAllFragments(true)
             }
         }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun applyLocaleToActivity() {
+        val locale = localeManager.currentLocale
+        val config = android.content.res.Configuration(resources.configuration)
+        config.setLocale(locale)
+        resources.updateConfiguration(config, resources.displayMetrics)
     }
 
     private fun isSystemDarkMode(): Boolean =

@@ -40,6 +40,8 @@ class ConnectionController @Inject constructor(
     @Volatile var connectionState: ConnectionState = ConnectionState.DISCONNECTED
         private set
 
+    @Volatile private var fcmRegistered = false
+
     init {
         appScope.launch { observeConnectionState() }
         appScope.launch { connectSocket() }
@@ -47,7 +49,6 @@ class ConnectionController @Inject constructor(
         appScope.launch { observeSessionExpired() }
         appScope.launch { observeNetworkRestore() }
         appScope.launch { observeSocketReconnect() }
-        appScope.launch { registerFcmToken() }
     }
 
     fun disconnect() {
@@ -56,6 +57,10 @@ class ConnectionController @Inject constructor(
 
     fun handleAppForeground() {
         appScope.launch {
+            if (!fcmRegistered) {
+                fcmRegistered = true
+                registerFcmToken()
+            }
             if (!networkMonitor.isOnline.value) return@launch
             try { sessionManager.requireValidSession() }
             catch (e: java.io.IOException) { return@launch }

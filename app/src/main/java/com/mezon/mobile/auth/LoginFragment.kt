@@ -21,6 +21,7 @@ import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import com.mezon.mobile.R
+import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.di.FragmentEntryPoint
@@ -174,6 +175,11 @@ class LoginFragment : BaseFragment() {
         passwordRow.addView(showPasswordRow, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.START, 0f, 0f, 0f, 12f))
 
         showPasswordCheck = CheckBox(context).apply {
+            minWidth = 0
+            minimumWidth = 0
+            minHeight = 0
+            minimumHeight = 0
+            setPadding(0, 0, 0, 0)
             setOnCheckedChangeListener { _, isChecked ->
                 passwordCell.editText.inputType = if (isChecked) {
                     InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
@@ -183,16 +189,20 @@ class LoginFragment : BaseFragment() {
                 passwordCell.editText.setSelection(passwordCell.getText().length)
             }
         }
-        showPasswordRow.addView(showPasswordCheck, LinearLayout.LayoutParams(LayoutHelper.dp(18), LayoutHelper.dp(18)))
+        showPasswordRow.addView(showPasswordCheck, LinearLayout.LayoutParams(
+            LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT
+        ).apply { gravity = Gravity.CENTER_VERTICAL })
 
         showPasswordLabel = TextView(context).apply {
             text = getString(R.string.common_login_show_password)
             setTextColor(themeColors.onSurfaceVariant)
             textSize = 14f
-            setPadding(LayoutHelper.dp(8), 0, 0, 0)
+            setPadding(LayoutHelper.dp(4), 0, 0, 0)
             setOnClickListener { showPasswordCheck.toggle() }
         }
-        showPasswordRow.addView(showPasswordLabel)
+        showPasswordRow.addView(showPasswordLabel, LinearLayout.LayoutParams(
+            LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT
+        ).apply { gravity = Gravity.CENTER_VERTICAL })
 
         errorText = TextView(context).apply {
             setTextColor(themeColors.error)
@@ -248,6 +258,23 @@ class LoginFragment : BaseFragment() {
         passwordCell.editText.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_DONE) { doSubmit(); true } else false
         }
+
+        val resetWatcher = object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                if (errorText.visibility == View.VISIBLE) {
+                    errorText.visibility = View.GONE
+                }
+                submitButton.isEnabled = true
+                submitButton.visibility = View.VISIBLE
+                progressBar.visibility = View.GONE
+                submitButton.invalidate()
+            }
+        }
+        phoneCell.editText.addTextChangedListener(resetWatcher)
+        emailCell.editText.addTextChangedListener(resetWatcher)
+        passwordCell.editText.addTextChangedListener(resetWatcher)
 
         applyMode(LoginMode.SMS)
 
@@ -343,6 +370,7 @@ class LoginFragment : BaseFragment() {
     }
 
     private fun doSubmit() {
+        AndroidUtilities.hideKeyboard(fragmentView)
         when (currentMode) {
             LoginMode.SMS -> doSmsOTP()
             LoginMode.OTP -> doEmailOTP()
@@ -503,7 +531,7 @@ class LoginFragment : BaseFragment() {
     }
 
     private fun showError(message: String) {
-        submitButton.isEnabled = true
+        submitButton.isEnabled = false
         submitButton.visibility = View.VISIBLE
         progressBar.visibility = View.GONE
         errorText.visibility = View.VISIBLE
