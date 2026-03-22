@@ -66,6 +66,7 @@ class NotificationCenter(val currentAccount: Int) {
         val messageDidUpdate = nextId()
         val messageDidDelete = nextId()
         val messagesLoadError = nextId()
+        val messageReactionsDidUpdate = nextId()  // args: channelId(Long), messageId(Long), MessageReactions
         val onlineStatusChanged = nextId()
         val markAsRead = nextId()
         val connectionStateChanged = nextId()

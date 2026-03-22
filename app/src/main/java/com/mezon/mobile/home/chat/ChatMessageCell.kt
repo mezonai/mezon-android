@@ -40,6 +40,28 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         private set
     var isCombined: Boolean = false
 
+    // Reaction row — child view placed below the bubble
+    // MUST be declared before init block so addView(reactionRowView) works
+    val reactionRowView = ReactionRowView(context, theme).apply {
+        setPadding(0, LayoutHelper.dp(2f), 0, 0)
+    }
+    private val reactionRowMarginLeft get() = PAD_H + AVATAR_SIZE + GAP_AVATAR
+    private val reactionRowMarginRight = LayoutHelper.dp(12)
+    private var reactionRowH = 0   // measured height of reactionRowView (may be 0 if no reactions)
+
+     init {
+        isLongClickable = true
+        setOnLongClickListener {
+            val msg = messageEntity
+            if (msg != null) {
+                delegate?.onMessageLongPressed(this, msg)
+            }
+            true 
+        }
+
+        // ReactionRowView — added as a real child so it gets touch events & layout
+        addView(reactionRowView)
+    }
     private val avatarDrawable = AvatarDrawable()
     private var currentAvatarUrl: String? = null
     private var measuredCellHeight = LayoutHelper.dp(60)
@@ -778,7 +800,13 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             cachedMeasuredWidth = w
             buildLayouts(msg)
         }
-        setMeasuredDimension(w, measuredCellHeight)
+        // Measure reaction row
+        val reactionAvailW = (w - reactionRowMarginLeft - reactionRowMarginRight).coerceAtLeast(0)
+        val wSpec = MeasureSpec.makeMeasureSpec(reactionAvailW, MeasureSpec.EXACTLY)
+        val hSpec = MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED)
+        reactionRowView.measure(wSpec, hSpec)
+        reactionRowH = reactionRowView.measuredHeight
+        setMeasuredDimension(w, measuredCellHeight + reactionRowH)
     }
 
     var delegate: ChatMessageCellDelegate? = null
@@ -788,6 +816,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         fun didClickFile(cell: ChatMessageCell, msg: MessageEntity) {}
         fun didClickMention(cell: ChatMessageCell, userId: String?, roleId: String?) {}
         fun didClickHashtag(cell: ChatMessageCell, channelId: String?) {}
+        fun onMessageLongPressed(cell: ChatMessageCell, msg: MessageEntity) {}
+        fun onReactionChipClicked(cell: ChatMessageCell, msg: MessageEntity, emojiId: String, shortname: String, isMine: Boolean) {}
+        fun onReactionChipLongPressed(cell: ChatMessageCell, msg: MessageEntity, emojiId: String, shortname: String) {}
     }
 
     private var pressedLink: ClickableSpan? = null
@@ -971,6 +1002,37 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         if (drawError) {
             drawErrorText(canvas, msg)
         }
+    }
+
+    override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
+        // Position ReactionRowView just below the bubble content
+        val rowLeft = reactionRowMarginLeft
+        val rowTop  = measuredCellHeight
+        reactionRowView.layout(
+            rowLeft, rowTop,
+            rowLeft + reactionRowView.measuredWidth,
+            rowTop + reactionRowH
+        )
+    }
+
+    /** Bind a new set of reactions to this cell. Call this from ChatFragment on the main thread. */
+    fun setReactions(chips: List<com.mezon.mobile.home.chat.ReactionChip>) {
+        reactionRowView.onReactionClick = null
+        reactionRowView.onReactionChipLongPressed = null
+        reactionRowView.bind(chips)
+        reactionRowView.onReactionClick = { chip ->
+            val msg = messageEntity
+            if (msg != null) {
+                delegate?.onReactionChipClicked(this, msg, chip.emojiId, chip.shortname, chip.isMine)
+            }
+        }
+        reactionRowView.onReactionChipLongPressed = { chip ->
+            val msg = messageEntity
+            if (msg != null) {
+                delegate?.onReactionChipLongPressed(this, msg, chip.emojiId, chip.shortname)
+            }
+        }
+        requestLayout()
     }
 
     private fun drawStickerOnly(canvas: Canvas, msg: MessageEntity) {

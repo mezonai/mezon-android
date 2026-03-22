@@ -445,6 +445,122 @@ class MezonApi @Inject constructor(
         }
         return rpc(apiUrl, token, "DeleteNotifications", request.toByteArray())
     }
+
+    /**
+     * Lấy danh sách emoji gần đây từ server (giống RN: emojiRecentList).
+     * Trả về list emoji_id (Long) theo thứ tự mới nhất trước.
+     */
+    suspend fun getEmojiRecentList(apiUrl: String, token: String): List<Long> {
+        return try {
+            val bytes = rpc(apiUrl, token, "GetEmojiRecentList", ByteArray(0))
+            val response = com.mezon.mezon.api.EmojiRecentList.parseFrom(bytes)
+            response.getEmojiRecentsList()
+                .filter { it.emojiId != 0L }
+                .map { it.emojiId }
+                .also { Log.d(TAG, "getEmojiRecentList: got ${it.size} recent emojis") }
+        } catch (e: Exception) {
+            Log.w(TAG, "getEmojiRecentList failed: ${e.message}")
+            emptyList()
+        }
+    }
+
+    /**
+     * Lấy danh sách emoji qua REST HTTP (giống RN: getListEmojisByUserId).
+     * Fallback về 5 emoji hardcoded nếu API fail.
+     */
+    suspend fun getListEmojisByUserId(
+        apiUrl: String,
+        token: String
+    ): List<com.mezon.mobile.home.chat.IEmoji> {
+        // Hardcoded fallback – các emoji chuẩn Mezon
+        val fallback = listOf(
+            com.mezon.mobile.home.chat.IEmoji(id = "7227274405303613492", shortname = ":like:", src = "https://cdn.mezon.vn/emojis/7227274405303613492.webp"),
+            com.mezon.mobile.home.chat.IEmoji(id = "7227274405302432668", shortname = ":joy:", src = "https://cdn.mezon.vn/emojis/7227274405302432668.webp"),
+            com.mezon.mobile.home.chat.IEmoji(id = "7227274405304181951", shortname = ":100:", src = "https://cdn.mezon.vn/emojis/7227274405304181951.webp"),
+            com.mezon.mobile.home.chat.IEmoji(id = "7227274405305046042", shortname = ":laughing:", src = "https://cdn.mezon.vn/emojis/7227274405305046042.webp"),
+            com.mezon.mobile.home.chat.IEmoji(id = "7227274405301971870", shortname = ":innocent:", src = "https://cdn.mezon.vn/emojis/7227274405301971870.webp")
+        )
+
+        return try {
+            // Dùng đúng RPC: GetListEmojisByUserId (không cần request body)
+            // Giống RN: ensuredMezon.client.getListEmojisByUserId(session)
+            val bytes = rpc(apiUrl, token, "GetListEmojisByUserId", ByteArray(0))
+            val response = com.mezon.mezon.api.EmojiListedResponse.parseFrom(bytes)
+            val list = response.getEmojiListList().mapNotNull { proto ->
+                val id = proto.id.toString()
+                if (id == "0") return@mapNotNull null
+                val src = proto.src.ifBlank { null }
+                    ?: "https://cdn.mezon.vn/emojis/$id.webp"
+                com.mezon.mobile.home.chat.IEmoji(
+                    id        = id,
+                    shortname = proto.shortname.ifBlank { null },
+                    src       = src,
+                    category  = proto.category.ifBlank { null },
+                    clanId    = if (proto.clanId != 0L) proto.clanId.toString() else null,
+                    clanName  = proto.clanName.ifBlank { null },
+                    isForSale = proto.isForSale
+                )
+            }
+            Log.d(TAG, "getListEmojisByUserId: got ${list.size} emojis (clan + standard)")
+            if (list.isEmpty()) fallback else list
+        } catch (e: Exception) {
+            Log.w(TAG, "getListEmojisByUserId failed: ${e.message}")
+            fallback
+        }
+    }
+
+
+    /**
+     * HTTP REST fallback khi WebSocket bị timeout hoặc lỗi.
+     * POST /v2/clan/{clanId}/channel/{channelId}/message/{messageId}/react
+     */
+    suspend fun reactToMessageRest(
+        apiUrl: String,
+        token: String,
+        clanId: String,
+        channelId: String,
+        messageId: String,
+        emojiId: String,
+        emoji: String,
+        count: Int,
+        messageSenderId: String,
+        actionDelete: Boolean,
+        mode: Int,
+        isPublic: Boolean,
+        topicId: String = "0",
+        emojiRecentId: String = "0",
+        senderName: String = ""
+    ) {
+        val clanIdPath = clanId.ifBlank { "0" }
+        val url = "$apiUrl/v2/clan/$clanIdPath/channel/$channelId/message/$messageId/react"
+        val bodyJson = org.json.JSONObject().apply {
+            put("emoji_id", emojiId)
+            put("emoji", emoji)
+            put("count", count)
+            put("message_sender_id", messageSenderId)
+            put("action_delete", actionDelete)
+            put("mode", mode)
+            put("is_public", isPublic)
+            put("topic_id", topicId)
+            put("emoji_recent_id", emojiRecentId)
+            put("sender_name", senderName)
+        }.toString()
+
+        val response = httpClient.post(url) {
+            header(HttpHeaders.Authorization, "Bearer $token")
+            contentType(ContentType.Application.Json)
+            setBody(bodyJson)
+        }
+        if (!response.status.isSuccess()) {
+            val errorBody = response.bodyAsText()
+            Log.e(TAG, "reactToMessageRest failed: ${response.status} - $errorBody")
+            if (response.status == HttpStatusCode.Unauthorized) {
+                throw UnauthorizedException("reactToMessageRest: 401 Unauthorized")
+            }
+            throw RuntimeException("reactToMessageRest failed (${response.status.value}): $errorBody")
+        }
+        Log.d(TAG, "reactToMessageRest success: messageId=$messageId emoji=$emoji actionDelete=$actionDelete")
+    }
 }
 
 const val CHANNEL_TYPE_CHANNEL = 1

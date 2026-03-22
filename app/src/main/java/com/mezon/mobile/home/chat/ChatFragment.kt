@@ -48,6 +48,8 @@ class ChatFragment : BaseFragment() {
         private const val VIEWPORT_LIMIT = 100
         private const val PAGE_DOWN_SCROLL_THRESHOLD = 15
         private const val SCROLL_STATE_TTL_MS = 5 * 60 * 1000L
+        // Unique ID cho RecyclerView lưới emoji trong full picker
+        internal const val EMOJI_GRID_VIEW_ID = 0x1F600
 
         private val scrollStates = HashMap<Long, SavedScrollState>()
 
@@ -71,6 +73,9 @@ class ChatFragment : BaseFragment() {
     private lateinit var chatController: ChatController
     private lateinit var dialogsController: DialogsController
     private lateinit var channelController: ChannelController
+    private lateinit var emojiRepository: EmojiRepository
+
+    private var myUserId: String = ""  // populated from session in onFragmentCreate
 
     private lateinit var recyclerView: RecyclerListView
     private lateinit var loadingView: ProgressBar
@@ -385,6 +390,24 @@ class ChatFragment : BaseFragment() {
             updateVisibleRows(mask)
         }
 
+        // ─ Reaction events ────────────────────────────────
+        observe(NotificationCenter.messageReactionsDidUpdate) { _, _, args ->
+            if (fragmentView == null) return@observe
+            val chId = args.getOrNull(0) as? Long ?: return@observe
+            if (chId != channelId) return@observe
+            val msgId = args.getOrNull(1) as? Long ?: return@observe
+            val reactions = args.getOrNull(2) as? com.mezon.mobile.home.chat.MessageReactions ?: return@observe
+            val chips = reactions.toChips(myUserId)
+            // Update any visible cell that matches
+            for (i in 0 until recyclerView.childCount) {
+                val cell = recyclerView.getChildAt(i) as? ChatMessageCell ?: continue
+                if (cell.messageEntity?.id == msgId) {
+                    cell.setReactions(chips)
+                    break
+                }
+            }
+        }
+
         observe(NotificationCenter.themeChanged) { _, _, _ ->
             if (fragmentView == null) return@observe
             rootView.setBackgroundColor(themeColors.background)
@@ -405,6 +428,9 @@ class ChatFragment : BaseFragment() {
         } else {
             chatController.loadMessages(channelId, clanId)
         }
+        // Sync recent emojis từ server (giống RN: fetchEmojiRecent khi vào channel)
+        // Chạy background, không block UI
+        chatController.fetchEmojiRecent()
         return true
     }
 
@@ -412,6 +438,9 @@ class ChatFragment : BaseFragment() {
         chatController = entryPoint.chatController()
         dialogsController = entryPoint.dialogsController()
         channelController = entryPoint.channelController()
+        emojiRepository = entryPoint.emojiRepository()
+        // Populate myUserId once session is ready (cachedUserId in ChatController)
+        myUserId = chatController.getCurrentUserId()
     }
 
     override fun createView(context: Context): View {
@@ -534,6 +563,9 @@ class ChatFragment : BaseFragment() {
                     }
                 }
             }
+            override fun onMessageLongPressed(cell: ChatMessageCell, msg: MessageEntity) {
+                showMessageOptions(context, msg)
+            }
             override fun didClickFile(cell: ChatMessageCell, msg: MessageEntity) {
                 val url = msg.attachmentUrl
                 if (url.isEmpty()) return
@@ -559,10 +591,54 @@ class ChatFragment : BaseFragment() {
                     } catch (_: Exception) {}
                 }
             }
+
+            override fun onReactionChipClicked(
+                cell: ChatMessageCell, msg: MessageEntity,
+                emojiId: String, shortname: String, isMine: Boolean
+            ) {
+                // Tap luôn là THÊM reaction
+                if (myUserId.isEmpty()) myUserId = chatController.getCurrentUserId()
+                chatController.applyOptimisticReaction(
+                    channelId    = channelId,
+                    messageId    = msg.id,
+                    emojiId      = emojiId,
+                    shortname    = shortname,
+                    myUserId     = myUserId,
+                    actionDelete = false,
+                    count        = 1
+                )
+                chatController.reactToMessage(
+                    channelId       = channelId,
+                    clanId          = clanId,
+                    channelType     = channelType,
+                    messageId       = msg.id,
+                    emojiId         = emojiId,
+                    emojiShortname  = shortname,
+                    messageSenderId = msg.senderId,
+                    senderName      = msg.senderName,
+                    actionDelete    = false,
+                    countToRemove   = 1
+                )
+            }
+
+            override fun onReactionChipLongPressed(
+                cell: ChatMessageCell, msg: MessageEntity,
+                emojiId: String, shortname: String
+            ) {
+                // Long press → hiện bottom sheet reaction detail
+                showReactionDetailSheet(context, msg, emojiId, shortname)
+            }
         })
         adapter.channelType = channelType
         adapter.clanId = clanId
         adapter.isChannelPrivate = resolveChannelPrivate()
+        adapter.onBindReactions = { cell, msg ->
+            // Restore cached reactions when a cell is (re-)bound
+            if (myUserId.isEmpty()) myUserId = chatController.getCurrentUserId()
+            val reactions = chatController.getReactions(msg.id)
+            val chips = reactions?.toChips(myUserId) ?: emptyList()
+            cell.setReactions(chips)
+        }
         recyclerView.adapter = adapter
 
         recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
@@ -883,4 +959,725 @@ class ChatFragment : BaseFragment() {
         chatController.sendMessage(channelId, clanId, channelType, text)
         inputField.text?.clear()
     }
+
+    private fun showMessageOptions(context: Context, msg: MessageEntity) {
+        var bottomSheetDialog: com.google.android.material.bottomsheet.BottomSheetDialog? = null
+
+        bottomSheetDialog = com.mezon.mobile.ui.cells.MezonBottomSheetDialog.create(context, themeColors) { container ->
+
+            // ─── 1. Quick Reaction Row ──────────────────────────────────────
+            val emojiRow = android.widget.LinearLayout(context).apply {
+                orientation = android.widget.LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                setPadding(
+                    com.mezon.mobile.core.LayoutHelper.dp(4f),
+                    com.mezon.mobile.core.LayoutHelper.dp(4f),
+                    com.mezon.mobile.core.LayoutHelper.dp(4f),
+                    com.mezon.mobile.core.LayoutHelper.dp(16f)
+                )
+            }
+
+            val emojiScroll = android.widget.HorizontalScrollView(context).apply {
+                isHorizontalScrollBarEnabled = false
+                addView(emojiRow, android.widget.FrameLayout.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+                ))
+            }
+
+            // Spinner hiển thị trong khi fetch emoji
+            val loadingSpinner = android.widget.ProgressBar(context).apply {
+                setPadding(0, com.mezon.mobile.core.LayoutHelper.dp(4f), 0, com.mezon.mobile.core.LayoutHelper.dp(16f))
+            }
+
+            // Ban đầu hiện spinner, ẩn emojiRow
+            container.addView(loadingSpinner, com.mezon.mobile.core.LayoutHelper.createLinear(36, 36, leftMargin = 12f))
+            container.addView(emojiScroll, com.mezon.mobile.core.LayoutHelper.createLinear(
+                com.mezon.mobile.core.LayoutHelper.MATCH_PARENT,
+                com.mezon.mobile.core.LayoutHelper.WRAP_CONTENT
+            ))
+            emojiScroll.visibility = android.view.View.GONE
+
+
+
+            // ─── Helper functions khai báo trước khi dùng ──────────────────
+            // Build emoji cell với src URL ưu tiên từ BE
+            fun buildEmojiCell(emoji: com.mezon.mobile.home.chat.IEmoji): android.widget.ImageView {
+                val imgUrl = emoji.src?.takeIf { it.isNotBlank() } ?: getSrcEmoji(emoji.id)
+                val cell = android.widget.ImageView(context).apply {
+                    scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+                    background = android.graphics.drawable.GradientDrawable().apply {
+                        shape = android.graphics.drawable.GradientDrawable.OVAL
+                        setColor(themeColors.surfaceVariant)
+                    }
+                    clipToOutline = true
+                    setOnClickListener {
+                        if (myUserId.isEmpty()) myUserId = chatController.getCurrentUserId()
+                        chatController.applyOptimisticReaction(
+                            channelId    = channelId,
+                            messageId    = msg.id,
+                            emojiId      = emoji.id,
+                            shortname    = emoji.shortname ?: emoji.id,
+                            myUserId     = myUserId,
+                            actionDelete = false,
+                            emojiSrc     = imgUrl
+                        )
+                        chatController.reactToMessage(
+                            channelId       = channelId,
+                            clanId          = clanId,
+                            channelType     = channelType,
+                            messageId       = msg.id,
+                            emojiId         = emoji.id,
+                            emojiShortname  = emoji.shortname ?: "",
+                            messageSenderId = msg.senderId,
+                            senderName      = msg.senderName,
+                            actionDelete    = false
+                        )
+                        bottomSheetDialog?.dismiss()
+                    }
+                }
+                MezonImageLoader.getInstance(context).load(
+                    url       = imgUrl,
+                    reqWidth  = com.mezon.mobile.core.LayoutHelper.dp(36f),
+                    reqHeight = com.mezon.mobile.core.LayoutHelper.dp(36f),
+                    onSuccess = { bmp -> cell.setImageBitmap(bmp) },
+                    onError   = {}
+                )
+                return cell
+            }
+
+            // Nút mở full emoji picker (icon mặt cười)
+            fun buildMoreBtn(): android.widget.ImageView {
+                return android.widget.ImageView(context).apply {
+                    scaleType = android.widget.ImageView.ScaleType.CENTER_INSIDE
+                    setPadding(
+                        com.mezon.mobile.core.LayoutHelper.dp(6f),
+                        com.mezon.mobile.core.LayoutHelper.dp(6f),
+                        com.mezon.mobile.core.LayoutHelper.dp(6f),
+                        com.mezon.mobile.core.LayoutHelper.dp(6f)
+                    )
+                    setImageResource(com.mezon.mobile.R.drawable.ic_emoji_icon)
+                    imageTintList = android.content.res.ColorStateList.valueOf(themeColors.onSurfaceVariant)
+                    background = android.graphics.drawable.GradientDrawable().apply {
+                        shape = android.graphics.drawable.GradientDrawable.OVAL
+                        setColor(themeColors.surfaceVariant)
+                    }
+                    setOnClickListener {
+                        bottomSheetDialog?.dismiss()
+                        showFullEmojiPicker(context, msg)
+                    }
+                }
+            }
+
+            fun populateEmojiRow(apiFallback: List<com.mezon.mobile.home.chat.IEmoji> = emptyList()) {
+                emojiRow.removeAllViews()
+
+                // 1) Recent emojis từ SharedPreferences
+                val recentList = emojiRepository.getRecentEmojis()
+                val recentEmojis = recentList.map { recent ->
+                    val fromApi = apiFallback.firstOrNull { it.id == recent.id }
+                    fromApi ?: com.mezon.mobile.home.chat.IEmoji(
+                        id = recent.id,
+                        shortname = recent.shortname,
+                        src = "https://cdn.mezon.vn/emojis/${recent.id}.webp"
+                    )
+                }
+                val alreadyInRecent = recentEmojis.map { it.id }.toSet()
+                val padFromBE = apiFallback.filter { it.id !in alreadyInRecent }
+                val quickList = (recentEmojis + padFromBE).take(5)
+
+                for (emoji in quickList) {
+                    emojiRow.addView(buildEmojiCell(emoji),
+                        com.mezon.mobile.core.LayoutHelper.createLinear(36, 36, rightMargin = 8f))
+                }
+                emojiRow.addView(buildMoreBtn(),
+                    com.mezon.mobile.core.LayoutHelper.createLinear(36, 36, leftMargin = 4f))
+                loadingSpinner.visibility = android.view.View.GONE
+                emojiScroll.visibility   = android.view.View.VISIBLE
+            }
+
+            val cachedEmojis = emojiRepository.getCachedEmojis()
+            if (cachedEmojis != null && cachedEmojis.isNotEmpty()) {
+                populateEmojiRow(cachedEmojis)
+            } else {
+                if (emojiRepository.getRecentEmojis().isNotEmpty()) {
+                    populateEmojiRow()
+                }
+                chatController.fetchEmojis { emojiList ->
+                    if (emojiList.isNotEmpty()) {
+                        populateEmojiRow(emojiList)
+                    }
+                }
+            }
+
+
+            // ─── 2. Helper: tạo khối action bo góc ─────────────────────────
+            fun createBlock(items: List<Pair<String, com.mezon.mobile.ui.cells.MezonIcon>>): android.widget.LinearLayout {
+                val block = android.widget.LinearLayout(context).apply {
+                    orientation = android.widget.LinearLayout.VERTICAL
+                    background = android.graphics.drawable.GradientDrawable().apply {
+                        cornerRadius = com.mezon.mobile.core.LayoutHelper.dpf(12f)
+                        setColor(themeColors.surfaceVariant)
+                    }
+                }
+                items.forEachIndexed { index, pair ->
+                    val cell = com.mezon.mobile.ui.cells.TextSettingsCell(context, themeColors).apply {
+                        setTextAndIcon(pair.first, pair.second.resId, divider = index != items.size - 1)
+                        setOnClickListener {
+                            android.widget.Toast.makeText(context, pair.first, android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    block.addView(
+                        cell,
+                        com.mezon.mobile.core.LayoutHelper.createLinear(
+                            com.mezon.mobile.core.LayoutHelper.MATCH_PARENT,
+                            com.mezon.mobile.core.LayoutHelper.WRAP_CONTENT
+                        )
+                    )
+                }
+                return block
+            }
+
+            // ─── 3. Block 1: Quà, Trả lời, Chuyển tiếp ─────────────────────
+            val block1 = createBlock(listOf(
+                "Mời một ly cà phê" to com.mezon.mobile.ui.cells.MezonIcon.giftIcon,
+                "Trả lời" to com.mezon.mobile.ui.cells.MezonIcon.replyMsg,
+                "Chuyển tiếp tin nhắn" to com.mezon.mobile.ui.cells.MezonIcon.forwardAllIcon
+            ))
+            container.addView(
+                block1,
+                com.mezon.mobile.core.LayoutHelper.createLinear(
+                    com.mezon.mobile.core.LayoutHelper.MATCH_PARENT,
+                    com.mezon.mobile.core.LayoutHelper.WRAP_CONTENT,
+                    bottomMargin = 12f
+                )
+            )
+
+            // ─── 4. Block 2: Sao chép, Đánh dấu, Thảo luận, Ghim ───────────
+            val block2 = createBlock(listOf(
+                "Sao chép văn bản" to com.mezon.mobile.ui.cells.MezonIcon.copyIcon,
+                "Đánh dấu chưa đọc" to com.mezon.mobile.ui.cells.MezonIcon.markUnreadIcon,
+                "Thảo luận chủ đề" to com.mezon.mobile.ui.cells.MezonIcon.threadIcon,
+                "Ghim tin nhắn" to com.mezon.mobile.ui.cells.MezonIcon.pinIcon
+            ))
+            container.addView(
+                block2,
+                com.mezon.mobile.core.LayoutHelper.createLinear(
+                    com.mezon.mobile.core.LayoutHelper.MATCH_PARENT,
+                    com.mezon.mobile.core.LayoutHelper.WRAP_CONTENT
+                )
+            )
+        }
+        bottomSheetDialog.show()
+    }
+
+    /**
+     * Bottom sheet hiện khi long-press vào 1 reaction chip.
+     * Layout:
+     *   [Tab row: chip emoji cho từng loại trên msg đó]
+     *   [Divider]
+     *   [List: avatar + tên người react + nút 🗑 nếu là mình]
+     */
+    private fun showReactionDetailSheet(
+        context: Context,
+        msg: MessageEntity,
+        initialEmojiId: String,
+        initialShortname: String
+    ) {
+        if (myUserId.isEmpty()) myUserId = chatController.getCurrentUserId()
+        val reactions = chatController.getReactions(msg.id) ?: return
+        val allChips = reactions.toChips(myUserId)
+        if (allChips.isEmpty()) return
+
+        // Track which tab is active
+        var activeEmojiId = initialEmojiId
+
+        // Build dialog
+        val dialog = com.google.android.material.bottomsheet.BottomSheetDialog(context)
+        val root = android.widget.LinearLayout(context).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setBackgroundColor(themeColors.surface)
+            val pad = com.mezon.mobile.core.LayoutHelper.dp(16f)
+            setPadding(pad, com.mezon.mobile.core.LayoutHelper.dp(12f), pad, pad)
+        }
+
+        // ── Tab row: emoji chips (horizontal scroll) ──────────────────────
+        val tabRow = android.widget.LinearLayout(context).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+        }
+        val tabScroll = android.widget.HorizontalScrollView(context).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(tabRow, android.widget.FrameLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+            ))
+        }
+        root.addView(tabScroll, com.mezon.mobile.core.LayoutHelper.createLinear(
+            com.mezon.mobile.core.LayoutHelper.MATCH_PARENT,
+            com.mezon.mobile.core.LayoutHelper.WRAP_CONTENT,
+            bottomMargin = 12f
+        ))
+
+        // ── Sender list ────────────────────────────────────────────────────
+        val senderList = android.widget.LinearLayout(context).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+        }
+        val scrollView = android.widget.ScrollView(context).apply {
+            addView(senderList, android.widget.FrameLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+            ))
+        }
+        root.addView(scrollView, com.mezon.mobile.core.LayoutHelper.createLinear(
+            com.mezon.mobile.core.LayoutHelper.MATCH_PARENT,
+            com.mezon.mobile.core.LayoutHelper.WRAP_CONTENT
+        ))
+
+        // Function to rebuild sender list for a given emojiId
+        fun rebuildSenders(emojiId: String, shortname: String) {
+            senderList.removeAllViews()
+            val senders = reactions.getSenders(emojiId)
+            for (sender in senders) {
+                val row = android.widget.LinearLayout(context).apply {
+                    orientation = android.widget.LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                    val padV = com.mezon.mobile.core.LayoutHelper.dp(10f)
+                    setPadding(0, padV, 0, padV)
+                }
+
+                // Avatar (circle placeholder for now)
+                val avatar = android.widget.ImageView(context).apply {
+                    val sz = com.mezon.mobile.core.LayoutHelper.dp(36f)
+                    layoutParams = android.widget.LinearLayout.LayoutParams(sz, sz)
+                    scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+                    background = android.graphics.drawable.GradientDrawable().apply {
+                        shape = android.graphics.drawable.GradientDrawable.OVAL
+                        setColor(themeColors.surfaceVariant)
+                    }
+                    clipToOutline = true
+                }
+                row.addView(avatar)
+
+                // Name + count
+                val nameCol = android.widget.LinearLayout(context).apply {
+                    orientation = android.widget.LinearLayout.VERTICAL
+                    val lp = android.widget.LinearLayout.LayoutParams(
+                        0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+                    )
+                    lp.marginStart = com.mezon.mobile.core.LayoutHelper.dp(12f)
+                    layoutParams = lp
+                }
+                val nameTv = android.widget.TextView(context).apply {
+                    text = sender.displayName
+                    setTextColor(themeColors.onSurface)
+                    textSize = 14f
+                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                }
+                val countTv = android.widget.TextView(context).apply {
+                    text = "x${sender.count}"
+                    setTextColor(themeColors.onSurfaceVariant)
+                    textSize = 12f
+                }
+                nameCol.addView(nameTv)
+                nameCol.addView(countTv)
+                row.addView(nameCol)
+
+                // Trash icon — only for current user
+                if (sender.senderId == myUserId) {
+                    val trashBtn = android.widget.ImageView(context).apply {
+                        val sz = com.mezon.mobile.core.LayoutHelper.dp(36f)
+                        layoutParams = android.widget.LinearLayout.LayoutParams(sz, sz)
+                        setImageResource(com.mezon.mobile.R.drawable.ic_delete)
+                        imageTintList = android.content.res.ColorStateList.valueOf(0xFFEF4444.toInt())
+                        background = android.graphics.drawable.GradientDrawable().apply {
+                            cornerRadius = com.mezon.mobile.core.LayoutHelper.dpf(8f)
+                            setColor(0x20EF4444.toInt())
+                        }
+                        scaleType = android.widget.ImageView.ScaleType.CENTER_INSIDE
+                        val pad = com.mezon.mobile.core.LayoutHelper.dp(8f)
+                        setPadding(pad, pad, pad, pad)
+                        setOnClickListener {
+                            // Xóa reaction của mình cho emoji này
+                            chatController.applyOptimisticReaction(
+                                channelId    = channelId,
+                                messageId    = msg.id,
+                                emojiId      = emojiId,
+                                shortname    = shortname,
+                                myUserId     = myUserId,
+                                actionDelete = true,
+                                count        = sender.count.coerceAtLeast(1)
+                            )
+                            chatController.reactToMessage(
+                                channelId       = channelId,
+                                clanId          = clanId,
+                                channelType     = channelType,
+                                messageId       = msg.id,
+                                emojiId         = emojiId,
+                                emojiShortname  = shortname,
+                                messageSenderId = msg.senderId,
+                                senderName      = msg.senderName,
+                                actionDelete    = true,
+                                countToRemove   = sender.count.coerceAtLeast(1)
+                            )
+                            dialog.dismiss()
+                        }
+                    }
+                    row.addView(trashBtn)
+                }
+
+                senderList.addView(row, android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                ))
+            }
+        }
+
+        // Build tab buttons
+        val tabViews = mutableMapOf<String, android.view.View>()
+        fun updateTabActive(emojiId: String) {
+            tabViews.forEach { (id, v) ->
+                v.background = android.graphics.drawable.GradientDrawable().apply {
+                    cornerRadius = com.mezon.mobile.core.LayoutHelper.dpf(20f)
+                    if (id == emojiId) {
+                        setColor(0xFF4E5057.toInt())
+                        setStroke(com.mezon.mobile.core.LayoutHelper.dp(2f), 0xFF8B8FF0.toInt())
+                    } else {
+                        setColor(themeColors.surfaceVariant)
+                    }
+                }
+            }
+        }
+
+        for (chip in allChips) {
+            val tabChip = android.widget.LinearLayout(context).apply {
+                orientation = android.widget.LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                val padH = com.mezon.mobile.core.LayoutHelper.dp(10f)
+                val padV = com.mezon.mobile.core.LayoutHelper.dp(6f)
+                setPadding(padH, padV, padH, padV)
+                val lp = android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                lp.marginEnd = com.mezon.mobile.core.LayoutHelper.dp(8f)
+                layoutParams = lp
+            }
+
+            val emojiImg = android.widget.ImageView(context).apply {
+                val sz = com.mezon.mobile.core.LayoutHelper.dp(22f)
+                layoutParams = android.widget.LinearLayout.LayoutParams(sz, sz)
+                scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+            }
+            MezonImageLoader.getInstance(context).load(
+                url = chip.emojiSrc.ifBlank { getSrcEmoji(chip.emojiId) },
+                reqWidth = com.mezon.mobile.core.LayoutHelper.dp(22f),
+                reqHeight = com.mezon.mobile.core.LayoutHelper.dp(22f),
+                onSuccess = { bmp -> emojiImg.setImageBitmap(bmp) }
+            )
+            tabChip.addView(emojiImg)
+
+            val cntTv = android.widget.TextView(context).apply {
+                text = " ${chip.count}"
+                setTextColor(themeColors.onSurface)
+                textSize = 13f
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+            }
+            tabChip.addView(cntTv)
+
+            tabViews[chip.emojiId] = tabChip
+            tabRow.addView(tabChip)
+
+            tabChip.setOnClickListener {
+                activeEmojiId = chip.emojiId
+                updateTabActive(chip.emojiId)
+                rebuildSenders(chip.emojiId, chip.shortname)
+            }
+        }
+
+        // Init active tab
+        updateTabActive(activeEmojiId)
+        rebuildSenders(activeEmojiId, initialShortname)
+
+        dialog.setContentView(root)
+        dialog.show()
+    }
+
+    /**
+     * Mở Full Emoji Picker bottom sheet.
+     * Fetch toàn bộ danh sách emoji từ API, hiển thị dạng grid 9 cột.
+     */
+    private fun showFullEmojiPicker(context: Context, msg: MessageEntity) {
+        val pickerDialog = android.app.Dialog(context, com.google.android.material.R.style.ThemeOverlay_MaterialComponents_BottomSheetDialog)
+        pickerDialog.setContentView(buildEmojiPickerView(context))
+        pickerDialog.window?.apply {
+            val screenHeight = context.resources.displayMetrics.heightPixels
+            setLayout(android.view.ViewGroup.LayoutParams.MATCH_PARENT, (screenHeight * 0.80).toInt())
+            setGravity(android.view.Gravity.BOTTOM)
+        }
+        pickerDialog.show()
+
+        var allEmojis: List<com.mezon.mobile.home.chat.IEmoji> = emptyList()
+
+        // Helper: populate grid và ẩn spinner
+        fun populateGrid(emojis: List<com.mezon.mobile.home.chat.IEmoji>, query: String = "") {
+            if (!pickerDialog.isShowing) return
+            val gridView = pickerDialog.findViewById<androidx.recyclerview.widget.RecyclerView>(EMOJI_GRID_VIEW_ID)
+                ?: return
+            val rootLayout = gridView.parent as? android.view.ViewGroup
+            for (i in 0 until (rootLayout?.childCount ?: 0)) {
+                if (rootLayout?.getChildAt(i) is android.widget.ProgressBar) {
+                    rootLayout.getChildAt(i).visibility = android.view.View.GONE
+                    break
+                }
+            }
+            gridView.visibility = android.view.View.VISIBLE
+            gridView.adapter = buildEmojiGridAdapter(context, emojis, msg, pickerDialog, query)
+        }
+
+        fun wireSearch(emojis: List<com.mezon.mobile.home.chat.IEmoji>) {
+            allEmojis = emojis
+            val gridView = pickerDialog.findViewById<androidx.recyclerview.widget.RecyclerView>(EMOJI_GRID_VIEW_ID)
+            val rootLayout = gridView?.parent as? android.view.ViewGroup ?: return
+            val searchField = (0 until rootLayout.childCount)
+                .map { rootLayout.getChildAt(it) }
+                .filterIsInstance<android.widget.EditText>()
+                .firstOrNull() ?: return
+            searchField.addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                override fun afterTextChanged(s: android.text.Editable?) {
+                    populateGrid(allEmojis, s?.toString() ?: "")
+                }
+            })
+        }
+
+        // Nếu có cache → hiện ngay lập tức
+        val cached = emojiRepository.getCachedEmojis()
+        if (cached != null && cached.isNotEmpty()) {
+            populateGrid(cached)
+            wireSearch(cached)
+        } else {
+            // Không có cache → fetch từ BE
+            chatController.fetchEmojis { emojis ->
+                if (emojis.isNotEmpty()) {
+                    populateGrid(emojis)
+                    wireSearch(emojis)
+                } else {
+                    if (!pickerDialog.isShowing) return@fetchEmojis
+                    val gridView = pickerDialog.findViewById<androidx.recyclerview.widget.RecyclerView>(EMOJI_GRID_VIEW_ID)
+                    val rootLayout = gridView?.parent as? android.view.ViewGroup
+                    for (i in 0 until (rootLayout?.childCount ?: 0)) {
+                        if (rootLayout?.getChildAt(i) is android.widget.ProgressBar) {
+                            rootLayout.getChildAt(i).visibility = android.view.View.GONE
+                            break
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun buildEmojiPickerView(context: Context): android.view.View {
+        val root = android.widget.LinearLayout(context).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setBackgroundColor(themeColors.surface)
+        }
+
+        // Search bar
+        val searchField = android.widget.EditText(context).apply {
+            hint = "Tìm emoji..."
+            setHintTextColor(themeColors.onSurfaceVariant)
+            setTextColor(themeColors.onSurface)
+            textSize = 14f
+            background = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = com.mezon.mobile.core.LayoutHelper.dpf(8f)
+                setColor(themeColors.surfaceVariant)
+            }
+            val pad = com.mezon.mobile.core.LayoutHelper.dp(10f)
+            setPadding(pad, pad / 2, pad, pad / 2)
+            id = android.view.View.generateViewId()
+        }
+        root.addView(searchField, com.mezon.mobile.core.LayoutHelper.createLinear(
+            com.mezon.mobile.core.LayoutHelper.MATCH_PARENT,
+            com.mezon.mobile.core.LayoutHelper.WRAP_CONTENT,
+            leftMargin = 12f, rightMargin = 12f, topMargin = 8f, bottomMargin = 8f
+        ))
+
+        val loadingSpinner = android.widget.ProgressBar(context).apply {
+            id = android.view.View.generateViewId()
+        }
+        root.addView(loadingSpinner, com.mezon.mobile.core.LayoutHelper.createLinear(
+            48, 48, gravity = android.view.Gravity.CENTER_HORIZONTAL, topMargin = 16f
+        ))
+
+        // RecyclerView với GridLayoutManager 9 cột – header span full width
+        val grid = androidx.recyclerview.widget.RecyclerView(context).apply {
+            id = EMOJI_GRID_VIEW_ID
+            val glm = androidx.recyclerview.widget.GridLayoutManager(context, 9)
+            glm.spanSizeLookup = object : androidx.recyclerview.widget.GridLayoutManager.SpanSizeLookup() {
+                override fun getSpanSize(position: Int): Int {
+                    val adapter = this@apply.adapter as? EmojiGroupedAdapter ?: return 1
+                    return if (adapter.isHeader(position)) 9 else 1
+                }
+            }
+            layoutManager = glm
+            visibility = android.view.View.GONE
+        }
+        root.addView(grid, com.mezon.mobile.core.LayoutHelper.createLinear(
+            com.mezon.mobile.core.LayoutHelper.MATCH_PARENT,
+            com.mezon.mobile.core.LayoutHelper.MATCH_PARENT
+        ))
+
+        return root
+    }
+
+    /**
+     * Grouped adapter: HEADER + EMOJI items, giống RN EmojiSelectorContainer.
+     * Groups: Recent → ForSale → Clan emojis (theo clan_name) → Standard emojis (theo category)
+     */
+    inner class EmojiGroupedAdapter(
+        private val context: Context,
+        emojis: List<com.mezon.mobile.home.chat.IEmoji>,
+        private val msg: MessageEntity,
+        private val dialog: android.app.Dialog,
+        searchQuery: String = "",
+        // Fragment-level deps passed explicitly to avoid inner class nested class restriction
+        private val fragChannelId: Long = channelId,
+        private val fragClanId: Long = clanId,
+        private val fragChannelType: Int = channelType,
+        private val fragMyUserId: String = myUserId
+    ) : androidx.recyclerview.widget.RecyclerView.Adapter<androidx.recyclerview.widget.RecyclerView.ViewHolder>() {
+
+        private val TYPE_HEADER = 0
+        private val TYPE_EMOJI = 1
+
+        // Dùng Any: String = header title, IEmoji = emoji item
+        private val itemsAny: List<Any> = buildItems(emojis, searchQuery)
+
+        private fun buildItems(emojis: List<com.mezon.mobile.home.chat.IEmoji>, query: String): List<Any> {
+            val result = mutableListOf<Any>()
+            val filtered = if (query.isBlank()) emojis
+            else emojis.filter { (it.shortname ?: "").contains(query, ignoreCase = true) }
+
+            if (query.isNotBlank()) {
+                result.add("KẾT QUẢ TÌM KIẾM")
+                filtered.forEach { result.add(it) }
+                return result
+            }
+
+            // 1. Recent emojis
+            val recentIds = emojiRepository.getRecentEmojis().map { it.id }.toSet()
+            val recentEmojis = emojis.filter { it.id in recentIds }
+            if (recentEmojis.isNotEmpty()) {
+                result.add("GẦN ĐÂY")
+                recentEmojis.forEach { result.add(it) }
+            }
+
+            // 2. For sale
+            val forSale = filtered.filter { it.isForSale == true }
+            if (forSale.isNotEmpty()) {
+                result.add("FOR SALE")
+                forSale.forEach { result.add(it) }
+            }
+
+            // 3. Clan emojis grouped by clan_name (có clan_id, không is_for_sale)
+            val clanEmojis = filtered.filter { !it.clanId.isNullOrBlank() && it.isForSale != true }
+            val byClan = clanEmojis.groupBy { it.clanName ?: it.clanId ?: "?" }
+            byClan.entries.sortedBy { it.key }.forEach { (clanName, emojiList) ->
+                result.add(clanName.uppercase())
+                emojiList.forEach { result.add(it) }
+            }
+
+            // 4. Standard emojis grouped by category (không có clan_id, không is_for_sale)
+            val standardEmojis = filtered.filter { it.clanId.isNullOrBlank() && it.isForSale != true }
+            val byCategory = standardEmojis.groupBy { it.category ?: "KHÁC" }
+            val categoryOrder = listOf("Con người", "Thiên nhiên", "Đồ ăn", "Hoạt động", "Du lịch", "Vật thể", "Biểu tượng", "Cờ")
+            val sortedCategories = byCategory.keys.sortedWith(Comparator { a, b ->
+                val ia = categoryOrder.indexOfFirst { a.contains(it, ignoreCase = true) }.let { if (it == -1) 999 else it }
+                val ib = categoryOrder.indexOfFirst { b.contains(it, ignoreCase = true) }.let { if (it == -1) 999 else it }
+                ia.compareTo(ib)
+            })
+            sortedCategories.forEach { cat ->
+                val emojiList = byCategory[cat] ?: return@forEach
+                result.add(cat.uppercase())
+                emojiList.forEach { result.add(it) }
+            }
+
+            return result
+        }
+
+        fun isHeader(position: Int) = itemsAny[position] is String
+
+        override fun getItemViewType(position: Int) =
+            if (itemsAny[position] is String) TYPE_HEADER else TYPE_EMOJI
+
+        override fun onCreateViewHolder(parent: android.view.ViewGroup, viewType: Int): androidx.recyclerview.widget.RecyclerView.ViewHolder {
+            return if (viewType == TYPE_HEADER) {
+                val tv = android.widget.TextView(context).apply {
+                    setTextColor(themeColors.onSurfaceVariant)
+                    textSize = 11f
+                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                    val padH = com.mezon.mobile.core.LayoutHelper.dp(12f)
+                    val padV = com.mezon.mobile.core.LayoutHelper.dp(6f)
+                    setPadding(padH, padV, padH, padV)
+                }
+                object : androidx.recyclerview.widget.RecyclerView.ViewHolder(tv) {}
+            } else {
+                val sz = com.mezon.mobile.core.LayoutHelper.dp(36f)
+                val iv = android.widget.ImageView(context).apply {
+                    layoutParams = android.view.ViewGroup.MarginLayoutParams(sz, sz).apply {
+                        setMargins(3, 3, 3, 3)
+                    }
+                    scaleType = android.widget.ImageView.ScaleType.CENTER_INSIDE
+                }
+                object : androidx.recyclerview.widget.RecyclerView.ViewHolder(iv) {}
+            }
+        }
+
+        override fun onBindViewHolder(holder: androidx.recyclerview.widget.RecyclerView.ViewHolder, position: Int) {
+            when (val item = itemsAny[position]) {
+                is String -> (holder.itemView as? android.widget.TextView)?.text = item
+                is com.mezon.mobile.home.chat.IEmoji -> {
+                    val iv = holder.itemView as? android.widget.ImageView ?: return
+                    val url = item.src?.takeIf { it.isNotBlank() }
+                        ?: "https://cdn.mezon.vn/emojis/${item.id}.webp"
+                    MezonImageLoader.getInstance(context).load(
+                        url = url,
+                        reqWidth = com.mezon.mobile.core.LayoutHelper.dp(36f),
+                        reqHeight = com.mezon.mobile.core.LayoutHelper.dp(36f),
+                        onSuccess = { bmp -> iv.setImageBitmap(bmp) },
+                        onError = {}
+                    )
+                    iv.setOnClickListener {
+                        if (fragMyUserId.isEmpty()) myUserId = chatController.getCurrentUserId()
+                        val userId = fragMyUserId.ifEmpty { myUserId }
+                        chatController.applyOptimisticReaction(
+                            channelId = fragChannelId, messageId = msg.id,
+                            emojiId = item.id, shortname = item.shortname ?: item.id,
+                            myUserId = userId, actionDelete = false, emojiSrc = url
+                        )
+                        chatController.reactToMessage(
+                            channelId = fragChannelId, clanId = fragClanId,
+                            channelType = fragChannelType, messageId = msg.id,
+                            emojiId = item.id, emojiShortname = item.shortname ?: "",
+                            messageSenderId = msg.senderId, senderName = msg.senderName,
+                            actionDelete = false
+                        )
+                        emojiRepository.saveRecentEmoji(item.id, item.shortname ?: item.id)
+                        dialog.dismiss()
+                    }
+                }
+            }
+        }
+
+        override fun getItemCount() = itemsAny.size
+    }
+
+    private fun buildEmojiGridAdapter(
+        context: Context,
+        emojis: List<com.mezon.mobile.home.chat.IEmoji>,
+        msg: MessageEntity,
+        dialog: android.app.Dialog,
+        searchQuery: String = ""
+    ): EmojiGroupedAdapter = EmojiGroupedAdapter(context, emojis, msg, dialog, searchQuery)
 }

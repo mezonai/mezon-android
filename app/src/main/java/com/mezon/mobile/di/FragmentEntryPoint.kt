@@ -5,6 +5,7 @@ import com.mezon.mobile.home.ChatController
 import com.mezon.mobile.home.ConnectionController
 import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.MessagesController
+import com.mezon.mobile.home.chat.EmojiRepository
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.ClansController
 import com.mezon.mobile.home.notifications.NotificationStore
@@ -33,6 +34,7 @@ interface FragmentEntryPoint {
     fun userController(): UserController
     fun mezonApi(): MezonApi
     fun fcmRepository(): FcmRepository
+    fun emojiRepository(): EmojiRepository
 
     @IoDispatcher
     fun ioDispatcher(): CoroutineDispatcher

@@ -318,7 +318,8 @@ class MezonSocket @Inject constructor(
         }
     }
 
-    suspend fun writeMessageReaction(
+
+    fun writeMessageReaction(
         id: Long,
         clanId: Long,
         channelId: Long,
@@ -333,23 +334,26 @@ class MezonSocket @Inject constructor(
         topicId: Long = 0L,
         emojiRecentId: Long = 0L,
         senderName: String = ""
-    ): Envelope = send {
-        this.messageReactionEvent = messageReaction {
-            this.id = id
-            this.clanId = clanId
-            this.channelId = channelId
-            this.mode = mode
-            this.isPublic = isPublic
-            this.messageId = messageId
-            this.emojiId = emojiId
-            this.emoji = emoji
-            this.count = count
-            this.messageSenderId = messageSenderId
-            this.action = actionDelete
-            this.topicId = topicId
-            this.emojiRecentId = emojiRecentId
-            this.senderName = senderName
+    ) {
+        val env = envelope {
+            this.messageReactionEvent = messageReaction {
+                this.id = id
+                this.clanId = clanId
+                this.channelId = channelId
+                this.mode = mode
+                this.isPublic = isPublic
+                this.messageId = messageId
+                this.emojiId = emojiId
+                this.emoji = emoji
+                this.count = count
+                this.messageSenderId = messageSenderId
+                this.action = actionDelete
+                this.topicId = topicId
+                this.emojiRecentId = emojiRecentId
+                this.senderName = senderName
+            }
         }
+        sendFireAndForget(env)
     }
 
     suspend fun writeLastSeenMessage(

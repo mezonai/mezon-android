@@ -10,7 +10,9 @@ class ChatAdapter(
     private val themeColors: ThemeColors,
     private val messages: ArrayList<MessageEntity>,
     var channelName: String = "",
-    var cellDelegate: ChatMessageCell.ChatMessageCellDelegate? = null
+    var cellDelegate: ChatMessageCell.ChatMessageCellDelegate? = null,
+    /** Called after binding a cell. Fragment can call cell.setReactions() here. */
+    var onBindReactions: ((cell: ChatMessageCell, msg: MessageEntity) -> Unit)? = null
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     companion object {
@@ -153,6 +155,8 @@ class ChatAdapter(
                 holder.cell.delegate = cellDelegate
                 holder.cell.isCombined = computeCombined(idx)
                 holder.cell.update(0, messages[idx])
+                // Load existing reactions (if any)
+                onBindReactions?.invoke(holder.cell, messages[idx])
             }
             is WelcomeViewHolder -> {
                 holder.cell.channelName = channelName
