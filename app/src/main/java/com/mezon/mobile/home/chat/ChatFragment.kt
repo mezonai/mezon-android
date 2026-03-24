@@ -881,7 +881,7 @@ class ChatFragment : BaseFragment() {
     private fun sendMessage() {
         val text = inputField.text?.toString()?.trim() ?: return
         if (text.isBlank()) return
-        chatController.sendMessage(channelId, clanId, channelType, resolveChannelPrivate(), text)
+        chatController.sendMessage(channelId, clanId, channelType, text)
         inputField.text?.clear()
     }
 }
