@@ -5,6 +5,8 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
+import android.graphics.Typeface
+import android.text.TextPaint
 import android.util.LongSparseArray
 import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.BaseCell
@@ -33,12 +35,18 @@ class ClanCell(
     private val shapeRectF = RectF()
     private val selectedBarRect = RectF()
     private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val unreadPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt() }
-    private val selectedBarPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt() }
+    private val badgeBgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val badgeTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = LayoutHelper.sp(9f)
+        typeface = Typeface.DEFAULT_BOLD
+        textAlign = Paint.Align.CENTER
+        color = android.graphics.Color.WHITE
+    }
+    private val badgeRect = RectF()
+    private val selectedBarPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val clipPath = Path()
 
     private val iconSizePx = LayoutHelper.dp(40)
-    private val unreadDotPx = LayoutHelper.dp(8)
     private val selectedBarPx = LayoutHelper.dp(4)
     private val selectedBarHeightSmall = LayoutHelper.dp(8).toFloat()
     private val selectedBarHeightLarge = LayoutHelper.dp(20).toFloat()
@@ -58,12 +66,14 @@ class ClanCell(
         var needInvalidate = false
 
         if (mask == 0) {
+            val changed = newClan != null && newClan != currentClan ||
+                newSelected != null && newSelected != isSelected
             if (newClan != null) currentClan = newClan
             if (newSelected != null) isSelected = newSelected
             ensureAvatar(c)
             loadLogoIfNeeded(c)
-            invalidate()
-            return true
+            if (changed) invalidate()
+            return changed
         }
 
         if ((mask and NotificationCenter.UPDATE_MASK_BADGE) != 0) {
@@ -184,6 +194,7 @@ class ClanCell(
 
         canvas.restore()
 
+        selectedBarPaint.color = themeColors.onSurface
         if (isSelected) {
             val barHeight = selectedBarHeightLarge
             val barLeft = 0f
@@ -199,8 +210,22 @@ class ClanCell(
         }
 
         if (clan.badgeCount > 0) {
-            val dotR = unreadDotPx.toFloat()
-            canvas.drawCircle(right - dotR / 2, bottom - dotR / 2, dotR, unreadPaint)
+            badgeBgPaint.color = themeColors.badgeRed
+            val badgeH = LayoutHelper.dp(16f).toFloat()
+            val text = if (clan.badgeCount > 99) "99+" else clan.badgeCount.toString()
+            val textW = badgeTextPaint.measureText(text)
+            val padH = LayoutHelper.dp(4f).toFloat()
+            val badgeW = (textW + padH * 2).coerceAtLeast(badgeH)
+            val badgeRadius = badgeH / 2f
+
+            val badgeRight = right + LayoutHelper.dp(2f)
+            val badgeLeft = badgeRight - badgeW
+            val badgeTop = top - LayoutHelper.dp(2f)
+            badgeRect.set(badgeLeft, badgeTop, badgeRight, badgeTop + badgeH)
+
+            canvas.drawRoundRect(badgeRect, badgeRadius, badgeRadius, badgeBgPaint)
+            val textY = badgeRect.centerY() - (badgeTextPaint.descent() + badgeTextPaint.ascent()) / 2
+            canvas.drawText(text, badgeRect.centerX(), textY, badgeTextPaint)
         }
     }
 }
