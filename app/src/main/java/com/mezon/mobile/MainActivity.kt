@@ -359,8 +359,8 @@ class MainActivity : BasePermissionsActivity(),
     private fun showHome() {
         val mainTabsActivity = MainTabsActivity().apply {
             onLogout = { switchToLogin() }
-            onOpenChat = { channelId, channelName, clanId, channelType ->
-                openChat(channelId, channelName, clanId, channelType)
+            onOpenChat = { channelId, channelName, clanId, channelType, messageId ->
+                openChat(channelId, channelName, clanId, channelType, messageId)
             }
         }
         actionBarLayout.removeAllFragments()
@@ -401,8 +401,7 @@ class MainActivity : BasePermissionsActivity(),
         if (lastFragment is ChatFragment && lastFragment.getChannelId() == channelId && messageId == 0L) {
             return
         }
-        val fromDmNotification = fromNotification && clanId == 0L
-        val fragment = ChatFragment.newInstance(channelId, channelName, clanId, channelType, messageId, forceLatest = fromNotification, fromDmNotification = fromDmNotification)
+        val fragment = ChatFragment.newInstance(channelId, channelName, clanId, channelType, messageId, forceLatest = messageId == 0L)
         val params = INavigationLayout.NavigationParams(fragment).setNoAnimation(noAnimation)
         actionBarLayout.presentFragment(params)
     }
@@ -413,8 +412,8 @@ class MainActivity : BasePermissionsActivity(),
             is OTPVerificationFragment -> top.onVerifySuccess = { showHome() }
             is MainTabsActivity -> {
                 top.onLogout = { switchToLogin() }
-                top.onOpenChat = { channelId, channelName, clanId, channelType ->
-                    openChat(channelId, channelName, clanId, channelType)
+                top.onOpenChat = { channelId, channelName, clanId, channelType, messageId ->
+                    openChat(channelId, channelName, clanId, channelType, messageId)
                 }
             }
         }
@@ -445,6 +444,7 @@ class MainActivity : BasePermissionsActivity(),
             }
             intent.removeExtra(NotificationHelper.EXTRA_CHANNEL_ID)
         } else if (dmId != 0L) {
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.navigateToMessagesTab)
             if (StartupCache.hasSession) {
                 openChat(dmId, channelName, 0L, CHANNEL_TYPE_DM, messageId, noAnimation = isFromNotification, fromNotification = isFromNotification)
             }

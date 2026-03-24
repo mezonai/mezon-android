@@ -24,6 +24,7 @@ data class NotificationEntity(
     val avatarUrl: String,
     val category: Int,
     val topicId: Long,
+    val messageId: Long,
     val senderName: String,
     val senderAvatar: String,
     val clanName: String,
@@ -41,6 +42,7 @@ fun Notification.toNotificationEntity(): NotificationEntity {
     var channelLabel = if (hasChannel()) this.channel.channelLabel else ""
     var messageText = ""
     var createTimeSeconds = this.createTimeSeconds.toLong()
+    var messageId = 0L
 
     if (content != null && !content.isEmpty) {
         try {
@@ -67,6 +69,7 @@ fun Notification.toNotificationEntity(): NotificationEntity {
                 senderName = fcm.displayName.ifEmpty { fcm.username }
                 senderAvatar = fcm.avatar
                 if (createTimeSeconds == 0L) createTimeSeconds = fcm.createTimeSeconds.toLong()
+                if (messageId == 0L && fcm.messageId != 0L) messageId = fcm.messageId
                 val innerStr = fcm.content
                 val textRaw = if (innerStr.isNotEmpty()) {
                     try { JSONObject(innerStr).optString("t", "") } catch (_: Exception) { innerStr }
@@ -94,6 +97,7 @@ fun Notification.toNotificationEntity(): NotificationEntity {
         avatarUrl = resolvedAvatar,
         category = category,
         topicId = topicId,
+        messageId = messageId,
         senderName = senderName,
         senderAvatar = resolvedAvatar,
         clanName = clanName,
@@ -124,12 +128,14 @@ private fun parseNotificationItemJson(item: JSONObject): NotificationEntity {
     var channelType = item.optInt("channel_type", 0)
     var senderName = ""; var senderAvatar = ""; var clanName = ""
     var channelLabel = ""; var messageText = ""; var createTimeSeconds = 0L
+    var messageId = item.optString("message_id", "0").toLongOrNull() ?: 0L
 
     val content = item.optJSONObject("content")
     if (content != null) {
         if (channelId == 0L) channelId = content.optString("channel_id", "0").toLongOrNull() ?: 0L
         if (clanId == 0L) clanId = content.optString("clan_id", "0").toLongOrNull() ?: 0L
         if (channelType == 0) channelType = content.optInt("channel_type", 0).takeIf { it != 0 } ?: content.optInt("mode", 0)
+        if (messageId == 0L) messageId = content.optString("message_id", "0").toLongOrNull() ?: 0L
         senderName = content.optString("display_name", "").ifEmpty { content.optString("username", "") }
         senderAvatar = content.optString("avatar", "")
         clanName = content.optString("clan_name", "")
@@ -154,6 +160,7 @@ private fun parseNotificationItemJson(item: JSONObject): NotificationEntity {
         avatarUrl = avatarUrl.ifEmpty { senderAvatar },
         category = item.optInt("category", 0),
         topicId = item.optString("topic_id", "0").toLongOrNull() ?: 0L,
+        messageId = messageId,
         senderName = senderName, senderAvatar = senderAvatar,
         clanName = clanName, channelLabel = channelLabel, messageText = messageText
     )

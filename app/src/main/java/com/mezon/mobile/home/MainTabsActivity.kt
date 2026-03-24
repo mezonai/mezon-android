@@ -40,7 +40,7 @@ class MainTabsActivity : ViewPagerActivity() {
     private lateinit var accountController: AccountController
 
     var onLogout: (() -> Unit)? = null
-    var onOpenChat: ((channelId: Long, channelName: String, clanId: Long, channelType: Int) -> Unit)? = null
+    var onOpenChat: ((channelId: Long, channelName: String, clanId: Long, channelType: Int, messageId: Long) -> Unit)? = null
 
     private lateinit var contentRoot: FrameLayout
     private lateinit var bottomTabBar: BottomTabBar
@@ -53,21 +53,21 @@ class MainTabsActivity : ViewPagerActivity() {
 
     override fun createFragmentForPosition(position: Int): BaseFragment = when (position) {
         TAB_CLANS -> ClansFragment().also { f ->
-            f.onOpenChat = { channelId, channelName, clanId, channelType ->
-                onOpenChat?.invoke(channelId, channelName, clanId, channelType)
+            f.onOpenChat = { channelId, channelName, clanId, channelType, messageId ->
+                onOpenChat?.invoke(channelId, channelName, clanId, channelType, messageId)
             }
             f.onSwitchToMessages = {
                 viewPager.scrollToPosition(TAB_MESSAGES)
             }
         }
         TAB_MESSAGES -> MessagesFragment().also { f ->
-            f.onOpenChat = { channelId, channelName, clanId, channelType ->
-                onOpenChat?.invoke(channelId, channelName, clanId, channelType)
+            f.onOpenChat = { channelId, channelName, clanId, channelType, messageId ->
+                onOpenChat?.invoke(channelId, channelName, clanId, channelType, messageId)
             }
         }
         TAB_NOTIFICATIONS -> NotificationsFragment().also { f ->
-            f.onOpenChat = { channelId, channelName, clanId, channelType ->
-                onOpenChat?.invoke(channelId, channelName, clanId, channelType)
+            f.onOpenChat = { channelId, channelName, clanId, channelType, messageId ->
+                onOpenChat?.invoke(channelId, channelName, clanId, channelType, messageId)
             }
         }
         TAB_PROFILE -> ProfileFragment().also { f ->

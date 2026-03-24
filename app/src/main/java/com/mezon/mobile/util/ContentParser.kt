@@ -62,3 +62,26 @@ fun formatRelativeTime(epochSeconds: Long): String {
         }
     }
 }
+
+fun convertTimestampToTimeAgo(timestampSeconds: Long): String {
+    if (timestampSeconds <= 0L) return ""
+    val now = System.currentTimeMillis() / 1000
+    val diff = now - timestampSeconds
+
+    if (diff < 0) return "Just now"
+
+    val years = diff / (60 * 60 * 24 * 365)
+    val months = (diff % (60 * 60 * 24 * 365)) / (60 * 60 * 24 * 30)
+    val days = (diff % (60 * 60 * 24 * 30)) / (60 * 60 * 24)
+    val hours = (diff % (60 * 60 * 24)) / (60 * 60)
+    val minutes = (diff % (60 * 60)) / 60
+
+    return when {
+        years > 0 -> "${years}y"
+        months > 0 -> "${months}mo"
+        days > 0 -> "${days}d"
+        hours > 0 -> "${hours}h"
+        minutes > 0 -> "${minutes}m"
+        else -> "Just now"
+    }
+}

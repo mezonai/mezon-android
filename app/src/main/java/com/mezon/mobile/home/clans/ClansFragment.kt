@@ -20,6 +20,8 @@ import com.mezon.mobile.home.ChatController
 import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.messages.DirectMessage
 import com.mezon.mobile.home.profile.AccountController
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class ClansFragment : BaseFragment() {
 
@@ -29,7 +31,7 @@ class ClansFragment : BaseFragment() {
     private lateinit var dialogsController: DialogsController
     private lateinit var accountController: AccountController
 
-    var onOpenChat: ((channelId: Long, channelName: String, clanId: Long, channelType: Int) -> Unit)? = null
+    var onOpenChat: ((channelId: Long, channelName: String, clanId: Long, channelType: Int, messageId: Long) -> Unit)? = null
     var onSwitchToMessages: (() -> Unit)? = null
 
     private lateinit var serverRail: RecyclerListView
@@ -53,7 +55,7 @@ class ClansFragment : BaseFragment() {
             updateServerRail()
         }
         observe(NotificationCenter.channelsDidLoad) { _, _, args ->
-            if (fragmentView == null || isPaused) return@observe
+            if (fragmentView == null) return@observe
             val clanId = args.firstOrNull() as? Long ?: return@observe
             if (clanId == clansController.selectedClanId.value) updateChannelList()
         }
@@ -79,6 +81,13 @@ class ClansFragment : BaseFragment() {
         }
 
         clansController.loadClans()
+        fragmentScope.launch(Dispatchers.Main) {
+            clansController.selectedClanId.collect {
+                if (fragmentView == null || !clansController.clansLoaded) return@collect
+                updateServerRail()
+                if (it != 0L) updateChannelList()
+            }
+        }
         return true
     }
 
@@ -103,7 +112,7 @@ class ClansFragment : BaseFragment() {
                 }
                 is UnreadDmCell -> {
                     val dm = view.directMessage ?: return@OnItemClickListener
-                    onOpenChat?.invoke(dm.channelId, dm.displayName.ifEmpty { dm.label }, 0L, dm.type)
+                    onOpenChat?.invoke(dm.channelId, dm.displayName.ifEmpty { dm.label }, 0L, dm.type, 0L)
                 }
             }
         })
@@ -197,16 +206,13 @@ class ClansFragment : BaseFragment() {
 
     private fun onClanSelected(clan: ClanEntity) {
         if (clan.clanId == clansController.selectedClanId.value) return
-        clansController.selectClan(clan.clanId)
-        clanHeaderText.text = clan.clanName
         channelListView.resetExpansion()
-        updateServerRail()
-        channelListView.clear()
+        clansController.selectClan(clan.clanId)
     }
 
     private fun onChannelSelected(channel: ClanChannelEntity) {
         chatController.openChannel(channel.channelId, channel.clanId, channel.type, channel.isPrivate)
-        onOpenChat?.invoke(channel.channelId, channel.channelLabel, channel.clanId, channel.type)
+        onOpenChat?.invoke(channel.channelId, channel.channelLabel, channel.clanId, channel.type, 0L)
     }
 
     inner class ServerRailAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {

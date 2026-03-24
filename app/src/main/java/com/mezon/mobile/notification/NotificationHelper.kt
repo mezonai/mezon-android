@@ -207,7 +207,8 @@ class NotificationHelper @Inject constructor(
         body: String,
         channelId: Long = 0L,
         clanId: Long = 0L,
-        dmId: Long = 0L
+        dmId: Long = 0L,
+        messageId: Long = 0L
     ) {
         appScope.launch {
             val channelName = when {
@@ -222,13 +223,16 @@ class NotificationHelper @Inject constructor(
             withContext(Dispatchers.Main) {
                 val activity = MainActivity.instance ?: return@withContext
                 val onTap: (() -> Unit)? = when {
-                    dmId != 0L -> { { activity.openChat(dmId, channelName, 0L, CHANNEL_TYPE_DM, fromNotification = true) } }
+                    dmId != 0L -> { {
+                        activity.notificationCenter.postNotificationOnMainThread(NotificationCenter.navigateToMessagesTab)
+                        activity.openChat(dmId, channelName, 0L, CHANNEL_TYPE_DM, messageId, fromNotification = true)
+                    } }
                     clanId != 0L && channelId != 0L -> {
                         {
                             notificationCenter.postNotificationOnMainThread(NotificationCenter.navigateToClansTab)
                             clansController.selectClan(clanId)
                             chatController.get().openChannel(channelId, clanId, CHANNEL_TYPE_CHANNEL)
-                            activity.openChat(channelId, channelName, clanId, CHANNEL_TYPE_CHANNEL, fromNotification = true)
+                            activity.openChat(channelId, channelName, clanId, CHANNEL_TYPE_CHANNEL, messageId, fromNotification = true)
                         }
                     }
                     else -> null

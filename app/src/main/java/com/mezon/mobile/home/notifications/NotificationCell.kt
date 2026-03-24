@@ -11,7 +11,7 @@ import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.util.createImgproxyUrl
-import com.mezon.mobile.util.formatRelativeTime
+import com.mezon.mobile.util.convertTimestampToTimeAgo
 
 class NotificationCell(context: Context, private val theme: ThemeColors) : BaseCell(context) {
 
@@ -113,7 +113,7 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : BaseC
         val contentWidth = width - PADDING_H * 2 - AVATAR_SIZE - GAP_H
         if (contentWidth <= 0) return
 
-        val timeText = formatRelativeTime(n.createTimeSeconds)
+        val timeText = convertTimestampToTimeAgo(n.createTimeSeconds)
         val timePaint = theme.dialogTimePaint
         timePaint.color = theme.onSurfaceVariant
         timeLayout = StaticLayout.Builder
@@ -133,9 +133,9 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : BaseC
             .setEllipsize(TextUtils.TruncateAt.END)
             .build()
 
-        val bodyText = n.messageText.ifEmpty { n.subject }
+        val bodyText = if (n.category == NOTIF_CATEGORY_FOR_YOU) "" else n.messageText
         val bodyPaint = theme.dialogMessagePaint
-        bodyLayout = StaticLayout.Builder
+        bodyLayout = if (bodyText.isEmpty()) null else StaticLayout.Builder
             .obtain(bodyText, 0, bodyText.length, bodyPaint, contentWidth)
             .setMaxLines(2)
             .setEllipsize(TextUtils.TruncateAt.END)
@@ -143,13 +143,17 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : BaseC
     }
 
     private fun buildSubjectText(n: NotificationEntity): String {
-        val sender = n.senderName.ifEmpty { n.subject }
-        return when {
-            n.clanName.isNotEmpty() && n.channelLabel.isNotEmpty() ->
-                "$sender · ${n.clanName} # ${n.channelLabel}"
-            n.clanName.isNotEmpty() -> "$sender · ${n.clanName}"
-            n.channelLabel.isNotEmpty() -> "$sender · #${n.channelLabel}"
-            else -> sender
+        return when (n.category) {
+            NOTIF_CATEGORY_MENTIONS -> {
+                n.subject
+            }
+            NOTIF_CATEGORY_MESSAGES -> {
+                n.senderName.ifEmpty { n.subject }
+            }
+            NOTIF_CATEGORY_FOR_YOU -> {
+                n.subject
+            }
+            else -> n.subject
         }
     }
 
@@ -179,6 +183,11 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : BaseC
 
         val textLeft = (avatarLeft + AVATAR_SIZE + GAP_H).toFloat()
         var textTop = PADDING_V.toFloat()
+
+        if (bodyLayout == null) {
+            val subjectHeight = subjectLayout?.height ?: 0
+            textTop = (height - subjectHeight) / 2f
+        }
 
         subjectLayout?.let {
             canvas.save()

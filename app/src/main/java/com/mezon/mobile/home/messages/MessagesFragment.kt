@@ -33,7 +33,7 @@ class MessagesFragment : BaseFragment() {
     private lateinit var adapter: DmListAdapter
     private var scrollingManually = false
 
-    var onOpenChat: ((channelId: Long, channelName: String, clanId: Long, channelType: Int) -> Unit)? = null
+    var onOpenChat: ((channelId: Long, channelName: String, clanId: Long, channelType: Int, messageId: Long) -> Unit)? = null
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
         controller = entryPoint.dialogsController()
@@ -105,7 +105,7 @@ class MessagesFragment : BaseFragment() {
         recyclerView.setOnItemClickListener(RecyclerListView.OnItemClickListener { view, _ ->
             if (view is DialogCell) {
                 val dm = view.directMessage ?: return@OnItemClickListener
-                onOpenChat?.invoke(dm.channelId, dm.displayName.ifEmpty { dm.label }, 0L, dm.type)
+                onOpenChat?.invoke(dm.channelId, dm.displayName.ifEmpty { dm.label }, 0L, dm.type, 0L)
             }
         })
         recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {

@@ -48,7 +48,8 @@ class NotificationObserver @Inject constructor(
                 notificationHelper.showDmNotification(
                     title = senderName,
                     body = body,
-                    dmChannelId = msg.channelId
+                    dmChannelId = msg.channelId,
+                    messageId = msg.messageId
                 )
             } else {
                 val channelLabel = msg.channelLabel.ifBlank { "Channel" }
@@ -58,7 +59,8 @@ class NotificationObserver @Inject constructor(
                     channelId = msg.channelId,
                     clanId = msg.clanId,
                     channelName = channelLabel,
-                    channelType = streamModeToChannelType(msg.mode)
+                    channelType = streamModeToChannelType(msg.mode),
+                    messageId = msg.messageId
                 )
             }
         }
