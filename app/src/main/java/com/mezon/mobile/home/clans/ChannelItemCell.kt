@@ -68,7 +68,8 @@ class ChannelItemCell(
     fun bind(channel: ClanChannelEntity, active: Boolean) {
         this.channel = channel
         this.isActive = active
-        update(0)
+        truncatedName = ""
+        invalidate()
     }
 
     fun update(mask: Int, newChannel: ClanChannelEntity? = null): Boolean {

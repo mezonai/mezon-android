@@ -60,6 +60,7 @@ class DialogsController @Inject constructor(
         appScope.launch { loadDialogsFromDb() }
         appScope.launch { observePresenceChanges() }
         appScope.launch { observeMarkAsRead() }
+        appScope.launch { observeLastSeenMessages() }
     }
 
     fun cleanup() {
@@ -135,22 +136,44 @@ class DialogsController @Inject constructor(
         }
     }
 
-    fun markDialogAsRead(channelId: Long) {
+    fun updateDialogLastSeen(channelId: Long, messageId: Long, remainingUnread: Int) {
+        synchronized(this) {
+            val dm = dialogsDict[channelId] ?: return
+            if (messageId <= dm.lastSeenMessageId) return
+            val updated = dm.copy(
+                lastSeenMessageId = messageId,
+                unreadCount = remainingUnread.coerceAtLeast(0)
+            )
+            dialogsDict.put(channelId, updated)
+            val idx = dialogs.indexOfFirst { it.channelId == channelId }
+            if (idx >= 0) { dialogs[idx] = updated }
+        }
+        appScope.launch { directMessageDao.updateLastSeen(channelId, messageId) }
+    }
+
+    fun markDialogAsRead(channelId: Long, postEvent: Boolean = true) {
         var changed = false
+        var newSeenId = 0L
         synchronized(this) {
             val dm = dialogsDict[channelId]
             if (dm == null || dm.unreadCount == 0) return
-            val updated = dm.copy(unreadCount = 0)
+            newSeenId = maxOf(dm.lastSeenMessageId, dm.lastSentMessageId)
+            val updated = dm.copy(
+                unreadCount = 0,
+                lastSeenMessageId = newSeenId
+            )
             dialogsDict.put(channelId, updated)
             val idx = dialogs.indexOfFirst { it.channelId == channelId }
             if (idx >= 0) { dialogs[idx] = updated; changed = true }
         }
         if (changed) {
-            appScope.launch { directMessageDao.updateUnreadCount(channelId, 0) }
-            notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
-            notificationCenter.postNotificationOnMainThread(
-                NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_READ_DIALOG_MESSAGE
-            )
+            appScope.launch { directMessageDao.updateLastSeen(channelId, newSeenId) }
+            if (postEvent) {
+                notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
+                notificationCenter.postNotificationOnMainThread(
+                    NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_READ_DIALOG_MESSAGE
+                )
+            }
         }
     }
 
@@ -175,10 +198,14 @@ class DialogsController @Inject constructor(
 
             val newSentMessageId = if (!isContentMutation) msg.messageId else dm.lastSentMessageId
 
+            val newLastSeenId = if (isFromMe && !isContentMutation && msg.messageId > dm.lastSeenMessageId)
+                msg.messageId else dm.lastSeenMessageId
+
             val result = dm.copy(
                 lastMessageContent = newPreview.ifBlank { dm.lastMessageContent },
                 lastMessageTimestamp = newTimestamp.takeIf { it > 0 } ?: dm.lastMessageTimestamp,
                 lastSentMessageId = newSentMessageId.takeIf { it > 0 } ?: dm.lastSentMessageId,
+                lastSeenMessageId = newLastSeenId,
                 unreadCount = newUnread
             )
             updatedDm = result
@@ -195,10 +222,27 @@ class DialogsController @Inject constructor(
 
     private fun putDialogs(list: List<DirectMessage>) {
         synchronized(this) {
+            for (dm in list) {
+                val existing = dialogsDict[dm.channelId]
+                if (existing == null) {
+                    dialogsDict.put(dm.channelId, dm)
+                } else {
+                    val merged = dm.copy(
+                        lastSeenMessageId = maxOf(existing.lastSeenMessageId, dm.lastSeenMessageId),
+                        unreadCount = if (dm.lastMessageTimestamp >= existing.lastMessageTimestamp) dm.unreadCount else existing.unreadCount
+                    )
+                    dialogsDict.put(dm.channelId, merged)
+                }
+            }
+            val apiIds = list.map { it.channelId }.toSet()
+            val toRemove = ArrayList<Long>()
+            for (i in 0 until dialogsDict.size()) {
+                if (dialogsDict.keyAt(i) !in apiIds) toRemove.add(dialogsDict.keyAt(i))
+            }
+            for (id in toRemove) dialogsDict.remove(id)
             dialogs.clear()
-            dialogsDict.clear()
-            dialogs.addAll(list)
-            for (dm in list) dialogsDict.put(dm.channelId, dm)
+            for (i in 0 until dialogsDict.size()) dialogs.add(dialogsDict.valueAt(i))
+            dialogs.sortByDescending { it.lastMessageTimestamp }
         }
         appScope.launch { directMessageDao.upsertAll(list) }
     }
@@ -208,15 +252,23 @@ class DialogsController @Inject constructor(
         val cached = withContext(ioDispatcher) { directMessageDao.getAll() }
         Log.d(TAG, "loadDialogsFromDb: Room returned ${cached.size} items")
         if (cached.isNotEmpty()) {
+            var staleReadStateCount = 0
             synchronized(this) {
                 dialogs.clear()
                 dialogsDict.clear()
                 val sorted = cached.sortedByDescending { it.lastMessageTimestamp }
                 dialogs.addAll(sorted)
-                for (dm in sorted) dialogsDict.put(dm.channelId, dm)
+                for (dm in sorted) {
+                    dialogsDict.put(dm.channelId, dm)
+                    if (dm.lastSeenMessageId == 0L && dm.lastSentMessageId != 0L) staleReadStateCount++
+                }
             }
-            Log.d(TAG, "loadDialogsFromDb: done, posting dialogsNeedReload")
+            Log.d(TAG, "loadDialogsFromDb: done, posting dialogsNeedReload (staleReadState=$staleReadStateCount)")
             notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
+            if (staleReadStateCount > 0) {
+                Log.d(TAG, "loadDialogsFromDb: $staleReadStateCount dialogs with stale read state, scheduling API refresh")
+                loadDialogs()
+            }
         } else {
             Log.d(TAG, "loadDialogsFromDb: empty cache, no notification")
         }
@@ -260,6 +312,36 @@ class DialogsController @Inject constructor(
         socketEventDispatcher.markAsRead.collect { event ->
             if (event.channelId == 0L) return@collect
             markDialogAsRead(event.channelId)
+        }
+    }
+
+    private suspend fun observeLastSeenMessages() {
+        socketEventDispatcher.lastSeenMessageEvents.collect { event ->
+            if (event.channelId == 0L || event.messageId == 0L) return@collect
+            if (event.clanId != 0L) return@collect
+            updateLastSeen(event.channelId, event.messageId)
+        }
+    }
+
+    fun updateLastSeen(channelId: Long, messageId: Long) {
+        var changed = false
+        synchronized(this) {
+            val dm = dialogsDict[channelId] ?: return
+            if (messageId <= dm.lastSeenMessageId) return
+            val updated = dm.copy(
+                lastSeenMessageId = messageId,
+                unreadCount = 0
+            )
+            dialogsDict.put(channelId, updated)
+            val idx = dialogs.indexOfFirst { it.channelId == channelId }
+            if (idx >= 0) { dialogs[idx] = updated; changed = true }
+        }
+        if (changed) {
+            appScope.launch { directMessageDao.updateLastSeen(channelId, messageId) }
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
+            notificationCenter.postNotificationOnMainThread(
+                NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_READ_DIALOG_MESSAGE
+            )
         }
     }
 }

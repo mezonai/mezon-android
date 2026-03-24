@@ -60,7 +60,8 @@ class ChannelThreadCell(
         this.isFirst = isFirst
         this.isLast = isLast
         this.isActive = isActive
-        update(0)
+        truncatedName = ""
+        invalidate()
     }
 
     fun update(mask: Int, newThread: ClanChannelEntity? = null): Boolean {
