@@ -88,13 +88,16 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         var needInvalidate = false
 
         if (mask == 0) {
+            val changed = newDm != null && newDm != directMessage
             if (newDm != null) directMessage = newDm
             avatarDrawable.setInfo(dm.channelId, dm.displayName.ifEmpty { dm.label })
             onlineProgress = if (dm.type == CHANNEL_TYPE_DM && dm.isOnline) 1f else 0f
-            buildLayouts()
-            loadAvatar(dm.avatarUrl)
-            invalidate()
-            return true
+            if (changed) {
+                buildLayouts()
+                loadAvatar(dm.avatarUrl)
+                invalidate()
+            }
+            return changed
         }
 
         if ((mask and NotificationCenter.UPDATE_MASK_STATUS) != 0) {

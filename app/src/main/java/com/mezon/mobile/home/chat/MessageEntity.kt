@@ -50,6 +50,8 @@ data class MessageEntity(
     val extraAttachmentsJson: String = ""
 ) {
     companion object {
+        const val UNREAD_DIVIDER_ID = Long.MIN_VALUE
+
         const val TYPE_TEXT = 0
         const val TYPE_PHOTO = 1
         const val TYPE_VIDEO = 2
@@ -75,6 +77,9 @@ data class MessageEntity(
         const val CODE_SHARE_CONTACT = 16
         const val CODE_LOCATION = 17
     }
+
+    val isUnreadDivider: Boolean
+        get() = id == UNREAD_DIVIDER_ID
 
     val hasMedia: Boolean
         get() = messageType == TYPE_PHOTO || messageType == TYPE_VIDEO || messageType == TYPE_GIF

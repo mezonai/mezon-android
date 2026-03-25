@@ -38,6 +38,8 @@ class ClansFragment : BaseFragment() {
     private lateinit var clanHeaderText: TextView
     private lateinit var channelListView: ChannelListView
     private lateinit var serverAdapter: ServerRailAdapter
+    private var listFrozen = false
+    private var viewJustCreated = false
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
         clansController = entryPoint.clansController()
@@ -51,24 +53,24 @@ class ClansFragment : BaseFragment() {
         super.onFragmentCreate()
 
         observe(NotificationCenter.clansDidLoad) { _, _, _ ->
-            if (fragmentView == null || isPaused) return@observe
+            if (fragmentView == null || isPaused || listFrozen) return@observe
             updateServerRail()
         }
         observe(NotificationCenter.channelsDidLoad) { _, _, args ->
-            if (fragmentView == null) return@observe
+            if (fragmentView == null || listFrozen) return@observe
             val clanId = args.firstOrNull() as? Long ?: return@observe
             if (clanId == clansController.selectedClanId.value) updateChannelList()
         }
         observe(NotificationCenter.clanInfoUpdated) { _, _, _ ->
-            if (fragmentView == null || isPaused) return@observe
+            if (fragmentView == null || isPaused || listFrozen) return@observe
             updateServerRail()
         }
         observe(NotificationCenter.dialogsNeedReload) { _, _, _ ->
-            if (fragmentView == null || isPaused) return@observe
+            if (fragmentView == null || isPaused || listFrozen) return@observe
             updateServerRail()
         }
         observe(NotificationCenter.updateInterfaces) { _, _, args ->
-            if (fragmentView == null || isPaused) return@observe
+            if (fragmentView == null || isPaused || listFrozen) return@observe
             val mask = args.firstOrNull() as? Int ?: 0
             updateVisibleRows(mask)
         }
@@ -146,6 +148,7 @@ class ClansFragment : BaseFragment() {
             val selectedId = clansController.selectedClanId.value
             if (selectedId != 0L) updateChannelList()
         }
+        viewJustCreated = true
 
         return root
     }
@@ -153,27 +156,47 @@ class ClansFragment : BaseFragment() {
     override fun onBecomeFullyVisible() {
         super.onBecomeFullyVisible()
 
+        if (viewJustCreated) {
+            viewJustCreated = false
+            return
+        }
         if (clansController.clansLoaded) {
+            updateVisibleRows(0)
+        }
+    }
+
+    fun setListFrozen(frozen: Boolean) {
+        if (listFrozen == frozen) return
+        listFrozen = frozen
+        if (!frozen && fragmentView != null) {
             updateServerRail()
-            val currentClanId = clansController.selectedClanId.value
-            if (currentClanId != 0L) updateChannelList()
+            updateChannelList()
         }
     }
 
     private fun updateVisibleRows(mask: Int) {
-        if (isPaused) return
-        if ((mask and NotificationCenter.UPDATE_MASK_NEW_MESSAGE) != 0 ||
-            (mask and NotificationCenter.UPDATE_MASK_BADGE) != 0 || mask == 0) {
+        if (isPaused && mask != 0) {
+            if ((mask and NotificationCenter.UPDATE_MASK_BADGE) != 0) {
+                updateServerRail()
+            }
+            return
+        }
+        if (mask == 0) {
             updateServerRail()
             updateChannelList()
             return
         }
-        val count = serverRail.childCount
+
+        if ((mask and NotificationCenter.UPDATE_MASK_BADGE) != 0) {
+            updateServerRail()
+        }
+
         val clans = clansController.clans.value
         val selectedId = clansController.selectedClanId.value
         val clanMap = HashMap<Long, ClanEntity>(clans.size)
         for (c in clans) clanMap[c.clanId] = c
 
+        val count = serverRail.childCount
         for (i in 0 until count) {
             val child = serverRail.getChildAt(i)
             if (child is ClanCell) {
@@ -183,7 +206,9 @@ class ClansFragment : BaseFragment() {
             }
         }
 
-        channelListView.updateVisibleRows(mask)
+        val channels = channelController.getChannels(selectedId)
+        val channelMap = channels.associateBy { it.channelId }
+        channelListView.updateVisibleRows(mask, channelMap)
     }
 
     private fun updateServerRail() {
@@ -217,6 +242,8 @@ class ClansFragment : BaseFragment() {
 
     inner class ServerRailAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
+        init { setHasStableIds(true) }
+
         private val VIEW_TYPE_DM_HEADER = 0
         private val VIEW_TYPE_UNREAD_DM = 1
         private val VIEW_TYPE_SEPARATOR = 2
@@ -239,6 +266,15 @@ class ClansFragment : BaseFragment() {
             newPendingFriendCount: Int = 0,
             newLogoUrl: String = ""
         ) {
+            val oldUnreadDms = ArrayList(unreadDms)
+            val oldUnreadIds = oldUnreadDms.map { it.channelId }
+            val oldClans = ArrayList(clans)
+            val oldClanIds = oldClans.map { it.clanId }
+            val oldSelectedId = selectedClanId
+            val oldPendingFriendCount = pendingFriendCount
+            val oldLogoUrl = logoUrl
+            val oldSize = itemCount
+
             unreadDms.clear()
             unreadDms.addAll(newUnreadDms)
             clans.clear()
@@ -246,7 +282,50 @@ class ClansFragment : BaseFragment() {
             selectedClanId = newSelectedId
             pendingFriendCount = newPendingFriendCount
             logoUrl = newLogoUrl
-            notifyDataSetChanged()
+
+            val newUnreadIds = newUnreadDms.map { it.channelId }
+            val newClanIds = newClans.map { it.clanId }
+            val newSize = itemCount
+
+            val structureChanged = oldSize != newSize ||
+                oldUnreadIds != newUnreadIds ||
+                oldClanIds != newClanIds
+            if (structureChanged) {
+                notifyDataSetChanged()
+                return
+            }
+
+            if (oldLogoUrl != newLogoUrl || oldPendingFriendCount != newPendingFriendCount) {
+                notifyItemChanged(0)
+            }
+
+            for (i in newUnreadDms.indices) {
+                val old = oldUnreadDms.getOrNull(i)
+                val new = newUnreadDms[i]
+                if (old == null || old.unreadCount != new.unreadCount ||
+                    old.lastMessageContent != new.lastMessageContent ||
+                    old.isOnline != new.isOnline) {
+                    notifyItemChanged(dmHeaderCount + i)
+                }
+            }
+
+            val sep = if (hasSeparator) 1 else 0
+            val clanStart = dmHeaderCount + unreadDms.size + sep
+            val oldClanMap = HashMap<Long, ClanEntity>(oldClans.size)
+            for (c in oldClans) oldClanMap[c.clanId] = c
+
+            for (i in newClans.indices) {
+                val new = newClans[i]
+                val old = oldClanMap[new.clanId]
+                val selected = new.clanId == newSelectedId
+                val wasSelected = new.clanId == oldSelectedId
+                if (old == null ||
+                    old.badgeCount != new.badgeCount ||
+                    old.hasUnread != new.hasUnread ||
+                    selected != wasSelected) {
+                    notifyItemChanged(clanStart + i)
+                }
+            }
         }
 
         fun updatePendingFriendCount(count: Int) {
@@ -258,6 +337,15 @@ class ClansFragment : BaseFragment() {
         override fun getItemCount(): Int {
             val sep = if (hasSeparator) 1 else 0
             return dmHeaderCount + unreadDms.size + sep + clans.size
+        }
+
+        override fun getItemId(position: Int): Long {
+            if (position == 0) return Long.MIN_VALUE
+            val afterHeader = position - dmHeaderCount
+            if (afterHeader < unreadDms.size) return unreadDms[afterHeader].channelId
+            if (hasSeparator && afterHeader == unreadDms.size) return Long.MIN_VALUE + 1
+            val idx = clanIndex(position)
+            return if (idx in clans.indices) clans[idx].clanId else RecyclerView.NO_ID
         }
 
         override fun getItemViewType(position: Int): Int {

@@ -1,22 +1,33 @@
 package com.mezon.mobile.home.chat
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffColorFilter
+import android.os.Build
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
+import android.util.Log
 import android.util.LongSparseArray
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.R
+import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
@@ -26,16 +37,12 @@ import com.mezon.mobile.home.ChatController
 import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.ui.cells.ActionBarView
+import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.PageDownButton
 
-class ChatFragment : BaseFragment() {
+private const val TAG = "ChatFragment"
 
-    private data class SavedScrollState(
-        val messageId: Long,
-        val offset: Int,
-        val atBottom: Boolean,
-        val timestamp: Long
-    )
+class ChatFragment : BaseFragment() {
 
     companion object {
         private const val ARG_CHANNEL_ID = "channelId"
@@ -46,9 +53,7 @@ class ChatFragment : BaseFragment() {
         private const val ARG_FORCE_LATEST = "force_latest"
         private const val VIEWPORT_LIMIT = 100
         private const val PAGE_DOWN_SCROLL_THRESHOLD = 15
-        private const val SCROLL_STATE_TTL_MS = 5 * 60 * 1000L
-
-        private val scrollStates = HashMap<Long, SavedScrollState>()
+        private const val SCROLL_PREFS = "chat_scroll_positions"
 
         fun newInstance(
             channelId: Long,
@@ -72,16 +77,26 @@ class ChatFragment : BaseFragment() {
     private lateinit var chatController: ChatController
     private lateinit var dialogsController: DialogsController
     private lateinit var channelController: ChannelController
+    private lateinit var mediaController: MediaController
 
     private lateinit var recyclerView: RecyclerListView
     private lateinit var loadingView: ProgressBar
     private lateinit var errorView: TextView
     private lateinit var inputField: EditText
     private lateinit var sendButton: ImageButton
+    private lateinit var micButton: ImageButton
+    private lateinit var attachButton: ImageButton
+    private lateinit var emojiButton: ImageButton
     private lateinit var adapter: ChatAdapter
     private lateinit var rootView: LinearLayout
     private lateinit var inputBar: LinearLayout
+    private lateinit var inputWrapper: FrameLayout
     private lateinit var pageDownButton: PageDownButton
+    private lateinit var unreadDecoration: UnreadDividerDecoration
+    private var attachmentPreviewStrip: LinearLayout? = null
+    private var attachmentPreviewScroll: HorizontalScrollView? = null
+
+    private val pendingAttachments = ArrayList<AttachmentPickerItem>()
 
     private var channelId = 0L
     private var channelName = ""
@@ -102,10 +117,36 @@ class ChatFragment : BaseFragment() {
     private var firstLoad = true
     private var newUnreadCount = 0
     private var lastSeenMessageId = 0L
+    private var dividerSeenMessageId = 0L
     private var lastSentMessageId = 0L
+    private var hasUnread = false
+    private var jumpingToPresent = false
+
+    private var slidingView: ChatMessageCell? = null
+    private var maybeStartTrackingSlidingView = false
+    private var startedTrackingSlidingView = false
+    private var startedTrackingX = 0
+    private var startedTrackingY = 0
+    private var startedTrackingPointerId = -1
 
     private val messages = ArrayList<MessageEntity>()
     private val messagesDict = LongSparseArray<MessageEntity>()
+    private var transitionAnimationIndex = 0
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var pendingSeenMessageId = 0L
+    private var pendingSeenTimestamp = 0
+    private var pendingBadgeCount = 0
+    private val markVisibleRunnable = Runnable { flushPendingSeen() }
+
+    private val postponeNewMessagesCallback = object : NotificationCenter.PostponeNotificationCallback {
+        override fun needPostpone(id: Int, currentAccount: Int, args: Array<out Any?>): Boolean {
+            if (id == NotificationCenter.didReceiveNewMessages) {
+                val did = args.firstOrNull() as? Long ?: return false
+                if (firstLoad && did == channelId) return true
+            }
+            return false
+        }
+    }
 
     fun getChannelId(): Long = channelId
 
@@ -130,25 +171,25 @@ class ChatFragment : BaseFragment() {
             lastSeenMessageId = ch?.lastSeenMessageId ?: 0L
             lastSentMessageId = ch?.lastSentMessageId ?: 0L
         }
+        dividerSeenMessageId = lastSeenMessageId
         val isSeenUpToDate = lastSentMessageId == 0L || lastSeenMessageId >= lastSentMessageId
-        val hasUnread = !isSeenUpToDate && lastSeenMessageId != 0L
+        hasUnread = !isSeenUpToDate && lastSeenMessageId != 0L
 
         if (startLoadFromMessageId == 0L && !forceLatest) {
-            val saved = scrollStates[channelId]
-            if (saved != null && System.currentTimeMillis() - saved.timestamp < SCROLL_STATE_TTL_MS) {
-                if (saved.atBottom) {
-                    pausedOnLastMessage = true
-                } else if (saved.messageId != 0L) {
-                    loadingFromOldPosition = true
-                    needScrollRestore = true
-                    startLoadFromMessageOffset = saved.offset
-                    startLoadFromMessageId = saved.messageId
-                }
-            } else if (saved != null) {
-                scrollStates.remove(channelId)
+            val prefs = getParentActivity()?.getSharedPreferences(SCROLL_PREFS, android.content.Context.MODE_PRIVATE)
+            val savedMid = prefs?.getLong("mid_$channelId", 0L) ?: 0L
+            val savedOffset = prefs?.getInt("off_$channelId", 0) ?: 0
+            val savedAtBottom = prefs?.getBoolean("bot_$channelId", true) ?: true
+            if (savedAtBottom) {
+                pausedOnLastMessage = true
+            } else if (savedMid != 0L) {
+                loadingFromOldPosition = true
+                needScrollRestore = true
+                startLoadFromMessageOffset = savedOffset
+                startLoadFromMessageId = savedMid
             }
         }
-        if (hasUnread && startLoadFromMessageId == 0L && !pausedOnLastMessage && !forceLatest) {
+        if (hasUnread && startLoadFromMessageId == 0L && !forceLatest) {
             needScrollRestore = true
         }
 
@@ -159,6 +200,18 @@ class ChatFragment : BaseFragment() {
             val moreTop = args[2] as? Boolean ?: false
             val moreBottom = args[3] as? Boolean ?: false
             val isCache = args[4] as? Boolean ?: false
+            val serverLastSeenId = args.getOrNull(5) as? Long ?: 0L
+            Log.d(TAG, "messagesDidLoad: isCache=$isCache firstLoad=$firstLoad hasUnread=$hasUnread " +
+                "loaded=${loadedMessages.size} lastSeen=$lastSeenMessageId lastSent=$lastSentMessageId serverLastSeen=$serverLastSeenId")
+            if (serverLastSeenId != 0L) {
+                val newSeen = maxOf(lastSeenMessageId, serverLastSeenId)
+                if (newSeen != lastSeenMessageId) {
+                    Log.d(TAG, "lastSeenMessageId Math.max: $lastSeenMessageId → $newSeen")
+                    lastSeenMessageId = newSeen
+                    if (firstLoad) dividerSeenMessageId = newSeen
+                }
+                hasUnread = lastSentMessageId != 0L && lastSeenMessageId < lastSentMessageId && lastSeenMessageId != 0L
+            }
 
             val wasLoadingMore = isLoadingMore
             val direction = loadMoreDirection
@@ -172,7 +225,7 @@ class ChatFragment : BaseFragment() {
                         newMessages.add(m)
                     }
                 }
-                newMessages.sortByDescending { it.timestampSeconds }
+                newMessages.sortByDescending { it.id }
                 newRowsCount = newMessages.size
 
                 if (direction == 1) {
@@ -189,6 +242,12 @@ class ChatFragment : BaseFragment() {
                         isViewingOlder = false
                         clearSavedScrollPosition()
                     }
+                    if (newRowsCount > 0 && newUnreadCount > 0) {
+                        newUnreadCount = (newUnreadCount - newRowsCount).coerceAtLeast(0)
+                        pageDownButton.setUnreadCount(newUnreadCount)
+                    }
+                    updatePageDownVisibility()
+                    if (!isViewingOlder && !hasMoreBottom) markAsRead()
                 }
 
                 if (newRowsCount > 0) {
@@ -243,6 +302,11 @@ class ChatFragment : BaseFragment() {
             isLoadingMore = false
             loadMoreDirection = 0
 
+            if (jumpingToPresent && isCache) {
+                if (fragmentView != null) showLoading()
+                return@observe
+            }
+
             if (isCache) {
                 var addedFromCache = false
                 for (m in loadedMessages) {
@@ -255,50 +319,125 @@ class ChatFragment : BaseFragment() {
                     messages.clear()
                     val all = ArrayList<MessageEntity>(messagesDict.size())
                     for (i in 0 until messagesDict.size()) all.add(messagesDict.valueAt(i))
-                    all.sortByDescending { it.timestampSeconds }
+                    all.sortByDescending { it.id }
                     messages.addAll(all)
                 }
                 hasMoreTop = moreTop
                 hasMoreBottom = moreBottom
             } else {
-                if (messages.isEmpty()) {
-                    for (m in loadedMessages.reversed()) messages.add(m)
+                val savedHasUnread = hasUnread
+                val savedLastSeen = lastSeenMessageId
+
+                val apiMinId = loadedMessages.minOfOrNull { it.id } ?: 0L
+                val apiMaxId = loadedMessages.maxOfOrNull { it.id } ?: 0L
+                val existingMinId = messages.minOfOrNull { it.id } ?: 0L
+                val existingMaxId = messages.maxOfOrNull { it.id } ?: 0L
+                val hasOverlap = messages.isNotEmpty() &&
+                    apiMinId <= existingMaxId && apiMaxId >= existingMinId
+
+                if (hasOverlap) {
                     for (m in loadedMessages) messagesDict.put(m.id, m)
-                    hasMoreTop = moreTop
-                    hasMoreBottom = moreBottom
                 } else {
-                    for (m in loadedMessages) {
-                        if (messagesDict.get(m.id) == null) {
-                            messagesDict.put(m.id, m)
-                        }
+                    messagesDict.clear()
+                    for (m in loadedMessages) messagesDict.put(m.id, m)
+                }
+                messages.clear()
+                val all = ArrayList<MessageEntity>(messagesDict.size())
+                for (i in 0 until messagesDict.size()) all.add(messagesDict.valueAt(i))
+                all.sortByDescending { it.id }
+                messages.addAll(all)
+                hasMoreTop = moreTop
+                hasMoreBottom = moreBottom
+
+                hasUnread = savedHasUnread
+                lastSeenMessageId = savedLastSeen
+            }
+
+            // Reconcile lastSentMessageId with the per-channel newest message store
+            // (equivalent to RN's state.messages.lastMessageByChannel[channelId]).
+            // This is more reliable than the channel list API which can be stale.
+            val fromStore = chatController.getLastMessageId(channelId)
+            lastSentMessageId = maxOf(lastSentMessageId, fromStore)
+
+            if (messages.isNotEmpty()) {
+                val newestInList = messages.first().id
+                lastSentMessageId = maxOf(lastSentMessageId, newestInList)
+            }
+
+            if (!jumpingToPresent && !isCache) {
+                if (!hasUnread && lastSentMessageId != 0L && lastSeenMessageId != 0L
+                    && lastSeenMessageId < lastSentMessageId) {
+                    hasUnread = true
+                    needScrollRestore = true
+                    Log.d(TAG, "hasUnread re-evaluated to TRUE: lastSeen=$lastSeenMessageId < lastSent=$lastSentMessageId")
+                }
+
+                if (lastSentMessageId != 0L && messages.isNotEmpty()) {
+                    val newestInList = messages.first().id
+                    if (newestInList < lastSentMessageId) {
+                        hasMoreBottom = true
                     }
-                    messages.clear()
-                    val all = ArrayList<MessageEntity>(messagesDict.size())
-                    for (i in 0 until messagesDict.size()) all.add(messagesDict.valueAt(i))
-                    all.sortByDescending { it.timestampSeconds }
-                    messages.addAll(all)
-                    hasMoreTop = moreTop
-                    hasMoreBottom = moreBottom
                 }
             }
 
-            if (lastSentMessageId != 0L && messages.isNotEmpty()) {
+            if (!hasUnread && lastSeenMessageId != 0L && messages.isNotEmpty()) {
                 val newestInList = messages.first().id
-                if (newestInList < lastSentMessageId) {
-                    hasMoreBottom = true
+                if (newestInList > lastSeenMessageId && messages.any { it.id == lastSeenMessageId }) {
+                    hasUnread = true
+                    if (!needScrollRestore && startLoadFromMessageId == 0L) needScrollRestore = true
                 }
             }
 
             if (fragmentView != null) {
                 val wasFirstLoad = firstLoad
                 firstLoad = false
-                refreshUI()
-                if (forceLatest && wasFirstLoad) {
+
+                if (wasFirstLoad) {
+                    notificationCenter.removePostponeNotificationsCallback(postponeNewMessagesCallback)
+                    val allowedDuringLoad = intArrayOf(
+                        NotificationCenter.messagesDidLoad,
+                        NotificationCenter.messagesLoadError,
+                        NotificationCenter.closeChats
+                    )
+                    transitionAnimationIndex = notificationCenter.setAnimationInProgress(
+                        transitionAnimationIndex, allowedDuringLoad, false
+                    )
+                    mainHandler.postDelayed({
+                        notificationCenter.onAnimationFinish(transitionAnimationIndex)
+                    }, 500)
+                }
+
+                if (jumpingToPresent) {
+                    jumpingToPresent = false
+                    showMessages()
                     forceScrollToBottom()
                     markAsRead()
-                } else if (startLoadFromMessageId != 0L) {
-                    val idx = messages.indexOfFirst { it.id == startLoadFromMessageId }
-                    if (idx >= 0 || !isCache) {
+                } else {
+                    Log.d(TAG, "messagesDidLoad decision: wasFirstLoad=$wasFirstLoad hasUnread=$hasUnread isCache=$isCache firstLoad=$firstLoad msgs=${messages.size}")
+
+                    var anchorMsgId = 0L
+                    var anchorOffset = 0
+                    if (!wasFirstLoad && ::recyclerView.isInitialized && recyclerView.childCount > 0) {
+                        for (i in 0 until recyclerView.childCount) {
+                            val v = recyclerView.getChildAt(i)
+                            val msgId = when (v) {
+                                is ChatMessageCell -> v.messageEntity?.id
+                                is SystemMessageCell -> v.messageEntity?.id
+                                else -> null
+                            } ?: continue
+                            anchorMsgId = msgId
+                            anchorOffset = getScrollingOffsetForView(v)
+                            break
+                        }
+                    }
+
+                    refreshUI()
+                    if (forceLatest && wasFirstLoad) {
+                        forceScrollToBottom()
+                        markAsRead()
+                    } else if (startLoadFromMessageId != 0L) {
+                        val idx = messages.indexOfFirst { it.id == startLoadFromMessageId }
+                        if (idx >= 0 || !isCache) {
                         scrollToMessageWithOffset(startLoadFromMessageId, startLoadFromMessageOffset)
                         if (loadingFromOldPosition) {
                             val newestInList = messages.firstOrNull()?.id ?: 0L
@@ -306,24 +445,36 @@ class ChatFragment : BaseFragment() {
                             if (moreBelow) {
                                 isViewingOlder = true
                                 hasMoreBottom = true
+                                applyInitialUnreadCount()
                                 updatePageDownVisibility()
                             }
                         }
                         startLoadFromMessageId = 0L
                         startLoadFromMessageOffset = Int.MAX_VALUE
                         loadingFromOldPosition = false
+                        recyclerView.post { markVisibleAsRead() }
+                        }
+                    } else if (needScrollRestore && lastSeenMessageId != 0L && hasUnread) {
+                        scrollToFirstUnread()
+                        needScrollRestore = false
+                        val newestInList = messages.firstOrNull()?.id ?: 0L
+                        if (lastSentMessageId != 0L && newestInList < lastSentMessageId) {
+                            isViewingOlder = true
+                            hasMoreBottom = true
+                        }
+                        applyInitialUnreadCount()
+                        updatePageDownVisibility()
+                        recyclerView.post { markVisibleAsRead() }
+                    } else if (wasFirstLoad) {
+                        forceScrollToBottom()
+                        markAsRead()
+                    } else if (anchorMsgId != 0L) {
+                        val idx = messages.indexOfFirst { it.id == anchorMsgId }
+                        if (idx >= 0) {
+                            val lm = recyclerView.layoutManager as? LinearLayoutManager
+                            lm?.scrollToPositionWithOffset(adapter.messagesStartRow + idx, anchorOffset)
+                        }
                     }
-                } else if (wasFirstLoad && lastSeenMessageId != 0L && hasUnread) {
-                    scrollToMessageId(lastSeenMessageId)
-                    val newestInList = messages.firstOrNull()?.id ?: 0L
-                    if (lastSentMessageId != 0L && newestInList < lastSentMessageId) {
-                        isViewingOlder = true
-                        hasMoreBottom = true
-                    }
-                    updatePageDownVisibility()
-                } else if (wasFirstLoad) {
-                    forceScrollToBottom()
-                    markAsRead()
                 }
             }
         }
@@ -333,6 +484,10 @@ class ChatFragment : BaseFragment() {
             val entity = args[1] as? MessageEntity ?: return@observe
             if (messagesDict.get(entity.id) != null) return@observe
             if (entity.id > lastSentMessageId) lastSentMessageId = entity.id
+            if (entity.isMe && (isViewingOlder || hasMoreBottom)) {
+                jumpToPresent()
+                return@observe
+            }
             if (isViewingOlder) {
                 newUnreadCount++
                 hasMoreBottom = true
@@ -347,8 +502,9 @@ class ChatFragment : BaseFragment() {
             trimViewportOldest()
             if (fragmentView != null) {
                 refreshUI()
-                scrollToBottom()
+                if (entity.isMe) forceScrollToBottom() else scrollToBottom()
             }
+            if (!isPaused) markAsRead()
         }
 
         observe(NotificationCenter.messageDidUpdate) { _, _, args ->
@@ -384,6 +540,7 @@ class ChatFragment : BaseFragment() {
             }
         }
 
+
         observe(NotificationCenter.updateInterfaces) { _, _, args ->
             if (fragmentView == null) return@observe
             val mask = args.firstOrNull() as? Int ?: 0
@@ -396,18 +553,43 @@ class ChatFragment : BaseFragment() {
             inputBar.setBackgroundColor(themeColors.surface)
             inputField.setTextColor(themeColors.onSurface)
             inputField.setHintTextColor(themeColors.onSurfaceVariant)
-            sendButton.setColorFilter(themeColors.primary)
+            (inputField.background as? android.graphics.drawable.GradientDrawable)?.setColor(themeColors.tertiary)
+            (attachButton.background as? android.graphics.drawable.GradientDrawable)?.setColor(themeColors.tertiary)
+            attachButton.setColorFilter(themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary))
+            emojiButton.setColorFilter(themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary))
+            micButton.setColorFilter(themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary))
+            attachmentPreviewScroll?.setBackgroundColor(themeColors.surface)
             actionBar?.applyTheme()
             pageDownButton.applyColors()
+            unreadDecoration.applyColors()
             adapter.notifyDataSetChanged()
         }
 
+        observe(NotificationCenter.appDidReconnect) { _, _, _ ->
+            if (isPaused) return@observe
+            Log.d(TAG, "appDidReconnect: reloading messages for channel $channelId")
+            chatController.loadMessages(channelId, clanId)
+        }
+
+        observe(NotificationCenter.scrollToBottomChat) { _, _, args ->
+            val targetId = args.firstOrNull() as? Long ?: return@observe
+            if (targetId != channelId) return@observe
+            isViewingOlder = false
+            hasMoreBottom = false
+            newUnreadCount = 0
+            pageDownButton.show(false)
+            pageDownButton.setUnreadCount(0)
+            forceScrollToBottom()
+            markAsRead()
+        }
+
+        notificationCenter.addPostponeNotificationsCallback(postponeNewMessagesCallback)
+
+        isLoading = true
         if (forceLatest) {
             chatController.loadMessages(channelId, clanId)
         } else if (startLoadFromMessageId != 0L) {
             chatController.loadMessagesAround(channelId, clanId, startLoadFromMessageId)
-        } else if (hasUnread && !pausedOnLastMessage) {
-            chatController.loadMessagesAround(channelId, clanId, lastSeenMessageId)
         } else {
             chatController.loadMessages(channelId, clanId)
         }
@@ -418,6 +600,7 @@ class ChatFragment : BaseFragment() {
         chatController = entryPoint.chatController()
         dialogsController = entryPoint.dialogsController()
         channelController = entryPoint.channelController()
+        mediaController = entryPoint.mediaController()
     }
 
     override fun createView(context: Context): View {
@@ -444,6 +627,8 @@ class ChatFragment : BaseFragment() {
             itemAnimator = null
             visibility = View.GONE
         }
+        unreadDecoration = UnreadDividerDecoration(themeColors, getString(R.string.message_new_messages))
+        recyclerView.addItemDecoration(unreadDecoration)
         contentFrame.addView(recyclerView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
         loadingView = ProgressBar(context).apply { visibility = View.GONE }
@@ -464,54 +649,122 @@ class ChatFragment : BaseFragment() {
         contentFrame.addView(
             pageDownButton,
             FrameLayout.LayoutParams(
-                LayoutHelper.dp(64f), LayoutHelper.dp(64f),
+                LayoutHelper.dp(56f), LayoutHelper.dp(56f),
                 Gravity.BOTTOM or Gravity.END
             ).apply {
                 rightMargin = LayoutHelper.dp(8f)
-                bottomMargin = LayoutHelper.dp(8f)
+                bottomMargin = LayoutHelper.dp(4f)
             }
         )
 
+        attachmentPreviewScroll = HorizontalScrollView(context).apply {
+            visibility = View.GONE
+            setBackgroundColor(themeColors.surface)
+            isHorizontalScrollBarEnabled = false
+            val pad = LayoutHelper.dp(8)
+            setPadding(pad, pad, pad, 0)
+        }
+        attachmentPreviewStrip = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        attachmentPreviewScroll!!.addView(attachmentPreviewStrip, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LayoutHelper.dp(56f)
+        ))
+        rootView.addView(attachmentPreviewScroll, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+
+        val blurple = 0xFF5865F2.toInt()
+
         inputBar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+            gravity = Gravity.BOTTOM
             setBackgroundColor(themeColors.surface)
-            val pad = LayoutHelper.dp(8)
-            setPadding(pad, pad, pad, pad)
+            setPadding(LayoutHelper.dp(6f), LayoutHelper.dp(10f), LayoutHelper.dp(2f), LayoutHelper.dp(10f))
         }
         rootView.addView(inputBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+
+        val btnPad = LayoutHelper.dp(8f)
+        attachButton = ImageButton(context).apply {
+            val drawable = MezonIcon.plusLargeIcon.getDrawable(context)
+            drawable.colorFilter = PorterDuffColorFilter(themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary), PorterDuff.Mode.SRC_IN)
+            setImageDrawable(drawable)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setPadding(btnPad, btnPad, btnPad, btnPad)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL
+                setColor(themeColors.tertiary)
+            }
+            setOnClickListener { showAttachmentPicker() }
+        }
+        inputBar.addView(attachButton, LayoutHelper.createLinear(40, 40, gravity = Gravity.BOTTOM))
+
+        inputWrapper = FrameLayout(context)
+        inputBar.addView(inputWrapper, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.BOTTOM, 6f, 0f, 6f, 0f))
 
         inputField = EditText(context).apply {
             hint = getString(R.string.message_input_placeholder)
             setHintTextColor(themeColors.onSurfaceVariant)
             setTextColor(themeColors.onSurface)
             textSize = 15f
-            maxLines = 6
+            maxLines = 4
+            minimumHeight = LayoutHelper.dp(40f)
             imeOptions = EditorInfo.IME_ACTION_SEND
-            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
-            setBackgroundColor(android.graphics.Color.TRANSPARENT)
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or
+                android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(themeColors.tertiary)
+                cornerRadius = LayoutHelper.dp(20f).toFloat()
+            }
+            setPadding(LayoutHelper.dp(20f), LayoutHelper.dp(8f), LayoutHelper.dp(40f), LayoutHelper.dp(12f))
         }
-        inputBar.addView(inputField, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f))
+        inputWrapper.addView(inputField, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT
+        ))
+
+        emojiButton = ImageButton(context).apply {
+            setImageResource(R.drawable.ic_emoji_icon)
+            setColorFilter(PorterDuffColorFilter(themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary), PorterDuff.Mode.SRC_IN))
+            setBackgroundColor(android.graphics.Color.TRANSPARENT)
+            scaleType = ImageView.ScaleType.CENTER
+        }
+        inputWrapper.addView(emojiButton, FrameLayout.LayoutParams(
+            LayoutHelper.dp(24f), LayoutHelper.dp(24f),
+            Gravity.END or Gravity.BOTTOM
+        ).apply {
+            rightMargin = LayoutHelper.dp(8f)
+            bottomMargin = LayoutHelper.dp(8f)
+        })
 
         sendButton = ImageButton(context).apply {
-            setImageResource(android.R.drawable.ic_menu_send)
-            setColorFilter(themeColors.primary)
-            val outValue = android.util.TypedValue()
-            context.theme.resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, outValue, true)
-            setBackgroundResource(outValue.resourceId)
-            isEnabled = false
-            alpha = 0.5f
+            val drawable = MezonIcon.sendMessageIcon.getDrawable(context)
+            drawable.colorFilter = PorterDuffColorFilter(android.graphics.Color.WHITE, PorterDuff.Mode.SRC_IN)
+            setImageDrawable(drawable)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setPadding(btnPad, btnPad, btnPad, btnPad)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL
+                setColor(blurple)
+            }
+            visibility = View.GONE
             setOnClickListener { sendMessage() }
         }
-        inputBar.addView(sendButton, LayoutHelper.createLinear(48, 48))
+        inputBar.addView(sendButton, LayoutHelper.createLinear(40, 40, gravity = Gravity.BOTTOM))
+
+        micButton = ImageButton(context).apply {
+            val drawable = MezonIcon.microphoneIcon.getDrawable(context)
+            drawable.colorFilter = PorterDuffColorFilter(themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary), PorterDuff.Mode.SRC_IN)
+            setImageDrawable(drawable)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setPadding(btnPad, btnPad, btnPad, btnPad)
+            setBackgroundColor(android.graphics.Color.TRANSPARENT)
+        }
+        inputBar.addView(micButton, LayoutHelper.createLinear(40, 40, gravity = Gravity.BOTTOM))
 
         inputField.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
             override fun afterTextChanged(s: Editable?) {
-                val hasText = s?.isNotBlank() == true
-                sendButton.isEnabled = hasText
-                sendButton.alpha = if (hasText) 1f else 0.5f
+                updateSendButtonState()
             }
         })
 
@@ -565,11 +818,19 @@ class ChatFragment : BaseFragment() {
                     } catch (_: Exception) {}
                 }
             }
+            override fun didLongPress(cell: ChatMessageCell, msg: MessageEntity) {
+                showMessageActionSheet(msg)
+            }
+            override fun didClickAvatar(cell: ChatMessageCell, msg: MessageEntity) {
+                showUserProfile(msg)
+            }
         })
         adapter.channelType = channelType
         adapter.clanId = clanId
         adapter.isChannelPrivate = resolveChannelPrivate()
         recyclerView.adapter = adapter
+
+        setupSwipeInterceptor()
 
         recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrollStateChanged(rv: RecyclerView, newState: Int) {
@@ -585,6 +846,7 @@ class ChatFragment : BaseFragment() {
                             child.startHeavyOperations()
                             updateCellVisibility(rv, child)
                         }
+                        markVisibleAsRead()
                     }
                 }
             }
@@ -596,6 +858,7 @@ class ChatFragment : BaseFragment() {
                 isViewingOlder = firstVisible > PAGE_DOWN_SCROLL_THRESHOLD
 
                 if (isViewingOlder != wasViewingOlder) {
+                    if (isViewingOlder) pausedOnLastMessage = false
                     updatePageDownVisibility()
                     if (!isViewingOlder && !hasMoreBottom) markAsRead()
                 }
@@ -633,9 +896,18 @@ class ChatFragment : BaseFragment() {
             channelController.setCurrentChannel(channelId)
             channelController.markChannelAsRead(channelId)
         }
+        val hasDivider = unreadDecoration.firstUnreadAdapterPosition != RecyclerView.NO_POSITION
+        Log.d(TAG, "onBecomeFullyVisible: msgs=${messages.size} isLoading=$isLoading isViewingOlder=$isViewingOlder hasDivider=$hasDivider needScrollRestore=$needScrollRestore firstLoad=$firstLoad")
         if (messages.isNotEmpty()) {
-            showMessages()
-            if (!isViewingOlder) markAsRead()
+            needScrollRestore = false
+            loadingView.visibility = View.GONE
+            errorView.visibility = View.GONE
+            recyclerView.visibility = View.VISIBLE
+            adapter.showLoadingUp = hasMoreTop
+            adapter.showLoadingDown = hasMoreBottom
+            adapter.updateRowsSafe()
+            updateUnreadDividerPosition()
+            if (!isViewingOlder && !hasDivider) markAsRead()
         } else if (!isLoading) {
             isLoading = true
             showLoading()
@@ -651,47 +923,74 @@ class ChatFragment : BaseFragment() {
 
     override fun onPause() {
         super.onPause()
+        if (::recyclerView.isInitialized) recyclerView.stopScroll()
         saveScrollPosition()
     }
 
     private fun saveScrollPosition() {
-        if (pausedOnLastMessage || firstLoad || !::recyclerView.isInitialized) return
+        if (firstLoad || !::recyclerView.isInitialized) return
 
         val lm = recyclerView.layoutManager as? LinearLayoutManager ?: return
+        val position = lm.findFirstVisibleItemPosition()
+        if (position == RecyclerView.NO_POSITION) return
+        val prefs = getParentActivity()?.getSharedPreferences(SCROLL_PREFS, android.content.Context.MODE_PRIVATE)
+            ?: return
+
+        if (position <= PAGE_DOWN_SCROLL_THRESHOLD && !hasMoreBottom) {
+            prefs.edit()
+                .putLong("mid_$channelId", 0L)
+                .putInt("off_$channelId", 0)
+                .putBoolean("bot_$channelId", true)
+                .commit()
+            return
+        }
+
         var messageId = 0L
         var offset = 0
-        val position = lm.findFirstVisibleItemPosition()
-
-        if (position != 0) {
-            val holder = recyclerView.findViewHolderForAdapterPosition(position)
-            if (holder != null) {
-                val msgId = when (val v = holder.itemView) {
-                    is ChatMessageCell -> v.messageEntity?.id
-                    is SystemMessageCell -> v.messageEntity?.id
-                    is WelcomeMessageCell -> null
-                    else -> null
-                }
-                if (msgId != null && msgId != 0L) {
-                    messageId = msgId
-                    offset = holder.itemView.bottom - recyclerView.measuredHeight
-                }
+        for (i in 0..1) {
+            val holder = recyclerView.findViewHolderForAdapterPosition(position + i) ?: continue
+            val msgId = when (val v = holder.itemView) {
+                is ChatMessageCell -> v.messageEntity?.id
+                is SystemMessageCell -> v.messageEntity?.id
+                else -> null
+            }
+            if (msgId != null && msgId != 0L) {
+                messageId = msgId
+                offset = holder.itemView.bottom - recyclerView.measuredHeight
+                break
             }
         }
 
-        val now = System.currentTimeMillis()
         if (messageId != 0L) {
-            scrollStates[channelId] = SavedScrollState(messageId, offset, atBottom = false, timestamp = now)
+            prefs.edit()
+                .putLong("mid_$channelId", messageId)
+                .putInt("off_$channelId", offset)
+                .putBoolean("bot_$channelId", false)
+                .commit()
         } else {
-            pausedOnLastMessage = true
-            scrollStates[channelId] = SavedScrollState(0L, 0, atBottom = true, timestamp = now)
+            val fallbackMsg = messages.firstOrNull()
+            if (fallbackMsg != null && (isViewingOlder || hasMoreBottom)) {
+                prefs.edit()
+                    .putLong("mid_$channelId", fallbackMsg.id)
+                    .putInt("off_$channelId", Int.MAX_VALUE)
+                    .putBoolean("bot_$channelId", false)
+                    .commit()
+            }
         }
     }
 
     override fun onFragmentDestroy() {
+        notificationCenter.removePostponeNotificationsCallback(postponeNewMessagesCallback)
+        notificationCenter.onAnimationFinish(transitionAnimationIndex)
+        saveScrollPosition()
+        mainHandler.removeCallbacks(markVisibleRunnable)
+        markVisibleAsRead()
+        flushPendingSeen()
         dialogsController.clearCurrentChannel()
         if (clanId != 0L) channelController.clearCurrentChannel()
         messages.clear()
         messagesDict.clear()
+        pendingAttachments.clear()
         super.onFragmentDestroy()
     }
 
@@ -721,6 +1020,7 @@ class ChatFragment : BaseFragment() {
         adapter.showLoadingUp = hasMoreTop
         adapter.showLoadingDown = hasMoreBottom
         adapter.notifyMessagesUpdated()
+        updateUnreadDividerPosition()
     }
 
     private fun showEmpty() {
@@ -731,10 +1031,12 @@ class ChatFragment : BaseFragment() {
     }
 
     private fun forceScrollToBottom() {
+        unreadDecoration.clear()
         recyclerView.post { recyclerView.scrollToPosition(0) }
     }
 
     private fun scrollToBottom() {
+        unreadDecoration.clear()
         val lm = recyclerView.layoutManager as? LinearLayoutManager ?: return
         val firstVisible = lm.findFirstVisibleItemPosition()
         if (firstVisible <= 3 || firstVisible == RecyclerView.NO_POSITION) {
@@ -762,12 +1064,11 @@ class ChatFragment : BaseFragment() {
         }
     }
 
-
     private fun scrollToMessageId(messageId: Long) {
         val idx = messages.indexOfFirst { it.id == messageId }
         if (idx >= 0) {
             val lm = recyclerView.layoutManager as? LinearLayoutManager ?: return
-            lm.scrollToPositionWithOffset(adapter.messagesStartRow + idx, recyclerView.height / 3)
+            lm.scrollToPositionWithOffset(adapter.messagesStartRow + idx, recyclerView.height / 2)
             if (needScrollRestore) {
                 recyclerView.post {
                     recyclerView.visibility = View.VISIBLE
@@ -783,31 +1084,92 @@ class ChatFragment : BaseFragment() {
     }
 
     private fun jumpToPresent() {
+        val hadMoreBottom = hasMoreBottom
         newUnreadCount = 0
         isViewingOlder = false
         hasMoreBottom = false
+        hasUnread = false
+        needScrollRestore = false
         pausedOnLastMessage = true
         pageDownButton.show(false)
         pageDownButton.setUnreadCount(0)
-
         clearSavedScrollPosition()
+        unreadDecoration.clear()
 
-        messages.clear()
-        messagesDict.clear()
-        firstLoad = true
-        chatController.loadMessages(channelId, clanId)
-        markAsRead()
+        if (!hadMoreBottom && lastSentMessageId != 0L && messagesDict.get(lastSentMessageId) != null) {
+            forceScrollToBottom()
+            markAsRead()
+        } else {
+            jumpingToPresent = true
+            messages.clear()
+            messagesDict.clear()
+            firstLoad = true
+            chatController.loadMessages(channelId, clanId, forceRefresh = true)
+        }
     }
 
     private fun clearSavedScrollPosition() {
-        scrollStates[channelId] = SavedScrollState(0L, 0, atBottom = true, timestamp = System.currentTimeMillis())
+        getParentActivity()?.getSharedPreferences(SCROLL_PREFS, android.content.Context.MODE_PRIVATE)
+            ?.edit()
+            ?.putLong("mid_$channelId", 0L)
+            ?.putInt("off_$channelId", 0)
+            ?.putBoolean("bot_$channelId", true)
+            ?.commit()
     }
 
     private fun markAsRead() {
         val newest = messages.firstOrNull() ?: return
+        if (messagesDict[newest.id] == null) return
+        if (clanId != 0L) {
+            if (channelController.findChannelById(channelId) == null) return
+        } else {
+            if (dialogsController.getDialog(channelId) == null) return
+        }
+        if (newest.id <= lastSeenMessageId) return
+        lastSeenMessageId = newest.id
+
+        pendingSeenMessageId = newest.id
+        pendingSeenTimestamp = newest.timestampSeconds.toInt()
+        pendingBadgeCount = 0
+        mainHandler.removeCallbacks(markVisibleRunnable)
+        mainHandler.postDelayed(markVisibleRunnable, 500)
+    }
+
+    private fun markVisibleAsRead() {
+        if (!::recyclerView.isInitialized || messages.isEmpty()) return
+        val lm = recyclerView.layoutManager as? LinearLayoutManager ?: return
+        val firstPos = lm.findFirstVisibleItemPosition()
+        if (firstPos == RecyclerView.NO_POSITION) return
+
+        val msgIndex = firstPos - adapter.messagesStartRow
+        val visibleMsg = if (msgIndex in messages.indices) messages[msgIndex] else messages.firstOrNull() ?: return
+        if (visibleMsg.id <= lastSeenMessageId) return
+
+        lastSeenMessageId = visibleMsg.id
+        val remaining = if (lastSentMessageId != 0L && visibleMsg.id < lastSentMessageId) {
+            messages.count { it.id > visibleMsg.id }
+        } else {
+            0
+        }
+        newUnreadCount = remaining
+        if (::pageDownButton.isInitialized) pageDownButton.setUnreadCount(remaining)
+
+        pendingSeenMessageId = visibleMsg.id
+        pendingSeenTimestamp = visibleMsg.timestampSeconds.toInt()
+        pendingBadgeCount = remaining
+        mainHandler.removeCallbacks(markVisibleRunnable)
+        mainHandler.postDelayed(markVisibleRunnable, 500)
+    }
+
+    private fun flushPendingSeen() {
+        if (pendingSeenMessageId == 0L) return
+        val msgId = pendingSeenMessageId
+        val ts = pendingSeenTimestamp
+        val badge = pendingBadgeCount
+        pendingSeenMessageId = 0L
         chatController.updateLastSeenMessage(
             channelId, clanId, channelType,
-            newest.id, newest.timestampSeconds.toInt()
+            msgId, ts, badgeCount = badge
         )
     }
 
@@ -820,6 +1182,17 @@ class ChatFragment : BaseFragment() {
         }
     }
 
+    private fun applyInitialUnreadCount() {
+        if (newUnreadCount > 0 || lastSentMessageId == 0L || lastSeenMessageId == 0L) return
+        if (lastSeenMessageId >= lastSentMessageId) return
+        val estimate = ((lastSentMessageId ushr 22) - (lastSeenMessageId ushr 22)).toInt()
+            .coerceIn(0, 999)
+        if (estimate > 0) {
+            newUnreadCount = estimate
+            if (::pageDownButton.isInitialized) pageDownButton.setUnreadCount(estimate)
+        }
+    }
+
     private fun getScrollingOffsetForView(v: android.view.View): Int {
         return recyclerView.measuredHeight - v.bottom - recyclerView.paddingBottom
     }
@@ -829,6 +1202,45 @@ class ChatFragment : BaseFragment() {
             val removed = messages.removeAt(messages.size - 1)
             messagesDict.delete(removed.id)
             hasMoreTop = true
+        }
+    }
+
+    private fun updateUnreadDividerPosition() {
+        if (!hasUnread || dividerSeenMessageId == 0L || messages.isEmpty()) {
+            unreadDecoration.clear()
+            return
+        }
+        val seenIdx = messages.indexOfFirst { it.id == dividerSeenMessageId }
+        if (seenIdx <= 0) {
+            unreadDecoration.clear()
+            return
+        }
+        val firstUnreadMsg = messages[seenIdx - 1]
+        if (firstUnreadMsg.senderId == chatController.getCurrentUserId()) {
+            unreadDecoration.clear()
+            return
+        }
+        unreadDecoration.firstUnreadAdapterPosition = adapter.messagesStartRow + seenIdx - 1
+    }
+
+    private fun scrollToFirstUnread() {
+        if (!hasUnread || dividerSeenMessageId == 0L) return
+        val seenIdx = messages.indexOfFirst { it.id == dividerSeenMessageId }
+        if (seenIdx > 0) {
+            val firstUnreadIdx = seenIdx - 1
+            val lm = recyclerView.layoutManager as? LinearLayoutManager ?: return
+            lm.scrollToPositionWithOffset(adapter.messagesStartRow + firstUnreadIdx, recyclerView.height / 2)
+            if (needScrollRestore) {
+                recyclerView.post {
+                    recyclerView.visibility = View.VISIBLE
+                    needScrollRestore = false
+                }
+            }
+        } else {
+            if (needScrollRestore) {
+                recyclerView.visibility = View.VISIBLE
+                needScrollRestore = false
+            }
         }
     }
 
@@ -879,9 +1291,332 @@ class ChatFragment : BaseFragment() {
     }
 
     private fun sendMessage() {
-        val text = inputField.text?.toString()?.trim() ?: return
-        if (text.isBlank()) return
-        chatController.sendMessage(channelId, clanId, channelType, text)
+        val text = inputField.text?.toString()?.trim() ?: ""
+        if (text.isBlank() && pendingAttachments.isEmpty()) return
+
+        val isPrivate = resolveChannelPrivate()
+        if (pendingAttachments.isNotEmpty()) {
+            val ctx = getContext() ?: return
+            chatController.sendMessageWithAttachments(
+                channelId, clanId, channelType, isPrivate, text,
+                ArrayList(pendingAttachments),
+                ctx.contentResolver
+            )
+            clearPendingAttachments()
+        } else {
+            chatController.sendMessage(channelId, clanId, channelType, isPrivate, text)
+        }
         inputField.text?.clear()
+    }
+
+    private fun showAttachmentPicker() {
+        val activity = getParentActivity() ?: return
+        if (activity.isFinishing || activity.isDestroyed) return
+
+        if (!hasMediaPermission()) {
+            requestMediaPermission()
+            return
+        }
+
+        openAttachAlert()
+    }
+
+    private fun hasMediaPermission(): Boolean {
+        val ctx = getContext() ?: return false
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED
+        } else {
+            ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    private fun requestMediaPermission() {
+        val activity = getParentActivity() ?: return
+        val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO)
+        } else {
+            arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
+        activity.requestPermissions(permissions, ChatAttachAlert.REQUEST_CODE_MEDIA_PERMISSION)
+    }
+
+    private fun openAttachAlert() {
+        val ctx = getContext() ?: return
+        val alert = ChatAttachAlert(ctx, mediaController, themeColors)
+        alert.attachDelegate = object : ChatAttachAlert.ChatAttachAlertDelegate {
+            override fun onAttachmentsSelected(items: List<AttachmentPickerItem>) {
+                pendingAttachments.addAll(items)
+                updateAttachmentPreview()
+                updateSendButtonState()
+            }
+        }
+        alert.setDrawNavigationBar(true)
+        alert.show()
+    }
+
+    private fun updateSendButtonState() {
+        val hasText = inputField.text?.isNotBlank() == true
+        val hasAttachments = pendingAttachments.isNotEmpty()
+        val showSend = hasText || hasAttachments
+        sendButton.visibility = if (showSend) View.VISIBLE else View.GONE
+        micButton.visibility = if (showSend) View.GONE else View.VISIBLE
+    }
+
+    private fun updateAttachmentPreview() {
+        val strip = attachmentPreviewStrip ?: return
+        val scroll = attachmentPreviewScroll ?: return
+        strip.removeAllViews()
+
+        if (pendingAttachments.isEmpty()) {
+            scroll.visibility = View.GONE
+            return
+        }
+        scroll.visibility = View.VISIBLE
+
+        val ctx = getContext() ?: return
+        val thumbSize = LayoutHelper.dp(48f)
+        val margin = LayoutHelper.dp(4f)
+
+        for (i in pendingAttachments.indices) {
+            val item = pendingAttachments[i]
+            val container = FrameLayout(ctx)
+
+            val thumb = ImageView(ctx).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                setImageURI(item.uri)
+            }
+            container.addView(thumb, FrameLayout.LayoutParams(thumbSize, thumbSize))
+
+            val closeBtn = ImageView(ctx).apply {
+                val drawable = MezonIcon.closeSmallBold.getDrawable(ctx)
+                drawable.colorFilter = PorterDuffColorFilter(
+                    android.graphics.Color.WHITE, PorterDuff.Mode.SRC_IN
+                )
+                setImageDrawable(drawable)
+                setBackgroundColor(0x80000000.toInt())
+                setPadding(LayoutHelper.dp(2f), LayoutHelper.dp(2f), LayoutHelper.dp(2f), LayoutHelper.dp(2f))
+                setOnClickListener {
+                    pendingAttachments.removeAt(i)
+                    updateAttachmentPreview()
+                    updateSendButtonState()
+                }
+            }
+            container.addView(closeBtn, FrameLayout.LayoutParams(
+                LayoutHelper.dp(18f), LayoutHelper.dp(18f), Gravity.TOP or Gravity.END
+            ))
+
+            val lp = LinearLayout.LayoutParams(thumbSize, thumbSize).apply {
+                rightMargin = margin
+            }
+            strip.addView(container, lp)
+        }
+    }
+
+    private fun clearPendingAttachments() {
+        pendingAttachments.clear()
+        updateAttachmentPreview()
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        if (requestCode == ChatAttachAlert.REQUEST_CODE_MEDIA_PERMISSION) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                openAttachAlert()
+            }
+        }
+    }
+
+    private fun setupSwipeInterceptor() {
+        recyclerView.setOnInterceptTouchListener(RecyclerListView.OnInterceptTouchListener { e ->
+            processTouchEventForSwipe(e)
+            false // Don't consume — let RecyclerView handle normally
+        })
+    }
+
+    private fun processTouchEventForSwipe(e: MotionEvent) {
+        when (e.action) {
+            MotionEvent.ACTION_DOWN -> {
+                if (!startedTrackingSlidingView && !maybeStartTrackingSlidingView) {
+                    val view = recyclerView.findChildViewUnder(e.x, e.y)
+                    if (view is ChatMessageCell) {
+                        slidingView = view
+                        startedTrackingPointerId = e.getPointerId(0)
+                        maybeStartTrackingSlidingView = true
+                        startedTrackingX = e.x.toInt()
+                        startedTrackingY = e.y.toInt()
+                    }
+                }
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (slidingView != null && e.getPointerId(0) == startedTrackingPointerId) {
+                    val dx = Math.abs(e.x.toInt() - startedTrackingX)
+                    val dy = Math.abs(e.y.toInt() - startedTrackingY)
+                    val swipeThreshold = AndroidUtilities.getPixelsInCM(0.4f, true).toInt()
+                    if (maybeStartTrackingSlidingView && !startedTrackingSlidingView
+                        && dx >= swipeThreshold && dx / 3 > dy) {
+                        val cancel = MotionEvent.obtain(
+                            0, 0, MotionEvent.ACTION_CANCEL, 0f, 0f, 0
+                        )
+                        slidingView?.onTouchEvent(cancel)
+                        cancel.recycle()
+
+                        maybeStartTrackingSlidingView = false
+                        startedTrackingSlidingView = true
+                    }
+                }
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                slidingView = null
+                maybeStartTrackingSlidingView = false
+                startedTrackingSlidingView = false
+                startedTrackingPointerId = -1
+            }
+        }
+    }
+
+    private fun showMessageActionSheet(msg: MessageEntity) {
+        val ctx = getContext() ?: return
+        val activity = getParentActivity() ?: return
+        if (activity.isFinishing || activity.isDestroyed) return
+        val userId = chatController.getCurrentUserId()
+        val isMyMessage = msg.senderId == userId
+        val hasMedia = msg.allImageAttachments.isNotEmpty() ||
+            msg.attachmentUrl.isNotEmpty() && (msg.attachmentFiletype.startsWith("image/") || msg.attachmentFiletype.startsWith("video/"))
+        val hasImage = msg.allImageAttachments.any { it.filetype.startsWith("image/") }
+
+        val sheet = MessageActionBottomSheet(
+            context = ctx,
+            message = msg,
+            isMyMessage = isMyMessage,
+            isDM = clanId == 0L,
+            isPinned = false, // TODO: check if pinned via PinController
+            canDeleteMessage = isMyMessage, // TODO: check permission
+            canManageThread = clanId != 0L, // TODO: check permission
+            hasMedia = hasMedia,
+            hasImage = hasImage,
+            listener = object : MessageActionBottomSheet.MessageActionListener {
+                override fun onActionSelected(action: MessageActionBottomSheet.ActionType, message: MessageEntity) {
+                    handleMessageAction(action, message)
+                }
+            }
+        )
+        sheet.setDrawNavigationBar(true)
+        sheet.show()
+    }
+
+    private fun showUserProfile(msg: MessageEntity) {
+        val ctx = getContext() ?: return
+        val activity = getParentActivity() ?: return
+        if (activity.isFinishing || activity.isDestroyed) return
+        val currentUserId = chatController.getCurrentUserId()
+        val isOwnProfile = msg.senderId == currentUserId
+
+        val sheet = UserProfileBottomSheet(
+            context = ctx,
+            userId = msg.senderId,
+            displayName = msg.senderName ?: "Unknown",
+            username = msg.senderName ?: "unknown",
+            avatarUrl = msg.senderAvatar,
+            aboutMe = null,  // TODO: fetch from user profile API
+            memberSince = null, // TODO: fetch from user profile API
+            isOwnProfile = isOwnProfile,
+            isDM = clanId == 0L,
+            listener = object : UserProfileBottomSheet.UserProfileListener {
+                override fun onSendMessage(userId: Long) {
+                    // TODO: open DM with this user
+                    Log.d(TAG, "UserProfile: Send message to $userId")
+                }
+                override fun onVoiceCall(userId: Long) {
+                    // TODO: initiate voice call with this user
+                    Log.d(TAG, "UserProfile: Voice call to $userId")
+                }
+                override fun onAddFriend(userId: Long) {
+                    // TODO: send friend request to this user
+                    Log.d(TAG, "UserProfile: Add friend $userId")
+                }
+            }
+        )
+        sheet.setDrawNavigationBar(true)
+        sheet.show()
+    }
+
+    private fun handleMessageAction(action: MessageActionBottomSheet.ActionType, msg: MessageEntity) {
+        when (action) {
+            MessageActionBottomSheet.ActionType.Reply -> {
+                // TODO: set chatbox to reply mode
+                Log.d(TAG, "Action: Reply to message ${msg.id}")
+            }
+            MessageActionBottomSheet.ActionType.EditMessage -> {
+                // TODO: set chatbox to edit mode
+                Log.d(TAG, "Action: Edit message ${msg.id}")
+            }
+            MessageActionBottomSheet.ActionType.CopyText -> {
+                val ctx = getContext() ?: return
+                val clipboard = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("message", msg.content))
+                android.widget.Toast.makeText(ctx, R.string.message_toast_copy_text, android.widget.Toast.LENGTH_SHORT).show()
+            }
+            MessageActionBottomSheet.ActionType.ForwardMessage -> {
+                // TODO: open forward screen
+                Log.d(TAG, "Action: Forward message ${msg.id}")
+            }
+            MessageActionBottomSheet.ActionType.PinMessage -> {
+                // TODO: call pin API
+                Log.d(TAG, "Action: Pin message ${msg.id}")
+            }
+            MessageActionBottomSheet.ActionType.UnPinMessage -> {
+                // TODO: call unpin API
+                Log.d(TAG, "Action: Unpin message ${msg.id}")
+            }
+            MessageActionBottomSheet.ActionType.DeleteMessage -> {
+                showDeleteConfirmation(msg)
+            }
+            MessageActionBottomSheet.ActionType.CreateThread -> {
+                // TODO: open create thread
+                Log.d(TAG, "Action: Create thread from message ${msg.id}")
+            }
+            MessageActionBottomSheet.ActionType.MarkUnRead -> {
+                // TODO: call mark unread API
+                Log.d(TAG, "Action: Mark unread from message ${msg.id}")
+            }
+            MessageActionBottomSheet.ActionType.SaveMedia -> {
+                // TODO: download media
+                Log.d(TAG, "Action: Save media for message ${msg.id}")
+            }
+            MessageActionBottomSheet.ActionType.CopyMediaLink -> {
+                val url = msg.attachmentUrl
+                if (url.isNotEmpty()) {
+                    val ctx = getContext() ?: return
+                    val clipboard = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("media_url", url))
+                    android.widget.Toast.makeText(ctx, R.string.action_copy_link, android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
+            MessageActionBottomSheet.ActionType.CopyImage,
+            MessageActionBottomSheet.ActionType.ShareImage -> {
+                // TODO: implement image copy/share
+                Log.d(TAG, "Action: ${action.name} for message ${msg.id}")
+            }
+            MessageActionBottomSheet.ActionType.Report -> {
+                // TODO: open report dialog
+                Log.d(TAG, "Action: Report message ${msg.id}")
+            }
+        }
+    }
+
+    private fun showDeleteConfirmation(msg: MessageEntity) {
+        val ctx = getContext() ?: return
+        val builder = android.app.AlertDialog.Builder(ctx)
+        builder.setTitle(R.string.message_delete_title)
+        builder.setMessage(R.string.message_delete_description)
+        builder.setPositiveButton(R.string.common_delete) { _, _ ->
+            chatController.deleteMessage(channelId, clanId, channelType, resolveChannelPrivate(), msg.id)
+        }
+        builder.setNegativeButton(R.string.common_cancel, null)
+        builder.show()
     }
 }

@@ -32,6 +32,9 @@ class MessagesFragment : BaseFragment() {
     private lateinit var errorView: TextView
     private lateinit var adapter: DmListAdapter
     private var scrollingManually = false
+    private var dialogsListFrozen = false
+    private var frozenDialogsList: List<DirectMessage>? = null
+    private var viewJustCreated = false
 
     var onOpenChat: ((channelId: Long, channelName: String, clanId: Long, channelType: Int, messageId: Long) -> Unit)? = null
 
@@ -51,12 +54,13 @@ class MessagesFragment : BaseFragment() {
             adapter.notifyDataSetChanged()
         }
         observe(NotificationCenter.dialogsNeedReload) { _, _, _ ->
-            Log.d(TAG, "dialogsNeedReload received: fragmentView=${fragmentView != null} isPaused=$isPaused")
-            if (fragmentView == null) return@observe
+            Log.d(TAG, "dialogsNeedReload received: fragmentView=${fragmentView != null} isPaused=$isPaused frozen=$dialogsListFrozen")
+            if (fragmentView == null || dialogsListFrozen) return@observe
             updateDialogsList()
         }
         observe(NotificationCenter.updateInterfaces) { _, _, args ->
             if (fragmentView == null || isPaused) return@observe
+            if (dialogsListFrozen) return@observe
             val mask = args.firstOrNull() as? Int ?: 0
             updateVisibleRows(mask)
         }
@@ -131,7 +135,13 @@ class MessagesFragment : BaseFragment() {
         adapter = DmListAdapter(themeColors)
         recyclerView.adapter = adapter
 
-        showLoading()
+        val dialogs = controller.getDialogs()
+        if (dialogs.isNotEmpty()) {
+            showList(dialogs)
+            viewJustCreated = true
+        } else {
+            showLoading()
+        }
 
         return root
     }
@@ -157,8 +167,23 @@ class MessagesFragment : BaseFragment() {
 
     override fun onBecomeFullyVisible() {
         super.onBecomeFullyVisible()
+        if (viewJustCreated) {
+            viewJustCreated = false
+            return
+        }
         Log.d(TAG, "onBecomeFullyVisible isPaused=$isPaused")
         updateDialogsList()
+    }
+
+    fun setDialogsListFrozen(frozen: Boolean) {
+        if (dialogsListFrozen == frozen) return
+        dialogsListFrozen = frozen
+        if (frozen) {
+            frozenDialogsList = ArrayList(controller.getDialogs())
+        } else {
+            frozenDialogsList = null
+            if (fragmentView != null) updateDialogsList()
+        }
     }
 
     private fun updateVisibleRows(mask: Int) {
@@ -167,7 +192,8 @@ class MessagesFragment : BaseFragment() {
             updateDialogsList()
             return
         }
-        adapter.updateVisibleRows(recyclerView, mask, controller.getDialogs())
+        val source = frozenDialogsList ?: controller.getDialogs()
+        adapter.updateVisibleRows(recyclerView, mask, source)
     }
 
     private fun updateCellVisibility() {

@@ -49,18 +49,28 @@ fun buildTextContent(text: String): String {
 
 fun formatRelativeTime(epochSeconds: Long): String {
     if (epochSeconds <= 0L) return ""
-    val now = System.currentTimeMillis() / 1000
-    val diff = now - epochSeconds
-    return when {
-        diff < 60 -> "now"
-        diff < 3600 -> "${diff / 60}m"
-        diff < 86400 -> "${diff / 3600}h"
-        else -> {
-            val h = epochSeconds / 3600 % 24
-            val m = epochSeconds / 60 % 60
-            "%02d:%02d".format(h, m)
-        }
+    val msgCal = java.util.Calendar.getInstance().apply {
+        timeInMillis = epochSeconds * 1000L
     }
+    val nowCal = java.util.Calendar.getInstance()
+
+    val hhmm = "%02d:%02d".format(msgCal.get(java.util.Calendar.HOUR_OF_DAY), msgCal.get(java.util.Calendar.MINUTE))
+
+    val isToday = msgCal.get(java.util.Calendar.YEAR) == nowCal.get(java.util.Calendar.YEAR) &&
+        msgCal.get(java.util.Calendar.DAY_OF_YEAR) == nowCal.get(java.util.Calendar.DAY_OF_YEAR)
+
+    if (isToday) return "Today at $hhmm"
+
+    val yesterdayCal = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DAY_OF_YEAR, -1) }
+    val isYesterday = msgCal.get(java.util.Calendar.YEAR) == yesterdayCal.get(java.util.Calendar.YEAR) &&
+        msgCal.get(java.util.Calendar.DAY_OF_YEAR) == yesterdayCal.get(java.util.Calendar.DAY_OF_YEAR)
+
+    if (isYesterday) return "Yesterday at $hhmm"
+
+    val dd = "%02d".format(msgCal.get(java.util.Calendar.DAY_OF_MONTH))
+    val mm = "%02d".format(msgCal.get(java.util.Calendar.MONTH) + 1)
+    val yyyy = msgCal.get(java.util.Calendar.YEAR)
+    return "$dd/$mm/$yyyy, $hhmm"
 }
 
 fun convertTimestampToTimeAgo(timestampSeconds: Long): String {

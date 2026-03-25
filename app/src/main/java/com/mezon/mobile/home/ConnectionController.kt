@@ -7,6 +7,7 @@ import com.google.firebase.messaging.FirebaseMessaging
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
+import com.mezon.mobile.home.clans.ClansController
 import com.mezon.mobile.network.ApiCacheTracker
 import com.mezon.mobile.network.ConnectionState
 import com.mezon.mobile.network.MezonSocket
@@ -32,6 +33,8 @@ class ConnectionController @Inject constructor(
     private val networkMonitor: NetworkMonitor,
     private val cacheTracker: ApiCacheTracker,
     private val fcmRepository: FcmRepository,
+    private val dialogsController: DialogsController,
+    private val clansController: ClansController,
     @ApplicationContext private val appContext: Context,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     @ApplicationScope private val appScope: CoroutineScope
@@ -41,6 +44,7 @@ class ConnectionController @Inject constructor(
         private set
 
     @Volatile private var fcmRegistered = false
+    @Volatile private var hasRefreshedOnce = false
 
     init {
         appScope.launch { observeConnectionState() }
@@ -69,6 +73,26 @@ class ConnectionController @Inject constructor(
         }
     }
 
+    private fun refreshOnReconnect() {
+        Log.d(TAG, "refreshOnReconnect: invalidating cache + refreshing all lists")
+
+        cacheTracker.invalidateAll()
+
+        dialogsController.loadDialogs()
+
+        clansController.loadClans()
+
+        val selectedClanId = clansController.selectedClanId.value
+        if (selectedClanId != 0L) {
+            appScope.launch {
+                try { mezonSocket.joinClanChat(selectedClanId) }
+                catch (e: Exception) { Log.e(TAG, "joinClanChat($selectedClanId) failed", e) }
+            }
+        }
+
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.appDidReconnect)
+    }
+
     private suspend fun observeConnectionState() {
         mezonSocket.connectionState.collect { state ->
             connectionState = state
@@ -93,6 +117,10 @@ class ConnectionController @Inject constructor(
             if (state == ConnectionState.CONNECTED) {
                 try { mezonSocket.joinClanChat(0L) }
                 catch (e: Exception) { Log.e(TAG, "joinClanChat(0) failed", e) }
+                if (!hasRefreshedOnce) {
+                    hasRefreshedOnce = true
+                    refreshOnReconnect()
+                }
             }
         }
     }
@@ -108,8 +136,8 @@ class ConnectionController @Inject constructor(
 
     private suspend fun observeSocketReconnect() {
         mezonSocket.reconnected.collect {
-            Log.d(TAG, "Socket reconnected — invalidating API cache")
-            cacheTracker.invalidateAll()
+            Log.d(TAG, "Socket reconnected — triggering full refresh")
+            refreshOnReconnect()
         }
     }
 
