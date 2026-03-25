@@ -75,7 +75,9 @@ class ChatController @Inject constructor(
     // Coroutine queue cho reactions — xử lý tuần tự, tránh race condition
     private val reactionQueue = Channel<WriteMessageReactionArgs>(capacity = Channel.UNLIMITED)
 
-    private var cachedUserId = ""   // populated once session is available
+    @Volatile private var cachedCurrentUserId = 0L
+    private val cachedUserIdString: String
+        get() = if (cachedCurrentUserId != 0L) cachedCurrentUserId.toString() else ""
 
     init {
         appScope.launch { observeIncomingMessages() }
@@ -83,7 +85,7 @@ class ChatController @Inject constructor(
         appScope.launch { observeIncomingReactions() }
         appScope.launch {
             val session = sessionManager.sessionFlow.first { it != null }
-            cachedUserId = session?.userId ?: ""
+            cachedCurrentUserId = session?.userId?.toLongOrNull() ?: 0L
         }
     }
 
@@ -117,8 +119,15 @@ class ChatController @Inject constructor(
         }
     }
 
-    /** Trả về userId hiện tại (từ cached session). Trả về "" nếu chưa có session. */
-    fun getCurrentUserId(): String = cachedUserId
+    /** Trả về userId hiện tại (từ cached session). Trả về 0 nếu chưa có session. */
+    fun getCurrentUserId(): Long {
+        if (cachedCurrentUserId != 0L) return cachedCurrentUserId
+        appScope.launch(ioDispatcher) {
+            val session = sessionManager.sessionFlow.first()
+            cachedCurrentUserId = session?.userId?.toLongOrNull() ?: 0L
+        }
+        return cachedCurrentUserId
+    }
 
     fun loadMessages(channelId: Long, clanId: Long) {
         appScope.launch(ioDispatcher) {
@@ -385,16 +394,7 @@ class ChatController @Inject constructor(
         }
     }
 
-    @Volatile private var cachedCurrentUserId = 0L
-
-    fun getCurrentUserId(): Long {
-        if (cachedCurrentUserId != 0L) return cachedCurrentUserId
-        appScope.launch(ioDispatcher) {
-            val session = sessionManager.sessionFlow.first()
-            cachedCurrentUserId = session?.userId?.toLongOrNull() ?: 0L
-        }
-        return cachedCurrentUserId
-    }
+    fun getCurrentUserIdString(): String = cachedUserIdString
 
     fun deleteMessage(channelId: Long, clanId: Long, channelType: Int, isChannelPrivate: Boolean, messageId: Long) {
         val mode = channelTypeToStreamMode(channelType)

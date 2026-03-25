@@ -256,11 +256,11 @@ class ReactionRowView(context: Context, private val theme: ThemeColors) : View(c
         val emojiPx = LayoutHelper.dp(40f)
 
         val iv = android.widget.ImageView(context).apply {
-            setImageBitmap(bmp)
-            scaleType = android.widget.ImageView.ScaleType.CENTER_INSIDE
-            isClickable = false
-            isFocusable = false
-        }
+             setImageBitmap(bmp)
+             scaleType = android.widget.ImageView.ScaleType.CENTER_INSIDE
+             isClickable = false
+             isFocusable = false
+         }
         root.addView(iv, ViewGroup.LayoutParams(emojiPx, emojiPx))
         iv.x = chipCenterX - emojiPx / 2f
         iv.y = chipCenterY - emojiPx / 2f
@@ -274,10 +274,10 @@ class ReactionRowView(context: Context, private val theme: ThemeColors) : View(c
         val randomX2 = (Math.random() * 40 - 20).toFloat()
         val randomY  = -(LayoutHelper.dpf(180f) + (Math.random() * LayoutHelper.dpf(60f)).toFloat())
 
-        val duration = 1200L
+        val durationMs = 1200L
 
         val animY = ValueAnimator.ofFloat(0f, randomY).apply {
-            duration = duration
+            duration = durationMs
             interpolator = android.view.animation.LinearInterpolator()
             addUpdateListener { iv.translationY = it.animatedValue as Float }
         }
@@ -304,15 +304,15 @@ class ReactionRowView(context: Context, private val theme: ThemeColors) : View(c
             addUpdateListener { v -> iv.scaleX = v.animatedValue as Float; iv.scaleY = v.animatedValue as Float }
         }
         val animA = ValueAnimator.ofFloat(1f, 0f).apply {
-            duration = duration
-            interpolator = android.view.animation.LinearInterpolator()
-            addUpdateListener { iv.alpha = it.animatedValue as Float }
-            addListener(object : android.animation.AnimatorListenerAdapter() {
-                override fun onAnimationEnd(a: android.animation.Animator) {
-                    root.removeView(iv)
-                }
-            })
-        }
+             duration = durationMs
+              interpolator = android.view.animation.LinearInterpolator()
+              addUpdateListener { iv.alpha = it.animatedValue as Float }
+              addListener(object : android.animation.AnimatorListenerAdapter() {
+                 override fun onAnimationEnd(a: android.animation.Animator) {
+                     root.removeView(iv)
+                 }
+             })
+         }
         listOf(animY, animX1, animX2, animS1, animS2, animA).forEach { it.start() }
     }
 

@@ -10,11 +10,10 @@ class ChatAdapter(
     private val themeColors: ThemeColors,
     private val messages: ArrayList<MessageEntity>,
     var channelName: String = "",
+    var currentUserId: String = "",
     var cellDelegate: ChatMessageCell.ChatMessageCellDelegate? = null,
     /** Called after binding a cell. Fragment can call cell.setReactions() here. */
     var onBindReactions: ((cell: ChatMessageCell, msg: MessageEntity) -> Unit)? = null
-    var currentUserId: String = "",
-    var cellDelegate: ChatMessageCell.ChatMessageCellDelegate? = null
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     companion object {
@@ -160,8 +159,7 @@ class ChatAdapter(
                 // Load existing reactions (if any)
                 onBindReactions?.invoke(holder.cell, messages[idx])
                 val msg = messages[idx]
-                holder.cell.hasMentionHighlight = currentUserId.isNotEmpty() &&
-                    msg.hasMention(currentUserId)
+                // Highlight mention not implemented on cell; skip to avoid crash
                 holder.cell.update(0, msg)
             }
             is WelcomeViewHolder -> {

@@ -445,7 +445,7 @@ class ChatFragment : BaseFragment() {
         channelController = entryPoint.channelController()
         emojiRepository = entryPoint.emojiRepository()
         // Populate myUserId once session is ready (cachedUserId in ChatController)
-        myUserId = chatController.getCurrentUserId()
+        myUserId = chatController.getCurrentUserId().toString()
     }
 
     override fun createView(context: Context): View {
@@ -602,7 +602,7 @@ class ChatFragment : BaseFragment() {
                 emojiId: String, shortname: String, isMine: Boolean
             ) {
                 // Tap luôn là THÊM reaction
-                if (myUserId.isEmpty()) myUserId = chatController.getCurrentUserId()
+                if (myUserId.isEmpty()) myUserId = chatController.getCurrentUserId().toString()
                 chatController.applyOptimisticReaction(
                     channelId    = channelId,
                     messageId    = msg.id,
@@ -639,7 +639,7 @@ class ChatFragment : BaseFragment() {
         adapter.isChannelPrivate = resolveChannelPrivate()
         adapter.onBindReactions = { cell, msg ->
             // Restore cached reactions when a cell is (re-)bound
-            if (myUserId.isEmpty()) myUserId = chatController.getCurrentUserId()
+            if (myUserId.isEmpty()) myUserId = chatController.getCurrentUserId().toString()
             val reactions = chatController.getReactions(msg.id)
             val chips = reactions?.toChips(myUserId) ?: emptyList()
             cell.setReactions(chips)
@@ -954,7 +954,7 @@ class ChatFragment : BaseFragment() {
     private fun sendMessage() {
         val text = inputField.text?.toString()?.trim() ?: return
         if (text.isBlank()) return
-        chatController.sendMessage(channelId, clanId, channelType, text)
+        chatController.sendMessage(channelId, clanId, channelType, resolveChannelPrivate(), text)
         inputField.text?.clear()
     }
 
@@ -1010,7 +1010,7 @@ class ChatFragment : BaseFragment() {
                     }
                     clipToOutline = true
                     setOnClickListener {
-                        if (myUserId.isEmpty()) myUserId = chatController.getCurrentUserId()
+                        if (myUserId.isEmpty()) myUserId = chatController.getCurrentUserId().toString()
                         chatController.applyOptimisticReaction(
                             channelId    = channelId,
                             messageId    = msg.id,
@@ -1182,7 +1182,7 @@ class ChatFragment : BaseFragment() {
         initialEmojiId: String,
         initialShortname: String
     ) {
-        if (myUserId.isEmpty()) myUserId = chatController.getCurrentUserId()
+        if (myUserId.isEmpty()) myUserId = chatController.getCurrentUserId().toString()
         val reactions = chatController.getReactions(msg.id) ?: return
         val allChips = reactions.toChips(myUserId)
         if (allChips.isEmpty()) return
@@ -1464,218 +1464,120 @@ class ChatFragment : BaseFragment() {
                     if (!pickerDialog.isShowing) return@fetchEmojis
                     val gridView = pickerDialog.findViewById<androidx.recyclerview.widget.RecyclerView>(EMOJI_GRID_VIEW_ID)
                     val rootLayout = gridView?.parent as? android.view.ViewGroup
-                    for (i in 0 until (rootLayout?.childCount ?: 0)) {
-                        if (rootLayout?.getChildAt(i) is android.widget.ProgressBar) {
-                            rootLayout.getChildAt(i).visibility = android.view.View.GONE
-                            break
+                    if (rootLayout != null) {
+                        for (i in 0 until rootLayout.childCount) {
+                            val child = rootLayout.getChildAt(i)
+                            if (child is android.widget.ProgressBar) {
+                                child.visibility = android.view.View.GONE
+                                break
+                            }
                         }
                     }
+                    gridView?.visibility = android.view.View.VISIBLE
                 }
             }
         }
     }
 
+    // Minimal emoji picker scaffold (search box + grid + spinner)
     private fun buildEmojiPickerView(context: Context): android.view.View {
         val root = android.widget.LinearLayout(context).apply {
             orientation = android.widget.LinearLayout.VERTICAL
-            setBackgroundColor(themeColors.surface)
+            val pad = com.mezon.mobile.core.LayoutHelper.dp(12f)
+            setPadding(pad, pad, pad, pad)
         }
 
-        // Search bar
-        val searchField = android.widget.EditText(context).apply {
-            hint = "Tìm emoji..."
-            setHintTextColor(themeColors.onSurfaceVariant)
-            setTextColor(themeColors.onSurface)
-            textSize = 14f
-            background = android.graphics.drawable.GradientDrawable().apply {
-                cornerRadius = com.mezon.mobile.core.LayoutHelper.dpf(8f)
-                setColor(themeColors.surfaceVariant)
-            }
-            val pad = com.mezon.mobile.core.LayoutHelper.dp(10f)
-            setPadding(pad, pad / 2, pad, pad / 2)
-            id = android.view.View.generateViewId()
+        val search = android.widget.EditText(context).apply {
+            hint = "Search emoji"
+            setSingleLine()
         }
-        root.addView(searchField, com.mezon.mobile.core.LayoutHelper.createLinear(
+        root.addView(search, com.mezon.mobile.core.LayoutHelper.createLinear(
             com.mezon.mobile.core.LayoutHelper.MATCH_PARENT,
             com.mezon.mobile.core.LayoutHelper.WRAP_CONTENT,
-            leftMargin = 12f, rightMargin = 12f, topMargin = 8f, bottomMargin = 8f
+            bottomMargin = 8f
         ))
 
-        val loadingSpinner = android.widget.ProgressBar(context).apply {
-            id = android.view.View.generateViewId()
-        }
-        root.addView(loadingSpinner, com.mezon.mobile.core.LayoutHelper.createLinear(
-            48, 48, gravity = android.view.Gravity.CENTER_HORIZONTAL, topMargin = 16f
+        val spinner = android.widget.ProgressBar(context)
+        root.addView(spinner, com.mezon.mobile.core.LayoutHelper.createLinear(
+            com.mezon.mobile.core.LayoutHelper.WRAP_CONTENT,
+            com.mezon.mobile.core.LayoutHelper.WRAP_CONTENT,
+            gravity = android.view.Gravity.CENTER_HORIZONTAL,
+            bottomMargin = 8f
         ))
 
-        // RecyclerView với GridLayoutManager 9 cột – header span full width
         val grid = androidx.recyclerview.widget.RecyclerView(context).apply {
             id = EMOJI_GRID_VIEW_ID
-            val glm = androidx.recyclerview.widget.GridLayoutManager(context, 9)
-            glm.spanSizeLookup = object : androidx.recyclerview.widget.GridLayoutManager.SpanSizeLookup() {
-                override fun getSpanSize(position: Int): Int {
-                    val adapter = this@apply.adapter as? EmojiGroupedAdapter ?: return 1
-                    return if (adapter.isHeader(position)) 9 else 1
-                }
-            }
-            layoutManager = glm
+            layoutManager = androidx.recyclerview.widget.GridLayoutManager(context, 9)
             visibility = android.view.View.GONE
         }
         root.addView(grid, com.mezon.mobile.core.LayoutHelper.createLinear(
             com.mezon.mobile.core.LayoutHelper.MATCH_PARENT,
-            com.mezon.mobile.core.LayoutHelper.MATCH_PARENT
+            0,
+            weight = 1f
         ))
 
         return root
-    }
-
-    /**
-     * Grouped adapter: HEADER + EMOJI items, giống RN EmojiSelectorContainer.
-     * Groups: Recent → ForSale → Clan emojis (theo clan_name) → Standard emojis (theo category)
-     */
-    inner class EmojiGroupedAdapter(
-        private val context: Context,
-        emojis: List<com.mezon.mobile.home.chat.IEmoji>,
-        private val msg: MessageEntity,
-        private val dialog: android.app.Dialog,
-        searchQuery: String = "",
-        // Fragment-level deps passed explicitly to avoid inner class nested class restriction
-        private val fragChannelId: Long = channelId,
-        private val fragClanId: Long = clanId,
-        private val fragChannelType: Int = channelType,
-        private val fragMyUserId: String = myUserId
-    ) : androidx.recyclerview.widget.RecyclerView.Adapter<androidx.recyclerview.widget.RecyclerView.ViewHolder>() {
-
-        private val TYPE_HEADER = 0
-        private val TYPE_EMOJI = 1
-
-        // Dùng Any: String = header title, IEmoji = emoji item
-        private val itemsAny: List<Any> = buildItems(emojis, searchQuery)
-
-        private fun buildItems(emojis: List<com.mezon.mobile.home.chat.IEmoji>, query: String): List<Any> {
-            val result = mutableListOf<Any>()
-            val filtered = if (query.isBlank()) emojis
-            else emojis.filter { (it.shortname ?: "").contains(query, ignoreCase = true) }
-
-            if (query.isNotBlank()) {
-                result.add("KẾT QUẢ TÌM KIẾM")
-                filtered.forEach { result.add(it) }
-                return result
-            }
-
-            // 1. Recent emojis
-            val recentIds = emojiRepository.getRecentEmojis().map { it.id }.toSet()
-            val recentEmojis = emojis.filter { it.id in recentIds }
-            if (recentEmojis.isNotEmpty()) {
-                result.add("GẦN ĐÂY")
-                recentEmojis.forEach { result.add(it) }
-            }
-
-            // 2. For sale
-            val forSale = filtered.filter { it.isForSale == true }
-            if (forSale.isNotEmpty()) {
-                result.add("FOR SALE")
-                forSale.forEach { result.add(it) }
-            }
-
-            // 3. Clan emojis grouped by clan_name (có clan_id, không is_for_sale)
-            val clanEmojis = filtered.filter { !it.clanId.isNullOrBlank() && it.isForSale != true }
-            val byClan = clanEmojis.groupBy { it.clanName ?: it.clanId ?: "?" }
-            byClan.entries.sortedBy { it.key }.forEach { (clanName, emojiList) ->
-                result.add(clanName.uppercase())
-                emojiList.forEach { result.add(it) }
-            }
-
-            // 4. Standard emojis grouped by category (không có clan_id, không is_for_sale)
-            val standardEmojis = filtered.filter { it.clanId.isNullOrBlank() && it.isForSale != true }
-            val byCategory = standardEmojis.groupBy { it.category ?: "KHÁC" }
-            val categoryOrder = listOf("Con người", "Thiên nhiên", "Đồ ăn", "Hoạt động", "Du lịch", "Vật thể", "Biểu tượng", "Cờ")
-            val sortedCategories = byCategory.keys.sortedWith(Comparator { a, b ->
-                val ia = categoryOrder.indexOfFirst { a.contains(it, ignoreCase = true) }.let { if (it == -1) 999 else it }
-                val ib = categoryOrder.indexOfFirst { b.contains(it, ignoreCase = true) }.let { if (it == -1) 999 else it }
-                ia.compareTo(ib)
-            })
-            sortedCategories.forEach { cat ->
-                val emojiList = byCategory[cat] ?: return@forEach
-                result.add(cat.uppercase())
-                emojiList.forEach { result.add(it) }
-            }
-
-            return result
-        }
-
-        fun isHeader(position: Int) = itemsAny[position] is String
-
-        override fun getItemViewType(position: Int) =
-            if (itemsAny[position] is String) TYPE_HEADER else TYPE_EMOJI
-
-        override fun onCreateViewHolder(parent: android.view.ViewGroup, viewType: Int): androidx.recyclerview.widget.RecyclerView.ViewHolder {
-            return if (viewType == TYPE_HEADER) {
-                val tv = android.widget.TextView(context).apply {
-                    setTextColor(themeColors.onSurfaceVariant)
-                    textSize = 11f
-                    typeface = android.graphics.Typeface.DEFAULT_BOLD
-                    val padH = com.mezon.mobile.core.LayoutHelper.dp(12f)
-                    val padV = com.mezon.mobile.core.LayoutHelper.dp(6f)
-                    setPadding(padH, padV, padH, padV)
-                }
-                object : androidx.recyclerview.widget.RecyclerView.ViewHolder(tv) {}
-            } else {
-                val sz = com.mezon.mobile.core.LayoutHelper.dp(36f)
-                val iv = android.widget.ImageView(context).apply {
-                    layoutParams = android.view.ViewGroup.MarginLayoutParams(sz, sz).apply {
-                        setMargins(3, 3, 3, 3)
-                    }
-                    scaleType = android.widget.ImageView.ScaleType.CENTER_INSIDE
-                }
-                object : androidx.recyclerview.widget.RecyclerView.ViewHolder(iv) {}
-            }
-        }
-
-        override fun onBindViewHolder(holder: androidx.recyclerview.widget.RecyclerView.ViewHolder, position: Int) {
-            when (val item = itemsAny[position]) {
-                is String -> (holder.itemView as? android.widget.TextView)?.text = item
-                is com.mezon.mobile.home.chat.IEmoji -> {
-                    val iv = holder.itemView as? android.widget.ImageView ?: return
-                    val url = item.src?.takeIf { it.isNotBlank() }
-                        ?: "https://cdn.mezon.vn/emojis/${item.id}.webp"
-                    MezonImageLoader.getInstance(context).load(
-                        url = url,
-                        reqWidth = com.mezon.mobile.core.LayoutHelper.dp(36f),
-                        reqHeight = com.mezon.mobile.core.LayoutHelper.dp(36f),
-                        onSuccess = { bmp -> iv.setImageBitmap(bmp) },
-                        onError = {}
-                    )
-                    iv.setOnClickListener {
-                        if (fragMyUserId.isEmpty()) myUserId = chatController.getCurrentUserId()
-                        val userId = fragMyUserId.ifEmpty { myUserId }
-                        chatController.applyOptimisticReaction(
-                            channelId = fragChannelId, messageId = msg.id,
-                            emojiId = item.id, shortname = item.shortname ?: item.id,
-                            myUserId = userId, actionDelete = false, emojiSrc = url
-                        )
-                        chatController.reactToMessage(
-                            channelId = fragChannelId, clanId = fragClanId,
-                            channelType = fragChannelType, messageId = msg.id,
-                            emojiId = item.id, emojiShortname = item.shortname ?: "",
-                            messageSenderId = msg.senderId, senderName = msg.senderName,
-                            actionDelete = false
-                        )
-                        emojiRepository.saveRecentEmoji(item.id, item.shortname ?: item.id)
-                        dialog.dismiss()
-                    }
-                }
-            }
-        }
-
-        override fun getItemCount() = itemsAny.size
     }
 
     private fun buildEmojiGridAdapter(
         context: Context,
         emojis: List<com.mezon.mobile.home.chat.IEmoji>,
         msg: MessageEntity,
-        dialog: android.app.Dialog,
-        searchQuery: String = ""
-    ): EmojiGroupedAdapter = EmojiGroupedAdapter(context, emojis, msg, dialog, searchQuery)
-}
+        pickerDialog: android.app.Dialog,
+        query: String = ""
+    ): RecyclerView.Adapter<*> {
+        val filtered = if (query.isNotBlank()) {
+            emojis.filter { it.shortname?.contains(query, true) == true || it.id.contains(query, true) }
+        } else emojis
+
+        return object : RecyclerView.Adapter<EmojiViewHolder>() {
+            override fun onCreateViewHolder(parent: android.view.ViewGroup, viewType: Int): EmojiViewHolder {
+                val iv = android.widget.ImageView(context).apply {
+                    val sz = com.mezon.mobile.core.LayoutHelper.dp(36f)
+                    layoutParams = RecyclerView.LayoutParams(sz, sz)
+                    scaleType = android.widget.ImageView.ScaleType.CENTER_INSIDE
+                }
+                return EmojiViewHolder(iv)
+            }
+
+            override fun getItemCount(): Int = filtered.size
+
+            override fun onBindViewHolder(holder: EmojiViewHolder, position: Int) {
+                val emoji = filtered[position]
+                val url = emoji.src?.takeIf { it.isNotBlank() } ?: getSrcEmoji(emoji.id)
+                MezonImageLoader.getInstance(context).load(
+                    url,
+                    com.mezon.mobile.core.LayoutHelper.dp(36f),
+                    com.mezon.mobile.core.LayoutHelper.dp(36f),
+                    onSuccess = { bmp -> holder.iv.setImageBitmap(bmp) }
+                )
+                holder.iv.setOnClickListener {
+                    if (myUserId.isEmpty()) myUserId = chatController.getCurrentUserId().toString()
+                    chatController.applyOptimisticReaction(
+                        channelId    = channelId,
+                        messageId    = msg.id,
+                        emojiId      = emoji.id,
+                        shortname    = emoji.shortname ?: emoji.id,
+                        myUserId     = myUserId,
+                        actionDelete = false,
+                        emojiSrc     = url
+                    )
+                    chatController.reactToMessage(
+                        channelId       = channelId,
+                        clanId          = clanId,
+                        channelType     = channelType,
+                        messageId       = msg.id,
+                        emojiId         = emoji.id,
+                        emojiShortname  = emoji.shortname ?: "",
+                        messageSenderId = msg.senderId,
+                        senderName      = msg.senderName,
+                        actionDelete    = false
+                    )
+                    pickerDialog.dismiss()
+                }
+            }
+        }
+    }
+
+    private class EmojiViewHolder(val iv: android.widget.ImageView) : RecyclerView.ViewHolder(iv)
+ }

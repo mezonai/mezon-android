@@ -2,6 +2,7 @@ package com.mezon.mobile.network
 
 import com.mezon.mobile.BuildConfig
 import android.util.Base64
+import android.util.Log
 import com.mezon.mezon.api.Account
 import com.mezon.mezon.api.AccountEmail
 import com.mezon.mezon.api.BlockFriendsRequest
@@ -110,6 +111,7 @@ private val CONTENT_TYPE_PROTO = ContentType("application", "proto")
 class MezonApi @Inject constructor(
     private val httpClient: HttpClient
 ) {
+    private val TAG = "MezonApi"
     companion object {
         private val SERVER_KEY = BuildConfig.MEZON_API_KEY
     }
@@ -546,6 +548,8 @@ class MezonApi @Inject constructor(
             throw RuntimeException("reactToMessageRest failed (${response.status.value}): $errorBody")
         }
         Log.d(TAG, "reactToMessageRest success: messageId=$messageId emoji=$emoji actionDelete=$actionDelete")
+    }
+
     suspend fun uploadAttachmentFile(
         apiUrl: String,
         token: String,
