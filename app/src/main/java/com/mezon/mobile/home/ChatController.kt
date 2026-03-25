@@ -47,6 +47,9 @@ private const val TAG = "ChatController"
 private const val PAGE_SIZE = 50
 private const val DIRECTION_AFTER = 1
 private const val DIRECTION_AROUND = 2
+const val LOAD_TYPE_INITIAL = 0
+const val LOAD_TYPE_MORE_TOP = 1
+const val LOAD_TYPE_MORE_BOTTOM = 2
 private const val DIRECTION_BEFORE = 3
 
 @Singleton
@@ -218,7 +221,7 @@ class ChatController @Inject constructor(
             try {
                 val cacheKey = apiCacheKey("fetchMessages", clanId, channelId)
 
-                val fromDb = messageDao.getMessagesAround(channelId, anchorMessageId, PAGE_SIZE / 2)
+                val fromDb = messageDao.getMessagesAround(channelId, anchorMessageId, PAGE_SIZE)
                 var anchorInDb = false
                 if (fromDb.isNotEmpty()) {
                     val dbMinId = fromDb.minOf { it.id }
@@ -239,7 +242,7 @@ class ChatController @Inject constructor(
                 if (!networkMonitor.isOnline.value) {
                     if (!anchorInDb && fromDb.isNotEmpty()) {
                         Log.d(TAG, "Offline — anchor not in DB, showing latest cached as fallback")
-                        val fallback = messageDao.getLatestByChannel(channelId, PAGE_SIZE)
+                        val fallback = messageDao.getLatestByChannel(channelId, PAGE_SIZE * 4)
                         if (fallback.isNotEmpty()) {
                             notificationCenter.postNotificationOnMainThread(
                                 NotificationCenter.messagesDidLoad, channelId, ArrayList(fallback), true, false, true
@@ -275,7 +278,7 @@ class ChatController @Inject constructor(
 
                     if (msgs.isNotEmpty()) {
                         messageDao.upsertAll(msgs)
-                        messageDao.trimToLatest(channelId, PAGE_SIZE * 4)
+                        messageDao.trimAround(channelId, anchorMessageId, PAGE_SIZE * 2)
                         synchronized(this@ChatController) { initialFetchDone.add(channelId) }
                         val serverLastSentId = if (response.hasLastSentMessage()) response.lastSentMessage.id else 0L
                         updateLastMessageByChannel(channelId, msgs, serverLastSentId)
@@ -300,6 +303,17 @@ class ChatController @Inject constructor(
         Log.d(TAG, "loadMoreBottom channelId=$channelId newestMessageId=$newestMessageId")
         appScope.launch(ioDispatcher) {
             try {
+                if (!networkMonitor.isOnline.value) {
+                    val fromDb = messageDao.getMessagesAfter(channelId, newestMessageId, PAGE_SIZE)
+                    val hasMoreBottom = fromDb.size >= PAGE_SIZE
+                    Log.d(TAG, "loadMoreBottom offline fallback: ${fromDb.size} from DB")
+                    notificationCenter.postNotificationOnMainThread(
+                        NotificationCenter.messagesDidLoad, channelId, ArrayList(fromDb),
+                        false, hasMoreBottom, false, 0L, LOAD_TYPE_MORE_BOTTOM
+                    )
+                    return@launch
+                }
+
                 sessionManager.withAutoRefresh { session ->
                     val currentUserId = session.userId.toLongOrNull() ?: 0L
                     val response = api.listChannelMessages(
@@ -314,9 +328,13 @@ class ChatController @Inject constructor(
                     val hasMoreBottom = response.messagesList.size >= PAGE_SIZE
                     val serverLastSentId = if (response.hasLastSentMessage()) response.lastSentMessage.id else 0L
                     updateLastMessageByChannel(channelId, newer, serverLastSentId)
+                    if (newer.isNotEmpty()) {
+                        messageDao.upsertAll(newer)
+                        messageDao.trimAround(channelId, newestMessageId, PAGE_SIZE * 2)
+                    }
                     Log.d(TAG, "loadMoreBottom: count=${newer.size} hasMoreBottom=$hasMoreBottom hasLastSentMessage=${response.hasLastSentMessage()} serverLastSentId=$serverLastSentId")
                     notificationCenter.postNotificationOnMainThread(
-                        NotificationCenter.messagesDidLoad, channelId, ArrayList(newer), false, hasMoreBottom, false
+                        NotificationCenter.messagesDidLoad, channelId, ArrayList(newer), false, hasMoreBottom, false, 0L, LOAD_TYPE_MORE_BOTTOM
                     )
                 }
             } catch (e: Exception) {
@@ -332,6 +350,17 @@ class ChatController @Inject constructor(
         Log.d(TAG, "loadMoreTop channelId=$channelId oldestMessageId=$oldestMessageId")
         appScope.launch(ioDispatcher) {
             try {
+                if (!networkMonitor.isOnline.value) {
+                    val fromDb = messageDao.getMessagesBefore(channelId, oldestMessageId, PAGE_SIZE)
+                    val hasMoreTop = fromDb.size >= PAGE_SIZE
+                    Log.d(TAG, "loadMoreTop offline fallback: ${fromDb.size} from DB")
+                    notificationCenter.postNotificationOnMainThread(
+                        NotificationCenter.messagesDidLoad, channelId, ArrayList(fromDb.sortedBy { it.timestampSeconds }),
+                        hasMoreTop, false, false, 0L, LOAD_TYPE_MORE_TOP
+                    )
+                    return@launch
+                }
+
                 sessionManager.withAutoRefresh { session ->
                     val currentUserId = session.userId.toLongOrNull() ?: 0L
                     val response = api.listChannelMessages(
@@ -345,9 +374,13 @@ class ChatController @Inject constructor(
                     val older = allOlder
                         .filter { it.isRenderable }
                         .sortedBy { it.timestampSeconds }
+                    if (older.isNotEmpty()) {
+                        messageDao.upsertAll(older)
+                        messageDao.trimAround(channelId, oldestMessageId, PAGE_SIZE * 2)
+                    }
                     Log.d(TAG, "loadMoreTop returned ${older.size} hasMoreTop=$hasMoreTop firstMessageReached=$firstMessageReached")
                     notificationCenter.postNotificationOnMainThread(
-                        NotificationCenter.messagesDidLoad, channelId, ArrayList(older), hasMoreTop, false, false
+                        NotificationCenter.messagesDidLoad, channelId, ArrayList(older), hasMoreTop, false, false, 0L, LOAD_TYPE_MORE_TOP
                     )
                 }
             } catch (e: Exception) {

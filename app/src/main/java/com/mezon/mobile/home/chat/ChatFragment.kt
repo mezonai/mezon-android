@@ -34,6 +34,7 @@ import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.ChatController
+import com.mezon.mobile.home.LOAD_TYPE_INITIAL
 import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.ui.cells.ActionBarView
@@ -59,6 +60,7 @@ class ChatFragment : BaseFragment() {
         internal const val EMOJI_GRID_VIEW_ID = 0x1F600
 
         private val scrollStates = HashMap<Long, SavedScrollState>()
+        private const val PAGE_DOWN_SCROLL_THRESHOLD = 2
         private const val SCROLL_PREFS = "chat_scroll_positions"
 
         fun newInstance(
@@ -121,7 +123,6 @@ class ChatFragment : BaseFragment() {
     private var needScrollRestore = false
     private var isLoading = false
     private var isLoadingMore = false
-    private var loadMoreDirection = 0
     private var hasMoreTop = false
     private var hasMoreBottom = false
     private var isViewingOlder = false
@@ -133,6 +134,8 @@ class ChatFragment : BaseFragment() {
     private var hasUnread = false
     private var fromDmNotification = false
     private var jumpingToPresent = false
+    private var initialApiDone = false
+    private var pendingBottomScroll: Runnable? = null
 
     private var slidingView: ChatMessageCell? = null
     private var maybeStartTrackingSlidingView = false
@@ -211,8 +214,9 @@ class ChatFragment : BaseFragment() {
             val moreBottom = args[3] as? Boolean ?: false
             val isCache = args[4] as? Boolean ?: false
             val serverLastSeenId = args.getOrNull(5) as? Long ?: 0L
+            val loadType = args.getOrNull(6) as? Int ?: LOAD_TYPE_INITIAL
             Log.d(TAG, "messagesDidLoad: isCache=$isCache firstLoad=$firstLoad hasUnread=$hasUnread " +
-                "loaded=${loadedMessages.size} lastSeen=$lastSeenMessageId lastSent=$lastSentMessageId serverLastSeen=$serverLastSeenId")
+                "loaded=${loadedMessages.size} lastSeen=$lastSeenMessageId lastSent=$lastSentMessageId serverLastSeen=$serverLastSeenId loadType=$loadType")
             if (serverLastSeenId != 0L) {
                 val newSeen = maxOf(lastSeenMessageId, serverLastSeenId)
                 if (newSeen != lastSeenMessageId) {
@@ -223,10 +227,9 @@ class ChatFragment : BaseFragment() {
                 hasUnread = lastSentMessageId != 0L && lastSeenMessageId < lastSentMessageId && lastSeenMessageId != 0L
             }
 
-            val wasLoadingMore = isLoadingMore
-            val direction = loadMoreDirection
+            val direction = loadType
 
-            if (wasLoadingMore && fragmentView != null && messages.isNotEmpty()) {
+            if (loadType != LOAD_TYPE_INITIAL && fragmentView != null && messages.isNotEmpty()) {
                 var newRowsCount = 0
                 val newMessages = ArrayList<MessageEntity>()
                 for (m in loadedMessages) {
@@ -304,13 +307,10 @@ class ChatFragment : BaseFragment() {
                 }
 
                 isLoadingMore = false
-                loadMoreDirection = 0
                 return@observe
             }
 
             isLoading = false
-            isLoadingMore = false
-            loadMoreDirection = 0
 
             if (jumpingToPresent && isCache) {
                 if (fragmentView != null) showLoading()
@@ -454,7 +454,6 @@ class ChatFragment : BaseFragment() {
                                 isViewingOlder = true
                                 hasMoreBottom = true
                                 applyInitialUnreadCount()
-                                updatePageDownVisibility()
                             }
                         }
                         startLoadFromMessageId = 0L
@@ -470,7 +469,6 @@ class ChatFragment : BaseFragment() {
                             hasMoreBottom = true
                         }
                         applyInitialUnreadCount()
-                        updatePageDownVisibility()
                         recyclerView.post { markVisibleAsRead() }
                     } else if (wasFirstLoad) {
                         forceScrollToBottom()
@@ -483,6 +481,8 @@ class ChatFragment : BaseFragment() {
                         }
                     }
                 }
+
+            
             }
         }
 
@@ -674,7 +674,6 @@ class ChatFragment : BaseFragment() {
         contentFrame.addView(errorView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
         pageDownButton = PageDownButton(context, themeColors).apply {
-            visibility = View.GONE
             setOnClickListener { jumpToPresent() }
         }
         contentFrame.addView(
@@ -946,7 +945,6 @@ class ChatFragment : BaseFragment() {
                     if (totalCount > 0 && lastVisible >= totalCount - 5) {
                         val oldest = messages.lastOrNull()?.id ?: return
                         isLoadingMore = true
-                        loadMoreDirection = 1
                         chatController.loadMoreTop(channelId, clanId, oldest)
                     }
                 }
@@ -955,7 +953,6 @@ class ChatFragment : BaseFragment() {
                     if (firstVisible <= 3) {
                         val newest = messages.firstOrNull()?.id ?: return
                         isLoadingMore = true
-                        loadMoreDirection = 2
                         chatController.loadMoreBottom(channelId, clanId, newest)
                     }
                 }
@@ -968,6 +965,7 @@ class ChatFragment : BaseFragment() {
     override fun onBecomeFullyVisible() {
         super.onBecomeFullyVisible()
         pausedOnLastMessage = false
+        if (!initialApiDone) initialApiDone = true
         dialogsController.setCurrentChannel(channelId)
         if (clanId != 0L) {
             channelController.setCurrentChannel(channelId)
@@ -985,6 +983,12 @@ class ChatFragment : BaseFragment() {
             adapter.updateRowsSafe()
             updateUnreadDividerPosition()
             if (!isViewingOlder && !hasDivider) markAsRead()
+            recyclerView.post {
+                val lm = recyclerView.layoutManager as? LinearLayoutManager ?: return@post
+                val firstVisible = lm.findFirstVisibleItemPosition()
+                isViewingOlder = firstVisible > PAGE_DOWN_SCROLL_THRESHOLD
+                updatePageDownVisibility()
+            }
         } else if (!isLoading) {
             isLoading = true
             showLoading()
@@ -1056,6 +1060,7 @@ class ChatFragment : BaseFragment() {
         notificationCenter.removePostponeNotificationsCallback(postponeNewMessagesCallback)
         notificationCenter.onAnimationFinish(transitionAnimationIndex)
         saveScrollPosition()
+        if (::recyclerView.isInitialized) cancelPendingScroll()
         mainHandler.removeCallbacks(markVisibleRunnable)
         markVisibleAsRead()
         flushPendingSeen()
@@ -1108,7 +1113,15 @@ class ChatFragment : BaseFragment() {
 
     private fun forceScrollToBottom() {
         unreadDecoration.clear()
-        recyclerView.post { recyclerView.scrollToPosition(0) }
+        cancelPendingScroll()
+        val r = Runnable { recyclerView.scrollToPosition(0) }
+        pendingBottomScroll = r
+        recyclerView.post(r)
+    }
+
+    private fun cancelPendingScroll() {
+        pendingBottomScroll?.let { recyclerView.removeCallbacks(it) }
+        pendingBottomScroll = null
     }
 
     private fun scrollToBottom() {
@@ -1121,6 +1134,7 @@ class ChatFragment : BaseFragment() {
     }
 
     private fun scrollToMessageWithOffset(messageId: Long, pixelOffset: Int) {
+        cancelPendingScroll()
         val idx = messages.indexOfFirst { it.id == messageId }
         if (idx >= 0) {
             val lm = recyclerView.layoutManager as? LinearLayoutManager ?: return
@@ -1250,12 +1264,9 @@ class ChatFragment : BaseFragment() {
     }
 
     private fun updatePageDownVisibility() {
+        if (!initialApiDone) return
         val shouldShow = isViewingOlder || hasMoreBottom
         pageDownButton.show(shouldShow)
-        if (!shouldShow) {
-            newUnreadCount = 0
-            pageDownButton.setUnreadCount(0)
-        }
     }
 
     private fun applyInitialUnreadCount() {
@@ -1287,7 +1298,16 @@ class ChatFragment : BaseFragment() {
             return
         }
         val seenIdx = messages.indexOfFirst { it.id == dividerSeenMessageId }
-        if (seenIdx <= 0) {
+        if (seenIdx < 0) {
+            val oldestId = messages.lastOrNull()?.id ?: 0L
+            if (oldestId > dividerSeenMessageId) {
+                unreadDecoration.firstUnreadAdapterPosition = adapter.messagesStartRow + messages.size - 1
+            } else {
+                unreadDecoration.clear()
+            }
+            return
+        }
+        if (seenIdx == 0) {
             unreadDecoration.clear()
             return
         }
@@ -1301,11 +1321,24 @@ class ChatFragment : BaseFragment() {
 
     private fun scrollToFirstUnread() {
         if (!hasUnread || dividerSeenMessageId == 0L) return
+        cancelPendingScroll()
         val seenIdx = messages.indexOfFirst { it.id == dividerSeenMessageId }
         if (seenIdx > 0) {
             val firstUnreadIdx = seenIdx - 1
             val lm = recyclerView.layoutManager as? LinearLayoutManager ?: return
             lm.scrollToPositionWithOffset(adapter.messagesStartRow + firstUnreadIdx, recyclerView.height / 2)
+            if (needScrollRestore) {
+                recyclerView.post {
+                    recyclerView.visibility = View.VISIBLE
+                    needScrollRestore = false
+                }
+            }
+        } else if (seenIdx < 0 && messages.isNotEmpty()) {
+            val oldestId = messages.last().id
+            if (oldestId > dividerSeenMessageId) {
+                val lm = recyclerView.layoutManager as? LinearLayoutManager ?: return
+                lm.scrollToPositionWithOffset(adapter.messagesStartRow + messages.size - 1, recyclerView.height / 2)
+            }
             if (needScrollRestore) {
                 recyclerView.post {
                     recyclerView.visibility = View.VISIBLE
