@@ -67,6 +67,7 @@ class NotificationCenter(val currentAccount: Int) {
         val messageDidDelete = nextId()
         val messagesLoadError = nextId()
         val messageReactionsDidUpdate = nextId()  // args: channelId(Long), messageId(Long), MessageReactions
+        val messagesLastSeenFromServer = nextId()  
         val onlineStatusChanged = nextId()
         val markAsRead = nextId()
         val connectionStateChanged = nextId()
@@ -95,6 +96,8 @@ class NotificationCenter(val currentAccount: Int) {
         val needCheckSystemBarColors = nextId()
         val navigateToMessagesTab = nextId()
         val navigateToClansTab = nextId()
+        val appDidReconnect = nextId()
+        val scrollToBottomChat = nextId()
 
         const val UPDATE_MASK_NAME = 1
         const val UPDATE_MASK_AVATAR = 2
@@ -333,11 +336,11 @@ class NotificationCenter(val currentAccount: Int) {
             currentHeavyOperationFlags = currentHeavyOperationFlags or flags
         }
 
-        // if (shouldDebounce(id)) {
-        //     postNotificationDebounced(id, allowDuringAnimation, args)
-        // } else {
-        postNotificationNameInternal(id, allowDuringAnimation, args)
-        // }
+        if (shouldDebounce(id)) {
+            postNotificationDebounced(id, allowDuringAnimation, args)
+        } else {
+            postNotificationNameInternal(id, allowDuringAnimation, args)
+        }
 
         if (expiredIndices != null) {
             for (idx in expiredIndices) onAnimationFinish(idx)

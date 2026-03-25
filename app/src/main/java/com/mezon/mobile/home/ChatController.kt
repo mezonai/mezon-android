@@ -61,12 +61,14 @@ class ChatController @Inject constructor(
     private val cacheTracker: ApiCacheTracker,
     private val dialogsController: DialogsController,
     private val emojiRepository: EmojiRepository,
+    private val channelController: dagger.Lazy<com.mezon.mobile.home.clans.ChannelController>,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     @ApplicationScope private val appScope: CoroutineScope
 ) {
 
     val dialogMessage = LongSparseArray<MessageEntity>()
     private val initialFetchDone = HashSet<Long>()
+    private val lastMessageByChannel = LongSparseArray<Long>()  // channelId → newest messageId
 
     // In-memory reaction store: key = messageId
     // Access only on Dispatchers.Main (post notification) or under synchronized
@@ -97,18 +99,33 @@ class ChatController @Inject constructor(
         }
     }
 
+    /** Returns the newest known messageId for [channelId], 0 if unknown. */
+    fun getLastMessageId(channelId: Long): Long =
+        synchronized(this) { lastMessageByChannel.get(channelId, 0L) }
+
+    private fun updateLastMessageByChannel(channelId: Long, messages: List<MessageEntity>, latestIdFromResponse: Long = 0L) {
+        // Prefer the server-provided lastSentMessage (like RN's response.last_sent_message)
+        // Fall back to the max id from the loaded messages batch
+        val fromServer = if (latestIdFromResponse > 0L) latestIdFromResponse else null
+        val fromMessages = messages.maxOfOrNull { it.id }
+        val newestId = fromServer ?: fromMessages ?: return
+        synchronized(this) {
+            if (newestId > lastMessageByChannel.get(channelId, 0L))
+                lastMessageByChannel.put(channelId, newestId)
+        }
+    }
+
     fun cleanup() {
         synchronized(this) {
             dialogMessage.clear()
             initialFetchDone.clear()
+            lastMessageByChannel.clear()
             cachedCurrentUserId = 0L
         }
     }
 
     fun openChannel(channelId: Long, clanId: Long, channelType: Int, isChannelPrivate: Boolean = false) {
         val isPublic = !isChannelPrivate
-        val mode = channelTypeToStreamMode(channelType)
-        cacheTracker.invalidate(apiCacheKey("fetchMessages", clanId, channelId))
         appScope.launch {
             try {
                 mezonSocket.joinChat(clanId, channelId, channelType, isPublic)
@@ -130,8 +147,12 @@ class ChatController @Inject constructor(
     }
 
     fun loadMessages(channelId: Long, clanId: Long) {
+    fun loadMessages(channelId: Long, clanId: Long, forceRefresh: Boolean = false) {
         appScope.launch(ioDispatcher) {
             try {
+                val cacheKey = apiCacheKey("fetchMessages", clanId, channelId)
+                if (forceRefresh) cacheTracker.invalidate(cacheKey)
+
                 val fromDb = messageDao.getLatestByChannel(channelId, PAGE_SIZE)
                 if (fromDb.isNotEmpty()) {
                     Log.d(TAG, "Loaded ${fromDb.size} cached messages for channel $channelId")
@@ -145,7 +166,6 @@ class ChatController @Inject constructor(
                     return@launch
                 }
 
-                val cacheKey = apiCacheKey("fetchMessages", clanId, channelId)
                 if (fromDb.isNotEmpty() && cacheTracker.shouldCall(cacheKey) == ApiCacheTracker.ShouldCall.SKIP) {
                     Log.d(TAG, "Cache valid for channel $channelId, skipping API")
                     return@launch
@@ -162,17 +182,23 @@ class ChatController @Inject constructor(
 
                     val messages = allMessages
                         .filter { it.isRenderable }
-                        .sortedBy { it.timestampSeconds }
+                        .sortedBy { it.id }
 
                     // Parse reactions từ proto và load vào reactionStore
                     parseAndStoreReactions(response.messagesList)
 
                     messageDao.deleteByChannel(channelId)
                     messageDao.upsertAll(messages)
+                    messageDao.trimToLatest(channelId, PAGE_SIZE * 4)
                     synchronized(this@ChatController) { initialFetchDone.add(channelId) }
-                    Log.d(TAG, "loadMessages hasMoreTop=$hasMoreTop firstMessageReached=$firstMessageReached size=${response.messagesList.size}")
+                    val serverLastSentId = if (response.hasLastSentMessage()) response.lastSentMessage.id else 0L
+                    updateLastMessageByChannel(channelId, messages, serverLastSentId)
+                    Log.d(TAG, "loadMessages hasMoreTop=$hasMoreTop firstMessageReached=$firstMessageReached size=${response.messagesList.size} hasLastSentMessage=${response.hasLastSentMessage()} serverLastSentId=$serverLastSentId")
+                    // arg[5] = serverLastSeenId — embedded inline so ChatFragment reads it
+                    // BEFORE insertUnreadDividerIfNeeded (fixes race condition)
+                    val serverLastSeenId = if (response.hasLastSeenMessage()) response.lastSeenMessage.id else 0L
                     notificationCenter.postNotificationOnMainThread(
-                        NotificationCenter.messagesDidLoad, channelId, ArrayList(messages), hasMoreTop, false, false
+                        NotificationCenter.messagesDidLoad, channelId, ArrayList(messages), hasMoreTop, false, false, serverLastSeenId
                     )
                     // Notify UI về reactions đã parse từ server (để hiện reaction chips ngay)
                     notifyRestoredReactions(channelId)
@@ -190,9 +216,46 @@ class ChatController @Inject constructor(
     fun loadMessagesAround(channelId: Long, clanId: Long, anchorMessageId: Long) {
         appScope.launch(ioDispatcher) {
             try {
-                if (!networkMonitor.isOnline.value) return@launch
-
                 val cacheKey = apiCacheKey("fetchMessages", clanId, channelId)
+
+                val fromDb = messageDao.getMessagesAround(channelId, anchorMessageId, PAGE_SIZE / 2)
+                var anchorInDb = false
+                if (fromDb.isNotEmpty()) {
+                    val dbMinId = fromDb.minOf { it.id }
+                    val dbMaxId = fromDb.maxOf { it.id }
+                    anchorInDb = anchorMessageId in dbMinId..dbMaxId
+                    if (anchorInDb) {
+                        val lastKnown = synchronized(this@ChatController) { lastMessageByChannel.get(channelId, 0L) }
+                        val hasMoreBottom = lastKnown > 0L && dbMaxId < lastKnown
+                        Log.d(TAG, "loadMessagesAround: DB hit anchor=$anchorMessageId range=$dbMinId..$dbMaxId hasMoreBottom=$hasMoreBottom count=${fromDb.size}")
+                        notificationCenter.postNotificationOnMainThread(
+                            NotificationCenter.messagesDidLoad, channelId, ArrayList(fromDb), true, hasMoreBottom, true
+                        )
+                    } else {
+                        Log.d(TAG, "loadMessagesAround: DB miss anchor=$anchorMessageId not in range=$dbMinId..$dbMaxId, waiting for API")
+                    }
+                }
+
+                if (!networkMonitor.isOnline.value) {
+                    if (!anchorInDb && fromDb.isNotEmpty()) {
+                        Log.d(TAG, "Offline — anchor not in DB, showing latest cached as fallback")
+                        val fallback = messageDao.getLatestByChannel(channelId, PAGE_SIZE)
+                        if (fallback.isNotEmpty()) {
+                            notificationCenter.postNotificationOnMainThread(
+                                NotificationCenter.messagesDidLoad, channelId, ArrayList(fallback), true, false, true
+                            )
+                        }
+                    } else if (fromDb.isEmpty()) {
+                        Log.d(TAG, "Offline — no cached messages for channel $channelId (around)")
+                    }
+                    return@launch
+                }
+
+                if (anchorInDb && cacheTracker.shouldCall(cacheKey) == ApiCacheTracker.ShouldCall.SKIP) {
+                    Log.d(TAG, "Cache valid for channel $channelId (around), skipping API")
+                    return@launch
+                }
+
                 sessionManager.withAutoRefresh { session ->
                     val currentUserId = session.userId.toLongOrNull() ?: 0L
                     val response = api.listChannelMessages(
@@ -205,18 +268,21 @@ class ChatController @Inject constructor(
 
                     val msgs = allMsgs
                         .filter { it.isRenderable }
-                        .sortedBy { it.timestampSeconds }
+                        .sortedBy { it.id }
 
                     // Parse reactions từ proto và load vào reactionStore
                     parseAndStoreReactions(response.messagesList)
 
                     if (msgs.isNotEmpty()) {
-                        messageDao.deleteByChannel(channelId)
                         messageDao.upsertAll(msgs)
+                        messageDao.trimToLatest(channelId, PAGE_SIZE * 4)
                         synchronized(this@ChatController) { initialFetchDone.add(channelId) }
-                        Log.d(TAG, "loadMessagesAround: anchor=$anchorMessageId count=${msgs.size} hasMoreTop=$hasMoreTop firstMessageReached=$firstMessageReached")
+                        val serverLastSentId = if (response.hasLastSentMessage()) response.lastSentMessage.id else 0L
+                        updateLastMessageByChannel(channelId, msgs, serverLastSentId)
+                        Log.d(TAG, "loadMessagesAround: anchor=$anchorMessageId count=${msgs.size} hasMoreTop=$hasMoreTop firstMessageReached=$firstMessageReached hasLastSentMessage=${response.hasLastSentMessage()} serverLastSentId=$serverLastSentId")
+                        val serverLastSeenId = if (response.hasLastSeenMessage()) response.lastSeenMessage.id else 0L
                         notificationCenter.postNotificationOnMainThread(
-                            NotificationCenter.messagesDidLoad, channelId, ArrayList(msgs), hasMoreTop, true, false
+                            NotificationCenter.messagesDidLoad, channelId, ArrayList(msgs), hasMoreTop, true, false, serverLastSeenId
                         )
                     }
                     cacheTracker.markCalled(cacheKey)
@@ -243,9 +309,12 @@ class ChatController @Inject constructor(
                     val newer = response.messagesList
                         .map { it.toMessageEntity(currentUserId) }
                         .filter { it.isRenderable }
-                        .sortedBy { it.timestampSeconds }
+                        .sortedBy { it.id }
 
                     val hasMoreBottom = response.messagesList.size >= PAGE_SIZE
+                    val serverLastSentId = if (response.hasLastSentMessage()) response.lastSentMessage.id else 0L
+                    updateLastMessageByChannel(channelId, newer, serverLastSentId)
+                    Log.d(TAG, "loadMoreBottom: count=${newer.size} hasMoreBottom=$hasMoreBottom hasLastSentMessage=${response.hasLastSentMessage()} serverLastSentId=$serverLastSentId")
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.messagesDidLoad, channelId, ArrayList(newer), false, hasMoreBottom, false
                     )
@@ -295,14 +364,27 @@ class ChatController @Inject constructor(
         clanId: Long,
         channelType: Int,
         messageId: Long,
-        timestampSeconds: Int
+        timestampSeconds: Int,
+        badgeCount: Int = 0
     ) {
         val mode = channelTypeToStreamMode(channelType)
+        if (badgeCount == 0) {
+            if (clanId != 0L) {
+                channelController.get().markChannelAsRead(channelId)
+            } else {
+                dialogsController.markDialogAsRead(channelId)
+            }
+        } else {
+            if (clanId != 0L) {
+                channelController.get().updateChannelLastSeen(channelId, messageId, badgeCount)
+            } else {
+                dialogsController.updateDialogLastSeen(channelId, messageId, badgeCount)
+            }
+        }
         appScope.launch {
             try {
-                mezonSocket.writeLastSeenMessage(clanId, channelId, mode, messageId, timestampSeconds, 0)
-                dialogsController.markDialogAsRead(channelId)
-                Log.d(TAG, "Updated lastSeen: channelId=$channelId messageId=$messageId")
+                mezonSocket.writeLastSeenMessage(clanId, channelId, mode, messageId, timestampSeconds, badgeCount)
+                Log.d(TAG, "Updated lastSeen: channelId=$channelId messageId=$messageId badgeCount=$badgeCount")
             } catch (e: Exception) {
                 Log.e(TAG, "updateLastSeenMessage failed", e)
             }
@@ -426,6 +508,17 @@ class ChatController @Inject constructor(
                 }
                 CODE_CHAT_REMOVE -> {
                     appScope.launch { messageDao.delete(msg.channelId, msg.messageId) }
+                    synchronized(this) {
+                        if (lastMessageByChannel.get(msg.channelId, 0L) == msg.messageId) {
+                            appScope.launch(ioDispatcher) {
+                                val newLast = messageDao.getLatestByChannel(msg.channelId, 1).firstOrNull()
+                                synchronized(this@ChatController) {
+                                    if (newLast != null) lastMessageByChannel.put(msg.channelId, newLast.id)
+                                    else lastMessageByChannel.delete(msg.channelId)
+                                }
+                            }
+                        }
+                    }
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.messageDidDelete, msg.channelId, msg.messageId
                     )
@@ -433,7 +526,11 @@ class ChatController @Inject constructor(
                 else -> {
                     if (!entity.isRenderable) return@collect
                     appScope.launch { messageDao.upsert(entity) }
-                    synchronized(this) { dialogMessage.put(entity.channelId, entity) }
+                    synchronized(this) {
+                        dialogMessage.put(entity.channelId, entity)
+                        if (entity.id > lastMessageByChannel.get(entity.channelId, 0L))
+                            lastMessageByChannel.put(entity.channelId, entity.id)
+                    }
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.didReceiveNewMessages, entity.channelId, entity
                     )

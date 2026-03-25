@@ -8,10 +8,18 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.core.ThemeColors
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private const val ROW_SECTION = 0
 private const val ROW_CHANNEL = 1
 private const val ROW_THREAD = 2
+private const val DIFF_BG_THRESHOLD = 50
 
 class ChannelListView(
     context: Context,
@@ -70,27 +78,22 @@ class ChannelListView(
         adapter.notifyDataSetChanged()
     }
 
-    fun updateVisibleRows(mask: Int) {
-        val rowMap = HashMap<Long, ChannelRow>()
-        for (row in adapter.currentRows()) {
-            when (row) {
-                is ChannelRow.Channel -> rowMap[row.channel.channelId] = row
-                is ChannelRow.Thread -> rowMap[row.thread.channelId] = row
-                else -> {}
-            }
+    fun updateVisibleRows(mask: Int, freshChannels: Map<Long, ClanChannelEntity>? = null) {
+        if (freshChannels != null) {
+            adapter.updateRowData(freshChannels)
         }
         val count = recyclerView.childCount
         for (i in 0 until count) {
             when (val child = recyclerView.getChildAt(i)) {
                 is ChannelItemCell -> {
                     val ch = child.channel ?: continue
-                    val row = rowMap[ch.channelId] as? ChannelRow.Channel
-                    child.update(mask, row?.channel)
+                    val updated = freshChannels?.get(ch.channelId)
+                    child.update(mask, updated)
                 }
                 is ChannelThreadCell -> {
                     val th = child.thread ?: continue
-                    val row = rowMap[th.channelId] as? ChannelRow.Thread
-                    child.update(mask, row?.thread)
+                    val updated = freshChannels?.get(th.channelId)
+                    child.update(mask, updated)
                 }
             }
         }
@@ -150,7 +153,11 @@ class ChannelListView(
     }
 
     private inner class Adapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+        init { setHasStableIds(true) }
+
         private val rows = mutableListOf<ChannelRow>()
+        private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        private var diffJob: Job? = null
 
         fun currentRows(): List<ChannelRow> = rows
 
@@ -159,22 +166,58 @@ class ChannelListView(
             return if (pos in rows.indices) rows[pos] else null
         }
 
+        fun updateRowData(lookup: Map<Long, ClanChannelEntity>) {
+            for (i in rows.indices) {
+                when (val row = rows[i]) {
+                    is ChannelRow.Channel -> {
+                        val fresh = lookup[row.channel.channelId]
+                        if (fresh != null && fresh != row.channel) {
+                            rows[i] = row.copy(channel = fresh)
+                            notifyItemChanged(i)
+                        }
+                    }
+                    is ChannelRow.Thread -> {
+                        val fresh = lookup[row.thread.channelId]
+                        if (fresh != null && fresh != row.thread) {
+                            rows[i] = row.copy(thread = fresh)
+                            notifyItemChanged(i)
+                        }
+                    }
+                    else -> {}
+                }
+            }
+        }
+
         fun submitRows(newRows: List<ChannelRow>) {
+            diffJob?.cancel()
             val old = rows.toList()
+            if (old.size < DIFF_BG_THRESHOLD && newRows.size < DIFF_BG_THRESHOLD) {
+                applyDiff(newRows, DiffUtil.calculateDiff(RowDiffCallback(old, newRows)))
+            } else {
+                diffJob = scope.launch {
+                    val result = withContext(Dispatchers.Default) {
+                        DiffUtil.calculateDiff(RowDiffCallback(old, newRows))
+                    }
+                    applyDiff(newRows, result)
+                }
+            }
+        }
+
+        private fun applyDiff(newRows: List<ChannelRow>, result: DiffUtil.DiffResult) {
             rows.clear()
             rows.addAll(newRows)
-            DiffUtil.calculateDiff(object : DiffUtil.Callback() {
-                override fun getOldListSize() = old.size
-                override fun getNewListSize() = newRows.size
-                override fun areItemsTheSame(o: Int, n: Int): Boolean {
-                    val a = old[o]; val b = newRows[n]
-                    if (a is ChannelRow.Section && b is ChannelRow.Section) return a.categoryId == b.categoryId
-                    if (a is ChannelRow.Channel && b is ChannelRow.Channel) return a.channel.channelId == b.channel.channelId
-                    if (a is ChannelRow.Thread && b is ChannelRow.Thread) return a.thread.channelId == b.thread.channelId
-                    return false
-                }
-                override fun areContentsTheSame(o: Int, n: Int) = old[o] == newRows[n]
-            }).dispatchUpdatesTo(this)
+            result.dispatchUpdatesTo(this)
+        }
+
+        fun destroy() {
+            diffJob?.cancel()
+            scope.cancel()
+        }
+
+        override fun getItemId(pos: Int): Long = when (val row = rows[pos]) {
+            is ChannelRow.Section -> -row.categoryId
+            is ChannelRow.Channel -> row.channel.channelId
+            is ChannelRow.Thread -> row.thread.channelId
         }
 
         override fun getItemViewType(pos: Int) = when (rows[pos]) {
@@ -210,6 +253,26 @@ class ChannelListView(
         inner class ChannelVH(val cell: ChannelItemCell) : RecyclerView.ViewHolder(cell)
         inner class ThreadVH(val cell: ChannelThreadCell) : RecyclerView.ViewHolder(cell)
     }
+
+    fun destroy() {
+        adapter.destroy()
+    }
+}
+
+private class RowDiffCallback(
+    private val old: List<ChannelRow>,
+    private val new: List<ChannelRow>
+) : DiffUtil.Callback() {
+    override fun getOldListSize() = old.size
+    override fun getNewListSize() = new.size
+    override fun areItemsTheSame(o: Int, n: Int): Boolean {
+        val a = old[o]; val b = new[n]
+        if (a is ChannelRow.Section && b is ChannelRow.Section) return a.categoryId == b.categoryId
+        if (a is ChannelRow.Channel && b is ChannelRow.Channel) return a.channel.channelId == b.channel.channelId
+        if (a is ChannelRow.Thread && b is ChannelRow.Thread) return a.thread.channelId == b.thread.channelId
+        return false
+    }
+    override fun areContentsTheSame(o: Int, n: Int) = old[o] == new[n]
 }
 
 sealed class ChannelRow {

@@ -13,6 +13,7 @@ import android.text.StaticLayout
 import android.text.TextUtils
 import android.text.style.ClickableSpan
 import android.view.MotionEvent
+import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.BaseCell
 import com.mezon.mobile.core.LayoutHelper
@@ -35,6 +36,7 @@ import kotlinx.coroutines.withContext
 import kotlin.math.min
 
 class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCell(context) {
+    var hasMentionHighlight: Boolean = false
 
     var messageEntity: MessageEntity? = null
         private set
@@ -124,15 +126,12 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var cachedFileSizeW = 0f
     private var cachedEphW = 0f
     private var cachedInnerWidth = 0
-
-    private val bubblePath = Path()
     private val forwardArrowPath = Path()
-    private val bubbleRadii = FloatArray(8)
 
-    private var currentBubblePaint = theme.chatBubblePaint
     private var currentContentPaint = theme.chatContentPaint
     private var currentTimePaint = theme.chatTimePaint
     private val senderPaint get() = theme.chatSenderPaint
+
 
     private var attachedToWindow = false
     private var pendingMessage: MessageEntity? = null
@@ -316,8 +315,13 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         var imgW = msg.attachmentWidth
         var imgH = msg.attachmentHeight
         if (imgW <= 0 || imgH <= 0) {
-            imgW = maxW
-            imgH = maxW
+            if (isStickerMsg) {
+                imgW = LayoutHelper.dp(120)
+                imgH = LayoutHelper.dp(120)
+            } else {
+                imgW = LayoutHelper.dp(200)
+                imgH = LayoutHelper.dp(150)
+            }
         }
 
         val scale = imgW.toFloat() / maxW
@@ -436,22 +440,23 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     }
 
     private fun updateColors(msg: MessageEntity) {
-        currentBubblePaint = theme.chatBubblePaint
         currentContentPaint = theme.chatContentPaint
         currentTimePaint = theme.chatTimePaint
     }
 
     private fun maxBubbleWidth(): Int {
         val w = if (measuredWidth > 0) measuredWidth else resources.displayMetrics.widthPixels
-        return (w * 0.72f).toInt()
+        // Subtract left-side space (avatar + paddings) + right padding (RN paddingRight:28dp)
+        return w - PAD_H - AVATAR_SIZE - GAP_AVATAR - LayoutHelper.dp(28)
     }
 
     private fun buildLayouts(msg: MessageEntity) {
         val bubbleMaxW = maxBubbleWidth()
-        val bubbleWidth = if (drawPhotoImage) photoWidth else bubbleMaxW - BUBBLE_PAD_H * 2
+        // No bubble padding — content starts right after avatar (flat style like RN)
+        val bubbleWidth = if (drawPhotoImage) photoWidth else bubbleMaxW
         if (bubbleWidth <= 0) return
 
-        val textWidth = if (drawPhotoImage) bubbleWidth - BUBBLE_PAD_H * 2 else bubbleWidth
+        val textWidth = if (drawPhotoImage) photoWidth else bubbleWidth
 
         forwardLayout = if (drawForwardHeader) {
             val fwdText = FORWARD_TEXT
@@ -490,7 +495,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 parseContentToSpannable(content, linkColor, this, mentionColors, theme)
             }
             val layout = StaticLayout.Builder.obtain(charSeq, 0, charSeq.length, currentContentPaint, textWidth.coerceAtLeast(1))
-                .setLineSpacing(LayoutHelper.dpf(2f), 1f)
+                .setLineSpacing(LayoutHelper.dpf(2f), 1f) 
                 .build()
             if (charSeq is android.text.Spanned) {
                 val codeFenceSpans = charSeq.getSpans(0, charSeq.length, CodeFenceSpan::class.java)
@@ -506,8 +511,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
         senderLayout = if (!isCombined) {
             val s = msg.senderName
-            StaticLayout.Builder.obtain(s, 0, s.length, senderPaint, textWidth.coerceAtLeast(1))
+            val senderMaxW = (bubbleMaxW * 0.60f).toInt().coerceAtLeast(1) 
+            StaticLayout.Builder.obtain(s, 0, s.length, senderPaint, senderMaxW)
                 .setMaxLines(1)
+                .setEllipsize(android.text.TextUtils.TruncateAt.END)
                 .build()
         } else null
 
@@ -570,12 +577,12 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val ogpW = if (ogpData != null) maxOf(cachedOgpTitleW, cachedOgpDescW, ogpImageW.toFloat()) else 0f
         val fileW = if (drawFileAttachment) maxOf(FILE_ICON_SIZE + FILE_ICON_GAP + cachedFileNameW, FILE_ICON_SIZE + FILE_ICON_GAP + cachedFileSizeW) else 0f
         cachedInnerWidth = if (drawPhotoImage) {
-            photoWidth + BUBBLE_PAD_H * 2
+            photoWidth
         } else if (hasCodeFence) {
             bubbleMaxW
         } else {
             val allW = maxOf(cachedSenderW, cachedContentW, cachedTimeW, replyW, ogpW, cachedForwardW, fileW, cachedEphW)
-            (allW.toInt() + BUBBLE_PAD_H * 2).coerceAtMost(bubbleMaxW)
+            allW.toInt().coerceAtMost(bubbleMaxW)
         }
 
         measuredCellHeight = computeHeight(msg)
@@ -584,7 +591,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private fun computeHeight(msg: MessageEntity): Int {
         val topPad = if (isCombined) COMBINE_PAD_V else PAD_V
-        var h = topPad + PAD_V
+        var h = topPad + PAD_BOTTOM  // top + bottom padding
 
         forwardLayout?.let { h += it.height + GAP_V_INNER }
         senderLayout?.let { h += it.height + GAP_V_INNER }
@@ -597,19 +604,14 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
         if (drawPhotoImage) {
             val imgH = if (mediaGridCount > 1) mediaGridTotalH else photoHeight
-            h += imgH + BUBBLE_PAD_V * 2
+            h += imgH + GAP_V_INNER
         }
 
         if (drawFileAttachment) {
             h += FILE_ICON_SIZE + GAP_V_INNER
         }
 
-        if (contentLayout != null) {
-            h += BUBBLE_PAD_V
-            contentLayout?.let { h += it.height + GAP_V_INNER }
-        } else if (!drawPhotoImage && !drawFileAttachment) {
-            h += BUBBLE_PAD_V * 2
-        }
+        contentLayout?.let { h += it.height + GAP_V_INNER }
 
         if (ogpData != null) {
             h += GAP_V_INNER
@@ -622,8 +624,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             ephemeralLayout?.let { h += it.height + GAP_V_INNER }
         }
 
-        timeLayout?.let { h += it.height + GAP_V_INNER }
-        if (!drawPhotoImage) h += BUBBLE_PAD_V
+        // time is drawn inline with senderLayout row — no separate height needed
+        // (if isCombined, senderLayout=null and timeLayout=null, so nothing to add)
 
         if (drawError) {
             errorLayout?.let { h += it.height + GAP_V_INNER }
@@ -819,6 +821,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         fun onMessageLongPressed(cell: ChatMessageCell, msg: MessageEntity) {}
         fun onReactionChipClicked(cell: ChatMessageCell, msg: MessageEntity, emojiId: String, shortname: String, isMine: Boolean) {}
         fun onReactionChipLongPressed(cell: ChatMessageCell, msg: MessageEntity, emojiId: String, shortname: String) {}
+        fun didLongPress(cell: ChatMessageCell, msg: MessageEntity) {}
+        fun didClickAvatar(cell: ChatMessageCell, msg: MessageEntity) {}
     }
 
     private var pressedLink: ClickableSpan? = null
@@ -826,6 +830,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var pressedMediaIndex = 0
     private var pressedOnOgp = false
     private var pressedOnFile = false
+    private var pressedOnAvatar = false
     private var fileBlockLeft = 0f
     private var fileBlockTop = 0f
     private var fileBlockRight = 0f
@@ -839,6 +844,23 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                  msg.attachmentUrl.contains("/stickers/"))
         }
 
+    private var startX = 0f
+    private var startY = 0f
+    private var longPressScheduled = false
+    private var longPressHandled = false
+    private val longPressRunnable = Runnable {
+        longPressScheduled = false
+        longPressHandled = true
+        val msg = messageEntity ?: return@Runnable
+        performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+        delegate?.didLongPress(this, msg)
+        pressedLink = null
+        pressedOnMedia = false
+        pressedOnOgp = false
+        pressedOnFile = false
+        pressedOnAvatar = false
+    }
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
         val x = event.x
         val y = event.y
@@ -848,9 +870,30 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 pressedOnMedia = false
                 pressedOnOgp = false
                 pressedOnFile = false
+                pressedOnAvatar = false
+                longPressHandled = false
+                startX = x
+                startY = y
+
+                if (!isCombined) {
+                    val topPad = PAD_V
+                    if (x >= PAD_H && x <= PAD_H + AVATAR_SIZE && y >= topPad && y <= topPad + AVATAR_SIZE) {
+                        pressedOnAvatar = true
+                        scheduleLongPress()
+                        return true
+                    }
+                    val nameLeft = PAD_H + AVATAR_SIZE + GAP_AVATAR
+                    val nameHeight = senderLayout?.height ?: 0
+                    if (nameHeight > 0 && x >= nameLeft && y >= topPad && y <= topPad + nameHeight) {
+                        pressedOnAvatar = true
+                        scheduleLongPress()
+                        return true
+                    }
+                }
 
                 if (drawFileAttachment && x >= fileBlockLeft && x <= fileBlockRight && y >= fileBlockTop && y <= fileBlockBottom) {
                     pressedOnFile = true
+                    scheduleLongPress()
                     return true
                 }
                 if (drawPhotoImage) {
@@ -861,6 +904,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                             if (x >= rx && x <= rx + r.getImageWidth() && y >= ry && y <= ry + r.getImageHeight()) {
                                 pressedOnMedia = true
                                 pressedMediaIndex = i
+                                scheduleLongPress()
                                 return true
                             }
                         }
@@ -870,6 +914,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                         if (x >= imgX && x <= imgX + photoImage.getImageWidth() && y >= imgY && y <= imgY + photoImage.getImageHeight()) {
                             pressedOnMedia = true
                             pressedMediaIndex = 0
+                            scheduleLongPress()
                             return true
                         }
                     }
@@ -877,6 +922,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 val data = ogpData
                 if (data != null && x >= ogpBlockLeft && x <= ogpBlockRight && y >= ogpBlockTop && y <= ogpBlockBottom) {
                     pressedOnOgp = true
+                    scheduleLongPress()
                     return true
                 }
                 val layout = contentLayout
@@ -892,14 +938,43 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                                 val spans = text.getSpans(offset, offset + 1, ClickableSpan::class.java)
                                 if (spans.isNotEmpty()) {
                                     pressedLink = spans[0]
+                                    scheduleLongPress()
                                     return true
                                 }
                             }
                         }
                     }
                 }
+                scheduleLongPress()
+                return true
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (longPressScheduled) {
+                    val dx = x - startX
+                    val dy = y - startY
+                    val slop = AndroidUtilities.touchSlop.toFloat()
+                    if (dx * dx + dy * dy > slop * slop) {
+                        cancelScheduledLongPress()
+                    }
+                }
             }
             MotionEvent.ACTION_UP -> {
+                cancelScheduledLongPress()
+                if (longPressHandled) {
+                    longPressHandled = false
+                    pressedLink = null
+                    pressedOnMedia = false
+                    pressedOnOgp = false
+                    pressedOnFile = false
+                    pressedOnAvatar = false
+                    return true
+                }
+                if (pressedOnAvatar) {
+                    pressedOnAvatar = false
+                    val msg = messageEntity
+                    if (msg != null) delegate?.didClickAvatar(this, msg)
+                    return true
+                }
                 if (pressedOnFile) {
                     pressedOnFile = false
                     val msg = messageEntity
@@ -924,13 +999,28 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 }
             }
             MotionEvent.ACTION_CANCEL -> {
+                cancelScheduledLongPress()
+                longPressHandled = false
                 pressedLink = null
                 pressedOnMedia = false
                 pressedOnOgp = false
                 pressedOnFile = false
+                pressedOnAvatar = false
             }
         }
         return super.onTouchEvent(event)
+    }
+
+    private fun scheduleLongPress() {
+        longPressScheduled = true
+        handler?.postDelayed(longPressRunnable, android.view.ViewConfiguration.getLongPressTimeout().toLong())
+    }
+
+    private fun cancelScheduledLongPress() {
+        if (longPressScheduled) {
+            longPressScheduled = false
+            handler?.removeCallbacks(longPressRunnable)
+        }
     }
 
     fun getMediaBitmap(index: Int): android.graphics.Bitmap? {
@@ -987,6 +1077,14 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     override fun onDraw(canvas: Canvas) {
         val msg = messageEntity ?: return
         checkAvatarFallbackTimeout()
+
+        // Mention / reply highlight background (flat, no bubble)
+        if (hasMentionHighlight) {
+            MENTION_BG_PAINT.color = theme.midnightBlue and 0x00FFFFFF.toInt() or 0x26000000
+            canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), MENTION_BG_PAINT)
+            canvas.drawRect(0f, 0f, MENTION_BAR_WIDTH.toFloat(), height.toFloat(), MENTION_BAR_PAINT)
+        }
+
         val alpha = if (drawError) 0.6f else 1f
         if (alpha < 1f) {
             canvas.saveLayerAlpha(0f, 0f, width.toFloat(), height.toFloat(), (alpha * 255).toInt())
@@ -1059,6 +1157,11 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         photoImage.setRoundRadius(0)
         photoImage.setImageCoords(imgX, yOff, photoWidth.toFloat(), photoHeight.toFloat())
         photoImage.draw(canvas)
+        if (!photoImage.hasMainImage()) {
+            shimmerEffect.draw(canvas, imgX, yOff, imgX + photoWidth, yOff + photoHeight, 0f,
+                theme.resolvedMode != com.mezon.mobile.ui.theme.ThemeMode.LIGHT)
+            postInvalidateDelayed(32)
+        }
         yOff += photoHeight + GAP_V_INNER
 
         timeLayout?.let {
@@ -1071,43 +1174,48 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private fun drawMessageBubble(canvas: Canvas, msg: MessageEntity) {
         val topPad = if (isCombined) COMBINE_PAD_V else PAD_V
-        val bubbleLeft = PAD_H + AVATAR_SIZE + GAP_AVATAR
+        // contentLeft: right after avatar, no bubble padding (flat like RN)
+        val contentLeft = PAD_H + AVATAR_SIZE + GAP_AVATAR
 
         if (!isCombined) {
-            avatarDrawable.setBounds(PAD_H, topPad, PAD_H + AVATAR_SIZE, topPad + AVATAR_SIZE)
+            val avatarTop = topPad
+            avatarDrawable.setBounds(PAD_H, avatarTop, PAD_H + AVATAR_SIZE, avatarTop + AVATAR_SIZE)
             avatarDrawable.draw(canvas)
         }
 
-        val innerWidth = cachedInnerWidth
-        val bubbleTop = topPad
-        val errorH = if (drawError) (errorLayout?.height ?: 0) + GAP_V_INNER else 0
-        val bubbleBottom = measuredCellHeight - PAD_V - errorH
+        var yOff = topPad.toFloat()
 
-        val topRadius = if (isCombined) BUBBLE_RADIUS_SMALL else BUBBLE_RADIUS
-        drawBubbleRect(canvas, bubbleLeft.toFloat(), bubbleTop.toFloat(), (bubbleLeft + innerWidth).toFloat(), bubbleBottom.toFloat(), topRadius, BUBBLE_RADIUS)
-
-        var yOff = (bubbleTop + BUBBLE_PAD_V).toFloat()
-
-        senderLayout?.let {
+        senderLayout?.let { sender ->
             canvas.save()
-            canvas.translate((bubbleLeft + BUBBLE_PAD_H).toFloat(), yOff)
-            it.draw(canvas)
+            canvas.translate(contentLeft.toFloat(), yOff)
+            sender.draw(canvas)
             canvas.restore()
-            yOff += it.height + GAP_V_INNER
+
+            timeLayout?.let { time ->
+                val timeX = (contentLeft + cachedSenderW + LayoutHelper.dp(6)).toFloat()
+                        .coerceAtMost((width - LayoutHelper.dp(4)).toFloat())
+                val timeY = yOff + sender.height - time.height 
+                canvas.save()
+                canvas.translate(timeX, timeY)
+                time.draw(canvas)
+                canvas.restore()
+            }
+
+            yOff += sender.height + GAP_V_INNER
         }
 
         forwardLayout?.let {
-            drawForwardHeader(canvas, (bubbleLeft + BUBBLE_PAD_H).toFloat(), yOff, msg)
+            drawForwardHeader(canvas, contentLeft.toFloat(), yOff, msg)
             yOff += it.height + GAP_V_INNER
         }
 
         if (hasReply) {
-            drawReplyBar(canvas, (bubbleLeft + BUBBLE_PAD_H).toFloat(), yOff)
+            drawReplyBar(canvas, contentLeft.toFloat(), yOff)
             yOff += replyBarHeight() + GAP_V_INNER
         }
 
         if (drawPhotoImage) {
-            val imgX = (bubbleLeft + BUBBLE_PAD_H).toFloat()
+            val imgX = contentLeft.toFloat()
             if (mediaGridCount <= 1) {
                 photoImage.setImageCoords(imgX, yOff, photoWidth.toFloat(), photoHeight.toFloat())
                 photoImage.draw(canvas)
@@ -1120,48 +1228,26 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
 
         if (drawFileAttachment) {
-            yOff = drawFileBlock(canvas, (bubbleLeft + BUBBLE_PAD_H).toFloat(), yOff)
+            yOff = drawFileBlock(canvas, contentLeft.toFloat(), yOff)
         }
 
         contentLayout?.let {
-            contentLayoutLeft = bubbleLeft + BUBBLE_PAD_H
+            contentLayoutLeft = contentLeft
             contentLayoutTop = yOff.toInt()
             canvas.save()
-            canvas.translate((bubbleLeft + BUBBLE_PAD_H).toFloat(), yOff)
+            canvas.translate(contentLeft.toFloat(), yOff)
             it.draw(canvas)
             canvas.restore()
             yOff += it.height + GAP_V_INNER
         }
 
-        ogpData?.let { yOff = drawOgpBlock(canvas, (bubbleLeft + BUBBLE_PAD_H).toFloat(), yOff) + GAP_V_INNER }
+        ogpData?.let { yOff = drawOgpBlock(canvas, contentLeft.toFloat(), yOff) + GAP_V_INNER }
 
         if (drawEphemeral) {
-            yOff = drawEphemeralIndicator(canvas, (bubbleLeft + BUBBLE_PAD_H).toFloat(), yOff)
+            yOff = drawEphemeralIndicator(canvas, contentLeft.toFloat(), yOff)
         }
 
-        timeLayout?.let {
-            canvas.save()
-            canvas.translate((bubbleLeft + BUBBLE_PAD_H).toFloat(), yOff)
-            it.draw(canvas)
-            canvas.restore()
-        }
-    }
-
-    private val bubbleRect = RectF()
-
-    private fun drawBubbleRect(canvas: Canvas, left: Float, top: Float, right: Float, bottom: Float, topRadius: Float, bottomRadius: Float) {
-        bubbleRect.set(left, top, right, bottom)
-        if (topRadius == bottomRadius) {
-            canvas.drawRoundRect(bubbleRect, topRadius, topRadius, currentBubblePaint)
-        } else {
-            bubbleRadii[0] = topRadius; bubbleRadii[1] = topRadius
-            bubbleRadii[2] = topRadius; bubbleRadii[3] = topRadius
-            bubbleRadii[4] = bottomRadius; bubbleRadii[5] = bottomRadius
-            bubbleRadii[6] = bottomRadius; bubbleRadii[7] = bottomRadius
-            bubblePath.reset()
-            bubblePath.addRoundRect(bubbleRect, bubbleRadii, Path.Direction.CW)
-            canvas.drawPath(bubblePath, currentBubblePaint)
-        }
+        // timeLayout is drawn on the same row as senderLayout (right side) — not at the bottom
     }
 
     private fun drawForwardHeader(canvas: Canvas, x: Float, y: Float, msg: MessageEntity) {
@@ -1226,7 +1312,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private fun drawErrorText(canvas: Canvas, msg: MessageEntity) {
         val layout = errorLayout ?: return
         val errorY = measuredCellHeight - PAD_V - layout.height
-        val errorX = (PAD_H + AVATAR_SIZE + GAP_AVATAR + BUBBLE_PAD_H).toFloat()
+        val errorX = (PAD_H + AVATAR_SIZE + GAP_AVATAR).toFloat()
         canvas.save()
         canvas.translate(errorX, errorY.toFloat())
         layout.draw(canvas)
@@ -1442,16 +1528,21 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     companion object {
         const val COMBINE_TIME_THRESHOLD = 2 * 60L
 
-        private val AVATAR_SIZE = LayoutHelper.dp(32)
-        private val PAD_H = LayoutHelper.dp(12)
-        private val PAD_V = LayoutHelper.dp(2)
+        private val AVATAR_SIZE = LayoutHelper.dp(40)  
+        private val PAD_H = LayoutHelper.dp(6)          
+        private val PAD_V = LayoutHelper.dp(10)         
+        private val PAD_BOTTOM = LayoutHelper.dp(6)    
         private val COMBINE_PAD_V = LayoutHelper.dp(1)
-        private val BUBBLE_PAD_H = LayoutHelper.dp(12)
-        private val BUBBLE_PAD_V = LayoutHelper.dp(8)
-        private val BUBBLE_RADIUS = LayoutHelper.dp(16).toFloat()
-        private val BUBBLE_RADIUS_SMALL = LayoutHelper.dp(6).toFloat()
-        private val GAP_AVATAR = LayoutHelper.dp(8)
-        private val GAP_V_INNER = LayoutHelper.dp(2)
+        private val GAP_AVATAR = LayoutHelper.dp(12)   
+        private val MENTION_BAR_WIDTH = LayoutHelper.dp(2)
+        private val MENTION_BAR_PAINT = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            style = android.graphics.Paint.Style.FILL
+            color = 0xFF5A62F4.toInt()
+        }
+        private val MENTION_BG_PAINT = android.graphics.Paint().apply {
+            style = android.graphics.Paint.Style.FILL
+        }
+        private val GAP_V_INNER = LayoutHelper.dp(6) 
         private val MEDIA_RADIUS = LayoutHelper.dp(12).toFloat()
         private val OGP_RADIUS = LayoutHelper.dp(8).toFloat()
         private val PLAY_BTN_SIZE = LayoutHelper.dp(48).toFloat()

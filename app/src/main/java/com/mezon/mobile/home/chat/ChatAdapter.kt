@@ -16,6 +16,8 @@ class ChatAdapter(
     var onBindReactions: ((cell: ChatMessageCell, msg: MessageEntity) -> Unit)? = null
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
+    init { setHasStableIds(true) }
+
     companion object {
         private const val TYPE_SENT = 0
         private const val TYPE_RECEIVED = 1
@@ -88,6 +90,15 @@ class ChatAdapter(
     }
 
     override fun getItemCount(): Int = rowCount
+
+    override fun getItemId(position: Int): Long = when (position) {
+        loadingUpRow -> Long.MIN_VALUE
+        loadingDownRow -> Long.MIN_VALUE + 1
+        else -> {
+            val idx = position - messagesStartRow
+            if (idx in messages.indices) messages[idx].id else RecyclerView.NO_ID
+        }
+    }
 
     override fun getItemViewType(position: Int): Int = when (position) {
         loadingUpRow -> TYPE_LOADING_UP

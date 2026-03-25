@@ -105,6 +105,7 @@ data class OtpRequestResponse(
     val status: Int = 0
 )
 
+private const val TAG = "MezonApi"
 private val CONTENT_TYPE_PROTO = ContentType("application", "proto")
 
 @Singleton
@@ -200,7 +201,7 @@ class MezonApi @Inject constructor(
         token: String,
         channelType: Int = CHANNEL_TYPE_GROUP,
         page: Int = 1,
-        limit: Int = 50
+        limit: Int = 500
     ): ChannelDescList {
         val request = listChannelDescsRequest {
             this.limit = limit
