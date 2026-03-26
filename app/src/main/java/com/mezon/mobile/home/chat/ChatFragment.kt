@@ -524,7 +524,15 @@ class ChatFragment : BaseFragment() {
             if (idx >= 0) {
                 messages.removeAt(idx)
                 messagesDict.delete(messageId)
-                if (fragmentView != null) refreshUI()
+                if (fragmentView != null) {
+                    adapter.updateRowsInternal()
+                    val adapterIdx = adapter.messagesStartRow + idx
+                    adapter.notifyItemRemoved(adapterIdx)
+                    if (idx < messages.size) {
+                        adapter.notifyItemChanged(adapterIdx)
+                    }
+                    updateUnreadDividerPosition()
+                }
             }
         }
 

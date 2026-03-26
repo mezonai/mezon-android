@@ -474,6 +474,21 @@ class ChatController @Inject constructor(
             try {
                 mezonSocket.removeChatMessage(clanId, channelId, mode, isPublic, messageId)
                 Log.d(TAG, "Message deleted: channelId=$channelId messageId=$messageId isPublic=$isPublic")
+                appScope.launch(ioDispatcher) { messageDao.delete(channelId, messageId) }
+                synchronized(this@ChatController) {
+                    if (lastMessageByChannel.get(channelId, 0L) == messageId) {
+                        appScope.launch(ioDispatcher) {
+                            val newLast = messageDao.getLatestByChannel(channelId, 1).firstOrNull()
+                            synchronized(this@ChatController) {
+                                if (newLast != null) lastMessageByChannel.put(channelId, newLast.id)
+                                else lastMessageByChannel.delete(channelId)
+                            }
+                        }
+                    }
+                }
+                notificationCenter.postNotificationOnMainThread(
+                    NotificationCenter.messageDidDelete, channelId, messageId
+                )
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to delete message", e)
             }
