@@ -41,7 +41,7 @@ class ClansFragment : BaseFragment() {
     private lateinit var accountController: AccountController
     private lateinit var userClanController:    UserClanController
 
-    var onOpenChat: ((channelId: Long, channelName: String, clanId: Long, channelType: Int, messageId: Long) -> Unit)? = null
+    var onOpenChat: ((channelId: Long, channelName: String, clanId: Long, channelType: Int) -> Unit)? = null
     var onSwitchToMessages: (() -> Unit)? = null
 
     private lateinit var serverRail: RecyclerListView
@@ -142,7 +142,7 @@ class ClansFragment : BaseFragment() {
                 }
                 is UnreadDmCell -> {
                     val dm = view.directMessage ?: return@OnItemClickListener
-                    onOpenChat?.invoke(dm.channelId, dm.displayName.ifEmpty { dm.label }, 0L, dm.type, 0L)
+                    onOpenChat?.invoke(dm.channelId, dm.displayName.ifEmpty { dm.label }, 0L, dm.type)
                 }
             }
         })
@@ -499,7 +499,7 @@ class ClansFragment : BaseFragment() {
 
     private fun onChannelSelected(channel: ClanChannelEntity) {
         chatController.openChannel(channel.channelId, channel.clanId, channel.type, channel.isPrivate)
-        onOpenChat?.invoke(channel.channelId, channel.channelLabel, channel.clanId, channel.type, 0L)
+        onOpenChat?.invoke(channel.channelId, channel.channelLabel, channel.clanId, channel.type)
     }
 
     inner class ServerRailAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {

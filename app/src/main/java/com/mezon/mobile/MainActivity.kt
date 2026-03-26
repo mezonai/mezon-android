@@ -359,8 +359,8 @@ class MainActivity : BasePermissionsActivity(),
     private fun showHome() {
         val mainTabsActivity = MainTabsActivity().apply {
             onLogout = { switchToLogin() }
-            onOpenChat = { channelId, channelName, clanId, channelType, messageId ->
-                openChat(channelId, channelName, clanId, channelType, messageId)
+            onOpenChat = { channelId, channelName, clanId, channelType ->
+                openChat(channelId, channelName, clanId, channelType)
             }
         }
         actionBarLayout.removeAllFragments()
@@ -412,8 +412,8 @@ class MainActivity : BasePermissionsActivity(),
             is OTPVerificationFragment -> top.onVerifySuccess = { showHome() }
             is MainTabsActivity -> {
                 top.onLogout = { switchToLogin() }
-                top.onOpenChat = { channelId, channelName, clanId, channelType, messageId ->
-                    openChat(channelId, channelName, clanId, channelType, messageId)
+                top.onOpenChat = { channelId, channelName, clanId, channelType ->
+                    openChat(channelId, channelName, clanId, channelType)
                 }
             }
         }

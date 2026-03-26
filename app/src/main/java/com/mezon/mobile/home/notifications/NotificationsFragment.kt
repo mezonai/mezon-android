@@ -16,6 +16,7 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.di.FragmentEntryPoint
+import com.mezon.mobile.home.ChatController
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.ClansController
 
@@ -26,8 +27,9 @@ class NotificationsFragment : BaseFragment() {
     private lateinit var store: NotificationStore
     private lateinit var clansController: ClansController
     private lateinit var channelController: ChannelController
+    private lateinit var chatController: ChatController
 
-    var onOpenChat: ((channelId: Long, channelName: String, clanId: Long, channelType: Int, messageId: Long) -> Unit)? = null
+    var onOpenChat: ((channelId: Long, channelName: String, clanId: Long, channelType: Int) -> Unit)? = null
 
     private lateinit var root: LinearLayout
     private lateinit var tabContainer: LinearLayout
@@ -56,6 +58,7 @@ class NotificationsFragment : BaseFragment() {
         store = entryPoint.notificationStore()
         clansController = entryPoint.clansController()
         channelController = entryPoint.channelController()
+        chatController = entryPoint.chatController()
     }
 
     override fun onFragmentCreate(): Boolean {
@@ -201,8 +204,14 @@ class NotificationsFragment : BaseFragment() {
                 .ifEmpty { entity.clanName }
         }
         val clanId = entity.clanId
-        val channelType = entity.channelType.takeIf { it != 0 } ?: 1
-        onOpenChat?.invoke(channelId, channelName, clanId, channelType, 0L)
+        val channelType = entity.channelType.takeIf { it != 0 } ?: if (clanId == 0L) 3 else 1
+        
+        if (clanId != 0L) {
+            clansController.selectClan(clanId)
+            chatController.openChannel(channelId, clanId, channelType)
+        }
+        
+        onOpenChat?.invoke(channelId, channelName, clanId, channelType)
     }
 
     private fun buildHeader(context: Context): View {

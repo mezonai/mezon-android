@@ -42,7 +42,7 @@ class MessagesFragment : BaseFragment() {
     private var frozenDialogsList: List<DirectMessage>? = null
     private var viewJustCreated = false
 
-    var onOpenChat: ((channelId: Long, channelName: String, clanId: Long, channelType: Int, messageId: Long) -> Unit)? = null
+    var onOpenChat: ((channelId: Long, channelName: String, clanId: Long, channelType: Int) -> Unit)? = null
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
         controller = entryPoint.dialogsController()
@@ -115,7 +115,7 @@ class MessagesFragment : BaseFragment() {
         recyclerView.setOnItemClickListener(RecyclerListView.OnItemClickListener { view, _ ->
             if (view is DialogCell) {
                 val dm = view.directMessage ?: return@OnItemClickListener
-                onOpenChat?.invoke(dm.channelId, dm.displayName.ifEmpty { dm.label }, 0L, dm.type, 0L)
+                onOpenChat?.invoke(dm.channelId, dm.displayName.ifEmpty { dm.label }, 0L, dm.type)
             }
         })
         recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
