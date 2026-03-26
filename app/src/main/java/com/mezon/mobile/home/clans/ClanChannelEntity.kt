@@ -28,7 +28,8 @@ data class ClanChannelEntity(
     val isMuted: Boolean,
     val lastSeenMessageId: Long = 0L,
     val lastSentMessageId: Long = 0L,
-    val active: Int = 0
+    val active: Int = 0,
+    val categoryOrder: Int = 0
 ) {
     val isThread: Boolean get() = type == 7 && parentId != 0L
     val hasUnread: Boolean get() = lastSentMessageId != 0L && lastSeenMessageId < lastSentMessageId

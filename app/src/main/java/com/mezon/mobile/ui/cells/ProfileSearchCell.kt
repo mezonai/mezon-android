@@ -1,0 +1,177 @@
+package com.mezon.mobile.ui.cells
+
+import android.content.Context
+import android.graphics.Canvas
+import android.graphics.RectF
+import android.text.StaticLayout
+import android.text.TextUtils
+import com.mezon.mobile.core.AvatarDrawable
+import com.mezon.mobile.core.BaseCell
+import com.mezon.mobile.core.LayoutHelper
+import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.home.chat.MezonImageLoader
+import com.mezon.mobile.search.SearchMember
+import com.mezon.mobile.util.createImgproxyUrl
+
+class ProfileSearchCell(context: Context, private val theme: ThemeColors) : BaseCell(context) {
+
+    var member: SearchMember? = null
+        private set
+
+    private val avatarDrawable = AvatarDrawable()
+    private var currentAvatarUrl: String? = null
+    private var avatarDisposable: MezonImageLoader.Cancellable? = null
+    private var attachedToWindow = false
+    private val tmpRect = RectF()
+    private var onlineProgress = 0f
+
+    private var nameLayout: StaticLayout? = null
+    private var statusLayout: StaticLayout? = null
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        attachedToWindow = true
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        attachedToWindow = false
+        avatarDisposable?.cancel()
+        avatarDisposable = null
+    }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), CELL_HEIGHT)
+        buildLayouts()
+    }
+
+    override fun invalidate() {
+        if (member == null) return
+        super.invalidate()
+    }
+
+    fun setData(m: SearchMember) {
+        member = m
+        update(0)
+    }
+
+    fun update(mask: Int, newMember: SearchMember? = null) {
+        val m = newMember ?: member ?: return
+        if (newMember != null) member = newMember
+
+        avatarDrawable.setInfo(m.id, m.displayName.ifEmpty { m.username })
+        onlineProgress = if (m.isOnline) 1f else 0f
+        loadAvatar(m.avatarUrl)
+        buildLayouts()
+        invalidate()
+    }
+
+    private fun buildLayouts() {
+        val m = member ?: return
+        val w = measuredWidth
+        if (w == 0) return
+
+        val textLeft = AVATAR_LEFT + AVATAR_SIZE + TEXT_LEFT_MARGIN
+        val textWidth = w - textLeft - PAD_RIGHT
+
+        if (textWidth <= 0) return
+
+        val name = m.displayName.ifEmpty { m.username }
+        nameLayout = StaticLayout.Builder.obtain(name, 0, name.length, theme.dialogNamePaint, textWidth)
+            .setMaxLines(1)
+            .setEllipsize(TextUtils.TruncateAt.END)
+            .build()
+
+        val status = if (m.username.isNotEmpty()) "@${m.username}" else ""
+        if (status.isNotEmpty()) {
+            statusLayout = StaticLayout.Builder.obtain(status, 0, status.length, theme.dialogMessagePaint, textWidth)
+                .setMaxLines(1)
+                .setEllipsize(TextUtils.TruncateAt.END)
+                .build()
+        } else {
+            statusLayout = null
+        }
+    }
+
+    private fun loadAvatar(url: String) {
+        if (url == currentAvatarUrl) return
+        currentAvatarUrl = url
+        avatarDisposable?.cancel()
+        avatarDisposable = null
+
+        if (url.isEmpty()) {
+            avatarDrawable.setPhoto(null)
+            return
+        }
+
+        val proxyUrl = createImgproxyUrl(url, AVATAR_SIZE * 2, AVATAR_SIZE * 2, "fill")
+        avatarDisposable = MezonImageLoader.getInstance(context).load(
+            proxyUrl, AVATAR_SIZE, AVATAR_SIZE,
+            onSuccess = { bmp ->
+                avatarDrawable.setPhoto(bmp)
+                invalidate()
+            }
+        )
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        val m = member ?: return
+        val w = measuredWidth
+        val h = measuredHeight
+
+        val avatarTop = (h - AVATAR_SIZE) / 2f
+        tmpRect.set(
+            AVATAR_LEFT.toFloat(), avatarTop,
+            (AVATAR_LEFT + AVATAR_SIZE).toFloat(), avatarTop + AVATAR_SIZE
+        )
+        avatarDrawable.setBounds(tmpRect.left.toInt(), tmpRect.top.toInt(), tmpRect.right.toInt(), tmpRect.bottom.toInt())
+        avatarDrawable.draw(canvas)
+
+        if (onlineProgress > 0f) {
+            val dotSize = ONLINE_DOT_SIZE
+            val cx = tmpRect.right - dotSize / 2f + ONLINE_DOT_OFFSET
+            val cy = tmpRect.bottom - dotSize / 2f + ONLINE_DOT_OFFSET
+            theme.dialogOnlinePaint.alpha = (255 * onlineProgress).toInt()
+            canvas.drawCircle(cx, cy, dotSize / 2f + ONLINE_BORDER_WIDTH, theme.dialogOnlineBorderPaint)
+            canvas.drawCircle(cx, cy, dotSize / 2f, theme.dialogOnlinePaint)
+        }
+
+        val textLeft = (AVATAR_LEFT + AVATAR_SIZE + TEXT_LEFT_MARGIN).toFloat()
+
+        val hasStatus = statusLayout != null
+        val nameTop = if (hasStatus) {
+            (h - (nameLayout?.height ?: 0) - (statusLayout?.height ?: 0) - NAME_STATUS_GAP) / 2f
+        } else {
+            (h - (nameLayout?.height ?: 0)) / 2f
+        }
+
+        nameLayout?.let {
+            canvas.save()
+            canvas.translate(textLeft, nameTop)
+            it.draw(canvas)
+            canvas.restore()
+        }
+
+        statusLayout?.let {
+            canvas.save()
+            canvas.translate(textLeft, nameTop + (nameLayout?.height ?: 0) + NAME_STATUS_GAP)
+            it.draw(canvas)
+            canvas.restore()
+        }
+
+        val dividerLeft = textLeft
+        canvas.drawLine(dividerLeft, (h - 1).toFloat(), w.toFloat(), (h - 1).toFloat(), theme.dividerPaint)
+    }
+
+    companion object {
+        private val CELL_HEIGHT = LayoutHelper.dp(60f)
+        private val AVATAR_SIZE = LayoutHelper.dp(46f)
+        private val AVATAR_LEFT = LayoutHelper.dp(16f)
+        private val TEXT_LEFT_MARGIN = LayoutHelper.dp(12f)
+        private val PAD_RIGHT = LayoutHelper.dp(16f)
+        private val ONLINE_DOT_SIZE = LayoutHelper.dpf(10f)
+        private val ONLINE_DOT_OFFSET = LayoutHelper.dpf(1f)
+        private val ONLINE_BORDER_WIDTH = LayoutHelper.dpf(1.5f)
+        private val NAME_STATUS_GAP = LayoutHelper.dp(2f).toFloat()
+    }
+}

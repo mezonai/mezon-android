@@ -97,6 +97,11 @@ class NotificationCenter(val currentAccount: Int) {
         val navigateToClansTab = nextId()
         val appDidReconnect = nextId()
         val scrollToBottomChat = nextId()
+        val userClansDidLoad = nextId()
+        val clanMembersDidLoad = nextId()
+        val searchMembersDidLoad = nextId()
+        val searchChannelsDidLoad = nextId()
+        val searchMessagesDidLoad = nextId()
 
         const val UPDATE_MASK_NAME = 1
         const val UPDATE_MASK_AVATAR = 2
