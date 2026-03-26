@@ -451,6 +451,7 @@ class ChatFragment : BaseFragment() {
                         startLoadFromMessageId = 0L
                         startLoadFromMessageOffset = Int.MAX_VALUE
                         loadingFromOldPosition = false
+                        recyclerView.post { markVisibleAsRead() }
                     } else if (needScrollRestore && lastSeenMessageId != 0L && hasUnread) {
                         scrollToFirstUnread()
                         needScrollRestore = false
