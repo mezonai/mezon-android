@@ -16,6 +16,7 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.di.FragmentEntryPoint
+import com.mezon.mobile.home.ChatController
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.ClansController
 
@@ -26,6 +27,7 @@ class NotificationsFragment : BaseFragment() {
     private lateinit var store: NotificationStore
     private lateinit var clansController: ClansController
     private lateinit var channelController: ChannelController
+    private lateinit var chatController: ChatController
 
     var onOpenChat: ((channelId: Long, channelName: String, clanId: Long, channelType: Int) -> Unit)? = null
 
@@ -44,10 +46,19 @@ class NotificationsFragment : BaseFragment() {
     private var currentCategory = NOTIF_CATEGORY_MENTIONS
     private val tabViews = mutableListOf<TextView>()
 
+    private val isLoadingMoreMap = mutableMapOf(
+        NOTIF_CATEGORY_MENTIONS to false,
+        NOTIF_CATEGORY_MESSAGES to false,
+        NOTIF_CATEGORY_FOR_YOU to false
+    )
+
+    private val scrollStates = mutableMapOf<Int, android.os.Parcelable?>()
+
     override fun onInject(entryPoint: FragmentEntryPoint) {
         store = entryPoint.notificationStore()
         clansController = entryPoint.clansController()
         channelController = entryPoint.channelController()
+        chatController = entryPoint.chatController()
     }
 
     override fun onFragmentCreate(): Boolean {
@@ -61,11 +72,13 @@ class NotificationsFragment : BaseFragment() {
         observe(NotificationCenter.notificationsDidLoad) { _, _, args ->
             if (fragmentView == null || isPaused) return@observe
             val category = args.firstOrNull() as? Int ?: return@observe
+            isLoadingMoreMap[category] = false
             if (category == currentCategory) refreshList()
         }
         observe(NotificationCenter.notificationsLoadError) { _, _, args ->
             if (fragmentView == null || isPaused) return@observe
             val category = args.firstOrNull() as? Int ?: return@observe
+            isLoadingMoreMap[category] = false
             if (category == currentCategory) showEmpty()
         }
         observe(NotificationCenter.updateInterfaces) { _, _, args ->
@@ -144,6 +157,28 @@ class NotificationsFragment : BaseFragment() {
             } else false
         })
 
+        recyclerView.addOnScrollListener(object : androidx.recyclerview.widget.RecyclerView.OnScrollListener() {
+            override fun onScrolled(recyclerView: androidx.recyclerview.widget.RecyclerView, dx: Int, dy: Int) {
+                if (dy > 0 && isLoadingMoreMap[currentCategory] != true) {
+                    if (recyclerView.scrollState == androidx.recyclerview.widget.RecyclerView.SCROLL_STATE_IDLE) {
+                        return
+                    }
+
+                    val layoutManager = recyclerView.layoutManager as LinearLayoutManager
+                    val visibleItemCount = layoutManager.childCount
+                    val totalItemCount = layoutManager.itemCount
+                    val firstVisibleItemPosition = layoutManager.findFirstVisibleItemPosition()
+
+                    if ((visibleItemCount + firstVisibleItemPosition) >= totalItemCount && firstVisibleItemPosition >= 0) {
+                        if (store.hasMoreForCategory(currentCategory)) {
+                            isLoadingMoreMap[currentCategory] = true
+                            store.loadMore(currentCategory)
+                        }
+                    }
+                }
+            }
+        })
+
         return root
     }
 
@@ -153,19 +188,29 @@ class NotificationsFragment : BaseFragment() {
         val clanId = clansController.selectedClanId.value
         store.setCurrentClan(clanId)
 
-        selectTab(currentCategory)
+        selectTab(currentCategory, forceRefresh = false)
     }
 
     private fun handleNotificationPress(entity: NotificationEntity) {
         Log.d("NotifNav", "press entity: id=${entity.id} channelId=${entity.channelId}")
         val channelId = entity.channelId
         if (channelId == 0L) { Log.w("NotifNav", "channelId == 0, skip"); return }
-        val channelName = entity.channelLabel
-            .ifEmpty { channelController.findChannelById(channelId)?.channelLabel ?: "" }
-            .ifEmpty { entity.subject.substringAfterLast("#").trimEnd(')').trim() }
-            .ifEmpty { entity.clanName }
+        val channelName = if (entity.clanId == 0L) {
+            entity.senderName.ifEmpty { entity.channelLabel }
+        } else {
+            entity.channelLabel
+                .ifEmpty { channelController.findChannelById(channelId)?.channelLabel ?: "" }
+                .ifEmpty { entity.subject.substringAfterLast("#").trimEnd(')').trim() }
+                .ifEmpty { entity.clanName }
+        }
         val clanId = entity.clanId
-        val channelType = entity.channelType.takeIf { it != 0 } ?: 1
+        val channelType = entity.channelType.takeIf { it != 0 } ?: if (clanId == 0L) 3 else 1
+        
+        if (clanId != 0L) {
+            clansController.selectClan(clanId)
+            chatController.openChannel(channelId, clanId, channelType)
+        }
+        
         onOpenChat?.invoke(channelId, channelName, clanId, channelType)
     }
 
@@ -190,7 +235,10 @@ class NotificationsFragment : BaseFragment() {
         tabViews.clear()
         tabs.forEach { tab ->
             val chip = buildChip(context, getString(tab.labelRes), tab.category == currentCategory)
-            chip.setOnClickListener { selectTab(tab.category) }
+            chip.setOnClickListener { 
+                val isSameTab = tab.category == currentCategory
+                selectTab(tab.category, forceRefresh = isSameTab) 
+            }
             val margin = LayoutHelper.dp(6)
             tabContainer.addView(chip, LayoutHelper.createLinear(
                 LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT,
@@ -225,17 +273,33 @@ class NotificationsFragment : BaseFragment() {
         )
     }
 
-    private fun selectTab(category: Int) {
+    private fun selectTab(category: Int, forceRefresh: Boolean = false) {
+        val isTabChanged = currentCategory != category
+        if (isTabChanged) {
+            scrollStates[currentCategory] = recyclerView.layoutManager?.onSaveInstanceState()
+            isLoadingMoreMap[currentCategory] = false
+        } else if (forceRefresh) {
+            recyclerView.scrollToPosition(0)
+        }
         currentCategory = category
         rebuildTabChipColors()
-        store.loadCategory(category)
+        
         val cached = store.getForCategory(category).value
         if (cached.isNotEmpty()) {
-            showList(cached)
+            showList(cached, isTabChanged)
         } else {
+            if (isTabChanged) {
+                adapter.setData(emptyList(), false, true)
+            }
             showLoading()
+            isLoadingMoreMap[category] = true 
+        } 
+        
+        if (cached.isEmpty() || forceRefresh) {
+            store.loadCategory(category)
         }
     }
+
 
     private fun rebuildTabChipColors() {
         tabs.forEachIndexed { index, tab ->
@@ -278,10 +342,20 @@ class NotificationsFragment : BaseFragment() {
         emptyView.visibility = View.VISIBLE
     }
 
-    private fun showList(items: List<NotificationEntity>) {
+    private fun showList(items: List<NotificationEntity>, isTabChange: Boolean = false) {
         loadingView.visibility = View.GONE
         emptyView.visibility = View.GONE
         recyclerView.visibility = View.VISIBLE
-        adapter.setData(items)
+        val hasMore = store.hasMoreForCategory(currentCategory)
+        adapter.setData(items, hasMore, isTabChange)
+        
+        if (isTabChange) {
+            val savedState = scrollStates[currentCategory]
+            if (savedState != null) {
+                recyclerView.layoutManager?.onRestoreInstanceState(savedState)
+            } else {
+                recyclerView.scrollToPosition(0)
+            }
+        }
     }
 }

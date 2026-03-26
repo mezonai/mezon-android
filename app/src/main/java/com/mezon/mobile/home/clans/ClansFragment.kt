@@ -27,6 +27,8 @@ import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.home.messages.DirectMessage
 import com.mezon.mobile.home.profile.AccountController
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import com.mezon.mobile.search.GlobalSearchFragment
 import com.mezon.mobile.ui.cells.MezonIcon
 
@@ -109,6 +111,12 @@ class ClansFragment : BaseFragment() {
         }
 
         clansController.loadClans()
+        observe(NotificationCenter.selectedClanChanged) { _, _, args ->
+            if (fragmentView == null || !clansController.clansLoaded) return@observe
+            val clanId = args.firstOrNull() as? Long ?: 0L
+            updateServerRail()
+            if (clanId != 0L) updateChannelList()
+        }
         return true
     }
 
@@ -469,9 +477,10 @@ class ClansFragment : BaseFragment() {
     private fun onClanSelected(clan: ClanEntity) {
         val prevId = clansController.selectedClanId.value
         if (clan.clanId == prevId) return
-        clansController.selectClan(clan.clanId)
-        updateClanHeader(clan)
         channelListView.resetExpansion()
+        clansController.selectClan(clan.clanId)
+        channelListView.clear()
+        updateClanHeader(clan)
 
         val count = serverRail.childCount
         for (i in 0 until count) {

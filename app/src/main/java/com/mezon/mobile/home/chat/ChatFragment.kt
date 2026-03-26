@@ -52,7 +52,6 @@ class ChatFragment : BaseFragment() {
         private const val ARG_CHANNEL_TYPE = "channelType"
         private const val ARG_MESSAGE_ID = "message_id"
         private const val ARG_FORCE_LATEST = "force_latest"
-        private const val ARG_FROM_DM_NOTIFICATION = "fromDmNotification"
         private const val VIEWPORT_LIMIT = 300
         private const val PAGE_DOWN_SCROLL_THRESHOLD = 2
         private const val SCROLL_PREFS = "chat_scroll_positions"
@@ -63,8 +62,7 @@ class ChatFragment : BaseFragment() {
             clanId: Long = 0L,
             channelType: Int = 0,
             messageId: Long = 0L,
-            forceLatest: Boolean = false,
-            fromDmNotification: Boolean = false
+            forceLatest: Boolean = false
         ): ChatFragment = ChatFragment().apply {
             arguments = Bundle().apply {
                 putLong(ARG_CHANNEL_ID, channelId)
@@ -73,7 +71,6 @@ class ChatFragment : BaseFragment() {
                 putInt(ARG_CHANNEL_TYPE, channelType)
                 if (messageId != 0L) putLong(ARG_MESSAGE_ID, messageId)
                 if (forceLatest) putBoolean(ARG_FORCE_LATEST, true)
-                if (fromDmNotification) putBoolean(ARG_FROM_DM_NOTIFICATION, true)
             }
         }
     }
@@ -123,7 +120,6 @@ class ChatFragment : BaseFragment() {
     private var dividerSeenMessageId = 0L
     private var lastSentMessageId = 0L
     private var hasUnread = false
-    private var fromDmNotification = false
     private var jumpingToPresent = false
     private var initialApiDone = false
     private var pendingBottomScroll: Runnable? = null
@@ -170,8 +166,10 @@ class ChatFragment : BaseFragment() {
         clanId = arguments?.getLong(ARG_CLAN_ID) ?: 0L
         channelType = arguments?.getInt(ARG_CHANNEL_TYPE) ?: 0
         forceLatest = arguments?.getBoolean(ARG_FORCE_LATEST) ?: false
-        fromDmNotification = arguments?.getBoolean(ARG_FROM_DM_NOTIFICATION) ?: false
         startLoadFromMessageId = arguments?.getLong(ARG_MESSAGE_ID) ?: 0L
+        if (startLoadFromMessageId != 0L) {
+            needScrollRestore = true
+        }
 
         if (clanId == 0L) {
             val dm = dialogsController.getDialog(channelId)
@@ -921,7 +919,11 @@ class ChatFragment : BaseFragment() {
         } else if (!isLoading) {
             isLoading = true
             showLoading()
-            chatController.loadMessages(channelId, clanId)
+            if (startLoadFromMessageId != 0L) {
+                chatController.loadMessagesAround(channelId, clanId, startLoadFromMessageId)
+            } else {
+                chatController.loadMessages(channelId, clanId)
+            }
         } else {
             showLoading()
         }
@@ -994,9 +996,6 @@ class ChatFragment : BaseFragment() {
         mainHandler.removeCallbacks(markVisibleRunnable)
         markVisibleAsRead()
         flushPendingSeen()
-        if (fromDmNotification) {
-            notificationCenter.postNotificationOnMainThread(NotificationCenter.navigateToMessagesTab)
-        }
         dialogsController.clearCurrentChannel()
         if (clanId != 0L) channelController.clearCurrentChannel()
         messages.clear()
