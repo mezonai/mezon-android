@@ -1,6 +1,5 @@
 package com.mezon.mobile.home.clans
 
-import android.util.Log
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.data.db.ClanChannelDao
 import com.mezon.mobile.di.ApplicationScope
@@ -25,7 +24,6 @@ import org.json.JSONObject
 import javax.inject.Inject
 import javax.inject.Singleton
 
-private const val TAG = "ChannelController"
 private const val NOTIFICATION_CODE_USER_MENTIONED = -9
 private const val NOTIFICATION_CODE_USER_REPLIED = -11
 private const val MAX_BADGE_CACHE = 500
@@ -71,13 +69,21 @@ class ChannelController @Inject constructor(
                 }
             }
             val shouldForce = force || hasStaleReadState
-            if (!shouldForce && cacheTracker.shouldCall(cacheKey) == ApiCacheTracker.ShouldCall.SKIP) return@launch
+            if (!shouldForce && cacheTracker.shouldCall(cacheKey) == ApiCacheTracker.ShouldCall.SKIP) {
+                return@launch
+            }
             try {
                 val session = sessionManager.sessionFlow.first() ?: return@launch
                 val result = withContext(ioDispatcher) {
                     api.listChannelsByClan(session.apiUrl, session.token, clanId)
                 }
-                val entities = result.channeldescList.map { it.toClanChannelEntity() }
+                val categoryOrderMap = LinkedHashMap<Long, Int>()
+                result.channeldescList.forEach { ch ->
+                    categoryOrderMap.putIfAbsent(ch.categoryId, categoryOrderMap.size)
+                }
+                val entities = result.channeldescList.map { ch ->
+                    ch.toClanChannelEntity().copy(categoryOrder = categoryOrderMap[ch.categoryId] ?: 0)
+                }
                 mergeCache(clanId, entities)
                 cacheTracker.markCalled(cacheKey)
                 withContext(ioDispatcher) { clanChannelDao.upsertAll(entities) }
@@ -118,17 +124,18 @@ class ChannelController @Inject constructor(
     fun getChannelSections(clanId: Long): List<ChannelSection> {
         val channels = getChannels(clanId)
         val threads = channels.filter { it.isThread }.groupBy { it.parentId }
-        val nonThreads = channels.filter { !it.isThread }
+        val nonThreads = channels.filter { !it.isThread }.sortedBy { it.channelId }
 
         return nonThreads
             .groupBy { it.categoryId }
             .entries
-            .sortedBy { it.key }
+            .sortedBy { (_, items) -> items.first().categoryOrder }
             .map { (_, items) ->
                 val categoryId = items.first().categoryId
                 val categoryName = items.first().categoryName
                 val channelsWithThreads = items.flatMap { ch ->
-                    listOf(ch) + (threads[ch.channelId] ?: emptyList())
+                    val childThreads = threads[ch.channelId]?.sortedBy { it.channelId } ?: emptyList()
+                    listOf(ch) + childThreads
                 }
                 ChannelSection(
                     categoryId = categoryId,
@@ -157,7 +164,9 @@ class ChannelController @Inject constructor(
                     unreadCount = if (apiCh.lastSentMessageId >= cached.lastSentMessageId) apiCh.unreadCount else cached.unreadCount
                 )
             }
-        }
+        }.sortedWith(compareBy<ClanChannelEntity> { it.categoryOrder }
+            .thenBy { if (it.parentId == 0L) 0 else 1 }
+            .thenBy { it.channelId })
         updateCache(clanId, merged)
     }
 
@@ -381,7 +390,6 @@ class ChannelController @Inject constructor(
                 notificationCenter.postNotificationOnMainThread(
                     NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_BADGE
                 )
-                Log.d(TAG, "Mention badge increment: channel=$channelId, clan=$clanId, inCache=$channelInCache")
             }
         }
 

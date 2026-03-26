@@ -6,6 +6,7 @@ import android.widget.LinearLayout
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.core.ThemeColors
 import kotlinx.coroutines.CoroutineScope
@@ -42,6 +43,9 @@ class ChannelListView(
             layoutManager = LinearLayoutManager(context)
             overScrollMode = OVER_SCROLL_NEVER
             isVerticalScrollBarEnabled = false
+            itemAnimator = null
+            setSelectorType(RecyclerListView.SELECTOR_ROUNDRECT)
+            setSelectorRadius(LayoutHelper.dp(6))
         }
         recyclerView.adapter = adapter
         recyclerView.setOnItemClickListener(RecyclerListView.OnItemClickListener { view, _ ->
@@ -58,15 +62,24 @@ class ChannelListView(
     }
 
     fun bind(sections: List<ChannelSection>) {
+        val prevCategoryIds = currentSections.map { it.categoryId }.toSet()
+        val newCategoryIds = sections.map { it.categoryId }.toSet()
+        val isClanSwitch = prevCategoryIds.isNotEmpty() && prevCategoryIds != newCategoryIds
         currentSections = sections
-        adapter.submitRows(buildRows(sections))
+        val newRows = buildRows(sections)
+        if (isClanSwitch) {
+            adapter.swapRows(newRows)
+        } else {
+            if (adapter.rowsEqual(newRows)) return
+            adapter.submitRows(newRows)
+        }
     }
 
     fun clear() {
         currentSections = emptyList()
         allExpanded = true
         expandedCategories.clear()
-        adapter.submitRows(emptyList())
+        adapter.swapRows(emptyList())
     }
 
     fun resetExpansion() {
@@ -186,6 +199,17 @@ class ChannelListView(
                     else -> {}
                 }
             }
+        }
+
+        fun rowsEqual(newRows: List<ChannelRow>): Boolean = rows == newRows
+
+        fun swapRows(newRows: List<ChannelRow>) {
+            diffJob?.cancel()
+            val oldSize = rows.size
+            rows.clear()
+            rows.addAll(newRows)
+            if (oldSize > 0) notifyItemRangeRemoved(0, oldSize)
+            if (newRows.isNotEmpty()) notifyItemRangeInserted(0, newRows.size)
         }
 
         fun submitRows(newRows: List<ChannelRow>) {

@@ -992,7 +992,7 @@ open class BottomSheet(
 
         override fun requestDisallowInterceptTouchEvent(disallowIntercept: Boolean) {
             if (maybeStartTracking && !startedTracking) {
-                onTouchEvent(null!!) // force cancel
+                onTouchEvent(MotionEvent.obtain(0, 0, MotionEvent.ACTION_CANCEL, 0f, 0f, 0))
             }
             super.requestDisallowInterceptTouchEvent(disallowIntercept)
         }

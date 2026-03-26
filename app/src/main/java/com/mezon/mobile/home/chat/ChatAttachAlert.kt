@@ -69,6 +69,8 @@ class ChatAttachAlert(
         mediaController.loadGalleryPhotos()
     }
 
+    private val LOAD_MORE_THRESHOLD = 12
+
     private fun buildGalleryView(parent: FrameLayout) {
         val availableWidth = AndroidUtilities.displaySize.x
         itemSize = (availableWidth - LayoutHelper.dp(GRID_GAP.toFloat()) * (ITEMS_PER_ROW - 1)) / ITEMS_PER_ROW
@@ -88,6 +90,16 @@ class ChatAttachAlert(
                     val col = pos % ITEMS_PER_ROW
                     outRect.left = if (col > 0) gap else 0
                     outRect.bottom = gap
+                }
+            })
+            addOnScrollListener(object : RecyclerView.OnScrollListener() {
+                override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) {
+                    if (dy <= 0) return
+                    val lastVisible = layoutManager.findLastVisibleItemPosition()
+                    val total = this@ChatAttachAlert.adapter?.itemCount ?: 0
+                    if (lastVisible >= total - LOAD_MORE_THRESHOLD && mediaController.hasMore) {
+                        mediaController.loadMorePhotos()
+                    }
                 }
             })
         }
@@ -118,12 +130,19 @@ class ChatAttachAlert(
         )
     }
 
-    override fun onGalleryLoaded(allPhotos: AlbumEntry, albums: List<AlbumEntry>) {
+    override fun onGalleryLoaded(photos: List<AttachmentPickerItem>, totalLoaded: Int, hasMore: Boolean) {
         AndroidUtilities.runOnUIThread {
-            this.allPhotos = allPhotos.photos
-            adapter?.notifyDataSetChanged()
-            emptyView?.visibility = if (allPhotos.photos.isEmpty()) View.VISIBLE else View.GONE
-            Log.d(TAG, "Gallery loaded: ${allPhotos.photos.size} items")
+            val previousSize = allPhotos.size
+            allPhotos.clear()
+            allPhotos.addAll(photos)
+            val insertedCount = allPhotos.size - previousSize
+            if (previousSize == 0) {
+                adapter?.notifyDataSetChanged()
+            } else if (insertedCount > 0) {
+                adapter?.notifyItemRangeInserted(previousSize, insertedCount)
+            }
+            emptyView?.visibility = if (allPhotos.isEmpty()) View.VISIBLE else View.GONE
+            Log.d(TAG, "Gallery page loaded: $totalLoaded items total, hasMore=$hasMore")
         }
     }
 

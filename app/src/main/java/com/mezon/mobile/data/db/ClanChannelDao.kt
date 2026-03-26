@@ -7,7 +7,7 @@ import com.mezon.mobile.home.clans.ClanChannelEntity
 
 @Dao
 interface ClanChannelDao {
-    @Query("SELECT * FROM clan_channels WHERE clanId = :clanId ORDER BY categoryId ASC, channelLabel ASC")
+    @Query("SELECT * FROM clan_channels WHERE clanId = :clanId ORDER BY categoryOrder ASC, CASE WHEN parentId = 0 THEN 0 ELSE 1 END ASC, channelId ASC")
     suspend fun getByClan(clanId: Long): List<ClanChannelEntity>
 
     @Upsert

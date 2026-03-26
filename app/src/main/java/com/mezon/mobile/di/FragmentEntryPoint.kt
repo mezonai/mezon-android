@@ -4,6 +4,7 @@ import com.mezon.mobile.auth.AuthRepository
 import com.mezon.mobile.home.ChatController
 import com.mezon.mobile.home.ConnectionController
 import com.mezon.mobile.home.DialogsController
+import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.chat.MediaController
 import com.mezon.mobile.home.MessagesController
 import com.mezon.mobile.home.clans.ChannelController
@@ -13,6 +14,7 @@ import com.mezon.mobile.home.profile.AccountController
 import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.notification.FcmRepository
+import com.mezon.mobile.search.SearchController
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
@@ -35,6 +37,8 @@ interface FragmentEntryPoint {
     fun mezonApi(): MezonApi
     fun fcmRepository(): FcmRepository
     fun mediaController(): MediaController
+    fun searchController(): SearchController
+    fun userClanController(): UserClanController
 
     @IoDispatcher
     fun ioDispatcher(): CoroutineDispatcher

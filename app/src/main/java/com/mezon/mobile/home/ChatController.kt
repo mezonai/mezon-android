@@ -279,7 +279,7 @@ class ChatController @Inject constructor(
                         messageDao.upsertAll(newer)
                         messageDao.trimAround(channelId, newestMessageId, PAGE_SIZE * 2)
                     }
-                    Log.d(TAG, "loadMoreBottom: count=${newer.size} hasMoreBottom=$hasMoreBottom hasLastSentMessage=${response.hasLastSentMessage()} serverLastSentId=$serverLastSentId")
+                    Log.d(TAG, "loadMoreBottom: count=${newer.size} hasMoreBottom=$hasMoreBottom hasLastSentMessage=${response.hasLastSentMessage()} serverLastSentId=$serverLastSentId rawCount=${response.messagesList.size} newerRange=${newer.minOfOrNull { it.id }}..${newer.maxOfOrNull { it.id }}")
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.messagesDidLoad, channelId, ArrayList(newer), false, hasMoreBottom, false, 0L, LOAD_TYPE_MORE_BOTTOM
                     )

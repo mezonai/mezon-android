@@ -392,6 +392,48 @@ class ThemeColors @Inject constructor() {
     val badgeRed: Int get() = 0xFFD30E0E.toInt()
     val onlineGreen: Int get() = 0xFF43B581.toInt()
 
+    val tabIconPrimary: Int get() = when (resolvedMode) {
+        ThemeMode.LIGHT -> 0xFFE0E1E3.toInt()  /
+        ThemeMode.DARK -> 0xFF898993.toInt()   
+        ThemeMode.ABYSS -> 0xFFBDB4DC.toInt()   
+        else -> 0xFF898993.toInt()
+    }
+
+    val tabIconDetail: Int get() = when (resolvedMode) {
+        ThemeMode.LIGHT -> 0xFF4D4D54.toInt()  
+        ThemeMode.DARK -> 0xFFDADADA.toInt()     
+        ThemeMode.ABYSS -> 0xFFCACAD2.toInt()   
+        else -> 0xFFDADADA.toInt()
+    }
+
+    val tabLabelActive: Int get() = when (resolvedMode) {
+        ThemeMode.LIGHT -> 0xFF070709.toInt()    
+        ThemeMode.DARK -> 0xFFDFE0E4.toInt()    
+        ThemeMode.ABYSS -> 0xFFF1EDFF.toInt()    
+        else -> 0xFFDFE0E4.toInt()
+    }
+
+    val tabLabelInactive: Int get() = when (resolvedMode) {
+        ThemeMode.LIGHT -> 0xFF6C7077.toInt()   
+        ThemeMode.DARK -> 0xFFAEAEAE.toInt()    
+        ThemeMode.ABYSS -> 0xFFBDB4DC.toInt()   
+        else -> 0xFFAEAEAE.toInt()
+    }
+
+    val channelPanelBg: Int get() = when (resolvedMode) {
+        ThemeMode.LIGHT -> 0xFFFFFFFF.toInt()    
+        ThemeMode.DARK -> 0xFF1C1D23.toInt()     
+        ThemeMode.ABYSS -> 0xFF040421.toInt()   
+        else -> 0xFF1C1D23.toInt()
+    }
+
+    val serverRailBg: Int get() = when (resolvedMode) {
+        ThemeMode.LIGHT -> 0xFFF4F4F8.toInt()   
+        ThemeMode.DARK -> 0xFF121218.toInt()     
+        ThemeMode.ABYSS -> 0xFF060933.toInt()   
+        else -> 0xFF121218.toInt()
+    }
+
     val tertiary: Int get() = when (resolvedMode) {
         ThemeMode.LIGHT -> 0xFFF2F3F6.toInt()
         ThemeMode.DARK -> 0xFF383A43.toInt()
