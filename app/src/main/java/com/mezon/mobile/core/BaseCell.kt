@@ -95,15 +95,18 @@ abstract class BaseCell(context: Context) : ViewGroup(context) {
                 renderNode = null
             }
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && renderNode != null && !forceNotCacheNextFrame && canvas.isHardwareAccelerated) {
-            val rn = renderNode!!
-            rn.setPosition(0, 0, width, height)
-            val rc: RecordingCanvas = rn.beginRecording()
-            super.draw(rc)
-            rn.endRecording()
-            canvas.drawRenderNode(rn)
-        } else {
-            super.draw(canvas)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && renderNode != null && !forceNotCacheNextFrame && canvas.isHardwareAccelerated) {
+                val rn = renderNode!!
+                rn.setPosition(0, 0, width, height)
+                val rc: RecordingCanvas = rn.beginRecording()
+                super.draw(rc)
+                rn.endRecording()
+                canvas.drawRenderNode(rn)
+            } else {
+                super.draw(canvas)
+            }
+        } catch (_: IllegalStateException) {
         }
         forceNotCacheNextFrame = false
         updatedContent = false

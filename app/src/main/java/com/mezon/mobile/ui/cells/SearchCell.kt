@@ -20,8 +20,11 @@ class SearchCell(context: Context, private val theme: ThemeColors) : LinearLayou
     private val clearButton: ImageView
     private val cancelButton: TextView
     private val searchIcon: ImageView
+    private val badgeView: TextView
+    private val barContainer: LinearLayout
     var onTextChanged: ((String) -> Unit)? = null
     var onCancelClick: (() -> Unit)? = null
+    var onBadgeRemoved: (() -> Unit)? = null
     var showCancel = false
         set(value) {
             field = value
@@ -32,7 +35,7 @@ class SearchCell(context: Context, private val theme: ThemeColors) : LinearLayou
         orientation = HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
 
-        val barContainer = LinearLayout(context).apply {
+        barContainer = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             background = GradientDrawable().apply {
@@ -44,10 +47,31 @@ class SearchCell(context: Context, private val theme: ThemeColors) : LinearLayou
         }
 
         searchIcon = ImageView(context).apply {
-            setImageResource(android.R.drawable.ic_menu_search)
-            setColorFilter(theme.onSurfaceVariant)
+            val drawable = MezonIcon.searchIcon.getDrawable(context)
+            drawable.colorFilter = android.graphics.PorterDuffColorFilter(theme.onSurface, android.graphics.PorterDuff.Mode.SRC_IN)
+            setImageDrawable(drawable)
         }
         barContainer.addView(searchIcon, LayoutHelper.createLinear(20, 20, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, 8f, 0f))
+
+        badgeView = TextView(context).apply {
+            textSize = 12f
+            setTextColor(theme.onPrimary)
+            background = GradientDrawable().apply {
+                setColor(theme.blurple)
+                cornerRadius = LayoutHelper.dpf(10f)
+            }
+            val padH = LayoutHelper.dp(8)
+            val padV = LayoutHelper.dp(2)
+            setPadding(padH, padV, padH, padV)
+            visibility = View.GONE
+            isSingleLine = true
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        barContainer.addView(badgeView, LayoutHelper.createLinear(
+            LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0f,
+            Gravity.CENTER_VERTICAL, 0f, 0f, 6f, 0f
+        ))
 
         editText = EditText(context).apply {
             setTextColor(theme.onSurface)
@@ -94,6 +118,18 @@ class SearchCell(context: Context, private val theme: ThemeColors) : LinearLayou
                 onTextChanged?.invoke(text)
             }
         })
+
+        editText.setOnKeyListener { _, keyCode, event ->
+            if (keyCode == android.view.KeyEvent.KEYCODE_DEL
+                && event.action == android.view.KeyEvent.ACTION_DOWN
+                && editText.text.isNullOrEmpty()
+                && badgeView.visibility == View.VISIBLE
+            ) {
+                removeBadge()
+                onBadgeRemoved?.invoke()
+                true
+            } else false
+        }
     }
 
     fun setPlaceholder(text: String) {
@@ -101,4 +137,16 @@ class SearchCell(context: Context, private val theme: ThemeColors) : LinearLayou
     }
 
     fun getText(): String = editText.text?.toString() ?: ""
+
+    fun setBadge(text: String) {
+        badgeView.text = text
+        badgeView.visibility = View.VISIBLE
+    }
+
+    fun removeBadge() {
+        badgeView.text = ""
+        badgeView.visibility = View.GONE
+    }
+
+    fun hasBadge(): Boolean = badgeView.visibility == View.VISIBLE
 }

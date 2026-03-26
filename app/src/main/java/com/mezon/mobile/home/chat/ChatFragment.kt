@@ -52,7 +52,7 @@ class ChatFragment : BaseFragment() {
         private const val ARG_CHANNEL_TYPE = "channelType"
         private const val ARG_MESSAGE_ID = "message_id"
         private const val ARG_FORCE_LATEST = "force_latest"
-        private const val VIEWPORT_LIMIT = 100
+        private const val VIEWPORT_LIMIT = 300
         private const val PAGE_DOWN_SCROLL_THRESHOLD = 2
         private const val SCROLL_PREFS = "chat_scroll_positions"
 
@@ -135,6 +135,13 @@ class ChatFragment : BaseFragment() {
     private val messagesDict = LongSparseArray<MessageEntity>()
     private var transitionAnimationIndex = 0
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var showLoadingPending = false
+    private val showLoadingRunnable = Runnable {
+        showLoadingPending = false
+        if (isLoading && messages.isEmpty() && fragmentView != null) {
+            loadingView.visibility = View.VISIBLE
+        }
+    }
     private var pendingSeenMessageId = 0L
     private var pendingSeenTimestamp = 0
     private var pendingBadgeCount = 0
@@ -232,14 +239,18 @@ class ChatFragment : BaseFragment() {
 
                 if (direction == 1) {
                     messages.addAll(newMessages)
+                    messages.sortByDescending { it.id }
                     hasMoreTop = moreTop
+                    trimViewportNewest()
                 } else {
                     messages.addAll(0, newMessages)
+                    messages.sortByDescending { it.id }
                     hasMoreBottom = if (lastSentMessageId != 0L && messages.isNotEmpty()) {
                         messages.first().id < lastSentMessageId
                     } else {
                         moreBottom
                     }
+                    trimViewportOldest()
                     if (!hasMoreBottom) {
                         isViewingOlder = false
                         clearSavedScrollPosition()
@@ -248,7 +259,6 @@ class ChatFragment : BaseFragment() {
                         newUnreadCount = (newUnreadCount - newRowsCount).coerceAtLeast(0)
                         pageDownButton.setUnreadCount(newUnreadCount)
                     }
-                    updatePageDownVisibility()
                     if (!isViewingOlder && !hasMoreBottom) markAsRead()
                 }
 
@@ -268,19 +278,11 @@ class ChatFragment : BaseFragment() {
                     }
 
                     if (direction == 1) {
-                        val insertAt = adapter.messagesEndRow
-                        val oldLoadingUpRow = adapter.loadingUpRow
                         adapter.showLoadingUp = hasMoreTop
-                        adapter.updateRowsInternal()
-                        if (oldLoadingUpRow >= 0 && adapter.loadingUpRow < 0) {
-                            adapter.notifyItemRemoved(oldLoadingUpRow)
-                        }
-                        adapter.notifyItemRangeInserted(insertAt, newRowsCount)
                     } else {
                         adapter.showLoadingDown = hasMoreBottom
-                        adapter.notifyItemRangeInserted(1, newRowsCount)
-                        adapter.updateRowsSafe()
                     }
+                    adapter.notifyMessagesUpdated()
 
                     if (scrollToMessageId != 0L) {
                         val scrollToIndex = messages.indexOfFirst { it.id == scrollToMessageId }
@@ -302,7 +304,7 @@ class ChatFragment : BaseFragment() {
             isLoading = false
 
             if (jumpingToPresent && isCache) {
-                if (fragmentView != null) showLoading()
+                Log.d(TAG, "jumpToPresent: skip cache response (waiting for API), loaded=${loadedMessages.size}")
                 return@observe
             }
 
@@ -408,6 +410,7 @@ class ChatFragment : BaseFragment() {
 
                 if (jumpingToPresent) {
                     jumpingToPresent = false
+                    Log.d(TAG, "jumpToPresent: API done, msgs=${messages.size}, showing list + scrollToBottom")
                     showMessages()
                     forceScrollToBottom()
                     markAsRead()
@@ -497,8 +500,13 @@ class ChatFragment : BaseFragment() {
                 }
                 return@observe
             }
-            messages.add(0, entity)
             messagesDict.put(entity.id, entity)
+            if (messages.isEmpty() || entity.id >= messages.first().id) {
+                messages.add(0, entity)
+            } else {
+                val pos = messages.indexOfFirst { entity.id > it.id }
+                messages.add(if (pos >= 0) pos else messages.size, entity)
+            }
             trimViewportOldest()
             if (fragmentView != null) {
                 refreshUI()
@@ -625,7 +633,7 @@ class ChatFragment : BaseFragment() {
             lm.stackFromEnd = false
             layoutManager = lm
             itemAnimator = null
-            visibility = View.GONE
+            visibility = View.INVISIBLE
         }
         unreadDecoration = UnreadDividerDecoration(themeColors, getString(R.string.message_new_messages))
         recyclerView.addItemDecoration(unreadDecoration)
@@ -895,8 +903,8 @@ class ChatFragment : BaseFragment() {
             channelController.markChannelAsRead(channelId)
         }
         val hasDivider = unreadDecoration.firstUnreadAdapterPosition != RecyclerView.NO_POSITION
-        Log.d(TAG, "onBecomeFullyVisible: msgs=${messages.size} isLoading=$isLoading isViewingOlder=$isViewingOlder hasDivider=$hasDivider needScrollRestore=$needScrollRestore firstLoad=$firstLoad")
         if (messages.isNotEmpty()) {
+            cancelPendingLoading()
             needScrollRestore = false
             loadingView.visibility = View.GONE
             errorView.visibility = View.GONE
@@ -988,6 +996,7 @@ class ChatFragment : BaseFragment() {
         notificationCenter.onAnimationFinish(transitionAnimationIndex)
         saveScrollPosition()
         if (::recyclerView.isInitialized) cancelPendingScroll()
+        cancelPendingLoading()
         mainHandler.removeCallbacks(markVisibleRunnable)
         markVisibleAsRead()
         flushPendingSeen()
@@ -1006,22 +1015,30 @@ class ChatFragment : BaseFragment() {
     }
 
     private fun showLoading() {
-        loadingView.visibility = View.VISIBLE
-        recyclerView.visibility = View.GONE
+        Log.d(TAG, "showLoading: recyclerView→INVISIBLE, spinner deferred 150ms")
+        recyclerView.visibility = View.INVISIBLE
         errorView.visibility = View.GONE
+        if (!showLoadingPending) {
+            showLoadingPending = true
+            mainHandler.postDelayed(showLoadingRunnable, 150)
+        }
     }
 
     private fun showError(message: String) {
+        cancelPendingLoading()
         loadingView.visibility = View.GONE
-        recyclerView.visibility = View.GONE
+        recyclerView.visibility = View.INVISIBLE
         errorView.visibility = View.VISIBLE
         errorView.text = message
     }
 
     private fun showMessages() {
+        cancelPendingLoading()
         loadingView.visibility = View.GONE
         errorView.visibility = View.GONE
-        recyclerView.visibility = if (needScrollRestore) View.INVISIBLE else View.VISIBLE
+        val vis = if (needScrollRestore) View.INVISIBLE else View.VISIBLE
+        Log.d(TAG, "showMessages: msgs=${messages.size} recyclerView→${if (vis == View.VISIBLE) "VISIBLE" else "INVISIBLE"} needScrollRestore=$needScrollRestore")
+        recyclerView.visibility = vis
         adapter.showLoadingUp = hasMoreTop
         adapter.showLoadingDown = hasMoreBottom
         adapter.notifyMessagesUpdated()
@@ -1029,16 +1046,28 @@ class ChatFragment : BaseFragment() {
     }
 
     private fun showEmpty() {
+        cancelPendingLoading()
         loadingView.visibility = View.GONE
         recyclerView.visibility = View.VISIBLE
         errorView.visibility = View.GONE
         adapter.notifyMessagesUpdated()
     }
 
+    private fun cancelPendingLoading() {
+        if (showLoadingPending) {
+            mainHandler.removeCallbacks(showLoadingRunnable)
+            showLoadingPending = false
+        }
+    }
+
     private fun forceScrollToBottom() {
         unreadDecoration.clear()
         cancelPendingScroll()
-        val r = Runnable { recyclerView.scrollToPosition(0) }
+        Log.d(TAG, "forceScrollToBottom: itemCount=${adapter.itemCount} recyclerVisibility=${recyclerView.visibility}")
+        val r = Runnable {
+            Log.d(TAG, "forceScrollToBottom: scrollToPosition(0) executed")
+            recyclerView.scrollToPosition(0)
+        }
         pendingBottomScroll = r
         recyclerView.post(r)
     }
@@ -1117,7 +1146,10 @@ class ChatFragment : BaseFragment() {
             jumpingToPresent = true
             messages.clear()
             messagesDict.clear()
+            adapter.notifyMessagesUpdated()
+            recyclerView.visibility = View.INVISIBLE
             firstLoad = true
+            Log.d(TAG, "jumpToPresent: cleared list, calling loadMessages forceRefresh=true")
             chatController.loadMessages(channelId, clanId, forceRefresh = true)
         }
     }
@@ -1213,6 +1245,14 @@ class ChatFragment : BaseFragment() {
             val removed = messages.removeAt(messages.size - 1)
             messagesDict.delete(removed.id)
             hasMoreTop = true
+        }
+    }
+
+    private fun trimViewportNewest() {
+        while (messages.size > VIEWPORT_LIMIT) {
+            val removed = messages.removeAt(0)
+            messagesDict.delete(removed.id)
+            hasMoreBottom = true
         }
     }
 

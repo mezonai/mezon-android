@@ -3,7 +3,6 @@ package com.mezon.mobile.home.chat
 import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.Context
-import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
@@ -18,6 +17,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 private const val TAG = "MediaController"
+private const val PAGE_SIZE = 100
 
 data class AlbumEntry(
     val bucketId: Int,
@@ -41,8 +41,17 @@ class MediaController @Inject constructor(
     var albums: ArrayList<AlbumEntry> = ArrayList()
         private set
 
+    private val allPhotos = ArrayList<AttachmentPickerItem>()
+    private var imagesOffset = 0
+    private var videosOffset = 0
+    private var imagesExhausted = false
+    private var videosExhausted = false
+    private var isLoading = false
+
+    val hasMore: Boolean get() = !imagesExhausted || !videosExhausted
+
     interface GalleryLoadListener {
-        fun onGalleryLoaded(allPhotos: AlbumEntry, albums: List<AlbumEntry>)
+        fun onGalleryLoaded(photos: List<AttachmentPickerItem>, totalLoaded: Int, hasMore: Boolean)
     }
 
     private var listener: GalleryLoadListener? = null
@@ -52,48 +61,74 @@ class MediaController @Inject constructor(
     }
 
     fun loadGalleryPhotos() {
+        synchronized(this) {
+            allPhotos.clear()
+            imagesOffset = 0
+            videosOffset = 0
+            imagesExhausted = false
+            videosExhausted = false
+        }
+        loadNextPage()
+    }
+
+    fun loadMorePhotos() {
+        if (!hasMore || isLoading) return
+        loadNextPage()
+    }
+
+    private fun loadNextPage() {
+        if (isLoading) return
+        isLoading = true
+
         appScope.launch {
-            val result = withContext(ioDispatcher) { queryMediaStore() }
-            if (result != null) {
-                allPhotosAlbum = result.first
-                albums = result.second
-                listener?.onGalleryLoaded(result.first, result.second)
+            val page = withContext(ioDispatcher) { queryNextPage() }
+            isLoading = false
+
+            synchronized(this@MediaController) {
+                allPhotos.addAll(page)
+                allPhotosAlbum = AlbumEntry(
+                    bucketId = 0,
+                    bucketName = "All Photos",
+                    coverPhoto = allPhotos.firstOrNull(),
+                    photos = allPhotos
+                )
             }
+
+            listener?.onGalleryLoaded(
+                ArrayList(allPhotos),
+                allPhotos.size,
+                hasMore
+            )
         }
     }
 
-    private fun queryMediaStore(): Pair<AlbumEntry, ArrayList<AlbumEntry>>? {
+    private fun queryNextPage(): List<AttachmentPickerItem> {
         val resolver = context.contentResolver
-        val allPhotos = ArrayList<AttachmentPickerItem>()
-        val albumMap = LinkedHashMap<Int, AlbumEntry>()
+        val page = ArrayList<AttachmentPickerItem>()
 
-        try {
-            queryImages(resolver, allPhotos, albumMap)
-            queryVideos(resolver, allPhotos, albumMap)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to query MediaStore", e)
-            return null
+        if (!imagesExhausted) {
+            val images = queryImages(resolver, PAGE_SIZE, imagesOffset)
+            page.addAll(images)
+            imagesOffset += images.size
+            if (images.size < PAGE_SIZE) imagesExhausted = true
         }
 
-        allPhotos.sortByDescending { it.id }
+        if (!videosExhausted) {
+            val videos = queryVideos(resolver, PAGE_SIZE, videosOffset)
+            page.addAll(videos)
+            videosOffset += videos.size
+            if (videos.size < PAGE_SIZE) videosExhausted = true
+        }
 
-        val allPhotosAlbum = AlbumEntry(
-            bucketId = 0,
-            bucketName = "All Photos",
-            coverPhoto = allPhotos.firstOrNull(),
-            photos = allPhotos
-        )
-
-        val albumList = ArrayList(albumMap.values)
-        Log.d(TAG, "Loaded ${allPhotos.size} media items, ${albumList.size} albums")
-        return Pair(allPhotosAlbum, albumList)
+        page.sortByDescending { it.id }
+        return page
     }
 
     private fun queryImages(
         resolver: ContentResolver,
-        allPhotos: ArrayList<AttachmentPickerItem>,
-        albumMap: LinkedHashMap<Int, AlbumEntry>
-    ) {
+        limit: Int,
+        offset: Int
+    ): List<AttachmentPickerItem> {
         val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
         } else {
@@ -114,8 +149,11 @@ class MediaController @Inject constructor(
         )
 
         val sortOrder = "${MediaStore.Images.Media.DATE_MODIFIED} DESC"
+        val result = ArrayList<AttachmentPickerItem>()
 
         resolver.query(uri, projection, null, null, sortOrder)?.use { cursor ->
+            if (offset > 0 && !cursor.moveToPosition(offset - 1)) return@use
+
             val idCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
             val dataCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA)
             val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
@@ -123,10 +161,9 @@ class MediaController @Inject constructor(
             val widthCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.WIDTH)
             val heightCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.HEIGHT)
             val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE)
-            val bucketIdCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.BUCKET_ID)
-            val bucketNameCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.BUCKET_DISPLAY_NAME)
 
-            while (cursor.moveToNext()) {
+            var count = 0
+            while (cursor.moveToNext() && count < limit) {
                 val id = cursor.getLong(idCol)
                 val path = cursor.getString(dataCol) ?: ""
                 val name = cursor.getString(nameCol) ?: "image"
@@ -134,37 +171,36 @@ class MediaController @Inject constructor(
                 val width = cursor.getInt(widthCol)
                 val height = cursor.getInt(heightCol)
                 val size = cursor.getLong(sizeCol)
-                val bucketId = cursor.getInt(bucketIdCol)
-                val bucketName = cursor.getString(bucketNameCol) ?: "Unknown"
 
                 val contentUri = ContentUris.withAppendedId(
                     MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id
                 )
 
-                val item = AttachmentPickerItem(
-                    id = id,
-                    uri = contentUri,
-                    path = path,
-                    filename = name,
-                    mimeType = mime,
-                    width = width,
-                    height = height,
-                    size = size,
-                    duration = 0,
-                    isVideo = false
+                result.add(
+                    AttachmentPickerItem(
+                        id = id,
+                        uri = contentUri,
+                        path = path,
+                        filename = name,
+                        mimeType = mime,
+                        width = width,
+                        height = height,
+                        size = size,
+                        duration = 0,
+                        isVideo = false
+                    )
                 )
-
-                allPhotos.add(item)
-                addToAlbum(albumMap, bucketId, bucketName, item)
+                count++
             }
         }
+        return result
     }
 
     private fun queryVideos(
         resolver: ContentResolver,
-        allPhotos: ArrayList<AttachmentPickerItem>,
-        albumMap: LinkedHashMap<Int, AlbumEntry>
-    ) {
+        limit: Int,
+        offset: Int
+    ): List<AttachmentPickerItem> {
         val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
         } else {
@@ -186,8 +222,11 @@ class MediaController @Inject constructor(
         )
 
         val sortOrder = "${MediaStore.Video.Media.DATE_MODIFIED} DESC"
+        val result = ArrayList<AttachmentPickerItem>()
 
         resolver.query(uri, projection, null, null, sortOrder)?.use { cursor ->
+            if (offset > 0 && !cursor.moveToPosition(offset - 1)) return@use
+
             val idCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media._ID)
             val dataCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DATA)
             val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DISPLAY_NAME)
@@ -196,10 +235,9 @@ class MediaController @Inject constructor(
             val heightCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.HEIGHT)
             val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.SIZE)
             val durationCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DURATION)
-            val bucketIdCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.BUCKET_ID)
-            val bucketNameCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.BUCKET_DISPLAY_NAME)
 
-            while (cursor.moveToNext()) {
+            var count = 0
+            while (cursor.moveToNext() && count < limit) {
                 val id = cursor.getLong(idCol)
                 val path = cursor.getString(dataCol) ?: ""
                 val name = cursor.getString(nameCol) ?: "video"
@@ -208,50 +246,28 @@ class MediaController @Inject constructor(
                 val height = cursor.getInt(heightCol)
                 val size = cursor.getLong(sizeCol)
                 val duration = (cursor.getLong(durationCol) / 1000).toInt()
-                val bucketId = cursor.getInt(bucketIdCol)
-                val bucketName = cursor.getString(bucketNameCol) ?: "Unknown"
 
                 val contentUri = ContentUris.withAppendedId(
                     MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id
                 )
 
-                val item = AttachmentPickerItem(
-                    id = id,
-                    uri = contentUri,
-                    path = path,
-                    filename = name,
-                    mimeType = mime,
-                    width = width,
-                    height = height,
-                    size = size,
-                    duration = duration,
-                    isVideo = true
+                result.add(
+                    AttachmentPickerItem(
+                        id = id,
+                        uri = contentUri,
+                        path = path,
+                        filename = name,
+                        mimeType = mime,
+                        width = width,
+                        height = height,
+                        size = size,
+                        duration = duration,
+                        isVideo = true
+                    )
                 )
-
-                allPhotos.add(item)
-                addToAlbum(albumMap, bucketId, bucketName, item)
+                count++
             }
         }
-    }
-
-    private fun addToAlbum(
-        albumMap: LinkedHashMap<Int, AlbumEntry>,
-        bucketId: Int,
-        bucketName: String,
-        item: AttachmentPickerItem
-    ) {
-        val existing = albumMap[bucketId]
-        if (existing != null) {
-            existing.photos.add(item)
-        } else {
-            val photos = ArrayList<AttachmentPickerItem>()
-            photos.add(item)
-            albumMap[bucketId] = AlbumEntry(
-                bucketId = bucketId,
-                bucketName = bucketName,
-                coverPhoto = item,
-                photos = photos
-            )
-        }
+        return result
     }
 }

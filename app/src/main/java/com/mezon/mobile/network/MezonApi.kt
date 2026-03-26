@@ -5,28 +5,34 @@ import android.util.Base64
 import android.util.Log
 import com.mezon.mezon.api.Account
 import com.mezon.mezon.api.AccountEmail
+import com.mezon.mezon.api.AllUserClans
 import com.mezon.mezon.api.BlockFriendsRequest
 import com.mezon.mezon.api.ChannelDescList
 import com.mezon.mezon.api.ChannelMessageList
 import com.mezon.mezon.api.ClanDescList
+import com.mezon.mezon.api.ClanUserList
 import com.mezon.mezon.api.DeleteNotificationsRequest
 import com.mezon.mezon.api.FriendList
 import com.mezon.mezon.api.LinkAccountConfirmRequest
 import com.mezon.mezon.api.ListFriendsRequest
 import com.mezon.mezon.api.ListNotificationsRequest
 import com.mezon.mezon.api.NotificationList
+import com.mezon.mezon.api.SearchMessageResponse
 import com.mezon.mezon.api.Session
 import com.mezon.mezon.api.UploadAttachment
 import com.mezon.mezon.api.uploadAttachmentRequest
 import com.mezon.mezon.api.accountEmail
 import com.mezon.mezon.api.blockFriendsRequest
 import com.mezon.mezon.api.deleteNotificationsRequest
+import com.mezon.mezon.api.filterParam
 import com.mezon.mezon.api.linkAccountConfirmRequest
 import com.mezon.mezon.api.listClanDescRequest
+import com.mezon.mezon.api.listClanUsersRequest
 import com.mezon.mezon.api.listChannelDescsRequest
 import com.mezon.mezon.api.listChannelMessagesRequest
 import com.mezon.mezon.api.listFriendsRequest
 import com.mezon.mezon.api.listNotificationsRequest
+import com.mezon.mezon.api.searchMessageRequest
 import com.mezon.mezon.api.sessionRefreshRequest
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -454,6 +460,63 @@ class MezonApi @Inject constructor(
         val result = UploadAttachment.parseFrom(bytes)
         Log.d(TAG, "UploadAttachmentFile: filename=${result.filename} url=${result.url.take(60)}...")
         return result
+    }
+
+    suspend fun listUserClansByUserId(
+        apiUrl: String,
+        token: String
+    ): AllUserClans {
+        val bytes = rpc(apiUrl, token, "ListUserClansByUserId", ByteArray(0))
+        return AllUserClans.parseFrom(bytes)
+    }
+
+    suspend fun listClanUsers(
+        apiUrl: String,
+        token: String,
+        clanId: Long
+    ): ClanUserList {
+        val request = listClanUsersRequest {
+            this.clanId = clanId
+        }
+        val bytes = rpc(apiUrl, token, "ListClanUsers", request.toByteArray())
+        return ClanUserList.parseFrom(bytes)
+    }
+
+    suspend fun listChannelByUserId(
+        apiUrl: String,
+        token: String
+    ): ChannelDescList {
+        val request = listChannelDescsRequest {
+            this.limit = 500
+            this.state = 1
+            this.page = 1
+            this.clanId = 0L
+            this.channelType = 0
+            this.isMobile = true
+        }
+        val bytes = rpc(apiUrl, token, "ListChannelByUserId", request.toByteArray())
+        return ChannelDescList.parseFrom(bytes)
+    }
+
+    suspend fun searchMessages(
+        apiUrl: String,
+        token: String,
+        filters: List<Pair<String, String>>,
+        from: Int = 1,
+        size: Int = 20
+    ): SearchMessageResponse {
+        val request = searchMessageRequest {
+            for ((name, value) in filters) {
+                this.filters += filterParam {
+                    fieldName = name
+                    fieldValue = value
+                }
+            }
+            this.from = from
+            this.size = size
+        }
+        val bytes = rpc(apiUrl, token, "SearchMessage", request.toByteArray())
+        return SearchMessageResponse.parseFrom(bytes)
     }
 
     suspend fun putFileToPresignedUrl(

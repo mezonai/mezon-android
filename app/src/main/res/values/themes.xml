@@ -17,6 +17,8 @@
         <item name="android:fadeScrollbars">true</item>
         <item name="android:scrollbarFadeDuration">300</item>
         <item name="android:scrollbarDefaultDelayBeforeFade">1000</item>
+        <item name="android:scrollbarThumbVertical">@drawable/scrollbar_thumb</item>
+        <item name="android:scrollbarSize">4dp</item>
     </style>
 
     <!-- Match MezonLightColors.Primary (#F2F3F5) -->

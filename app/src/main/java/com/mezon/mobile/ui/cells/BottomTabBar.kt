@@ -1,11 +1,14 @@
 package com.mezon.mobile.ui.cells
 
-import android.animation.ValueAnimator
 import android.content.Context
+import android.content.res.ColorStateList
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.PixelFormat
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
+import android.graphics.drawable.RippleDrawable
 import android.text.TextPaint
 import android.view.MotionEvent
 import android.view.View
@@ -18,17 +21,17 @@ import com.mezon.mobile.core.ThemeColors
 
 class BottomTabBar(context: Context, private val themeColors: ThemeColors) : View(context) {
 
-    data class Tab(val iconResId: Int, val labelResId: Int)
+    data class Tab(val iconResId: Int, val detailIconResId: Int, val labelResId: Int)
 
     interface OnTabSelectedListener {
         fun onTabSelected(index: Int)
     }
 
     private val tabs = listOf(
-        Tab(R.drawable.ic_clans, R.string.clan_title),
-        Tab(R.drawable.ic_messages, R.string.screen_tab_messages),
-        Tab(R.drawable.ic_notifications, R.string.screen_tab_notifications),
-        Tab(R.drawable.ic_profile, R.string.screen_tab_profile)
+        Tab(R.drawable.ic_clans, R.drawable.ic_clans_detail, R.string.clan_title),
+        Tab(R.drawable.ic_messages, R.drawable.ic_messages_detail, R.string.screen_tab_messages),
+        Tab(R.drawable.ic_notifications, R.drawable.ic_notifications_detail, R.string.screen_tab_notifications),
+        Tab(R.drawable.ic_profile, R.drawable.ic_profile_detail, R.string.screen_tab_profile)
     )
 
     private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -51,6 +54,10 @@ class BottomTabBar(context: Context, private val themeColors: ThemeColors) : Vie
         ContextCompat.getDrawable(context, tab.iconResId)?.mutate()
     }
 
+    private val detailIcons: List<Drawable?> = tabs.map { tab ->
+        ContextCompat.getDrawable(context, tab.detailIconResId)?.mutate()
+    }
+
     private val labels: List<String> = tabs.map { tab ->
         context.getString(tab.labelResId)
     }
@@ -62,8 +69,37 @@ class BottomTabBar(context: Context, private val themeColors: ThemeColors) : Vie
     private val iconLabelGap = LayoutHelper.dp(4)
     private val barHeight = LayoutHelper.dp(56)
 
+    private var pressedTab = -1
+    private val rippleW = LayoutHelper.dp(64)
+    private val rippleH = LayoutHelper.dp(32)
+    private val rippleRadius = LayoutHelper.dp(16).toFloat()
+    private val rippleMaskPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = -1 }
+
+    private val rippleDrawable: RippleDrawable
+
     init {
         setWillNotDraw(false)
+        val rippleColor = ColorStateList.valueOf(themeColors.onSurface and 0x0D_FFFFFF)
+        val mask = object : Drawable() {
+            override fun draw(canvas: Canvas) {
+                val b = bounds
+                canvas.drawRoundRect(
+                    b.left.toFloat(), b.top.toFloat(),
+                    b.right.toFloat(), b.bottom.toFloat(),
+                    rippleRadius, rippleRadius, rippleMaskPaint
+                )
+            }
+            override fun setAlpha(alpha: Int) {}
+            override fun setColorFilter(cf: android.graphics.ColorFilter?) {}
+            @Suppress("OVERRIDE_DEPRECATION")
+            override fun getOpacity(): Int = PixelFormat.UNKNOWN
+        }
+        rippleDrawable = RippleDrawable(rippleColor, null, mask)
+        rippleDrawable.callback = this
+    }
+
+    override fun verifyDrawable(who: Drawable): Boolean {
+        return who == rippleDrawable || super.verifyDrawable(who)
     }
 
     fun selectTab(index: Int, animate: Boolean = true) {
@@ -112,6 +148,7 @@ class BottomTabBar(context: Context, private val themeColors: ThemeColors) : Vie
     }
 
     fun applyTheme() {
+        rippleDrawable.setColor(ColorStateList.valueOf(themeColors.onSurface and 0x0D_FFFFFF))
         invalidate()
     }
 
@@ -135,42 +172,86 @@ class BottomTabBar(context: Context, private val themeColors: ThemeColors) : Vie
         val totalContentH = iconSize + iconLabelGap + labelPaint.textSize
         val topOffset = (h - totalContentH) / 2f
 
+        rippleDrawable.draw(canvas)
+
         for (i in tabs.indices) {
             val isSelected = i == selectedIndex
             val centerX = tabW * i + tabW / 2f
 
-            val tintColor = if (isSelected) themeColors.primary else themeColors.onSurfaceVariant
-            val alpha = if (isSelected) 255 else 140
+            val primaryColor = themeColors.tabIconPrimary
+            val detailColor = themeColors.tabIconDetail
+            val labelColor = if (isSelected) themeColors.tabLabelActive else themeColors.tabLabelInactive
+
+            val iconLeft = (centerX - iconSize / 2f).toInt()
+            val iconTop = topOffset.toInt()
+            val iconBounds = android.graphics.Rect(iconLeft, iconTop, iconLeft + iconSize, iconTop + iconSize)
 
             val drawable = icons[i]
             if (drawable != null) {
-                val iconLeft = (centerX - iconSize / 2f).toInt()
-                val iconTop = topOffset.toInt()
-                drawable.setBounds(iconLeft, iconTop, iconLeft + iconSize, iconTop + iconSize)
-                drawable.setTint(tintColor)
-                drawable.alpha = alpha
+                drawable.bounds = iconBounds
+                drawable.setTint(primaryColor)
+                drawable.alpha = 255
                 drawable.draw(canvas)
             }
 
-            labelPaint.color = tintColor
-            labelPaint.alpha = alpha
+            val detailDrawable = detailIcons[i]
+            if (detailDrawable != null) {
+                detailDrawable.bounds = iconBounds
+                detailDrawable.setTint(detailColor)
+                detailDrawable.alpha = 255
+                detailDrawable.draw(canvas)
+            }
+
+            labelPaint.color = labelColor
+            labelPaint.alpha = 255
             val labelY = topOffset + iconSize + iconLabelGap + labelPaint.textSize
             canvas.drawText(labels[i], centerX, labelY, labelPaint)
         }
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        val tabW = width.toFloat() / tabs.size
+        val index = (event.x / tabW).toInt().coerceIn(0, tabs.size - 1)
+
         when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                pressedTab = index
+                positionRipple(index, tabW)
+                rippleDrawable.setHotspot(event.x, event.y)
+                rippleDrawable.state = intArrayOf(android.R.attr.state_pressed, android.R.attr.state_enabled)
+                invalidate()
+            }
+
+            MotionEvent.ACTION_MOVE -> {
+                rippleDrawable.setHotspot(event.x, event.y)
+            }
+
             MotionEvent.ACTION_UP -> {
-                val tabW = width.toFloat() / tabs.size
-                val index = (event.x / tabW).toInt().coerceIn(0, tabs.size - 1)
-                if (index != selectedIndex) {
+                if (pressedTab >= 0 && index == pressedTab && index != selectedIndex) {
                     selectTab(index)
                     onTabSelected?.onTabSelected(index)
                 }
-                return true
+                rippleDrawable.state = intArrayOf()
+                pressedTab = -1
+                invalidate()
+            }
+
+            MotionEvent.ACTION_CANCEL -> {
+                rippleDrawable.state = intArrayOf()
+                pressedTab = -1
+                invalidate()
             }
         }
         return true
+    }
+
+    private fun positionRipple(index: Int, tabW: Float) {
+        val centerX = tabW * index + tabW / 2f
+        val totalContentH = iconSize + iconLabelGap + labelPaint.textSize
+        val topOffset = (height - totalContentH) / 2f
+        val iconCenterY = topOffset + iconSize / 2f
+        val left = (centerX - rippleW / 2f).toInt()
+        val top = (iconCenterY - rippleH / 2f).toInt()
+        rippleDrawable.setBounds(left, top, left + rippleW, top + rippleH)
     }
 }

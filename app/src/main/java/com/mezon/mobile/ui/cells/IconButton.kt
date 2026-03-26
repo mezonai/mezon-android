@@ -6,7 +6,9 @@ import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.Drawable
-import android.util.TypedValue
+import android.content.res.ColorStateList
+import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
 import android.view.View
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.annotation.DrawableRes
@@ -31,11 +33,12 @@ class IconButton(context: Context, private val theme: ThemeColors) : View(contex
         isClickable = true
         isFocusable = true
 
-        val outValue = TypedValue()
-        context.theme.resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, outValue, true)
-        if (outValue.resourceId != 0) {
-            foreground = ContextCompat.getDrawable(context, outValue.resourceId)
+        val rippleColor = ColorStateList.valueOf(theme.onSurface and 0x1A_FFFFFF)
+        val mask = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(0xFFFFFFFF.toInt())
         }
+        foreground = RippleDrawable(rippleColor, null, mask)
     }
 
     fun setIcon(drawable: Drawable) {
