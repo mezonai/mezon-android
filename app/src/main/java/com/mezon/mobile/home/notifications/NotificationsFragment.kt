@@ -202,7 +202,7 @@ class NotificationsFragment : BaseFragment() {
         }
         val clanId = entity.clanId
         val channelType = entity.channelType.takeIf { it != 0 } ?: 1
-        onOpenChat?.invoke(channelId, channelName, clanId, channelType, entity.messageId)
+        onOpenChat?.invoke(channelId, channelName, clanId, channelType, 0L)
     }
 
     private fun buildHeader(context: Context): View {

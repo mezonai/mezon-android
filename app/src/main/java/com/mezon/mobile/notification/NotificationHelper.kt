@@ -56,7 +56,7 @@ class NotificationHelper @Inject constructor(
         const val EXTRA_CHANNEL_NAME = "notification_channel_name"
         const val EXTRA_CHANNEL_TYPE = "notification_channel_type"
         const val EXTRA_DM_ID = "notification_dm_id"
-        const val EXTRA_MESSAGE_ID = "notification_message_id"
+
     }
 
     init {
@@ -113,8 +113,7 @@ class NotificationHelper @Inject constructor(
         channelId: Long? = null,
         clanId: Long? = null,
         channelName: String = "",
-        channelType: Int? = null,
-        messageId: Long = 0L
+        channelType: Int? = null
     ) {
         appScope.launch {
             val computedChannelName = channelName.ifEmpty {
@@ -132,7 +131,6 @@ class NotificationHelper @Inject constructor(
                 if (clanId != null) putExtra(EXTRA_CLAN_ID, clanId)
                 if (computedChannelName.isNotEmpty()) putExtra(EXTRA_CHANNEL_NAME, computedChannelName)
                 if (channelType != null) putExtra(EXTRA_CHANNEL_TYPE, channelType)
-                if (messageId != 0L) putExtra(EXTRA_MESSAGE_ID, messageId)
             }
             val pendingIntent = PendingIntent.getActivity(
                 context,
@@ -159,8 +157,7 @@ class NotificationHelper @Inject constructor(
     fun showDmNotification(
         title: String,
         body: String,
-        dmChannelId: Long,
-        messageId: Long = 0L
+        dmChannelId: Long
     ) {
         appScope.launch {
             val dmName = dialogsController.get().getDialog(dmChannelId)?.let { dm ->
@@ -171,7 +168,6 @@ class NotificationHelper @Inject constructor(
                 flags = Intent.FLAG_ACTIVITY_CLEAR_TOP
                 putExtra(EXTRA_DM_ID, dmChannelId)
                 if (dmName.isNotEmpty()) putExtra(EXTRA_CHANNEL_NAME, dmName)
-                if (messageId != 0L) putExtra(EXTRA_MESSAGE_ID, messageId)
             }
             val pendingIntent = PendingIntent.getActivity(
                 context,
@@ -207,8 +203,7 @@ class NotificationHelper @Inject constructor(
         body: String,
         channelId: Long = 0L,
         clanId: Long = 0L,
-        dmId: Long = 0L,
-        messageId: Long = 0L
+        dmId: Long = 0L
     ) {
         appScope.launch {
             val channelName = when {
@@ -225,14 +220,14 @@ class NotificationHelper @Inject constructor(
                 val onTap: (() -> Unit)? = when {
                     dmId != 0L -> { {
                         activity.notificationCenter.postNotificationOnMainThread(NotificationCenter.navigateToMessagesTab)
-                        activity.openChat(dmId, channelName, 0L, CHANNEL_TYPE_DM, messageId, fromNotification = true)
+                        activity.openChat(dmId, channelName, 0L, CHANNEL_TYPE_DM, fromNotification = true)
                     } }
                     clanId != 0L && channelId != 0L -> {
                         {
                             notificationCenter.postNotificationOnMainThread(NotificationCenter.navigateToClansTab)
                             clansController.selectClan(clanId)
                             chatController.get().openChannel(channelId, clanId, CHANNEL_TYPE_CHANNEL)
-                            activity.openChat(channelId, channelName, clanId, CHANNEL_TYPE_CHANNEL, messageId, fromNotification = true)
+                            activity.openChat(channelId, channelName, clanId, CHANNEL_TYPE_CHANNEL, fromNotification = true)
                         }
                     }
                     else -> null

@@ -5,7 +5,7 @@ import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import com.mezon.mobile.MainActivity
 import dagger.hilt.android.AndroidEntryPoint
-import org.json.JSONObject
+
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -49,22 +49,12 @@ class MezonFirebaseService : FirebaseMessagingService() {
         }
     }
 
-    private fun parseMessageId(messageRaw: String): Long {
-        if (messageRaw.isEmpty()) return 0L
-        try {
-            val obj = JSONObject(messageRaw)
-            return obj.optString("id", "").toLongOrNull() ?: 0L
-        } catch (_: Exception) { 
-            return 0L
-        }
-    }
 
     private fun handleDataPayload(data: Map<String, String>) {
         val title = data["title"] ?: getString(com.mezon.mobile.R.string.app_name)
         val body = data["body"] ?: data["message"] ?: return
         val link = data["link"] ?: ""
         val channel = data["channel"] ?: ""
-        val messageId = parseMessageId(data["message"].orEmpty())
        
         val isDirectDM = channel.isNotEmpty() && link.contains("direct/friends")
         if (link.isNotEmpty() && !isDirectDM) {
@@ -77,9 +67,9 @@ class MezonFirebaseService : FirebaseMessagingService() {
                 }
 
                 if (isAppInForeground()) {
-                    notificationHelper.showInAppToast(title, body, channelId = channelId, clanId = clanId, messageId = messageId)
+                    notificationHelper.showInAppToast(title, body, channelId = channelId, clanId = clanId)
                 } else {
-                    notificationHelper.showMessageNotification(title, body, channelId = channelId, clanId = clanId, messageId = messageId)
+                    notificationHelper.showMessageNotification(title, body, channelId = channelId, clanId = clanId)
                 }
             } else {
                 val linkDirectMessageMatch = DM_LINK_REGEX.find(link)
@@ -90,9 +80,9 @@ class MezonFirebaseService : FirebaseMessagingService() {
                     }
 
                     if (isAppInForeground()) {
-                        notificationHelper.showInAppToast(title, body, dmId = dmId, messageId = messageId)
+                        notificationHelper.showInAppToast(title, body, dmId = dmId)
                     } else {
-                        notificationHelper.showDmNotification(title, body, dmChannelId = dmId, messageId = messageId)
+                        notificationHelper.showDmNotification(title, body, dmChannelId = dmId)
                     }
                 }
             }
