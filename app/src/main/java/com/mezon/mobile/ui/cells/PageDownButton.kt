@@ -1,6 +1,5 @@
 package com.mezon.mobile.ui.cells
 
-import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -9,7 +8,6 @@ import android.graphics.RectF
 import android.graphics.Typeface
 import android.text.TextPaint
 import android.view.View
-import android.view.animation.DecelerateInterpolator
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 
@@ -42,8 +40,6 @@ class PageDownButton(context: Context, private val theme: ThemeColors) : View(co
     private var badgeCount = 0
     private var badgeText = ""
 
-    private var showFraction = 0f
-    private var showAnimator: ValueAnimator? = null
     private var wantShow = false
 
     init {
@@ -69,16 +65,15 @@ class PageDownButton(context: Context, private val theme: ThemeColors) : View(co
         invalidate()
     }
 
-    fun show(visible: Boolean, animated: Boolean = false) {
+    fun show(visible: Boolean) {
         if (wantShow == visible) return
         wantShow = visible
-        showAnimator?.cancel()
-        showFraction = if (visible) 1f else 0f
-        scaleX = 1f
-        scaleY = 1f
-        alpha = 1f
-        visibility = if (visible) VISIBLE else GONE
         invalidate()
+    }
+
+    override fun onTouchEvent(event: android.view.MotionEvent): Boolean {
+        if (!wantShow) return false
+        return super.onTouchEvent(event)
     }
 
     fun isButtonVisible(): Boolean = wantShow
@@ -89,6 +84,7 @@ class PageDownButton(context: Context, private val theme: ThemeColors) : View(co
     }
 
     override fun onDraw(canvas: Canvas) {
+        if (!wantShow) return
         val cx = measuredWidth / 2f
         val btnRadius = buttonSize / 2f
         val btnCy = measuredHeight - btnRadius - shadowRadius
