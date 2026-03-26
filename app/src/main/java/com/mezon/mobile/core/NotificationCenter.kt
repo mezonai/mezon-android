@@ -59,6 +59,7 @@ class NotificationCenter(val currentAccount: Int) {
         private var totalEvents = 1
         private fun nextId() = totalEvents++
 
+        val selectedClanChanged = nextId()
         val dialogsNeedReload = nextId()
         val dialogsLoadError = nextId()
         val messagesDidLoad = nextId()

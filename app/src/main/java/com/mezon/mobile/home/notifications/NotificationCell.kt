@@ -113,7 +113,7 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : BaseC
         val contentWidth = width - PADDING_H * 2 - AVATAR_SIZE - GAP_H
         if (contentWidth <= 0) return
 
-        val timeText = convertTimestampToTimeAgo(n.createTimeSeconds)
+        val timeText = convertTimestampToTimeAgo(context, n.createTimeSeconds)
         val timePaint = theme.dialogTimePaint
         timePaint.color = theme.onSurfaceVariant
         timeLayout = StaticLayout.Builder

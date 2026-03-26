@@ -78,6 +78,7 @@ class ClansController @Inject constructor(
         if (_selectedClanId.value == clanId) return
         _selectedClanId.value = clanId
         channelController.loadChannelsForClan(clanId)
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.selectedClanChanged, clanId)
     }
 
     fun loadClans(force: Boolean = false) {

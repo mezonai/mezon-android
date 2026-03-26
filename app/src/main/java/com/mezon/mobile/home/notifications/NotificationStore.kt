@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -83,23 +84,7 @@ class NotificationStore @Inject constructor(
                 }
                 val entities = result.notificationsList.map { it.toNotificationEntity() }
                 val hasMore = entities.size >= PAGE_SIZE
-                when (category) {
-                    NOTIF_CATEGORY_MENTIONS -> {
-                        hasMoreMentions = hasMore
-                        _mentions.value = if (notificationId == 0L) entities
-                        else (_mentions.value + entities).distinctBy { it.id }
-                    }
-                    NOTIF_CATEGORY_MESSAGES -> {
-                        hasMoreMessages = hasMore
-                        _messages.value = if (notificationId == 0L) entities
-                        else (_messages.value + entities).distinctBy { it.id }
-                    }
-                    NOTIF_CATEGORY_FOR_YOU -> {
-                        hasMoreForYou = hasMore
-                        _forYou.value = if (notificationId == 0L) entities
-                        else (_forYou.value + entities).distinctBy { it.id }
-                    }
-                }
+                updateCategoryState(category, entities, notificationId == 0L, hasMore)
                 notificationCenter.postNotificationOnMainThread(
                     NotificationCenter.notificationsDidLoad, category
                 )
@@ -113,11 +98,7 @@ class NotificationStore @Inject constructor(
     }
 
     fun deleteNotification(id: Long, category: Int) {
-        when (category) {
-            NOTIF_CATEGORY_MENTIONS -> _mentions.value = _mentions.value.filter { it.id != id }
-            NOTIF_CATEGORY_MESSAGES -> _messages.value = _messages.value.filter { it.id != id }
-            NOTIF_CATEGORY_FOR_YOU -> _forYou.value = _forYou.value.filter { it.id != id }
-        }
+        getMutableForCategory(category)?.update { old -> old.filter { it.id != id } }
         appScope.launch {
             try {
                 val session = sessionManager.sessionFlow.first() ?: return@launch
@@ -130,10 +111,25 @@ class NotificationStore @Inject constructor(
         }
     }
 
-    fun getForCategory(category: Int): StateFlow<List<NotificationEntity>> = when (category) {
-        NOTIF_CATEGORY_MENTIONS -> mentions
-        NOTIF_CATEGORY_MESSAGES -> messages
-        NOTIF_CATEGORY_FOR_YOU -> forYou
-        else -> mentions
+    fun getForCategory(category: Int): StateFlow<List<NotificationEntity>> =
+        getMutableForCategory(category) ?: _mentions
+
+    private fun getMutableForCategory(category: Int) = when (category) {
+        NOTIF_CATEGORY_MENTIONS -> _mentions
+        NOTIF_CATEGORY_MESSAGES -> _messages
+        NOTIF_CATEGORY_FOR_YOU -> _forYou
+        else -> null
+    }
+
+    private fun updateCategoryState(category: Int, items: List<NotificationEntity>, isRefresh: Boolean, hasMore: Boolean) {
+        val flow = getMutableForCategory(category) ?: return
+        when (category) {
+            NOTIF_CATEGORY_MENTIONS -> hasMoreMentions = hasMore
+            NOTIF_CATEGORY_MESSAGES -> hasMoreMessages = hasMore
+            NOTIF_CATEGORY_FOR_YOU -> hasMoreForYou = hasMore
+        }
+        flow.update { old ->
+            if (isRefresh) items else (old + items).distinctBy { it.id }
+        }
     }
 }

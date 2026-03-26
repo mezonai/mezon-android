@@ -1,5 +1,8 @@
 package com.mezon.mobile.util
 
+import android.content.Context
+import com.mezon.mobile.R
+
 private val CONTENT_REGEX = Regex("\"t\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"")
 
 fun parseContentText(content: String): String {
@@ -73,25 +76,25 @@ fun formatRelativeTime(epochSeconds: Long): String {
     return "$dd/$mm/$yyyy, $hhmm"
 }
 
-fun convertTimestampToTimeAgo(timestampSeconds: Long): String {
+fun convertTimestampToTimeAgo(context: Context, timestampSeconds: Long): String {
     if (timestampSeconds <= 0L) return ""
     val now = System.currentTimeMillis() / 1000
-    val diff = now - timestampSeconds
+    val diff = (now - timestampSeconds).coerceAtLeast(0)
 
-    if (diff < 0) return "Just now"
+    if (diff < 60) return context.getString(R.string.common_time_ago_just_now)
 
     val years = diff / (60 * 60 * 24 * 365)
-    val months = (diff % (60 * 60 * 24 * 365)) / (60 * 60 * 24 * 30)
-    val days = (diff % (60 * 60 * 24 * 30)) / (60 * 60 * 24)
-    val hours = (diff % (60 * 60 * 24)) / (60 * 60)
-    val minutes = (diff % (60 * 60)) / 60
+    if (years > 0) return context.getString(R.string.common_time_ago_years, years.toInt())
 
-    return when {
-        years > 0 -> "${years}y"
-        months > 0 -> "${months}mo"
-        days > 0 -> "${days}d"
-        hours > 0 -> "${hours}h"
-        minutes > 0 -> "${minutes}m"
-        else -> "Just now"
-    }
+    val months = (diff % (60 * 60 * 24 * 365)) / (60 * 60 * 24 * 30)
+    if (months > 0) return context.getString(R.string.common_time_ago_months, months.toInt())
+
+    val days = (diff % (60 * 60 * 24 * 30)) / (60 * 60 * 24)
+    if (days > 0) return context.getString(R.string.common_time_ago_days, days.toInt())
+
+    val hours = (diff % (60 * 60 * 24)) / (60 * 60)
+    if (hours > 0) return context.getString(R.string.common_time_ago_hours, hours.toInt())
+
+    val minutes = (diff % (60 * 60)) / 60
+    return context.getString(R.string.common_time_ago_minutes, minutes.toInt())
 }

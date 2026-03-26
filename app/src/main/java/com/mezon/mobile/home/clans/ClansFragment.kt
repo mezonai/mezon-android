@@ -83,12 +83,11 @@ class ClansFragment : BaseFragment() {
         }
 
         clansController.loadClans()
-        fragmentScope.launch(Dispatchers.Main) {
-            clansController.selectedClanId.collect {
-                if (fragmentView == null || !clansController.clansLoaded) return@collect
-                updateServerRail()
-                if (it != 0L) updateChannelList()
-            }
+        observe(NotificationCenter.selectedClanChanged) { _, _, args ->
+            if (fragmentView == null || !clansController.clansLoaded) return@observe
+            val clanId = args.firstOrNull() as? Long ?: 0L
+            updateServerRail()
+            if (clanId != 0L) updateChannelList()
         }
         return true
     }
@@ -233,6 +232,7 @@ class ClansFragment : BaseFragment() {
         if (clan.clanId == clansController.selectedClanId.value) return
         channelListView.resetExpansion()
         clansController.selectClan(clan.clanId)
+        channelListView.clear()
     }
 
     private fun onChannelSelected(channel: ClanChannelEntity) {

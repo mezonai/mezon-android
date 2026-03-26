@@ -8,6 +8,7 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
+import kotlinx.coroutines.*
 
 class NotificationAdapter(
     private val theme: ThemeColors
@@ -15,43 +16,56 @@ class NotificationAdapter(
 
     private val items = ArrayList<NotificationEntity>()
     private var hasMore = false
+    private var diffJob: Job? = null
 
     companion object {
         private const val VIEW_TYPE_ITEM = 0
         private const val VIEW_TYPE_LOADING = 1
     }
 
-    fun getItem(position: Int): NotificationEntity? =
-        if (position in items.indices) items[position] else null
-
     fun setData(list: List<NotificationEntity>, hasMoreData: Boolean = false, isTabChange: Boolean = false) {
         if (isTabChange) {
+            diffJob?.cancel()
             items.clear()
             items.addAll(list)
             hasMore = hasMoreData
             notifyDataSetChanged()
             return
         }
-        
-        val old = ArrayList(items)
+
+        diffJob?.cancel()
+        val oldList = ArrayList(items)
         val oldHasMore = hasMore
-        items.clear()
-        items.addAll(list)
-        hasMore = hasMoreData
-        
-        DiffUtil.calculateDiff(object : DiffUtil.Callback() {
-            override fun getOldListSize() = old.size + if (oldHasMore) 1 else 0
-            override fun getNewListSize() = list.size + if (hasMore) 1 else 0
-            override fun areItemsTheSame(o: Int, n: Int): Boolean {
-                if (o < old.size && n < list.size) return old[o].id == list[n].id
-                if (o == old.size && n == list.size) return true // Both are loading item
-                return false
+
+        diffJob = CoroutineScope(Dispatchers.Default).launch {
+            val diffResult = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
+                override fun getOldListSize() = oldList.size + if (oldHasMore) 1 else 0
+                override fun getNewListSize() = list.size + if (hasMoreData) 1 else 0
+                override fun areItemsTheSame(o: Int, n: Int): Boolean {
+                    val isOldLoading = o == oldList.size
+                    val isNewLoading = n == list.size
+                    if (isOldLoading && isNewLoading) return true
+                    if (isOldLoading || isNewLoading) return false
+                    return oldList[o].id == list[n].id
+                }
+                override fun areContentsTheSame(o: Int, n: Int): Boolean {
+                    val isOldLoading = o == oldList.size
+                    val isNewLoading = n == list.size
+                    if (isOldLoading && isNewLoading) return true
+                    if (isOldLoading || isNewLoading) return false
+                    return oldList[o] == list[n]
+                }
+            })
+
+            withContext(Dispatchers.Main) {
+                if (!isActive) return@withContext
+                items.clear()
+                items.addAll(list)
+                hasMore = hasMoreData
+                diffResult.dispatchUpdatesTo(this@NotificationAdapter)
+                diffJob = null
             }
-            override fun areContentsTheSame(o: Int, n: Int): Boolean {
-                if (o < old.size && n < list.size) return old[o] == list[n]
-                return true
-            }
-        }).dispatchUpdatesTo(this)
+        }
     }
 
     override fun getItemCount() = items.size + if (hasMore) 1 else 0

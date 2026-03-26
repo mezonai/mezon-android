@@ -438,22 +438,22 @@ class ChatFragment : BaseFragment() {
                     } else if (startLoadFromMessageId != 0L) {
                         val idx = messages.indexOfFirst { it.id == startLoadFromMessageId }
                         if (idx >= 0 || !isCache) {
-                        scrollToMessageWithOffset(startLoadFromMessageId, startLoadFromMessageOffset)
-                        if (loadingFromOldPosition) {
-                            val newestInList = messages.firstOrNull()?.id ?: 0L
-                            val moreBelow = lastSentMessageId != 0L && newestInList < lastSentMessageId
-                            if (moreBelow) {
-                                isViewingOlder = true
-                                hasMoreBottom = true
-                                applyInitialUnreadCount()
-                                updatePageDownVisibility()
+                            scrollToMessageWithOffset(startLoadFromMessageId, startLoadFromMessageOffset)
+                            if (loadingFromOldPosition) {
+                                val newestInList = messages.firstOrNull()?.id ?: 0L
+                                val moreBelow = lastSentMessageId != 0L && newestInList < lastSentMessageId
+                                if (moreBelow) {
+                                    isViewingOlder = true
+                                    hasMoreBottom = true
+                                    applyInitialUnreadCount()
+                                    updatePageDownVisibility()
+                                }
                             }
+                            recyclerView.post { markVisibleAsRead() }
                         }
                         startLoadFromMessageId = 0L
                         startLoadFromMessageOffset = Int.MAX_VALUE
                         loadingFromOldPosition = false
-                        recyclerView.post { markVisibleAsRead() }
-                        }
                     } else if (needScrollRestore && lastSeenMessageId != 0L && hasUnread) {
                         scrollToFirstUnread()
                         needScrollRestore = false
