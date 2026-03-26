@@ -1,6 +1,5 @@
 package com.mezon.mobile.ui.cells
 
-import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -9,7 +8,6 @@ import android.graphics.RectF
 import android.graphics.Typeface
 import android.text.TextPaint
 import android.view.View
-import android.view.animation.DecelerateInterpolator
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 
@@ -42,8 +40,6 @@ class PageDownButton(context: Context, private val theme: ThemeColors) : View(co
     private var badgeCount = 0
     private var badgeText = ""
 
-    private var showFraction = 0f
-    private var showAnimator: ValueAnimator? = null
     private var wantShow = false
 
     init {
@@ -52,8 +48,8 @@ class PageDownButton(context: Context, private val theme: ThemeColors) : View(co
     }
 
     fun applyColors() {
-        bgPaint.color = theme.surface
-        arrowPaint.color = theme.onSurfaceVariant
+        bgPaint.color = theme.textDisabled
+        arrowPaint.color = android.graphics.Color.WHITE
         badgeBgPaint.color = theme.badgeRed
         invalidate()
     }
@@ -69,43 +65,26 @@ class PageDownButton(context: Context, private val theme: ThemeColors) : View(co
         invalidate()
     }
 
-    fun show(visible: Boolean, animated: Boolean = true) {
+    fun show(visible: Boolean) {
         if (wantShow == visible) return
         wantShow = visible
-        showAnimator?.cancel()
-        if (!animated) {
-            showFraction = if (visible) 1f else 0f
-            visibility = if (visible) VISIBLE else GONE
-            invalidate()
-            return
-        }
-        val from = showFraction
-        val to = if (visible) 1f else 0f
-        visibility = VISIBLE
-        showAnimator = ValueAnimator.ofFloat(from, to).apply {
-            duration = 200
-            interpolator = DecelerateInterpolator()
-            addUpdateListener {
-                showFraction = it.animatedValue as Float
-                scaleX = showFraction
-                scaleY = showFraction
-                alpha = showFraction
-                if (showFraction == 0f && !wantShow) {
-                    visibility = GONE
-                }
-            }
-            start()
-        }
+        invalidate()
+    }
+
+    override fun onTouchEvent(event: android.view.MotionEvent): Boolean {
+        if (!wantShow) return false
+        return super.onTouchEvent(event)
     }
 
     fun isButtonVisible(): Boolean = wantShow
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val totalSize = buttonSize + LayoutHelper.dp(20f)
+        val totalSize = buttonSize + LayoutHelper.dp(12f)
         setMeasuredDimension(totalSize, totalSize)
     }
 
     override fun onDraw(canvas: Canvas) {
+        if (!wantShow) return
         val cx = measuredWidth / 2f
         val btnRadius = buttonSize / 2f
         val btnCy = measuredHeight - btnRadius - shadowRadius
@@ -114,9 +93,9 @@ class PageDownButton(context: Context, private val theme: ThemeColors) : View(co
 
         val arrowSize = LayoutHelper.dp(8f).toFloat()
         arrowPath.reset()
-        arrowPath.moveTo(cx - arrowSize, btnCy - arrowSize * 0.35f)
-        arrowPath.lineTo(cx, btnCy + arrowSize * 0.35f)
-        arrowPath.lineTo(cx + arrowSize, btnCy - arrowSize * 0.35f)
+        arrowPath.moveTo(cx - arrowSize, btnCy - arrowSize * 0.5f)
+        arrowPath.lineTo(cx, btnCy + arrowSize * 0.5f)
+        arrowPath.lineTo(cx + arrowSize, btnCy - arrowSize * 0.5f)
         canvas.drawPath(arrowPath, arrowPaint)
 
         if (badgeCount > 0) {
@@ -126,9 +105,10 @@ class PageDownButton(context: Context, private val theme: ThemeColors) : View(co
             val badgeW = (textWidth + padH * 2).coerceAtLeast(badgeH)
             val badgeRadius = badgeH / 2f
 
-            val badgeLeft = cx - badgeW / 2f
-            val badgeTop = 0f
-            badgeRect.set(badgeLeft, badgeTop, badgeLeft + badgeW, badgeTop + badgeH)
+            val badgeRight = cx + buttonSize / 2f + LayoutHelper.dp(2f)
+            val badgeLeft = badgeRight - badgeW
+            val badgeTop = btnCy - buttonSize / 2f - LayoutHelper.dp(4f)
+            badgeRect.set(badgeLeft, badgeTop, badgeRight, badgeTop + badgeH)
             canvas.drawRoundRect(badgeRect, badgeRadius, badgeRadius, badgeBgPaint)
 
             val textY = badgeRect.centerY() - (badgeTextPaint.descent() + badgeTextPaint.ascent()) / 2

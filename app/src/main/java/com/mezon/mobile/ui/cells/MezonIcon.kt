@@ -20,6 +20,7 @@ enum class MezonIcon(@DrawableRes val resId: Int) {
     calendarIcon(R.drawable.ic_calendar),
     chevronDownSmallIcon(R.drawable.ic_chevrondown),
     magnifyingIcon(R.drawable.ic_magnifying),
+    searchIcon(R.drawable.ic_search_icon),
     userPlusIcon(R.drawable.ic_userplus),
     longCorner(R.drawable.ic_long_corner),
     shortCorner(R.drawable.ic_short_corner),

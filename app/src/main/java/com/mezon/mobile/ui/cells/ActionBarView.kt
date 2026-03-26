@@ -102,7 +102,7 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
             contentDescription = "Back"
             setOnClickListener { actionBarMenuOnItemClick?.onItemClick(-1) }
         }
-        addView(backButtonImageView, LayoutHelper.createFrame(54, 54, Gravity.START or Gravity.TOP))
+        addView(backButtonImageView, LayoutHelper.createFrame(44, 44, Gravity.START or Gravity.TOP))
     }
 
     fun setBackButtonImage(resource: Int) {
@@ -493,9 +493,10 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
 
         backButtonImageView?.let { btn ->
             if (btn.visibility != GONE) {
+                val btnSize = LayoutHelper.dp(44)
                 btn.measure(
-                    MeasureSpec.makeMeasureSpec(LayoutHelper.dp(54), MeasureSpec.EXACTLY),
-                    MeasureSpec.makeMeasureSpec(actionBarHeight, MeasureSpec.EXACTLY)
+                    MeasureSpec.makeMeasureSpec(btnSize, MeasureSpec.EXACTLY),
+                    MeasureSpec.makeMeasureSpec(btnSize, MeasureSpec.EXACTLY)
                 )
             }
         }
@@ -520,7 +521,7 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
             }
         }
 
-        val backWidth = if (backButtonImageView != null && backButtonImageView!!.visibility != GONE) LayoutHelper.dp(54) else 0
+        val backWidth = if (backButtonImageView != null && backButtonImageView!!.visibility != GONE) LayoutHelper.dp(44) else 0
         val titleAvailableWidth = (widthSize - backWidth - menuWidth - LayoutHelper.dp(16)).coerceAtLeast(0)
 
         titleTextView?.let { tv ->
@@ -551,7 +552,8 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
 
         backButtonImageView?.let { btn ->
             if (btn.visibility != GONE) {
-                btn.layout(0, statusBarOffset, btn.measuredWidth, statusBarOffset + actionBarHeight)
+                val btnTop = statusBarOffset + (actionBarHeight - btn.measuredHeight) / 2
+                btn.layout(0, btnTop, btn.measuredWidth, btnTop + btn.measuredHeight)
             }
         }
 
@@ -568,7 +570,7 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
             }
         }
 
-        val backWidth = if (backButtonImageView != null && backButtonImageView!!.visibility != GONE) LayoutHelper.dp(54) else LayoutHelper.dp(16)
+        val backWidth = if (backButtonImageView != null && backButtonImageView!!.visibility != GONE) LayoutHelper.dp(44) else LayoutHelper.dp(16)
         val menuWidth = if (menu != null && menu!!.visibility != GONE) menu!!.measuredWidth else 0
         val titleLeft = backWidth
         val titleRight = w - menuWidth - LayoutHelper.dp(8)
@@ -635,9 +637,15 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
         }
     }
 
-    private fun rippleBackground(): android.graphics.drawable.Drawable? {
-        val typed = TypedValue()
-        context.theme.resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, typed, true)
-        return if (typed.resourceId != 0) context.getDrawable(typed.resourceId) else null
+    fun createCircleRipple(): android.graphics.drawable.Drawable {
+        val color = itemsColor.takeIf { it != 0 } ?: theme.onSurface
+        val rippleColor = android.content.res.ColorStateList.valueOf(color and 0x1A_FFFFFF)
+        val mask = android.graphics.drawable.GradientDrawable().apply {
+            shape = android.graphics.drawable.GradientDrawable.OVAL
+            setColor(0xFFFFFFFF.toInt())
+        }
+        return android.graphics.drawable.RippleDrawable(rippleColor, null, mask)
     }
+
+    private fun rippleBackground() = createCircleRipple()
 }

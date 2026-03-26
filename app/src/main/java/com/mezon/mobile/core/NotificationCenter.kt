@@ -59,6 +59,7 @@ class NotificationCenter(val currentAccount: Int) {
         private var totalEvents = 1
         private fun nextId() = totalEvents++
 
+        val selectedClanChanged = nextId()
         val dialogsNeedReload = nextId()
         val dialogsLoadError = nextId()
         val messagesDidLoad = nextId()
@@ -66,6 +67,7 @@ class NotificationCenter(val currentAccount: Int) {
         val messageDidUpdate = nextId()
         val messageDidDelete = nextId()
         val messagesLoadError = nextId()
+        val messagesLastSeenFromServer = nextId()  
         val onlineStatusChanged = nextId()
         val markAsRead = nextId()
         val connectionStateChanged = nextId()
@@ -94,6 +96,13 @@ class NotificationCenter(val currentAccount: Int) {
         val needCheckSystemBarColors = nextId()
         val navigateToMessagesTab = nextId()
         val navigateToClansTab = nextId()
+        val appDidReconnect = nextId()
+        val scrollToBottomChat = nextId()
+        val userClansDidLoad = nextId()
+        val clanMembersDidLoad = nextId()
+        val searchMembersDidLoad = nextId()
+        val searchChannelsDidLoad = nextId()
+        val searchMessagesDidLoad = nextId()
 
         const val UPDATE_MASK_NAME = 1
         const val UPDATE_MASK_AVATAR = 2
@@ -332,11 +341,11 @@ class NotificationCenter(val currentAccount: Int) {
             currentHeavyOperationFlags = currentHeavyOperationFlags or flags
         }
 
-        // if (shouldDebounce(id)) {
-        //     postNotificationDebounced(id, allowDuringAnimation, args)
-        // } else {
-        postNotificationNameInternal(id, allowDuringAnimation, args)
-        // }
+        if (shouldDebounce(id)) {
+            postNotificationDebounced(id, allowDuringAnimation, args)
+        } else {
+            postNotificationNameInternal(id, allowDuringAnimation, args)
+        }
 
         if (expiredIndices != null) {
             for (idx in expiredIndices) onAnimationFinish(idx)

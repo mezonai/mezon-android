@@ -78,6 +78,7 @@ class ClansController @Inject constructor(
         if (_selectedClanId.value == clanId) return
         _selectedClanId.value = clanId
         channelController.loadChannelsForClan(clanId)
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.selectedClanChanged, clanId)
     }
 
     fun loadClans(force: Boolean = false) {
@@ -106,20 +107,21 @@ class ClansController @Inject constructor(
                 Log.d(TAG, "loadClans API result (${apiEntities.size} clans): ${apiEntities.map { "${it.clanName}(order=${it.clanOrder})" }}")
 
                 val existingOrder = _clans.value.mapIndexed { i, c -> c.clanId to i }.toMap()
-                val entities = if (existingOrder.isNotEmpty()) {
-                    apiEntities.sortedBy { existingOrder[it.clanId] ?: it.clanOrder }
+                val entities = apiEntities
+                val sorted = if (existingOrder.isNotEmpty()) {
+                    entities.sortedBy { existingOrder[it.clanId] ?: it.clanOrder }
                 } else {
-                    apiEntities.sortedBy { it.clanOrder }
+                    entities.sortedBy { it.clanOrder }
                 }
-                _clans.value = entities
+                _clans.value = sorted
                 clansLoaded = true
                 cacheTracker.markCalled(cacheKey)
-                preWarmLogos(entities)
-                withContext(ioDispatcher) { clanDao.upsertAll(entities) }
+                preWarmLogos(sorted)
+                withContext(ioDispatcher) { clanDao.upsertAll(sorted) }
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.clansDidLoad)
 
-                if (_selectedClanId.value == 0L && entities.isNotEmpty()) {
-                    selectClan(entities.first().clanId)
+                if (_selectedClanId.value == 0L && sorted.isNotEmpty()) {
+                    selectClan(sorted.first().clanId)
                 } else if (_selectedClanId.value != 0L) {
                     channelController.loadChannelsForClan(_selectedClanId.value)
                 }
@@ -127,6 +129,50 @@ class ClansController @Inject constructor(
                 Log.e(TAG, "loadClans failed", e)
             }
         }
+    }
+
+    fun setHasUnread(clanId: Long) {
+        val list = _clans.value
+        val idx = list.indexOfFirst { it.clanId == clanId }
+        if (idx < 0) return
+        val clan = list[idx]
+        if (clan.hasUnread) return
+        val updated = clan.copy(hasUnread = true)
+        _clans.value = list.toMutableList().also { it[idx] = updated }
+        appScope.launch(ioDispatcher) { clanDao.upsert(updated) }
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_BADGE
+        )
+    }
+
+    fun updateClanBadgeCount(clanId: Long, delta: Int) {
+        val list = _clans.value
+        val idx = list.indexOfFirst { it.clanId == clanId }
+        if (idx < 0) return
+        val clan = list[idx]
+        val newCount = (clan.badgeCount + delta).coerceAtLeast(0)
+        if (newCount == clan.badgeCount) return
+        val updated = clan.copy(badgeCount = newCount)
+        _clans.value = list.toMutableList().also { it[idx] = updated }
+        appScope.launch(ioDispatcher) { clanDao.upsert(updated) }
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_BADGE
+        )
+    }
+
+    fun syncClanBadgeFromChannels(clanId: Long, channels: List<ClanChannelEntity>) {
+        val list = _clans.value
+        val idx = list.indexOfFirst { it.clanId == clanId }
+        if (idx < 0) return
+        val clan = list[idx]
+        val totalUnread = channels.sumOf { it.unreadCount }
+        if (totalUnread == clan.badgeCount) return
+        val updated = clan.copy(badgeCount = totalUnread)
+        _clans.value = list.toMutableList().also { it[idx] = updated }
+        appScope.launch(ioDispatcher) { clanDao.upsert(updated) }
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_BADGE
+        )
     }
 
     private fun preWarmLogos(clans: List<ClanEntity>) {

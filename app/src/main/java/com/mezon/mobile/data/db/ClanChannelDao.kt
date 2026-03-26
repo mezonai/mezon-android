@@ -7,7 +7,7 @@ import com.mezon.mobile.home.clans.ClanChannelEntity
 
 @Dao
 interface ClanChannelDao {
-    @Query("SELECT * FROM clan_channels WHERE clanId = :clanId ORDER BY categoryId ASC, channelLabel ASC")
+    @Query("SELECT * FROM clan_channels WHERE clanId = :clanId ORDER BY categoryOrder ASC, CASE WHEN parentId = 0 THEN 0 ELSE 1 END ASC, channelId ASC")
     suspend fun getByClan(clanId: Long): List<ClanChannelEntity>
 
     @Upsert
@@ -24,4 +24,7 @@ interface ClanChannelDao {
 
     @Query("UPDATE clan_channels SET unreadCount = :count WHERE channelId = :channelId")
     suspend fun updateUnread(channelId: Long, count: Int)
+
+    @Query("UPDATE clan_channels SET lastSeenMessageId = :messageId, unreadCount = 0 WHERE channelId = :channelId")
+    suspend fun updateLastSeen(channelId: Long, messageId: Long)
 }

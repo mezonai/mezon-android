@@ -70,11 +70,11 @@ object SharedConfig {
 
         liteModeValue = prefs?.getInt("lite_mode", LITE_FLAGS_ALL) ?: LITE_FLAGS_ALL
 
-        animationsEnabledCached = prefs?.getBoolean("view_animations", true) ?: true
+        animationsEnabledCached = prefs?.getBoolean("view_animations", false) ?: false
     }
 
     fun animationsEnabled(): Boolean {
-        return animationsEnabledCached ?: true
+        return animationsEnabledCached ?: false
     }
 
     fun setAnimationsEnabled(enabled: Boolean) {
