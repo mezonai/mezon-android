@@ -159,6 +159,7 @@
     <string name="message_jump_to_latest">Đi đến tin nhắn mới nhất</string>
     <string name="message_toast_copy_text">Đã sao chép văn bản tin nhắn</string>
     <string name="message_forwarded">Đã chuyển tiếp</string>
+    <string name="message_reply_deleted">Tin nhắn gốc đã bị xóa</string>
     <string name="message_slide_to_cancel">Vuốt để hủy</string>
 
     <!-- notification -->

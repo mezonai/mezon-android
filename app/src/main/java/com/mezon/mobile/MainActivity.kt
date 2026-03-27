@@ -401,7 +401,7 @@ class MainActivity : BasePermissionsActivity(),
         if (lastFragment is ChatFragment && lastFragment.getChannelId() == channelId && messageId == 0L) {
             return
         }
-        val fragment = ChatFragment.newInstance(channelId, channelName, clanId, channelType, messageId, forceLatest = messageId == 0L)
+        val fragment = ChatFragment.newInstance(channelId, channelName, clanId, channelType, messageId)
         val params = INavigationLayout.NavigationParams(fragment).setNoAnimation(noAnimation)
         actionBarLayout.presentFragment(params)
     }

@@ -166,7 +166,7 @@ class ChatController @Inject constructor(
         }
     }
 
-    fun loadMessagesAround(channelId: Long, clanId: Long, anchorMessageId: Long) {
+    fun loadMessagesAround(channelId: Long, clanId: Long, anchorMessageId: Long, requireExactAnchor: Boolean = false) {
         appScope.launch(ioDispatcher) {
             try {
                 val cacheKey = apiCacheKey("fetchMessages", clanId, channelId)
@@ -176,7 +176,11 @@ class ChatController @Inject constructor(
                 if (fromDb.isNotEmpty()) {
                     val dbMinId = fromDb.minOf { it.id }
                     val dbMaxId = fromDb.maxOf { it.id }
-                    anchorInDb = anchorMessageId in dbMinId..dbMaxId
+                    anchorInDb = if (requireExactAnchor) {
+                        fromDb.any { it.id == anchorMessageId }
+                    } else {
+                        anchorMessageId in dbMinId..dbMaxId
+                    }
                     if (anchorInDb) {
                         val lastKnown = synchronized(this@ChatController) { lastMessageByChannel.get(channelId, 0L) }
                         val hasMoreBottom = lastKnown > 0L && dbMaxId < lastKnown
@@ -371,14 +375,21 @@ class ChatController @Inject constructor(
         }
     }
 
-    fun sendMessage(channelId: Long, clanId: Long, channelType: Int, isChannelPrivate: Boolean, text: String) {
+    fun sendMessage(
+        channelId: Long,
+        clanId: Long,
+        channelType: Int,
+        isChannelPrivate: Boolean,
+        text: String,
+        references: List<com.mezon.mezon.api.MessageRef>? = null
+    ) {
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
         val content = buildTextContent(text)
         appScope.launch {
             try {
-                mezonSocket.writeChatMessage(clanId, channelId, mode, isPublic, content)
-                Log.d(TAG, "Message sent: channelId=$channelId isPublic=$isPublic")
+                mezonSocket.writeChatMessage(clanId, channelId, mode, isPublic, content, references = references)
+                Log.d(TAG, "Message sent: channelId=$channelId isPublic=$isPublic hasReferences=${references != null}")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to send message", e)
             }
@@ -392,7 +403,8 @@ class ChatController @Inject constructor(
         isChannelPrivate: Boolean,
         text: String,
         attachments: List<AttachmentPickerItem>,
-        contentResolver: android.content.ContentResolver
+        contentResolver: android.content.ContentResolver,
+        references: List<com.mezon.mezon.api.MessageRef>? = null
     ) {
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
@@ -444,9 +456,10 @@ class ChatController @Inject constructor(
                 if (uploadedAttachments.isNotEmpty()) {
                     mezonSocket.writeChatMessage(
                         clanId, channelId, mode, isPublic, content,
-                        attachments = uploadedAttachments
+                        attachments = uploadedAttachments,
+                        references = references
                     )
-                    Log.d(TAG, "Message with ${uploadedAttachments.size} attachments sent: channelId=$channelId")
+                    Log.d(TAG, "Message with ${uploadedAttachments.size} attachments sent: channelId=$channelId hasReferences=${references != null}")
                 } else {
                     Log.e(TAG, "No attachments uploaded successfully")
                 }

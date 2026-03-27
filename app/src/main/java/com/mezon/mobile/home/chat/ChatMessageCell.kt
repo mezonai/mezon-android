@@ -25,6 +25,7 @@ import com.mezon.mobile.util.MentionColors
 import com.mezon.mobile.util.OgpData
 import com.mezon.mobile.util.formatRelativeTime
 import com.mezon.mobile.util.isRawMessage
+import com.mezon.mobile.util.parseContentPreview
 import com.mezon.mobile.util.parseContentText
 import com.mezon.mobile.util.parseContentToSpannable
 import com.mezon.mobile.util.parseOgpData
@@ -33,10 +34,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import android.util.Log
 import kotlin.math.min
 
 class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCell(context) {
     var hasMentionHighlight: Boolean = false
+    private var highlightProgress = 0f
 
     var messageEntity: MessageEntity? = null
         private set
@@ -81,6 +84,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var mediaGridCount = 0
     private var mediaGridTotalH = 0
     private val playTriPath = Path()
+    private val connectorPath = Path()
     private val tmpRect = RectF()
     private var ogpData: OgpData? = null
     private var ogpTitleLayout: StaticLayout? = null
@@ -147,6 +151,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     fun clearState() {
         messageEntity = null
         pendingMessage = null
+        highlightProgress = 0f
         contentLayout = null
         senderLayout = null
         timeLayout = null
@@ -162,6 +167,15 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         ogpDescLayout = null
         ogpData = null
         hasReply = false
+        replyRefMessageId = 0L
+        replySenderId = 0L
+        replySenderAvatarUrl = null
+        replyHasAttachment = false
+        replyIsDeleted = false
+        replyAvatarCancellable?.cancel()
+        replyAvatarCancellable = null
+        replyAvatarDrawable.setPhoto(null)
+        replyAvatarDrawable.setDrawableByInfo(true)
         drawPhotoImage = false
         drawFileAttachment = false
         drawForwardHeader = false
@@ -551,7 +565,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         cachedFileSizeW = fileSizeLayout?.let { maxLineWidth(it) } ?: 0f
         cachedEphW = ephemeralLayout?.let { maxLineWidth(it) + EPHEMERAL_ICON_SIZE + GAP_V_INNER } ?: 0f
 
-        val replyW = if (hasReply) maxOf(cachedReplyNameW, cachedReplyTextW) + REPLY_BAR_WIDTH + REPLY_BAR_GAP else 0f
+        val replyW = if (hasReply) cachedReplyNameW + cachedReplyTextW + REPLY_AVATAR_SIZE + REPLY_H_GAP * 2 else 0f
         val ogpW = if (ogpData != null) maxOf(cachedOgpTitleW, cachedOgpDescW, ogpImageW.toFloat()) else 0f
         val fileW = if (drawFileAttachment) maxOf(FILE_ICON_SIZE + FILE_ICON_GAP + cachedFileNameW, FILE_ICON_SIZE + FILE_ICON_GAP + cachedFileSizeW) else 0f
         cachedInnerWidth = if (drawPhotoImage) {
@@ -569,16 +583,14 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private fun computeHeight(msg: MessageEntity): Int {
         val topPad = if (isCombined) COMBINE_PAD_V else PAD_V
-        var h = topPad + PAD_BOTTOM  // top + bottom padding
+        var h = topPad + PAD_BOTTOM
+
+        if (hasReply) {
+            h += REPLY_ROW_HEIGHT + REPLY_V_GAP
+        }
 
         forwardLayout?.let { h += it.height + GAP_V_INNER }
         senderLayout?.let { h += it.height + GAP_V_INNER }
-
-        if (hasReply) {
-            replyNameLayout?.let { h += it.height }
-            replyTextLayout?.let { h += it.height }
-            h += REPLY_BAR_PAD * 2 + GAP_V_INNER
-        }
 
         if (drawPhotoImage) {
             val imgH = if (mediaGridCount > 1) mediaGridTotalH else photoHeight
@@ -679,14 +691,40 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val content = msg.content
         if (!content.contains("\"references\"")) return false
         return try {
+            val refIdMatch = REFERENCE_REF_ID_REGEX.find(content)
+            val refIdStr = refIdMatch?.groupValues?.getOrNull(1) ?: ""
+            replyRefMessageId = refIdStr.toLongOrNull() ?: 0L
+            replyIsDeleted = refIdStr == "0" || (refIdStr.isNotEmpty() && replyRefMessageId == 0L)
+
+            if (replyIsDeleted) {
+                replySenderName = ""
+                replyContent = ""
+                replySenderId = 0L
+                replyHasAttachment = false
+                return true
+            }
+
             val refMatch = REFERENCE_SENDER_REGEX.find(content)
             val refContentMatch = REFERENCE_CONTENT_REGEX.find(content)
             replySenderName = refMatch?.groupValues?.getOrNull(1)
                 ?.replace("\\\"", "\"") ?: ""
-            replyContent = refContentMatch?.groupValues?.getOrNull(1)
+            val rawRefContent = refContentMatch?.groupValues?.getOrNull(1)
                 ?.replace("\\n", " ")
                 ?.replace("\\\"", "\"")
-                ?.take(80) ?: ""
+                ?: ""
+            replyContent = parseContentPreview(rawRefContent).take(80)
+
+            val senderIdMatch = REFERENCE_SENDER_ID_REGEX.find(content)
+            replySenderId = senderIdMatch?.groupValues?.getOrNull(1)?.toLongOrNull() ?: 0L
+            replyHasAttachment = content.contains("\"has_attachment\":true")
+
+            val avatarMatch = REFERENCE_AVATAR_REGEX.find(content)
+            replySenderAvatarUrl = avatarMatch?.groupValues?.getOrNull(1)?.replace("\\/", "/")
+
+            Log.d("ReplyAvatar", "parseReply: name=$replySenderName senderId=$replySenderId avatarUrl=$replySenderAvatarUrl content=${replyContent.take(30)}")
+
+            replyAvatarDrawable.setInfo(replySenderId, replySenderName)
+            loadReplyAvatar(replySenderAvatarUrl ?: "")
             replySenderName.isNotEmpty() || replyContent.isNotEmpty()
         } catch (_: Exception) {
             false
@@ -695,6 +733,17 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private var replySenderName = ""
     private var replyContent = ""
+    private var replyRefMessageId = 0L
+    private var replySenderId = 0L
+    private var replySenderAvatarUrl: String? = null
+    private var replyHasAttachment = false
+    private var replyIsDeleted = false
+    private var replyBlockLeft = 0f
+    private var replyBlockTop = 0f
+    private var replyBlockRight = 0f
+    private var replyBlockBottom = 0f
+    private val replyAvatarDrawable = AvatarDrawable()
+    private var replyAvatarCancellable: MezonImageLoader.Cancellable? = null
 
     private fun buildReplyLayouts(textWidth: Int) {
         if (!hasReply) {
@@ -702,17 +751,33 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             replyTextLayout = null
             return
         }
-        val replyW = (textWidth - REPLY_BAR_WIDTH - REPLY_BAR_GAP).toInt().coerceAtLeast(1)
+        val availW = (textWidth - REPLY_AVATAR_SIZE - REPLY_H_GAP).coerceAtLeast(1)
+
+        if (replyIsDeleted) {
+            replyNameLayout = null
+            val deletedText = context.getString(com.mezon.mobile.R.string.message_reply_deleted)
+            replyTextLayout = StaticLayout.Builder.obtain(deletedText, 0, deletedText.length, DELETED_REPLY_TEXT_PAINT, availW)
+                .setMaxLines(1)
+                .setEllipsize(TextUtils.TruncateAt.END)
+                .build()
+            return
+        }
+
+        val nameMaxW = (availW * 0.35f).toInt().coerceAtLeast(1)
         if (replySenderName.isNotEmpty()) {
-            replyNameLayout = StaticLayout.Builder.obtain(replySenderName, 0, replySenderName.length, senderPaint, replyW)
+            replyNameLayout = StaticLayout.Builder.obtain(replySenderName, 0, replySenderName.length, REPLY_NAME_PAINT, nameMaxW)
                 .setMaxLines(1)
                 .setEllipsize(TextUtils.TruncateAt.END)
                 .build()
         } else {
             replyNameLayout = null
         }
-        if (replyContent.isNotEmpty()) {
-            replyTextLayout = StaticLayout.Builder.obtain(replyContent, 0, replyContent.length, theme.chatTimePaint, replyW)
+
+        val nameActualW = replyNameLayout?.let { maxLineWidth(it) }?.toInt() ?: 0
+        val contentMaxW = (availW - nameActualW - REPLY_H_GAP).coerceAtLeast(1)
+        val displayText = if (replyHasAttachment && replyContent.isBlank()) "tap to see attachment" else replyContent
+        if (displayText.isNotEmpty()) {
+            replyTextLayout = StaticLayout.Builder.obtain(displayText, 0, displayText.length, REPLY_CONTENT_PAINT, contentMaxW)
                 .setMaxLines(1)
                 .setEllipsize(TextUtils.TruncateAt.END)
                 .build()
@@ -762,6 +827,37 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
     }
 
+    private fun loadReplyAvatar(url: String) {
+        replyAvatarCancellable?.cancel()
+        replyAvatarCancellable = null
+        if (url.isEmpty()) {
+            Log.d("ReplyAvatar", "loadReplyAvatar: url is empty, showing initials")
+            replyAvatarDrawable.setPhoto(null)
+            replyAvatarDrawable.setDrawableByInfo(true)
+            return
+        }
+        val proxyUrl = createImgproxyUrl(url, REPLY_AVATAR_SIZE * 2, REPLY_AVATAR_SIZE * 2, "fill")
+        Log.d("ReplyAvatar", "loadReplyAvatar: url=$url proxyUrl=$proxyUrl")
+        val loader = MezonImageLoader.getInstance(context)
+        val cached = loader.getBitmapFromMemory(proxyUrl, REPLY_AVATAR_SIZE, REPLY_AVATAR_SIZE)
+        if (cached != null) {
+            Log.d("ReplyAvatar", "loadReplyAvatar: found in memory cache")
+            replyAvatarDrawable.setPhoto(cached)
+            replyAvatarDrawable.setDrawableByInfo(true)
+            return
+        }
+        replyAvatarDrawable.setDrawableByInfo(true)
+        replyAvatarCancellable = loader.load(proxyUrl, REPLY_AVATAR_SIZE, REPLY_AVATAR_SIZE, onSuccess = { bmp ->
+            Log.d("ReplyAvatar", "loadReplyAvatar: loaded successfully ${bmp.width}x${bmp.height}")
+            replyAvatarDrawable.setPhoto(bmp)
+            replyAvatarDrawable.setDrawableByInfo(true)
+            invalidate()
+        }, onError = {
+            Log.d("ReplyAvatar", "loadReplyAvatar: load FAILED for url=$url")
+            replyAvatarDrawable.setDrawableByInfo(true)
+        })
+    }
+
     private fun checkAvatarFallbackTimeout() {
         if (!avatarFallbackVisible && !avatarDrawable.hasPhoto() && avatarLoadStartTime > 0) {
             if (System.currentTimeMillis() - avatarLoadStartTime > 3000L) {
@@ -792,6 +888,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         fun didClickHashtag(cell: ChatMessageCell, channelId: String?) {}
         fun didLongPress(cell: ChatMessageCell, msg: MessageEntity) {}
         fun didClickAvatar(cell: ChatMessageCell, msg: MessageEntity) {}
+        fun didPressReply(cell: ChatMessageCell, replyMessageId: Long) {}
     }
 
     private var pressedLink: ClickableSpan? = null
@@ -800,6 +897,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var pressedOnOgp = false
     private var pressedOnFile = false
     private var pressedOnAvatar = false
+    private var pressedOnReply = false
     private var fileBlockLeft = 0f
     private var fileBlockTop = 0f
     private var fileBlockRight = 0f
@@ -828,6 +926,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         pressedOnOgp = false
         pressedOnFile = false
         pressedOnAvatar = false
+        pressedOnReply = false
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -840,24 +939,33 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 pressedOnOgp = false
                 pressedOnFile = false
                 pressedOnAvatar = false
+                pressedOnReply = false
                 longPressHandled = false
                 startX = x
                 startY = y
 
                 if (!isCombined) {
-                    val topPad = PAD_V
-                    if (x >= PAD_H && x <= PAD_H + AVATAR_SIZE && y >= topPad && y <= topPad + AVATAR_SIZE) {
+                    var avatarTopPad = PAD_V
+                    if (hasReply) avatarTopPad += REPLY_ROW_HEIGHT + REPLY_V_GAP
+                    if (x >= PAD_H && x <= PAD_H + AVATAR_SIZE && y >= avatarTopPad && y <= avatarTopPad + AVATAR_SIZE) {
                         pressedOnAvatar = true
                         scheduleLongPress()
                         return true
                     }
                     val nameLeft = PAD_H + AVATAR_SIZE + GAP_AVATAR
                     val nameHeight = senderLayout?.height ?: 0
-                    if (nameHeight > 0 && x >= nameLeft && y >= topPad && y <= topPad + nameHeight) {
+                    if (nameHeight > 0 && x >= nameLeft && y >= avatarTopPad && y <= avatarTopPad + nameHeight) {
                         pressedOnAvatar = true
                         scheduleLongPress()
                         return true
                     }
+                }
+
+                if (hasReply && !replyIsDeleted && replyRefMessageId != 0L &&
+                    x >= replyBlockLeft && x <= replyBlockRight && y >= replyBlockTop && y <= replyBlockBottom) {
+                    pressedOnReply = true
+                    scheduleLongPress()
+                    return true
                 }
 
                 if (drawFileAttachment && x >= fileBlockLeft && x <= fileBlockRight && y >= fileBlockTop && y <= fileBlockBottom) {
@@ -936,12 +1044,18 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     pressedOnOgp = false
                     pressedOnFile = false
                     pressedOnAvatar = false
+                    pressedOnReply = false
                     return true
                 }
                 if (pressedOnAvatar) {
                     pressedOnAvatar = false
                     val msg = messageEntity
                     if (msg != null) delegate?.didClickAvatar(this, msg)
+                    return true
+                }
+                if (pressedOnReply) {
+                    pressedOnReply = false
+                    if (replyRefMessageId != 0L) delegate?.didPressReply(this, replyRefMessageId)
                     return true
                 }
                 if (pressedOnFile) {
@@ -975,6 +1089,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 pressedOnOgp = false
                 pressedOnFile = false
                 pressedOnAvatar = false
+                pressedOnReply = false
             }
         }
         return super.onTouchEvent(event)
@@ -1038,6 +1153,11 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         for (i in extraPhotoImages.indices) extraPhotoImages[i].setAllowStartAnimation(false)
     }
 
+    fun setHighlight() {
+        highlightProgress = 1f
+        invalidate()
+    }
+
     fun startHeavyOperations() {
         photoImage.setAllowStartAnimation(true)
         for (i in extraPhotoImages.indices) extraPhotoImages[i].setAllowStartAnimation(true)
@@ -1047,11 +1167,18 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val msg = messageEntity ?: return
         checkAvatarFallbackTimeout()
 
-        // Mention / reply highlight background (flat, no bubble)
         if (hasMentionHighlight) {
             MENTION_BG_PAINT.color = theme.midnightBlue and 0x00FFFFFF.toInt() or 0x26000000
             canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), MENTION_BG_PAINT)
             canvas.drawRect(0f, 0f, MENTION_BAR_WIDTH.toFloat(), height.toFloat(), MENTION_BAR_PAINT)
+        }
+
+        if (highlightProgress > 0f) {
+            val a = (highlightProgress * 0x30).toInt().coerceIn(0, 0xFF)
+            HIGHLIGHT_BG_PAINT.color = theme.midnightBlue and 0x00FFFFFF or (a shl 24)
+            canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), HIGHLIGHT_BG_PAINT)
+            highlightProgress = (highlightProgress - HIGHLIGHT_DECAY_STEP).coerceAtLeast(0f)
+            if (highlightProgress > 0f) postInvalidateDelayed(16)
         }
 
         val alpha = if (drawError) 0.6f else 1f
@@ -1112,16 +1239,20 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private fun drawMessageBubble(canvas: Canvas, msg: MessageEntity) {
         val topPad = if (isCombined) COMBINE_PAD_V else PAD_V
-        // contentLeft: right after avatar, no bubble padding (flat like RN)
         val contentLeft = PAD_H + AVATAR_SIZE + GAP_AVATAR
 
+        var yOff = topPad.toFloat()
+
+        if (hasReply) {
+            drawReplyPreviewRow(canvas, contentLeft.toFloat(), yOff)
+            yOff += REPLY_ROW_HEIGHT + REPLY_V_GAP
+        }
+
         if (!isCombined) {
-            val avatarTop = topPad
+            val avatarTop = yOff.toInt()
             avatarDrawable.setBounds(PAD_H, avatarTop, PAD_H + AVATAR_SIZE, avatarTop + AVATAR_SIZE)
             avatarDrawable.draw(canvas)
         }
-
-        var yOff = topPad.toFloat()
 
         senderLayout?.let { sender ->
             canvas.save()
@@ -1145,11 +1276,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         forwardLayout?.let {
             drawForwardHeader(canvas, contentLeft.toFloat(), yOff, msg)
             yOff += it.height + GAP_V_INNER
-        }
-
-        if (hasReply) {
-            drawReplyBar(canvas, contentLeft.toFloat(), yOff)
-            yOff += replyBarHeight() + GAP_V_INNER
         }
 
         if (drawPhotoImage) {
@@ -1433,34 +1559,65 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         return max
     }
 
-    private fun drawReplyBar(canvas: Canvas, x: Float, y: Float) {
-        val barH = replyBarHeight().toFloat()
-        canvas.drawRoundRect(
-            RectF(x, y + REPLY_BAR_PAD, x + REPLY_BAR_WIDTH, y + REPLY_BAR_PAD + barH - REPLY_BAR_PAD * 2),
-            REPLY_BAR_RADIUS, REPLY_BAR_RADIUS, theme.chatSenderPaint
+    private fun drawReplyPreviewRow(canvas: Canvas, contentLeft: Float, y: Float) {
+        val rowH = REPLY_ROW_HEIGHT.toFloat()
+        replyBlockLeft = contentLeft
+        replyBlockTop = y
+        replyBlockRight = contentLeft + cachedInnerWidth
+        replyBlockBottom = y + rowH
+
+        val centerY = y + rowH / 2f
+
+        val connectorX = (PAD_H + AVATAR_SIZE / 2).toFloat()
+        val connectorBottom = y + rowH + REPLY_V_GAP - CONNECTOR_GAP
+        connectorPath.reset()
+        connectorPath.moveTo(connectorX, connectorBottom)
+        connectorPath.lineTo(connectorX, centerY + CONNECTOR_RADIUS)
+        tmpRect.set(
+            connectorX, centerY,
+            connectorX + CONNECTOR_RADIUS * 2, centerY + CONNECTOR_RADIUS * 2
         )
-        val textX = x + REPLY_BAR_WIDTH + REPLY_BAR_GAP
-        var textY = y + REPLY_BAR_PAD.toFloat()
+        connectorPath.arcTo(tmpRect, 180f, 90f, false)
+        connectorPath.lineTo(contentLeft - REPLY_H_GAP, centerY)
+        canvas.drawPath(connectorPath, REPLY_CONNECTOR_PAINT)
+
+        val avatarTop = (centerY - REPLY_AVATAR_SIZE / 2f).toInt()
+
+        if (replyIsDeleted) {
+            val textX = contentLeft + REPLY_AVATAR_SIZE + REPLY_H_GAP
+            val textH = replyTextLayout?.height ?: 0
+            val textY = centerY - textH / 2f
+            replyTextLayout?.let {
+                canvas.save()
+                canvas.translate(textX, textY)
+                it.draw(canvas)
+                canvas.restore()
+            }
+            return
+        }
+
+        replyAvatarDrawable.setBounds(
+            contentLeft.toInt(), avatarTop,
+            contentLeft.toInt() + REPLY_AVATAR_SIZE, avatarTop + REPLY_AVATAR_SIZE
+        )
+        replyAvatarDrawable.draw(canvas)
+
+        var textX = contentLeft + REPLY_AVATAR_SIZE + REPLY_H_GAP
         replyNameLayout?.let {
+            val textY = centerY - it.height / 2f
             canvas.save()
             canvas.translate(textX, textY)
             it.draw(canvas)
             canvas.restore()
-            textY += it.height
+            textX += maxLineWidth(it) + REPLY_H_GAP
         }
         replyTextLayout?.let {
+            val textY = centerY - it.height / 2f
             canvas.save()
             canvas.translate(textX, textY)
             it.draw(canvas)
             canvas.restore()
         }
-    }
-
-    private fun replyBarHeight(): Int {
-        var h = REPLY_BAR_PAD * 2
-        replyNameLayout?.let { h += it.height }
-        replyTextLayout?.let { h += it.height }
-        return h
     }
 
     companion object {
@@ -1484,10 +1641,13 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         private val MEDIA_RADIUS = LayoutHelper.dp(12).toFloat()
         private val OGP_RADIUS = LayoutHelper.dp(8).toFloat()
         private val PLAY_BTN_SIZE = LayoutHelper.dp(48).toFloat()
-        private val REPLY_BAR_WIDTH = LayoutHelper.dp(3).toFloat()
-        private val REPLY_BAR_GAP = LayoutHelper.dp(8).toFloat()
-        private val REPLY_BAR_PAD = LayoutHelper.dp(4)
-        private val REPLY_BAR_RADIUS = LayoutHelper.dp(2).toFloat()
+        private val REPLY_AVATAR_SIZE = LayoutHelper.dp(16)
+        private val REPLY_H_GAP = LayoutHelper.dp(4)
+        private val REPLY_ROW_HEIGHT = LayoutHelper.dp(20)
+        private val REPLY_V_GAP = LayoutHelper.dp(2)
+        private val CONNECTOR_RADIUS = LayoutHelper.dpf(6f)
+        private val CONNECTOR_STROKE = LayoutHelper.dpf(1.5f)
+        private val CONNECTOR_GAP = LayoutHelper.dp(4)
         private val FILE_ICON_SIZE = LayoutHelper.dp(40)
         private val FILE_ICON_GAP = LayoutHelper.dp(10)
         private val FORWARD_ICON_SIZE = LayoutHelper.dp(14)
@@ -1501,6 +1661,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
         private val REFERENCE_SENDER_REGEX = Regex("\"message_sender_display_name\"\\s*:\\s*\"([^\"]*?)\"")
         private val REFERENCE_CONTENT_REGEX = Regex("\"references\".*?\"content\"\\s*:\\s*\"(.*?)(?<!\\\\)\"")
+        private val REFERENCE_REF_ID_REGEX = Regex("\"message_ref_id\"\\s*:\\s*\"?(\\d+)\"?")
+        private val REFERENCE_SENDER_ID_REGEX = Regex("\"message_sender_id\"\\s*:\\s*\"?(\\d+)\"?")
+        private val REFERENCE_AVATAR_REGEX = Regex("\"mesages_sender_avatar\"\\s*:\\s*\"([^\"]+)\"")
 
         private val GRID_GAP = LayoutHelper.dp(2).toFloat()
         private val BADGE_PAD = LayoutHelper.dp(6).toFloat()
@@ -1570,6 +1733,33 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         private val ERROR_PAINT = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = 0xFFD30E0E.toInt()
             textSize = LayoutHelper.dpf(12f)
+        }
+
+        private val REPLY_NAME_PAINT = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFF06D6A0.toInt()
+            textSize = LayoutHelper.dpf(12f)
+        }
+
+        private val REPLY_CONTENT_PAINT = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFF8B8D93.toInt()
+            textSize = LayoutHelper.dpf(12f)
+        }
+
+        private val DELETED_REPLY_TEXT_PAINT = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFF8B8D93.toInt()
+            textSize = LayoutHelper.dpf(12f)
+            typeface = android.graphics.Typeface.defaultFromStyle(android.graphics.Typeface.ITALIC)
+        }
+
+        private val HIGHLIGHT_BG_PAINT = Paint()
+        private const val HIGHLIGHT_DECAY_STEP = 16f / 2000f
+
+        private val REPLY_CONNECTOR_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFF5C5E66.toInt()
+            style = Paint.Style.STROKE
+            strokeWidth = CONNECTOR_STROKE
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
         }
 
         private fun formatDuration(seconds: Int): String {
