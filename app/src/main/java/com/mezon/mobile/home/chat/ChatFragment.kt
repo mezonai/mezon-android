@@ -124,6 +124,11 @@ class ChatFragment : BaseFragment() {
     private var initialApiDone = false
     private var pendingBottomScroll: Runnable? = null
 
+    private var replyingToMessage: MessageEntity? = null
+    private var replyBar: LinearLayout? = null
+    private var replyNameView: TextView? = null
+    private var replyCloseButton: ImageButton? = null
+
     private var slidingView: ChatMessageCell? = null
     private var maybeStartTrackingSlidingView = false
     private var startedTrackingSlidingView = false
@@ -184,11 +189,13 @@ class ChatFragment : BaseFragment() {
         val isSeenUpToDate = lastSentMessageId == 0L || lastSeenMessageId >= lastSentMessageId
         hasUnread = !isSeenUpToDate && lastSeenMessageId != 0L
 
+        Log.d(TAG, "onFragmentCreate: startLoadFromMessageId=$startLoadFromMessageId forceLatest=$forceLatest channelId=$channelId")
         if (startLoadFromMessageId == 0L && !forceLatest) {
             val prefs = getParentActivity()?.getSharedPreferences(SCROLL_PREFS, android.content.Context.MODE_PRIVATE)
             val savedMid = prefs?.getLong("mid_$channelId", 0L) ?: 0L
             val savedOffset = prefs?.getInt("off_$channelId", 0) ?: 0
             val savedAtBottom = prefs?.getBoolean("bot_$channelId", true) ?: true
+            Log.d(TAG, "scrollRestore: savedMid=$savedMid savedOffset=$savedOffset savedAtBottom=$savedAtBottom")
             if (savedAtBottom) {
                 pausedOnLastMessage = true
             } else if (savedMid != 0L) {
@@ -196,6 +203,7 @@ class ChatFragment : BaseFragment() {
                 needScrollRestore = true
                 startLoadFromMessageOffset = savedOffset
                 startLoadFromMessageId = savedMid
+                Log.d(TAG, "scrollRestore: will loadMessagesAround mid=$savedMid offset=$savedOffset")
             }
         }
         if (hasUnread && startLoadFromMessageId == 0L && !forceLatest) {
@@ -434,10 +442,25 @@ class ChatFragment : BaseFragment() {
                     }
 
                     refreshUI()
-                    if (forceLatest && wasFirstLoad) {
+
+                    if (pendingHighlightMessageId != 0L) {
+                        val highlightId = pendingHighlightMessageId
+                        pendingHighlightMessageId = 0L
+                        val hIdx = messages.indexOfFirst { it.id == highlightId }
+                        Log.d(TAG, "pendingHighlight: id=$highlightId idx=$hIdx msgsSize=${messages.size}")
+                        if (hIdx >= 0) {
+                            val newestInList = messages.firstOrNull()?.id ?: 0L
+                            if (lastSentMessageId != 0L && newestInList < lastSentMessageId) {
+                                isViewingOlder = true
+                                hasMoreBottom = true
+                            }
+                            recyclerView.post { scrollToAndHighlight(hIdx) }
+                        }
+                    } else if (forceLatest && wasFirstLoad) {
                         forceScrollToBottom()
                         markAsRead()
                     } else if (startLoadFromMessageId != 0L) {
+                        Log.d(TAG, "scrollDecision: startLoadFromMessageId=$startLoadFromMessageId offset=$startLoadFromMessageOffset")
                         scrollToMessageWithOffset(startLoadFromMessageId, startLoadFromMessageOffset)
                         if (loadingFromOldPosition) {
                             val newestInList = messages.firstOrNull()?.id ?: 0L
@@ -463,9 +486,11 @@ class ChatFragment : BaseFragment() {
                         applyInitialUnreadCount()
                         recyclerView.post { markVisibleAsRead() }
                     } else if (wasFirstLoad) {
+                        Log.d(TAG, "scrollDecision: wasFirstLoad→forceScrollToBottom")
                         forceScrollToBottom()
                         markAsRead()
                     } else if (anchorMsgId != 0L) {
+                        Log.d(TAG, "scrollDecision: anchorRestore anchorMsgId=$anchorMsgId offset=$anchorOffset")
                         val idx = messages.indexOfFirst { it.id == anchorMsgId }
                         if (idx >= 0) {
                             val lm = recyclerView.layoutManager as? LinearLayoutManager
@@ -563,6 +588,13 @@ class ChatFragment : BaseFragment() {
             emojiButton.setColorFilter(themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary))
             micButton.setColorFilter(themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary))
             attachmentPreviewScroll?.setBackgroundColor(themeColors.surface)
+            replyBar?.setBackgroundColor(themeColors.surface)
+            replyNameView?.setTextColor(themeColors.onSurface)
+            replyCloseButton?.let { btn ->
+                val d = MezonIcon.closeSmallBold.getDrawable(btn.context)
+                d.colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
+                btn.setImageDrawable(d)
+            }
             actionBar?.applyTheme()
             pageDownButton.applyColors()
             unreadDecoration.applyColors()
@@ -674,6 +706,47 @@ class ChatFragment : BaseFragment() {
             LinearLayout.LayoutParams.WRAP_CONTENT, LayoutHelper.dp(56f)
         ))
         rootView.addView(attachmentPreviewScroll, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+
+        replyBar = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setBackgroundColor(themeColors.surface)
+            setPadding(LayoutHelper.dp(12f), LayoutHelper.dp(8f), LayoutHelper.dp(8f), LayoutHelper.dp(4f))
+            visibility = View.GONE
+        }
+
+        val replyBarIndicator = View(context).apply {
+            setBackgroundColor(0xFF5865F2.toInt())
+        }
+        replyBar!!.addView(replyBarIndicator, LinearLayout.LayoutParams(
+            LayoutHelper.dp(3f), LayoutHelper.dp(28f)
+        ).apply { rightMargin = LayoutHelper.dp(8f) })
+
+        replyNameView = TextView(context).apply {
+            setTextColor(themeColors.onSurface)
+            textSize = 13f
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        replyBar!!.addView(replyNameView, LinearLayout.LayoutParams(
+            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+        ))
+
+        replyCloseButton = ImageButton(context).apply {
+            val drawable = MezonIcon.closeSmallBold.getDrawable(context)
+            drawable.colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
+            setImageDrawable(drawable)
+            setBackgroundColor(android.graphics.Color.TRANSPARENT)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            val pad = LayoutHelper.dp(8f)
+            setPadding(pad, pad, pad, pad)
+            setOnClickListener { clearReplyState() }
+        }
+        replyBar!!.addView(replyCloseButton, LinearLayout.LayoutParams(
+            LayoutHelper.dp(32f), LayoutHelper.dp(32f)
+        ).also { it.gravity = android.view.Gravity.CENTER_VERTICAL })
+
+        rootView.addView(replyBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         val blurple = 0xFF5865F2.toInt()
 
@@ -827,6 +900,9 @@ class ChatFragment : BaseFragment() {
             override fun didClickAvatar(cell: ChatMessageCell, msg: MessageEntity) {
                 showUserProfile(msg)
             }
+            override fun didPressReply(cell: ChatMessageCell, replyMessageId: Long) {
+                scrollToReplyMessage(replyMessageId)
+            }
         })
         adapter.channelType = channelType
         adapter.clanId = clanId
@@ -936,15 +1012,18 @@ class ChatFragment : BaseFragment() {
     }
 
     private fun saveScrollPosition() {
+        Log.d(TAG, "saveScrollPosition: called firstLoad=$firstLoad rvInit=${::recyclerView.isInitialized}")
         if (firstLoad || !::recyclerView.isInitialized) return
 
         val lm = recyclerView.layoutManager as? LinearLayoutManager ?: return
         val position = lm.findFirstVisibleItemPosition()
+        Log.d(TAG, "saveScrollPosition: position=$position isViewingOlder=$isViewingOlder hasMoreBottom=$hasMoreBottom")
         if (position == RecyclerView.NO_POSITION) return
         val prefs = getParentActivity()?.getSharedPreferences(SCROLL_PREFS, android.content.Context.MODE_PRIVATE)
             ?: return
 
         if (position <= PAGE_DOWN_SCROLL_THRESHOLD && !hasMoreBottom) {
+            Log.d(TAG, "saveScrollPosition: atBottom (pos=$position threshold=$PAGE_DOWN_SCROLL_THRESHOLD hasMoreBottom=$hasMoreBottom)")
             prefs.edit()
                 .putLong("mid_$channelId", 0L)
                 .putInt("off_$channelId", 0)
@@ -970,6 +1049,7 @@ class ChatFragment : BaseFragment() {
         }
 
         if (messageId != 0L) {
+            Log.d(TAG, "saveScrollPosition: mid=$messageId offset=$offset")
             prefs.edit()
                 .putLong("mid_$channelId", messageId)
                 .putInt("off_$channelId", offset)
@@ -978,11 +1058,14 @@ class ChatFragment : BaseFragment() {
         } else {
             val fallbackMsg = messages.firstOrNull()
             if (fallbackMsg != null && (isViewingOlder || hasMoreBottom)) {
+                Log.d(TAG, "saveScrollPosition: fallback mid=${fallbackMsg.id}")
                 prefs.edit()
                     .putLong("mid_$channelId", fallbackMsg.id)
                     .putInt("off_$channelId", Int.MAX_VALUE)
                     .putBoolean("bot_$channelId", false)
                     .commit()
+            } else {
+                Log.d(TAG, "saveScrollPosition: no messageId found, isViewingOlder=$isViewingOlder hasMoreBottom=$hasMoreBottom msgs=${messages.size}")
             }
         }
     }
@@ -1001,6 +1084,8 @@ class ChatFragment : BaseFragment() {
         messages.clear()
         messagesDict.clear()
         pendingAttachments.clear()
+        replyingToMessage = null
+        pendingHighlightMessageId = 0L
         super.onFragmentDestroy()
     }
 
@@ -1364,18 +1449,22 @@ class ChatFragment : BaseFragment() {
         if (text.isBlank() && pendingAttachments.isEmpty()) return
 
         val isPrivate = resolveChannelPrivate()
+        val references = buildReplyReferences()
+
         if (pendingAttachments.isNotEmpty()) {
             val ctx = getContext() ?: return
             chatController.sendMessageWithAttachments(
                 channelId, clanId, channelType, isPrivate, text,
                 ArrayList(pendingAttachments),
-                ctx.contentResolver
+                ctx.contentResolver,
+                references
             )
             clearPendingAttachments()
         } else {
-            chatController.sendMessage(channelId, clanId, channelType, isPrivate, text)
+            chatController.sendMessage(channelId, clanId, channelType, isPrivate, text, references)
         }
         inputField.text?.clear()
+        clearReplyState()
     }
 
     private fun showAttachmentPicker() {
@@ -1616,8 +1705,7 @@ class ChatFragment : BaseFragment() {
     private fun handleMessageAction(action: MessageActionBottomSheet.ActionType, msg: MessageEntity) {
         when (action) {
             MessageActionBottomSheet.ActionType.Reply -> {
-                // TODO: set chatbox to reply mode
-                Log.d(TAG, "Action: Reply to message ${msg.id}")
+                setReplyState(msg)
             }
             MessageActionBottomSheet.ActionType.EditMessage -> {
                 // TODO: set chatbox to edit mode
@@ -1687,5 +1775,59 @@ class ChatFragment : BaseFragment() {
         }
         builder.setNegativeButton(R.string.common_cancel, null)
         builder.show()
+    }
+
+    private fun setReplyState(msg: MessageEntity) {
+        replyingToMessage = msg
+        val label = "${getString(R.string.message_chatbox_replying_to)} ${msg.senderName}"
+        replyNameView?.text = label
+        replyBar?.visibility = View.VISIBLE
+        inputField.requestFocus()
+        AndroidUtilities.showKeyboard(inputField)
+    }
+
+    private fun clearReplyState() {
+        replyingToMessage = null
+        replyBar?.visibility = View.GONE
+        replyNameView?.text = ""
+    }
+
+    private fun buildReplyReferences(): List<com.mezon.mezon.api.MessageRef>? {
+        val target = replyingToMessage ?: return null
+        val ref = com.mezon.mezon.api.messageRef {
+            messageId = 0L
+            messageRefId = target.id
+            refType = 0
+            messageSenderId = target.senderId
+            messageSenderUsername = target.senderName
+            mesagesSenderAvatar = target.senderAvatar
+            messageSenderDisplayName = target.senderName
+            content = target.content
+            hasAttachment = target.hasMedia || target.isFileAttachment
+        }
+        return listOf(ref)
+    }
+
+    private var pendingHighlightMessageId = 0L
+
+    private fun scrollToReplyMessage(messageId: Long) {
+        val idx = messages.indexOfFirst { it.id == messageId }
+        if (idx >= 0) {
+            scrollToAndHighlight(idx)
+        } else {
+            Log.d(TAG, "Reply message $messageId not in list, calling loadMessagesAround")
+            pendingHighlightMessageId = messageId
+            chatController.loadMessagesAround(channelId, clanId, messageId, requireExactAnchor = true)
+        }
+    }
+
+    private fun scrollToAndHighlight(idx: Int) {
+        val lm = recyclerView.layoutManager as? LinearLayoutManager ?: return
+        val adapterPos = adapter.messagesStartRow + idx
+        lm.scrollToPositionWithOffset(adapterPos, recyclerView.height / 3)
+        recyclerView.post {
+            val vh = recyclerView.findViewHolderForAdapterPosition(adapterPos)
+            (vh?.itemView as? ChatMessageCell)?.setHighlight()
+        }
     }
 }

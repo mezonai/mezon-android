@@ -164,6 +164,7 @@
     <string name="message_jump_to_latest">Jump to latest</string>
     <string name="message_toast_copy_text">Copied Message Text</string>
     <string name="message_forwarded">Forwarded</string>
+    <string name="message_reply_deleted">Original message was deleted</string>
 
     <!-- message action aliases (used by MessageActionBottomSheet) -->
     <string name="action_reply">Reply</string>
