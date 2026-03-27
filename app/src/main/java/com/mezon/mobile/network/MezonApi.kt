@@ -10,6 +10,7 @@ import com.mezon.mezon.api.BlockFriendsRequest
 import com.mezon.mezon.api.ChannelDescList
 import com.mezon.mezon.api.ChannelMessageList
 import com.mezon.mezon.api.ClanDescList
+import com.mezon.mezon.api.ChannelUserList
 import com.mezon.mezon.api.ClanUserList
 import com.mezon.mezon.api.DeleteNotificationsRequest
 import com.mezon.mezon.api.FriendList
@@ -27,6 +28,7 @@ import com.mezon.mezon.api.deleteNotificationsRequest
 import com.mezon.mezon.api.filterParam
 import com.mezon.mezon.api.linkAccountConfirmRequest
 import com.mezon.mezon.api.listClanDescRequest
+import com.mezon.mezon.api.listChannelUsersRequest
 import com.mezon.mezon.api.listClanUsersRequest
 import com.mezon.mezon.api.listChannelDescsRequest
 import com.mezon.mezon.api.listChannelMessagesRequest
@@ -480,6 +482,24 @@ class MezonApi @Inject constructor(
         }
         val bytes = rpc(apiUrl, token, "ListClanUsers", request.toByteArray())
         return ClanUserList.parseFrom(bytes)
+    }
+
+    suspend fun listChannelUsers(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        channelId: Long,
+        channelType: Int
+    ): ChannelUserList {
+        val request = listChannelUsersRequest {
+            this.clanId = clanId
+            this.channelId = channelId
+            this.channelType = channelType
+            this.limit = 2000
+            this.state = 1
+        }
+        val bytes = rpc(apiUrl, token, "ListChannelUsers", request.toByteArray())
+        return ChannelUserList.parseFrom(bytes)
     }
 
     suspend fun listChannelByUserId(
