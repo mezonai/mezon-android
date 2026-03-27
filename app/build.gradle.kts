@@ -11,7 +11,7 @@ plugins {
 
 android {
     namespace = "com.mezon.mobile"
-    compileSdk = 34
+    compileSdk = 35
 
     val signingPropsFile = rootProject.file("signing.properties")
     val signingProps = Properties().apply {
@@ -28,9 +28,9 @@ android {
     defaultConfig {
         applicationId = "com.mezon.mobile"
         minSdk = 24
-        targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        targetSdk = 35
+        versionCode = 953
+        versionName = "1.1.169"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
