@@ -34,12 +34,15 @@ import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.ChatController
+import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.LOAD_TYPE_INITIAL
 import com.mezon.mobile.home.DialogsController
+import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.ui.cells.ActionBarView
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.PageDownButton
+import com.mezon.mobile.util.MentionData
 import com.mezon.mobile.util.parseContentText
 
 private const val TAG = "ChatFragment"
@@ -135,6 +138,13 @@ class ChatFragment : BaseFragment() {
     private var editNameView: TextView? = null
     private var editCloseButton: ImageButton? = null
 
+    private lateinit var userClanController: UserClanController
+    private var mentionsPopup: MentionsPopupView? = null
+    private var mentionsAdapter: MentionSuggestionsAdapter? = null
+    private val mentionTrackers = mutableListOf<MentionData>()
+    private var mentionAtPosition = -1
+    private var mentionQueryLength = 0
+
     private var slidingView: ChatMessageCell? = null
     private var maybeStartTrackingSlidingView = false
     private var startedTrackingSlidingView = false
@@ -195,6 +205,14 @@ class ChatFragment : BaseFragment() {
         val isSeenUpToDate = lastSentMessageId == 0L || lastSeenMessageId >= lastSentMessageId
         hasUnread = !isSeenUpToDate && lastSeenMessageId != 0L
 
+        if (clanId != 0L) {
+            userClanController.loadClanMembers(clanId)
+            val ch = channelController.findChannelById(channelId)
+            if (ch != null && (ch.isPrivate || ch.parentId != 0L)) {
+                val targetChannelId = if (ch.parentId != 0L) ch.parentId else channelId
+                userClanController.loadChannelMembers(clanId, targetChannelId, channelType)
+            }
+        }
         Log.d(TAG, "onFragmentCreate: startLoadFromMessageId=$startLoadFromMessageId forceLatest=$forceLatest channelId=$channelId")
         if (startLoadFromMessageId == 0L && !forceLatest) {
             val prefs = getParentActivity()?.getSharedPreferences(SCROLL_PREFS, android.content.Context.MODE_PRIVATE)
@@ -610,6 +628,7 @@ class ChatFragment : BaseFragment() {
             }
             editBar?.setBackgroundColor(themeColors.surface)
             editNameView?.setTextColor(themeColors.onSurface)
+            mentionsPopup?.applyColors()
             editCloseButton?.let { btn ->
                 val d = MezonIcon.closeSmallBold.getDrawable(btn.context)
                 d.colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
@@ -639,6 +658,16 @@ class ChatFragment : BaseFragment() {
             markAsRead()
         }
 
+        observe(NotificationCenter.channelMembersDidLoad) { _, _, args ->
+            if (isPaused) return@observe
+            val loadedChannelId = args.firstOrNull() as? Long ?: return@observe
+            val ch = channelController.findChannelById(channelId)
+            val targetChannelId = if (ch?.parentId != 0L && ch?.parentId != null) ch.parentId else channelId
+            if (loadedChannelId == targetChannelId) {
+                checkMentionTrigger()
+            }
+        }
+
         notificationCenter.addPostponeNotificationsCallback(postponeNewMessagesCallback)
 
         isLoading = true
@@ -657,6 +686,7 @@ class ChatFragment : BaseFragment() {
         dialogsController = entryPoint.dialogsController()
         channelController = entryPoint.channelController()
         mediaController = entryPoint.mediaController()
+        userClanController = entryPoint.userClanController()
     }
 
     override fun createView(context: Context): View {
@@ -707,6 +737,19 @@ class ChatFragment : BaseFragment() {
                 LayoutHelper.dp(56f), LayoutHelper.dp(56f),
                 Gravity.BOTTOM or Gravity.END
             ).apply {
+                rightMargin = LayoutHelper.dp(8f)
+                bottomMargin = LayoutHelper.dp(4f)
+            }
+        )
+
+        mentionsAdapter = MentionSuggestionsAdapter(themeColors) { item -> onMentionSelected(item) }
+        mentionsPopup = MentionsPopupView(context, themeColors).apply {
+            recyclerView.adapter = mentionsAdapter
+        }
+        contentFrame.addView(
+            mentionsPopup,
+            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM).apply {
+                leftMargin = LayoutHelper.dp(8f)
                 rightMargin = LayoutHelper.dp(8f)
                 bottomMargin = LayoutHelper.dp(4f)
             }
@@ -902,6 +945,7 @@ class ChatFragment : BaseFragment() {
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
             override fun afterTextChanged(s: Editable?) {
                 updateSendButtonState()
+                checkMentionTrigger()
             }
         })
 
@@ -1147,6 +1191,9 @@ class ChatFragment : BaseFragment() {
         pendingAttachments.clear()
         replyingToMessage = null
         editingMessage = null
+        mentionTrackers.clear()
+        mentionsPopup = null
+        mentionsAdapter = null
         pendingHighlightMessageId = 0L
         super.onFragmentDestroy()
     }
@@ -1506,6 +1553,17 @@ class ChatFragment : BaseFragment() {
         return false
     }
 
+    private fun resolveMentionMembers(): List<ClanMember> {
+        if (clanId == 0L) return emptyList()
+        val ch = channelController.findChannelById(channelId)
+        if (ch != null && (ch.isPrivate || ch.parentId != 0L)) {
+            val targetChannelId = if (ch.parentId != 0L) ch.parentId else channelId
+            val channelMembers = userClanController.getChannelMembers(targetChannelId)
+            if (channelMembers.isNotEmpty()) return channelMembers
+        }
+        return userClanController.getClanMembers(clanId)
+    }
+
     private fun sendMessage() {
         val text = inputField.text?.toString()?.trim() ?: ""
         if (text.isBlank() && pendingAttachments.isEmpty()) return
@@ -1520,6 +1578,7 @@ class ChatFragment : BaseFragment() {
 
         val isPrivate = resolveChannelPrivate()
         val references = buildReplyReferences()
+        val mentions = if (mentionTrackers.isNotEmpty()) ArrayList(mentionTrackers) else null
 
         if (pendingAttachments.isNotEmpty()) {
             val ctx = getContext() ?: return
@@ -1531,9 +1590,10 @@ class ChatFragment : BaseFragment() {
             )
             clearPendingAttachments()
         } else {
-            chatController.sendMessage(channelId, clanId, channelType, isPrivate, text, references)
+            chatController.sendMessage(channelId, clanId, channelType, isPrivate, text, references, mentions)
         }
         inputField.text?.clear()
+        mentionTrackers.clear()
         clearReplyState()
     }
 
@@ -1917,5 +1977,97 @@ class ChatFragment : BaseFragment() {
             val vh = recyclerView.findViewHolderForAdapterPosition(adapterPos)
             (vh?.itemView as? ChatMessageCell)?.setHighlight()
         }
+    }
+
+    private fun checkMentionTrigger() {
+        val text = inputField.text?.toString() ?: ""
+        val cursor = inputField.selectionStart
+        if (cursor <= 0 || text.isEmpty()) {
+            hideMentionsPopup()
+            return
+        }
+
+        var query: String? = null
+        var atPos = -1
+        for (a in (cursor - 1) downTo 0) {
+            if (a >= text.length) continue
+            val ch = text[a]
+            if (ch == '@') {
+                if (a == 0 || text[a - 1] == ' ' || text[a - 1] == '\n') {
+                    atPos = a
+                    query = text.substring(a + 1, cursor)
+                    break
+                }
+            }
+            if (ch == ' ' || ch == '\n') break
+        }
+
+        if (query != null && atPos >= 0) {
+            mentionAtPosition = atPos
+            mentionQueryLength = query.length + 1
+            val members = resolveMentionMembers()
+            mentionsAdapter?.search(query, members)
+            if ((mentionsAdapter?.itemCount ?: 0) > 0) {
+                mentionsPopup?.updateVisibility(true)
+            } else {
+                hideMentionsPopup()
+            }
+        } else {
+            hideMentionsPopup()
+        }
+    }
+
+    private fun hideMentionsPopup() {
+        mentionsPopup?.updateVisibility(false)
+        mentionAtPosition = -1
+        mentionQueryLength = 0
+    }
+
+    private fun onMentionSelected(item: MentionSuggestionItem) {
+        val editable = inputField.text ?: return
+        val atPos = mentionAtPosition
+        if (atPos < 0) return
+
+        val replaceEnd = minOf(atPos + mentionQueryLength, editable.length)
+
+        when (item) {
+            is MentionSuggestionItem.Here -> {
+                val mentionText = "@here "
+                editable.replace(atPos, replaceEnd, mentionText)
+                val spanStart = atPos
+                val spanEnd = atPos + mentionText.trimEnd().length
+                editable.setSpan(
+                    android.text.style.ForegroundColorSpan(0xFF5865F2.toInt()),
+                    spanStart, spanEnd,
+                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+                inputField.setSelection(atPos + mentionText.length)
+                mentionTrackers.add(MentionData(
+                    userId = ChatController.ID_MENTION_HERE,
+                    startOffset = spanStart,
+                    endOffset = spanEnd
+                ))
+            }
+            is MentionSuggestionItem.Member -> {
+                val member = item.member
+                val displayName = member.clanNick.ifBlank { member.displayName.ifBlank { member.username } }
+                val mentionText = "@$displayName "
+                editable.replace(atPos, replaceEnd, mentionText)
+                val spanStart = atPos
+                val spanEnd = atPos + mentionText.trimEnd().length
+                editable.setSpan(
+                    android.text.style.ForegroundColorSpan(0xFF5865F2.toInt()),
+                    spanStart, spanEnd,
+                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+                inputField.setSelection(atPos + mentionText.length)
+                mentionTrackers.add(MentionData(
+                    userId = member.userId.toString(),
+                    startOffset = spanStart,
+                    endOffset = spanEnd
+                ))
+            }
+        }
+        hideMentionsPopup()
     }
 }

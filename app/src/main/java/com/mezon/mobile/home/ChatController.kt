@@ -21,9 +21,12 @@ import com.mezon.mobile.network.channelTypeToStreamMode
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.BuildConfig
+import com.mezon.mobile.util.MentionData
 import com.mezon.mobile.util.buildTextContent
+import com.mezon.mobile.util.buildTextContentWithMentions
 import com.mezon.mezon.api.MessageAttachment
 import com.mezon.mezon.api.messageAttachment
+import com.mezon.mezon.api.messageMention
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
@@ -381,19 +384,37 @@ class ChatController @Inject constructor(
         channelType: Int,
         isChannelPrivate: Boolean,
         text: String,
-        references: List<com.mezon.mezon.api.MessageRef>? = null
+        references: List<com.mezon.mezon.api.MessageRef>? = null,
+        mentions: List<MentionData>? = null
     ) {
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
-        val content = buildTextContent(text)
+        val content = if (mentions.isNullOrEmpty()) buildTextContent(text)
+            else buildTextContentWithMentions(text, mentions)
+        val mentionEveryone = mentions?.any { it.userId == ID_MENTION_HERE } == true
+        val protoMentions = mentions?.mapNotNull { m ->
+            if (m.userId == ID_MENTION_HERE) return@mapNotNull null
+            com.mezon.mezon.api.messageMention {
+                if (m.userId.isNotBlank()) userId = m.userId.toLongOrNull() ?: 0L
+                if (m.roleId.isNotBlank()) roleId = m.roleId.toLongOrNull() ?: 0L
+            }
+        }
         appScope.launch {
             try {
-                mezonSocket.writeChatMessage(clanId, channelId, mode, isPublic, content, references = references)
-                Log.d(TAG, "Message sent: channelId=$channelId isPublic=$isPublic hasReferences=${references != null}")
+                mezonSocket.writeChatMessage(
+                    clanId, channelId, mode, isPublic, content,
+                    mentions = protoMentions, references = references,
+                    mentionEveryone = mentionEveryone
+                )
+                Log.d(TAG, "Message sent: channelId=$channelId mentions=${mentions?.size ?: 0}")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to send message", e)
             }
         }
+    }
+
+    companion object {
+        const val ID_MENTION_HERE = "here"
     }
 
     fun sendMessageWithAttachments(

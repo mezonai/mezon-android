@@ -153,12 +153,76 @@ class UserClanController @Inject constructor(
         }
     }
 
+    private val membersByChannel = LongSparseArray<ArrayList<ClanMember>>()
+
+    @Synchronized
+    fun getChannelMembers(channelId: Long): List<ClanMember> {
+        return membersByChannel[channelId]?.let { ArrayList(it) } ?: emptyList()
+    }
+
+    fun loadChannelMembers(clanId: Long, channelId: Long, channelType: Int, noCache: Boolean = false) {
+        if (channelId == 0L) return
+        appScope.launch(ioDispatcher) {
+            try {
+                val cacheKey = apiCacheKey("listChannelUsers", clanId.toString(), channelId.toString())
+                val hasCache: Boolean
+                synchronized(this@UserClanController) { hasCache = membersByChannel[channelId] != null }
+
+                if (hasCache && cacheTracker.shouldCall(cacheKey, noCache = noCache) == ApiCacheTracker.ShouldCall.SKIP) return@launch
+
+                sessionManager.withAutoRefresh { session ->
+                    val response = api.listChannelUsers(session.apiUrl, session.token, clanId, channelId, channelType)
+                    val channelUsers = response.channelUsersList
+
+                    val clanMembers = getClanMembers(clanId)
+                    val clanMemberDict = HashMap<Long, ClanMember>(clanMembers.size)
+                    for (m in clanMembers) clanMemberDict[m.userId] = m
+
+                    val members = ArrayList<ClanMember>(channelUsers.size)
+                    val seen = HashSet<Long>(channelUsers.size)
+                    for (cu in channelUsers) {
+                        if (cu.userId in seen) continue
+                        seen.add(cu.userId)
+                        val existing = clanMemberDict[cu.userId]
+                        if (existing != null) {
+                            members.add(existing)
+                        } else {
+                            members.add(ClanMember(
+                                userId = cu.userId,
+                                username = "",
+                                displayName = cu.clanNick.ifBlank { "" },
+                                avatarUrl = cu.clanAvatar,
+                                isOnline = false,
+                                clanNick = cu.clanNick,
+                                clanAvatar = cu.clanAvatar,
+                                clanId = clanId,
+                                roleIds = cu.roleIdList
+                            ))
+                        }
+                    }
+
+                    synchronized(this@UserClanController) {
+                        membersByChannel.put(channelId, members)
+                    }
+
+                    cacheTracker.markCalled(cacheKey)
+                    notificationCenter.postNotificationOnMainThread(
+                        NotificationCenter.channelMembersDidLoad, channelId
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "loadChannelMembers failed for channel $channelId", e)
+            }
+        }
+    }
+
     fun cleanup() {
         synchronized(this) {
             users.clear()
             usersDict.clear()
             loaded = false
             membersByClan.clear()
+            membersByChannel.clear()
         }
     }
 }

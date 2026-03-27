@@ -100,6 +100,7 @@ class NotificationCenter(val currentAccount: Int) {
         val scrollToBottomChat = nextId()
         val userClansDidLoad = nextId()
         val clanMembersDidLoad = nextId()
+        val channelMembersDidLoad = nextId()
         val searchMembersDidLoad = nextId()
         val searchChannelsDidLoad = nextId()
         val searchMessagesDidLoad = nextId()

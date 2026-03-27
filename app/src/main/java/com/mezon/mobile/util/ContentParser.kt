@@ -50,6 +50,34 @@ fun buildTextContent(text: String): String {
     return "{\"t\":\"$escaped\"}"
 }
 
+data class MentionData(
+    val userId: String = "",
+    val roleId: String = "",
+    val startOffset: Int = 0,
+    val endOffset: Int = 0
+)
+
+fun buildTextContentWithMentions(text: String, mentions: List<MentionData>): String {
+    val escaped = text
+        .replace("\\", "\\\\")
+        .replace("\"", "\\\"")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+    if (mentions.isEmpty()) return "{\"t\":\"$escaped\"}"
+
+    val mentionsJson = StringBuilder("[")
+    mentions.forEachIndexed { i, m ->
+        if (i > 0) mentionsJson.append(",")
+        mentionsJson.append("{")
+        if (m.userId.isNotBlank()) mentionsJson.append("\"user_id\":\"${m.userId}\",")
+        if (m.roleId.isNotBlank()) mentionsJson.append("\"role_id\":\"${m.roleId}\",")
+        mentionsJson.append("\"s\":${m.startOffset},\"e\":${m.endOffset}}")
+    }
+    mentionsJson.append("]")
+    return "{\"t\":\"$escaped\",\"mentions\":$mentionsJson}"
+}
+
 fun formatRelativeTime(epochSeconds: Long): String {
     if (epochSeconds <= 0L) return ""
     val msgCal = java.util.Calendar.getInstance().apply {
