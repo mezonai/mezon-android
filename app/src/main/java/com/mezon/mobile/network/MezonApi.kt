@@ -547,8 +547,8 @@ const val STREAM_MODE_GROUP = 3
 const val STREAM_MODE_DM = 4
 const val STREAM_MODE_THREAD = 6
 
-const val CODE_CHAT_UPDATE = 2
-const val CODE_CHAT_REMOVE = 3
+const val CODE_CHAT_UPDATE = 1
+const val CODE_CHAT_REMOVE = 2
 
 fun channelTypeToStreamMode(channelType: Int): Int = when (channelType) {
     CHANNEL_TYPE_CHANNEL -> STREAM_MODE_CHANNEL

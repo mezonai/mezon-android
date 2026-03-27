@@ -480,6 +480,23 @@ class ChatController @Inject constructor(
         return cachedCurrentUserId
     }
 
+    fun editMessage(
+        channelId: Long, clanId: Long, channelType: Int,
+        isChannelPrivate: Boolean, messageId: Long, newText: String
+    ) {
+        val mode = channelTypeToStreamMode(channelType)
+        val isPublic = !isChannelPrivate
+        val content = buildTextContent(newText)
+        appScope.launch {
+            try {
+                mezonSocket.updateChatMessage(clanId, channelId, mode, isPublic, messageId, content)
+                Log.d(TAG, "Message edited: channelId=$channelId messageId=$messageId")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to edit message", e)
+            }
+        }
+    }
+
     fun deleteMessage(channelId: Long, clanId: Long, channelType: Int, isChannelPrivate: Boolean, messageId: Long) {
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
@@ -502,7 +519,12 @@ class ChatController @Inject constructor(
 
             when (msg.code) {
                 CODE_CHAT_UPDATE -> {
-                    appScope.launch { messageDao.upsert(entity) }
+                    appScope.launch {
+                        messageDao.updateContent(
+                            entity.channelId, entity.id, entity.content,
+                            entity.updateTimeSeconds, entity.hideEditted, entity.code
+                        )
+                    }
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.messageDidUpdate, entity.channelId, entity,
                         NotificationCenter.UPDATE_MASK_MESSAGE_TEXT

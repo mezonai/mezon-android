@@ -40,6 +40,7 @@ import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.ui.cells.ActionBarView
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.PageDownButton
+import com.mezon.mobile.util.parseContentText
 
 private const val TAG = "ChatFragment"
 
@@ -128,6 +129,11 @@ class ChatFragment : BaseFragment() {
     private var replyBar: LinearLayout? = null
     private var replyNameView: TextView? = null
     private var replyCloseButton: ImageButton? = null
+
+    private var editingMessage: MessageEntity? = null
+    private var editBar: LinearLayout? = null
+    private var editNameView: TextView? = null
+    private var editCloseButton: ImageButton? = null
 
     private var slidingView: ChatMessageCell? = null
     private var maybeStartTrackingSlidingView = false
@@ -538,11 +544,18 @@ class ChatFragment : BaseFragment() {
 
         observe(NotificationCenter.messageDidUpdate) { _, _, args ->
             if (args.size < 2 || args[0] != channelId) return@observe
-            val entity = args[1] as? MessageEntity ?: return@observe
-            val idx = messages.indexOfFirst { it.id == entity.id }
+            val updateEntity = args[1] as? MessageEntity ?: return@observe
+            val idx = messages.indexOfFirst { it.id == updateEntity.id }
             if (idx >= 0) {
-                messages[idx] = entity
-                messagesDict.put(entity.id, entity)
+                val existing = messages[idx]
+                val merged = existing.copy(
+                    content = updateEntity.content,
+                    updateTimeSeconds = updateEntity.updateTimeSeconds,
+                    hideEditted = updateEntity.hideEditted,
+                    code = updateEntity.code
+                )
+                messages[idx] = merged
+                messagesDict.put(merged.id, merged)
                 val mask = if (args.size >= 3) args[2] as? Int ?: NotificationCenter.UPDATE_MASK_MESSAGE_TEXT else NotificationCenter.UPDATE_MASK_MESSAGE_TEXT
                 if (fragmentView != null) updateVisibleRows(mask)
             }
@@ -591,6 +604,13 @@ class ChatFragment : BaseFragment() {
             replyBar?.setBackgroundColor(themeColors.surface)
             replyNameView?.setTextColor(themeColors.onSurface)
             replyCloseButton?.let { btn ->
+                val d = MezonIcon.closeSmallBold.getDrawable(btn.context)
+                d.colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
+                btn.setImageDrawable(d)
+            }
+            editBar?.setBackgroundColor(themeColors.surface)
+            editNameView?.setTextColor(themeColors.onSurface)
+            editCloseButton?.let { btn ->
                 val d = MezonIcon.closeSmallBold.getDrawable(btn.context)
                 d.colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
                 btn.setImageDrawable(d)
@@ -749,6 +769,47 @@ class ChatFragment : BaseFragment() {
         rootView.addView(replyBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         val blurple = 0xFF5865F2.toInt()
+
+        editBar = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setBackgroundColor(themeColors.surface)
+            setPadding(LayoutHelper.dp(12f), LayoutHelper.dp(8f), LayoutHelper.dp(8f), LayoutHelper.dp(4f))
+            visibility = View.GONE
+        }
+
+        val editBarIndicator = View(context).apply {
+            setBackgroundColor(0xFF43B581.toInt())
+        }
+        editBar!!.addView(editBarIndicator, LinearLayout.LayoutParams(
+            LayoutHelper.dp(3f), LayoutHelper.dp(28f)
+        ).apply { rightMargin = LayoutHelper.dp(8f) })
+
+        editNameView = TextView(context).apply {
+            setTextColor(themeColors.onSurface)
+            textSize = 13f
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        editBar!!.addView(editNameView, LinearLayout.LayoutParams(
+            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+        ))
+
+        editCloseButton = ImageButton(context).apply {
+            val drawable = MezonIcon.closeSmallBold.getDrawable(context)
+            drawable.colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
+            setImageDrawable(drawable)
+            setBackgroundColor(android.graphics.Color.TRANSPARENT)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            val pad = LayoutHelper.dp(8f)
+            setPadding(pad, pad, pad, pad)
+            setOnClickListener { clearEditState() }
+        }
+        editBar!!.addView(editCloseButton, LinearLayout.LayoutParams(
+            LayoutHelper.dp(32f), LayoutHelper.dp(32f)
+        ).also { it.gravity = android.view.Gravity.CENTER_VERTICAL })
+
+        rootView.addView(editBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         inputBar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -1085,6 +1146,7 @@ class ChatFragment : BaseFragment() {
         messagesDict.clear()
         pendingAttachments.clear()
         replyingToMessage = null
+        editingMessage = null
         pendingHighlightMessageId = 0L
         super.onFragmentDestroy()
     }
@@ -1448,6 +1510,14 @@ class ChatFragment : BaseFragment() {
         val text = inputField.text?.toString()?.trim() ?: ""
         if (text.isBlank() && pendingAttachments.isEmpty()) return
 
+        val editMsg = editingMessage
+        if (editMsg != null) {
+            val isPrivate = resolveChannelPrivate()
+            chatController.editMessage(channelId, clanId, channelType, isPrivate, editMsg.id, text)
+            clearEditState()
+            return
+        }
+
         val isPrivate = resolveChannelPrivate()
         val references = buildReplyReferences()
 
@@ -1708,8 +1778,7 @@ class ChatFragment : BaseFragment() {
                 setReplyState(msg)
             }
             MessageActionBottomSheet.ActionType.EditMessage -> {
-                // TODO: set chatbox to edit mode
-                Log.d(TAG, "Action: Edit message ${msg.id}")
+                setEditState(msg)
             }
             MessageActionBottomSheet.ActionType.CopyText -> {
                 val ctx = getContext() ?: return
@@ -1790,6 +1859,25 @@ class ChatFragment : BaseFragment() {
         replyingToMessage = null
         replyBar?.visibility = View.GONE
         replyNameView?.text = ""
+    }
+
+    private fun setEditState(msg: MessageEntity) {
+        clearReplyState()
+        editingMessage = msg
+        editNameView?.text = getString(R.string.message_chatbox_editing)
+        editBar?.visibility = View.VISIBLE
+        val text = parseContentText(msg.content)
+        inputField.setText(text)
+        inputField.setSelection(text.length)
+        inputField.requestFocus()
+        AndroidUtilities.showKeyboard(inputField)
+    }
+
+    private fun clearEditState() {
+        editingMessage = null
+        editBar?.visibility = View.GONE
+        editNameView?.text = ""
+        inputField.text?.clear()
     }
 
     private fun buildReplyReferences(): List<com.mezon.mezon.api.MessageRef>? {
