@@ -219,12 +219,12 @@ class TextSettingsCell(context: Context, private val theme: ThemeColors) : Frame
             val m = LayoutHelper.dp(cardMarginDp).toFloat()
             backgroundRect.set(m, 0f, width.toFloat() - m, height.toFloat())
             
-            if (backgroundType == 4) { // single
+            if (backgroundType == 4) { 
                 canvas.drawRoundRect(backgroundRect, r, r, backgroundPaint)
-            } else if (backgroundType == 1) { // top
+            } else if (backgroundType == 1) { 
                 canvas.drawRoundRect(backgroundRect, r, r, backgroundPaint)
                 canvas.drawRect(m, height / 2f, width.toFloat() - m, height.toFloat(), backgroundPaint)
-            } else if (backgroundType == 3) { // bottom
+            } else if (backgroundType == 3) { 
                 canvas.drawRoundRect(backgroundRect, r, r, backgroundPaint)
                 canvas.drawRect(m, 0f, width.toFloat() - m, height / 2f, backgroundPaint)
             } else { 

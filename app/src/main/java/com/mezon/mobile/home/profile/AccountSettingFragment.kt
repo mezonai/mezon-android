@@ -229,7 +229,7 @@ class AccountSettingFragment : BaseFragment() {
                     val cell = holder.itemView as HeaderCell
                     cell.textView.setTextColor(themeColors.onSurfaceVariant)
                     cell.setTopPadding(if (position == headerAccountInfoRow) 0 else 12)
-                    cell.setSideMargin(16) // Precision alignment for this screen only
+                    cell.setSideMargin(16) 
                     when (position) {
                         headerAccountInfoRow -> cell.setText(getString(R.string.account_info_title))
                         headerUsersRow -> cell.setText(getString(R.string.account_users_title))
