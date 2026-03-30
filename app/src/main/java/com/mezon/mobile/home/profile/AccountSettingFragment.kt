@@ -83,7 +83,7 @@ class AccountSettingFragment : BaseFragment() {
             adapter = listAdapter
             overScrollMode = View.OVER_SCROLL_NEVER
             isVerticalScrollBarEnabled = false
-            setPadding(LayoutHelper.dp(16), LayoutHelper.dp(16), LayoutHelper.dp(16), LayoutHelper.dp(16))
+            setPadding(0, LayoutHelper.dp(16), 0, LayoutHelper.dp(16))
             clipToPadding = false
             setBackgroundColor(themeColors.background)
             setOnItemClickListener(RecyclerListView.OnItemClickListener { _, position ->
@@ -229,6 +229,7 @@ class AccountSettingFragment : BaseFragment() {
                     val cell = holder.itemView as HeaderCell
                     cell.textView.setTextColor(themeColors.onSurfaceVariant)
                     cell.setTopPadding(if (position == headerAccountInfoRow) 0 else 12)
+                    cell.setSideMargin(16) // Precision alignment for this screen only
                     when (position) {
                         headerAccountInfoRow -> cell.setText(getString(R.string.account_info_title))
                         headerUsersRow -> cell.setText(getString(R.string.account_users_title))

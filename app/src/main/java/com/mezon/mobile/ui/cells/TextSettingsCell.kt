@@ -29,6 +29,7 @@ class TextSettingsCell(context: Context, private val theme: ThemeColors) : Frame
     private var backgroundType = 0 
     private val backgroundPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
     private val backgroundRect = android.graphics.RectF()
+    private var cardMarginDp = 16f
 
     init {
         imageView = ImageView(context).apply {
@@ -52,7 +53,7 @@ class TextSettingsCell(context: Context, private val theme: ThemeColors) : Frame
         addView(textView, LayoutHelper.createFrame(
             LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT,
             Gravity.CENTER_VERTICAL or LayoutHelper.getAbsoluteGravityStart(),
-            leftMargin = 16f, rightMargin = 16f
+            leftMargin = 21f, rightMargin = 21f
         ))
 
         valueContainer = android.widget.LinearLayout(context).apply {
@@ -165,15 +166,28 @@ class TextSettingsCell(context: Context, private val theme: ThemeColors) : Frame
         textView.setTextColor(if (color != 0) color else theme.onSurface)
     }
 
+    fun setCardMargin(dp: Float) {
+        cardMarginDp = dp
+    }
+
     private fun updateTextMargins() {
         val hasIcon = imageView.visibility == VISIBLE
-        val leftDp = if (hasIcon) 64f else 16f
+        val isCard = backgroundType != 0
+        val leftDp = if (hasIcon) 64f else (if (isCard) 32f else 21f)
         val hasValue = valueTextView.visibility == VISIBLE
         val hasWarn = warnImageView.visibility == VISIBLE
         
         val lpTitle = textView.layoutParams as LayoutParams
         lpTitle.leftMargin = LayoutHelper.dp(leftDp)
         textView.layoutParams = lpTitle
+
+        val lpValue = valueContainer.layoutParams as LayoutParams
+        lpValue.rightMargin = LayoutHelper.dp(if (isCard) 40f else 16f)
+        valueContainer.layoutParams = lpValue
+
+        val lpChevron = chevronImageView.layoutParams as LayoutParams
+        lpChevron.rightMargin = LayoutHelper.dp(if (isCard) 32f else 16f)
+        chevronImageView.layoutParams = lpChevron
 
         valueContainer.visibility = if (hasValue || hasWarn) VISIBLE else GONE
     }
@@ -202,15 +216,15 @@ class TextSettingsCell(context: Context, private val theme: ThemeColors) : Frame
     override fun onDraw(canvas: Canvas) {
         if (backgroundType != 0) {
             val r = LayoutHelper.dp(12).toFloat()
-            val m = 0f
+            val m = LayoutHelper.dp(cardMarginDp).toFloat()
             backgroundRect.set(m, 0f, width.toFloat() - m, height.toFloat())
             
-            if (backgroundType == 4) {
+            if (backgroundType == 4) { // single
                 canvas.drawRoundRect(backgroundRect, r, r, backgroundPaint)
-            } else if (backgroundType == 1) {
+            } else if (backgroundType == 1) { // top
                 canvas.drawRoundRect(backgroundRect, r, r, backgroundPaint)
                 canvas.drawRect(m, height / 2f, width.toFloat() - m, height.toFloat(), backgroundPaint)
-            } else if (backgroundType == 3) { 
+            } else if (backgroundType == 3) { // bottom
                 canvas.drawRoundRect(backgroundRect, r, r, backgroundPaint)
                 canvas.drawRect(m, 0f, width.toFloat() - m, height / 2f, backgroundPaint)
             } else { 
@@ -219,9 +233,10 @@ class TextSettingsCell(context: Context, private val theme: ThemeColors) : Frame
         }
         if (needDivider) {
             val hasIcon = imageView.visibility == VISIBLE
-            val leftPad = LayoutHelper.dp(if (hasIcon) 64 else 16).toFloat()
+            val leftPad = LayoutHelper.dp(if (hasIcon) 64 else (if (backgroundType != 0) 32 else 21)).toFloat()
             val y = (height - 1).toFloat()
-            canvas.drawRect(leftPad, y, width.toFloat(), y + 1f, theme.dividerPaint)
+            val rightPad = if (backgroundType != 0) LayoutHelper.dp(cardMarginDp).toFloat() else 0f
+            canvas.drawRect(leftPad, y, width.toFloat() - rightPad, y + 1f, theme.dividerPaint)
         }
     }
 

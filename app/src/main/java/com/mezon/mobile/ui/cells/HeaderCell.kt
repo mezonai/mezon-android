@@ -26,7 +26,8 @@ class HeaderCell(context: Context, private val theme: ThemeColors) : FrameLayout
         }
         addView(textView, LayoutHelper.createFrame(
             LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT,
-            Gravity.TOP or LayoutHelper.getAbsoluteGravityStart()
+            Gravity.TOP or LayoutHelper.getAbsoluteGravityStart(),
+            leftMargin = 21f, rightMargin = 21f
         ))
     }
 
@@ -37,6 +38,13 @@ class HeaderCell(context: Context, private val theme: ThemeColors) : FrameLayout
     fun setTopPadding(dp: Int) {
         topPaddingDp = dp
         requestLayout()
+    }
+
+    fun setSideMargin(dp: Int) {
+        val lp = textView.layoutParams as LayoutParams
+        lp.leftMargin = LayoutHelper.dp(dp)
+        lp.rightMargin = LayoutHelper.dp(dp)
+        textView.layoutParams = lp
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
