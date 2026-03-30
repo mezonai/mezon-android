@@ -31,6 +31,7 @@ class ClansFragment : BaseFragment() {
 
     var onOpenChat: ((channelId: Long, channelName: String, clanId: Long, channelType: Int) -> Unit)? = null
     var onSwitchToMessages: (() -> Unit)? = null
+    var onAddClanClick: (() -> Unit)? = null
 
     private lateinit var serverRail: RecyclerListView
     private lateinit var clanHeaderText: TextView
@@ -107,8 +108,12 @@ class ClansFragment : BaseFragment() {
                     val dm = view.directMessage ?: return@OnItemClickListener
                     onOpenChat?.invoke(dm.channelId, dm.displayName.ifEmpty { dm.label }, 0L, dm.type)
                 }
+                is AddClanCell -> {
+                    showCreateClanSheet()
+                }
             }
         })
+
 
         val channelPanel = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -234,6 +239,13 @@ class ClansFragment : BaseFragment() {
         onOpenChat?.invoke(channel.channelId, channel.channelLabel, channel.clanId, channel.type)
     }
 
+    private fun showCreateClanSheet() {
+        val fragment = CreateClanFragment()
+        fragment.onCreateCustom = { onAddClanClick?.invoke() }
+        fragment.onCreateFromTemplate = { _ -> onAddClanClick?.invoke() }
+        presentFragment(fragment)
+    }
+
     inner class ServerRailAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
         init { setHasStableIds(true) }
@@ -242,6 +254,7 @@ class ClansFragment : BaseFragment() {
         private val VIEW_TYPE_UNREAD_DM = 1
         private val VIEW_TYPE_SEPARATOR = 2
         private val VIEW_TYPE_CLAN = 3
+        private val VIEW_TYPE_ADD_CLAN = 4
 
         private val unreadDms = mutableListOf<DirectMessage>()
         private val clans = mutableListOf<ClanEntity>()
@@ -330,7 +343,7 @@ class ClansFragment : BaseFragment() {
 
         override fun getItemCount(): Int {
             val sep = if (hasSeparator) 1 else 0
-            return dmHeaderCount + unreadDms.size + sep + clans.size
+            return dmHeaderCount + unreadDms.size + sep + clans.size + 1 // +1 for AddClanCell
         }
 
         override fun getItemId(position: Int): Long {
@@ -339,6 +352,7 @@ class ClansFragment : BaseFragment() {
             if (afterHeader < unreadDms.size) return unreadDms[afterHeader].channelId
             if (hasSeparator && afterHeader == unreadDms.size) return Long.MIN_VALUE + 1
             val idx = clanIndex(position)
+            if (idx == clans.size) return Long.MIN_VALUE + 2 // AddClanCell
             return if (idx in clans.indices) clans[idx].clanId else RecyclerView.NO_ID
         }
 
@@ -347,6 +361,8 @@ class ClansFragment : BaseFragment() {
             val afterHeader = position - dmHeaderCount
             if (afterHeader < unreadDms.size) return VIEW_TYPE_UNREAD_DM
             if (hasSeparator && afterHeader == unreadDms.size) return VIEW_TYPE_SEPARATOR
+            val idx = clanIndex(position)
+            if (idx == clans.size) return VIEW_TYPE_ADD_CLAN
             return VIEW_TYPE_CLAN
         }
 
@@ -360,6 +376,7 @@ class ClansFragment : BaseFragment() {
                 VIEW_TYPE_DM_HEADER -> DmLogoCell(parent.context, themeColors)
                 VIEW_TYPE_UNREAD_DM -> UnreadDmCell(parent.context, themeColors)
                 VIEW_TYPE_SEPARATOR -> SeparatorView(parent.context, themeColors)
+                VIEW_TYPE_ADD_CLAN -> AddClanCell(parent.context, themeColors)
                 else -> ClanCell(parent.context, themeColors)
             }
             return object : RecyclerView.ViewHolder(view) {}
@@ -383,6 +400,7 @@ class ClansFragment : BaseFragment() {
                         view.update(0, clan, clan.clanId == selectedClanId)
                     }
                 }
+                is AddClanCell -> { /* click handled by OnItemClickListener */ }
             }
         }
     }

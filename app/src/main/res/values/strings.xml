@@ -205,6 +205,16 @@
     <string name="clan_leave">Leave Clan</string>
     <string name="clan_name_placeholder">Enter the clan name</string>
     <string name="clan_name_error">Please enter a valid clan name (max 64 characters, only words, numbers, _ or -).</string>
+    <string name="clan_create_title">Create Your Clan</string>
+    <string name="clan_create_subtitle">Your clan is a place to hang out with your friends. Create your own clan and start chatting.</string>
+    <string name="clan_create_from_template">START FROM A TEMPLATE</string>
+    <string name="clan_template_custom">Create My Own</string>
+    <string name="clan_template_gaming">Gaming</string>
+    <string name="clan_template_friends">Friends</string>
+    <string name="clan_template_study">Study Group</string>
+    <string name="clan_template_school_club">School Club</string>
+    <string name="clan_template_local_community">Local Community</string>
+    <string name="clan_template_artist">Artists &amp; Creators</string>
 
     <!-- profile -->
     <string name="profile_title">Profile</string>
