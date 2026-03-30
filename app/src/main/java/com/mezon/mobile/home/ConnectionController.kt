@@ -35,6 +35,7 @@ class ConnectionController @Inject constructor(
     private val fcmRepository: FcmRepository,
     private val dialogsController: DialogsController,
     private val clansController: ClansController,
+    private val badgeCoordinator: dagger.Lazy<BadgeCoordinator>,
     @ApplicationContext private val appContext: Context,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     @ApplicationScope private val appScope: CoroutineScope
@@ -76,6 +77,7 @@ class ConnectionController @Inject constructor(
     private fun refreshOnReconnect() {
         Log.d(TAG, "refreshOnReconnect: invalidating cache + refreshing all lists")
 
+        badgeCoordinator.get().onReconnect()
         cacheTracker.invalidateAll()
 
         dialogsController.loadDialogs()

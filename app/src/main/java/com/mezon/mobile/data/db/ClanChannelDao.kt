@@ -24,7 +24,4 @@ interface ClanChannelDao {
 
     @Query("UPDATE clan_channels SET unreadCount = :count WHERE channelId = :channelId")
     suspend fun updateUnread(channelId: Long, count: Int)
-
-    @Query("UPDATE clan_channels SET lastSeenMessageId = :messageId, unreadCount = 0 WHERE channelId = :channelId")
-    suspend fun updateLastSeen(channelId: Long, messageId: Long)
 }

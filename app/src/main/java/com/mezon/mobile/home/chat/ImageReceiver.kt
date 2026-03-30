@@ -34,6 +34,8 @@ class ImageReceiver(private val parentView: View) {
     private var requestH = 0
     private val roundRadius = IntArray(4)
 
+    private var pendingLocalUri: android.net.Uri? = null
+
     private var crossfadeAlpha = 255
     private var crossfadeStartTime = 0L
     private val crossfadeDuration = 200L
@@ -91,6 +93,10 @@ class ImageReceiver(private val parentView: View) {
             currentThumbUrl = null
             setImage(url, thumbUrl, parentView.context)
         }
+        pendingLocalUri?.let { uri ->
+            pendingLocalUri = null
+            setLocalUri(uri, parentView.context)
+        }
     }
 
     fun onDetachedFromWindow() {
@@ -100,6 +106,7 @@ class ImageReceiver(private val parentView: View) {
         mainCancellable = null
         thumbCancellable?.cancel()
         thumbCancellable = null
+        pendingLocalUri = null
     }
 
     fun setImage(url: String?, thumbUrl: String?, context: Context) {
@@ -408,6 +415,29 @@ class ImageReceiver(private val parentView: View) {
         currentUrl = null
         currentThumbUrl = null
         pendingLoad = null
+        pendingLocalUri = null
+    }
+
+    fun setLocalUri(uri: android.net.Uri, context: Context) {
+        if (!attached) {
+            pendingLocalUri = uri
+            return
+        }
+        mainCancellable?.cancel()
+        val loader = MezonImageLoader.getInstance(context)
+        val rw = if (requestW > 0) requestW else 800
+        val rh = if (requestH > 0) requestH else 800
+        mainCancellable = loader.loadFromUri(uri, rw, rh,
+            onSuccess = { bmp ->
+                imageBitmap = bmp
+                animatedDrawable = null
+                cachedShader = null
+                cachedShaderBitmap = null
+                crossfadeAlpha = 255
+                thumbBitmap = null
+                parentView.invalidate()
+            }
+        )
     }
 
     fun setBitmapDirectly(bmp: Bitmap) {

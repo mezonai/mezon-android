@@ -1948,7 +1948,7 @@ class ChatFragment : BaseFragment() {
             refType = 0
             messageSenderId = target.senderId
             messageSenderUsername = target.senderName
-            mesagesSenderAvatar = target.senderAvatar
+            messageSenderAvatar = target.senderAvatar
             messageSenderDisplayName = target.senderName
             content = target.content
             hasAttachment = target.hasMedia || target.isFileAttachment

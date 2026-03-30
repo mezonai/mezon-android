@@ -66,6 +66,8 @@ class NotificationCenter(val currentAccount: Int) {
         val didReceiveNewMessages = nextId()
         val messageDidUpdate = nextId()
         val messageDidDelete = nextId()
+        val pendingMessageSent = nextId()
+        val pendingMessageError = nextId()
         val messagesLoadError = nextId()
         val messagesLastSeenFromServer = nextId()  
         val onlineStatusChanged = nextId()
