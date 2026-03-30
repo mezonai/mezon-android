@@ -83,6 +83,8 @@ class AccountSettingFragment : BaseFragment() {
             adapter = listAdapter
             overScrollMode = View.OVER_SCROLL_NEVER
             isVerticalScrollBarEnabled = false
+            setPadding(LayoutHelper.dp(16), LayoutHelper.dp(16), LayoutHelper.dp(16), LayoutHelper.dp(16))
+            clipToPadding = false
             setBackgroundColor(themeColors.background)
             setOnItemClickListener(RecyclerListView.OnItemClickListener { _, position ->
                 onItemClick(position)
@@ -225,6 +227,8 @@ class AccountSettingFragment : BaseFragment() {
             when (getItemViewType(position)) {
                 VIEW_TYPE_HEADER -> {
                     val cell = holder.itemView as HeaderCell
+                    cell.textView.setTextColor(themeColors.onSurfaceVariant)
+                    cell.setTopPadding(if (position == headerAccountInfoRow) 0 else 12)
                     when (position) {
                         headerAccountInfoRow -> cell.setText(getString(R.string.account_info_title))
                         headerUsersRow -> cell.setText(getString(R.string.account_users_title))
@@ -233,45 +237,57 @@ class AccountSettingFragment : BaseFragment() {
                 }
                 VIEW_TYPE_ITEM -> {
                     val cell = holder.itemView as TextSettingsCell
+                    cell.setTitleBold(true)
+                    cell.setIcon(null)
                     when (position) {
                         usernameRow -> {
                             cell.setTextAndValue(getString(R.string.account_username), userController.username.ifEmpty { info.username }, divider = true)
-                            cell.setIcon(MezonIcon.settingIcon)
-                            cell.setTitleColor(0)
+                            cell.setBackgroundType(1)
+                            cell.setCanClick(true)
+                            cell.setWarn(false)
                         }
                         displayNameRow -> {
                             cell.setTextAndValue(getString(R.string.account_display_name), userController.displayName.ifEmpty { info.displayName }, divider = true)
-                            cell.setIcon(MezonIcon.settingIcon)
-                            cell.setTitleColor(0)
+                            cell.setBackgroundType(2)
+                            cell.setCanClick(true)
+                            cell.setWarn(false)
                         }
                         emailRow -> {
                             val emailValue = userController.email.ifEmpty { info.email }
-                            val emailDesc = if (emailValue.isEmpty()) getString(R.string.account_link_email) else maskEmail(emailValue)
+                            val isUnlinked = emailValue.isEmpty()
+                            val emailDesc = if (isUnlinked) getString(R.string.account_link_email) else maskEmail(emailValue)
                             cell.setTextAndValue("Email", emailDesc, divider = true)
-                            cell.setIcon(MezonIcon.mailIcon)
-                            cell.setTitleColor(0)
+                            cell.setBackgroundType(2)
+                            cell.setCanClick(true)
+                            cell.setWarn(isUnlinked)
                         }
                         phoneRow -> {
                             val phoneValue = userController.phoneNumber.ifEmpty { info.phoneNumber }
-                            val phoneDesc = if (phoneValue.isEmpty()) getString(R.string.account_link_phone) else maskPhone(phoneValue)
+                            val isUnlinked = phoneValue.isEmpty()
+                            val phoneDesc = if (isUnlinked) getString(R.string.account_link_phone) else maskPhone(phoneValue)
                             cell.setTextAndValue(getString(R.string.account_phone), phoneDesc)
-                            cell.setIcon(MezonIcon.settingIcon)
-                            cell.setTitleColor(0)
+                            cell.setBackgroundType(3)
+                            cell.setCanClick(true)
+                            cell.setWarn(isUnlinked)
                         }
                         blockedUsersRow -> {
                             cell.setTextAndValue(getString(R.string.account_blocked_users))
-                            cell.setIcon(MezonIcon.lockIcon)
-                            cell.setTitleColor(0)
+                            cell.setBackgroundType(4)
+                            cell.setCanClick(true)
+                            cell.setWarn(false)
                         }
                         setPasswordRow -> {
                             cell.setTextAndValue(getString(R.string.account_set_password), divider = true)
-                            cell.setIcon(MezonIcon.lockUnlockIcon)
-                            cell.setTitleColor(0)
+                            cell.setBackgroundType(1)
+                            cell.setCanClick(true)
+                            cell.setWarn(false)
                         }
                         deleteAccountRow -> {
                             cell.setTextAndValue(getString(R.string.account_delete_account))
-                            cell.setIcon(MezonIcon.doorExitIcon)
+                            cell.setBackgroundType(3)
                             cell.setTitleColor(themeColors.error)
+                            cell.setCanClick(true)
+                            cell.setWarn(false)
                         }
                     }
                 }
