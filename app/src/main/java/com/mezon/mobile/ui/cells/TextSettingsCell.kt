@@ -182,7 +182,7 @@ class TextSettingsCell(context: Context, private val theme: ThemeColors) : Frame
         textView.layoutParams = lpTitle
 
         val lpValue = valueContainer.layoutParams as LayoutParams
-        lpValue.rightMargin = LayoutHelper.dp(if (isCard) 40f else 16f)
+        lpValue.rightMargin = LayoutHelper.dp(if (isCard) 58f else 42f)
         valueContainer.layoutParams = lpValue
 
         val lpChevron = chevronImageView.layoutParams as LayoutParams
