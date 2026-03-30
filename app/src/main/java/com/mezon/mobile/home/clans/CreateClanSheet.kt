@@ -89,7 +89,6 @@ class CreateClanFragment : BaseFragment() {
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT)
         )
 
-        // "Tạo mẫu riêng" item
         content.addView(
             buildTemplateRow(context, "✨", context.getString(R.string.clan_template_custom), TEMPLATE_CUSTOM),
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, 0, 0f, 0f, 0f, 8f)
