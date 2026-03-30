@@ -281,6 +281,7 @@
     <string name="account_info_title">Account Info</string>
     <string name="account_users_title">Users</string>
     <string name="account_management_title">Account Management</string>
+    <string name="account_email">Email</string>
     <string name="account_username">Username</string>
     <string name="account_display_name">Display Name</string>
     <string name="account_link_email">Link email</string>

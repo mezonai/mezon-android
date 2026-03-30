@@ -246,4 +246,29 @@
     <string name="channel_list_public">Kênh công khai</string>
     <string name="channel_list_events">Sự kiện</string>
     <string name="channel_list_members">Thành viên</string>
+
+    <!-- Account Settings -->
+    <string name="account_settings_title">Tài khoản</string>
+    <string name="account_info_title">Thông tin tài khoản</string>
+    <string name="account_users_title">Người dùng</string>
+    <string name="account_management_title">Quản lý tài khoản</string>
+    <string name="account_email">Email</string>
+    <string name="account_username">Tên người dùng</string>
+    <string name="account_display_name">Tên hiển thị</string>
+    <string name="account_link_email">Liên kết email</string>
+    <string name="account_link_phone">Liên kết số điện thoại</string>
+    <string name="account_phone">Số điện thoại</string>
+    <string name="account_blocked_users">Người dùng bị chặn</string>
+    <string name="account_set_password">Đặt mật khẩu</string>
+    <string name="account_delete_account">Xóa tài khoản</string>
+    <string name="account_set_password_link_email_required_title">Yêu cầu Email</string>
+    <string name="account_set_password_link_email_required_desc">Bạn cần liên kết email trước khi đặt mật khẩu.</string>
+    <string name="account_go_to_email">Liên kết Email</string>
+    <string name="account_delete_title">Xóa tài khoản</string>
+    <string name="account_delete_description">Hành động này là vĩnh viễn và không thể hoàn tác. Bạn có chắc chắn không?</string>
+    <string name="account_delete_confirm">Xóa</string>
+    <string name="account_delete_error">Xóa tài khoản thất bại. Vui lòng thử lại.</string>
+
+    <string name="common_ok">OK</string>
+    <string name="common_error">Lỗi</string>
 </resources>

@@ -257,7 +257,7 @@ class AccountSettingFragment : BaseFragment() {
                             val emailValue = userController.email.ifEmpty { info.email }
                             val isUnlinked = emailValue.isEmpty()
                             val emailDesc = if (isUnlinked) getString(R.string.account_link_email) else maskEmail(emailValue)
-                            cell.setTextAndValue("Email", emailDesc, divider = true)
+                            cell.setTextAndValue(getString(R.string.account_email), emailDesc, divider = true)
                             cell.setBackgroundType(2)
                             cell.setCanClick(true)
                             cell.setWarn(isUnlinked)
