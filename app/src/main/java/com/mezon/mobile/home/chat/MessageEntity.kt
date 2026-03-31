@@ -256,8 +256,7 @@ private fun mergeMentionsIntoContent(content: String, mentionsBytes: com.google.
     return try {
         val list = MessageMentionList.parseFrom(mentionsBytes)
         if (list.mentionsCount == 0) return content
-        val obj = try { JSONObject(content) } catch (_: Exception) { return content }
-        if (obj.has("mentions")) return content
+        if (content.contains("\"mentions\"")) return content
         val arr = JSONArray()
         for (m in list.mentionsList) {
             val item = JSONObject()
@@ -268,8 +267,9 @@ private fun mergeMentionsIntoContent(content: String, mentionsBytes: com.google.
             if (m.username.isNotEmpty()) item.put("username", m.username)
             arr.put(item)
         }
-        obj.put("mentions", arr)
-        obj.toString()
+        val lastBrace = content.lastIndexOf('}')
+        if (lastBrace < 0) return content
+        content.substring(0, lastBrace) + ",\"mentions\":" + arr.toString() + "}"
     } catch (_: Exception) {
         content
     }
@@ -280,8 +280,7 @@ private fun mergeReferencesIntoContent(content: String, referencesBytes: com.goo
     return try {
         val list = MessageRefList.parseFrom(referencesBytes)
         if (list.refsCount == 0) return content
-        val obj = try { JSONObject(content) } catch (_: Exception) { return content }
-        if (obj.has("references")) return content
+        if (content.contains("\"references\"")) return content
         val arr = JSONArray()
         for (ref in list.refsList) {
             val item = JSONObject()
@@ -298,8 +297,9 @@ private fun mergeReferencesIntoContent(content: String, referencesBytes: com.goo
             item.put("has_attachment", ref.hasAttachment)
             arr.put(item)
         }
-        obj.put("references", arr)
-        obj.toString()
+        val lastBrace = content.lastIndexOf('}')
+        if (lastBrace < 0) return content
+        content.substring(0, lastBrace) + ",\"references\":" + arr.toString() + "}"
     } catch (_: Exception) {
         content
     }
