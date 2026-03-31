@@ -3,6 +3,10 @@ package com.mezon.mobile.home.clans
 import androidx.room.Entity
 import androidx.room.Index
 import com.mezon.mezon.api.ChannelDescription
+import com.mezon.mobile.home.extractLastSeenMessageId
+import com.mezon.mobile.home.extractLastSeenMessageTs
+import com.mezon.mobile.home.extractLastSentMessageId
+import com.mezon.mobile.home.extractLastSentMessageTs
 
 const val CHANNEL_TYPE_VOICE = 10
 const val CHANNEL_TYPE_FORUM = 5
@@ -28,11 +32,20 @@ data class ClanChannelEntity(
     val isMuted: Boolean,
     val lastSeenMessageId: Long = 0L,
     val lastSentMessageId: Long = 0L,
+    val lastSeenMessageTs: Long = 0L,
+    val lastSentMessageTs: Long = 0L,
     val active: Int = 0,
     val categoryOrder: Int = 0
 ) {
     val isThread: Boolean get() = type == 7 && parentId != 0L
-    val hasUnread: Boolean get() = lastSentMessageId != 0L && lastSeenMessageId < lastSentMessageId
+    val hasUnread: Boolean get() {
+        if (unreadCount > 0) return true
+        if (lastSentMessageId != 0L && lastSeenMessageId < lastSentMessageId) return true
+        if (lastSentMessageId == 0L && lastSeenMessageId == 0L &&
+            lastSentMessageTs > lastSeenMessageTs && lastSentMessageTs != 0L
+        ) return true
+        return false
+    }
 }
 
 fun ChannelDescription.toClanChannelEntity(): ClanChannelEntity = ClanChannelEntity(
@@ -47,7 +60,9 @@ fun ChannelDescription.toClanChannelEntity(): ClanChannelEntity = ClanChannelEnt
     topic = topic,
     unreadCount = countMessUnread,
     isMuted = isMute,
-    lastSeenMessageId = if (hasLastSeenMessage()) lastSeenMessage.id else 0L,
-    lastSentMessageId = if (hasLastSentMessage()) lastSentMessage.id else 0L,
+    lastSeenMessageId = extractLastSeenMessageId(),
+    lastSentMessageId = extractLastSentMessageId(),
+    lastSeenMessageTs = extractLastSeenMessageTs(),
+    lastSentMessageTs = extractLastSentMessageTs(fallbackToCreateTime = false),
     active = active
 )

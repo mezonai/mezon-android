@@ -124,7 +124,7 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
             (mask and NotificationCenter.UPDATE_MASK_MESSAGE_TEXT) != 0
         ) {
             if (directMessage?.lastMessageContent != dm.lastMessageContent ||
-                directMessage?.lastMessageTimestamp != dm.lastMessageTimestamp
+                directMessage?.lastSentMessageTs != dm.lastSentMessageTs
             ) {
                 rebuildLayout = true
             }
@@ -166,7 +166,7 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         val timePaint = theme.dialogTimePaint
         timePaint.color = if (isUnread) theme.primary else theme.onSurfaceVariant
 
-        val timeText = formatRelativeTime(dm.lastMessageTimestamp)
+        val timeText = if (dm.lastSentMessageTs > 0) formatRelativeTime(dm.lastSentMessageTs) else ""
         timeLayout = StaticLayout.Builder.obtain(timeText, 0, timeText.length, timePaint, contentWidth)
             .setMaxLines(1)
             .setEllipsize(TextUtils.TruncateAt.END)

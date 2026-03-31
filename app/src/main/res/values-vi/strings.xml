@@ -245,6 +245,7 @@
     <string name="channel_list_favorite">Kênh yêu thích</string>
     <string name="channel_list_public">Kênh công khai</string>
     <string name="channel_list_events">Sự kiện</string>
+    <string name="channel_list_members">Thành viên</string>
     <!-- Edit Profile -->
     <string name="edit_profile_title">Cài đặt hồ sơ</string>
     <string name="edit_profile_tab_personal">Cá nhân</string>
@@ -261,4 +262,12 @@
     <string name="edit_profile_remove_avatar">Xóa ảnh đại diện</string>
     <string name="edit_profile_avatar_too_large">Kích thước ảnh không được vượt quá 10MB</string>
     <string name="edit_profile_dm_logo_too_large">Kích thước logo không được vượt quá 1MB</string>
+
+    <!-- sharing -->
+    <string name="sharing_title">Chia sẻ tới…</string>
+    <string name="sharing_search_placeholder">Tìm cuộc trò chuyện</string>
+    <string name="sharing_sending">Đang gửi…</string>
+    <string name="sharing_sent">Đã gửi!</string>
+    <string name="sharing_failed">Gửi thất bại</string>
+    <string name="sharing_no_conversations">Không tìm thấy cuộc trò chuyện</string>
 </resources>

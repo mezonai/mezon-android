@@ -3,6 +3,7 @@ package com.mezon.mobile.home.chat
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.os.Build
@@ -39,6 +40,8 @@ import com.mezon.mobile.home.LOAD_TYPE_INITIAL
 import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.clans.ChannelController
+import com.mezon.mobile.network.CHANNEL_TYPE_DM
+import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.ui.cells.ActionBarView
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.PageDownButton
@@ -102,6 +105,7 @@ class ChatFragment : BaseFragment() {
     private var attachmentPreviewScroll: HorizontalScrollView? = null
 
     private val pendingAttachments = ArrayList<AttachmentPickerItem>()
+    private val pendingAttachmentThumbTasks = ArrayList<Runnable?>()
 
     private var channelId = 0L
     private var channelName = ""
@@ -127,6 +131,10 @@ class ChatFragment : BaseFragment() {
     private var jumpingToPresent = false
     private var initialApiDone = false
     private var pendingBottomScroll: Runnable? = null
+    private var chatAdjustPanHelper: com.mezon.mobile.core.AdjustPanLayoutHelper? = null
+
+    private val waitingForSocketIds = ArrayList<Long>()
+    private val socketRealIds = ArrayList<Long>()
 
     private var replyingToMessage: MessageEntity? = null
     private var replyBar: LinearLayout? = null
@@ -250,7 +258,7 @@ class ChatFragment : BaseFragment() {
                 if (newSeen != lastSeenMessageId) {
                     Log.d(TAG, "lastSeenMessageId Math.max: $lastSeenMessageId → $newSeen")
                     lastSeenMessageId = newSeen
-                    if (firstLoad) dividerSeenMessageId = newSeen
+                    if (firstLoad || dividerSeenMessageId == 0L) dividerSeenMessageId = newSeen
                 }
                 hasUnread = lastSentMessageId != 0L && lastSeenMessageId < lastSentMessageId && lastSeenMessageId != 0L
             }
@@ -402,7 +410,8 @@ class ChatFragment : BaseFragment() {
                     && lastSeenMessageId < lastSentMessageId) {
                     hasUnread = true
                     needScrollRestore = true
-                    Log.d(TAG, "hasUnread re-evaluated to TRUE: lastSeen=$lastSeenMessageId < lastSent=$lastSentMessageId")
+                    if (dividerSeenMessageId == 0L) dividerSeenMessageId = lastSeenMessageId
+                    Log.d(TAG, "hasUnread re-evaluated to TRUE: lastSeen=$lastSeenMessageId < lastSent=$lastSentMessageId dividerSeen=$dividerSeenMessageId")
                 }
 
                 if (lastSentMessageId != 0L && messages.isNotEmpty()) {
@@ -502,6 +511,11 @@ class ChatFragment : BaseFragment() {
                     } else if (needScrollRestore && lastSeenMessageId != 0L && hasUnread) {
                         scrollToFirstUnread()
                         needScrollRestore = false
+                        recyclerView.post {
+                            if (recyclerView.visibility != View.VISIBLE) {
+                                recyclerView.visibility = View.VISIBLE
+                            }
+                        }
                         val newestInList = messages.firstOrNull()?.id ?: 0L
                         if (lastSentMessageId != 0L && newestInList < lastSentMessageId) {
                             isViewingOlder = true
@@ -530,12 +544,32 @@ class ChatFragment : BaseFragment() {
         observe(NotificationCenter.didReceiveNewMessages) { _, _, args ->
             if (args.size < 2 || args[0] != channelId) return@observe
             val entity = args[1] as? MessageEntity ?: return@observe
-            if (messagesDict.get(entity.id) != null) return@observe
-            if (entity.id > lastSentMessageId) lastSentMessageId = entity.id
-            if (entity.isMe && (isViewingOlder || hasMoreBottom)) {
-                jumpToPresent()
+            if (entity.isSending) {
+                if (isViewingOlder || hasMoreBottom) {
+                    jumpToPresent()
+                    return@observe
+                }
+                messagesDict.put(entity.id, entity)
+                messages.add(0, entity)
+                if (fragmentView != null) {
+                    refreshUI()
+                    forceScrollToBottom()
+                }
                 return@observe
             }
+            if (entity.isMe) {
+                val pendingTempId = waitingForSocketIds.removeFirstOrNull()
+                if (pendingTempId != null) {
+                    applyRealId(pendingTempId, entity.id)
+                } else {
+                    socketRealIds.add(entity.id)
+                }
+                return@observe
+            }
+
+            if (messagesDict.get(entity.id) != null) return@observe
+            if (entity.id > lastSentMessageId) lastSentMessageId = entity.id
+
             if (isViewingOlder) {
                 newUnreadCount++
                 hasMoreBottom = true
@@ -558,6 +592,37 @@ class ChatFragment : BaseFragment() {
                 if (entity.isMe) forceScrollToBottom() else scrollToBottom()
             }
             if (!isPaused) markAsRead()
+        }
+
+        observe(NotificationCenter.pendingMessageSent) { _, _, args ->
+            if (args.size < 3 || args[0] != channelId) return@observe
+            val tempId = args[1] as? Long ?: return@observe
+            val apiRealId = args[2] as? Long ?: return@observe
+            Log.d(TAG, "pendingMessageSent tempId=$tempId apiRealId=$apiRealId")
+            val resolvedRealId = when {
+                apiRealId != 0L -> apiRealId
+                else -> socketRealIds.removeFirstOrNull() ?: 0L
+            }
+            if (resolvedRealId != 0L) {
+                applyRealId(tempId, resolvedRealId)
+            } else {
+                markMessageSent(tempId)
+                waitingForSocketIds.add(tempId)
+            }
+        }
+
+        observe(NotificationCenter.pendingMessageError) { _, _, args ->
+            if (args.size < 2 || args[0] != channelId) return@observe
+            val tempId = args[1] as? Long ?: return@observe
+            Log.e(TAG, "pendingMessageError tempId=$tempId channelId=$channelId channelType=$channelType")
+            val idx = messages.indexOfFirst { it.id == tempId }
+            if (idx >= 0) {
+                val old = messages[idx]
+                val updated = old.copy(sendState = MessageEntity.SEND_STATE_ERROR, isError = true)
+                messages[idx] = updated
+                messagesDict.put(tempId, updated)
+                if (fragmentView != null) updateVisibleRows(NotificationCenter.UPDATE_MASK_SEND_STATE)
+            }
         }
 
         observe(NotificationCenter.messageDidUpdate) { _, _, args ->
@@ -1067,6 +1132,18 @@ class ChatFragment : BaseFragment() {
             }
         })
 
+        chatAdjustPanHelper = object : com.mezon.mobile.core.AdjustPanLayoutHelper(rootView) {
+            override fun onTransitionStart(keyboardVisible: Boolean, contentHeight: Int) {
+                if (!keyboardVisible) recyclerView.stopScroll()
+            }
+            override fun onPanTranslationUpdate(y: Float, progress: Float, keyboardVisible: Boolean) {
+                actionBar?.translationY = y
+                if (keyboardVisible && progress > 0f && !recyclerView.canScrollVertically(1)) {
+                    recyclerView.scrollBy(0, -y.toInt())
+                }
+            }
+        }
+
         return rootView
     }
 
@@ -1188,6 +1265,8 @@ class ChatFragment : BaseFragment() {
         if (clanId != 0L) channelController.clearCurrentChannel()
         messages.clear()
         messagesDict.clear()
+        for (t in pendingAttachmentThumbTasks) ThumbnailCache.cancel(t)
+        pendingAttachmentThumbTasks.clear()
         pendingAttachments.clear()
         replyingToMessage = null
         editingMessage = null
@@ -1195,6 +1274,8 @@ class ChatFragment : BaseFragment() {
         mentionsPopup = null
         mentionsAdapter = null
         pendingHighlightMessageId = 0L
+        chatAdjustPanHelper?.onDetach()
+        chatAdjustPanHelper = null
         super.onFragmentDestroy()
     }
 
@@ -1474,7 +1555,13 @@ class ChatFragment : BaseFragment() {
     }
 
     private fun scrollToFirstUnread() {
-        if (!hasUnread || dividerSeenMessageId == 0L) return
+        if (!hasUnread || dividerSeenMessageId == 0L) {
+            if (needScrollRestore) {
+                recyclerView.visibility = View.VISIBLE
+                needScrollRestore = false
+            }
+            return
+        }
         cancelPendingScroll()
         val seenIdx = messages.indexOfFirst { it.id == dividerSeenMessageId }
         if (seenIdx > 0) {
@@ -1547,6 +1634,9 @@ class ChatFragment : BaseFragment() {
     }
 
     private fun resolveChannelPrivate(): Boolean {
+        if (channelType == CHANNEL_TYPE_DM || channelType == CHANNEL_TYPE_GROUP) {
+            return true
+        }
         if (clanId != 0L) {
             return channelController.findChannelById(channelId)?.isPrivate ?: false
         }
@@ -1579,6 +1669,7 @@ class ChatFragment : BaseFragment() {
         val isPrivate = resolveChannelPrivate()
         val references = buildReplyReferences()
         val mentions = if (mentionTrackers.isNotEmpty()) ArrayList(mentionTrackers) else null
+        Log.d(TAG, "sendMessage channelId=$channelId clanId=$clanId channelType=$channelType isPrivate=$isPrivate textLen=${text.length} attachments=${pendingAttachments.size} hasReply=${references != null}")
 
         if (pendingAttachments.isNotEmpty()) {
             val ctx = getContext() ?: return
@@ -1654,6 +1745,8 @@ class ChatFragment : BaseFragment() {
     private fun updateAttachmentPreview() {
         val strip = attachmentPreviewStrip ?: return
         val scroll = attachmentPreviewScroll ?: return
+        for (t in pendingAttachmentThumbTasks) ThumbnailCache.cancel(t)
+        pendingAttachmentThumbTasks.clear()
         strip.removeAllViews()
 
         if (pendingAttachments.isEmpty()) {
@@ -1663,16 +1756,29 @@ class ChatFragment : BaseFragment() {
         scroll.visibility = View.VISIBLE
 
         val ctx = getContext() ?: return
+        val resolver = ctx.contentResolver
         val thumbSize = LayoutHelper.dp(48f)
         val margin = LayoutHelper.dp(4f)
 
         for (i in pendingAttachments.indices) {
             val item = pendingAttachments[i]
             val container = FrameLayout(ctx)
+            val bindId = item.id
 
             val thumb = ImageView(ctx).apply {
                 scaleType = ImageView.ScaleType.CENTER_CROP
-                setImageURI(item.uri)
+                tag = bindId
+            }
+            val cached = ThumbnailCache.get(bindId)
+            if (cached != null) {
+                thumb.setImageBitmap(cached)
+            } else {
+                val task = ThumbnailCache.load(resolver, item, object : ThumbnailCache.Callback {
+                    override fun onThumbnailLoaded(id: Long, bitmap: Bitmap) {
+                        if (thumb.tag == bindId) thumb.setImageBitmap(bitmap)
+                    }
+                })
+                if (task != null) pendingAttachmentThumbTasks.add(task)
             }
             container.addView(thumb, FrameLayout.LayoutParams(thumbSize, thumbSize))
 
@@ -1940,6 +2046,45 @@ class ChatFragment : BaseFragment() {
         inputField.text?.clear()
     }
 
+    private fun applyRealId(tempId: Long, realId: Long) {
+        val idx = messages.indexOfFirst { it.id == tempId }
+        if (idx < 0) {
+            Log.d(TAG, "applyRealId tempId=$tempId not found")
+            return
+        }
+        val old = messages[idx]
+        messagesDict.delete(tempId)
+        val updated = old.copy(id = realId, sendState = MessageEntity.SEND_STATE_SENT)
+        messages[idx] = updated
+        messagesDict.put(realId, updated)
+        Log.d(TAG, "applyRealId tempId=$tempId → realId=$realId")
+        if (fragmentView == null) return
+        for (i in 0 until recyclerView.childCount) {
+            val cell = recyclerView.getChildAt(i) as? ChatMessageCell ?: continue
+            if (cell.messageEntity?.id == tempId) {
+                cell.update(NotificationCenter.UPDATE_MASK_SEND_STATE, updated)
+                break
+            }
+        }
+    }
+
+    private fun markMessageSent(tempId: Long) {
+        val idx = messages.indexOfFirst { it.id == tempId }
+        if (idx < 0) return
+        val old = messages[idx]
+        val updated = old.copy(sendState = MessageEntity.SEND_STATE_SENT)
+        messages[idx] = updated
+        messagesDict.put(tempId, updated)
+        if (fragmentView == null) return
+        for (i in 0 until recyclerView.childCount) {
+            val cell = recyclerView.getChildAt(i) as? ChatMessageCell ?: continue
+            if (cell.messageEntity?.id == tempId) {
+                cell.update(NotificationCenter.UPDATE_MASK_SEND_STATE, updated)
+                break
+            }
+        }
+    }
+
     private fun buildReplyReferences(): List<com.mezon.mezon.api.MessageRef>? {
         val target = replyingToMessage ?: return null
         val ref = com.mezon.mezon.api.messageRef {
@@ -1948,7 +2093,7 @@ class ChatFragment : BaseFragment() {
             refType = 0
             messageSenderId = target.senderId
             messageSenderUsername = target.senderName
-            mesagesSenderAvatar = target.senderAvatar
+            messageSenderAvatar = target.senderAvatar
             messageSenderDisplayName = target.senderName
             content = target.content
             hasAttachment = target.hasMedia || target.isFileAttachment

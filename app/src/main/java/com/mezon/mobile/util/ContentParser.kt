@@ -10,6 +10,7 @@ fun parseContentText(content: String): String {
     return try {
         val match = CONTENT_REGEX.find(content)
         val text = match?.groupValues?.getOrNull(1)
+            ?.replace("\\/", "/")
             ?.replace("\\n", "\n")
             ?.replace("\\\"", "\"")
             ?.trim()
@@ -27,6 +28,7 @@ fun parseContentPreview(content: String): String {
     return try {
         val match = CONTENT_REGEX.find(content)
         val text = match?.groupValues?.getOrNull(1)
+            ?.replace("\\/", "/")
             ?.replace("\\n", " ")
             ?.replace("\\\"", "\"")
             ?.trim()

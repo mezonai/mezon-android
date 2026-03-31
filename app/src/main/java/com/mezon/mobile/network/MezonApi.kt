@@ -242,14 +242,14 @@ class MezonApi @Inject constructor(
         apiUrl: String,
         token: String,
         clanId: Long,
-        limit: Int = 200
+        limit: Int = 500
     ): ChannelDescList {
         val request = listChannelDescsRequest {
             this.clanId = clanId
             this.limit = limit
             this.state = 1
-            this.page = 1
-            this.channelType = 0
+            this.page = 0
+            this.channelType = CHANNEL_TYPE_CHANNEL
             this.isMobile = true
         }
         val bytes = rpc(apiUrl, token, "ListChannelDescs", request.toByteArray())
@@ -389,6 +389,16 @@ class MezonApi @Inject constructor(
             this.usernames.addAll(usernames)
         }
         return rpc(apiUrl, token, "DeleteFriends", request.toByteArray())
+    }
+
+    suspend fun sendChannelMessage(
+        apiUrl: String,
+        token: String,
+        request: com.mezon.mezon.rtapi.ChannelMessageSend
+    ): com.mezon.mezon.rtapi.ChannelMessageAck {
+        val body = request.toByteArray()
+        val bytes = rpc(apiUrl, token, "SendChannelMessage", body)
+        return com.mezon.mezon.rtapi.ChannelMessageAck.parseFrom(bytes)
     }
 
     suspend fun listChannelMessages(

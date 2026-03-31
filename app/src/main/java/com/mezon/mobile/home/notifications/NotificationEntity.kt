@@ -81,7 +81,6 @@ fun Notification.toNotificationEntity(): NotificationEntity {
         }
     }
 
-    Log.d(TAG, "id=$id → channelId=$channelId clanId=$clanId type=$channelType sender='$senderName' msg='${messageText.take(40)}'")
 
     val resolvedAvatar = this.avatarUrl.ifEmpty { senderAvatar }
 
@@ -148,7 +147,6 @@ private fun parseNotificationItemJson(item: JSONObject): NotificationEntity {
         messageText = parseContentText(textRaw).ifEmpty { textRaw }
     }
 
-    Log.d(TAG, "REST id=$id → channelId=$channelId clanId=$clanId type=$channelType sender='$senderName' msg='${messageText.take(40)}'")
 
     return NotificationEntity(
         id = id, subject = item.optString("subject", ""),
