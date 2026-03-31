@@ -55,8 +55,11 @@ class AccountController @Inject constructor(
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
     init {
+        Log.d(TAG, "init: AccountController created")
         appScope.launch {
+            Log.d(TAG, "init: waiting for session...")
             sessionManager.sessionFlow.first { it != null }
+            Log.d(TAG, "init: session available, triggering loadAccountInternal")
             loadAccountInternal()
         }
         appScope.launch { observeProfileUpdates() }
@@ -80,10 +83,18 @@ class AccountController @Inject constructor(
 
     private suspend fun loadAccountInternal(noCache: Boolean = false) {
         try {
-            val session = withContext(ioDispatcher) { sessionManager.sessionFlow.first() } ?: return
+            val session = withContext(ioDispatcher) { sessionManager.sessionFlow.first() }
+            if (session == null) {
+                Log.d(TAG, "loadAccountInternal: skipped — session is null")
+                return
+            }
             if (!noCache && _accountInfo.value.userId != 0L &&
                 cacheTracker.shouldCall(cacheKey, noCache = false) == ApiCacheTracker.ShouldCall.SKIP
-            ) return
+            ) {
+                Log.d(TAG, "loadAccountInternal: skipped — cache hit, userId=${_accountInfo.value.userId}")
+                return
+            }
+            Log.d(TAG, "loadAccountInternal: calling API, noCache=$noCache, currentUserId=${_accountInfo.value.userId}")
             val account = withContext(ioDispatcher) { api.getAccount(session.apiUrl, session.token) }
             val user = account.user
             val info = AccountInfo(
@@ -100,8 +111,9 @@ class AccountController @Inject constructor(
             cacheTracker.markCalled(cacheKey)
             userController.updateFromAccount(info)
             notificationCenter.postNotificationOnMainThread(NotificationCenter.accountInfoLoaded)
+            Log.d(TAG, "loadAccountInternal: success, userId=${info.userId}, displayName=${info.displayName}")
         } catch (e: Exception) {
-            Log.e(TAG, "loadAccount failed", e)
+            Log.e(TAG, "loadAccountInternal: failed", e)
         }
     }
 

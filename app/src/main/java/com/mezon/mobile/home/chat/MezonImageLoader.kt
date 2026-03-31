@@ -380,6 +380,51 @@ class MezonImageLoader private constructor(context: Context) {
         }
     }
 
+    fun loadFromUri(
+        uri: android.net.Uri,
+        reqWidth: Int,
+        reqHeight: Int,
+        onSuccess: (Bitmap) -> Unit,
+        onError: ((Exception) -> Unit)? = null
+    ): Cancellable {
+        val cacheKey = cacheKey(uri.toString(), reqWidth, reqHeight)
+
+        getFromMemory(cacheKey)?.let { cached ->
+            mainHandler.post { onSuccess(cached) }
+            return Cancellable.EMPTY
+        }
+
+        @Suppress("UNCHECKED_CAST")
+        val cb = LoadCallback(onSuccess as (Any) -> Unit, onError)
+        if (addCallback(cacheKey, cb)) {
+            return Cancellable { removePendingCallback(cacheKey, cb) }
+        }
+
+        DECODE_EXECUTOR.execute {
+            try {
+                val stream = appContext.contentResolver.openInputStream(uri)
+                    ?: throw IOException("Cannot open URI: $uri")
+                val bytes = stream.use { it.readBytes() }
+                val opts = BitmapFactory.Options()
+                opts.inJustDecodeBounds = true
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+                opts.inSampleSize = calculateInSampleSize(opts, reqWidth, reqHeight)
+                opts.inJustDecodeBounds = false
+                opts.inPreferredConfig = Bitmap.Config.ARGB_8888
+                val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+                if (bmp != null) {
+                    putToMemory(cacheKey, bmp, reqWidth, reqHeight)
+                    dispatchSuccess(cacheKey, bmp)
+                } else {
+                    dispatchError(cacheKey, IOException("Decode failed for $uri"))
+                }
+            } catch (e: Exception) {
+                dispatchError(cacheKey, e)
+            }
+        }
+        return Cancellable { removePendingCallback(cacheKey, cb) }
+    }
+
     fun interface Cancellable {
         fun cancel()
         companion object {

@@ -9,6 +9,7 @@ import android.graphics.RectF
 import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.text.Spannable
+import android.text.Spanned
 import android.text.StaticLayout
 import android.text.TextUtils
 import android.text.style.ClickableSpan
@@ -72,6 +73,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var drawEdited = false
     private var drawEphemeral = false
     private var drawError = false
+    private var drawSending = false
     private var fileIconDrawable: Drawable? = null
 
     private val photoImage = ImageReceiver(this)
@@ -118,6 +120,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var attachedToWindow = false
     private var pendingMessage: MessageEntity? = null
     private var avatarCancellable: MezonImageLoader.Cancellable? = null
+    private var loggedRichContentForMessageId = Long.MIN_VALUE
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
@@ -182,6 +185,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         drawEdited = false
         drawEphemeral = false
         drawError = false
+        drawSending = false
         parsedContent = ""
         avatarCancellable?.cancel()
         avatarCancellable = null
@@ -230,6 +234,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             drawEdited = msg.isEdited && !msg.hideEditted
             drawEphemeral = msg.isEphemeral
             drawError = msg.isError
+            drawSending = msg.isSending
             hasReply = parseReply(msg)
             updateColors(msg)
             if (drawPhotoImage) computePhotoSize(msg)
@@ -239,6 +244,13 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 loadAvatar(msg.senderAvatar)
             }
             if (drawPhotoImage) loadPhotoImage(msg)
+            if (drawPhotoImage) {
+                Log.d(
+                    TAG,
+                    "update mask=0 id=${msg.id} sendState=${msg.sendState} drawSending=$drawSending " +
+                        "drawPhotoImage=$drawPhotoImage mediaGridCount=$mediaGridCount"
+                )
+            }
             requestLayout()
             invalidate()
             return true
@@ -253,7 +265,18 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
 
         if ((mask and NotificationCenter.UPDATE_MASK_SEND_STATE) != 0) {
-            needInvalidate = true
+            val prevError = drawError
+            drawSending = msg.isSending
+            drawError = msg.isError
+            Log.d(
+                TAG,
+                "update SEND_STATE id=${msg.id} sendState=${msg.sendState} drawSending=$drawSending drawPhotoImage=$drawPhotoImage"
+            )
+            if (drawError && !prevError) {
+                rebuildLayout = true
+            } else {
+                needInvalidate = true
+            }
         }
 
         if ((mask and NotificationCenter.UPDATE_MASK_NAME) != 0) {
@@ -285,6 +308,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             drawEdited = m.isEdited && !m.hideEditted
             drawEphemeral = m.isEphemeral
             drawError = m.isError
+            drawSending = m.isSending
             updateColors(m)
             buildLayouts(m)
             requestLayout()
@@ -355,7 +379,12 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     att.url.contains("tenor.com", true)
                 allReceivers[i].setRoundRadius(MEDIA_RADIUS.toInt())
                 allReceivers[i].setRequestedSize(pw, ph)
-                if (isAnimated) {
+                val isLocalUri = att.url.startsWith("content://") || att.url.startsWith("file://")
+                if (isLocalUri) {
+                    allReceivers[i].setLocalUri(android.net.Uri.parse(att.url), context)
+                } else if (allReceivers[i].hasMainImage()) {
+                    // Keep existing local preview — don't reload CDN to avoid flash
+                } else if (isAnimated) {
                     allReceivers[i].setImage(att.url, att.thumb.ifEmpty { null }, context)
                 } else if (att.filetype.startsWith("video/")) {
                     val thumb = att.thumb.ifEmpty { null }
@@ -393,6 +422,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private var proxySizeW = 0
     private var proxySizeH = 0
+    private var spinnerAngle = 0f
+    private val spinnerArcRect = RectF()
 
     private fun calculateProxySize(origW: Int, origH: Int) {
         val screenW = resources.displayMetrics.widthPixels
@@ -481,19 +512,20 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 theme.textRoleLink,
                 theme.darkMossGreen
             )
-            val charSeq = if (isRawMessage(content)) {
+            val charSeq: CharSequence = if (isRawMessage(content)) {
                 parsedContent
             } else {
                 parseContentToSpannable(content, linkColor, this, mentionColors, theme)
             }
             val layout = StaticLayout.Builder.obtain(charSeq, 0, charSeq.length, currentContentPaint, textWidth.coerceAtLeast(1))
-                .setLineSpacing(LayoutHelper.dpf(2f), 1f) 
+                .setLineSpacing(LayoutHelper.dpf(2f), 1f)
                 .build()
-            if (charSeq is android.text.Spanned) {
-                val codeFenceSpans = charSeq.getSpans(0, charSeq.length, CodeFenceSpan::class.java)
+            val spannedText = charSeq as? Spanned
+            if (spannedText != null) {
+                val codeFenceSpans = spannedText.getSpans(0, spannedText.length, CodeFenceSpan::class.java)
                 for (span in codeFenceSpans) {
-                    val spanStart = charSeq.getSpanStart(span)
-                    val spanEnd = charSeq.getSpanEnd(span)
+                    val spanStart = spannedText.getSpanStart(span)
+                    val spanEnd = spannedText.getSpanEnd(span)
                     span.spanFirstLine = layout.getLineForOffset(spanStart)
                     span.spanLastLine = layout.getLineForOffset((spanEnd - 1).coerceAtLeast(spanStart))
                 }
@@ -1181,7 +1213,11 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             if (highlightProgress > 0f) postInvalidateDelayed(16)
         }
 
-        val alpha = if (drawError) 0.6f else 1f
+        val alpha = when {
+            drawError -> 0.6f
+            drawSending -> 0.7f
+            else -> 1f
+        }
         if (alpha < 1f) {
             canvas.saveLayerAlpha(0f, 0f, width.toFloat(), height.toFloat(), (alpha * 255).toInt())
         }
@@ -1196,6 +1232,35 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         if (drawError) {
             drawErrorText(canvas, msg)
         }
+    }
+
+    private fun drawSendingIndicator(canvas: Canvas) {
+        val x = (PAD_H + AVATAR_SIZE + GAP_AVATAR).toFloat()
+        val topPad = if (isCombined) COMBINE_PAD_V else PAD_V
+        val y = (measuredHeight - topPad - SENDING_ICON_SIZE).toFloat()
+        val cx = x + SENDING_ICON_SIZE / 2f
+        val cy = y + SENDING_ICON_SIZE / 2f
+        val r = SENDING_ICON_SIZE / 2f - SENDING_STROKE_W
+        SENDING_CIRCLE_PAINT.color = theme.onSurfaceVariant
+        canvas.drawCircle(cx, cy, r, SENDING_CIRCLE_PAINT)
+        val handLen = r * 0.55f
+        canvas.drawLine(cx, cy, cx, cy - handLen, SENDING_HAND_PAINT)
+        canvas.drawLine(cx, cy, cx + handLen * 0.7f, cy, SENDING_HAND_PAINT)
+    }
+
+    private fun drawAttachmentUploadSpinner(canvas: Canvas, x: Float, y: Float, w: Float, h: Float, radius: Float) {
+        tmpRect.set(x, y, x + w, y + h)
+        if (radius > 0) {
+            canvas.drawRoundRect(tmpRect, radius, radius, SPINNER_OVERLAY_PAINT)
+        } else {
+            canvas.drawRect(tmpRect, SPINNER_OVERLAY_PAINT)
+        }
+        val cx = x + w / 2f
+        val cy = y + h / 2f
+        spinnerArcRect.set(cx - SPINNER_RADIUS, cy - SPINNER_RADIUS, cx + SPINNER_RADIUS, cy + SPINNER_RADIUS)
+        canvas.drawArc(spinnerArcRect, spinnerAngle, 270f, false, SPINNER_ARC_PAINT)
+        spinnerAngle = (spinnerAngle + 3f) % 360f
+        postInvalidateDelayed(33)
     }
 
     private fun drawStickerOnly(canvas: Canvas, msg: MessageEntity) {
@@ -1222,7 +1287,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         photoImage.setRoundRadius(0)
         photoImage.setImageCoords(imgX, yOff, photoWidth.toFloat(), photoHeight.toFloat())
         photoImage.draw(canvas)
-        if (!photoImage.hasMainImage()) {
+        if (drawSending) {
+            drawAttachmentUploadSpinner(canvas, imgX, yOff, photoWidth.toFloat(), photoHeight.toFloat(), 0f)
+        } else if (!photoImage.hasMainImage()) {
             shimmerEffect.draw(canvas, imgX, yOff, imgX + photoWidth, yOff + photoHeight, 0f,
                 theme.resolvedMode != com.mezon.mobile.ui.theme.ThemeMode.LIGHT)
             postInvalidateDelayed(32)
@@ -1426,7 +1493,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     val x = startX + i * (cellW + gap)
                     allReceivers[i].setImageCoords(x, startY, cellW, cellH)
                     allReceivers[i].draw(canvas)
-                    if (!allReceivers[i].hasMainImage()) {
+                    if (drawSending) {
+                        drawAttachmentUploadSpinner(canvas, x, startY, cellW, cellH, MEDIA_RADIUS)
+                    } else if (!allReceivers[i].hasMainImage()) {
                         shimmerEffect.draw(canvas, x, startY, x + cellW, startY + cellH, MEDIA_RADIUS, isDark)
                         needsShimmerRedraw = true
                     }
@@ -1442,7 +1511,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
                 allReceivers[0].setImageCoords(startX, startY, leftW, leftH)
                 allReceivers[0].draw(canvas)
-                if (!allReceivers[0].hasMainImage()) {
+                if (drawSending) {
+                    drawAttachmentUploadSpinner(canvas, startX, startY, leftW, leftH, MEDIA_RADIUS)
+                } else if (!allReceivers[0].hasMainImage()) {
                     shimmerEffect.draw(canvas, startX, startY, startX + leftW, startY + leftH, MEDIA_RADIUS, isDark)
                     needsShimmerRedraw = true
                 }
@@ -1452,7 +1523,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     val ry = startY + (i - 1) * (rightH + gap)
                     allReceivers[i].setImageCoords(rx, ry, rightW, rightH)
                     allReceivers[i].draw(canvas)
-                    if (!allReceivers[i].hasMainImage()) {
+                    if (drawSending) {
+                        drawAttachmentUploadSpinner(canvas, rx, ry, rightW, rightH, MEDIA_RADIUS)
+                    } else if (!allReceivers[i].hasMainImage()) {
                         shimmerEffect.draw(canvas, rx, ry, rx + rightW, ry + rightH, MEDIA_RADIUS, isDark)
                         needsShimmerRedraw = true
                     }
@@ -1470,7 +1543,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     val y = startY + row * (cellH + gap)
                     allReceivers[i].setImageCoords(x, y, cellW, cellH)
                     allReceivers[i].draw(canvas)
-                    if (!allReceivers[i].hasMainImage()) {
+                    if (drawSending) {
+                        drawAttachmentUploadSpinner(canvas, x, y, cellW, cellH, MEDIA_RADIUS)
+                    } else if (!allReceivers[i].hasMainImage()) {
                         shimmerEffect.draw(canvas, x, y, x + cellW, y + cellH, MEDIA_RADIUS, isDark)
                         needsShimmerRedraw = true
                     }
@@ -1492,7 +1567,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     }
 
     private fun drawMediaOverlays(canvas: Canvas, msg: MessageEntity, imgX: Float, imgY: Float) {
-        if (!photoImage.hasMainImage()) {
+        if (drawSending) {
+            drawAttachmentUploadSpinner(canvas, imgX, imgY, photoWidth.toFloat(), photoHeight.toFloat(), MEDIA_RADIUS)
+        } else if (!photoImage.hasMainImage()) {
             shimmerEffect.draw(canvas, imgX, imgY, imgX + photoWidth, imgY + photoHeight, MEDIA_RADIUS,
                 theme.resolvedMode != com.mezon.mobile.ui.theme.ThemeMode.LIGHT)
             postInvalidateDelayed(32)
@@ -1622,6 +1699,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     companion object {
         const val COMBINE_TIME_THRESHOLD = 2 * 60L
+        private const val TAG = "ChatMessageCell"
 
         private val AVATAR_SIZE = LayoutHelper.dp(40)  
         private val PAD_H = LayoutHelper.dp(6)          
@@ -1654,6 +1732,21 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         private val FORWARD_ICON_GAP = LayoutHelper.dp(4).toFloat()
         private val EPHEMERAL_ICON_SIZE = LayoutHelper.dp(12)
 
+        private val SENDING_ICON_SIZE = LayoutHelper.dp(12)
+        private val SENDING_STROKE_W = LayoutHelper.dpf(1.5f)
+
+        private val SENDING_CIRCLE_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = SENDING_STROKE_W
+        }
+
+        private val SENDING_HAND_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = SENDING_STROKE_W
+            strokeCap = Paint.Cap.ROUND
+            color = 0xFF8B8D93.toInt()
+        }
+
         private const val FORWARD_TEXT = "Forwarded"
         private const val EDITED_TEXT = "(edited)"
         private const val EPHEMERAL_TEXT = "Only visible to you"
@@ -1664,6 +1757,19 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         private val REFERENCE_REF_ID_REGEX = Regex("\"message_ref_id\"\\s*:\\s*\"?(\\d+)\"?")
         private val REFERENCE_SENDER_ID_REGEX = Regex("\"message_sender_id\"\\s*:\\s*\"?(\\d+)\"?")
         private val REFERENCE_AVATAR_REGEX = Regex("\"mesages_sender_avatar\"\\s*:\\s*\"([^\"]+)\"")
+
+        private val SPINNER_RADIUS = LayoutHelper.dp(14).toFloat()
+        private val SPINNER_STROKE = LayoutHelper.dpf(2.5f)
+        private val SPINNER_OVERLAY_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            color = 0x55000000
+        }
+        private val SPINNER_ARC_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFFFFFFFF.toInt()
+            style = Paint.Style.STROKE
+            strokeWidth = SPINNER_STROKE
+            strokeCap = Paint.Cap.ROUND
+        }
 
         private val GRID_GAP = LayoutHelper.dp(2).toFloat()
         private val BADGE_PAD = LayoutHelper.dp(6).toFloat()
