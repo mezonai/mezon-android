@@ -130,6 +130,7 @@ class ClansFragment : BaseFragment() {
             layoutManager = LinearLayoutManager(context)
             setBackgroundColor(themeColors.serverRailBg)
             isVerticalScrollBarEnabled = false
+            itemAnimator = null
             setSelectorType(RecyclerListView.SELECTOR_CIRCLE_TO_BOUND)
         }
         serverAdapter = ServerRailAdapter()
@@ -498,8 +499,9 @@ class ClansFragment : BaseFragment() {
     }
 
     private fun onChannelSelected(channel: ClanChannelEntity) {
-        chatController.openChannel(channel.channelId, channel.clanId, channel.type, channel.isPrivate)
-        onOpenChat?.invoke(channel.channelId, channel.channelLabel, channel.clanId, channel.type)
+        val clanIdForJoin = if (channel.clanId != 0L) channel.clanId else clansController.selectedClanId.value
+        chatController.openChannel(channel.channelId, clanIdForJoin, channel.type, channel.isPrivate, channel.parentId)
+        onOpenChat?.invoke(channel.channelId, channel.channelLabel, clanIdForJoin, channel.type)
     }
 
     inner class ServerRailAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {

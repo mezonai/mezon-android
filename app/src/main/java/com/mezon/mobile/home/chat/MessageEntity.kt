@@ -49,10 +49,15 @@ data class MessageEntity(
     val hideEditted: Boolean = true,
     val isForwarded: Boolean = false,
     val isError: Boolean = false,
-    val extraAttachmentsJson: String = ""
+    val extraAttachmentsJson: String = "",
+    val sendState: Int = SEND_STATE_SENT
 ) {
     companion object {
         const val UNREAD_DIVIDER_ID = Long.MIN_VALUE
+
+        const val SEND_STATE_SENT = 0
+        const val SEND_STATE_SENDING = 1
+        const val SEND_STATE_ERROR = 2
 
         const val TYPE_TEXT = 0
         const val TYPE_PHOTO = 1
@@ -100,6 +105,9 @@ data class MessageEntity(
 
     val isRenderable: Boolean
         get() = isNormalMessage || isSystemMessage
+
+    val isSending: Boolean
+        get() = sendState == SEND_STATE_SENDING
 
     val isEdited: Boolean
         get() = updateTimeSeconds > 0 && updateTimeSeconds > timestampSeconds && !isError
@@ -282,10 +290,10 @@ private fun mergeReferencesIntoContent(content: String, referencesBytes: com.goo
             item.put("ref_type", ref.refType)
             item.put("message_sender_id", ref.messageSenderId.toString())
             item.put("message_sender_username", ref.messageSenderUsername)
-            item.put("mesages_sender_avatar", ref.mesagesSenderAvatar)
+            item.put("mesages_sender_avatar", ref.messageSenderAvatar)
             item.put("message_sender_clan_nick", ref.messageSenderClanNick)
             item.put("message_sender_display_name", ref.messageSenderDisplayName)
-            Log.d("ReplyAvatar", "mergeRef: senderId=${ref.messageSenderId} name=${ref.messageSenderDisplayName} avatar=[${ref.mesagesSenderAvatar}]")
+            Log.d("ReplyAvatar", "mergeRef: senderId=${ref.messageSenderId} name=${ref.messageSenderDisplayName} avatar=[${ref.messageSenderAvatar}]")
             item.put("content", ref.content)
             item.put("has_attachment", ref.hasAttachment)
             arr.put(item)

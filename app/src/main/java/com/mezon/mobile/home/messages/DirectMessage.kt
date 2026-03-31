@@ -5,10 +5,14 @@ import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.mezon.mezon.api.ChannelDescription
+import com.mezon.mobile.home.extractLastSeenMessageId
+import com.mezon.mobile.home.extractLastSeenMessageTs
+import com.mezon.mobile.home.extractLastSentMessageId
+import com.mezon.mobile.home.extractLastSentMessageTs
 
 @Entity(
     tableName = "direct_messages",
-    indices = [Index(value = ["lastMessageTimestamp"])]
+    indices = [Index(value = ["lastSentMessageTs"])]
 )
 data class DirectMessage(
     @PrimaryKey val channelId: Long,
@@ -17,13 +21,14 @@ data class DirectMessage(
     val avatarUrl: String,
     val displayName: String,
     val lastMessageContent: String,
-    val lastMessageTimestamp: Long,
     val unreadCount: Int,
     val isOnline: Boolean,
     val isMute: Boolean,
     val otherUserId: Long = 0L,
     val lastSeenMessageId: Long = 0L,
-    val lastSentMessageId: Long = 0L
+    val lastSentMessageId: Long = 0L,
+    val lastSeenMessageTs: Long = 0L,
+    val lastSentMessageTs: Long = 0L
 )
 
 
@@ -46,12 +51,6 @@ fun ChannelDescription.toDirectMessage(currentUserId: Long): DirectMessage {
         parseContentPreview(lastSentMessage.content)
     } else ""
 
-    val lastMsgTimestamp = if (hasLastSentMessage()) {
-        lastSentMessage.timestampSeconds.toLong()
-    } else {
-        createTimeSeconds.toLong()
-    }
-
     val otherUserId = userIdsList.getOrElse(otherIndex) { 0L }
 
     return DirectMessage(
@@ -61,13 +60,14 @@ fun ChannelDescription.toDirectMessage(currentUserId: Long): DirectMessage {
         avatarUrl = avatarUrl,
         displayName = displayName,
         lastMessageContent = lastMsgContent,
-        lastMessageTimestamp = lastMsgTimestamp,
         unreadCount = countMessUnread,
         isOnline = isOnline,
         isMute = isMute,
         otherUserId = otherUserId,
-        lastSeenMessageId = if (hasLastSeenMessage()) lastSeenMessage.id else 0L,
-        lastSentMessageId = if (hasLastSentMessage()) lastSentMessage.id else 0L
+        lastSeenMessageId = extractLastSeenMessageId(),
+        lastSentMessageId = extractLastSentMessageId(),
+        lastSeenMessageTs = extractLastSeenMessageTs(),
+        lastSentMessageTs = extractLastSentMessageTs()
     )
 }
 

@@ -8,8 +8,8 @@ import androidx.room.Upsert
 @Dao
 interface DirectMessageDao {
 
-    @Query("SELECT * FROM direct_messages ORDER BY lastMessageTimestamp DESC LIMIT :limit")
-    suspend fun getAll(limit: Int = 200): List<DirectMessage>
+    @Query("SELECT * FROM direct_messages ORDER BY lastSentMessageTs DESC LIMIT :limit")
+    suspend fun getAll(limit: Int = 500): List<DirectMessage>
 
     @Query("SELECT * FROM direct_messages WHERE channelId = :channelId")
     suspend fun getById(channelId: Long): DirectMessage?
