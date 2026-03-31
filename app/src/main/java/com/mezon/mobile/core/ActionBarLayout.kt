@@ -624,7 +624,6 @@ class ActionBarLayout(context: Context, private val activity: Activity) :
         if (activity.currentFocus != null) {
             AndroidUtilities.hideKeyboard(activity.currentFocus)
         }
-        (parent as? DrawerLayoutContainer)?.resetImeHeight()
 
         val removingFragment = fragmentStack.last()
         val previousFragment = fragmentStack[fragmentStack.size - 2]
