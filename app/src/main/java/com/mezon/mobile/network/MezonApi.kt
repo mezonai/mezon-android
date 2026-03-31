@@ -2,7 +2,6 @@ package com.mezon.mobile.network
 
 import com.mezon.mobile.BuildConfig
 import android.util.Base64
-import android.util.Log
 import com.mezon.mezon.api.Account
 import com.mezon.mezon.api.AccountEmail
 import com.mezon.mezon.api.AllUserClans
@@ -113,7 +112,7 @@ data class OtpRequestResponse(
     val status: Int = 0
 )
 
-private const val TAG = "MezonApi"
+
 private val CONTENT_TYPE_PROTO = ContentType("application", "proto")
 
 @Singleton
@@ -286,12 +285,14 @@ class MezonApi @Inject constructor(
         token: String,
         displayName: String? = null,
         avatarUrl: String? = null,
-        aboutMe: String? = null
+        aboutMe: String? = null,
+        logoUrl: String? = null
     ): ByteArray {
         val builder = com.mezon.mezon.api.UpdateAccountRequest.newBuilder()
         if (displayName != null) builder.displayName = com.google.protobuf.StringValue.of(displayName)
         if (avatarUrl != null) builder.avatarUrl = com.google.protobuf.StringValue.of(avatarUrl)
         if (aboutMe != null) builder.aboutMe = com.google.protobuf.StringValue.of(aboutMe)
+        if (logoUrl != null) builder.logo = com.google.protobuf.StringValue.of(logoUrl)
         return rpc(apiUrl, token, "UpdateAccount", builder.build().toByteArray())
     }
 
@@ -459,9 +460,7 @@ class MezonApi @Inject constructor(
             if (height > 0) this.height = height
         }
         val bytes = rpc(apiUrl, token, "UploadAttachmentFile", request.toByteArray())
-        val result = UploadAttachment.parseFrom(bytes)
-        Log.d(TAG, "UploadAttachmentFile: filename=${result.filename} url=${result.url.take(60)}...")
-        return result
+        return UploadAttachment.parseFrom(bytes)
     }
 
     suspend fun listUserClansByUserId(
@@ -549,11 +548,8 @@ class MezonApi @Inject constructor(
             setBody(fileBytes)
         }
         if (!response.status.isSuccess()) {
-            val errorBody = response.bodyAsText()
-            Log.e(TAG, "PUT upload failed: ${response.status} - $errorBody")
             throw RuntimeException("File upload failed (${response.status.value})")
         }
-        Log.d(TAG, "PUT upload success")
     }
 }
 

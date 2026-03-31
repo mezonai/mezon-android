@@ -1,7 +1,9 @@
 package com.mezon.mobile.home.profile
 
-import android.util.Log
+import android.content.ContentResolver
+import android.net.Uri
 import com.mezon.mezon.api.Friend
+import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
@@ -21,12 +23,13 @@ import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
-private const val TAG = "AccountController"
+
 
 data class AccountInfo(
     val userId: Long = 0L,
     val username: String = "",
     val displayName: String = "",
+    val aboutMe: String = "",
     val email: String = "",
     val phoneNumber: String = "",
     val avatarUrl: String = "",
@@ -90,6 +93,7 @@ class AccountController @Inject constructor(
                 userId = user.id,
                 username = user.username,
                 displayName = user.displayName,
+                aboutMe = user.aboutMe,
                 email = account.email,
                 phoneNumber = user.phoneNumber,
                 avatarUrl = user.avatarUrl,
@@ -101,7 +105,6 @@ class AccountController @Inject constructor(
             userController.updateFromAccount(info)
             notificationCenter.postNotificationOnMainThread(NotificationCenter.accountInfoLoaded)
         } catch (e: Exception) {
-            Log.e(TAG, "loadAccount failed", e)
         }
     }
 
@@ -117,7 +120,6 @@ class AccountController @Inject constructor(
                 _blockedUsers.value = friendList.friendsList
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.blockedUsersLoaded)
             } catch (e: Exception) {
-                Log.e(TAG, "loadBlockedUsers failed", e)
             }
         }
     }
@@ -135,7 +137,6 @@ class AccountController @Inject constructor(
                     onResult(true, reqId, "")
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "linkEmail failed", e)
                 withContext(kotlinx.coroutines.Dispatchers.Main) {
                     onResult(false, "", e.message ?: "")
                 }
@@ -157,7 +158,6 @@ class AccountController @Inject constructor(
                     onResult(true, "")
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "confirmLinkOTP failed", e)
                 withContext(kotlinx.coroutines.Dispatchers.Main) {
                     onResult(false, e.message ?: "")
                 }
@@ -186,7 +186,6 @@ class AccountController @Inject constructor(
                     onResult(true, reqId, "")
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "linkPhone failed", e)
                 withContext(kotlinx.coroutines.Dispatchers.Main) {
                     onResult(false, "", e.message ?: "")
                 }
@@ -204,7 +203,6 @@ class AccountController @Inject constructor(
                 withContext(ioDispatcher) { api.deleteAccount(session.apiUrl, session.token) }
                 withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(true) }
             } catch (e: Exception) {
-                Log.e(TAG, "deleteAccount failed", e)
                 withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(false) }
             } finally {
                 _isLoading.value = false
@@ -228,7 +226,6 @@ class AccountController @Inject constructor(
                 _accountInfo.value = _accountInfo.value.copy(passwordSetted = true)
                 withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(true, "") }
             } catch (e: Exception) {
-                Log.e(TAG, "setPassword failed", e)
                 withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(false, e.message ?: "") }
             } finally {
                 _isLoading.value = false
@@ -240,6 +237,7 @@ class AccountController @Inject constructor(
         displayName: String,
         avatarUrl: String,
         aboutMe: String,
+        logoUrl: String = "",
         onResult: (success: Boolean, errorMsg: String) -> Unit
     ) {
         appScope.launch {
@@ -250,15 +248,18 @@ class AccountController @Inject constructor(
                     api.updateAccount(
                         session.apiUrl,
                         session.token,
-                        displayName = displayName.ifEmpty { null },
-                        avatarUrl = avatarUrl.ifEmpty { null },
-                        aboutMe = aboutMe.ifEmpty { null }
+                        displayName,
+                        avatarUrl.ifEmpty { null },
+                        aboutMe,
+                        logoUrl
                     )
                 }
                 val current = _accountInfo.value
                 val updated = current.copy(
-                    displayName = displayName.ifEmpty { current.displayName },
-                    avatarUrl = avatarUrl.ifEmpty { current.avatarUrl }
+                    displayName = displayName,
+                    avatarUrl = avatarUrl.ifEmpty { current.avatarUrl },
+                    aboutMe = aboutMe,
+                    logo = logoUrl
                 )
                 _accountInfo.value = updated
                 cacheTracker.invalidate(cacheKey)
@@ -266,7 +267,6 @@ class AccountController @Inject constructor(
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.accountInfoLoaded)
                 withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(true, "") }
             } catch (e: Exception) {
-                Log.e(TAG, "updateProfile failed", e)
                 withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(false, e.message ?: "") }
             } finally {
                 _isLoading.value = false
@@ -285,8 +285,38 @@ class AccountController @Inject constructor(
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.blockedUsersLoaded)
                 withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(true) }
             } catch (e: Exception) {
-                Log.e(TAG, "unblockUser failed", e)
                 withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(false) }
+            }
+        }
+    }
+
+    fun uploadAvatar(
+        uri: Uri,
+        contentResolver: ContentResolver,
+        onResult: (success: Boolean, avatarUrl: String) -> Unit
+    ) {
+        appScope.launch {
+            try {
+                val session = withContext(ioDispatcher) { sessionManager.sessionFlow.first() } ?: return@launch
+                val fileBytes = withContext(ioDispatcher) {
+                    contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                } ?: throw RuntimeException("Cannot read file")
+
+                val timestamp = System.currentTimeMillis() / 1000
+                val filename = "${timestamp}_avatar.jpg"
+                val mimeType = contentResolver.getType(uri) ?: "image/jpeg"
+
+                val cdnUrl = withContext(ioDispatcher) {
+                    val presignResult = api.uploadAttachmentFile(
+                        session.apiUrl, session.token,
+                        filename, mimeType, fileBytes.size, 400, 400
+                    )
+                    api.putFileToPresignedUrl(presignResult.url, fileBytes, mimeType)
+                    "${BuildConfig.MEZON_BASE_IMG_URL}/${presignResult.filename}"
+                }
+                withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(true, cdnUrl) }
+            } catch (e: Exception) {
+                withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(false, "") }
             }
         }
     }

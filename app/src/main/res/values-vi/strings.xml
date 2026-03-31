@@ -245,5 +245,20 @@
     <string name="channel_list_favorite">Kênh yêu thích</string>
     <string name="channel_list_public">Kênh công khai</string>
     <string name="channel_list_events">Sự kiện</string>
-    <string name="channel_list_members">Thành viên</string>
+    <!-- Edit Profile -->
+    <string name="edit_profile_title">Cài đặt hồ sơ</string>
+    <string name="edit_profile_tab_personal">Cá nhân</string>
+    <string name="edit_profile_tab_clan">Clan</string>
+    <string name="edit_profile_display_name_label">Tên hiển thị</string>
+    <string name="edit_profile_display_name_hint">Nhập tên hiển thị</string>
+    <string name="edit_profile_about_me">Về tôi</string>
+    <string name="edit_profile_about_me_hint">Hãy cho mọi người biết về bạn</string>
+    <string name="edit_profile_dm_icon_label">Biểu tượng tin nhắn riêng</string>
+    <string name="edit_profile_save">Lưu</string>
+    <string name="edit_profile_save_error">Lỗi khi lưu hồ sơ</string>
+    <string name="edit_profile_username_hint">Bạn không thể thay đổi username</string>
+    <string name="edit_profile_change_avatar">Đổi ảnh đại diện</string>
+    <string name="edit_profile_remove_avatar">Xóa ảnh đại diện</string>
+    <string name="edit_profile_avatar_too_large">Kích thước ảnh không được vượt quá 10MB</string>
+    <string name="edit_profile_dm_logo_too_large">Kích thước logo không được vượt quá 1MB</string>
 </resources>

@@ -36,7 +36,8 @@ class InputCell(context: Context, private val theme: ThemeColors) : LinearLayout
 
         labelView = TextView(context).apply {
             setTextColor(theme.onSurfaceVariant)
-            textSize = 14f
+            textSize = 15f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
             visibility = View.GONE
         }
         addView(labelView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.START, 0f, 0f, 0f, 4f))
@@ -49,10 +50,10 @@ class InputCell(context: Context, private val theme: ThemeColors) : LinearLayout
         }
 
         bgDrawable = GradientDrawable().apply {
-            setColor(0xFFF6F6F6.toInt())
+            setColor(theme.surfaceVariant)
             cornerRadius = LayoutHelper.dpf(12f)
-            setStroke(LayoutHelper.dp(1), 0xFFCCCCCC.toInt())
-        }
+            setStroke(LayoutHelper.dp(1), theme.outlineVariant)
+        }.mutate() as GradientDrawable
 
         inputContainer = FrameLayout(context).apply {
             background = bgDrawable
@@ -153,6 +154,11 @@ class InputCell(context: Context, private val theme: ThemeColors) : LinearLayout
         }
     }
 
+    fun setMaxCharacter(max: Int) {
+        maxCharacter = max
+    }
+
+
     fun setError(message: String?) {
         if (message != null) {
             errorView.text = message
@@ -160,8 +166,16 @@ class InputCell(context: Context, private val theme: ThemeColors) : LinearLayout
             bgDrawable.setStroke(LayoutHelper.dp(1), theme.error)
         } else {
             errorView.visibility = View.GONE
-            bgDrawable.setStroke(LayoutHelper.dp(1), theme.outline)
+            bgDrawable.setStroke(LayoutHelper.dp(1), theme.outlineVariant)
         }
+    }
+
+    fun setCellBackgroundColor(color: Int) {
+        bgDrawable.setColor(color)
+    }
+
+    fun setCellStrokeColor(color: Int) {
+        bgDrawable.setStroke(LayoutHelper.dp(1), color)
     }
 
     override fun setEnabled(enabled: Boolean) {
