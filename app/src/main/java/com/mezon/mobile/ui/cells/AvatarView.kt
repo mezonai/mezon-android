@@ -27,7 +27,7 @@ class AvatarView(context: Context) : View(context) {
     }
 
     fun setImageUrl(url: String?) {
-        if (url == currentUrl) return
+        if (url == currentUrl && (cancellable != null || avatarDrawable.hasPhoto())) return
         currentUrl = url
         cancellable?.cancel()
         cancellable = null
@@ -36,8 +36,9 @@ class AvatarView(context: Context) : View(context) {
             invalidate()
             return
         }
-        if (!attachedToWindow) return
-        loadImage(url)
+        if (attachedToWindow) {
+            loadImage(url)
+        }
     }
 
     private fun loadImage(url: String) {
@@ -46,10 +47,12 @@ class AvatarView(context: Context) : View(context) {
         cancellable = MezonImageLoader.getInstance(context).load(
             proxyUrl, sizePx, sizePx,
             onSuccess = { bmp ->
+                cancellable = null
                 avatarDrawable.setPhoto(bmp)
                 invalidate()
             },
             onError = {
+                cancellable = null
                 avatarDrawable.setPhoto(null)
                 invalidate()
             }

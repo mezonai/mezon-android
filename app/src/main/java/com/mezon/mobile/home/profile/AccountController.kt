@@ -320,4 +320,51 @@ class AccountController @Inject constructor(
             }
         }
     }
+
+    fun loadClanProfile(
+        clanId: Long,
+        onResult: (nickName: String, avatar: String) -> Unit
+    ) {
+        appScope.launch {
+            try {
+                val session = withContext(ioDispatcher) { sessionManager.sessionFlow.first() } ?: return@launch
+                val profile = withContext(ioDispatcher) {
+                    api.getUserProfileOnClan(session.apiUrl, session.token, clanId)
+                }
+                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    onResult(profile.nickName, profile.avatar)
+                }
+            } catch (_: Exception) {
+                withContext(kotlinx.coroutines.Dispatchers.Main) { onResult("", "") }
+            }
+        }
+    }
+
+    fun updateClanProfile(
+        clanId: Long,
+        nickName: String,
+        avatar: String,
+        onResult: (success: Boolean, errorMsg: String) -> Unit
+    ) {
+        appScope.launch {
+            _isLoading.value = true
+            try {
+                val session = withContext(ioDispatcher) { sessionManager.sessionFlow.first() } ?: return@launch
+                withContext(ioDispatcher) {
+                    api.updateClanProfile(
+                        session.apiUrl,
+                        session.token,
+                        clanId,
+                        nickName,
+                        avatar
+                    )
+                }
+                withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(true, "") }
+            } catch (e: Exception) {
+                withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(false, e.message ?: "") }
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
 }

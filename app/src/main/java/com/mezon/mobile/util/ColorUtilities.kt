@@ -7,8 +7,10 @@ object ColorUtilities {
 
     fun getDominantColor(bitmap: Bitmap): Int {
         val newBitmap = Bitmap.createScaledBitmap(bitmap, 30, 30, true)
-        val pixels = IntArray(900)
-        newBitmap.getPixels(pixels, 0, 30, 0, 0, 30, 30)
+        val w = newBitmap.width
+        val h = newBitmap.height
+        val pixels = IntArray(w * h)
+        newBitmap.getPixels(pixels, 0, w, 0, 0, w, h)
         if (newBitmap != bitmap) newBitmap.recycle()
 
         val validPixels = pixels.filter { Color.alpha(it) > 200 }

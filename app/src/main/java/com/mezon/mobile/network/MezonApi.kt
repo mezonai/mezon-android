@@ -296,6 +296,32 @@ class MezonApi @Inject constructor(
         return rpc(apiUrl, token, "UpdateAccount", builder.build().toByteArray())
     }
 
+    suspend fun getUserProfileOnClan(
+        apiUrl: String,
+        token: String,
+        clanId: Long
+    ): com.mezon.mezon.api.ClanProfile {
+        val request = com.mezon.mezon.api.ClanProfileRequest.newBuilder()
+            .setClanId(clanId)
+            .build()
+        val bytes = rpc(apiUrl, token, "GetUserProfileOnClan", request.toByteArray())
+        return com.mezon.mezon.api.ClanProfile.parseFrom(bytes)
+    }
+
+    suspend fun updateClanProfile(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        nickName: String? = null,
+        avatar: String? = null
+    ): ByteArray {
+        val builder = com.mezon.mezon.api.UpdateClanProfileRequest.newBuilder()
+            .setClanId(clanId)
+        if (nickName != null) builder.nickName = com.google.protobuf.StringValue.of(nickName)
+        if (avatar != null) builder.avatar = com.google.protobuf.StringValue.of(avatar)
+        return rpc(apiUrl, token, "UpdateUserProfileByClan", builder.build().toByteArray())
+    }
+
     suspend fun getAccount(apiUrl: String, token: String): Account {
         val bytes = rpc(apiUrl, token, "GetAccount", ByteArray(0))
         return Account.parseFrom(bytes)

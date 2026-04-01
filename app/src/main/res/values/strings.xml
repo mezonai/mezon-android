@@ -349,6 +349,11 @@
     <string name="edit_profile_remove_avatar">Remove Avatar</string>
     <string name="edit_profile_avatar_too_large">Avatar file size must not exceed 10MB</string>
     <string name="edit_profile_dm_logo_too_large">Logo file size must not exceed 1MB</string>
+    <string name="edit_profile_select_clan">Select a Clan</string>
+    <string name="edit_profile_clan_nickname">Clan Nickname</string>
+    <string name="edit_profile_clan_nickname_duplicate">The nickname already exists in the clan. Please enter another nickname.</string>
+    <string name="edit_profile_clan_save_success">Clan profile updated successfully</string>
+    <string name="edit_profile_no_clans">You haven\'t joined any clans yet</string>
 
     <!-- Set Password -->
     <string name="set_password_title">Set Password</string>

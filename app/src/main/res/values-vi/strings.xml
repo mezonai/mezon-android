@@ -262,6 +262,11 @@
     <string name="edit_profile_remove_avatar">Xóa ảnh đại diện</string>
     <string name="edit_profile_avatar_too_large">Kích thước ảnh không được vượt quá 10MB</string>
     <string name="edit_profile_dm_logo_too_large">Kích thước logo không được vượt quá 1MB</string>
+    <string name="edit_profile_select_clan">Chọn một clan</string>
+    <string name="edit_profile_clan_nickname">Biệt danh Clan</string>
+    <string name="edit_profile_clan_nickname_duplicate">Biệt danh đã tồn tại trong clan. Vui lòng nhập biệt danh khác.</string>
+    <string name="edit_profile_clan_save_success">Cập nhật hồ sơ clan thành công</string>
+    <string name="edit_profile_no_clans">Bạn chưa tham gia clan nào</string>
 
     <!-- sharing -->
     <string name="sharing_title">Chia sẻ tới…</string>

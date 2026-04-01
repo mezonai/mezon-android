@@ -14,6 +14,9 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.ImageView
 import android.widget.Toast
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AlertsCreator
 import com.mezon.mobile.core.AvatarDrawable
@@ -28,6 +31,8 @@ import com.mezon.mobile.ui.cells.InputCell
 import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.ui.cells.MezonBottomSheetDialog
 import com.mezon.mobile.home.chat.MezonImageLoader
+import com.mezon.mobile.home.clans.ClanEntity
+import com.mezon.mobile.home.clans.ClansController
 import com.mezon.mobile.util.ColorUtilities
 import android.view.ViewGroup
 
@@ -36,12 +41,15 @@ class EditProfileFragment : BaseFragment() {
     companion object {
         private const val REQUEST_CODE_PICK_AVATAR = 2001
         private const val REQUEST_CODE_PICK_DM_LOGO = 2002
-        private const val MAX_AVATAR_SIZE_BYTES = 10L * 1024 * 1024 // 10MB
-        private const val MAX_DM_LOGO_SIZE_BYTES = 1L * 1024 * 1024 // 1MB
+        private const val MAX_AVATAR_SIZE_BYTES = 10L * 1024 * 1024
+        private const val MAX_DM_LOGO_SIZE_BYTES = 1L * 1024 * 1024
+        private const val TAB_PERSONAL = 0
+        private const val TAB_CLAN = 1
     }
 
     private lateinit var accountController: AccountController
     private lateinit var userController: UserController
+    private lateinit var clansController: ClansController
 
     var onSaved: (() -> Unit)? = null
 
@@ -55,9 +63,51 @@ class EditProfileFragment : BaseFragment() {
 
     private var currentAvatarUrl: String = ""
 
+    override fun onFragmentDestroy() {
+        super.onFragmentDestroy()
+    }
+
+    private fun selectClanData(clan: ClanEntity) {
+        selectedClan = clan
+        clanNickname = ""
+        clanAvatarUrl = ""
+    }
+
+    private fun selectClan(clan: ClanEntity) {
+        selectClanData(clan)
+        updateClanUI()
+        loadClanProfileData(clan.clanId)
+    }
+
+    private var lastShownClanId: Long = 0L
+    private var lastShownClanLogo: String? = null
+    private var lastBannerUrl: String? = null
+
+    private fun updateClanUI() {
+        val clan = selectedClan ?: return
+        
+        if (::clanSelectorNameView.isInitialized) {
+            clanSelectorNameView.text = clan.clanName
+        }
+        if (::clanSelectorAvatarView.isInitialized) {
+            if (lastShownClanId != clan.clanId || lastShownClanLogo != clan.logo) {
+                lastShownClanId = clan.clanId
+                lastShownClanLogo = clan.logo
+                clanSelectorAvatarView.setInfo(clan.clanId, clan.clanName)
+                clanSelectorAvatarView.setImageUrl(clan.logo.ifEmpty { null })
+            }
+        }
+        
+        if (::clanNicknameCell.isInitialized) {
+            clanNicknameCell.setText(clanNickname)
+            clanNicknameCell.setHint(currentMainDisplayName)
+        }
+    }
+
     override fun onInject(entryPoint: FragmentEntryPoint) {
         accountController = entryPoint.accountController()
         userController = entryPoint.userController()
+        clansController = entryPoint.clansController()
     }
 
     private var currentDmLogoUrl: String = ""
@@ -66,13 +116,39 @@ class EditProfileFragment : BaseFragment() {
     private var isUploadingAvatar = false
     private var isUploadingDmLogo = false
 
+    private var activeTab = TAB_PERSONAL
+    private lateinit var personalContent: View
+    private lateinit var clanContent: View
+    private lateinit var tabPersonalView: TextView
+    private lateinit var tabClanView: TextView
+
+    private var selectedClan: ClanEntity? = null
+    private lateinit var clanSelectorNameView: TextView
+    private lateinit var clanSelectorAvatarView: AvatarView
+    private lateinit var clanBannerView: View
+    private lateinit var clanAvatarView: AvatarView
+    private lateinit var clanNameView: TextView
+    private lateinit var clanUsernameView: TextView
+    private lateinit var clanNicknameCell: InputCell
+    private var clanNickname: String = ""
+    private var clanAvatarUrl: String = ""
+    private var currentMainDisplayName: String = ""
+
     override fun createView(context: Context): View {
         val info = accountController.accountInfo.value
         val userId = info.userId.takeIf { it != 0L } ?: userController.userId
         val displayName = info.displayName.ifEmpty { userController.displayName }
         val username = info.username.ifEmpty { userController.username }
+        currentMainDisplayName = displayName.ifEmpty { username }
         currentAvatarUrl = info.avatarUrl.ifEmpty { userController.avatarUrl }
         currentDmLogoUrl = info.logo
+
+        val clans = clansController.clans.value
+        val initialClan = clans.find { it.clanId == clansController.selectedClanId.value } ?: clans.firstOrNull()
+        initialClan?.let { selectClanData(it) }
+
+        observe(NotificationCenter.clansDidLoad) { _, _, args -> onClanNotificationReceived(args) }
+        observe(NotificationCenter.selectedClanChanged) { _, _, args -> onClanNotificationReceived(args) }
 
         actionBar = createActionBar(context).apply {
             setBackButtonImage(R.drawable.ic_close_icon)
@@ -107,7 +183,7 @@ class EditProfileFragment : BaseFragment() {
         rootLinear.addView(actionBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         val tabBg = GradientDrawable().apply {
-            setColor(if (themeColors.resolvedMode == com.mezon.mobile.ui.theme.ThemeMode.LIGHT) 0xFFF0F0F0.toInt() else 0xFF1C1D23.toInt())
+            setColor(themeColors.getColor(ThemeColors.key_sheetItemBackground))
             cornerRadius = LayoutHelper.dpf(20f)
         }
         val tabContainer = LinearLayout(context).apply {
@@ -116,16 +192,29 @@ class EditProfileFragment : BaseFragment() {
             val pad = LayoutHelper.dp(4)
             setPadding(pad, pad, pad, pad)
         }
-        val tabPersonal = ActionButton(context, themeColors).apply {
-            setText(getString(R.string.edit_profile_tab_personal))
+        val tabPersonal = TextView(context).apply {
+            text = getString(R.string.edit_profile_tab_personal)
+            setTextColor(themeColors.onPrimary)
+            textSize = 14f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            val activeBg = GradientDrawable().apply {
+                setColor(themeColors.primary)
+                cornerRadius = LayoutHelper.dpf(16f)
+            }
+            background = activeBg
+            setOnClickListener { switchTab(TAB_PERSONAL) }
         }
+        tabPersonalView = tabPersonal
         val tabClan = TextView(context).apply {
             text = getString(R.string.edit_profile_tab_clan)
             setTextColor(themeColors.onSurfaceVariant)
             textSize = 14f
             typeface = android.graphics.Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
+            setOnClickListener { switchTab(TAB_CLAN) }
         }
+        tabClanView = tabClan
         tabContainer.addView(tabPersonal, LayoutHelper.createLinear(0, 32, 1f))
         tabContainer.addView(tabClan, LayoutHelper.createLinear(0, 32, 1f))
         
@@ -170,15 +259,6 @@ class EditProfileFragment : BaseFragment() {
             setOnClickListener { showAvatarBottomSheet() }
         }
         avatarWrapper.addView(avatarView, LayoutHelper.createFrame(100, 100, Gravity.CENTER))
-        val cameraIconBg = GradientDrawable().apply {
-            setColor(themeColors.outlineVariant)
-            cornerRadius = LayoutHelper.dpf(999f)
-            setStroke(LayoutHelper.dp(2), themeColors.background)
-        }
-        val cameraIcon = View(context).apply {
-            background = cameraIconBg
-        }
-        avatarWrapper.addView(cameraIcon, LayoutHelper.createFrame(20, 20, Gravity.BOTTOM or Gravity.END, 0f, 0f, 8f, 8f))
 
         bannerContainer.addView(avatarWrapper, LayoutHelper.createFrame(
             110, 110, Gravity.START or Gravity.BOTTOM,
@@ -223,7 +303,7 @@ class EditProfileFragment : BaseFragment() {
             setCellBackgroundColor(themeColors.surface)
             setCellStrokeColor(0x00000000)
             onTextChanged = { text -> 
-                nameView.text = text.ifEmpty { username } 
+                nameView.text = text.ifEmpty { username }
             }
         }
         inputGroupCard.addView(displayNameCell, LayoutHelper.createLinear(
@@ -281,8 +361,8 @@ class EditProfileFragment : BaseFragment() {
         }
         val removeIcon = ImageView(context).apply {
             background = removeIconBg
-            setImageResource(R.drawable.ic_close_icon) // generic close
-            setColorFilter(0xFFFFFFFF.toInt())
+            setImageResource(R.drawable.ic_close_icon) 
+            imageTintList = android.content.res.ColorStateList.valueOf(0xFFFFFFFF.toInt())
             setPadding(LayoutHelper.dp(2), LayoutHelper.dp(2), LayoutHelper.dp(2), LayoutHelper.dp(2))
             setOnClickListener { removeDmLogo() }
         }
@@ -292,16 +372,25 @@ class EditProfileFragment : BaseFragment() {
         content.addView(dmGroupCard, LayoutHelper.createLinear(
             LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, 0, 16f, 0f, 16f, 24f
         ))
-        val scrollView = ScrollView(context).apply {
+        personalContent = ScrollView(context).apply {
             isFillViewport = true
             clipToPadding = false
             clipChildren = false
         }
-        scrollView.addView(content, FrameLayout.LayoutParams(
+        (personalContent as ScrollView).addView(content, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.MATCH_PARENT
         ))
-        rootLinear.addView(scrollView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
+
+        clanContent = buildClanTabContent(context)
+        clanContent.visibility = View.GONE
+
+        val contentContainer = FrameLayout(context)
+        contentContainer.addView(personalContent, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
+        contentContainer.addView(clanContent, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
+        rootLinear.addView(contentContainer, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
+
+        updateClanUI() 
 
         val rootFrame = FrameLayout(context)
         rootFrame.addView(rootLinear, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
@@ -314,8 +403,324 @@ class EditProfileFragment : BaseFragment() {
         rootFrame.addView(loadingView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
         if (accountController.accountInfo.value.username.isEmpty()) accountController.loadAccount()
-
+        
+        fragmentView = rootFrame
         return rootFrame
+    }
+
+    private fun buildClanTabContent(context: Context): View {
+        val clans = clansController.clans.value
+        if (clans.isEmpty()) {
+            return TextView(context).apply {
+                text = getString(R.string.edit_profile_no_clans)
+                setTextColor(themeColors.onSurfaceVariant)
+                textSize = 16f
+                gravity = Gravity.CENTER
+                val pad = LayoutHelper.dp(32)
+                setPadding(pad, pad, pad, pad)
+            }
+        }
+
+        if (selectedClan == null) {
+            selectedClan = clans.find { it.clanId == clansController.selectedClanId.value } ?: clans.firstOrNull()
+        }
+        val info = accountController.accountInfo.value
+        val displayName = info.displayName.ifEmpty { userController.displayName }
+        val username = info.username.ifEmpty { userController.username }
+        val userId = info.userId.takeIf { it != 0L } ?: userController.userId
+
+        val scrollView = ScrollView(context).apply {
+            isFillViewport = true
+            clipToPadding = false
+            clipChildren = false
+        }
+        val clanRoot = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            clipChildren = false
+            clipToPadding = false
+        }
+
+        val selectorBg = GradientDrawable().apply {
+            setColor(themeColors.getColor(ThemeColors.key_sheetItemBackground))
+            cornerRadius = LayoutHelper.dpf(12f)
+        }
+        val selectorRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = selectorBg
+            val padH = LayoutHelper.dp(12)
+            val padV = LayoutHelper.dp(10)
+            setPadding(padH, padV, padH, padV)
+            setOnClickListener { showClanPickerBottomSheet() }
+        }
+        clanSelectorAvatarView = AvatarView(context).apply {
+            setSizeDp(36)
+        }
+        selectorRow.addView(clanSelectorAvatarView, LayoutHelper.createLinear(36, 36, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, 10f, 0f))
+
+        clanSelectorNameView = TextView(context).apply {
+            setTextColor(themeColors.onSurface)
+            textSize = 16f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+        selectorRow.addView(clanSelectorNameView, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL))
+
+        val chevron = TextView(context).apply {
+            text = "›"
+            setTextColor(themeColors.onSurfaceVariant)
+            textSize = 22f
+            gravity = Gravity.CENTER
+        }
+        selectorRow.addView(chevron, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.CENTER_VERTICAL))
+
+        clanRoot.addView(selectorRow, LayoutHelper.createLinear(
+            LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, 0, 16f, 0f, 16f, 0f
+        ))
+
+        val clanBannerContainer = FrameLayout(context).apply {
+            clipChildren = false
+            clipToPadding = false
+        }
+        val clanBannerColor = AvatarDrawable.getColorForId(userId)
+        clanBannerView = View(context).apply {
+            setBackgroundColor(clanBannerColor)
+        }
+        clanBannerContainer.addView(clanBannerView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 150))
+
+        clanAvatarView = AvatarView(context).apply {
+            setSizeDp(100)
+            setInfo(userId, displayName)
+            if (currentAvatarUrl.isNotEmpty()) setImageUrl(currentAvatarUrl)
+        }
+        val clanAvatarBorderColor = if (themeColors.resolvedMode == com.mezon.mobile.ui.theme.ThemeMode.LIGHT) 0xFFFFFFFF.toInt() else 0xFF0D0D18.toInt()
+        val clanAvatarBorderBg = GradientDrawable().apply {
+            setColor(0x00000000)
+            cornerRadius = LayoutHelper.dpf(999f)
+            setStroke(LayoutHelper.dp(5), clanAvatarBorderColor)
+        }
+        val clanAvatarWrapper = FrameLayout(context).apply {
+            background = clanAvatarBorderBg
+            setOnClickListener { showAvatarBottomSheet() }
+        }
+        clanAvatarWrapper.addView(clanAvatarView, LayoutHelper.createFrame(100, 100, Gravity.CENTER))
+
+        clanBannerContainer.addView(clanAvatarWrapper, LayoutHelper.createFrame(
+            110, 110, Gravity.START or Gravity.BOTTOM,
+            16f, 0f, 0f, -40f
+        ))
+        clanRoot.addView(clanBannerContainer, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 150, 0f, 0, 0f, 16f, 0f, 0f))
+        clanRoot.addView(View(context), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 60))
+
+        val clanInfoCardBg = GradientDrawable().apply {
+            setColor(themeColors.getColor(ThemeColors.key_sheetItemBackground))
+            cornerRadius = LayoutHelper.dpf(12f)
+        }
+        val clanInfoCard = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            background = clanInfoCardBg
+            val pad = LayoutHelper.dp(16)
+            setPadding(pad, pad, pad, pad)
+        }
+
+        clanNameView = TextView(context).apply {
+            text = displayName
+            setTextColor(themeColors.onSurface)
+            textSize = 20f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+        clanInfoCard.addView(clanNameView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+
+        clanUsernameView = TextView(context).apply {
+            text = username
+            setTextColor(themeColors.onSurfaceVariant)
+            textSize = 15f
+        }
+        clanInfoCard.addView(clanUsernameView, LayoutHelper.createLinear(
+            LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, 0, 0f, 2f, 0f, 16f
+        ))
+
+        clanNicknameCell = InputCell(context, themeColors).apply {
+            setLabel(getString(R.string.edit_profile_clan_nickname))
+            setHint(currentMainDisplayName)
+            setMaxCharacter(32)
+            setCellBackgroundColor(themeColors.surface)
+            setCellStrokeColor(0x00000000)
+            onTextChanged = { text ->
+                clanNickname = text
+                clanNameView.text = text.ifEmpty { currentMainDisplayName }
+            }
+        }
+        clanInfoCard.addView(clanNicknameCell, LayoutHelper.createLinear(
+            LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT
+        ))
+
+        clanRoot.addView(clanInfoCard, LayoutHelper.createLinear(
+            LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, 0, 16f, 0f, 16f, 16f
+        ))
+
+        scrollView.addView(clanRoot, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT
+        ))
+
+        selectedClan?.let { loadClanProfileData(it.clanId) }
+
+        return scrollView
+    }
+
+    private fun switchTab(tab: Int) {
+        if (tab == activeTab) return
+        activeTab = tab
+        com.mezon.mobile.core.AndroidUtilities.hideKeyboard(fragmentView ?: return)
+
+        val activeBg = GradientDrawable().apply {
+            setColor(themeColors.primary)
+            cornerRadius = LayoutHelper.dpf(16f)
+        }
+
+        if (tab == TAB_PERSONAL) {
+            personalContent.visibility = View.VISIBLE
+            clanContent.visibility = View.GONE
+            
+            tabPersonalView.background = activeBg
+            tabPersonalView.setTextColor(themeColors.onPrimary)
+            
+            tabClanView.background = null
+            tabClanView.setTextColor(themeColors.onSurfaceVariant)
+        } else {
+            val curId = clansController.selectedClanId.value
+            val clans = clansController.clans.value
+            if (selectedClan == null || (curId != 0L && selectedClan?.clanId != curId)) {
+                val clan = clans.find { it.clanId == curId } ?: clans.firstOrNull()
+                if (clan != null) {
+                    selectClan(clan)
+                }
+            } else {
+                updateClanUI()
+            }
+            personalContent.visibility = View.GONE
+            clanContent.visibility = View.VISIBLE
+            
+            tabClanView.background = activeBg
+            tabClanView.setTextColor(themeColors.onPrimary)
+            
+            tabPersonalView.background = null
+            tabPersonalView.setTextColor(themeColors.onSurfaceVariant)
+        }
+    }
+
+    private fun showClanPickerBottomSheet() {
+        val context = getContext() ?: return
+        val clans = clansController.clans.value
+        if (clans.isEmpty()) return
+
+        var dialog: com.google.android.material.bottomsheet.BottomSheetDialog? = null
+        dialog = MezonBottomSheetDialog.create(
+            context, themeColors,
+            title = getString(R.string.edit_profile_select_clan),
+            scrollable = true
+        ) { container ->
+            for (clan in clans) {
+                val itemRow = LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    val padH = LayoutHelper.dp(12)
+                    val padV = LayoutHelper.dp(14)
+                    setPadding(padH, padV, padH, padV)
+                    setOnClickListener {
+                        selectClan(clan)
+                        dialog?.dismiss()
+                    }
+                }
+                val itemAvatar = AvatarView(context).apply {
+                    setSizeDp(40)
+                    setInfo(clan.clanId, clan.clanName)
+                    if (clan.logo.isNotEmpty()) setImageUrl(clan.logo)
+                }
+                itemRow.addView(itemAvatar, LayoutHelper.createLinear(40, 40, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, 12f, 0f))
+
+                val itemName = TextView(context).apply {
+                    text = clan.clanName
+                    setTextColor(themeColors.onSurface)
+                    textSize = 16f
+                }
+                itemRow.addView(itemName, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL))
+
+                if (clan.clanId == selectedClan?.clanId) {
+                    val check = TextView(context).apply {
+                        text = "✓"
+                        setTextColor(0xFF43B581.toInt())
+                        textSize = 18f
+                        gravity = Gravity.CENTER
+                    }
+                    itemRow.addView(check, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.CENTER_VERTICAL))
+                }
+
+                container.addView(itemRow, LayoutHelper.createLinear(
+                    LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT
+                ))
+
+                val divider = View(context).apply {
+                    setBackgroundColor(themeColors.outlineVariant)
+                }
+                container.addView(divider, LayoutHelper.createLinear(
+                    LayoutHelper.MATCH_PARENT, 1, 0f, 0, 12f, 0f, 12f, 0f
+                ))
+            }
+        }
+        dialog.show()
+    }
+
+
+
+    private fun loadClanProfileData(clanId: Long) {
+        val info = accountController.accountInfo.value
+        val displayName = info.displayName.ifEmpty { userController.displayName }
+        accountController.loadClanProfile(clanId) { nickName, avatar ->
+            clanNickname = nickName
+            clanAvatarUrl = avatar
+            clanNicknameCell.setText(nickName)
+            clanNicknameCell.setHint(currentMainDisplayName)
+            clanNameView.text = nickName.ifEmpty { currentMainDisplayName }
+
+            val avatarToShow = avatar.ifEmpty { currentAvatarUrl }
+            if (avatarToShow.isNotEmpty()) {
+                clanAvatarView.setImageUrl(avatarToShow)
+                loadClanBannerFromAvatar(avatarToShow)
+            }
+        }
+    }
+
+    private var lastClanBannerUrl: String? = null
+
+    private fun loadClanBannerFromAvatar(url: String?) {
+        if (url.isNullOrEmpty() || url == lastClanBannerUrl) return
+        lastClanBannerUrl = url
+        MezonImageLoader.getInstance(requireContext()).load(url, 100, 100,
+            onSuccess = { bmp ->
+                updateBannerColor(clanBannerView, bmp)
+            }
+        )
+    }
+
+    private fun onClanNotificationReceived(args: Array<out Any?>) {
+        val clans = clansController.clans.value
+        val targetId: Long = when (val first = args.firstOrNull()) {
+            is Long -> first
+            is Number -> first.toLong()
+            is String -> first.toLongOrNull() ?: 0L
+            else -> clansController.selectedClanId.value
+        }
+        
+        val clanToSelect = clans.find { it.clanId == targetId } ?: clans.firstOrNull()
+        
+        if (clanToSelect != null && (selectedClan == null || selectedClan?.clanId != clanToSelect.clanId)) {
+            if (fragmentView != null && !isPaused && ::clanSelectorNameView.isInitialized) {
+                selectClan(clanToSelect)
+            } else {
+                selectClanData(clanToSelect)
+            }
+        }
     }
 
     override fun onFragmentCreate(): Boolean {
@@ -330,12 +735,17 @@ class EditProfileFragment : BaseFragment() {
                 currentAvatarUrl = updatedInfo.avatarUrl
                 avatarView.setImageUrl(currentAvatarUrl)
             }
+            if (updatedInfo.displayName.isNotEmpty() || updatedInfo.username.isNotEmpty()) {
+                 currentMainDisplayName = updatedInfo.displayName.ifEmpty { updatedInfo.username.ifEmpty { userController.username } }
+                 if (::clanNicknameCell.isInitialized) {
+                     clanNicknameCell.setHint(currentMainDisplayName)
+                 }
+            }
             if (currentDmLogoUrl.isEmpty() && updatedInfo.logo.isNotEmpty()) {
                 currentDmLogoUrl = updatedInfo.logo
                 dmLogoView.setImageUrl(currentDmLogoUrl)
             }
-            val displayName = updatedInfo.displayName.ifEmpty { updatedInfo.username }
-            nameView.text = displayName
+            nameView.text = updatedInfo.displayName.ifEmpty { updatedInfo.username }
             usernameSubView.text = updatedInfo.username
         }
         observe(NotificationCenter.themeChanged) { _, _, _ ->
@@ -525,9 +935,6 @@ class EditProfileFragment : BaseFragment() {
                         bitmap = rotatedBitmap
                     }
                 }
-                
-                avatarView.setPhoto(bitmap)
-                updateBannerColor(bitmap)
             }
         } catch (_: Exception) {}
         isUploadingAvatar = true
@@ -539,9 +946,15 @@ class EditProfileFragment : BaseFragment() {
             updateSaveButtonState()
             loadingView.visibility = View.GONE
             if (success) {
-                currentAvatarUrl = cdnUrl
-                avatarView.setImageUrl(cdnUrl)
-                loadBannerFromAvatar(cdnUrl)
+                if (activeTab == TAB_PERSONAL) {
+                    currentAvatarUrl = cdnUrl
+                    avatarView.setImageUrl(cdnUrl)
+                    loadBannerFromAvatar(cdnUrl)
+                } else {
+                    clanAvatarUrl = cdnUrl
+                    clanAvatarView.setImageUrl(cdnUrl)
+                    loadClanBannerFromAvatar(cdnUrl)
+                }
             } else {
                 val overlay = ToastOverlay(context, themeColors)
                 val rootView = getParentActivity()?.findViewById<ViewGroup>(android.R.id.content)
@@ -553,12 +966,26 @@ class EditProfileFragment : BaseFragment() {
     }
 
     private fun removeAvatar() {
-        currentAvatarUrl = com.mezon.mobile.BuildConfig.MEZON_LOGO_URL
-        avatarView.setImageUrl(currentAvatarUrl)
-        loadBannerFromAvatar(currentAvatarUrl)
+        if (activeTab == TAB_PERSONAL) {
+            currentAvatarUrl = com.mezon.mobile.BuildConfig.MEZON_LOGO_URL
+            avatarView.setImageUrl(currentAvatarUrl)
+            loadBannerFromAvatar(currentAvatarUrl)
+        } else {
+            clanAvatarUrl = com.mezon.mobile.BuildConfig.MEZON_LOGO_URL
+            clanAvatarView.setImageUrl(clanAvatarUrl)
+            loadClanBannerFromAvatar(clanAvatarUrl)
+        }
     }
 
     private fun handleSave() {
+        if (activeTab == TAB_PERSONAL) {
+            handleSavePersonal()
+        } else {
+            handleSaveClan()
+        }
+    }
+
+    private fun handleSavePersonal() {
         if (isUploadingAvatar || isUploadingDmLogo) return
         val displayName = displayNameCell.getText().trim()
         val aboutMe = aboutMeCell.getText().trim()
@@ -586,6 +1013,35 @@ class EditProfileFragment : BaseFragment() {
         }
     }
 
+    private fun handleSaveClan() {
+        val clan = selectedClan ?: return
+        val nickname = clanNicknameCell.getText().trim()
+        val baseAccountInfo = accountController.accountInfo.value
+
+        val nickToSave = nickname.ifEmpty { baseAccountInfo.displayName.ifEmpty { baseAccountInfo.username } }
+        val avatarToSave = if (clanAvatarUrl.isNullOrEmpty()) baseAccountInfo.avatarUrl else clanAvatarUrl
+
+        loadingView.visibility = View.VISIBLE
+
+        accountController.updateClanProfile(
+            clan.clanId,
+            nickToSave,
+            avatarToSave ?: ""
+        ) { success, errorMsg ->
+            loadingView.visibility = View.GONE
+            if (success) {
+                finishFragment()
+                onSaved?.invoke()
+            } else {
+                AlertsCreator.showSimpleAlert(
+                    requireContext(),
+                    getString(R.string.common_error),
+                    errorMsg.ifEmpty { getString(R.string.edit_profile_save_error) }
+                )
+            }
+        }
+    }
+
     private fun calculateInSampleSize(w: Int, h: Int, reqW: Int, reqH: Int): Int {
         var sample = 1
         if (reqW <= 0 || reqH <= 0) return 1
@@ -594,21 +1050,27 @@ class EditProfileFragment : BaseFragment() {
     }
 
     private fun loadBannerFromAvatar(url: String?) {
-        if (url.isNullOrEmpty()) return
+        if (url.isNullOrEmpty() || url == lastBannerUrl) return
+        lastBannerUrl = url
         MezonImageLoader.getInstance(requireContext()).load(url, 100, 100,
             onSuccess = { bmp ->
-                updateBannerColor(bmp)
+                updateBannerColor(bannerView, bmp)
             }
         )
     }
 
-    private fun updateBannerColor(bitmap: android.graphics.Bitmap) {
-        val dominant = ColorUtilities.getDominantColor(bitmap)
-        bannerView.setBackgroundColor(dominant)
+    private fun updateBannerColor(view: View, bitmap: android.graphics.Bitmap) {
+        fragmentScope.launch(Dispatchers.Default) {
+            val dominant = ColorUtilities.getDominantColor(bitmap)
+            withContext(Dispatchers.Main) {
+                if (view.parent != null) {
+                    view.setBackgroundColor(dominant)
+                }
+            }
+        }
     }
 
     override fun onResume() {
         super.onResume()
-        if (currentAvatarUrl.isNotEmpty()) loadBannerFromAvatar(currentAvatarUrl)
     }
 }

@@ -7,8 +7,8 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
+import androidx.core.widget.NestedScrollView
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
@@ -63,7 +63,7 @@ object MezonBottomSheetDialog {
         contentBuilder(contentContainer)
 
         if (scrollable) {
-            val scrollView = ScrollView(context).apply {
+            val scrollView = NestedScrollView(context).apply {
                 addView(contentContainer, FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
