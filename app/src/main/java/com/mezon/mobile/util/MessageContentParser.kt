@@ -296,6 +296,18 @@ fun getEmojiUrl(emojiId: String): String? {
     return createImgproxyUrl(sourceUrl, EMOJI_SIZE_DP * 4, EMOJI_SIZE_DP * 4, "fit")
 }
 
+fun resolveStickerSourceUrl(stickerId: String, src: String): String {
+    return if (src.isNotBlank()) src
+    else if (stickerId.isNotBlank()) "$BASE_IMG/stickers/$stickerId.webp"
+    else ""
+}
+
+fun getStickerImageUrl(stickerId: String, src: String): String? {
+    val sourceUrl = resolveStickerSourceUrl(stickerId, src)
+    if (sourceUrl.isBlank()) return null
+    return sourceUrl
+}
+
 data class EmbedField(
     val name: String,
     val value: String,

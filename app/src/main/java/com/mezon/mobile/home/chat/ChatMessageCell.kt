@@ -414,10 +414,12 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 allReceivers[i].setRoundRadius(MEDIA_RADIUS.toInt())
                 allReceivers[i].setRequestedSize(pw, ph)
                 val isLocalUri = att.url.startsWith("content://") || att.url.startsWith("file://")
-                if (isLocalUri) {
+                val isVideo = att.filetype.startsWith("video/")
+                if (isLocalUri && isVideo) {
+                    allReceivers[i].recycle()
+                    if (i == 0) loadLocalVideoThumbnail(att.url)
+                } else if (isLocalUri) {
                     allReceivers[i].setLocalUri(android.net.Uri.parse(att.url), context)
-                } else if (allReceivers[i].hasMainImage()) {
-                    // Keep existing local preview — don't reload CDN to avoid flash
                 } else if (isAnimated) {
                     allReceivers[i].setImage(att.url, att.thumb.ifEmpty { null }, context)
                 } else if (att.filetype.startsWith("video/")) {
@@ -484,6 +486,25 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             try {
                 val retriever = android.media.MediaMetadataRetriever()
                 retriever.setDataSource(videoUrl, HashMap<String, String>())
+                val frame = retriever.getFrameAtTime(100_000L, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                retriever.release()
+                if (frame != null) {
+                    withContext(Dispatchers.Main) {
+                        photoImage.setBitmapDirectly(frame)
+                        invalidate()
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
+    private fun loadLocalVideoThumbnail(localUrl: String) {
+        videoThumbJob?.cancel()
+        videoThumbJob = videoThumbScope.launch {
+            try {
+                val uri = android.net.Uri.parse(localUrl)
+                val retriever = android.media.MediaMetadataRetriever()
+                retriever.setDataSource(context, uri)
                 val frame = retriever.getFrameAtTime(100_000L, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
                 retriever.release()
                 if (frame != null) {

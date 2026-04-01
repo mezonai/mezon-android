@@ -45,8 +45,13 @@ import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.ui.cells.ActionBarView
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.PageDownButton
+import com.mezon.mobile.util.EmojiMarker
 import com.mezon.mobile.util.MentionData
 import com.mezon.mobile.util.parseContentText
+import com.mezon.mobile.util.resolveStickerSourceUrl
+import com.mezon.mobile.core.SharedConfig
+import com.mezon.mobile.core.SizeNotifierFrameLayout
+import com.mezon.mobile.home.chat.emoji.EmojiView
 
 private const val TAG = "ChatFragment"
 
@@ -96,13 +101,22 @@ class ChatFragment : BaseFragment() {
     private lateinit var attachButton: ImageButton
     private lateinit var emojiButton: ImageButton
     private lateinit var adapter: ChatAdapter
-    private lateinit var rootView: LinearLayout
+    private lateinit var rootView: FrameLayout
     private lateinit var inputBar: LinearLayout
     private lateinit var inputWrapper: FrameLayout
     private lateinit var pageDownButton: PageDownButton
     private lateinit var unreadDecoration: UnreadDividerDecoration
     private var attachmentPreviewStrip: LinearLayout? = null
     private var attachmentPreviewScroll: HorizontalScrollView? = null
+
+    private lateinit var emojiController: EmojiController
+    private var emojiView: EmojiView? = null
+    private var emojiViewVisible = false
+    private var emojiPadding = 0
+    private var emojiSearchExpanded = false
+    private var searchKeyboardWasVisible = false
+    private val emojiObjPicked = HashMap<String, String>()
+    private lateinit var sizeNotifierRoot: SizeNotifierFrameLayout
 
     private val pendingAttachments = ArrayList<AttachmentPickerItem>()
     private val pendingAttachmentThumbTasks = ArrayList<Runnable?>()
@@ -752,23 +766,33 @@ class ChatFragment : BaseFragment() {
         channelController = entryPoint.channelController()
         mediaController = entryPoint.mediaController()
         userClanController = entryPoint.userClanController()
+        emojiController = entryPoint.emojiController()
     }
 
     override fun createView(context: Context): View {
-        rootView = LinearLayout(context).apply {
+        sizeNotifierRoot = SizeNotifierFrameLayout(context, parentLayout)
+        sizeNotifierRoot.setBackgroundColor(themeColors.background)
+        rootView = sizeNotifierRoot
+
+        val innerLayout = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(themeColors.background)
         }
 
         val chatActionBar = ActionBarView(context, themeColors).apply {
             setTitle(channelName)
-            setBackClickListener { finishFragment() }
+            setBackClickListener {
+                if (emojiViewVisible) {
+                    hideEmojiView()
+                } else {
+                    finishFragment()
+                }
+            }
         }
         actionBar = chatActionBar
-        rootView.addView(chatActionBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 56))
+        innerLayout.addView(chatActionBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 56))
 
         val contentFrame = FrameLayout(context)
-        rootView.addView(contentFrame, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
+        innerLayout.addView(contentFrame, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
 
         recyclerView = RecyclerListView(context).apply {
             val lm = LinearLayoutManager(context)
@@ -833,7 +857,7 @@ class ChatFragment : BaseFragment() {
         attachmentPreviewScroll!!.addView(attachmentPreviewStrip, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LayoutHelper.dp(56f)
         ))
-        rootView.addView(attachmentPreviewScroll, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+        innerLayout.addView(attachmentPreviewScroll, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         replyBar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -874,7 +898,7 @@ class ChatFragment : BaseFragment() {
             LayoutHelper.dp(32f), LayoutHelper.dp(32f)
         ).also { it.gravity = android.view.Gravity.CENTER_VERTICAL })
 
-        rootView.addView(replyBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+        innerLayout.addView(replyBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         val blurple = 0xFF5865F2.toInt()
 
@@ -917,7 +941,7 @@ class ChatFragment : BaseFragment() {
             LayoutHelper.dp(32f), LayoutHelper.dp(32f)
         ).also { it.gravity = android.view.Gravity.CENTER_VERTICAL })
 
-        rootView.addView(editBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+        innerLayout.addView(editBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         inputBar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -925,7 +949,7 @@ class ChatFragment : BaseFragment() {
             setBackgroundColor(themeColors.surface)
             setPadding(LayoutHelper.dp(6f), LayoutHelper.dp(10f), LayoutHelper.dp(2f), LayoutHelper.dp(10f))
         }
-        rootView.addView(inputBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+        innerLayout.addView(inputBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         val btnPad = LayoutHelper.dp(8f)
         attachButton = ImageButton(context).apply {
@@ -971,6 +995,13 @@ class ChatFragment : BaseFragment() {
             setColorFilter(PorterDuffColorFilter(themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary), PorterDuff.Mode.SRC_IN))
             setBackgroundColor(android.graphics.Color.TRANSPARENT)
             scaleType = ImageView.ScaleType.CENTER
+            setOnClickListener {
+                if (emojiViewVisible) {
+                    openKeyboardFromEmoji()
+                } else {
+                    showEmojiView()
+                }
+            }
         }
         inputWrapper.addView(emojiButton, FrameLayout.LayoutParams(
             LayoutHelper.dp(24f), LayoutHelper.dp(24f),
@@ -1013,6 +1044,12 @@ class ChatFragment : BaseFragment() {
                 checkMentionTrigger()
             }
         })
+
+        inputField.setOnKeyListener { _, keyCode, event ->
+            if (keyCode == android.view.KeyEvent.KEYCODE_DEL && event.action == android.view.KeyEvent.ACTION_DOWN) {
+                deleteEmojiTokenAtCursor()
+            } else false
+        }
 
         inputField.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEND) { sendMessage(); true } else false
@@ -1144,6 +1181,50 @@ class ChatFragment : BaseFragment() {
             }
         }
 
+        rootView.addView(innerLayout, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT
+        ))
+
+        sizeNotifierRoot.setDelegate(object : SizeNotifierFrameLayout.SizeNotifierFrameLayoutDelegate {
+            override fun onSizeChanged(keyboardHeight: Int, isWidthGreater: Boolean) {
+                if (emojiSearchExpanded) {
+                    if (keyboardHeight > LayoutHelper.dp(50f)) {
+                        SharedConfig.saveKeyboardHeight(keyboardHeight, isWidthGreater)
+                        searchKeyboardWasVisible = true
+                    }
+                    if (keyboardHeight <= LayoutHelper.dp(20f) && searchKeyboardWasVisible) {
+                        collapseEmojiSearch()
+                    }
+                    return
+                }
+                if (keyboardHeight > LayoutHelper.dp(50f)) {
+                    SharedConfig.saveKeyboardHeight(keyboardHeight, isWidthGreater)
+                    if (emojiViewVisible) {
+                        dismissEmojiSilently()
+                    }
+                }
+                if (keyboardHeight <= LayoutHelper.dp(20f) && !emojiViewVisible && emojiPadding != 0) {
+                    emojiPadding = 0
+                    sizeNotifierRoot.setEmojiKeyboardHeight(0)
+                    sizeNotifierRoot.requestLayout()
+                }
+            }
+        })
+
+        observe(NotificationCenter.emojisNeedReload) { _, _, _ ->
+            emojiView?.onEmojisReloaded()
+        }
+
+        observe(NotificationCenter.stickersNeedReload) { _, _, _ ->
+            emojiView?.onStickersReloaded()
+        }
+
+        observe(NotificationCenter.gifsNeedReload) { _, _, _ ->
+            emojiView?.onGifsReloaded()
+        }
+
+        fragmentView = rootView
         return rootView
     }
 
@@ -1191,6 +1272,18 @@ class ChatFragment : BaseFragment() {
         super.onPause()
         if (::recyclerView.isInitialized) recyclerView.stopScroll()
         saveScrollPosition()
+    }
+
+    override fun onBackPressed(): Boolean {
+        if (emojiSearchExpanded) {
+            collapseEmojiSearch()
+            return false
+        }
+        if (emojiViewVisible) {
+            hideEmojiView()
+            return false
+        }
+        return super.onBackPressed()
     }
 
     private fun saveScrollPosition() {
@@ -1252,6 +1345,195 @@ class ChatFragment : BaseFragment() {
         }
     }
 
+    private fun showEmojiView() {
+        if (emojiView == null) createEmojiView()
+        emojiView!!.visibility = View.VISIBLE
+        emojiViewVisible = true
+
+        val panelHeight = SharedConfig.getEmojiPanelHeight()
+        emojiView!!.layoutParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, panelHeight, Gravity.BOTTOM
+        )
+        emojiPadding = panelHeight
+        sizeNotifierRoot.setEmojiKeyboardHeight(panelHeight)
+        sizeNotifierRoot.requestLayout()
+
+        AndroidUtilities.hideKeyboard(inputField)
+        emojiView!!.onOpen()
+        updateEmojiButtonIcon(showingEmoji = true)
+    }
+
+    private fun openKeyboardFromEmoji() {
+        inputField.requestFocus()
+        AndroidUtilities.showKeyboard(inputField)
+        updateEmojiButtonIcon(showingEmoji = false)
+    }
+
+    private fun dismissEmojiSilently() {
+        emojiSearchExpanded = false
+        searchKeyboardWasVisible = false
+        sizeNotifierRoot.isSearchExpanded = false
+        emojiViewVisible = false
+        emojiView?.visibility = View.GONE
+        emojiPadding = 0
+        sizeNotifierRoot.setEmojiKeyboardHeight(0)
+        updateEmojiButtonIcon(showingEmoji = false)
+    }
+
+    private fun hideEmojiView() {
+        emojiSearchExpanded = false
+        searchKeyboardWasVisible = false
+        sizeNotifierRoot.isSearchExpanded = false
+        emojiViewVisible = false
+        emojiView?.clearSearchFocus()
+        emojiView?.visibility = View.GONE
+        emojiPadding = 0
+        sizeNotifierRoot.setEmojiKeyboardHeight(0)
+        sizeNotifierRoot.requestLayout()
+        updateEmojiButtonIcon(showingEmoji = false)
+    }
+
+    private class EmojiTokenSpan
+
+    private fun deleteEmojiTokenAtCursor(): Boolean {
+        val editable = inputField.text ?: return false
+        val sel = inputField.selectionStart
+        if (sel <= 0 || sel != inputField.selectionEnd) return false
+
+        val spans = editable.getSpans(sel - 1, sel, EmojiTokenSpan::class.java)
+        if (spans.isEmpty()) return false
+
+        val span = spans[0]
+        var start = editable.getSpanStart(span)
+        var end = editable.getSpanEnd(span)
+        if (end < editable.length && editable[end] == ' ') end++
+        if (start < 0) start = 0
+        val token = editable.subSequence(editable.getSpanStart(span), editable.getSpanEnd(span)).toString()
+        editable.removeSpan(span)
+        editable.delete(start, end)
+        emojiObjPicked.remove(token)
+        return true
+    }
+
+    private fun expandEmojiSearch() {
+        if (emojiSearchExpanded || !emojiViewVisible) return
+        emojiSearchExpanded = true
+        searchKeyboardWasVisible = false
+        sizeNotifierRoot.isSearchExpanded = true
+        sizeNotifierRoot.requestLayout()
+    }
+
+    private fun collapseEmojiSearch() {
+        if (!emojiSearchExpanded) return
+        emojiSearchExpanded = false
+        searchKeyboardWasVisible = false
+        sizeNotifierRoot.isSearchExpanded = false
+        emojiView?.clearSearchFocus()
+        AndroidUtilities.hideKeyboard(emojiView)
+        if (!emojiViewVisible) return
+        val panelHeight = SharedConfig.getEmojiPanelHeight()
+        emojiView?.layoutParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, panelHeight, Gravity.BOTTOM
+        )
+        emojiPadding = panelHeight
+        sizeNotifierRoot.setEmojiKeyboardHeight(panelHeight)
+        sizeNotifierRoot.requestLayout()
+    }
+
+    private fun updateEmojiButtonIcon(showingEmoji: Boolean) {
+        if (showingEmoji) {
+            emojiButton.setImageDrawable(
+                MezonIcon.keyboardIcon.getDrawable(getContext()!!).also {
+                    it.colorFilter = PorterDuffColorFilter(
+                        themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary), PorterDuff.Mode.SRC_IN
+                    )
+                }
+            )
+        } else {
+            emojiButton.setImageResource(R.drawable.ic_emoji_icon)
+            emojiButton.setColorFilter(PorterDuffColorFilter(
+                themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary), PorterDuff.Mode.SRC_IN
+            ))
+        }
+    }
+
+    private fun createEmojiView() {
+        val ctx = getContext() ?: return
+        emojiView = EmojiView(ctx, themeColors).apply {
+            init(emojiController)
+            delegate = object : EmojiView.EmojiViewDelegate {
+                override fun onEmojiSelected(emoji: EmojiItem) {
+                    val editable = inputField.text ?: return
+                    val cursor = inputField.selectionEnd.coerceAtLeast(0)
+                    val cleanName = emoji.shortname.replace(":", "")
+                    val token = ":$cleanName:"
+                    val insertText = "$token "
+                    emojiObjPicked[token] = emoji.id
+                    editable.insert(cursor, insertText)
+                    val spanStart = cursor
+                    val spanEnd = cursor + token.length
+                    editable.setSpan(
+                        EmojiTokenSpan(),
+                        spanStart, spanEnd,
+                        android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                    )
+                    editable.setSpan(
+                        android.text.style.ForegroundColorSpan(0xFF5A62F4.toInt()),
+                        spanStart, spanEnd,
+                        android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                    )
+                    editable.setSpan(
+                        android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
+                        spanStart, spanEnd,
+                        android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                    )
+                    inputField.setSelection(cursor + insertText.length)
+                }
+
+                override fun onStickerSelected(sticker: StickerItem, isAudio: Boolean) {
+                    if (sticker.isForSale && sticker.src.isBlank()) return
+                    val url = resolveStickerSourceUrl(sticker.id, sticker.src)
+                    if (url.isBlank()) return
+                    val filetype = if (isAudio) "audio/mpeg" else "image/gif"
+                    val references = buildReplyReferences()
+                    chatController.sendDirectAttachment(
+                        channelId, clanId, channelType, resolveChannelPrivate(),
+                        url, filetype, sticker.id, references
+                    )
+                    clearReplyState()
+                    hideEmojiView()
+                }
+
+                override fun onGifSelected(gifUrl: String) {
+                    val references = buildReplyReferences()
+                    chatController.sendDirectAttachment(
+                        channelId, clanId, channelType, resolveChannelPrivate(),
+                        gifUrl, "image/gif", references = references
+                    )
+                    clearReplyState()
+                    hideEmojiView()
+                }
+
+                override fun onBackspace() {
+                    inputField.dispatchKeyEvent(
+                        android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DEL)
+                    )
+                }
+
+                override fun onSearchFocusChanged(focused: Boolean) {
+                    if (focused) {
+                        expandEmojiSearch()
+                    } else {
+                        collapseEmojiSearch()
+                    }
+                }
+            }
+        }
+        rootView.addView(emojiView, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, 0, Gravity.BOTTOM
+        ))
+    }
+
     override fun onFragmentDestroy() {
         notificationCenter.removePostponeNotificationsCallback(postponeNewMessagesCallback)
         notificationCenter.onAnimationFinish(transitionAnimationIndex)
@@ -1276,6 +1558,8 @@ class ChatFragment : BaseFragment() {
         pendingHighlightMessageId = 0L
         chatAdjustPanHelper?.onDetach()
         chatAdjustPanHelper = null
+        emojiView = null
+        emojiObjPicked.clear()
         super.onFragmentDestroy()
     }
 
@@ -1681,11 +1965,28 @@ class ChatFragment : BaseFragment() {
             )
             clearPendingAttachments()
         } else {
-            chatController.sendMessage(channelId, clanId, channelType, isPrivate, text, references, mentions)
+            val emojiMarkers = buildEmojiMarkers(text)
+            chatController.sendMessage(channelId, clanId, channelType, isPrivate, text, references, mentions, emojiMarkers)
         }
         inputField.text?.clear()
+        emojiObjPicked.clear()
         mentionTrackers.clear()
         clearReplyState()
+    }
+
+    private fun buildEmojiMarkers(text: String): List<EmojiMarker>? {
+        if (emojiObjPicked.isEmpty()) return null
+        val markers = ArrayList<EmojiMarker>()
+        for ((shortname, emojiId) in emojiObjPicked) {
+            var searchFrom = 0
+            while (true) {
+                val idx = text.indexOf(shortname, searchFrom)
+                if (idx < 0) break
+                markers.add(EmojiMarker(emojiId, idx, idx + shortname.length))
+                searchFrom = idx + shortname.length
+            }
+        }
+        return markers.ifEmpty { null }
     }
 
     private fun showAttachmentPicker() {
