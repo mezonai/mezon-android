@@ -382,4 +382,12 @@
     <string name="user_profile_add_friend">Add Friend</string>
     <string name="user_profile_member_since">Mezon Member Since</string>
     <string name="user_profile_about_me">About Me</string>
+
+    <!-- sharing -->
+    <string name="sharing_title">Share to…</string>
+    <string name="sharing_search_placeholder">Search conversations</string>
+    <string name="sharing_sending">Sending…</string>
+    <string name="sharing_sent">Sent!</string>
+    <string name="sharing_failed">Failed to send</string>
+    <string name="sharing_no_conversations">No conversations found</string>
 </resources>

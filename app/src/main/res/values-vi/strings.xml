@@ -271,4 +271,11 @@
 
     <string name="common_ok">OK</string>
     <string name="common_error">Lỗi</string>
+    <!-- sharing -->
+    <string name="sharing_title">Chia sẻ tới…</string>
+    <string name="sharing_search_placeholder">Tìm cuộc trò chuyện</string>
+    <string name="sharing_sending">Đang gửi…</string>
+    <string name="sharing_sent">Đã gửi!</string>
+    <string name="sharing_failed">Gửi thất bại</string>
+    <string name="sharing_no_conversations">Không tìm thấy cuộc trò chuyện</string>
 </resources>

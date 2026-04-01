@@ -77,7 +77,7 @@ class ChannelThreadCell(
         var needInvalidate = false
 
         if ((mask and NotificationCenter.UPDATE_MASK_BADGE) != 0) {
-            if (thread?.unreadCount != th.unreadCount) {
+            if (thread?.unreadCount != th.unreadCount || thread?.hasUnread != th.hasUnread) {
                 truncatedName = ""
                 needInvalidate = true
             }

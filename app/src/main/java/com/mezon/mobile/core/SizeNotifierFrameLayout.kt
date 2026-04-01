@@ -34,6 +34,8 @@ open class SizeNotifierFrameLayout @JvmOverloads constructor(
     var paused = true
         private set
     private var lastKeyboardHeight = -1
+    var adjustPanLayoutHelper: AdjustPanLayoutHelper? = null
+        private set
 
     private var bottomClip = 0
     private var backgroundTranslationY = 0
@@ -46,6 +48,7 @@ open class SizeNotifierFrameLayout @JvmOverloads constructor(
 
     init {
         setWillNotDraw(false)
+        adjustPanLayoutHelper = createAdjustPanLayoutHelper()
     }
 
     fun setDelegate(delegate: SizeNotifierFrameLayoutDelegate?) {
@@ -161,7 +164,7 @@ open class SizeNotifierFrameLayout @JvmOverloads constructor(
 
     fun getBackgroundSizeY(): Int {
         val offset = if (occupyStatusBar) AndroidUtilities.statusBarHeight else 0
-        return measuredHeight - offset + emojiHeight
+        return measuredHeight - offset
     }
 
     open fun setBackgroundImage(drawable: Drawable?, motion: Boolean) {
@@ -183,7 +186,7 @@ open class SizeNotifierFrameLayout @JvmOverloads constructor(
 
     open fun updateColors() {}
 
-    protected open fun createAdjustPanLayoutHelper(): Any? = null
+    protected open fun createAdjustPanLayoutHelper(): AdjustPanLayoutHelper? = null
 
     override fun dispatchDraw(canvas: Canvas) {
         if (backgroundView == null && backgroundDrawable != null && !skipBackgroundDrawing) {
