@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import com.mezon.mobile.MainActivity
 import com.mezon.mobile.R
 import com.mezon.mobile.core.NotificationCenter
@@ -141,6 +142,7 @@ class NotificationHelper @Inject constructor(
             val notifChannel = if (clanId == 0L) CHANNEL_DM else CHANNEL_MESSAGES
             val notification = NotificationCompat.Builder(context, notifChannel)
                 .setSmallIcon(R.drawable.ic_notification)
+                .setColor(ContextCompat.getColor(context, R.color.notification_color))
                 .setContentTitle(title)
                 .setContentText(body)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -177,6 +179,7 @@ class NotificationHelper @Inject constructor(
             )
             val notification = NotificationCompat.Builder(context, CHANNEL_DM)
                 .setSmallIcon(R.drawable.ic_notification)
+                .setColor(ContextCompat.getColor(context, R.color.notification_color))
                 .setContentTitle(title)
                 .setContentText(body)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)

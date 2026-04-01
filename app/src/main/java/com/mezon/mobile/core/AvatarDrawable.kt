@@ -142,10 +142,18 @@ class AvatarDrawable : Drawable() {
         val photo = photoBitmap
         if (photo != null && !photo.isRecycled) {
             photoPaint.shader = BitmapShader(photo, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP).apply {
-                val scale = bounds.width().toFloat() / photo.width
+                val bw = bounds.width().toFloat()
+                val bh = bounds.height().toFloat()
+                val pw = photo.width.toFloat()
+                val ph = photo.height.toFloat()
+                val scale = maxOf(bw / pw, bh / ph)
+                
                 val matrix = android.graphics.Matrix()
                 matrix.setScale(scale, scale)
-                matrix.postTranslate(bounds.left.toFloat(), bounds.top.toFloat())
+                matrix.postTranslate(
+                    bounds.left + (bw - pw * scale) * 0.5f,
+                    bounds.top + (bh - ph * scale) * 0.5f
+                )
                 setLocalMatrix(matrix)
             }
             canvas.drawCircle(cx, cy, radius, photoPaint)

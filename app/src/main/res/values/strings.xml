@@ -336,12 +336,25 @@
 
     <!-- Edit Profile -->
     <string name="edit_profile_title">Profile Settings</string>
+    <string name="edit_profile_tab_personal">Personal</string>
+    <string name="edit_profile_tab_clan">Clan</string>
+    <string name="edit_profile_display_name_label">Display Name</string>
     <string name="edit_profile_display_name_hint">Enter display name</string>
     <string name="edit_profile_about_me">About Me</string>
     <string name="edit_profile_about_me_hint">Tell others about yourself</string>
-    <string name="edit_profile_save">Save Changes</string>
+    <string name="edit_profile_dm_icon_label">Direct Message Icon</string>
+    <string name="edit_profile_save">Save</string>
     <string name="edit_profile_save_error">Failed to save profile. Please try again.</string>
     <string name="edit_profile_username_hint">Username cannot be changed here</string>
+    <string name="edit_profile_change_avatar">Change Avatar</string>
+    <string name="edit_profile_remove_avatar">Remove Avatar</string>
+    <string name="edit_profile_avatar_too_large">Avatar file size must not exceed 10MB</string>
+    <string name="edit_profile_dm_logo_too_large">Logo file size must not exceed 1MB</string>
+    <string name="edit_profile_select_clan">Select a Clan</string>
+    <string name="edit_profile_clan_nickname">Clan Nickname</string>
+    <string name="edit_profile_clan_nickname_duplicate">The nickname already exists in the clan. Please enter another nickname.</string>
+    <string name="edit_profile_clan_save_success">Clan profile updated successfully</string>
+    <string name="edit_profile_no_clans">You haven\'t joined any clans yet</string>
 
     <!-- Set Password -->
     <string name="set_password_title">Set Password</string>
