@@ -26,10 +26,14 @@ class TextSettingsCell(context: Context, private val theme: ThemeColors) : Frame
     private val valueContainer: android.widget.LinearLayout
     private var needDivider = false
     private var titleColorOverride = 0
-    private var backgroundType = 0 
+    private var backgroundType = BG_TYPE_NONE 
     private val backgroundPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
     private val backgroundRect = android.graphics.RectF()
     private var cardMarginDp = 16f
+    private var cardMarginPx = LayoutHelper.dp(16f).toFloat()
+    private val cardCornerRadius = LayoutHelper.dp(12f).toFloat()
+    private var dividerLeftPad = 0f
+    private var pendingMarginUpdate = true
 
     init {
         imageView = ImageView(context).apply {
@@ -102,15 +106,15 @@ class TextSettingsCell(context: Context, private val theme: ThemeColors) : Frame
         foreground = ContextCompat.getDrawable(context, outValue.resourceId)
 
         minimumHeight = LayoutHelper.dp(56)
-        setWillNotDraw(false)
+        setWillNotDraw(backgroundType == BG_TYPE_NONE && !needDivider)
         backgroundPaint.color = theme.surfaceVariant
     }
 
     fun setBackgroundType(type: Int) {
         if (backgroundType != type) {
             backgroundType = type
-            setWillNotDraw(backgroundType == 0 && !needDivider)
-            updateTextMargins()
+            setWillNotDraw(backgroundType == BG_TYPE_NONE && !needDivider)
+            pendingMarginUpdate = true
             invalidate()
         }
     }
@@ -123,8 +127,12 @@ class TextSettingsCell(context: Context, private val theme: ThemeColors) : Frame
         } else {
             valueTextView.visibility = GONE
         }
-        needDivider = divider
-        updateTextMargins()
+        if (needDivider != divider) {
+            needDivider = divider
+            setWillNotDraw(backgroundType == BG_TYPE_NONE && !needDivider)
+        }
+        pendingMarginUpdate = true
+        invalidate()
     }
 
     fun setIcon(drawable: Drawable?) {
@@ -135,13 +143,15 @@ class TextSettingsCell(context: Context, private val theme: ThemeColors) : Frame
         } else {
             imageView.visibility = GONE
         }
-        updateTextMargins()
+        pendingMarginUpdate = true
+        invalidate()
     }
 
     fun setIcon(@DrawableRes resId: Int) {
         if (resId == 0) {
             imageView.visibility = GONE
-            updateTextMargins()
+            pendingMarginUpdate = true
+            invalidate()
             return
         }
         setIcon(ContextCompat.getDrawable(context, resId))
@@ -153,7 +163,8 @@ class TextSettingsCell(context: Context, private val theme: ThemeColors) : Frame
 
     fun setWarn(warn: Boolean) {
         warnImageView.visibility = if (warn) VISIBLE else GONE
-        updateTextMargins()
+        pendingMarginUpdate = true
+        invalidate()
     }
 
     fun setTextAndIcon(title: String, @DrawableRes iconResId: Int, divider: Boolean = false) {
@@ -167,18 +178,26 @@ class TextSettingsCell(context: Context, private val theme: ThemeColors) : Frame
     }
 
     fun setCardMargin(dp: Float) {
-        cardMarginDp = dp
+        if (cardMarginDp != dp) {
+            cardMarginDp = dp
+            cardMarginPx = LayoutHelper.dp(dp).toFloat()
+            pendingMarginUpdate = true
+            invalidate()
+        }
     }
 
     private fun updateTextMargins() {
+        if (!pendingMarginUpdate) return
         val hasIcon = imageView.visibility == VISIBLE
-        val isCard = backgroundType != 0
+        val isCard = backgroundType != BG_TYPE_NONE
         val leftDp = if (hasIcon) 64f else (if (isCard) 32f else 21f)
         val hasValue = valueTextView.visibility == VISIBLE
         val hasWarn = warnImageView.visibility == VISIBLE
         
+        dividerLeftPad = LayoutHelper.dp(leftDp).toFloat()
+
         val lpTitle = textView.layoutParams as LayoutParams
-        lpTitle.leftMargin = LayoutHelper.dp(leftDp)
+        lpTitle.leftMargin = dividerLeftPad.toInt()
         textView.layoutParams = lpTitle
 
         val lpValue = valueContainer.layoutParams as LayoutParams
@@ -190,6 +209,7 @@ class TextSettingsCell(context: Context, private val theme: ThemeColors) : Frame
         chevronImageView.layoutParams = lpChevron
 
         valueContainer.visibility = if (hasValue || hasWarn) VISIBLE else GONE
+        pendingMarginUpdate = false
     }
 
     fun setTitleBold(bold: Boolean) {
@@ -203,8 +223,9 @@ class TextSettingsCell(context: Context, private val theme: ThemeColors) : Frame
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        updateTextMargins()
         val w = MeasureSpec.getSize(widthMeasureSpec)
-        val h = LayoutHelper.dp(if (backgroundType != 0) 56 else 50) + (if (needDivider) 1 else 0)
+        val h = LayoutHelper.dp(if (backgroundType != BG_TYPE_NONE) 56 else 50) + (if (needDivider) 1 else 0)
         super.onMeasure(
             MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY),
             MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY)
@@ -214,17 +235,17 @@ class TextSettingsCell(context: Context, private val theme: ThemeColors) : Frame
     override fun hasOverlappingRendering(): Boolean = false
 
     override fun onDraw(canvas: Canvas) {
-        if (backgroundType != 0) {
-            val r = LayoutHelper.dp(12).toFloat()
-            val m = LayoutHelper.dp(cardMarginDp).toFloat()
+        if (backgroundType != BG_TYPE_NONE) {
+            val r = cardCornerRadius
+            val m = cardMarginPx
             backgroundRect.set(m, 0f, width.toFloat() - m, height.toFloat())
             
-            if (backgroundType == 4) { 
+            if (backgroundType == BG_TYPE_ISOLATED) { 
                 canvas.drawRoundRect(backgroundRect, r, r, backgroundPaint)
-            } else if (backgroundType == 1) { 
+            } else if (backgroundType == BG_TYPE_TOP) { 
                 canvas.drawRoundRect(backgroundRect, r, r, backgroundPaint)
                 canvas.drawRect(m, height / 2f, width.toFloat() - m, height.toFloat(), backgroundPaint)
-            } else if (backgroundType == 3) { 
+            } else if (backgroundType == BG_TYPE_BOTTOM) { 
                 canvas.drawRoundRect(backgroundRect, r, r, backgroundPaint)
                 canvas.drawRect(m, 0f, width.toFloat() - m, height / 2f, backgroundPaint)
             } else { 
@@ -232,11 +253,9 @@ class TextSettingsCell(context: Context, private val theme: ThemeColors) : Frame
             }
         }
         if (needDivider) {
-            val hasIcon = imageView.visibility == VISIBLE
-            val leftPad = LayoutHelper.dp(if (hasIcon) 64 else (if (backgroundType != 0) 32 else 21)).toFloat()
             val y = (height - 1).toFloat()
-            val rightPad = if (backgroundType != 0) LayoutHelper.dp(cardMarginDp).toFloat() else 0f
-            canvas.drawRect(leftPad, y, width.toFloat() - rightPad, y + 1f, theme.dividerPaint)
+            val rightPad = if (backgroundType != BG_TYPE_NONE) cardMarginPx else 0f
+            canvas.drawRect(dividerLeftPad, y, width.toFloat() - rightPad, y + 1f, theme.dividerPaint)
         }
     }
 
@@ -252,5 +271,13 @@ class TextSettingsCell(context: Context, private val theme: ThemeColors) : Frame
         textView.setTextColor(if (titleColorOverride != 0) titleColorOverride else theme.onSurface)
         valueTextView.setTextColor(theme.onSurfaceVariant)
         imageView.drawable?.colorFilter = PorterDuffColorFilter(theme.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
+    }
+
+    companion object {
+        const val BG_TYPE_NONE = 0
+        const val BG_TYPE_TOP = 1
+        const val BG_TYPE_MIDDLE = 2
+        const val BG_TYPE_BOTTOM = 3
+        const val BG_TYPE_ISOLATED = 4
     }
 }
