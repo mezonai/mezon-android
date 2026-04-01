@@ -29,6 +29,8 @@ import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.util.MentionData
 import com.mezon.mobile.util.buildTextContent
 import com.mezon.mobile.util.buildTextContentWithMentions
+import com.mezon.mobile.util.EmojiMarker
+import com.mezon.mobile.util.buildTextContentWithEmojis
 import com.mezon.mezon.api.MessageAttachment
 import com.mezon.mezon.api.messageAttachment
 import com.mezon.mezon.api.messageMention
@@ -402,12 +404,13 @@ class ChatController @Inject constructor(
         isChannelPrivate: Boolean,
         text: String,
         references: List<com.mezon.mezon.api.MessageRef>? = null,
-        mentions: List<MentionData>? = null
+        mentions: List<MentionData>? = null,
+        emojiMarkers: List<EmojiMarker>? = null
     ) {
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
-        val content = if (mentions.isNullOrEmpty()) buildTextContent(text)
-            else buildTextContentWithMentions(text, mentions)
+        val content = if (emojiMarkers.isNullOrEmpty() && mentions.isNullOrEmpty()) buildTextContent(text)
+            else buildTextContentWithEmojis(text, mentions, emojiMarkers)
         val mentionEveryone = mentions?.any { it.userId == ID_MENTION_HERE } == true
         val protoMentions = mentions?.mapNotNull { m ->
             if (m.userId == ID_MENTION_HERE) return@mapNotNull null
@@ -456,6 +459,82 @@ class ChatController @Inject constructor(
                     NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
                 )
             } catch (e: Exception) {
+                notificationCenter.postNotificationOnMainThread(
+                    NotificationCenter.pendingMessageError, channelId, tempId
+                )
+            }
+        }
+    }
+
+    fun sendDirectAttachment(
+        channelId: Long,
+        clanId: Long,
+        channelType: Int,
+        isChannelPrivate: Boolean,
+        url: String,
+        filetype: String,
+        filename: String? = null,
+        references: List<com.mezon.mezon.api.MessageRef>? = null
+    ) {
+        val mode = channelTypeToStreamMode(channelType)
+        val isPublic = !isChannelPrivate
+        val baseContent = "{\"t\":\"\"}"
+        val content = mergeRefsIntoOptimisticContent(baseContent, references)
+        val attachment = messageAttachment {
+            this.url = url
+            this.filetype = filetype
+            if (filename != null) this.filename = filename
+        }
+
+        val tempId = generateTempId()
+        val uc = userController.get()
+        val msgType = when {
+            filetype.startsWith("image/gif") || filetype.endsWith("gif") -> MessageEntity.TYPE_GIF
+            filetype.startsWith("image/") -> MessageEntity.TYPE_PHOTO
+            filetype.startsWith("audio/") -> MessageEntity.TYPE_FILE
+            else -> MessageEntity.TYPE_GIF
+        }
+        val optimistic = MessageEntity(
+            id = tempId,
+            channelId = channelId,
+            senderId = uc.userId,
+            senderName = uc.displayName.ifBlank { uc.username },
+            senderAvatar = uc.avatarUrl,
+            content = content,
+            timestampSeconds = System.currentTimeMillis() / 1000,
+            code = MessageEntity.CODE_CHAT,
+            isMe = true,
+            messageType = msgType,
+            attachmentUrl = url,
+            attachmentFiletype = filetype,
+            attachmentFilename = filename.orEmpty(),
+            sendState = MessageEntity.SEND_STATE_SENDING
+        )
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.didReceiveNewMessages, channelId, optimistic
+        )
+
+        appScope.launch {
+            try {
+                val session = sessionManager.sessionFlow.first() ?: throw RuntimeException("No session")
+                val request = channelMessageSend {
+                    this.clanId = clanId
+                    this.channelId = channelId
+                    this.mode = mode
+                    this.isPublic = isPublic
+                    this.content = baseContent
+                    this.attachments.add(attachment)
+                    references?.let { this.references.addAll(it) }
+                }
+                val ack = withContext(ioDispatcher) {
+                    api.sendChannelMessage(session.apiUrl, session.token, request)
+                }
+                notificationCenter.postNotificationOnMainThread(
+                    NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
+                )
+                Log.d(TAG, "Direct attachment sent: channelId=$channelId url=${url.take(60)}")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to send direct attachment", e)
                 notificationCenter.postNotificationOnMainThread(
                     NotificationCenter.pendingMessageError, channelId, tempId
                 )

@@ -218,7 +218,8 @@ enum class MezonIcon(@DrawableRes val resId: Int) {
     bgEmptyIcon(R.drawable.ic_bg_empty),
     devicesIcon(R.drawable.ic_devices),
     searchFriendIcon(R.drawable.ic_search_friend),
-    agentIcon(R.drawable.ic_agent);
+    agentIcon(R.drawable.ic_agent),
+    backspaceIcon(R.drawable.ic_backspace);
 
     fun getDrawable(context: Context): Drawable =
         ContextCompat.getDrawable(context, resId)!!.mutate()

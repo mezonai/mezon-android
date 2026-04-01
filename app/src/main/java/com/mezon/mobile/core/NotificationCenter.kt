@@ -106,6 +106,9 @@ class NotificationCenter(val currentAccount: Int) {
         val searchMembersDidLoad = nextId()
         val searchChannelsDidLoad = nextId()
         val searchMessagesDidLoad = nextId()
+        val emojisNeedReload = nextId()
+        val stickersNeedReload = nextId()
+        val gifsNeedReload = nextId()
 
         const val UPDATE_MASK_NAME = 1
         const val UPDATE_MASK_AVATAR = 2

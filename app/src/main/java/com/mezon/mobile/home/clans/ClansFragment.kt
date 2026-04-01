@@ -500,7 +500,7 @@ class ClansFragment : BaseFragment() {
 
     private fun onChannelSelected(channel: ClanChannelEntity) {
         val clanIdForJoin = if (channel.clanId != 0L) channel.clanId else clansController.selectedClanId.value
-        chatController.openChannel(channel.channelId, clanIdForJoin, channel.type, channel.isPrivate, channel.parentId)
+        chatController.openChannel(channel.channelId, clanIdForJoin, channel.type, channel.isPrivate)
         onOpenChat?.invoke(channel.channelId, channel.channelLabel, clanIdForJoin, channel.type)
     }
 

@@ -25,6 +25,7 @@ import com.mezon.mezon.rtapi.CustomStatusEvent
 import com.mezon.mezon.rtapi.DeleteAccountEvent
 import com.mezon.mezon.rtapi.DropdownBoxSelected
 import com.mezon.mezon.rtapi.Envelope
+import com.mezon.mezon.rtapi.EventEmoji
 import com.mezon.mezon.rtapi.LastPinMessageEvent
 import com.mezon.mezon.rtapi.LastSeenMessageEvent
 import com.mezon.mezon.rtapi.MeetParticipantEvent
@@ -239,6 +240,9 @@ class SocketEventDispatcher @Inject constructor(
     private val _aiagentEnabledEvents = MutableSharedFlow<AIAgentEnabledEvent>(extraBufferCapacity = 4)
     val aiagentEnabledEvents: SharedFlow<AIAgentEnabledEvent> = _aiagentEnabledEvents.asSharedFlow()
 
+    private val _emojiEvents = MutableSharedFlow<EventEmoji>(extraBufferCapacity = 8)
+    val emojiEvents: SharedFlow<EventEmoji> = _emojiEvents.asSharedFlow()
+
     init {
         scope.launch {
             mezonSocket.events.collect { envelope ->
@@ -365,6 +369,8 @@ class SocketEventDispatcher @Inject constructor(
                 _sdTopicEvents.emit(envelope.sdTopicEvent)
             Envelope.MessageCase.AIAGENT_ENABLED_EVENT ->
                 _aiagentEnabledEvents.emit(envelope.aiagentEnabledEvent)
+            Envelope.MessageCase.EVENT_EMOJI ->
+                _emojiEvents.emit(envelope.eventEmoji)
             else ->
                 Log.d(TAG, "Unhandled event: ${envelope.messageCase}")
         }

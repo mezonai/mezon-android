@@ -6,6 +6,8 @@ import android.util.Log
 import com.mezon.mezon.api.Account
 import com.mezon.mezon.api.AccountEmail
 import com.mezon.mezon.api.AllUserClans
+import com.mezon.mezon.api.EmojiListedResponse
+import com.mezon.mezon.api.StickerListedResponse
 import com.mezon.mezon.api.BlockFriendsRequest
 import com.mezon.mezon.api.ChannelDescList
 import com.mezon.mezon.api.ChannelMessageList
@@ -547,6 +549,22 @@ class MezonApi @Inject constructor(
         }
         val bytes = rpc(apiUrl, token, "SearchMessage", request.toByteArray())
         return SearchMessageResponse.parseFrom(bytes)
+    }
+
+    suspend fun listEmojisByUserId(
+        apiUrl: String,
+        token: String
+    ): EmojiListedResponse {
+        val bytes = rpc(apiUrl, token, "GetListEmojisByUserId", ByteArray(0))
+        return EmojiListedResponse.parseFrom(bytes)
+    }
+
+    suspend fun listStickersByUserId(
+        apiUrl: String,
+        token: String
+    ): StickerListedResponse {
+        val bytes = rpc(apiUrl, token, "GetListStickersByUserId", ByteArray(0))
+        return StickerListedResponse.parseFrom(bytes)
     }
 
     suspend fun putFileToPresignedUrl(

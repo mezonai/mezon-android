@@ -128,3 +128,38 @@ fun convertTimestampToTimeAgo(context: Context, timestampSeconds: Long): String 
     val minutes = (diff % (60 * 60)) / 60
     return context.getString(R.string.common_time_ago_minutes, minutes.toInt())
 }
+
+data class EmojiMarker(val emojiId: String, val startIndex: Int, val endIndex: Int)
+
+fun buildTextContentWithEmojis(
+    text: String,
+    mentions: List<MentionData>?,
+    emojis: List<EmojiMarker>?
+): String {
+    val escaped = text
+        .replace("\\", "\\\\")
+        .replace("\"", "\\\"")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+    val parts = mutableListOf("\"t\":\"$escaped\"")
+    if (!mentions.isNullOrEmpty()) {
+        val mentionsJson = StringBuilder("[")
+        mentions.forEachIndexed { i, m ->
+            if (i > 0) mentionsJson.append(",")
+            mentionsJson.append("{")
+            if (m.userId.isNotBlank()) mentionsJson.append("\"user_id\":\"${m.userId}\",")
+            if (m.roleId.isNotBlank()) mentionsJson.append("\"role_id\":\"${m.roleId}\",")
+            mentionsJson.append("\"s\":${m.startOffset},\"e\":${m.endOffset}}")
+        }
+        mentionsJson.append("]")
+        parts.add("\"mentions\":$mentionsJson")
+    }
+    if (!emojis.isNullOrEmpty()) {
+        val ejJson = emojis.joinToString(",") {
+            "{\"emojiid\":\"${it.emojiId}\",\"s\":${it.startIndex},\"e\":${it.endIndex}}"
+        }
+        parts.add("\"ej\":[$ejJson]")
+    }
+    return "{${parts.joinToString(",")}}"
+}
