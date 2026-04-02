@@ -229,7 +229,7 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         avatarDrawable.draw(canvas)
 
         val isOnline = dm.type == CHANNEL_TYPE_DM && dm.isOnline
-        if (isOnline || onlineProgress != 0f) {
+        if (false) {
             val dotR = ONLINE_DOT / 2f
             val dotCx = cx + AVATAR_SIZE - dotR
             val dotCy = cy + AVATAR_SIZE - dotR

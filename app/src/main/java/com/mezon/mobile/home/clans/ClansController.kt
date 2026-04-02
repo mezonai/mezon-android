@@ -99,7 +99,6 @@ class ClansController @Inject constructor(
         val cacheKey = apiCacheKey("listClanDescs")
         appScope.launch {
             try {
-                val session = sessionManager.sessionFlow.first() ?: return@launch
                 if (!force && cacheTracker.shouldCall(cacheKey) == ApiCacheTracker.ShouldCall.SKIP) {
                     Log.d(TAG, "loadClans: SKIP listClanDescs cache (still may fetch badges)")
                     if (_clans.value.isNotEmpty()) {
@@ -114,8 +113,10 @@ class ClansController @Inject constructor(
                     }
                     return@launch
                 }
-                val result = withContext(ioDispatcher) {
-                    api.listClanDescs(session.apiUrl, session.token)
+                val result = sessionManager.withAutoRefresh { session ->
+                    withContext(ioDispatcher) {
+                        api.listClanDescs(session.apiUrl, session.token)
+                    }
                 }
                 val apiEntities = result.clandescList.mapIndexed { index, desc ->
                     desc.toClanEntity().let { entity ->

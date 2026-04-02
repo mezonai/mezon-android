@@ -11,7 +11,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -78,9 +77,10 @@ class NotificationStore @Inject constructor(
         if (clanId == 0L) return
         appScope.launch {
             try {
-                val session = sessionManager.sessionFlow.first() ?: return@launch
-                val result = withContext(ioDispatcher) {
-                    api.listNotifications(session.apiUrl, session.token, clanId, category, notificationId, PAGE_SIZE)
+                val result = sessionManager.withAutoRefresh { session ->
+                    withContext(ioDispatcher) {
+                        api.listNotifications(session.apiUrl, session.token, clanId, category, notificationId, PAGE_SIZE)
+                    }
                 }
                 val entities = result.notificationsList.map { it.toNotificationEntity() }
                 val hasMore = entities.size >= PAGE_SIZE
@@ -101,9 +101,10 @@ class NotificationStore @Inject constructor(
         getMutableForCategory(category)?.update { old -> old.filter { it.id != id } }
         appScope.launch {
             try {
-                val session = sessionManager.sessionFlow.first() ?: return@launch
-                withContext(ioDispatcher) {
-                    api.deleteNotifications(session.apiUrl, session.token, listOf(id), category)
+                sessionManager.withAutoRefresh { session ->
+                    withContext(ioDispatcher) {
+                        api.deleteNotifications(session.apiUrl, session.token, listOf(id), category)
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "deleteNotification failed", e)

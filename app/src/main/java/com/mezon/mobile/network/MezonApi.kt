@@ -31,6 +31,8 @@ import com.mezon.mezon.api.linkAccountConfirmRequest
 import com.mezon.mezon.api.listClanDescRequest
 import com.mezon.mezon.api.listChannelUsersRequest
 import com.mezon.mezon.api.listClanUsersRequest
+import com.mezon.mezon.api.ListChannelBadgeCountResponse
+import com.mezon.mezon.api.listChannelBadgeCountRequest
 import com.mezon.mezon.api.listChannelDescsRequest
 import com.mezon.mezon.api.listChannelMessagesRequest
 import com.mezon.mezon.api.listFriendsRequest
@@ -197,7 +199,11 @@ class MezonApi @Inject constructor(
 
         if (!response.status.isSuccess()) {
             val errorBody = response.bodyAsText()
-            throw RuntimeException("SessionRefresh failed (${response.status.value}): $errorBody")
+            val code = response.status.value
+            if (code == 401 || code == 403 || code == 500) {
+                throw UnauthorizedException("SessionRefresh: $code Unauthorized")
+            }
+            throw RuntimeException("SessionRefresh failed ($code): $errorBody")
         }
 
         val session = Session.parseFrom(response.readBytes())
@@ -223,6 +229,18 @@ class MezonApi @Inject constructor(
         val bytes = rpc(apiUrl, token, "ListChannelDescs", request.toByteArray())
         val result = ChannelDescList.parseFrom(bytes)
         return result
+    }
+
+    suspend fun listChannelBadgeCount(
+        apiUrl: String,
+        token: String,
+        clanId: Long
+    ): ListChannelBadgeCountResponse {
+        val request = listChannelBadgeCountRequest {
+            this.clanId = clanId
+        }
+        val bytes = rpc(apiUrl, token, "ListChannelBadgeCount", request.toByteArray())
+        return ListChannelBadgeCountResponse.parseFrom(bytes)
     }
 
     suspend fun listClanDescs(

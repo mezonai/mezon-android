@@ -396,6 +396,22 @@
     <string name="user_profile_member_since">Mezon Member Since</string>
     <string name="user_profile_about_me">About Me</string>
 
+    <!-- Advanced Functions -->
+    <string name="advanced_location">Location</string>
+    <string name="advanced_files">Files</string>
+    <string name="advanced_threads">Threads</string>
+    <string name="advanced_anonymous">Anonymous</string>
+    <string name="advanced_buzz">Buzz</string>
+    <string name="advanced_ephemeral">Ephemeral</string>
+    <string name="advanced_transfer_funds">Transfer Funds</string>
+    <string name="advanced_poll">Poll</string>
+    <string name="advanced_share_contact">Share Contact</string>
+    <string name="share_location_title">Send this location to %s</string>
+    <string name="share_location_coordinate">Coordinate (%1$.6f, %2$.6f)</string>
+    <string name="share_location_cancel">Cancel</string>
+    <string name="share_location_send">Send</string>
+    <string name="feature_coming_soon">Coming soon</string>
+
     <!-- sharing -->
     <string name="sharing_title">Share to…</string>
     <string name="sharing_search_placeholder">Search conversations</string>

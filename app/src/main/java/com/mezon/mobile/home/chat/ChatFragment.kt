@@ -48,6 +48,7 @@ import com.mezon.mobile.ui.cells.PageDownButton
 import com.mezon.mobile.util.EmojiMarker
 import com.mezon.mobile.util.MentionData
 import com.mezon.mobile.util.parseContentText
+import com.mezon.mobile.util.parseMarkdownAndStrip
 import com.mezon.mobile.util.resolveStickerSourceUrl
 import com.mezon.mobile.core.SharedConfig
 import com.mezon.mobile.core.SizeNotifierFrameLayout
@@ -67,6 +68,7 @@ class ChatFragment : BaseFragment() {
         private const val VIEWPORT_LIMIT = 300
         private const val PAGE_DOWN_SCROLL_THRESHOLD = 2
         private const val SCROLL_PREFS = "chat_scroll_positions"
+        private const val REQUEST_CODE_LOCATION_PERMISSION = 1002
 
         fun newInstance(
             channelId: Long,
@@ -99,6 +101,7 @@ class ChatFragment : BaseFragment() {
     private lateinit var sendButton: ImageButton
     private lateinit var micButton: ImageButton
     private lateinit var attachButton: ImageButton
+    private lateinit var advancedFunctionButton: ImageButton
     private lateinit var emojiButton: ImageButton
     private lateinit var adapter: ChatAdapter
     private lateinit var rootView: FrameLayout
@@ -695,6 +698,7 @@ class ChatFragment : BaseFragment() {
             (inputField.background as? android.graphics.drawable.GradientDrawable)?.setColor(themeColors.tertiary)
             (attachButton.background as? android.graphics.drawable.GradientDrawable)?.setColor(themeColors.tertiary)
             attachButton.setColorFilter(themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary))
+            advancedFunctionButton.setColorFilter(themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary))
             emojiButton.setColorFilter(themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary))
             micButton.setColorFilter(themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary))
             attachmentPreviewScroll?.setBackgroundColor(themeColors.surface)
@@ -966,6 +970,20 @@ class ChatFragment : BaseFragment() {
         }
         inputBar.addView(attachButton, LayoutHelper.createLinear(40, 40, gravity = Gravity.BOTTOM))
 
+        advancedFunctionButton = ImageButton(context).apply {
+            val drawable = MezonIcon.advancedFunctionIcon.getDrawable(context)
+            drawable.colorFilter = PorterDuffColorFilter(themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary), PorterDuff.Mode.SRC_IN)
+            setImageDrawable(drawable)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setPadding(btnPad, btnPad, btnPad, btnPad)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL
+                setColor(themeColors.tertiary)
+            }
+            setOnClickListener { showAdvancedFunctionMenu() }
+        }
+        inputBar.addView(advancedFunctionButton, LayoutHelper.createLinear(40, 40, gravity = Gravity.BOTTOM, leftMargin = 6f))
+
         inputWrapper = FrameLayout(context)
         inputBar.addView(inputWrapper, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.BOTTOM, 6f, 0f, 6f, 0f))
 
@@ -1032,7 +1050,10 @@ class ChatFragment : BaseFragment() {
             setImageDrawable(drawable)
             scaleType = ImageView.ScaleType.FIT_CENTER
             setPadding(btnPad, btnPad, btnPad, btnPad)
-            setBackgroundColor(android.graphics.Color.TRANSPARENT)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL
+                setColor(themeColors.tertiary)
+            }
         }
         inputBar.addView(micButton, LayoutHelper.createLinear(40, 40, gravity = Gravity.BOTTOM))
 
@@ -1230,6 +1251,9 @@ class ChatFragment : BaseFragment() {
 
     override fun onBecomeFullyVisible() {
         super.onBecomeFullyVisible()
+        if (emojiViewVisible || (emojiView != null && emojiView!!.visibility == View.VISIBLE)) {
+            dismissEmojiSilently()
+        }
         pausedOnLastMessage = false
         if (!initialApiDone) initialApiDone = true
         dialogsController.setCurrentChannel(channelId)
@@ -1272,6 +1296,9 @@ class ChatFragment : BaseFragment() {
         super.onPause()
         if (::recyclerView.isInitialized) recyclerView.stopScroll()
         saveScrollPosition()
+        if (emojiViewVisible) {
+            dismissEmojiSilently()
+        }
     }
 
     override fun onBackPressed(): Boolean {
@@ -1347,19 +1374,29 @@ class ChatFragment : BaseFragment() {
 
     private fun showEmojiView() {
         if (emojiView == null) createEmojiView()
-        emojiView!!.visibility = View.VISIBLE
+        val ev = emojiView!!
+        ev.animate().cancel()
+        ev.translationY = 0f
+        ev.visibility = View.VISIBLE
         emojiViewVisible = true
 
         val panelHeight = SharedConfig.getEmojiPanelHeight()
-        emojiView!!.layoutParams = FrameLayout.LayoutParams(
+        ev.layoutParams = FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, panelHeight, Gravity.BOTTOM
         )
         emojiPadding = panelHeight
         sizeNotifierRoot.setEmojiKeyboardHeight(panelHeight)
         sizeNotifierRoot.requestLayout()
 
+        ev.translationY = panelHeight.toFloat()
+        ev.animate()
+            .translationY(0f)
+            .setDuration(250)
+            .setInterpolator(android.view.animation.DecelerateInterpolator())
+            .start()
+
         AndroidUtilities.hideKeyboard(inputField)
-        emojiView!!.onOpen()
+        ev.onOpen()
         updateEmojiButtonIcon(showingEmoji = true)
     }
 
@@ -1380,17 +1417,35 @@ class ChatFragment : BaseFragment() {
         updateEmojiButtonIcon(showingEmoji = false)
     }
 
-    private fun hideEmojiView() {
+    private fun hideEmojiView(animated: Boolean = true) {
         emojiSearchExpanded = false
         searchKeyboardWasVisible = false
         sizeNotifierRoot.isSearchExpanded = false
         emojiViewVisible = false
         emojiView?.clearSearchFocus()
-        emojiView?.visibility = View.GONE
+
         emojiPadding = 0
         sizeNotifierRoot.setEmojiKeyboardHeight(0)
         sizeNotifierRoot.requestLayout()
         updateEmojiButtonIcon(showingEmoji = false)
+
+        val ev = emojiView ?: return
+        ev.animate().cancel()
+        if (animated) {
+            val panelHeight = ev.height.toFloat().coerceAtLeast(1f)
+            ev.animate()
+                .translationY(panelHeight)
+                .setDuration(200)
+                .setInterpolator(android.view.animation.AccelerateInterpolator())
+                .withEndAction {
+                    ev.visibility = View.GONE
+                    ev.translationY = 0f
+                }
+                .start()
+        } else {
+            ev.visibility = View.GONE
+            ev.translationY = 0f
+        }
     }
 
     private class EmojiTokenSpan
@@ -1526,6 +1581,10 @@ class ChatFragment : BaseFragment() {
                     } else {
                         collapseEmojiSearch()
                     }
+                }
+
+                override fun onDismissRequested() {
+                    hideEmojiView(animated = false)
                 }
             }
         }
@@ -1952,21 +2011,35 @@ class ChatFragment : BaseFragment() {
 
         val isPrivate = resolveChannelPrivate()
         val references = buildReplyReferences()
-        val mentions = if (mentionTrackers.isNotEmpty()) ArrayList(mentionTrackers) else null
-        Log.d(TAG, "sendMessage channelId=$channelId clanId=$clanId channelType=$channelType isPrivate=$isPrivate textLen=${text.length} attachments=${pendingAttachments.size} hasReply=${references != null}")
+
+        val mdResult = parseMarkdownAndStrip(text)
+        val cleanedText = mdResult.cleanedText
+        val mdMarkers = mdResult.markers.ifEmpty { null }
+
+        val mentions = if (mentionTrackers.isNotEmpty()) {
+            mentionTrackers.map { m ->
+                MentionData(
+                    userId = m.userId,
+                    roleId = m.roleId,
+                    startOffset = mdResult.adjustOffset(m.startOffset),
+                    endOffset = mdResult.adjustOffset(m.endOffset)
+                )
+            }
+        } else null
+        Log.d(TAG, "sendMessage channelId=$channelId clanId=$clanId channelType=$channelType isPrivate=$isPrivate textLen=${cleanedText.length} attachments=${pendingAttachments.size} hasReply=${references != null} mdMarkers=${mdMarkers?.size ?: 0}")
 
         if (pendingAttachments.isNotEmpty()) {
             val ctx = getContext() ?: return
             chatController.sendMessageWithAttachments(
-                channelId, clanId, channelType, isPrivate, text,
+                channelId, clanId, channelType, isPrivate, cleanedText,
                 ArrayList(pendingAttachments),
                 ctx.contentResolver,
                 references
             )
             clearPendingAttachments()
         } else {
-            val emojiMarkers = buildEmojiMarkers(text)
-            chatController.sendMessage(channelId, clanId, channelType, isPrivate, text, references, mentions, emojiMarkers)
+            val emojiMarkers = buildEmojiMarkers(cleanedText)
+            chatController.sendMessage(channelId, clanId, channelType, isPrivate, cleanedText, references, mentions, emojiMarkers, mdMarkers)
         }
         inputField.text?.clear()
         emojiObjPicked.clear()
@@ -2033,6 +2106,124 @@ class ChatFragment : BaseFragment() {
         }
         alert.setDrawNavigationBar(true)
         alert.show()
+    }
+
+    private fun showAdvancedFunctionMenu() {
+        val ctx = getContext() ?: return
+        val alert = AdvancedAttachAlert(ctx, themeColors)
+        alert.advancedDelegate = object : AdvancedAttachAlert.AdvancedAttachAlertDelegate {
+            override fun onLocationSelected() {
+                requestLocationAndSend()
+            }
+            override fun onFilesSelected() {
+                showAttachmentPicker()
+            }
+        }
+        alert.setDrawNavigationBar(true)
+        alert.show()
+    }
+
+    private fun requestLocationAndSend() {
+        val activity = getParentActivity() ?: return
+        val ctx = getContext() ?: return
+
+        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            fetchCurrentLocationAndSend()
+            return
+        }
+
+        if (activity.shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_FINE_LOCATION)) {
+            com.mezon.mobile.core.AlertDialog.Builder(activity)
+                .setTitle(getString(R.string.share_location_title, ""))
+                .setMessage(getString(R.string.permission_no_location))
+                .setPositiveButton(getString(R.string.common_ok)) { _, _ ->
+                    activity.requestPermissions(
+                        arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
+                        REQUEST_CODE_LOCATION_PERMISSION
+                    )
+                }
+                .setNegativeButton(getString(R.string.permission_not_now), null)
+                .create()
+                .show()
+            return
+        }
+
+        activity.requestPermissions(
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
+            REQUEST_CODE_LOCATION_PERMISSION
+        )
+    }
+
+    private fun showOpenLocationSettingsDialog() {
+        val activity = getParentActivity() ?: return
+        com.mezon.mobile.core.AlertDialog.Builder(activity)
+            .setTitle(getString(R.string.share_location_title, ""))
+            .setMessage(getString(R.string.permission_no_location))
+            .setPositiveButton(getString(R.string.permission_open_settings)) { _, _ ->
+                try {
+                    val intent = android.content.Intent(
+                        android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        android.net.Uri.fromParts("package", activity.packageName, null)
+                    )
+                    activity.startActivity(intent)
+                } catch (_: Exception) {}
+            }
+            .setNegativeButton(getString(R.string.permission_not_now), null)
+            .create()
+            .show()
+    }
+
+    @android.annotation.SuppressLint("MissingPermission")
+    private fun fetchCurrentLocationAndSend() {
+        val ctx = getContext() ?: return
+        val locationManager = ctx.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager ?: return
+
+        val lastKnown = locationManager.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
+            ?: locationManager.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
+
+        if (lastKnown != null) {
+            showLocationConfirmDialog(lastKnown.latitude, lastKnown.longitude)
+            return
+        }
+
+        val listener = object : android.location.LocationListener {
+            override fun onLocationChanged(location: android.location.Location) {
+                locationManager.removeUpdates(this)
+                showLocationConfirmDialog(location.latitude, location.longitude)
+            }
+            @Deprecated("Deprecated in Java")
+            override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+            override fun onProviderEnabled(provider: String) {}
+            override fun onProviderDisabled(provider: String) {}
+        }
+
+        try {
+            if (locationManager.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)) {
+                locationManager.requestSingleUpdate(android.location.LocationManager.GPS_PROVIDER, listener, null)
+            } else if (locationManager.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)) {
+                locationManager.requestSingleUpdate(android.location.LocationManager.NETWORK_PROVIDER, listener, null)
+            } else {
+                android.widget.Toast.makeText(ctx, R.string.permission_no_location, android.widget.Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get location", e)
+        }
+    }
+
+    private fun showLocationConfirmDialog(latitude: Double, longitude: Double) {
+        val activity = getParentActivity() ?: return
+        val channelName = arguments?.getString(ARG_CHANNEL_NAME).orEmpty()
+        val alertDialog = com.mezon.mobile.core.AlertDialog.Builder(activity)
+            .setTitle(getString(R.string.share_location_title, channelName))
+            .setMessage(getString(R.string.share_location_coordinate, latitude, longitude))
+            .setPositiveButton(getString(R.string.share_location_send)) { _, _ ->
+                chatController.sendLocation(
+                    channelId, clanId, channelType, resolveChannelPrivate(), latitude, longitude
+                )
+            }
+            .setNegativeButton(getString(R.string.share_location_cancel), null)
+            .create()
+        alertDialog.show()
     }
 
     private fun updateSendButtonState() {
@@ -2121,6 +2312,19 @@ class ChatFragment : BaseFragment() {
         if (requestCode == ChatAttachAlert.REQUEST_CODE_MEDIA_PERMISSION) {
             if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 openAttachAlert()
+            }
+        }
+        if (requestCode == REQUEST_CODE_LOCATION_PERMISSION) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                fetchCurrentLocationAndSend()
+            } else {
+                val activity = getParentActivity() ?: return
+                val permanentlyDenied = !activity.shouldShowRequestPermissionRationale(
+                    Manifest.permission.ACCESS_FINE_LOCATION
+                )
+                if (permanentlyDenied) {
+                    showOpenLocationSettingsDialog()
+                }
             }
         }
     }
