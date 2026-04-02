@@ -161,7 +161,9 @@ class CreateClanFragment : BaseFragment() {
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 24f)
                 gravity = Gravity.CENTER
             },
-            LayoutHelper.createLinear(40, 40)
+            LayoutHelper.createLinear(LayoutHelper.dp(40), LayoutHelper.dp(40))
+
+
         )
 
         row.addView(
