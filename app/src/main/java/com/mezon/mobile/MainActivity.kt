@@ -402,7 +402,6 @@ class MainActivity : BasePermissionsActivity(),
             return
         }
 
-        // Remove all fragments above MainTabsActivity so Back button always returns to Home
         val stack = actionBarLayout.getFragmentStack()
         val fragmentsToRemove = mutableListOf<BaseFragment>()
         for (i in stack.size - 1 downTo 1) {
@@ -413,7 +412,6 @@ class MainActivity : BasePermissionsActivity(),
         }
         fragmentsToRemove.forEach { actionBarLayout.removeFragmentFromStack(it) }
 
-        // Switch bottom tab to the correct tab for this chat
         if (clanId != 0L) {
             notificationCenter.postNotificationOnMainThread(NotificationCenter.navigateToClansTab)
         } else {
