@@ -209,6 +209,31 @@ class ClansController @Inject constructor(
             }
         }
     }
+
+    /** Delete (or leave) a clan. Cleans local state and auto-switches to next clan. */
+    suspend fun deleteClan(clanId: Long): Result<Unit> {
+        return try {
+            val session = sessionManager.sessionFlow.first()
+                ?: return Result.failure(Exception("No active session"))
+            withContext(ioDispatcher) {
+                api.deleteClanDesc(session.apiUrl, session.token, clanId)
+            }
+            // Remove from in-memory + DB
+            _clans.value = _clans.value.filter { it.clanId != clanId }
+            appScope.launch(ioDispatcher) { clanDao.delete(clanId) }
+            // If the deleted clan was active, switch to the next one
+            if (_selectedClanId.value == clanId) {
+                val next = _clans.value.firstOrNull()
+                if (next != null) selectClan(next.clanId)
+                else _selectedClanId.value = 0L
+            }
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.clansDidLoad)
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "deleteClan failed", e)
+            Result.failure(e)
+        }
+    }
 }
 
 data class ChannelSection(

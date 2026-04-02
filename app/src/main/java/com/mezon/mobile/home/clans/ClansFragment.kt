@@ -10,6 +10,7 @@ import android.widget.TextView
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.mezon.mobile.R
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
@@ -20,6 +21,11 @@ import com.mezon.mobile.home.ChatController
 import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.messages.DirectMessage
 import com.mezon.mobile.home.profile.AccountController
+import android.app.AlertDialog
+import android.widget.Toast
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class ClansFragment : BaseFragment() {
 
@@ -31,7 +37,6 @@ class ClansFragment : BaseFragment() {
 
     var onOpenChat: ((channelId: Long, channelName: String, clanId: Long, channelType: Int) -> Unit)? = null
     var onSwitchToMessages: (() -> Unit)? = null
-    var onAddClanClick: (() -> Unit)? = null
 
     private lateinit var serverRail: RecyclerListView
     private lateinit var clanHeaderText: TextView
@@ -109,11 +114,20 @@ class ClansFragment : BaseFragment() {
                     onOpenChat?.invoke(dm.channelId, dm.displayName.ifEmpty { dm.label }, 0L, dm.type)
                 }
                 is AddClanCell -> {
-                    showCreateClanSheet()
+                    openCreateClanFragment()
                 }
             }
         })
 
+        serverRail.setOnItemLongClickListener(RecyclerListView.OnItemLongClickListener { view, _ ->
+            if (view is ClanCell) {
+                val clan = view.currentClan ?: return@OnItemLongClickListener false
+                showDeleteClanDialog(clan)
+                true
+            } else {
+                false
+            }
+        })
 
         val channelPanel = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -239,11 +253,51 @@ class ClansFragment : BaseFragment() {
         onOpenChat?.invoke(channel.channelId, channel.channelLabel, channel.clanId, channel.type)
     }
 
-    private fun showCreateClanSheet() {
+    private fun openCreateClanFragment() {
         val fragment = CreateClanFragment()
-        fragment.onCreateCustom = { onAddClanClick?.invoke() }
-        fragment.onCreateFromTemplate = { _ -> onAddClanClick?.invoke() }
+        fragment.onCreateCustom = { openCustomizeClan(CreateClanFragment.TEMPLATE_CUSTOM) }
+        fragment.onCreateFromTemplate = { template -> openCustomizeClan(template) }
         presentFragment(fragment)
+    }
+
+    private fun openCustomizeClan(templateId: String?) {
+        val fragment = ClanCustomizeFragment.newInstance(templateId).apply {
+            onSubmitClan = { _, _, _ ->
+                val ctx = getContext()
+                if (ctx != null) {
+                    android.widget.Toast.makeText(ctx, R.string.common_pending, android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+        presentFragment(fragment, true)
+    }
+
+    private fun showDeleteClanDialog(clan: ClanEntity) {
+        val ctx = getContext() ?: return
+        val dialog = AlertDialog.Builder(ctx)
+            .setTitle("Xóa Clan")
+            .setMessage("Bạn có chắc muốn xóa Clan \"${clan.clanName}\"? Hành động này không thể hoàn tác.")
+            .setPositiveButton("Xóa") { _, _ -> performDeleteClan(clan) }
+            .setNegativeButton("Hủy", null)
+            .create()
+        showDialog(dialog)
+    }
+
+    private fun performDeleteClan(clan: ClanEntity) {
+        fragmentScope.launch {
+            val result = clansController.deleteClan(clan.clanId)
+            withContext(Dispatchers.Main) {
+                val ctx = getContext() ?: return@withContext
+                result.fold(
+                    onSuccess = {
+                        Toast.makeText(ctx, "Đã xóa clan \"${clan.clanName}\"", Toast.LENGTH_SHORT).show()
+                    },
+                    onFailure = { error ->
+                        Toast.makeText(ctx, "Xóa clan thất bại: ${error.message}", Toast.LENGTH_SHORT).show()
+                    }
+                )
+            }
+        }
     }
 
     inner class ServerRailAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {

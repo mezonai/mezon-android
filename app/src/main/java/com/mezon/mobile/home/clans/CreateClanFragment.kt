@@ -10,17 +10,14 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.core.content.ContextCompat
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 
-/**
- * "Tạo Clan của bạn" — full-screen fragment, presented via presentFragment().
- *
- * Callers set [onCreateCustom] / [onCreateFromTemplate] before presenting.
- */
+
 class CreateClanFragment : BaseFragment() {
 
     companion object {
@@ -42,7 +39,6 @@ class CreateClanFragment : BaseFragment() {
             setBackgroundColor(themeColors.background)
         }
 
-        // ── Top bar (X + title) ──────────────────────────────────────────
         val topBar = FrameLayout(context).apply {
             val statusBarH = AndroidUtilities.statusBarHeight
             setPadding(LayoutHelper.dp(16), statusBarH + LayoutHelper.dp(12), LayoutHelper.dp(16), LayoutHelper.dp(8))
@@ -71,13 +67,11 @@ class CreateClanFragment : BaseFragment() {
 
         root.addView(topBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
-        // ── Scrollable content ───────────────────────────────────────────
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(LayoutHelper.dp(16), LayoutHelper.dp(8), LayoutHelper.dp(16), LayoutHelper.dp(24))
         }
 
-        // Subtitle
         content.addView(
             TextView(context).apply {
                 text = context.getString(R.string.clan_create_subtitle)
@@ -94,7 +88,6 @@ class CreateClanFragment : BaseFragment() {
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, 0, 0f, 0f, 0f, 8f)
         )
 
-        // Section header
         content.addView(
             TextView(context).apply {
                 text = context.getString(R.string.clan_create_from_template)
@@ -107,7 +100,6 @@ class CreateClanFragment : BaseFragment() {
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT)
         )
 
-        // Template rows
         val templates = listOf(
             Triple("🎮", context.getString(R.string.clan_template_gaming), TEMPLATE_GAMING),
             Triple("👫", context.getString(R.string.clan_template_friends), TEMPLATE_FRIENDS),
@@ -132,6 +124,7 @@ class CreateClanFragment : BaseFragment() {
         }
         root.addView(scrollView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
 
+        fragmentView = root
         return root
     }
 
@@ -155,15 +148,13 @@ class CreateClanFragment : BaseFragment() {
             isFocusable = true
             val outValue = TypedValue()
             context.theme.resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)
-            foreground = context.getDrawable(outValue.resourceId)
+            foreground = ContextCompat.getDrawable(context, outValue.resourceId)
             setOnClickListener {
-                finishFragment()
                 if (templateId == TEMPLATE_CUSTOM) onCreateCustom?.invoke()
                 else onCreateFromTemplate?.invoke(templateId)
             }
         }
 
-        // Emoji
         row.addView(
             TextView(context).apply {
                 text = emoji
@@ -173,7 +164,6 @@ class CreateClanFragment : BaseFragment() {
             LayoutHelper.createLinear(40, 40)
         )
 
-        // Label
         row.addView(
             TextView(context).apply {
                 text = label

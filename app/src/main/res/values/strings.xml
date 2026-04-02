@@ -199,12 +199,15 @@
     <string name="clan_title">Clans</string>
     <string name="clan_customize_title">Customize Your Clan</string>
     <string name="clan_customize_subtitle">Give your new clan a personality with a name and an icon. You can always change it later.</string>
+    <string name="clan_upload_label">UPLOAD</string>
     <string name="clan_name_label">Clan Name</string>
     <string name="clan_create">Create Clan</string>
     <string name="clan_add">Add Clan</string>
     <string name="clan_leave">Leave Clan</string>
     <string name="clan_name_placeholder">Enter the clan name</string>
     <string name="clan_name_error">Please enter a valid clan name (max 64 characters, only words, numbers, _ or -).</string>
+    <string name="clan_terms_text">By creating a clan, you agree to %s.</string>
+    <string name="clan_terms_link">Mezon Community Guidelines</string>
     <string name="clan_create_title">Create Your Clan</string>
     <string name="clan_create_subtitle">Your clan is a place to hang out with your friends. Create your own clan and start chatting.</string>
     <string name="clan_create_from_template">START FROM A TEMPLATE</string>
@@ -390,4 +393,8 @@
     <string name="user_profile_add_friend">Add Friend</string>
     <string name="user_profile_member_since">Mezon Member Since</string>
     <string name="user_profile_about_me">About Me</string>
+
+    <!-- local data maintenance -->
+    <string name="setting_clear_local_data">Clear local data</string>
+    <string name="setting_clear_local_data_description">This removes cached chats and clan data from this device. Continue?</string>
 </resources>

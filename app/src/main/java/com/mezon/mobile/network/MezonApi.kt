@@ -434,6 +434,13 @@ class MezonApi @Inject constructor(
         return rpc(apiUrl, token, "DeleteNotifications", request.toByteArray())
     }
 
+    suspend fun deleteClanDesc(apiUrl: String, token: String, clanId: Long): ByteArray {
+        val request = com.mezon.mezon.api.DeleteClanDescRequest.newBuilder()
+            .setClanDescId(clanId)
+            .build()
+        return rpc(apiUrl, token, "DeleteClanDesc", request.toByteArray())
+    }
+
     suspend fun uploadAttachmentFile(
         apiUrl: String,
         token: String,

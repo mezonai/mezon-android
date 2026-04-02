@@ -1,7 +1,14 @@
 package com.mezon.mobile.ui.cells
 
+import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.DashPathEffect
+import android.graphics.Paint
+import android.graphics.RectF
+import android.graphics.Typeface
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
@@ -11,38 +18,62 @@ import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
 import android.widget.ImageView
-import androidx.activity.result.ActivityResultLauncher
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.fragment.app.Fragment
+import android.widget.LinearLayout
+import android.widget.TextView
+import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import java.util.concurrent.Executors
+import kotlin.math.min
 
 class ImagePickerHelper(
-    private val fragment: Fragment,
+    private val fragment: BaseFragment,
     private val onImagePicked: (Uri) -> Unit
 ) {
-    private var launcher: ActivityResultLauncher<PickVisualMediaRequest> =
-        fragment.registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-            if (uri != null) onImagePicked(uri)
-        }
-
     fun launch() {
-        launcher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+        val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "image/*"
+        }
+        fragment.startActivityForResult(Intent.createChooser(intent, "Select image"), REQUEST_CODE_PICK_IMAGE)
+    }
+
+    fun handleActivityResult(requestCode: Int, resultCode: Int, data: Intent?): Boolean {
+        if (requestCode != REQUEST_CODE_PICK_IMAGE || resultCode != Activity.RESULT_OK) {
+            return false
+        }
+        val uri = data?.data ?: return true
+        onImagePicked(uri)
+        return true
+    }
+
+    companion object {
+        private const val REQUEST_CODE_PICK_IMAGE = 9127
     }
 }
 
 class ImagePickerView(context: Context, private val theme: ThemeColors) : FrameLayout(context) {
 
     private val imageView: ImageView
+    private val placeholderContainer: LinearLayout
     private val placeholderIcon: ImageView
+    private val placeholderLabel: TextView
+    private val badgeView: ImageView
     private var isRounded = true
+    private var uploadStyle = false
+    private var hasImage = false
     var onClickPick: (() -> Unit)? = null
 
-    init {
-        val size = LayoutHelper.dp(80)
+    private val dashPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = LayoutHelper.dpf(1.5f)
+        pathEffect = DashPathEffect(floatArrayOf(LayoutHelper.dpf(4f), LayoutHelper.dpf(4f)), 0f)
+        color = theme.onSurfaceVariant
+        alpha = 140
+    }
+    private val dashRect = RectF()
 
+    init {
         imageView = ImageView(context).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
             visibility = View.GONE
@@ -50,13 +81,44 @@ class ImagePickerView(context: Context, private val theme: ThemeColors) : FrameL
         addView(imageView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
         placeholderIcon = ImageView(context).apply {
-            setImageResource(android.R.drawable.ic_menu_camera)
-            setColorFilter(theme.onSurfaceVariant)
+            setImageDrawable(MezonIcon.cameraIcon.getDrawable(context, theme.onSurfaceVariant))
         }
-        addView(placeholderIcon, LayoutHelper.createFrame(24, 24, Gravity.CENTER))
+
+        placeholderLabel = TextView(context).apply {
+            setTextColor(theme.onSurfaceVariant)
+            textSize = 11f
+            typeface = Typeface.DEFAULT_BOLD
+            letterSpacing = 0.08f
+            visibility = View.GONE
+            setPadding(0, LayoutHelper.dp(6), 0, 0)
+        }
+
+        placeholderContainer = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            addView(placeholderIcon, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT))
+            addView(placeholderLabel, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT))
+        }
+        addView(placeholderContainer, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER))
+
+        badgeView = ImageView(context).apply {
+            setImageDrawable(MezonIcon.circlePlusPrimaryIcon.getDrawable(context))
+            visibility = View.GONE
+        }
+        addView(badgeView, LayoutHelper.createFrame(24, 24, Gravity.END or Gravity.TOP, 0f, 2f, 2f, 0f))
 
         setOnClickListener { onClickPick?.invoke() }
+        setWillNotDraw(false)
         updateShape()
+    }
+
+    fun setUploadStyle(enabled: Boolean, label: String? = null) {
+        uploadStyle = enabled
+        placeholderLabel.text = label
+        placeholderLabel.visibility = if (enabled && !label.isNullOrEmpty() && !hasImage) View.VISIBLE else View.GONE
+        badgeView.visibility = if (enabled && !hasImage) View.VISIBLE else View.GONE
+        updateShape()
+        invalidate()
     }
 
     fun setRounded(rounded: Boolean) {
@@ -88,9 +150,12 @@ class ImagePickerView(context: Context, private val theme: ThemeColors) : FrameL
                 val bitmap = context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
                 if (bitmap != null) {
                     MAIN_HANDLER.post {
+                        hasImage = true
                         imageView.setImageDrawable(BitmapDrawable(context.resources, bitmap))
                         imageView.visibility = View.VISIBLE
-                        placeholderIcon.visibility = View.GONE
+                        placeholderContainer.visibility = View.GONE
+                        badgeView.visibility = View.GONE
+                        invalidate()
                     }
                 }
             } catch (_: Exception) {}
@@ -111,7 +176,7 @@ class ImagePickerView(context: Context, private val theme: ThemeColors) : FrameL
 
     private fun updateShape() {
         val bg = GradientDrawable().apply {
-            setColor(theme.surfaceVariant)
+            setColor(if (uploadStyle) theme.background else theme.surfaceVariant)
             cornerRadius = if (isRounded) LayoutHelper.dpf(999f) else LayoutHelper.dpf(8f)
         }
         background = bg
@@ -125,5 +190,18 @@ class ImagePickerView(context: Context, private val theme: ThemeColors) : FrameL
                 }
             }
         }
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        if (!uploadStyle || hasImage) return
+        val size = min(width, height).toFloat()
+        val halfStroke = dashPaint.strokeWidth / 2f
+        val left = (width - size) / 2f + halfStroke
+        val top = (height - size) / 2f + halfStroke
+        val right = left + size - dashPaint.strokeWidth
+        val bottom = top + size - dashPaint.strokeWidth
+        dashRect.set(left, top, right, bottom)
+        canvas.drawOval(dashRect, dashPaint)
     }
 }

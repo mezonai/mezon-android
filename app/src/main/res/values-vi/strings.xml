@@ -173,12 +173,15 @@
     <string name="clan_title">Clan</string>
     <string name="clan_customize_title">Tùy chỉnh Clan của bạn</string>
     <string name="clan_customize_subtitle">Hãy tạo sắc màu cho clan mới của bạn bằng cách chọn một tên và biểu tượng nhé! Bạn có thể thay đổi sau nếu thích!</string>
+    <string name="clan_upload_label">TẢI LÊN</string>
     <string name="clan_name_label">Tên clan</string>
     <string name="clan_create">Tạo clan</string>
     <string name="clan_add">Tạo clan</string>
     <string name="clan_leave">Rời khỏi Clan</string>
     <string name="clan_name_placeholder">Nhập vào tên clan</string>
     <string name="clan_name_error">Vui lòng nhập tên clan hợp lệ (tối đa 64 ký tự, chỉ từ, số, _ hoặc -).</string>
+    <string name="clan_terms_text">Bằng cách tạo clan, bạn đồng ý với %s.</string>
+    <string name="clan_terms_link">Quy tắc cộng đồng của Mezon</string>
     <string name="clan_create_title">Tạo Clan của bạn</string>
     <string name="clan_create_subtitle">Clan của bạn là nơi bạn giao lưu với bạn bè của mình. Hãy tạo Clan của riêng bạn và bắt đầu trò chuyện.</string>
     <string name="clan_create_from_template">BẮT ĐẦU TỪ MỘT MẪU</string>

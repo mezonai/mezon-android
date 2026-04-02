@@ -71,11 +71,11 @@ class MainTabsActivity : ViewPagerActivity() {
             }
         }
         TAB_PROFILE -> ProfileFragment().also { f ->
-            f.onLogout = {
-                messagesController.disconnect()
-                onLogout?.invoke()
-            }
-        }
+             f.onLogout = {
+                 messagesController.disconnect()
+                 onLogout?.invoke()
+             }
+         }
         else -> ClansFragment()
     }
 

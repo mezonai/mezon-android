@@ -18,6 +18,7 @@ class AddClanCell(
     private val paddingVPx = LayoutHelper.dp(6)
     private val cornerRadius = LayoutHelper.dp(16).toFloat()
     private val strokeWidth = LayoutHelper.dp(2).toFloat()
+    private val plusSizePx = LayoutHelper.dp(14).toFloat()
 
     private val shapeRectF = RectF()
     private val clipPath = Path()
@@ -66,13 +67,12 @@ class AddClanCell(
         canvas.drawRoundRect(shapeRectF, cornerRadius, cornerRadius, borderPaint)
 
         // Plus icon
-        val plusSize = LayoutHelper.dp(14).toFloat()
         plusPaint.color = themeColors.onSurface.let {
             (it and 0x00FFFFFF) or (0xB3000000.toInt())
         }
         // Horizontal bar
-        canvas.drawLine(cx - plusSize / 2, cy, cx + plusSize / 2, cy, plusPaint)
+        canvas.drawLine(cx - plusSizePx / 2, cy, cx + plusSizePx / 2, cy, plusPaint)
         // Vertical bar
-        canvas.drawLine(cx, cy - plusSize / 2, cx, cy + plusSize / 2, plusPaint)
+        canvas.drawLine(cx, cy - plusSizePx / 2, cx, cy + plusSizePx / 2, plusPaint)
     }
 }
