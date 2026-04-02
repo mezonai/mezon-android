@@ -35,6 +35,11 @@ object SharedConfig {
     @JvmField var mediaColumnsCount = 3
     @JvmField var chatBubbles = true
 
+    @Volatile var keyboardHeight = 0
+        private set
+    @Volatile var keyboardHeightLand = 0
+        private set
+
     private var prefs: SharedPreferences? = null
 
     private val LOW_SOC = intArrayOf(
@@ -69,12 +74,14 @@ object SharedConfig {
         }
 
         liteModeValue = prefs?.getInt("lite_mode", LITE_FLAGS_ALL) ?: LITE_FLAGS_ALL
+        keyboardHeight = prefs?.getInt("kbd_height", 0) ?: 0
+        keyboardHeightLand = prefs?.getInt("kbd_height_land", 0) ?: 0
 
-        animationsEnabledCached = prefs?.getBoolean("view_animations", true) ?: true
+        animationsEnabledCached = prefs?.getBoolean("view_animations", false) ?: false
     }
 
     fun animationsEnabled(): Boolean {
-        return animationsEnabledCached ?: true
+        return animationsEnabledCached ?: false
     }
 
     fun setAnimationsEnabled(enabled: Boolean) {
@@ -227,5 +234,23 @@ object SharedConfig {
         prefs?.edit()?.putInt("bubble_radius", bubbleRadius)?.apply()
         NotificationCenter.getGlobalInstance()
             .postNotificationName(NotificationCenter.themeChanged)
+    }
+
+    fun saveKeyboardHeight(height: Int, isLandscape: Boolean) {
+        if (isLandscape) {
+            keyboardHeightLand = height
+            prefs?.edit()?.putInt("kbd_height_land", height)?.apply()
+        } else {
+            keyboardHeight = height
+            prefs?.edit()?.putInt("kbd_height", height)?.apply()
+        }
+    }
+
+    fun getEmojiPanelHeight(): Int {
+        val isLandscape = android.content.res.Resources.getSystem().displayMetrics.let {
+            it.widthPixels > it.heightPixels
+        }
+        val saved = if (isLandscape) keyboardHeightLand else keyboardHeight
+        return if (saved > 0) saved else com.mezon.mobile.core.LayoutHelper.dp(200f)
     }
 }

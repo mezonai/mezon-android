@@ -401,8 +401,7 @@ class MainActivity : BasePermissionsActivity(),
         if (lastFragment is ChatFragment && lastFragment.getChannelId() == channelId && messageId == 0L) {
             return
         }
-        val fromDmNotification = fromNotification && clanId == 0L
-        val fragment = ChatFragment.newInstance(channelId, channelName, clanId, channelType, messageId, forceLatest = fromNotification, fromDmNotification = fromDmNotification)
+        val fragment = ChatFragment.newInstance(channelId, channelName, clanId, channelType, messageId)
         val params = INavigationLayout.NavigationParams(fragment).setNoAnimation(noAnimation)
         actionBarLayout.presentFragment(params)
     }
@@ -429,7 +428,6 @@ class MainActivity : BasePermissionsActivity(),
         val clanId = extras.getLong(NotificationHelper.EXTRA_CLAN_ID, 0L)
         val channelId = extras.getLong(NotificationHelper.EXTRA_CHANNEL_ID, 0L)
         val dmId = extras.getLong(NotificationHelper.EXTRA_DM_ID, 0L)
-        val messageId = extras.getLong(NotificationHelper.EXTRA_MESSAGE_ID, 0L)
         val channelName = extras.getString(NotificationHelper.EXTRA_CHANNEL_NAME, "") ?: ""
 
         if (clanId != 0L && channelId != 0L) {
@@ -441,12 +439,13 @@ class MainActivity : BasePermissionsActivity(),
             entryPoint.clansController().selectClan(clanId)
             entryPoint.chatController().openChannel(channelId, clanId, channelType)
             if (StartupCache.hasSession) {
-                openChat(channelId, channelName, clanId, channelType, messageId, noAnimation = isFromNotification, fromNotification = true)
+                openChat(channelId, channelName, clanId, channelType, noAnimation = isFromNotification, fromNotification = true)
             }
             intent.removeExtra(NotificationHelper.EXTRA_CHANNEL_ID)
         } else if (dmId != 0L) {
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.navigateToMessagesTab)
             if (StartupCache.hasSession) {
-                openChat(dmId, channelName, 0L, CHANNEL_TYPE_DM, messageId, noAnimation = isFromNotification, fromNotification = isFromNotification)
+                openChat(dmId, channelName, 0L, CHANNEL_TYPE_DM, noAnimation = isFromNotification, fromNotification = isFromNotification)
             }
             intent.removeExtra(NotificationHelper.EXTRA_DM_ID)
         }

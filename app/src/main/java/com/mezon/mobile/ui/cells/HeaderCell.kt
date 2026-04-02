@@ -17,17 +17,17 @@ class HeaderCell(context: Context, private val theme: ThemeColors) : FrameLayout
     init {
         textView = TextView(context).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-            setTextColor(theme.primary)
+            setTextColor(theme.onSurfaceVariant)
             typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
             maxLines = 1
             isSingleLine = true
             ellipsize = android.text.TextUtils.TruncateAt.END
-            gravity = Gravity.CENTER_VERTICAL or LayoutHelper.getAbsoluteGravityStart()
+            gravity = Gravity.TOP or LayoutHelper.getAbsoluteGravityStart()
         }
         addView(textView, LayoutHelper.createFrame(
             LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT,
-            Gravity.CENTER_VERTICAL or LayoutHelper.getAbsoluteGravityStart(),
-            leftMargin = 16f, rightMargin = 16f
+            Gravity.TOP or LayoutHelper.getAbsoluteGravityStart(),
+            leftMargin = 21f, rightMargin = 21f
         ))
     }
 
@@ -40,26 +40,24 @@ class HeaderCell(context: Context, private val theme: ThemeColors) : FrameLayout
         requestLayout()
     }
 
+    fun setSideMargin(dp: Int) {
+        val lp = textView.layoutParams as LayoutParams
+        lp.leftMargin = LayoutHelper.dp(dp)
+        lp.rightMargin = LayoutHelper.dp(dp)
+        textView.layoutParams = lp
+    }
+
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val w = MeasureSpec.getSize(widthMeasureSpec)
         val topPad = LayoutHelper.dp(topPaddingDp)
         val bottomPad = LayoutHelper.dp(8)
 
+        textView.setPadding(0, topPad, 0, bottomPad)
+        
         super.onMeasure(
             MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY),
-            heightMeasureSpec
-        )
-        val textH = textView.measuredHeight
-        setMeasuredDimension(w, topPad + textH + bottomPad)
-
-        val lp = textView.layoutParams as LayoutParams
-        lp.topMargin = topPad
-        textView.layoutParams = lp
-        textView.measure(
-            MeasureSpec.makeMeasureSpec(w - LayoutHelper.dp(32), MeasureSpec.EXACTLY),
             MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED)
         )
-        setMeasuredDimension(w, topPad + textView.measuredHeight + bottomPad)
     }
 
     override fun hasOverlappingRendering(): Boolean = false
@@ -70,6 +68,6 @@ class HeaderCell(context: Context, private val theme: ThemeColors) : FrameLayout
     }
 
     fun updateColors() {
-        textView.setTextColor(theme.primary)
+        textView.setTextColor(theme.onSurfaceVariant)
     }
 }

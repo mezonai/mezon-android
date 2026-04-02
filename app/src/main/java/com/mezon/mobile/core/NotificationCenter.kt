@@ -59,12 +59,15 @@ class NotificationCenter(val currentAccount: Int) {
         private var totalEvents = 1
         private fun nextId() = totalEvents++
 
+        val selectedClanChanged = nextId()
         val dialogsNeedReload = nextId()
         val dialogsLoadError = nextId()
         val messagesDidLoad = nextId()
         val didReceiveNewMessages = nextId()
         val messageDidUpdate = nextId()
         val messageDidDelete = nextId()
+        val pendingMessageSent = nextId()
+        val pendingMessageError = nextId()
         val messagesLoadError = nextId()
         val messagesLastSeenFromServer = nextId()  
         val onlineStatusChanged = nextId()
@@ -97,6 +100,15 @@ class NotificationCenter(val currentAccount: Int) {
         val navigateToClansTab = nextId()
         val appDidReconnect = nextId()
         val scrollToBottomChat = nextId()
+        val userClansDidLoad = nextId()
+        val clanMembersDidLoad = nextId()
+        val channelMembersDidLoad = nextId()
+        val searchMembersDidLoad = nextId()
+        val searchChannelsDidLoad = nextId()
+        val searchMessagesDidLoad = nextId()
+        val emojisNeedReload = nextId()
+        val stickersNeedReload = nextId()
+        val gifsNeedReload = nextId()
 
         const val UPDATE_MASK_NAME = 1
         const val UPDATE_MASK_AVATAR = 2

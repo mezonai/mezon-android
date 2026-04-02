@@ -85,7 +85,7 @@ class ChannelItemCell(
         var needInvalidate = false
 
         if ((mask and NotificationCenter.UPDATE_MASK_BADGE) != 0) {
-            if (channel?.unreadCount != ch.unreadCount) {
+            if (channel?.unreadCount != ch.unreadCount || channel?.hasUnread != ch.hasUnread) {
                 needInvalidate = true
                 truncatedName = ""
             }

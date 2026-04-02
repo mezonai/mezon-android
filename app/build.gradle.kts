@@ -11,7 +11,7 @@ plugins {
 
 android {
     namespace = "com.mezon.mobile"
-    compileSdk = 34
+    compileSdk = 35
 
     val signingPropsFile = rootProject.file("signing.properties")
     val signingProps = Properties().apply {
@@ -28,9 +28,9 @@ android {
     defaultConfig {
         applicationId = "com.mezon.mobile"
         minSdk = 24
-        targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        targetSdk = 35
+        versionCode = 953
+        versionName = "1.1.169"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -86,6 +86,7 @@ android {
         buildConfigField("String", "MEZON_TENOR_URL_CATEGORIES", "\"https://tenor.googleapis.com/v2/categories?key=\"")
         buildConfigField("String", "MEZON_TENOR_URL_SEARCH", "\"https://tenor.googleapis.com/v2/search?q=\"")
         buildConfigField("String", "MEZON_TENOR_URL_FEATURED", "\"https://tenor.googleapis.com/v2/featured?key=\"")
+        buildConfigField("String", "TENOR_API_KEY", "\"AIzaSyAyimkuYQYF_FXVALexPuGQctUWRURdCYQ\"")
 
         // Sentry
         buildConfigField("String", "MEZON_SENTRY_DSN", "\"https://7aad12a70a52b6598fa5847153a13781@o4509763792404480.ingest.us.sentry.io/4509767257751552\"")

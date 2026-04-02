@@ -257,11 +257,15 @@ class ProfileFragment : BaseFragment() {
             when (getItemViewType(position)) {
                 VIEW_TYPE_PROFILE_HEADER -> {
                     val name = userController.displayName.ifEmpty { userController.username }
-                    (holder.itemView as ProfileHeaderCell).setInfo(
+                    val cell = holder.itemView as ProfileHeaderCell
+                    cell.setInfo(
                         userController.userId,
                         name,
                         userIdStr
                     )
+                    
+                    val unlinked = userController.email.isEmpty() || userController.phoneNumber.isEmpty()
+                    cell.setWarn(unlinked)
                 }
                 VIEW_TYPE_HEADER -> {
                     val cell = holder.itemView as HeaderCell

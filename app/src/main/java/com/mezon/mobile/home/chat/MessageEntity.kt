@@ -5,8 +5,10 @@ import androidx.room.Index
 import com.mezon.mezon.api.ChannelMessage
 import com.mezon.mezon.api.MessageAttachmentList
 import com.mezon.mezon.api.MessageMentionList
+import com.mezon.mezon.api.MessageRefList
 import org.json.JSONArray
 import org.json.JSONObject
+import android.util.Log
 
 data class AttachmentInfo(
     val url: String,
@@ -47,10 +49,15 @@ data class MessageEntity(
     val hideEditted: Boolean = true,
     val isForwarded: Boolean = false,
     val isError: Boolean = false,
-    val extraAttachmentsJson: String = ""
+    val extraAttachmentsJson: String = "",
+    val sendState: Int = SEND_STATE_SENT
 ) {
     companion object {
         const val UNREAD_DIVIDER_ID = Long.MIN_VALUE
+
+        const val SEND_STATE_SENT = 0
+        const val SEND_STATE_SENDING = 1
+        const val SEND_STATE_ERROR = 2
 
         const val TYPE_TEXT = 0
         const val TYPE_PHOTO = 1
@@ -98,6 +105,9 @@ data class MessageEntity(
 
     val isRenderable: Boolean
         get() = isNormalMessage || isSystemMessage
+
+    val isSending: Boolean
+        get() = sendState == SEND_STATE_SENDING
 
     val isEdited: Boolean
         get() = updateTimeSeconds > 0 && updateTimeSeconds > timestampSeconds && !isError
@@ -161,7 +171,8 @@ fun ChannelMessage.toMessageEntity(currentUserId: Long): MessageEntity {
     val firstAttachment = allAttachments.firstOrNull()
     val type = resolveMessageType(firstAttachment)
     val forwarded = content.contains("\"fwd\"") && content.contains("true")
-    val mergedContent = mergeMentionsIntoContent(content, mentions)
+    val withMentions = mergeMentionsIntoContent(content, mentions)
+    val mergedContent = mergeReferencesIntoContent(withMentions, references)
 
     val extraJson = if (allAttachments.size > 1) {
         val arr = JSONArray()
@@ -245,8 +256,7 @@ private fun mergeMentionsIntoContent(content: String, mentionsBytes: com.google.
     return try {
         val list = MessageMentionList.parseFrom(mentionsBytes)
         if (list.mentionsCount == 0) return content
-        val obj = try { JSONObject(content) } catch (_: Exception) { return content }
-        if (obj.has("mentions")) return content
+        if (content.contains("\"mentions\"")) return content
         val arr = JSONArray()
         for (m in list.mentionsList) {
             val item = JSONObject()
@@ -257,8 +267,39 @@ private fun mergeMentionsIntoContent(content: String, mentionsBytes: com.google.
             if (m.username.isNotEmpty()) item.put("username", m.username)
             arr.put(item)
         }
-        obj.put("mentions", arr)
-        obj.toString()
+        val lastBrace = content.lastIndexOf('}')
+        if (lastBrace < 0) return content
+        content.substring(0, lastBrace) + ",\"mentions\":" + arr.toString() + "}"
+    } catch (_: Exception) {
+        content
+    }
+}
+
+private fun mergeReferencesIntoContent(content: String, referencesBytes: com.google.protobuf.ByteString): String {
+    if (referencesBytes.isEmpty) return content
+    return try {
+        val list = MessageRefList.parseFrom(referencesBytes)
+        if (list.refsCount == 0) return content
+        if (content.contains("\"references\"")) return content
+        val arr = JSONArray()
+        for (ref in list.refsList) {
+            val item = JSONObject()
+            item.put("message_id", ref.messageId.toString())
+            item.put("message_ref_id", ref.messageRefId.toString())
+            item.put("ref_type", ref.refType)
+            item.put("message_sender_id", ref.messageSenderId.toString())
+            item.put("message_sender_username", ref.messageSenderUsername)
+            item.put("mesages_sender_avatar", ref.messageSenderAvatar)
+            item.put("message_sender_clan_nick", ref.messageSenderClanNick)
+            item.put("message_sender_display_name", ref.messageSenderDisplayName)
+            Log.d("ReplyAvatar", "mergeRef: senderId=${ref.messageSenderId} name=${ref.messageSenderDisplayName} avatar=[${ref.messageSenderAvatar}]")
+            item.put("content", ref.content)
+            item.put("has_attachment", ref.hasAttachment)
+            arr.put(item)
+        }
+        val lastBrace = content.lastIndexOf('}')
+        if (lastBrace < 0) return content
+        content.substring(0, lastBrace) + ",\"references\":" + arr.toString() + "}"
     } catch (_: Exception) {
         content
     }

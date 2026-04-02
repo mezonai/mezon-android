@@ -9,11 +9,15 @@ import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.network.ApiCacheTracker
+import com.mezon.mezon.api.ClanBadgeCount
 import com.mezon.mobile.network.MezonApi
+import com.mezon.mobile.network.MezonSocket
 import com.mezon.mobile.network.SocketEventDispatcher
 import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.util.createImgproxyUrl
+import com.mezon.mobile.home.BadgeCoordinator
+import dagger.Lazy
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -39,6 +43,8 @@ class ClansController @Inject constructor(
     private val notificationCenter: NotificationCenter,
     private val cacheTracker: ApiCacheTracker,
     private val channelController: ChannelController,
+    private val mezonSocket: MezonSocket,
+    private val badgeCoordinator: Lazy<BadgeCoordinator>,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     @ApplicationScope private val appScope: CoroutineScope
 ) {
@@ -60,9 +66,8 @@ class ClansController @Inject constructor(
                 clansLoaded = true
                 preWarmLogos(cached)
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.clansDidLoad)
-                val firstClanId = cached.first().clanId
-                _selectedClanId.value = firstClanId
-                channelController.loadChannelsForClan(firstClanId)
+                selectClan(cached.first().clanId)
+                badgeCoordinator.get().processDeferredQueue()
             }
         }
         observeSocketEvents()
@@ -78,6 +83,16 @@ class ClansController @Inject constructor(
         if (_selectedClanId.value == clanId) return
         _selectedClanId.value = clanId
         channelController.loadChannelsForClan(clanId)
+        appScope.launch {
+            try {
+                if (clanId != 0L && mezonSocket.awaitConnected()) {
+                    mezonSocket.joinClanChat(clanId)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "joinClanChat($clanId) failed", e)
+            }
+        }
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.selectedClanChanged, clanId)
     }
 
     fun loadClans(force: Boolean = false) {
@@ -86,12 +101,16 @@ class ClansController @Inject constructor(
             try {
                 val session = sessionManager.sessionFlow.first() ?: return@launch
                 if (!force && cacheTracker.shouldCall(cacheKey) == ApiCacheTracker.ShouldCall.SKIP) {
+                    Log.d(TAG, "loadClans: SKIP listClanDescs cache (still may fetch badges)")
                     if (_clans.value.isNotEmpty()) {
                         notificationCenter.postNotificationOnMainThread(NotificationCenter.clansDidLoad)
                         val selectedId = _selectedClanId.value
                         if (selectedId != 0L) {
                             notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, selectedId)
+                            channelController.loadChannelsForClanNow(selectedId, force)
                         }
+                        fetchClanBadgeCountsIfNeeded(force)
+                        badgeCoordinator.get().processDeferredQueue()
                     }
                     return@launch
                 }
@@ -118,16 +137,99 @@ class ClansController @Inject constructor(
                 preWarmLogos(sorted)
                 withContext(ioDispatcher) { clanDao.upsertAll(sorted) }
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.clansDidLoad)
+                badgeCoordinator.get().processDeferredQueue()
 
-                if (_selectedClanId.value == 0L && sorted.isNotEmpty()) {
-                    selectClan(sorted.first().clanId)
-                } else if (_selectedClanId.value != 0L) {
-                    channelController.loadChannelsForClan(_selectedClanId.value)
+                val previousSelected = _selectedClanId.value
+                if (previousSelected == 0L && sorted.isNotEmpty()) {
+                    _selectedClanId.value = sorted.first().clanId
                 }
+                val sel = _selectedClanId.value
+                if (sel != 0L) {
+                    channelController.loadChannelsForClanNow(sel, force)
+                    if (previousSelected == 0L && sorted.isNotEmpty()) {
+                        notificationCenter.postNotificationOnMainThread(NotificationCenter.selectedClanChanged, sel)
+                        appScope.launch {
+                            try {
+                                if (mezonSocket.awaitConnected()) {
+                                    mezonSocket.joinClanChat(sel)
+                                }
+                            } catch (e: Exception) {
+                                Log.e(TAG, "joinClanChat($sel) failed", e)
+                            }
+                        }
+                    }
+                }
+
+                fetchClanBadgeCountsIfNeeded(force)
             } catch (e: Exception) {
                 Log.e(TAG, "loadClans failed", e)
             }
         }
+    }
+
+    private suspend fun fetchClanBadgeCountsIfNeeded(force: Boolean) {
+        val badgeKey = apiCacheKey("listClanBadgeCount")
+        if (!force && cacheTracker.shouldCall(badgeKey) == ApiCacheTracker.ShouldCall.SKIP) {
+            return
+        }
+        runCatching {
+            if (!mezonSocket.awaitConnected()) {
+                return@runCatching
+            }
+            val badgeResponse = mezonSocket.fetchListClanBadgeCountSocket()
+            cacheTracker.markCalled(badgeKey)
+            val list = badgeResponse.listBadgeList
+            applyClanBadgeList(list)
+        }.onFailure { Log.e(TAG, "listClanBadgeCount: request failed", it) }
+    }
+
+    private fun applyClanBadgeList(badges: List<ClanBadgeCount>) {
+        if (badges.isEmpty()) {
+            return
+        }
+        val byClanId = badges.associateBy { it.clanId }
+        val list = _clans.value
+        var changed = false
+        var matched = 0
+        val updated = list.map { clan ->
+            val b = byClanId[clan.clanId] ?: return@map clan
+            matched++
+            val newBadge = b.badge.coerceAtLeast(0)
+            val newHasUnread = b.hasUnread || newBadge > 0
+            if (clan.badgeCount == newBadge && clan.hasUnread == newHasUnread) clan
+            else {
+                changed = true
+                clan.copy(badgeCount = newBadge, hasUnread = newHasUnread)
+            }
+        }
+        if (!changed) return
+        _clans.value = updated
+        appScope.launch(ioDispatcher) {
+            for (c in updated) {
+                if (byClanId.containsKey(c.clanId)) clanDao.upsert(c)
+            }
+        }
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_BADGE
+        )
+    }
+
+    fun reconcileClanBadgeFromChannels(clanId: Long) {
+        if (clanId == 0L) return
+        val channels = channelController.getChannels(clanId)
+        val total = channels.sumOf { it.unreadCount.coerceAtLeast(0) }
+        val anyUnread = channels.any { it.hasUnread }
+        val list = _clans.value
+        val idx = list.indexOfFirst { it.clanId == clanId }
+        if (idx < 0) return
+        val clan = list[idx]
+        if (clan.badgeCount == total && clan.hasUnread == anyUnread) return
+        val updated = clan.copy(badgeCount = total, hasUnread = anyUnread)
+        _clans.value = list.toMutableList().also { it[idx] = updated }
+        appScope.launch(ioDispatcher) { clanDao.upsert(updated) }
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_BADGE
+        )
     }
 
     fun setHasUnread(clanId: Long) {
@@ -152,21 +254,6 @@ class ClansController @Inject constructor(
         val newCount = (clan.badgeCount + delta).coerceAtLeast(0)
         if (newCount == clan.badgeCount) return
         val updated = clan.copy(badgeCount = newCount)
-        _clans.value = list.toMutableList().also { it[idx] = updated }
-        appScope.launch(ioDispatcher) { clanDao.upsert(updated) }
-        notificationCenter.postNotificationOnMainThread(
-            NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_BADGE
-        )
-    }
-
-    fun syncClanBadgeFromChannels(clanId: Long, channels: List<ClanChannelEntity>) {
-        val list = _clans.value
-        val idx = list.indexOfFirst { it.clanId == clanId }
-        if (idx < 0) return
-        val clan = list[idx]
-        val totalUnread = channels.sumOf { it.unreadCount }
-        if (totalUnread == clan.badgeCount) return
-        val updated = clan.copy(badgeCount = totalUnread)
         _clans.value = list.toMutableList().also { it[idx] = updated }
         appScope.launch(ioDispatcher) { clanDao.upsert(updated) }
         notificationCenter.postNotificationOnMainThread(

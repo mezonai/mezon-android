@@ -59,7 +59,10 @@ class ActionButton(context: Context, private val theme: ThemeColors) : View(cont
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val w = MeasureSpec.getSize(widthMeasureSpec)
-        setMeasuredDimension(w, LayoutHelper.dp(50))
+        val hSpecSize = MeasureSpec.getSize(heightMeasureSpec)
+        val hSpecMode = MeasureSpec.getMode(heightMeasureSpec)
+        val h = if (hSpecMode == MeasureSpec.EXACTLY) hSpecSize else LayoutHelper.dp(50)
+        setMeasuredDimension(w, h)
     }
 
     override fun onDraw(canvas: Canvas) {

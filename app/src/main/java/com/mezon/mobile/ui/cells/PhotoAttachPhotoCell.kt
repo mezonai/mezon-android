@@ -1,6 +1,7 @@
 package com.mezon.mobile.ui.cells
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -12,20 +13,28 @@ import android.view.View
 import android.widget.FrameLayout
 import android.widget.ImageView
 import com.mezon.mobile.core.LayoutHelper
+import com.mezon.mobile.core.SharedConfig
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.chat.AttachmentPickerItem
+import com.mezon.mobile.home.chat.ThumbnailCache
 
-class PhotoAttachPhotoCell(context: Context, private val theme: ThemeColors) : FrameLayout(context) {
+class PhotoAttachPhotoCell(context: Context, private val theme: ThemeColors) : FrameLayout(context),
+    ThumbnailCache.Callback {
 
     private val imageView: ImageView
     private val checkOverlay: CheckOverlayView
     private var item: AttachmentPickerItem? = null
     private var checkNumber = -1
     private var isChecked = false
+    private var pendingTask: Runnable? = null
+    private var currentAlpha = 1f
 
     var onCheckClickListener: ((PhotoAttachPhotoCell) -> Unit)? = null
 
     init {
+        setWillNotDraw(false)
+        isClickable = true
+
         imageView = ImageView(context).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
         }
@@ -34,16 +43,71 @@ class PhotoAttachPhotoCell(context: Context, private val theme: ThemeColors) : F
         checkOverlay = CheckOverlayView(context, theme)
         addView(checkOverlay, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
-        val checkTouchArea = View(context)
-        checkTouchArea.setOnClickListener { onCheckClickListener?.invoke(this) }
-        addView(checkTouchArea, LayoutHelper.createFrame(42, 42, Gravity.TOP or Gravity.END))
+        setOnClickListener { onCheckClickListener?.invoke(this) }
     }
 
     fun setPhotoEntry(entry: AttachmentPickerItem) {
+        if (item?.id == entry.id) return
         item = entry
-        imageView.setImageURI(entry.uri)
+
+        ThumbnailCache.cancel(pendingTask)
+        pendingTask = null
+
         checkOverlay.setVideoDuration(if (entry.isVideo) entry.duration else -1)
-        checkOverlay.invalidate()
+
+        val cached = ThumbnailCache.get(entry.id)
+        if (cached != null) {
+            imageView.setImageBitmap(cached)
+            currentAlpha = 1f
+            return
+        }
+
+        imageView.setImageDrawable(null)
+        currentAlpha = 1f
+
+        pendingTask = ThumbnailCache.load(context.contentResolver, entry, this)
+    }
+
+    override fun onThumbnailLoaded(id: Long, bitmap: Bitmap) {
+        if (item?.id != id) return
+        pendingTask = null
+
+        imageView.setImageBitmap(bitmap)
+        if (SharedConfig.animationsEnabled()) {
+            currentAlpha = 0f
+            invalidate()
+        }
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        if (imageView.drawable == null || currentAlpha < 1f) {
+            canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), placeholderPaint)
+        }
+
+        if (currentAlpha < 1f) {
+            currentAlpha = (currentAlpha + ALPHA_STEP).coerceAtMost(1f)
+            imageView.alpha = currentAlpha
+            if (currentAlpha < 1f) invalidate()
+        } else {
+            imageView.alpha = 1f
+        }
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        ThumbnailCache.cancel(pendingTask)
+        pendingTask = null
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        val entry = item ?: return
+        if (imageView.drawable != null) return
+        val cached = ThumbnailCache.get(entry.id)
+        if (cached != null) {
+            imageView.setImageBitmap(cached)
+            currentAlpha = 1f
+        }
     }
 
     fun getItem(): AttachmentPickerItem? = item
@@ -52,8 +116,8 @@ class PhotoAttachPhotoCell(context: Context, private val theme: ThemeColors) : F
         isChecked = checked
         checkNumber = num
         checkOverlay.setChecked(num, checked)
-        val newScale = if (checked) 0.85f else 1f
-        if (animated) {
+        val newScale = if (checked) 0.787f else 1f
+        if (animated && SharedConfig.animationsEnabled()) {
             imageView.animate().scaleX(newScale).scaleY(newScale).setDuration(200).start()
         } else {
             imageView.scaleX = newScale
@@ -153,6 +217,13 @@ class PhotoAttachPhotoCell(context: Context, private val theme: ThemeColors) : F
             val m = seconds / 60
             val s = seconds % 60
             return "%d:%02d".format(m, s)
+        }
+    }
+
+    companion object {
+        private const val ALPHA_STEP = 0.12f
+        private val placeholderPaint = Paint().apply {
+            color = 0xFF1A1A1A.toInt()
         }
     }
 }

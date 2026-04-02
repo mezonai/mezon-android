@@ -159,6 +159,7 @@
     <string name="message_jump_to_latest">Đi đến tin nhắn mới nhất</string>
     <string name="message_toast_copy_text">Đã sao chép văn bản tin nhắn</string>
     <string name="message_forwarded">Đã chuyển tiếp</string>
+    <string name="message_reply_deleted">Tin nhắn gốc đã bị xóa</string>
     <string name="message_slide_to_cancel">Vuốt để hủy</string>
 
     <!-- notification -->
@@ -258,4 +259,57 @@
     <string name="channel_list_public">Kênh công khai</string>
     <string name="channel_list_events">Sự kiện</string>
     <string name="channel_list_members">Thành viên</string>
+    <!-- Edit Profile -->
+    <string name="edit_profile_title">Cài đặt hồ sơ</string>
+    <string name="edit_profile_tab_personal">Cá nhân</string>
+    <string name="edit_profile_tab_clan">Clan</string>
+    <string name="edit_profile_display_name_label">Tên hiển thị</string>
+    <string name="edit_profile_display_name_hint">Nhập tên hiển thị</string>
+    <string name="edit_profile_about_me">Về tôi</string>
+    <string name="edit_profile_about_me_hint">Hãy cho mọi người biết về bạn</string>
+    <string name="edit_profile_dm_icon_label">Biểu tượng tin nhắn riêng</string>
+    <string name="edit_profile_save">Lưu</string>
+    <string name="edit_profile_save_error">Lỗi khi lưu hồ sơ</string>
+    <string name="edit_profile_username_hint">Bạn không thể thay đổi username</string>
+    <string name="edit_profile_change_avatar">Đổi ảnh đại diện</string>
+    <string name="edit_profile_remove_avatar">Xóa ảnh đại diện</string>
+    <string name="edit_profile_avatar_too_large">Kích thước ảnh không được vượt quá 10MB</string>
+    <string name="edit_profile_dm_logo_too_large">Kích thước logo không được vượt quá 1MB</string>
+    <string name="edit_profile_select_clan">Chọn một clan</string>
+    <string name="edit_profile_clan_nickname">Biệt danh Clan</string>
+    <string name="edit_profile_clan_nickname_duplicate">Biệt danh đã tồn tại trong clan. Vui lòng nhập biệt danh khác.</string>
+    <string name="edit_profile_clan_save_success">Cập nhật hồ sơ clan thành công</string>
+    <string name="edit_profile_no_clans">Bạn chưa tham gia clan nào</string>
+
+    <!-- Account Settings -->
+    <string name="account_settings_title">Tài khoản</string>
+    <string name="account_info_title">Thông tin tài khoản</string>
+    <string name="account_users_title">Người dùng</string>
+    <string name="account_management_title">Quản lý tài khoản</string>
+    <string name="account_email">Email</string>
+    <string name="account_username">Tên người dùng</string>
+    <string name="account_display_name">Tên hiển thị</string>
+    <string name="account_link_email">Liên kết email</string>
+    <string name="account_link_phone">Liên kết số điện thoại</string>
+    <string name="account_phone">Số điện thoại</string>
+    <string name="account_blocked_users">Người dùng bị chặn</string>
+    <string name="account_set_password">Đặt mật khẩu</string>
+    <string name="account_delete_account">Xóa tài khoản</string>
+    <string name="account_set_password_link_email_required_title">Yêu cầu Email</string>
+    <string name="account_set_password_link_email_required_desc">Bạn cần liên kết email trước khi đặt mật khẩu.</string>
+    <string name="account_go_to_email">Liên kết Email</string>
+    <string name="account_delete_title">Xóa tài khoản</string>
+    <string name="account_delete_description">Hành động này là vĩnh viễn và không thể hoàn tác. Bạn có chắc chắn không?</string>
+    <string name="account_delete_confirm">Xóa</string>
+    <string name="account_delete_error">Xóa tài khoản thất bại. Vui lòng thử lại.</string>
+
+    <string name="common_ok">OK</string>
+    <string name="common_error">Lỗi</string>
+    <!-- sharing -->
+    <string name="sharing_title">Chia sẻ tới…</string>
+    <string name="sharing_search_placeholder">Tìm cuộc trò chuyện</string>
+    <string name="sharing_sending">Đang gửi…</string>
+    <string name="sharing_sent">Đã gửi!</string>
+    <string name="sharing_failed">Gửi thất bại</string>
+    <string name="sharing_no_conversations">Không tìm thấy cuộc trò chuyện</string>
 </resources>

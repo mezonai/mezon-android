@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import com.mezon.mobile.MainActivity
 import com.mezon.mobile.R
 import com.mezon.mobile.core.NotificationCenter
@@ -56,7 +57,7 @@ class NotificationHelper @Inject constructor(
         const val EXTRA_CHANNEL_NAME = "notification_channel_name"
         const val EXTRA_CHANNEL_TYPE = "notification_channel_type"
         const val EXTRA_DM_ID = "notification_dm_id"
-        const val EXTRA_MESSAGE_ID = "notification_message_id"
+
     }
 
     init {
@@ -113,8 +114,7 @@ class NotificationHelper @Inject constructor(
         channelId: Long? = null,
         clanId: Long? = null,
         channelName: String = "",
-        channelType: Int? = null,
-        messageId: Long = 0L
+        channelType: Int? = null
     ) {
         appScope.launch {
             val computedChannelName = channelName.ifEmpty {
@@ -132,7 +132,6 @@ class NotificationHelper @Inject constructor(
                 if (clanId != null) putExtra(EXTRA_CLAN_ID, clanId)
                 if (computedChannelName.isNotEmpty()) putExtra(EXTRA_CHANNEL_NAME, computedChannelName)
                 if (channelType != null) putExtra(EXTRA_CHANNEL_TYPE, channelType)
-                if (messageId != 0L) putExtra(EXTRA_MESSAGE_ID, messageId)
             }
             val pendingIntent = PendingIntent.getActivity(
                 context,
@@ -143,6 +142,7 @@ class NotificationHelper @Inject constructor(
             val notifChannel = if (clanId == 0L) CHANNEL_DM else CHANNEL_MESSAGES
             val notification = NotificationCompat.Builder(context, notifChannel)
                 .setSmallIcon(R.drawable.ic_notification)
+                .setColor(ContextCompat.getColor(context, R.color.notification_color))
                 .setContentTitle(title)
                 .setContentText(body)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -159,8 +159,7 @@ class NotificationHelper @Inject constructor(
     fun showDmNotification(
         title: String,
         body: String,
-        dmChannelId: Long,
-        messageId: Long = 0L
+        dmChannelId: Long
     ) {
         appScope.launch {
             val dmName = dialogsController.get().getDialog(dmChannelId)?.let { dm ->
@@ -171,7 +170,6 @@ class NotificationHelper @Inject constructor(
                 flags = Intent.FLAG_ACTIVITY_CLEAR_TOP
                 putExtra(EXTRA_DM_ID, dmChannelId)
                 if (dmName.isNotEmpty()) putExtra(EXTRA_CHANNEL_NAME, dmName)
-                if (messageId != 0L) putExtra(EXTRA_MESSAGE_ID, messageId)
             }
             val pendingIntent = PendingIntent.getActivity(
                 context,
@@ -181,6 +179,7 @@ class NotificationHelper @Inject constructor(
             )
             val notification = NotificationCompat.Builder(context, CHANNEL_DM)
                 .setSmallIcon(R.drawable.ic_notification)
+                .setColor(ContextCompat.getColor(context, R.color.notification_color))
                 .setContentTitle(title)
                 .setContentText(body)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -222,7 +221,10 @@ class NotificationHelper @Inject constructor(
             withContext(Dispatchers.Main) {
                 val activity = MainActivity.instance ?: return@withContext
                 val onTap: (() -> Unit)? = when {
-                    dmId != 0L -> { { activity.openChat(dmId, channelName, 0L, CHANNEL_TYPE_DM, fromNotification = true) } }
+                    dmId != 0L -> { {
+                        activity.notificationCenter.postNotificationOnMainThread(NotificationCenter.navigateToMessagesTab)
+                        activity.openChat(dmId, channelName, 0L, CHANNEL_TYPE_DM, fromNotification = true)
+                    } }
                     clanId != 0L && channelId != 0L -> {
                         {
                             notificationCenter.postNotificationOnMainThread(NotificationCenter.navigateToClansTab)

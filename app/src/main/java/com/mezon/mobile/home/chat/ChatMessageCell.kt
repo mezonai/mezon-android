@@ -9,6 +9,7 @@ import android.graphics.RectF
 import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.text.Spannable
+import android.text.Spanned
 import android.text.StaticLayout
 import android.text.TextUtils
 import android.text.style.ClickableSpan
@@ -22,9 +23,12 @@ import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.util.createImgproxyUrl
 import com.mezon.mobile.util.MentionColors
+import com.mezon.mobile.util.EmbedData
 import com.mezon.mobile.util.OgpData
 import com.mezon.mobile.util.formatRelativeTime
 import com.mezon.mobile.util.isRawMessage
+import com.mezon.mobile.util.parseEmbedData
+import com.mezon.mobile.util.parseContentPreview
 import com.mezon.mobile.util.parseContentText
 import com.mezon.mobile.util.parseContentToSpannable
 import com.mezon.mobile.util.parseOgpData
@@ -33,10 +37,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import android.util.Log
 import kotlin.math.min
 
 class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCell(context) {
     var hasMentionHighlight: Boolean = false
+    private var highlightProgress = 0f
 
     var messageEntity: MessageEntity? = null
         private set
@@ -69,6 +75,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var drawEdited = false
     private var drawEphemeral = false
     private var drawError = false
+    private var drawSending = false
     private var fileIconDrawable: Drawable? = null
 
     private val photoImage = ImageReceiver(this)
@@ -81,6 +88,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var mediaGridCount = 0
     private var mediaGridTotalH = 0
     private val playTriPath = Path()
+    private val connectorPath = Path()
     private val tmpRect = RectF()
     private var ogpData: OgpData? = null
     private var ogpTitleLayout: StaticLayout? = null
@@ -91,6 +99,24 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var ogpBlockTop = 0
     private var ogpBlockRight = 0
     private var ogpBlockBottom = 0
+
+    private var embedData: EmbedData? = null
+    private var embedTitleLayout: StaticLayout? = null
+    private var embedDescLayout: StaticLayout? = null
+    private var embedAuthorLayout: StaticLayout? = null
+    private var embedFieldLayouts = emptyList<Pair<StaticLayout?, StaticLayout?>>()
+    private var embedFooterLayout: StaticLayout? = null
+    private val embedImage = ImageReceiver(this)
+    private val embedThumbImage = ImageReceiver(this)
+    private var embedImageW = 0
+    private var embedImageH = 0
+    private var embedBlockLeft = 0f
+    private var embedBlockTop = 0f
+    private var embedBlockRight = 0f
+    private var embedBlockBottom = 0f
+    private var pressedOnEmbed = false
+    private var cachedEmbedTitleW = 0f
+    private var cachedEmbedDescW = 0f
 
     private var cachedContentW = 0f
     private var cachedSenderW = 0f
@@ -114,6 +140,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var attachedToWindow = false
     private var pendingMessage: MessageEntity? = null
     private var avatarCancellable: MezonImageLoader.Cancellable? = null
+    private var loggedRichContentForMessageId = Long.MIN_VALUE
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
@@ -121,6 +148,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         photoImage.onAttachedToWindow()
         extraPhotoImages.forEach { it.onAttachedToWindow() }
         ogpImage.onAttachedToWindow()
+        embedImage.onAttachedToWindow()
+        embedThumbImage.onAttachedToWindow()
         pendingMessage?.let { msg ->
             pendingMessage = null
             update(0, msg)
@@ -133,6 +162,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         photoImage.onDetachedFromWindow()
         extraPhotoImages.forEach { it.onDetachedFromWindow() }
         ogpImage.onDetachedFromWindow()
+        embedImage.onDetachedFromWindow()
+        embedThumbImage.onDetachedFromWindow()
         avatarCancellable?.cancel()
         avatarCancellable = null
         cancelEmojiLoads()
@@ -147,6 +178,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     fun clearState() {
         messageEntity = null
         pendingMessage = null
+        highlightProgress = 0f
         contentLayout = null
         senderLayout = null
         timeLayout = null
@@ -162,12 +194,32 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         ogpDescLayout = null
         ogpData = null
         hasReply = false
+        replyRefMessageId = 0L
+        replySenderId = 0L
+        replySenderAvatarUrl = null
+        replyHasAttachment = false
+        replyIsDeleted = false
+        replyAvatarCancellable?.cancel()
+        replyAvatarCancellable = null
+        replyAvatarDrawable.setPhoto(null)
+        replyAvatarDrawable.setDrawableByInfo(true)
+        embedData = null
+        embedTitleLayout = null
+        embedDescLayout = null
+        embedAuthorLayout = null
+        embedFieldLayouts = emptyList()
+        embedFooterLayout = null
+        embedImageW = 0
+        embedImageH = 0
+        embedImage.recycle()
+        embedThumbImage.recycle()
         drawPhotoImage = false
         drawFileAttachment = false
         drawForwardHeader = false
         drawEdited = false
         drawEphemeral = false
         drawError = false
+        drawSending = false
         parsedContent = ""
         avatarCancellable?.cancel()
         avatarCancellable = null
@@ -216,6 +268,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             drawEdited = msg.isEdited && !msg.hideEditted
             drawEphemeral = msg.isEphemeral
             drawError = msg.isError
+            drawSending = msg.isSending
             hasReply = parseReply(msg)
             updateColors(msg)
             if (drawPhotoImage) computePhotoSize(msg)
@@ -225,6 +278,13 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 loadAvatar(msg.senderAvatar)
             }
             if (drawPhotoImage) loadPhotoImage(msg)
+            if (drawPhotoImage) {
+                Log.d(
+                    TAG,
+                    "update mask=0 id=${msg.id} sendState=${msg.sendState} drawSending=$drawSending " +
+                        "drawPhotoImage=$drawPhotoImage mediaGridCount=$mediaGridCount"
+                )
+            }
             requestLayout()
             invalidate()
             return true
@@ -239,7 +299,18 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
 
         if ((mask and NotificationCenter.UPDATE_MASK_SEND_STATE) != 0) {
-            needInvalidate = true
+            val prevError = drawError
+            drawSending = msg.isSending
+            drawError = msg.isError
+            Log.d(
+                TAG,
+                "update SEND_STATE id=${msg.id} sendState=${msg.sendState} drawSending=$drawSending drawPhotoImage=$drawPhotoImage"
+            )
+            if (drawError && !prevError) {
+                rebuildLayout = true
+            } else {
+                needInvalidate = true
+            }
         }
 
         if ((mask and NotificationCenter.UPDATE_MASK_NAME) != 0) {
@@ -271,6 +342,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             drawEdited = m.isEdited && !m.hideEditted
             drawEphemeral = m.isEphemeral
             drawError = m.isError
+            drawSending = m.isSending
             updateColors(m)
             buildLayouts(m)
             requestLayout()
@@ -341,7 +413,14 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     att.url.contains("tenor.com", true)
                 allReceivers[i].setRoundRadius(MEDIA_RADIUS.toInt())
                 allReceivers[i].setRequestedSize(pw, ph)
-                if (isAnimated) {
+                val isLocalUri = att.url.startsWith("content://") || att.url.startsWith("file://")
+                val isVideo = att.filetype.startsWith("video/")
+                if (isLocalUri && isVideo) {
+                    allReceivers[i].recycle()
+                    if (i == 0) loadLocalVideoThumbnail(att.url)
+                } else if (isLocalUri) {
+                    allReceivers[i].setLocalUri(android.net.Uri.parse(att.url), context)
+                } else if (isAnimated) {
                     allReceivers[i].setImage(att.url, att.thumb.ifEmpty { null }, context)
                 } else if (att.filetype.startsWith("video/")) {
                     val thumb = att.thumb.ifEmpty { null }
@@ -379,6 +458,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private var proxySizeW = 0
     private var proxySizeH = 0
+    private var spinnerAngle = 0f
+    private val spinnerArcRect = RectF()
 
     private fun calculateProxySize(origW: Int, origH: Int) {
         val screenW = resources.displayMetrics.widthPixels
@@ -405,6 +486,25 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             try {
                 val retriever = android.media.MediaMetadataRetriever()
                 retriever.setDataSource(videoUrl, HashMap<String, String>())
+                val frame = retriever.getFrameAtTime(100_000L, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                retriever.release()
+                if (frame != null) {
+                    withContext(Dispatchers.Main) {
+                        photoImage.setBitmapDirectly(frame)
+                        invalidate()
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
+    private fun loadLocalVideoThumbnail(localUrl: String) {
+        videoThumbJob?.cancel()
+        videoThumbJob = videoThumbScope.launch {
+            try {
+                val uri = android.net.Uri.parse(localUrl)
+                val retriever = android.media.MediaMetadataRetriever()
+                retriever.setDataSource(context, uri)
                 val frame = retriever.getFrameAtTime(100_000L, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
                 retriever.release()
                 if (frame != null) {
@@ -457,7 +557,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 .build()
         }
 
-        val hasText = parsedContent.isNotBlank() && parsedContent != "[file]"
+        val hasText = parsedContent.isNotBlank() && parsedContent != "[file]" && parsedContent != "[embed]"
         contentLayout = if (hasText) {
             val content = msg.content
             val linkColor = theme.blurple
@@ -467,19 +567,20 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 theme.textRoleLink,
                 theme.darkMossGreen
             )
-            val charSeq = if (isRawMessage(content)) {
+            val charSeq: CharSequence = if (isRawMessage(content)) {
                 parsedContent
             } else {
                 parseContentToSpannable(content, linkColor, this, mentionColors, theme)
             }
             val layout = StaticLayout.Builder.obtain(charSeq, 0, charSeq.length, currentContentPaint, textWidth.coerceAtLeast(1))
-                .setLineSpacing(LayoutHelper.dpf(2f), 1f) 
+                .setLineSpacing(LayoutHelper.dpf(2f), 1f)
                 .build()
-            if (charSeq is android.text.Spanned) {
-                val codeFenceSpans = charSeq.getSpans(0, charSeq.length, CodeFenceSpan::class.java)
+            val spannedText = charSeq as? Spanned
+            if (spannedText != null) {
+                val codeFenceSpans = spannedText.getSpans(0, spannedText.length, CodeFenceSpan::class.java)
                 for (span in codeFenceSpans) {
-                    val spanStart = charSeq.getSpanStart(span)
-                    val spanEnd = charSeq.getSpanEnd(span)
+                    val spanStart = spannedText.getSpanStart(span)
+                    val spanEnd = spannedText.getSpanEnd(span)
                     span.spanFirstLine = layout.getLineForOffset(spanStart)
                     span.spanLastLine = layout.getLineForOffset((spanEnd - 1).coerceAtLeast(spanStart))
                 }
@@ -528,6 +629,11 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             ogpImage.setImage(null, null, context)
         }
 
+        embedData = if (msg.content.contains("\"embed\"")) {
+            parseEmbedData(msg.content)
+        } else null
+        buildEmbedLayouts(textWidth)
+
         durationLayout = if (msg.messageType == MessageEntity.TYPE_VIDEO && msg.attachmentDuration > 0) {
             val dur = formatDuration(msg.attachmentDuration)
             StaticLayout.Builder.obtain(dur, 0, dur.length, DURATION_PAINT, LayoutHelper.dp(100))
@@ -551,15 +657,16 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         cachedFileSizeW = fileSizeLayout?.let { maxLineWidth(it) } ?: 0f
         cachedEphW = ephemeralLayout?.let { maxLineWidth(it) + EPHEMERAL_ICON_SIZE + GAP_V_INNER } ?: 0f
 
-        val replyW = if (hasReply) maxOf(cachedReplyNameW, cachedReplyTextW) + REPLY_BAR_WIDTH + REPLY_BAR_GAP else 0f
+        val replyW = if (hasReply) cachedReplyNameW + cachedReplyTextW + REPLY_AVATAR_SIZE + REPLY_H_GAP * 2 else 0f
         val ogpW = if (ogpData != null) maxOf(cachedOgpTitleW, cachedOgpDescW, ogpImageW.toFloat()) else 0f
         val fileW = if (drawFileAttachment) maxOf(FILE_ICON_SIZE + FILE_ICON_GAP + cachedFileNameW, FILE_ICON_SIZE + FILE_ICON_GAP + cachedFileSizeW) else 0f
+        val embedW = if (embedData != null) (bubbleMaxW).toFloat() else 0f
         cachedInnerWidth = if (drawPhotoImage) {
             photoWidth
         } else if (hasCodeFence) {
             bubbleMaxW
         } else {
-            val allW = maxOf(cachedSenderW, cachedContentW, cachedTimeW, replyW, ogpW, cachedForwardW, fileW, cachedEphW)
+            val allW = maxOf(cachedSenderW, cachedContentW, cachedTimeW, replyW, ogpW, cachedForwardW, fileW, cachedEphW, embedW)
             allW.toInt().coerceAtMost(bubbleMaxW)
         }
 
@@ -569,16 +676,14 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private fun computeHeight(msg: MessageEntity): Int {
         val topPad = if (isCombined) COMBINE_PAD_V else PAD_V
-        var h = topPad + PAD_BOTTOM  // top + bottom padding
+        var h = topPad + PAD_BOTTOM
+
+        if (hasReply) {
+            h += REPLY_ROW_HEIGHT + REPLY_V_GAP
+        }
 
         forwardLayout?.let { h += it.height + GAP_V_INNER }
         senderLayout?.let { h += it.height + GAP_V_INNER }
-
-        if (hasReply) {
-            replyNameLayout?.let { h += it.height }
-            replyTextLayout?.let { h += it.height }
-            h += REPLY_BAR_PAD * 2 + GAP_V_INNER
-        }
 
         if (drawPhotoImage) {
             val imgH = if (mediaGridCount > 1) mediaGridTotalH else photoHeight
@@ -596,6 +701,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             ogpTitleLayout?.let { h += it.height + GAP_V_INNER }
             ogpDescLayout?.let { h += it.height + GAP_V_INNER }
             h += ogpImageH + GAP_V_INNER
+        }
+
+        if (embedData != null) {
+            h += computeEmbedHeight()
         }
 
         if (drawEphemeral) {
@@ -675,18 +784,182 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             .build()
     }
 
+    private fun applyEmbedPaintColors() {
+        EMBED_TITLE_PAINT.color = theme.onSurface
+        EMBED_TITLE_LINK_PAINT.color = theme.textLink
+        EMBED_DESC_PAINT.color = theme.onSurfaceVariant
+        EMBED_FIELD_NAME_PAINT.color = theme.onSurface
+        EMBED_FIELD_VALUE_PAINT.color = theme.onSurfaceVariant
+        EMBED_FOOTER_PAINT.color = theme.onSurfaceVariant
+        EMBED_AUTHOR_PAINT.color = theme.onSurface
+    }
+
+    private fun buildEmbedLayouts(textWidth: Int) {
+        val data = embedData
+        if (data == null) {
+            embedTitleLayout = null
+            embedDescLayout = null
+            embedAuthorLayout = null
+            embedFieldLayouts = emptyList()
+            embedFooterLayout = null
+            embedImageW = 0
+            embedImageH = 0
+            embedImage.setImage(null, null, context)
+            embedThumbImage.setImage(null, null, context)
+            return
+        }
+
+        applyEmbedPaintColors()
+
+        val contentW = (textWidth - EMBED_COLOR_BAR_W - EMBED_PAD * 2).coerceAtLeast(1)
+        val hasThumb = data.thumbnailUrl.isNotEmpty()
+        val innerTextW = if (hasThumb) (contentW - EMBED_THUMB_SIZE - EMBED_GAP).coerceAtLeast(1) else contentW
+
+        embedAuthorLayout = if (data.authorName.isNotEmpty()) {
+            StaticLayout.Builder.obtain(data.authorName, 0, data.authorName.length, EMBED_AUTHOR_PAINT, innerTextW)
+                .setMaxLines(1)
+                .setEllipsize(TextUtils.TruncateAt.END)
+                .build()
+        } else null
+
+        val titlePaint = if (data.url.isNotEmpty()) EMBED_TITLE_LINK_PAINT else EMBED_TITLE_PAINT
+        embedTitleLayout = if (data.title.isNotEmpty()) {
+            val cleanTitle = data.title.replace(Regex("[\\n\\r\\t]+"), " ").replace(Regex("\\s+"), " ").trim()
+            StaticLayout.Builder.obtain(cleanTitle, 0, cleanTitle.length, titlePaint, innerTextW)
+                .setMaxLines(3)
+                .setEllipsize(TextUtils.TruncateAt.END)
+                .build()
+        } else null
+
+        embedDescLayout = if (data.description.isNotEmpty()) {
+            val cleanDesc = data.description.split("\n")
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .joinToString("\n")
+            StaticLayout.Builder.obtain(cleanDesc, 0, cleanDesc.length, EMBED_DESC_PAINT, innerTextW)
+                .setMaxLines(6)
+                .setEllipsize(TextUtils.TruncateAt.END)
+                .setLineSpacing(LayoutHelper.dpf(2f), 1f)
+                .build()
+        } else null
+
+        embedFieldLayouts = data.fields.map { field ->
+            val nameLay = if (field.name.isNotEmpty()) {
+                StaticLayout.Builder.obtain(field.name, 0, field.name.length, EMBED_FIELD_NAME_PAINT, contentW)
+                    .setMaxLines(1)
+                    .setEllipsize(TextUtils.TruncateAt.END)
+                    .build()
+            } else null
+            val valLay = if (field.value.isNotEmpty()) {
+                StaticLayout.Builder.obtain(field.value, 0, field.value.length, EMBED_FIELD_VALUE_PAINT, contentW)
+                    .setMaxLines(3)
+                    .setEllipsize(TextUtils.TruncateAt.END)
+                    .build()
+            } else null
+            nameLay to valLay
+        }
+
+        val footerParts = mutableListOf<String>()
+        if (data.footerText.isNotEmpty()) footerParts.add(data.footerText)
+        if (data.timestamp.isNotEmpty()) {
+            try {
+                val date = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
+                    .parse(data.timestamp.replace("Z", "+0000").take(19))
+                if (date != null) {
+                    val fmt = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.US)
+                    footerParts.add(fmt.format(date))
+                }
+            } catch (_: Exception) {}
+        }
+        val footerStr = footerParts.joinToString(" • ")
+        embedFooterLayout = if (footerStr.isNotEmpty()) {
+            StaticLayout.Builder.obtain(footerStr, 0, footerStr.length, EMBED_FOOTER_PAINT, contentW)
+                .setMaxLines(1)
+                .setEllipsize(TextUtils.TruncateAt.END)
+                .build()
+        } else null
+
+        if (data.imageUrl.isNotEmpty()) {
+            val aspect = if (data.imageWidth > 0 && data.imageHeight > 0) {
+                data.imageWidth.toFloat() / data.imageHeight
+            } else 16f / 9f
+            embedImageW = contentW
+            embedImageH = (embedImageW / aspect).toInt().coerceIn(LayoutHelper.dp(60), LayoutHelper.dp(300))
+            embedImage.setRoundRadius(EMBED_IMG_RADIUS.toInt())
+            val proxyUrl = createImgproxyUrl(data.imageUrl, embedImageW * 2, embedImageH * 2, "fit")
+            embedImage.setImage(proxyUrl, null, context)
+        } else {
+            embedImageW = 0
+            embedImageH = 0
+            embedImage.setImage(null, null, context)
+        }
+
+        if (hasThumb) {
+            embedThumbImage.setRoundRadius(EMBED_IMG_RADIUS.toInt())
+            val thumbProxy = createImgproxyUrl(data.thumbnailUrl, EMBED_THUMB_SIZE * 2, EMBED_THUMB_SIZE * 2, "fit")
+            embedThumbImage.setImage(thumbProxy, null, context)
+        } else {
+            embedThumbImage.setImage(null, null, context)
+        }
+
+        cachedEmbedTitleW = embedTitleLayout?.let { maxLineWidth(it) } ?: 0f
+        cachedEmbedDescW = embedDescLayout?.let { maxLineWidth(it) } ?: 0f
+    }
+
+    private fun computeEmbedHeight(): Int {
+        if (embedData == null) return 0
+        var h = EMBED_PAD * 2 + EMBED_TOP_MARGIN
+        embedAuthorLayout?.let { h += it.height + EMBED_GAP }
+        embedTitleLayout?.let { h += it.height + EMBED_GAP }
+        embedDescLayout?.let { h += it.height + EMBED_GAP }
+        for ((nameLay, valLay) in embedFieldLayouts) {
+            nameLay?.let { h += it.height + LayoutHelper.dp(2) }
+            valLay?.let { h += it.height + EMBED_GAP }
+        }
+        if (embedImageH > 0) h += embedImageH + EMBED_GAP
+        embedFooterLayout?.let { h += it.height + EMBED_GAP }
+        val thumbH = if (embedData?.thumbnailUrl?.isNotEmpty() == true) EMBED_THUMB_SIZE + EMBED_PAD else 0
+        return maxOf(h, thumbH + EMBED_PAD * 2 + EMBED_TOP_MARGIN)
+    }
+
     private fun parseReply(msg: MessageEntity): Boolean {
         val content = msg.content
         if (!content.contains("\"references\"")) return false
         return try {
+            val refIdMatch = REFERENCE_REF_ID_REGEX.find(content)
+            val refIdStr = refIdMatch?.groupValues?.getOrNull(1) ?: ""
+            replyRefMessageId = refIdStr.toLongOrNull() ?: 0L
+            replyIsDeleted = refIdStr == "0" || (refIdStr.isNotEmpty() && replyRefMessageId == 0L)
+
+            if (replyIsDeleted) {
+                replySenderName = ""
+                replyContent = ""
+                replySenderId = 0L
+                replyHasAttachment = false
+                return true
+            }
+
             val refMatch = REFERENCE_SENDER_REGEX.find(content)
             val refContentMatch = REFERENCE_CONTENT_REGEX.find(content)
             replySenderName = refMatch?.groupValues?.getOrNull(1)
                 ?.replace("\\\"", "\"") ?: ""
-            replyContent = refContentMatch?.groupValues?.getOrNull(1)
+            val rawRefContent = refContentMatch?.groupValues?.getOrNull(1)
                 ?.replace("\\n", " ")
                 ?.replace("\\\"", "\"")
-                ?.take(80) ?: ""
+                ?: ""
+            replyContent = parseContentPreview(rawRefContent).take(80)
+
+            val senderIdMatch = REFERENCE_SENDER_ID_REGEX.find(content)
+            replySenderId = senderIdMatch?.groupValues?.getOrNull(1)?.toLongOrNull() ?: 0L
+            replyHasAttachment = content.contains("\"has_attachment\":true")
+
+            val avatarMatch = REFERENCE_AVATAR_REGEX.find(content)
+            replySenderAvatarUrl = avatarMatch?.groupValues?.getOrNull(1)?.replace("\\/", "/")
+
+            Log.d("ReplyAvatar", "parseReply: name=$replySenderName senderId=$replySenderId avatarUrl=$replySenderAvatarUrl content=${replyContent.take(30)}")
+
+            replyAvatarDrawable.setInfo(replySenderId, replySenderName)
+            loadReplyAvatar(replySenderAvatarUrl ?: "")
             replySenderName.isNotEmpty() || replyContent.isNotEmpty()
         } catch (_: Exception) {
             false
@@ -695,6 +968,17 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private var replySenderName = ""
     private var replyContent = ""
+    private var replyRefMessageId = 0L
+    private var replySenderId = 0L
+    private var replySenderAvatarUrl: String? = null
+    private var replyHasAttachment = false
+    private var replyIsDeleted = false
+    private var replyBlockLeft = 0f
+    private var replyBlockTop = 0f
+    private var replyBlockRight = 0f
+    private var replyBlockBottom = 0f
+    private val replyAvatarDrawable = AvatarDrawable()
+    private var replyAvatarCancellable: MezonImageLoader.Cancellable? = null
 
     private fun buildReplyLayouts(textWidth: Int) {
         if (!hasReply) {
@@ -702,17 +986,33 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             replyTextLayout = null
             return
         }
-        val replyW = (textWidth - REPLY_BAR_WIDTH - REPLY_BAR_GAP).toInt().coerceAtLeast(1)
+        val availW = (textWidth - REPLY_AVATAR_SIZE - REPLY_H_GAP).coerceAtLeast(1)
+
+        if (replyIsDeleted) {
+            replyNameLayout = null
+            val deletedText = context.getString(com.mezon.mobile.R.string.message_reply_deleted)
+            replyTextLayout = StaticLayout.Builder.obtain(deletedText, 0, deletedText.length, DELETED_REPLY_TEXT_PAINT, availW)
+                .setMaxLines(1)
+                .setEllipsize(TextUtils.TruncateAt.END)
+                .build()
+            return
+        }
+
+        val nameMaxW = (availW * 0.35f).toInt().coerceAtLeast(1)
         if (replySenderName.isNotEmpty()) {
-            replyNameLayout = StaticLayout.Builder.obtain(replySenderName, 0, replySenderName.length, senderPaint, replyW)
+            replyNameLayout = StaticLayout.Builder.obtain(replySenderName, 0, replySenderName.length, REPLY_NAME_PAINT, nameMaxW)
                 .setMaxLines(1)
                 .setEllipsize(TextUtils.TruncateAt.END)
                 .build()
         } else {
             replyNameLayout = null
         }
-        if (replyContent.isNotEmpty()) {
-            replyTextLayout = StaticLayout.Builder.obtain(replyContent, 0, replyContent.length, theme.chatTimePaint, replyW)
+
+        val nameActualW = replyNameLayout?.let { maxLineWidth(it) }?.toInt() ?: 0
+        val contentMaxW = (availW - nameActualW - REPLY_H_GAP).coerceAtLeast(1)
+        val displayText = if (replyHasAttachment && replyContent.isBlank()) "tap to see attachment" else replyContent
+        if (displayText.isNotEmpty()) {
+            replyTextLayout = StaticLayout.Builder.obtain(displayText, 0, displayText.length, REPLY_CONTENT_PAINT, contentMaxW)
                 .setMaxLines(1)
                 .setEllipsize(TextUtils.TruncateAt.END)
                 .build()
@@ -762,6 +1062,37 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
     }
 
+    private fun loadReplyAvatar(url: String) {
+        replyAvatarCancellable?.cancel()
+        replyAvatarCancellable = null
+        if (url.isEmpty()) {
+            Log.d("ReplyAvatar", "loadReplyAvatar: url is empty, showing initials")
+            replyAvatarDrawable.setPhoto(null)
+            replyAvatarDrawable.setDrawableByInfo(true)
+            return
+        }
+        val proxyUrl = createImgproxyUrl(url, REPLY_AVATAR_SIZE * 2, REPLY_AVATAR_SIZE * 2, "fill")
+        Log.d("ReplyAvatar", "loadReplyAvatar: url=$url proxyUrl=$proxyUrl")
+        val loader = MezonImageLoader.getInstance(context)
+        val cached = loader.getBitmapFromMemory(proxyUrl, REPLY_AVATAR_SIZE, REPLY_AVATAR_SIZE)
+        if (cached != null) {
+            Log.d("ReplyAvatar", "loadReplyAvatar: found in memory cache")
+            replyAvatarDrawable.setPhoto(cached)
+            replyAvatarDrawable.setDrawableByInfo(true)
+            return
+        }
+        replyAvatarDrawable.setDrawableByInfo(true)
+        replyAvatarCancellable = loader.load(proxyUrl, REPLY_AVATAR_SIZE, REPLY_AVATAR_SIZE, onSuccess = { bmp ->
+            Log.d("ReplyAvatar", "loadReplyAvatar: loaded successfully ${bmp.width}x${bmp.height}")
+            replyAvatarDrawable.setPhoto(bmp)
+            replyAvatarDrawable.setDrawableByInfo(true)
+            invalidate()
+        }, onError = {
+            Log.d("ReplyAvatar", "loadReplyAvatar: load FAILED for url=$url")
+            replyAvatarDrawable.setDrawableByInfo(true)
+        })
+    }
+
     private fun checkAvatarFallbackTimeout() {
         if (!avatarFallbackVisible && !avatarDrawable.hasPhoto() && avatarLoadStartTime > 0) {
             if (System.currentTimeMillis() - avatarLoadStartTime > 3000L) {
@@ -792,6 +1123,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         fun didClickHashtag(cell: ChatMessageCell, channelId: String?) {}
         fun didLongPress(cell: ChatMessageCell, msg: MessageEntity) {}
         fun didClickAvatar(cell: ChatMessageCell, msg: MessageEntity) {}
+        fun didPressReply(cell: ChatMessageCell, replyMessageId: Long) {}
     }
 
     private var pressedLink: ClickableSpan? = null
@@ -800,6 +1132,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var pressedOnOgp = false
     private var pressedOnFile = false
     private var pressedOnAvatar = false
+    private var pressedOnReply = false
     private var fileBlockLeft = 0f
     private var fileBlockTop = 0f
     private var fileBlockRight = 0f
@@ -828,6 +1161,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         pressedOnOgp = false
         pressedOnFile = false
         pressedOnAvatar = false
+        pressedOnReply = false
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -838,26 +1172,36 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 pressedLink = null
                 pressedOnMedia = false
                 pressedOnOgp = false
+                pressedOnEmbed = false
                 pressedOnFile = false
                 pressedOnAvatar = false
+                pressedOnReply = false
                 longPressHandled = false
                 startX = x
                 startY = y
 
                 if (!isCombined) {
-                    val topPad = PAD_V
-                    if (x >= PAD_H && x <= PAD_H + AVATAR_SIZE && y >= topPad && y <= topPad + AVATAR_SIZE) {
+                    var avatarTopPad = PAD_V
+                    if (hasReply) avatarTopPad += REPLY_ROW_HEIGHT + REPLY_V_GAP
+                    if (x >= PAD_H && x <= PAD_H + AVATAR_SIZE && y >= avatarTopPad && y <= avatarTopPad + AVATAR_SIZE) {
                         pressedOnAvatar = true
                         scheduleLongPress()
                         return true
                     }
                     val nameLeft = PAD_H + AVATAR_SIZE + GAP_AVATAR
                     val nameHeight = senderLayout?.height ?: 0
-                    if (nameHeight > 0 && x >= nameLeft && y >= topPad && y <= topPad + nameHeight) {
+                    if (nameHeight > 0 && x >= nameLeft && y >= avatarTopPad && y <= avatarTopPad + nameHeight) {
                         pressedOnAvatar = true
                         scheduleLongPress()
                         return true
                     }
+                }
+
+                if (hasReply && !replyIsDeleted && replyRefMessageId != 0L &&
+                    x >= replyBlockLeft && x <= replyBlockRight && y >= replyBlockTop && y <= replyBlockBottom) {
+                    pressedOnReply = true
+                    scheduleLongPress()
+                    return true
                 }
 
                 if (drawFileAttachment && x >= fileBlockLeft && x <= fileBlockRight && y >= fileBlockTop && y <= fileBlockBottom) {
@@ -891,6 +1235,12 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 val data = ogpData
                 if (data != null && x >= ogpBlockLeft && x <= ogpBlockRight && y >= ogpBlockTop && y <= ogpBlockBottom) {
                     pressedOnOgp = true
+                    scheduleLongPress()
+                    return true
+                }
+                val ed = embedData
+                if (ed != null && x >= embedBlockLeft && x <= embedBlockRight && y >= embedBlockTop && y <= embedBlockBottom) {
+                    pressedOnEmbed = true
                     scheduleLongPress()
                     return true
                 }
@@ -934,14 +1284,21 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     pressedLink = null
                     pressedOnMedia = false
                     pressedOnOgp = false
+                    pressedOnEmbed = false
                     pressedOnFile = false
                     pressedOnAvatar = false
+                    pressedOnReply = false
                     return true
                 }
                 if (pressedOnAvatar) {
                     pressedOnAvatar = false
                     val msg = messageEntity
                     if (msg != null) delegate?.didClickAvatar(this, msg)
+                    return true
+                }
+                if (pressedOnReply) {
+                    pressedOnReply = false
+                    if (replyRefMessageId != 0L) delegate?.didPressReply(this, replyRefMessageId)
                     return true
                 }
                 if (pressedOnFile) {
@@ -961,6 +1318,11 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     ogpData?.let { onLinkClicked(it.url) }
                     return true
                 }
+                if (pressedOnEmbed) {
+                    pressedOnEmbed = false
+                    embedData?.let { if (it.url.isNotEmpty()) onLinkClicked(it.url) }
+                    return true
+                }
                 pressedLink?.let { span ->
                     pressedLink = null
                     span.onClick(this)
@@ -973,8 +1335,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 pressedLink = null
                 pressedOnMedia = false
                 pressedOnOgp = false
+                pressedOnEmbed = false
                 pressedOnFile = false
                 pressedOnAvatar = false
+                pressedOnReply = false
             }
         }
         return super.onTouchEvent(event)
@@ -1038,6 +1402,11 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         for (i in extraPhotoImages.indices) extraPhotoImages[i].setAllowStartAnimation(false)
     }
 
+    fun setHighlight() {
+        highlightProgress = 1f
+        invalidate()
+    }
+
     fun startHeavyOperations() {
         photoImage.setAllowStartAnimation(true)
         for (i in extraPhotoImages.indices) extraPhotoImages[i].setAllowStartAnimation(true)
@@ -1047,14 +1416,25 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val msg = messageEntity ?: return
         checkAvatarFallbackTimeout()
 
-        // Mention / reply highlight background (flat, no bubble)
         if (hasMentionHighlight) {
             MENTION_BG_PAINT.color = theme.midnightBlue and 0x00FFFFFF.toInt() or 0x26000000
             canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), MENTION_BG_PAINT)
             canvas.drawRect(0f, 0f, MENTION_BAR_WIDTH.toFloat(), height.toFloat(), MENTION_BAR_PAINT)
         }
 
-        val alpha = if (drawError) 0.6f else 1f
+        if (highlightProgress > 0f) {
+            val a = (highlightProgress * 0x30).toInt().coerceIn(0, 0xFF)
+            HIGHLIGHT_BG_PAINT.color = theme.midnightBlue and 0x00FFFFFF or (a shl 24)
+            canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), HIGHLIGHT_BG_PAINT)
+            highlightProgress = (highlightProgress - HIGHLIGHT_DECAY_STEP).coerceAtLeast(0f)
+            if (highlightProgress > 0f) postInvalidateDelayed(16)
+        }
+
+        val alpha = when {
+            drawError -> 0.6f
+            drawSending -> 0.7f
+            else -> 1f
+        }
         if (alpha < 1f) {
             canvas.saveLayerAlpha(0f, 0f, width.toFloat(), height.toFloat(), (alpha * 255).toInt())
         }
@@ -1069,6 +1449,35 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         if (drawError) {
             drawErrorText(canvas, msg)
         }
+    }
+
+    private fun drawSendingIndicator(canvas: Canvas) {
+        val x = (PAD_H + AVATAR_SIZE + GAP_AVATAR).toFloat()
+        val topPad = if (isCombined) COMBINE_PAD_V else PAD_V
+        val y = (measuredHeight - topPad - SENDING_ICON_SIZE).toFloat()
+        val cx = x + SENDING_ICON_SIZE / 2f
+        val cy = y + SENDING_ICON_SIZE / 2f
+        val r = SENDING_ICON_SIZE / 2f - SENDING_STROKE_W
+        SENDING_CIRCLE_PAINT.color = theme.onSurfaceVariant
+        canvas.drawCircle(cx, cy, r, SENDING_CIRCLE_PAINT)
+        val handLen = r * 0.55f
+        canvas.drawLine(cx, cy, cx, cy - handLen, SENDING_HAND_PAINT)
+        canvas.drawLine(cx, cy, cx + handLen * 0.7f, cy, SENDING_HAND_PAINT)
+    }
+
+    private fun drawAttachmentUploadSpinner(canvas: Canvas, x: Float, y: Float, w: Float, h: Float, radius: Float) {
+        tmpRect.set(x, y, x + w, y + h)
+        if (radius > 0) {
+            canvas.drawRoundRect(tmpRect, radius, radius, SPINNER_OVERLAY_PAINT)
+        } else {
+            canvas.drawRect(tmpRect, SPINNER_OVERLAY_PAINT)
+        }
+        val cx = x + w / 2f
+        val cy = y + h / 2f
+        spinnerArcRect.set(cx - SPINNER_RADIUS, cy - SPINNER_RADIUS, cx + SPINNER_RADIUS, cy + SPINNER_RADIUS)
+        canvas.drawArc(spinnerArcRect, spinnerAngle, 270f, false, SPINNER_ARC_PAINT)
+        spinnerAngle = (spinnerAngle + 3f) % 360f
+        postInvalidateDelayed(33)
     }
 
     private fun drawStickerOnly(canvas: Canvas, msg: MessageEntity) {
@@ -1095,7 +1504,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         photoImage.setRoundRadius(0)
         photoImage.setImageCoords(imgX, yOff, photoWidth.toFloat(), photoHeight.toFloat())
         photoImage.draw(canvas)
-        if (!photoImage.hasMainImage()) {
+        if (drawSending) {
+            drawAttachmentUploadSpinner(canvas, imgX, yOff, photoWidth.toFloat(), photoHeight.toFloat(), 0f)
+        } else if (!photoImage.hasMainImage()) {
             shimmerEffect.draw(canvas, imgX, yOff, imgX + photoWidth, yOff + photoHeight, 0f,
                 theme.resolvedMode != com.mezon.mobile.ui.theme.ThemeMode.LIGHT)
             postInvalidateDelayed(32)
@@ -1112,16 +1523,20 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private fun drawMessageBubble(canvas: Canvas, msg: MessageEntity) {
         val topPad = if (isCombined) COMBINE_PAD_V else PAD_V
-        // contentLeft: right after avatar, no bubble padding (flat like RN)
         val contentLeft = PAD_H + AVATAR_SIZE + GAP_AVATAR
 
+        var yOff = topPad.toFloat()
+
+        if (hasReply) {
+            drawReplyPreviewRow(canvas, contentLeft.toFloat(), yOff)
+            yOff += REPLY_ROW_HEIGHT + REPLY_V_GAP
+        }
+
         if (!isCombined) {
-            val avatarTop = topPad
+            val avatarTop = yOff.toInt()
             avatarDrawable.setBounds(PAD_H, avatarTop, PAD_H + AVATAR_SIZE, avatarTop + AVATAR_SIZE)
             avatarDrawable.draw(canvas)
         }
-
-        var yOff = topPad.toFloat()
 
         senderLayout?.let { sender ->
             canvas.save()
@@ -1145,11 +1560,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         forwardLayout?.let {
             drawForwardHeader(canvas, contentLeft.toFloat(), yOff, msg)
             yOff += it.height + GAP_V_INNER
-        }
-
-        if (hasReply) {
-            drawReplyBar(canvas, contentLeft.toFloat(), yOff)
-            yOff += replyBarHeight() + GAP_V_INNER
         }
 
         if (drawPhotoImage) {
@@ -1180,6 +1590,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
 
         ogpData?.let { yOff = drawOgpBlock(canvas, contentLeft.toFloat(), yOff) + GAP_V_INNER }
+
+        if (embedData != null) {
+            yOff = drawEmbedCard(canvas, contentLeft.toFloat(), yOff)
+        }
 
         if (drawEphemeral) {
             yOff = drawEphemeralIndicator(canvas, contentLeft.toFloat(), yOff)
@@ -1284,6 +1698,102 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         return y
     }
 
+    private fun drawEmbedCard(canvas: Canvas, left: Float, top: Float): Float {
+        val data = embedData ?: return top
+        applyEmbedPaintColors()
+        val cardTop = top + EMBED_TOP_MARGIN
+        val embedH = computeEmbedHeight() - EMBED_TOP_MARGIN
+        val bubbleMaxW = maxBubbleWidth()
+        val contentW = (bubbleMaxW - EMBED_COLOR_BAR_W - EMBED_PAD * 2).coerceAtLeast(1)
+        val cardW = (EMBED_COLOR_BAR_W + EMBED_PAD * 2 + contentW).toFloat()
+
+        embedBlockLeft = left
+        embedBlockTop = cardTop
+        embedBlockRight = left + cardW
+        embedBlockBottom = cardTop + embedH
+
+        EMBED_BG_PAINT.color = theme.surfaceVariant
+        tmpRect.set(left, cardTop, left + cardW, cardTop + embedH)
+        canvas.drawRoundRect(tmpRect, EMBED_RADIUS, EMBED_RADIUS, EMBED_BG_PAINT)
+
+        val barColor = if (data.color != 0) data.color else theme.primary
+        EMBED_BAR_PAINT.color = barColor
+        tmpRect.set(left, cardTop, left + EMBED_COLOR_BAR_W, cardTop + embedH)
+        canvas.drawRoundRect(tmpRect, EMBED_RADIUS / 2, EMBED_RADIUS / 2, EMBED_BAR_PAINT)
+
+        val textLeft = left + EMBED_COLOR_BAR_W + EMBED_PAD
+        var y = cardTop + EMBED_PAD.toFloat()
+
+        if (data.thumbnailUrl.isNotEmpty()) {
+            val thumbX = left + cardW - EMBED_PAD - EMBED_THUMB_SIZE
+            val thumbY = y
+            embedThumbImage.setImageCoords(thumbX, thumbY, EMBED_THUMB_SIZE.toFloat(), EMBED_THUMB_SIZE.toFloat())
+            embedThumbImage.draw(canvas)
+        }
+
+        embedAuthorLayout?.let {
+            canvas.save()
+            canvas.translate(textLeft, y)
+            it.draw(canvas)
+            canvas.restore()
+            y += it.height + EMBED_GAP
+        }
+
+        embedTitleLayout?.let {
+            canvas.save()
+            canvas.translate(textLeft, y)
+            it.draw(canvas)
+            canvas.restore()
+            y += it.height + EMBED_GAP
+        }
+
+        embedDescLayout?.let {
+            canvas.save()
+            canvas.translate(textLeft, y)
+            it.draw(canvas)
+            canvas.restore()
+            y += it.height + EMBED_GAP
+        }
+
+        for ((nameLay, valLay) in embedFieldLayouts) {
+            nameLay?.let {
+                canvas.save()
+                canvas.translate(textLeft, y)
+                it.draw(canvas)
+                canvas.restore()
+                y += it.height + LayoutHelper.dp(2)
+            }
+            valLay?.let {
+                canvas.save()
+                canvas.translate(textLeft, y)
+                it.draw(canvas)
+                canvas.restore()
+                y += it.height + EMBED_GAP
+            }
+        }
+
+        if (embedImageW > 0 && embedImageH > 0) {
+            embedImage.setImageCoords(textLeft, y, embedImageW.toFloat(), embedImageH.toFloat())
+            embedImage.draw(canvas)
+            if (!embedImage.hasMainImage()) {
+                shimmerEffect.draw(canvas, textLeft, y, textLeft + embedImageW, y + embedImageH,
+                    EMBED_IMG_RADIUS, theme.resolvedMode != com.mezon.mobile.ui.theme.ThemeMode.LIGHT)
+                postInvalidateDelayed(32)
+            }
+            y += embedImageH + EMBED_GAP
+        }
+
+        embedFooterLayout?.let {
+            canvas.save()
+            canvas.translate(textLeft, y)
+            it.draw(canvas)
+            canvas.restore()
+            y += it.height + EMBED_GAP
+        }
+
+        return cardTop + embedH
+    }
+
     private var gridExtraCount = 0
 
     private fun drawMediaGrid(canvas: Canvas, msg: MessageEntity, startX: Float, startY: Float): Float {
@@ -1300,7 +1810,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     val x = startX + i * (cellW + gap)
                     allReceivers[i].setImageCoords(x, startY, cellW, cellH)
                     allReceivers[i].draw(canvas)
-                    if (!allReceivers[i].hasMainImage()) {
+                    if (drawSending) {
+                        drawAttachmentUploadSpinner(canvas, x, startY, cellW, cellH, MEDIA_RADIUS)
+                    } else if (!allReceivers[i].hasMainImage()) {
                         shimmerEffect.draw(canvas, x, startY, x + cellW, startY + cellH, MEDIA_RADIUS, isDark)
                         needsShimmerRedraw = true
                     }
@@ -1316,7 +1828,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
                 allReceivers[0].setImageCoords(startX, startY, leftW, leftH)
                 allReceivers[0].draw(canvas)
-                if (!allReceivers[0].hasMainImage()) {
+                if (drawSending) {
+                    drawAttachmentUploadSpinner(canvas, startX, startY, leftW, leftH, MEDIA_RADIUS)
+                } else if (!allReceivers[0].hasMainImage()) {
                     shimmerEffect.draw(canvas, startX, startY, startX + leftW, startY + leftH, MEDIA_RADIUS, isDark)
                     needsShimmerRedraw = true
                 }
@@ -1326,7 +1840,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     val ry = startY + (i - 1) * (rightH + gap)
                     allReceivers[i].setImageCoords(rx, ry, rightW, rightH)
                     allReceivers[i].draw(canvas)
-                    if (!allReceivers[i].hasMainImage()) {
+                    if (drawSending) {
+                        drawAttachmentUploadSpinner(canvas, rx, ry, rightW, rightH, MEDIA_RADIUS)
+                    } else if (!allReceivers[i].hasMainImage()) {
                         shimmerEffect.draw(canvas, rx, ry, rx + rightW, ry + rightH, MEDIA_RADIUS, isDark)
                         needsShimmerRedraw = true
                     }
@@ -1344,7 +1860,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     val y = startY + row * (cellH + gap)
                     allReceivers[i].setImageCoords(x, y, cellW, cellH)
                     allReceivers[i].draw(canvas)
-                    if (!allReceivers[i].hasMainImage()) {
+                    if (drawSending) {
+                        drawAttachmentUploadSpinner(canvas, x, y, cellW, cellH, MEDIA_RADIUS)
+                    } else if (!allReceivers[i].hasMainImage()) {
                         shimmerEffect.draw(canvas, x, y, x + cellW, y + cellH, MEDIA_RADIUS, isDark)
                         needsShimmerRedraw = true
                     }
@@ -1366,7 +1884,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     }
 
     private fun drawMediaOverlays(canvas: Canvas, msg: MessageEntity, imgX: Float, imgY: Float) {
-        if (!photoImage.hasMainImage()) {
+        if (drawSending) {
+            drawAttachmentUploadSpinner(canvas, imgX, imgY, photoWidth.toFloat(), photoHeight.toFloat(), MEDIA_RADIUS)
+        } else if (!photoImage.hasMainImage()) {
             shimmerEffect.draw(canvas, imgX, imgY, imgX + photoWidth, imgY + photoHeight, MEDIA_RADIUS,
                 theme.resolvedMode != com.mezon.mobile.ui.theme.ThemeMode.LIGHT)
             postInvalidateDelayed(32)
@@ -1433,38 +1953,70 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         return max
     }
 
-    private fun drawReplyBar(canvas: Canvas, x: Float, y: Float) {
-        val barH = replyBarHeight().toFloat()
-        canvas.drawRoundRect(
-            RectF(x, y + REPLY_BAR_PAD, x + REPLY_BAR_WIDTH, y + REPLY_BAR_PAD + barH - REPLY_BAR_PAD * 2),
-            REPLY_BAR_RADIUS, REPLY_BAR_RADIUS, theme.chatSenderPaint
+    private fun drawReplyPreviewRow(canvas: Canvas, contentLeft: Float, y: Float) {
+        val rowH = REPLY_ROW_HEIGHT.toFloat()
+        replyBlockLeft = contentLeft
+        replyBlockTop = y
+        replyBlockRight = contentLeft + cachedInnerWidth
+        replyBlockBottom = y + rowH
+
+        val centerY = y + rowH / 2f
+
+        val connectorX = (PAD_H + AVATAR_SIZE / 2).toFloat()
+        val connectorBottom = y + rowH + REPLY_V_GAP - CONNECTOR_GAP
+        connectorPath.reset()
+        connectorPath.moveTo(connectorX, connectorBottom)
+        connectorPath.lineTo(connectorX, centerY + CONNECTOR_RADIUS)
+        tmpRect.set(
+            connectorX, centerY,
+            connectorX + CONNECTOR_RADIUS * 2, centerY + CONNECTOR_RADIUS * 2
         )
-        val textX = x + REPLY_BAR_WIDTH + REPLY_BAR_GAP
-        var textY = y + REPLY_BAR_PAD.toFloat()
+        connectorPath.arcTo(tmpRect, 180f, 90f, false)
+        connectorPath.lineTo(contentLeft - REPLY_H_GAP, centerY)
+        canvas.drawPath(connectorPath, REPLY_CONNECTOR_PAINT)
+
+        val avatarTop = (centerY - REPLY_AVATAR_SIZE / 2f).toInt()
+
+        if (replyIsDeleted) {
+            val textX = contentLeft + REPLY_AVATAR_SIZE + REPLY_H_GAP
+            val textH = replyTextLayout?.height ?: 0
+            val textY = centerY - textH / 2f
+            replyTextLayout?.let {
+                canvas.save()
+                canvas.translate(textX, textY)
+                it.draw(canvas)
+                canvas.restore()
+            }
+            return
+        }
+
+        replyAvatarDrawable.setBounds(
+            contentLeft.toInt(), avatarTop,
+            contentLeft.toInt() + REPLY_AVATAR_SIZE, avatarTop + REPLY_AVATAR_SIZE
+        )
+        replyAvatarDrawable.draw(canvas)
+
+        var textX = contentLeft + REPLY_AVATAR_SIZE + REPLY_H_GAP
         replyNameLayout?.let {
+            val textY = centerY - it.height / 2f
             canvas.save()
             canvas.translate(textX, textY)
             it.draw(canvas)
             canvas.restore()
-            textY += it.height
+            textX += maxLineWidth(it) + REPLY_H_GAP
         }
         replyTextLayout?.let {
+            val textY = centerY - it.height / 2f
             canvas.save()
             canvas.translate(textX, textY)
             it.draw(canvas)
             canvas.restore()
         }
-    }
-
-    private fun replyBarHeight(): Int {
-        var h = REPLY_BAR_PAD * 2
-        replyNameLayout?.let { h += it.height }
-        replyTextLayout?.let { h += it.height }
-        return h
     }
 
     companion object {
         const val COMBINE_TIME_THRESHOLD = 2 * 60L
+        private const val TAG = "ChatMessageCell"
 
         private val AVATAR_SIZE = LayoutHelper.dp(40)  
         private val PAD_H = LayoutHelper.dp(6)          
@@ -1484,15 +2036,33 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         private val MEDIA_RADIUS = LayoutHelper.dp(12).toFloat()
         private val OGP_RADIUS = LayoutHelper.dp(8).toFloat()
         private val PLAY_BTN_SIZE = LayoutHelper.dp(48).toFloat()
-        private val REPLY_BAR_WIDTH = LayoutHelper.dp(3).toFloat()
-        private val REPLY_BAR_GAP = LayoutHelper.dp(8).toFloat()
-        private val REPLY_BAR_PAD = LayoutHelper.dp(4)
-        private val REPLY_BAR_RADIUS = LayoutHelper.dp(2).toFloat()
+        private val REPLY_AVATAR_SIZE = LayoutHelper.dp(16)
+        private val REPLY_H_GAP = LayoutHelper.dp(4)
+        private val REPLY_ROW_HEIGHT = LayoutHelper.dp(20)
+        private val REPLY_V_GAP = LayoutHelper.dp(2)
+        private val CONNECTOR_RADIUS = LayoutHelper.dpf(6f)
+        private val CONNECTOR_STROKE = LayoutHelper.dpf(1.5f)
+        private val CONNECTOR_GAP = LayoutHelper.dp(4)
         private val FILE_ICON_SIZE = LayoutHelper.dp(40)
         private val FILE_ICON_GAP = LayoutHelper.dp(10)
         private val FORWARD_ICON_SIZE = LayoutHelper.dp(14)
         private val FORWARD_ICON_GAP = LayoutHelper.dp(4).toFloat()
         private val EPHEMERAL_ICON_SIZE = LayoutHelper.dp(12)
+
+        private val SENDING_ICON_SIZE = LayoutHelper.dp(12)
+        private val SENDING_STROKE_W = LayoutHelper.dpf(1.5f)
+
+        private val SENDING_CIRCLE_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = SENDING_STROKE_W
+        }
+
+        private val SENDING_HAND_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = SENDING_STROKE_W
+            strokeCap = Paint.Cap.ROUND
+            color = 0xFF8B8D93.toInt()
+        }
 
         private const val FORWARD_TEXT = "Forwarded"
         private const val EDITED_TEXT = "(edited)"
@@ -1501,6 +2071,22 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
         private val REFERENCE_SENDER_REGEX = Regex("\"message_sender_display_name\"\\s*:\\s*\"([^\"]*?)\"")
         private val REFERENCE_CONTENT_REGEX = Regex("\"references\".*?\"content\"\\s*:\\s*\"(.*?)(?<!\\\\)\"")
+        private val REFERENCE_REF_ID_REGEX = Regex("\"message_ref_id\"\\s*:\\s*\"?(\\d+)\"?")
+        private val REFERENCE_SENDER_ID_REGEX = Regex("\"message_sender_id\"\\s*:\\s*\"?(\\d+)\"?")
+        private val REFERENCE_AVATAR_REGEX = Regex("\"mesages_sender_avatar\"\\s*:\\s*\"([^\"]+)\"")
+
+        private val SPINNER_RADIUS = LayoutHelper.dp(14).toFloat()
+        private val SPINNER_STROKE = LayoutHelper.dpf(2.5f)
+        private val SPINNER_OVERLAY_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            color = 0x55000000
+        }
+        private val SPINNER_ARC_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFFFFFFFF.toInt()
+            style = Paint.Style.STROKE
+            strokeWidth = SPINNER_STROKE
+            strokeCap = Paint.Cap.ROUND
+        }
 
         private val GRID_GAP = LayoutHelper.dp(2).toFloat()
         private val BADGE_PAD = LayoutHelper.dp(6).toFloat()
@@ -1570,6 +2156,81 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         private val ERROR_PAINT = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = 0xFFD30E0E.toInt()
             textSize = LayoutHelper.dpf(12f)
+        }
+
+        private val REPLY_NAME_PAINT = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFF06D6A0.toInt()
+            textSize = LayoutHelper.dpf(12f)
+        }
+
+        private val REPLY_CONTENT_PAINT = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFF8B8D93.toInt()
+            textSize = LayoutHelper.dpf(12f)
+        }
+
+        private val DELETED_REPLY_TEXT_PAINT = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFF8B8D93.toInt()
+            textSize = LayoutHelper.dpf(12f)
+            typeface = android.graphics.Typeface.defaultFromStyle(android.graphics.Typeface.ITALIC)
+        }
+
+        private val HIGHLIGHT_BG_PAINT = Paint()
+        private const val HIGHLIGHT_DECAY_STEP = 16f / 2000f
+
+        private val REPLY_CONNECTOR_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFF5C5E66.toInt()
+            style = Paint.Style.STROKE
+            strokeWidth = CONNECTOR_STROKE
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+        }
+
+        private val EMBED_COLOR_BAR_W = LayoutHelper.dp(4)
+        private val EMBED_PAD = LayoutHelper.dp(10)
+        private val EMBED_RADIUS = LayoutHelper.dpf(4f)
+        private val EMBED_GAP = LayoutHelper.dp(6)
+        private val EMBED_THUMB_SIZE = LayoutHelper.dp(50)
+        private val EMBED_IMG_RADIUS = LayoutHelper.dpf(4f)
+        private val EMBED_TOP_MARGIN = LayoutHelper.dp(4)
+
+        private val EMBED_BG_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+        }
+
+        private val EMBED_BAR_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+        }
+
+        private val EMBED_TITLE_PAINT = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = LayoutHelper.dpf(14f)
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+
+        private val EMBED_TITLE_LINK_PAINT = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = LayoutHelper.dpf(14f)
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            isUnderlineText = true
+        }
+
+        private val EMBED_DESC_PAINT = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = LayoutHelper.dpf(13f)
+        }
+
+        private val EMBED_FIELD_NAME_PAINT = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = LayoutHelper.dpf(14f)
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+
+        private val EMBED_FIELD_VALUE_PAINT = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = LayoutHelper.dpf(13f)
+        }
+
+        private val EMBED_FOOTER_PAINT = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = LayoutHelper.dpf(12f)
+        }
+
+        private val EMBED_AUTHOR_PAINT = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = LayoutHelper.dpf(13f)
         }
 
         private fun formatDuration(seconds: Int): String {

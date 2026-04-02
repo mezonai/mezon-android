@@ -2,11 +2,16 @@ package com.mezon.mobile.core
 
 import android.animation.ValueAnimator
 import android.content.Context
+import android.content.res.ColorStateList
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.graphics.RectF
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
+import android.graphics.drawable.RippleDrawable
 import android.os.Handler
 import android.os.Looper
 import android.view.GestureDetector
@@ -32,6 +37,12 @@ open class RecyclerListView(
 
         const val EMPTY_VIEW_ANIMATION_TYPE_ALPHA = 0
         const val EMPTY_VIEW_ANIMATION_TYPE_ALPHA_SCALE = 1
+
+        const val SELECTOR_CIRCLE_SMALL = 1
+        const val SELECTOR_RECT = 2
+        const val SELECTOR_CIRCLE_TO_BOUND = 3
+        const val SELECTOR_ROUNDRECT = 7
+        const val SELECTOR_NONE = 9
     }
 
     fun interface OnItemClickListener {
@@ -71,11 +82,11 @@ open class RecyclerListView(
     private var emptyViewAnimationType = 0
     private var hideIfEmpty = false
 
-    private var selectorDrawable: Drawable? = null
+    private var selectorDrawable: RippleDrawable? = null
     private var selectorType = 0
     private var selectorRadius = 0
     private var selectorPosition = NO_POSITION
-    private var selectorRect = RectF()
+    private var selectorRect = Rect()
     private val selectorPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var drawSelectorBehind = false
     private var selectorColor = 0
@@ -97,6 +108,59 @@ open class RecyclerListView(
     }
 
     private val handler = Handler(Looper.getMainLooper())
+
+    private val maskPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = -1 }
+
+    init {
+        updateSelectorDrawable(Color.argb(0x1A, 0, 0, 0))
+    }
+
+    private fun updateSelectorDrawable(color: Int) {
+        if (selectorType == SELECTOR_NONE) {
+            selectorDrawable = null
+            return
+        }
+        val mask: Drawable? = when (selectorType) {
+            SELECTOR_CIRCLE_SMALL, SELECTOR_CIRCLE_TO_BOUND -> {
+                object : Drawable() {
+                    override fun draw(canvas: Canvas) {
+                        val b = bounds
+                        val rad = if (selectorType == SELECTOR_CIRCLE_SMALL) {
+                            if (selectorRadius > 0) selectorRadius else LayoutHelper.dp(20)
+                        } else {
+                            b.width().coerceAtLeast(b.height()) / 2
+                        }
+                        canvas.drawCircle(b.centerX().toFloat(), b.centerY().toFloat(), rad.toFloat(), maskPaint)
+                    }
+                    override fun setAlpha(alpha: Int) {}
+                    override fun setColorFilter(cf: android.graphics.ColorFilter?) {}
+                    @Suppress("OVERRIDE_DEPRECATION")
+                    override fun getOpacity(): Int = PixelFormat.UNKNOWN
+                }
+            }
+            SELECTOR_ROUNDRECT -> {
+                object : Drawable() {
+                    private val tmpRect = RectF()
+                    override fun draw(canvas: Canvas) {
+                        tmpRect.set(bounds)
+                        val r = if (selectorRadius > 0) selectorRadius.toFloat() else LayoutHelper.dp(6).toFloat()
+                        canvas.drawRoundRect(tmpRect, r, r, maskPaint)
+                    }
+                    override fun setAlpha(alpha: Int) {}
+                    override fun setColorFilter(cf: android.graphics.ColorFilter?) {}
+                    @Suppress("OVERRIDE_DEPRECATION")
+                    override fun getOpacity(): Int = PixelFormat.UNKNOWN
+                }
+            }
+            else -> ColorDrawable(Color.WHITE)
+        }
+        selectorDrawable = RippleDrawable(ColorStateList.valueOf(color), null, mask)
+        selectorDrawable?.callback = this
+    }
+
+    override fun verifyDrawable(who: Drawable): Boolean {
+        return who == selectorDrawable || super.verifyDrawable(who)
+    }
 
     private val observer = object : AdapterDataObserver() {
         override fun onChanged() { checkIfEmpty() }
@@ -203,16 +267,25 @@ open class RecyclerListView(
     // ── Selector ────────────────────────────────────────────────────────────
 
     fun setSelectorType(type: Int) {
+        if (selectorType == type) return
         selectorType = type
+        updateSelectorDrawable(if (selectorColor != 0) selectorColor else Color.argb(0x1A, 0, 0, 0))
     }
 
     fun setSelectorRadius(radius: Int) {
+        if (selectorRadius == radius) return
         selectorRadius = radius
+        updateSelectorDrawable(if (selectorColor != 0) selectorColor else Color.argb(0x1A, 0, 0, 0))
     }
 
     fun setSelectorDrawableColor(color: Int) {
         selectorColor = color
         selectorPaint.color = color
+        if (selectorDrawable != null) {
+            selectorDrawable?.setColor(ColorStateList.valueOf(color))
+        } else if (selectorType != SELECTOR_NONE) {
+            updateSelectorDrawable(color)
+        }
     }
 
     fun setDrawSelectorBehind(value: Boolean) {
@@ -220,8 +293,29 @@ open class RecyclerListView(
     }
 
     fun hideSelector(animated: Boolean = true) {
+        selectorDrawable?.state = intArrayOf()
         selectorPosition = NO_POSITION
+        selectorRect.setEmpty()
         invalidate()
+    }
+
+    private fun positionSelector(position: Int, child: View) {
+        selectorPosition = position
+        selectorRect.set(child.left, child.top, child.right, child.bottom)
+        selectorDrawable?.let {
+            it.setBounds(selectorRect.left, selectorRect.top, selectorRect.right, selectorRect.bottom)
+            it.state = intArrayOf(android.R.attr.state_pressed, android.R.attr.state_enabled)
+        }
+        invalidate()
+    }
+
+    private fun clearSelectorAfterDelay() {
+        selectorDrawable?.state = intArrayOf()
+        handler.postDelayed({
+            selectorPosition = NO_POSITION
+            selectorRect.setEmpty()
+            invalidate()
+        }, 300)
     }
 
     // ── Highlight row ───────────────────────────────────────────────────────
@@ -320,6 +414,11 @@ open class RecyclerListView(
                 val child = findChildViewUnder(e.x, e.y) ?: return super.onInterceptTouchEvent(e)
                 currentChildView = child
                 if (!disableHighlightState) {
+                    val pos = getChildAdapterPosition(child)
+                    if (pos != NO_POSITION && child.isEnabled && canHighlightChildAt(child, e.x - child.left, e.y - child.top)) {
+                        positionSelector(pos, child)
+                        selectorDrawable?.setHotspot(e.x, e.y)
+                    }
                     selectChildRunnable?.let { handler.removeCallbacks(it) }
                     selectChildRunnable = Runnable {
                         currentChildView?.let { onChildPressed(it, true) }
@@ -341,11 +440,13 @@ open class RecyclerListView(
                 currentChildView?.let { onChildPressed(it, false) }
                 gestureDetector.onTouchEvent(e)
                 currentChildView = null
+                clearSelectorAfterDelay()
                 if (e.actionMasked == MotionEvent.ACTION_UP) {
                     onItemLongClickListenerExtended?.onLongClickRelease()
                 }
             }
             MotionEvent.ACTION_MOVE -> {
+                selectorDrawable?.setHotspot(e.x, e.y)
                 onItemLongClickListenerExtended?.onMove(e.x - lastX, e.y - lastY)
             }
         }
@@ -358,6 +459,9 @@ open class RecyclerListView(
             onItemClickListenerExtended != null || onItemLongClickListenerExtended != null) {
             gestureDetector.onTouchEvent(e)
         }
+        if (e.actionMasked == MotionEvent.ACTION_MOVE) {
+            selectorDrawable?.setHotspot(e.x, e.y)
+        }
         if (e.actionMasked == MotionEvent.ACTION_UP || e.actionMasked == MotionEvent.ACTION_CANCEL) {
             selectChildRunnable?.let {
                 handler.removeCallbacks(it)
@@ -365,16 +469,17 @@ open class RecyclerListView(
             }
             currentChildView?.let { onChildPressed(it, false) }
             currentChildView = null
+            clearSelectorAfterDelay()
         }
         return super.onTouchEvent(e)
     }
 
     override fun dispatchDraw(canvas: Canvas) {
-        if (drawSelectorBehind && selectorPosition != NO_POSITION) {
+        if (drawSelectorBehind && !selectorRect.isEmpty) {
             drawSelector(canvas)
         }
         super.dispatchDraw(canvas)
-        if (!drawSelectorBehind && selectorPosition != NO_POSITION) {
+        if (!drawSelectorBehind && !selectorRect.isEmpty) {
             drawSelector(canvas)
         }
         if (highlightPosition != NO_POSITION) {
@@ -383,19 +488,10 @@ open class RecyclerListView(
     }
 
     private fun drawSelector(canvas: Canvas) {
-        val holder = findViewHolderForAdapterPosition(selectorPosition) ?: return
-        val child = holder.itemView
-        if (selectorRadius > 0) {
-            canvas.drawRoundRect(
-                child.left.toFloat(), child.top.toFloat(),
-                child.right.toFloat(), child.bottom.toFloat(),
-                selectorRadius.toFloat(), selectorRadius.toFloat(), selectorPaint
-            )
-        } else {
-            canvas.drawRect(
-                child.left.toFloat(), child.top.toFloat(),
-                child.right.toFloat(), child.bottom.toFloat(), selectorPaint
-            )
+        val sd = selectorDrawable ?: return
+        if (!selectorRect.isEmpty) {
+            sd.bounds = selectorRect
+            sd.draw(canvas)
         }
     }
 
@@ -452,6 +548,9 @@ open class RecyclerListView(
         super.onScrollStateChanged(state)
         scrollingByUser = state == SCROLL_STATE_DRAGGING || state == SCROLL_STATE_SETTLING
         isFastScrolling = state == SCROLL_STATE_SETTLING
+        if (state == SCROLL_STATE_DRAGGING) {
+            hideSelector(false)
+        }
     }
 
     var useLayoutPositionOnClick = false

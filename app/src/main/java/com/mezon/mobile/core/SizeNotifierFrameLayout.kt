@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Rect
 import android.graphics.drawable.Drawable
+import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
 
@@ -29,11 +30,14 @@ open class SizeNotifierFrameLayout @JvmOverloads constructor(
     private var emojiHeight = 0
     private var emojiOffset = 0f
     private var animationInProgress = false
+    var isSearchExpanded = false
     private var skipBackgroundDrawing = false
     var useSmoothKeyboard = false
     var paused = true
         private set
     private var lastKeyboardHeight = -1
+    var adjustPanLayoutHelper: AdjustPanLayoutHelper? = null
+        private set
 
     private var bottomClip = 0
     private var backgroundTranslationY = 0
@@ -46,6 +50,7 @@ open class SizeNotifierFrameLayout @JvmOverloads constructor(
 
     init {
         setWillNotDraw(false)
+        adjustPanLayoutHelper = createAdjustPanLayoutHelper()
     }
 
     fun setDelegate(delegate: SizeNotifierFrameLayoutDelegate?) {
@@ -74,8 +79,66 @@ open class SizeNotifierFrameLayout @JvmOverloads constructor(
         paused = false
     }
 
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val totalWidth = MeasureSpec.getSize(widthMeasureSpec)
+        val totalHeight = MeasureSpec.getSize(heightMeasureSpec)
+        measureKeyboardHeight()
+        val keyboardVisible = keyboardHeight > LayoutHelper.dp(20f)
+        val emojiPad = if (!keyboardVisible && emojiHeight > 0) emojiHeight else 0
+
+        for (i in 0 until childCount) {
+            val child = getChildAt(i)
+            if (child.visibility == View.GONE) continue
+            val lp = child.layoutParams as LayoutParams
+
+            if (isPopupView(child)) {
+                val popupH = if (isSearchExpanded) totalHeight else lp.height.coerceAtLeast(0)
+                child.measure(
+                    MeasureSpec.makeMeasureSpec(totalWidth, MeasureSpec.EXACTLY),
+                    MeasureSpec.makeMeasureSpec(popupH, MeasureSpec.EXACTLY)
+                )
+            } else {
+                val contentH = if (isSearchExpanded) 0 else (totalHeight - emojiPad).coerceAtLeast(0)
+                child.measure(
+                    getChildMeasureSpec(widthMeasureSpec, lp.leftMargin + lp.rightMargin, lp.width),
+                    MeasureSpec.makeMeasureSpec(contentH, MeasureSpec.EXACTLY)
+                )
+            }
+        }
+        setMeasuredDimension(totalWidth, totalHeight)
+    }
+
+    private fun isPopupView(child: View): Boolean {
+        val lp = child.layoutParams as? LayoutParams ?: return false
+        return (lp.gravity and Gravity.BOTTOM) == Gravity.BOTTOM && lp.height > 0
+    }
+
     override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
         super.onLayout(changed, l, t, r, b)
+
+        val parentHeight = b - t
+
+        if (isSearchExpanded) {
+            for (i in 0 until childCount) {
+                val child = getChildAt(i)
+                if (child.visibility == View.GONE) continue
+                if (isPopupView(child)) {
+                    child.layout(child.left, 0, child.right, parentHeight)
+                }
+            }
+        } else if (emojiHeight > 0) {
+            val keyboardVisible = keyboardHeight > LayoutHelper.dp(20f)
+            val contentBottom = if (keyboardVisible) parentHeight else parentHeight - emojiHeight
+
+            for (i in 0 until childCount) {
+                val child = getChildAt(i)
+                if (child.visibility == View.GONE) continue
+                if (isPopupView(child)) {
+                    child.layout(child.left, contentBottom, child.right, contentBottom + child.measuredHeight)
+                }
+            }
+        }
+
         notifyHeightChanged()
     }
 
@@ -161,7 +224,7 @@ open class SizeNotifierFrameLayout @JvmOverloads constructor(
 
     fun getBackgroundSizeY(): Int {
         val offset = if (occupyStatusBar) AndroidUtilities.statusBarHeight else 0
-        return measuredHeight - offset + emojiHeight
+        return measuredHeight - offset
     }
 
     open fun setBackgroundImage(drawable: Drawable?, motion: Boolean) {
@@ -183,7 +246,7 @@ open class SizeNotifierFrameLayout @JvmOverloads constructor(
 
     open fun updateColors() {}
 
-    protected open fun createAdjustPanLayoutHelper(): Any? = null
+    protected open fun createAdjustPanLayoutHelper(): AdjustPanLayoutHelper? = null
 
     override fun dispatchDraw(canvas: Canvas) {
         if (backgroundView == null && backgroundDrawable != null && !skipBackgroundDrawing) {

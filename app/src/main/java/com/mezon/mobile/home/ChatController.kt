@@ -18,16 +18,28 @@ import com.mezon.mobile.network.NetworkMonitor
 import com.mezon.mobile.network.SocketEventDispatcher
 import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.network.channelTypeToStreamMode
+import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
+import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
+import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
+import com.mezon.mobile.home.clans.CHANNEL_TYPE_VOICE
+import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.BuildConfig
+import com.mezon.mobile.util.MentionData
 import com.mezon.mobile.util.buildTextContent
+import com.mezon.mobile.util.buildTextContentWithMentions
+import com.mezon.mobile.util.EmojiMarker
+import com.mezon.mobile.util.buildTextContentWithEmojis
 import com.mezon.mezon.api.MessageAttachment
 import com.mezon.mezon.api.messageAttachment
+import com.mezon.mezon.api.messageMention
+import com.mezon.mezon.rtapi.channelMessageSend
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -51,7 +63,9 @@ class ChatController @Inject constructor(
     private val networkMonitor: NetworkMonitor,
     private val cacheTracker: ApiCacheTracker,
     private val dialogsController: DialogsController,
+    private val badgeCoordinator: BadgeCoordinator,
     private val channelController: dagger.Lazy<com.mezon.mobile.home.clans.ChannelController>,
+    private val userController: dagger.Lazy<UserController>,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     @ApplicationScope private val appScope: CoroutineScope
 ) {
@@ -93,13 +107,40 @@ class ChatController @Inject constructor(
         }
     }
 
-    fun openChannel(channelId: Long, clanId: Long, channelType: Int, isChannelPrivate: Boolean = false) {
-        val isPublic = !isChannelPrivate
+    fun openChannel(
+        channelId: Long,
+        clanId: Long,
+        channelType: Int,
+        isChannelPrivate: Boolean = false,
+        parentId: Long = 0L
+    ) {
+        val meta = channelController.get().findChannelById(channelId)
+        val effectiveClanId = if (clanId != 0L) clanId else meta?.takeIf { it.clanId != 0L }?.clanId ?: clanId
+        val effectiveType = if (channelType != 0) channelType else meta?.type ?: 0
+        val effectiveParent = if (parentId != 0L) parentId else meta?.parentId ?: 0L
+        val effectivePrivate = meta?.isPrivate ?: isChannelPrivate
+        val joinSocketTypes = intArrayOf(
+            CHANNEL_TYPE_CHANNEL,
+            CHANNEL_TYPE_DM,
+            CHANNEL_TYPE_GROUP,
+            CHANNEL_TYPE_THREAD,
+            CHANNEL_TYPE_VOICE
+        )
+        if (joinSocketTypes.none { it == effectiveType }) {
+            Log.d(TAG, "openChannel: skip ChannelJoin channelId=$channelId type=$effectiveType (argType=$channelType)")
+            return
+        }
+        val threadLike = effectiveType == CHANNEL_TYPE_THREAD || effectiveParent != 0L
+        val isPublic = if (threadLike) false else !effectivePrivate
         appScope.launch {
             try {
-                val session = sessionManager.sessionFlow.first() ?: return@launch
-                mezonSocket.joinChat(clanId, channelId, channelType, isPublic)
-                Log.d(TAG, "Joined channel $channelId (clanId=$clanId type=$channelType isPublic=$isPublic)")
+                sessionManager.sessionFlow.first() ?: return@launch
+                if (!mezonSocket.awaitConnected()) return@launch
+                if (effectiveClanId != 0L) {
+                    runCatching { mezonSocket.joinClanChat(effectiveClanId) }
+                }
+                mezonSocket.joinChat(effectiveClanId, channelId, effectiveType, isPublic)
+                Log.d(TAG, "Joined channel $channelId (clanId=$effectiveClanId type=$effectiveType isPublic=$isPublic)")
             } catch (e: Exception) {
                 Log.e(TAG, "joinChat failed channelId=$channelId", e)
             }
@@ -166,7 +207,7 @@ class ChatController @Inject constructor(
         }
     }
 
-    fun loadMessagesAround(channelId: Long, clanId: Long, anchorMessageId: Long) {
+    fun loadMessagesAround(channelId: Long, clanId: Long, anchorMessageId: Long, requireExactAnchor: Boolean = false) {
         appScope.launch(ioDispatcher) {
             try {
                 val cacheKey = apiCacheKey("fetchMessages", clanId, channelId)
@@ -176,7 +217,11 @@ class ChatController @Inject constructor(
                 if (fromDb.isNotEmpty()) {
                     val dbMinId = fromDb.minOf { it.id }
                     val dbMaxId = fromDb.maxOf { it.id }
-                    anchorInDb = anchorMessageId in dbMinId..dbMaxId
+                    anchorInDb = if (requireExactAnchor) {
+                        fromDb.any { it.id == anchorMessageId }
+                    } else {
+                        anchorMessageId in dbMinId..dbMaxId
+                    }
                     if (anchorInDb) {
                         val lastKnown = synchronized(this@ChatController) { lastMessageByChannel.get(channelId, 0L) }
                         val hasMoreBottom = lastKnown > 0L && dbMaxId < lastKnown
@@ -279,7 +324,7 @@ class ChatController @Inject constructor(
                         messageDao.upsertAll(newer)
                         messageDao.trimAround(channelId, newestMessageId, PAGE_SIZE * 2)
                     }
-                    Log.d(TAG, "loadMoreBottom: count=${newer.size} hasMoreBottom=$hasMoreBottom hasLastSentMessage=${response.hasLastSentMessage()} serverLastSentId=$serverLastSentId")
+                    Log.d(TAG, "loadMoreBottom: count=${newer.size} hasMoreBottom=$hasMoreBottom hasLastSentMessage=${response.hasLastSentMessage()} serverLastSentId=$serverLastSentId rawCount=${response.messagesList.size} newerRange=${newer.minOfOrNull { it.id }}..${newer.maxOfOrNull { it.id }}")
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.messagesDidLoad, channelId, ArrayList(newer), false, hasMoreBottom, false, 0L, LOAD_TYPE_MORE_BOTTOM
                     )
@@ -347,41 +392,193 @@ class ChatController @Inject constructor(
         timestampSeconds: Int,
         badgeCount: Int = 0
     ) {
+        badgeCoordinator.scheduleLastSeenWrite(
+            channelId, clanId, channelType, messageId, timestampSeconds, badgeCount
+        )
+    }
+
+    fun sendMessage(
+        channelId: Long,
+        clanId: Long,
+        channelType: Int,
+        isChannelPrivate: Boolean,
+        text: String,
+        references: List<com.mezon.mezon.api.MessageRef>? = null,
+        mentions: List<MentionData>? = null,
+        emojiMarkers: List<EmojiMarker>? = null
+    ) {
         val mode = channelTypeToStreamMode(channelType)
-        if (badgeCount == 0) {
-            if (clanId != 0L) {
-                channelController.get().markChannelAsRead(channelId)
-            } else {
-                dialogsController.markDialogAsRead(channelId)
-            }
-        } else {
-            if (clanId != 0L) {
-                channelController.get().updateChannelLastSeen(channelId, messageId, badgeCount)
-            } else {
-                dialogsController.updateDialogLastSeen(channelId, messageId, badgeCount)
+        val isPublic = !isChannelPrivate
+        val content = if (emojiMarkers.isNullOrEmpty() && mentions.isNullOrEmpty()) buildTextContent(text)
+            else buildTextContentWithEmojis(text, mentions, emojiMarkers)
+        val mentionEveryone = mentions?.any { it.userId == ID_MENTION_HERE } == true
+        val protoMentions = mentions?.mapNotNull { m ->
+            if (m.userId == ID_MENTION_HERE) return@mapNotNull null
+            messageMention {
+                if (m.userId.isNotBlank()) userId = m.userId.toLongOrNull() ?: 0L
+                if (m.roleId.isNotBlank()) roleId = m.roleId.toLongOrNull() ?: 0L
             }
         }
+
+        val tempId = generateTempId()
+        val uc = userController.get()
+        val optimisticContent = mergeRefsIntoOptimisticContent(content, references)
+        val optimistic = MessageEntity(
+            id = tempId,
+            channelId = channelId,
+            senderId = uc.userId,
+            senderName = uc.displayName.ifBlank { uc.username },
+            senderAvatar = uc.avatarUrl,
+            content = optimisticContent,
+            timestampSeconds = System.currentTimeMillis() / 1000,
+            code = MessageEntity.CODE_CHAT,
+            isMe = true,
+            sendState = MessageEntity.SEND_STATE_SENDING
+        )
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.didReceiveNewMessages, channelId, optimistic
+        )
+
         appScope.launch {
             try {
-                mezonSocket.writeLastSeenMessage(clanId, channelId, mode, messageId, timestampSeconds, badgeCount)
-                Log.d(TAG, "Updated lastSeen: channelId=$channelId messageId=$messageId badgeCount=$badgeCount")
+                val session = sessionManager.sessionFlow.first() ?: throw RuntimeException("No session")
+                val request = channelMessageSend {
+                    this.clanId = clanId
+                    this.channelId = channelId
+                    this.mode = mode
+                    this.isPublic = isPublic
+                    this.content = content
+                    protoMentions?.let { this.mentions.addAll(it) }
+                    references?.let { this.references.addAll(it) }
+                    this.mentionEveryone = mentionEveryone
+                }
+                val ack = withContext(ioDispatcher) {
+                    api.sendChannelMessage(session.apiUrl, session.token, request)
+                }
+                notificationCenter.postNotificationOnMainThread(
+                    NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
+                )
             } catch (e: Exception) {
-                Log.e(TAG, "updateLastSeenMessage failed", e)
+                notificationCenter.postNotificationOnMainThread(
+                    NotificationCenter.pendingMessageError, channelId, tempId
+                )
             }
         }
     }
 
-    fun sendMessage(channelId: Long, clanId: Long, channelType: Int, isChannelPrivate: Boolean, text: String) {
+    fun sendDirectAttachment(
+        channelId: Long,
+        clanId: Long,
+        channelType: Int,
+        isChannelPrivate: Boolean,
+        url: String,
+        filetype: String,
+        filename: String? = null,
+        references: List<com.mezon.mezon.api.MessageRef>? = null
+    ) {
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
-        val content = buildTextContent(text)
+        val baseContent = "{\"t\":\"\"}"
+        val content = mergeRefsIntoOptimisticContent(baseContent, references)
+        val attachment = messageAttachment {
+            this.url = url
+            this.filetype = filetype
+            if (filename != null) this.filename = filename
+        }
+
+        val tempId = generateTempId()
+        val uc = userController.get()
+        val msgType = when {
+            filetype.startsWith("image/gif") || filetype.endsWith("gif") -> MessageEntity.TYPE_GIF
+            filetype.startsWith("image/") -> MessageEntity.TYPE_PHOTO
+            filetype.startsWith("audio/") -> MessageEntity.TYPE_FILE
+            else -> MessageEntity.TYPE_GIF
+        }
+        val optimistic = MessageEntity(
+            id = tempId,
+            channelId = channelId,
+            senderId = uc.userId,
+            senderName = uc.displayName.ifBlank { uc.username },
+            senderAvatar = uc.avatarUrl,
+            content = content,
+            timestampSeconds = System.currentTimeMillis() / 1000,
+            code = MessageEntity.CODE_CHAT,
+            isMe = true,
+            messageType = msgType,
+            attachmentUrl = url,
+            attachmentFiletype = filetype,
+            attachmentFilename = filename.orEmpty(),
+            sendState = MessageEntity.SEND_STATE_SENDING
+        )
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.didReceiveNewMessages, channelId, optimistic
+        )
+
         appScope.launch {
             try {
-                mezonSocket.writeChatMessage(clanId, channelId, mode, isPublic, content)
-                Log.d(TAG, "Message sent: channelId=$channelId isPublic=$isPublic")
+                val session = sessionManager.sessionFlow.first() ?: throw RuntimeException("No session")
+                val request = channelMessageSend {
+                    this.clanId = clanId
+                    this.channelId = channelId
+                    this.mode = mode
+                    this.isPublic = isPublic
+                    this.content = baseContent
+                    this.attachments.add(attachment)
+                    references?.let { this.references.addAll(it) }
+                }
+                val ack = withContext(ioDispatcher) {
+                    api.sendChannelMessage(session.apiUrl, session.token, request)
+                }
+                notificationCenter.postNotificationOnMainThread(
+                    NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
+                )
+                Log.d(TAG, "Direct attachment sent: channelId=$channelId url=${url.take(60)}")
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to send message", e)
+                Log.e(TAG, "Failed to send direct attachment", e)
+                notificationCenter.postNotificationOnMainThread(
+                    NotificationCenter.pendingMessageError, channelId, tempId
+                )
             }
+        }
+    }
+
+    companion object {
+        const val ID_MENTION_HERE = "here"
+        private const val SEND_MAX_RETRIES = 2
+        private const val SEND_RETRY_DELAY_MS = 500L
+    }
+
+    private fun generateTempId(): Long {
+        val ts = System.currentTimeMillis()
+        return (ts shl 22) or (Thread.currentThread().id and 0x3FFFFF)
+    }
+
+    private fun mergeRefsIntoOptimisticContent(
+        baseContent: String,
+        references: List<com.mezon.mezon.api.MessageRef>?
+    ): String {
+        if (references.isNullOrEmpty()) return baseContent
+        return try {
+            val obj = org.json.JSONObject(baseContent)
+            if (obj.has("references")) return baseContent
+            val arr = org.json.JSONArray()
+            for (ref in references) {
+                val item = org.json.JSONObject()
+                item.put("message_id", ref.messageId.toString())
+                item.put("message_ref_id", ref.messageRefId.toString())
+                item.put("ref_type", ref.refType)
+                item.put("message_sender_id", ref.messageSenderId.toString())
+                item.put("message_sender_username", ref.messageSenderUsername)
+                item.put("mesages_sender_avatar", ref.messageSenderAvatar)
+                item.put("message_sender_display_name", ref.messageSenderDisplayName)
+                item.put("content", ref.content)
+                item.put("has_attachment", ref.hasAttachment)
+                arr.put(item)
+            }
+            obj.put("references", arr)
+            obj.toString()
+        } catch (_: Exception) {
+            baseContent
         }
     }
 
@@ -392,15 +589,60 @@ class ChatController @Inject constructor(
         isChannelPrivate: Boolean,
         text: String,
         attachments: List<AttachmentPickerItem>,
-        contentResolver: android.content.ContentResolver
+        contentResolver: android.content.ContentResolver,
+        references: List<com.mezon.mezon.api.MessageRef>? = null
     ) {
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
-        val content = if (text.isNotBlank()) buildTextContent(text) else "{\"t\":\"\"}"
+        val baseContent = if (text.isNotBlank()) buildTextContent(text) else "{\"t\":\"\"}"
+        val content = mergeRefsIntoOptimisticContent(baseContent, references)
+
+        val tempId = generateTempId()
+        val uc = userController.get()
+        val firstItem = attachments.firstOrNull()
+        val extraJson = if (attachments.size > 1) {
+            val arr = org.json.JSONArray()
+            for (i in 1 until attachments.size) {
+                val item = attachments[i]
+                val obj = org.json.JSONObject()
+                obj.put("url", item.uri.toString())
+                obj.put("thumb", "")
+                obj.put("width", item.width)
+                obj.put("height", item.height)
+                obj.put("filename", item.filename)
+                obj.put("filetype", item.mimeType)
+                obj.put("size", item.size.toInt())
+                obj.put("duration", item.duration)
+                arr.put(obj)
+            }
+            arr.toString()
+        } else ""
+        val optimistic = MessageEntity(
+            id = tempId,
+            channelId = channelId,
+            senderId = uc.userId,
+            senderName = uc.displayName.ifBlank { uc.username },
+            senderAvatar = uc.avatarUrl,
+            content = content,
+            timestampSeconds = System.currentTimeMillis() / 1000,
+            code = MessageEntity.CODE_CHAT,
+            isMe = true,
+            messageType = resolveOptimisticType(firstItem),
+            attachmentUrl = firstItem?.uri?.toString().orEmpty(),
+            attachmentFilename = firstItem?.filename.orEmpty(),
+            attachmentFiletype = firstItem?.mimeType.orEmpty(),
+            attachmentWidth = firstItem?.width ?: 0,
+            attachmentHeight = firstItem?.height ?: 0,
+            extraAttachmentsJson = extraJson,
+            sendState = MessageEntity.SEND_STATE_SENDING
+        )
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.didReceiveNewMessages, channelId, optimistic
+        )
 
         appScope.launch(ioDispatcher) {
             try {
-                val session = sessionManager.sessionFlow.first() ?: return@launch
+                val session = sessionManager.sessionFlow.first() ?: throw RuntimeException("No session")
                 val cdnBaseUrl = BuildConfig.MEZON_BASE_IMG_URL
                 val uploadedAttachments = ArrayList<MessageAttachment>()
 
@@ -442,17 +684,41 @@ class ChatController @Inject constructor(
                 }
 
                 if (uploadedAttachments.isNotEmpty()) {
-                    mezonSocket.writeChatMessage(
-                        clanId, channelId, mode, isPublic, content,
-                        attachments = uploadedAttachments
+                    val request = channelMessageSend {
+                        this.clanId = clanId
+                        this.channelId = channelId
+                        this.mode = mode
+                        this.isPublic = isPublic
+                        this.content = content
+                        this.attachments.addAll(uploadedAttachments)
+                        references?.let { this.references.addAll(it) }
+                    }
+                    val ack = api.sendChannelMessage(session.apiUrl, session.token, request)
+                    notificationCenter.postNotificationOnMainThread(
+                        NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
                     )
-                    Log.d(TAG, "Message with ${uploadedAttachments.size} attachments sent: channelId=$channelId")
                 } else {
-                    Log.e(TAG, "No attachments uploaded successfully")
+                    notificationCenter.postNotificationOnMainThread(
+                        NotificationCenter.pendingMessageError, channelId, tempId
+                    )
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to send message with attachments", e)
+                notificationCenter.postNotificationOnMainThread(
+                    NotificationCenter.pendingMessageError, channelId, tempId
+                )
             }
+        }
+    }
+
+    private fun resolveOptimisticType(item: AttachmentPickerItem?): Int {
+        if (item == null) return MessageEntity.TYPE_TEXT
+        val ft = item.mimeType.lowercase()
+        return when {
+            ft.startsWith("image/gif") -> MessageEntity.TYPE_GIF
+            ft.startsWith("image/") -> MessageEntity.TYPE_PHOTO
+            ft.startsWith("video/") -> MessageEntity.TYPE_VIDEO
+            else -> MessageEntity.TYPE_FILE
         }
     }
 
@@ -465,6 +731,23 @@ class ChatController @Inject constructor(
             cachedCurrentUserId = session?.userId?.toLongOrNull() ?: 0L
         }
         return cachedCurrentUserId
+    }
+
+    fun editMessage(
+        channelId: Long, clanId: Long, channelType: Int,
+        isChannelPrivate: Boolean, messageId: Long, newText: String
+    ) {
+        val mode = channelTypeToStreamMode(channelType)
+        val isPublic = !isChannelPrivate
+        val content = buildTextContent(newText)
+        appScope.launch {
+            try {
+                mezonSocket.updateChatMessage(clanId, channelId, mode, isPublic, messageId, content)
+                Log.d(TAG, "Message edited: channelId=$channelId messageId=$messageId")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to edit message", e)
+            }
+        }
     }
 
     fun deleteMessage(channelId: Long, clanId: Long, channelType: Int, isChannelPrivate: Boolean, messageId: Long) {
@@ -489,7 +772,12 @@ class ChatController @Inject constructor(
 
             when (msg.code) {
                 CODE_CHAT_UPDATE -> {
-                    appScope.launch { messageDao.upsert(entity) }
+                    appScope.launch {
+                        messageDao.updateContent(
+                            entity.channelId, entity.id, entity.content,
+                            entity.updateTimeSeconds, entity.hideEditted, entity.code
+                        )
+                    }
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.messageDidUpdate, entity.channelId, entity,
                         NotificationCenter.UPDATE_MASK_MESSAGE_TEXT

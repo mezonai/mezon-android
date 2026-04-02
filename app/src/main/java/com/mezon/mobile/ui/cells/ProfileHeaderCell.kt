@@ -15,6 +15,7 @@ class ProfileHeaderCell(context: Context, private val theme: ThemeColors) : Fram
     val nameTextView: TextView
     val subtitleTextView: TextView
     private val textContainer: LinearLayout
+    private val warnImageView: android.widget.ImageView
 
     private val avatarSizeDp = 72
     private val cellPadTop = LayoutHelper.dp(24)
@@ -27,6 +28,23 @@ class ProfileHeaderCell(context: Context, private val theme: ThemeColors) : Fram
             avatarSizeDp, avatarSizeDp,
             Gravity.CENTER_HORIZONTAL or Gravity.TOP,
             topMargin = 24f
+        ))
+
+        warnImageView = android.widget.ImageView(context).apply {
+            setImageResource(MezonIcon.circleExlaimionIcon.resId)
+            colorFilter = android.graphics.PorterDuffColorFilter(theme.error, android.graphics.PorterDuff.Mode.SRC_IN)
+            scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+            visibility = GONE
+            val bg = android.graphics.drawable.GradientDrawable()
+            bg.shape = android.graphics.drawable.GradientDrawable.OVAL
+            bg.setColor(theme.background)
+            background = bg
+            setPadding(LayoutHelper.dp(2), LayoutHelper.dp(2), LayoutHelper.dp(2), LayoutHelper.dp(2))
+        }
+        addView(warnImageView, LayoutHelper.createFrame(
+            24, 24,
+            Gravity.CENTER_HORIZONTAL or Gravity.TOP,
+            leftMargin = 30f, topMargin = 26f
         ))
 
         textContainer = LinearLayout(context).apply {
@@ -73,6 +91,10 @@ class ProfileHeaderCell(context: Context, private val theme: ThemeColors) : Fram
         requestLayout()
     }
 
+    fun setWarn(warn: Boolean) {
+        warnImageView.visibility = if (warn) VISIBLE else GONE
+    }
+
     fun setAvatarUrl(url: String?) {
         avatarView.setImageUrl(url)
     }
@@ -108,5 +130,7 @@ class ProfileHeaderCell(context: Context, private val theme: ThemeColors) : Fram
     fun updateColors() {
         nameTextView.setTextColor(theme.onSurface)
         subtitleTextView.setTextColor(theme.onSurfaceVariant)
+        warnImageView.colorFilter = android.graphics.PorterDuffColorFilter(theme.error, android.graphics.PorterDuff.Mode.SRC_IN)
+        (warnImageView.background as? android.graphics.drawable.GradientDrawable)?.setColor(theme.background)
     }
 }

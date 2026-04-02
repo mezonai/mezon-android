@@ -82,10 +82,8 @@ class MainTabsActivity : ViewPagerActivity() {
     override fun onInject(entryPoint: FragmentEntryPoint) {
         connectionController = entryPoint.connectionController()
         messagesController = entryPoint.messagesController()
-        AndroidUtilities.runOnUIThread({
-            accountController = entryPoint.accountController()
-            entryPoint.notificationStore()
-        }, 0)
+        accountController = entryPoint.accountController()
+        entryPoint.notificationStore()
     }
 
     override fun onFragmentCreate(): Boolean {

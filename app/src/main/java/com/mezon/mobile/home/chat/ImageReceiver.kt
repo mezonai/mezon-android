@@ -34,6 +34,8 @@ class ImageReceiver(private val parentView: View) {
     private var requestH = 0
     private val roundRadius = IntArray(4)
 
+    private var pendingLocalUri: android.net.Uri? = null
+
     private var crossfadeAlpha = 255
     private var crossfadeStartTime = 0L
     private val crossfadeDuration = 200L
@@ -84,12 +86,19 @@ class ImageReceiver(private val parentView: View) {
     fun onAttachedToWindow() {
         if (attached) return
         attached = true
-        if (allowStartAnimation) (animatedDrawable as? Animatable)?.start()
+        val hasPending = pendingLoad != null || pendingLocalUri != null
+        if (!hasPending && allowStartAnimation) {
+            (animatedDrawable as? Animatable)?.start()
+        }
         pendingLoad?.let { (url, thumbUrl) ->
             pendingLoad = null
             currentUrl = null
             currentThumbUrl = null
             setImage(url, thumbUrl, parentView.context)
+        }
+        pendingLocalUri?.let { uri ->
+            pendingLocalUri = null
+            setLocalUri(uri, parentView.context)
         }
     }
 
@@ -100,6 +109,7 @@ class ImageReceiver(private val parentView: View) {
         mainCancellable = null
         thumbCancellable?.cancel()
         thumbCancellable = null
+        pendingLocalUri = null
     }
 
     fun setImage(url: String?, thumbUrl: String?, context: Context) {
@@ -109,6 +119,7 @@ class ImageReceiver(private val parentView: View) {
         if (!urlChanged && !thumbChanged) return
 
         if (!attached) {
+            recycle()
             pendingLoad = Pair(url, thumbUrl)
             return
         }
@@ -138,19 +149,22 @@ class ImageReceiver(private val parentView: View) {
                 (url.contains(".webp", true) && !url.endsWith("@webp"))
 
             if (isAnimatedRequest) {
-                // Use cached first-frame bitmap as instant placeholder (no flicker)
-                val cachedFirstFrame = loader.getBitmapFromMemory(url, rw, rh)
-                if (cachedFirstFrame != null && thumbBitmap == null) {
-                    thumbBitmap = cachedFirstFrame
-                    parentView.invalidate()
-                }
-                // Keep existing animatedDrawable visible until new one arrives
+                stopAnimation()
+                animatedDrawable = null
+                imageBitmap = null
+                cachedShader = null
+                cachedShaderBitmap = null
 
+                val cachedFirstFrame = loader.getBitmapFromMemory(url, rw, rh)
+                thumbBitmap = cachedFirstFrame
+                parentView.invalidate()
+
+                val expectedUrl = url
                 mainCancellable = loader.loadDrawable(url, rw, rh,
                     onSuccess = { drawable ->
+                        if (currentUrl != expectedUrl) return@loadDrawable
                         if (drawable is Animatable) {
                             imageBitmap = null
-                            // Keep thumbBitmap — draw() prefers animated over thumb naturally
                             cachedShader = null
                             cachedShaderBitmap = null
                             animatedDrawable = drawable
@@ -165,10 +179,11 @@ class ImageReceiver(private val parentView: View) {
                         }
                         parentView.invalidate()
                     },
-                    onError = { onLoadError(url, rw, rh, loader) }
+                    onError = {
+                        if (currentUrl == expectedUrl) onLoadError(url, rw, rh, loader)
+                    }
                 )
             } else {
-                // Static image path — existing anti-flicker logic
                 val cached = loader.getBitmapFromMemory(url, rw, rh)
                 if (cached != null) {
                     imageBitmap = cached
@@ -187,8 +202,10 @@ class ImageReceiver(private val parentView: View) {
                 cachedShader = null
                 cachedShaderBitmap = null
 
+                val expectedUrl = url
                 mainCancellable = loader.load(url, rw, rh,
                     onSuccess = { bmp ->
+                        if (currentUrl != expectedUrl) return@load
                         val hadThumb = thumbBitmap != null
                         imageBitmap = bmp
                         animatedDrawable = null
@@ -203,7 +220,9 @@ class ImageReceiver(private val parentView: View) {
                         }
                         parentView.invalidate()
                     },
-                    onError = { onLoadError(url, rw, rh, loader) }
+                    onError = {
+                        if (currentUrl == expectedUrl) onLoadError(url, rw, rh, loader)
+                    }
                 )
             }
         }
@@ -273,31 +292,6 @@ class ImageReceiver(private val parentView: View) {
     private fun drawAnimated(canvas: Canvas, drawable: Drawable): Boolean {
         val hasRound = roundRadius.any { it > 0 }
 
-        val intrW = drawable.intrinsicWidth.toFloat()
-        val intrH = drawable.intrinsicHeight.toFloat()
-
-        val drawLeft: Int
-        val drawTop: Int
-        val drawRight: Int
-        val drawBottom: Int
-
-        if (intrW > 0f && intrH > 0f) {
-            val scaleW = intrW / imageW
-            val scaleH = intrH / imageH
-            val scale = 1f / minOf(scaleW, scaleH)
-            val scaledW = intrW * scale
-            val scaledH = intrH * scale
-            drawLeft = (imageX - (scaledW - imageW) / 2f).toInt()
-            drawTop = (imageY - (scaledH - imageH) / 2f).toInt()
-            drawRight = (drawLeft + scaledW).toInt()
-            drawBottom = (drawTop + scaledH).toInt()
-        } else {
-            drawLeft = imageX.toInt()
-            drawTop = imageY.toInt()
-            drawRight = (imageX + imageW).toInt()
-            drawBottom = (imageY + imageH).toInt()
-        }
-
         if (hasRound) {
             roundRect.set(imageX, imageY, imageX + imageW, imageY + imageH)
             for (i in roundRadius.indices) {
@@ -313,7 +307,20 @@ class ImageReceiver(private val parentView: View) {
             canvas.clipRect(imageX, imageY, imageX + imageW, imageY + imageH)
         }
 
-        drawable.setBounds(drawLeft, drawTop, drawRight, drawBottom)
+        val iw = drawable.intrinsicWidth
+        val ih = drawable.intrinsicHeight
+        if (iw > 0 && ih > 0) {
+            val scale = maxOf(imageW / iw.toFloat(), imageH / ih.toFloat())
+            val dx = imageX + (imageW - iw * scale) / 2f
+            val dy = imageY + (imageH - ih * scale) / 2f
+            canvas.translate(dx, dy)
+            canvas.scale(scale, scale)
+            drawable.setBounds(0, 0, iw, ih)
+        } else {
+            drawable.setBounds(imageX.toInt(), imageY.toInt(),
+                (imageX + imageW).toInt(), (imageY + imageH).toInt())
+        }
+
         drawable.draw(canvas)
         canvas.restore()
         return true
@@ -408,6 +415,46 @@ class ImageReceiver(private val parentView: View) {
         currentUrl = null
         currentThumbUrl = null
         pendingLoad = null
+        pendingLocalUri = null
+    }
+
+    fun setLocalUri(uri: android.net.Uri, context: Context) {
+        val uriString = uri.toString()
+        if (!attached) {
+            recycle()
+            pendingLocalUri = uri
+            currentUrl = uriString
+            return
+        }
+        if (uriString == currentUrl && hasMainImage()) return
+
+        recycle()
+        currentUrl = uriString
+
+        val loader = MezonImageLoader.getInstance(context)
+        val rw = if (requestW > 0) requestW else 800
+        val rh = if (requestH > 0) requestH else 800
+
+        val cached = loader.getBitmapFromMemory(uriString, rw, rh)
+        if (cached != null) {
+            imageBitmap = cached
+            crossfadeAlpha = 255
+            parentView.invalidate()
+            return
+        }
+
+        parentView.invalidate()
+
+        mainCancellable = loader.loadFromUri(uri, rw, rh,
+            onSuccess = { bmp ->
+                if (currentUrl != uriString) return@loadFromUri
+                imageBitmap = bmp
+                cachedShader = null
+                cachedShaderBitmap = null
+                crossfadeAlpha = 255
+                parentView.invalidate()
+            }
+        )
     }
 
     fun setBitmapDirectly(bmp: Bitmap) {

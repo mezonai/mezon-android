@@ -67,11 +67,7 @@ class ActionBarMenuItem(
             LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT,
             Gravity.CENTER
         ))
-        val typed = TypedValue()
-        context.theme.resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, typed, true)
-        if (typed.resourceId != 0) {
-            foreground = context.getDrawable(typed.resourceId)
-        }
+        foreground = parentMenu.parentActionBar.createCircleRipple()
         isClickable = true
         isFocusable = true
     }

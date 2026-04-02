@@ -4,9 +4,12 @@ import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.session.SessionManager
 import android.util.Log
 import com.google.protobuf.StringValue
+import com.mezon.mezon.api.ListClanBadgeCountResponse
+import com.mezon.mezon.api.ListChannelBadgeCountResponse
 import com.mezon.mezon.api.MessageAttachment
 import com.mezon.mezon.api.MessageMention
 import com.mezon.mezon.api.MessageRef
+import com.mezon.mezon.api.listChannelBadgeCountRequest
 import com.mezon.mezon.api.messageReaction
 import com.mezon.mezon.rtapi.EnvelopeKt
 import com.mezon.mezon.rtapi.Envelope
@@ -22,6 +25,7 @@ import com.mezon.mezon.rtapi.envelope
 import com.mezon.mezon.rtapi.incomingCallPush
 import com.mezon.mezon.rtapi.lastPinMessageEvent
 import com.mezon.mezon.rtapi.lastSeenMessageEvent
+import com.mezon.mezon.rtapi.listDataSocket
 import com.mezon.mezon.rtapi.markAsRead
 import com.mezon.mezon.rtapi.messageTypingEvent
 import com.mezon.mezon.rtapi.ping
@@ -33,14 +37,16 @@ import com.mezon.mezon.rtapi.webrtcSignalingFwd
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.random.Random
 import okhttp3.OkHttpClient
@@ -186,6 +192,45 @@ class MezonSocket @Inject constructor(
 
     suspend fun joinClanChat(clanId: Long): Envelope = send {
         this.clanJoin = clanJoin { this.clanId = clanId }
+    }
+
+    suspend fun awaitConnected(timeoutMs: Long = 15_000L): Boolean {
+        if (_connectionState.value == ConnectionState.CONNECTED) return true
+        return try {
+            withTimeout(timeoutMs) {
+                _connectionState.first { it == ConnectionState.CONNECTED }
+            }
+            true
+        } catch (_: TimeoutCancellationException) {
+            Log.w(TAG, "awaitConnected: timeout ${timeoutMs}ms")
+            false
+        }
+    }
+
+    suspend fun fetchListClanBadgeCountSocket(): ListClanBadgeCountResponse {
+        val env = send {
+            this.listDataSocket = listDataSocket { apiName = "ListClanBadgeCount" }
+        }
+        require(env.messageCase == Envelope.MessageCase.LIST_DATA_SOCKET) {
+            "ListClanBadgeCount: expected LIST_DATA_SOCKET, got ${env.messageCase}"
+        }
+        val data = env.listDataSocket
+        return if (data.hasClanBadgeCount()) data.clanBadgeCount else ListClanBadgeCountResponse.getDefaultInstance()
+    }
+
+    suspend fun fetchListChannelBadgeCountSocket(clanId: Long): ListChannelBadgeCountResponse {
+        val env = send {
+            this.listDataSocket = listDataSocket {
+                apiName = "ListChannelBadgeCount"
+                listChannelBadgeCountReq = listChannelBadgeCountRequest { this.clanId = clanId }
+            }
+        }
+        require(env.messageCase == Envelope.MessageCase.LIST_DATA_SOCKET) {
+            "ListChannelBadgeCount: expected LIST_DATA_SOCKET, got ${env.messageCase}"
+        }
+        val data = env.listDataSocket
+        return if (data.hasChannelBadgeCount()) data.channelBadgeCount
+        else ListChannelBadgeCountResponse.getDefaultInstance()
     }
 
     suspend fun joinChat(

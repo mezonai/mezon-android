@@ -15,6 +15,7 @@ import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.network.CODE_CHAT_REMOVE
 import com.mezon.mobile.network.CODE_CHAT_UPDATE
 import com.mezon.mobile.network.MezonApi
+import com.mezon.mobile.network.MezonSocket
 import com.mezon.mobile.network.NetworkMonitor
 import com.mezon.mobile.network.STREAM_MODE_DM
 import com.mezon.mobile.network.STREAM_MODE_GROUP
@@ -24,6 +25,9 @@ import com.mezon.mobile.notification.ActiveChannelTracker
 import com.mezon.mobile.notification.NotificationHelper
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.util.parseContentPreview
+import dagger.Lazy
+import com.mezon.mezon.api.ChannelDescription
+import com.mezon.mezon.rtapi.LastSeenMessageEvent
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -44,6 +48,8 @@ class DialogsController @Inject constructor(
     private val cacheTracker: ApiCacheTracker,
     private val activeChannelTracker: ActiveChannelTracker,
     private val notificationHelper: NotificationHelper,
+    private val mezonSocket: MezonSocket,
+    private val badgeCoordinator: Lazy<BadgeCoordinator>,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     @ApplicationScope private val appScope: CoroutineScope
 ) {
@@ -118,56 +124,88 @@ class DialogsController @Inject constructor(
                     val merged = rawList
                         .filter { it.active == 1 }
                         .map { it.toDirectMessage(currentUserId) }
-                        .sortedByDescending { it.lastMessageTimestamp }
+                        .sortedByDescending { it.lastSentMessageTs }
 
                     Log.d(TAG, "loadDialogs: API returned ${merged.size} items")
                     putDialogs(merged)
                     cacheTracker.markCalled(cacheKey)
+                    runCatching {
+                        if (!mezonSocket.awaitConnected()) return@runCatching
+                        val badge = mezonSocket.fetchListChannelBadgeCountSocket(0L)
+                        applyDmReadStatePatchFromSocket(badge.channeldescList)
+                    }
                 }
 
                 dialogsLoaded = true
                 Log.d(TAG, "loadDialogs: done, posting dialogsNeedReload")
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
+                badgeCoordinator.get().processDeferredQueue()
             } catch (e: Exception) {
                 Log.e(TAG, "loadDialogs failed", e)
                 dialogsLoaded = true
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsLoadError, e.message ?: "Failed to load")
+                badgeCoordinator.get().processDeferredQueue()
             }
         }
     }
 
-    fun updateDialogLastSeen(channelId: Long, messageId: Long, remainingUnread: Int) {
+    fun updateDialogLastSeen(
+        channelId: Long,
+        messageId: Long,
+        remainingUnread: Int,
+        timestampSeconds: Int = 0
+    ) {
+        var updated: DirectMessage? = null
         synchronized(this) {
             val dm = dialogsDict[channelId] ?: return
             if (messageId <= dm.lastSeenMessageId) return
-            val updated = dm.copy(
+            val newUnread = remainingUnread.coerceAtLeast(0)
+            if (newUnread == dm.unreadCount && messageId == dm.lastSeenMessageId) return
+            val tsLong = timestampSeconds.toLong() and 0xFFFF_FFFFL
+            val syncTs = when {
+                newUnread == 0 -> maxOf(dm.lastSeenMessageTs, dm.lastSentMessageTs, tsLong)
+                tsLong > 0L -> maxOf(dm.lastSeenMessageTs, tsLong)
+                else -> dm.lastSeenMessageTs
+            }
+            val u = dm.copy(
                 lastSeenMessageId = messageId,
-                unreadCount = remainingUnread.coerceAtLeast(0)
+                unreadCount = newUnread,
+                lastSeenMessageTs = syncTs
             )
-            dialogsDict.put(channelId, updated)
+            dialogsDict.put(channelId, u)
             val idx = dialogs.indexOfFirst { it.channelId == channelId }
-            if (idx >= 0) { dialogs[idx] = updated }
+            if (idx >= 0) dialogs[idx] = u
+            updated = u
         }
-        appScope.launch { directMessageDao.updateLastSeen(channelId, messageId) }
+        updated?.let { appScope.launch(ioDispatcher) { directMessageDao.upsert(it) } }
     }
 
-    fun markDialogAsRead(channelId: Long, postEvent: Boolean = true) {
+    fun markDialogAsRead(channelId: Long, postEvent: Boolean = true, seenTimestampSeconds: Int = 0) {
         var changed = false
         var newSeenId = 0L
+        var updated: DirectMessage? = null
         synchronized(this) {
             val dm = dialogsDict[channelId]
             if (dm == null || dm.unreadCount == 0) return
             newSeenId = maxOf(dm.lastSeenMessageId, dm.lastSentMessageId)
-            val updated = dm.copy(
+            val tsLong = seenTimestampSeconds.toLong() and 0xFFFF_FFFFL
+            val newSeenTs = maxOf(dm.lastSeenMessageTs, dm.lastSentMessageTs, tsLong)
+            val u = dm.copy(
                 unreadCount = 0,
-                lastSeenMessageId = newSeenId
+                lastSeenMessageId = newSeenId,
+                lastSeenMessageTs = newSeenTs
             )
-            dialogsDict.put(channelId, updated)
+            dialogsDict.put(channelId, u)
             val idx = dialogs.indexOfFirst { it.channelId == channelId }
-            if (idx >= 0) { dialogs[idx] = updated; changed = true }
+            if (idx >= 0) {
+                dialogs[idx] = u
+                changed = true
+            }
+            updated = u
         }
-        if (changed) {
-            appScope.launch { directMessageDao.updateLastSeen(channelId, newSeenId) }
+        if (changed && updated != null) {
+            val row = updated!!
+            appScope.launch(ioDispatcher) { directMessageDao.upsert(row) }
             if (postEvent) {
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
                 notificationCenter.postNotificationOnMainThread(
@@ -194,17 +232,19 @@ class DialogsController @Inject constructor(
             }
             val newPreview = if (!isContentMutation || msg.code == CODE_CHAT_UPDATE)
                 parseContentPreview(msg.content) else dm.lastMessageContent
-            val newTimestamp = if (!isContentMutation) msg.createTimeSeconds.toLong() else dm.lastMessageTimestamp
 
             val newSentMessageId = if (!isContentMutation) msg.messageId else dm.lastSentMessageId
 
             val newLastSeenId = if (isFromMe && !isContentMutation && msg.messageId > dm.lastSeenMessageId)
                 msg.messageId else dm.lastSeenMessageId
 
+            val newSentTs = if (!isContentMutation && msg.createTimeSeconds > 0) {
+                maxOf(dm.lastSentMessageTs, msg.createTimeSeconds.toLong() and 0xFFFF_FFFFL)
+            } else dm.lastSentMessageTs
             val result = dm.copy(
                 lastMessageContent = newPreview.ifBlank { dm.lastMessageContent },
-                lastMessageTimestamp = newTimestamp.takeIf { it > 0 } ?: dm.lastMessageTimestamp,
                 lastSentMessageId = newSentMessageId.takeIf { it > 0 } ?: dm.lastSentMessageId,
+                lastSentMessageTs = newSentTs,
                 lastSeenMessageId = newLastSeenId,
                 unreadCount = newUnread
             )
@@ -212,11 +252,21 @@ class DialogsController @Inject constructor(
             dialogsDict.put(msg.channelId, result)
             val idx = dialogs.indexOfFirst { it.channelId == msg.channelId }
             if (idx >= 0) dialogs[idx] = result
-            if (!isContentMutation) dialogs.sortByDescending { it.lastMessageTimestamp }
+            if (!isContentMutation) dialogs.sortByDescending { it.lastSentMessageTs }
         }
         updatedDm?.let { dm ->
             appScope.launch { directMessageDao.upsert(dm) }
             notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
+        }
+    }
+
+    private fun mergeDmUnreadFromList(cachedUnread: Int, api: DirectMessage): Int {
+        val listSignalsReadState =
+            api.lastSeenMessageTs != 0L || api.lastSentMessageTs != 0L
+        return when {
+            api.unreadCount != 0 -> api.unreadCount
+            listSignalsReadState -> api.unreadCount
+            else -> cachedUnread
         }
     }
 
@@ -228,8 +278,17 @@ class DialogsController @Inject constructor(
                     dialogsDict.put(dm.channelId, dm)
                 } else {
                     val merged = dm.copy(
+                        label = dm.label.ifBlank { existing.label },
+                        avatarUrl = dm.avatarUrl.ifBlank { existing.avatarUrl },
+                        displayName = dm.displayName.ifBlank { existing.displayName },
+                        lastMessageContent = dm.lastMessageContent.ifBlank { existing.lastMessageContent },
+                        isOnline = existing.isOnline,
+                        otherUserId = if (dm.otherUserId != 0L) dm.otherUserId else existing.otherUserId,
                         lastSeenMessageId = maxOf(existing.lastSeenMessageId, dm.lastSeenMessageId),
-                        unreadCount = if (dm.lastMessageTimestamp >= existing.lastMessageTimestamp) dm.unreadCount else existing.unreadCount
+                        lastSentMessageId = maxOf(existing.lastSentMessageId, dm.lastSentMessageId),
+                        lastSeenMessageTs = maxOf(existing.lastSeenMessageTs, dm.lastSeenMessageTs),
+                        lastSentMessageTs = maxOf(existing.lastSentMessageTs, dm.lastSentMessageTs),
+                        unreadCount = mergeDmUnreadFromList(existing.unreadCount, dm)
                     )
                     dialogsDict.put(dm.channelId, merged)
                 }
@@ -242,9 +301,96 @@ class DialogsController @Inject constructor(
             for (id in toRemove) dialogsDict.remove(id)
             dialogs.clear()
             for (i in 0 until dialogsDict.size()) dialogs.add(dialogsDict.valueAt(i))
-            dialogs.sortByDescending { it.lastMessageTimestamp }
+            dialogs.sortByDescending { it.lastSentMessageTs }
         }
-        appScope.launch { directMessageDao.upsertAll(list) }
+        appScope.launch(ioDispatcher) {
+            val snapshot = synchronized(this@DialogsController) { ArrayList(dialogs) }
+            directMessageDao.upsertAll(snapshot)
+        }
+    }
+
+    private fun patchDmRowReadStateFromSparseBadge(
+        row: DirectMessage,
+        p: ChannelDescription
+    ): Pair<DirectMessage, Boolean> {
+        var next = row
+        var changed = false
+        if (p.countMessUnread != next.unreadCount) {
+            changed = true
+            next = next.copy(unreadCount = p.countMessUnread)
+        }
+        if (p.hasLastSentMessage()) {
+            val m = p.lastSentMessage
+            if (m.id != 0L) {
+                val merged = maxOf(next.lastSentMessageId, m.id)
+                if (merged != next.lastSentMessageId) {
+                    changed = true
+                    next = next.copy(lastSentMessageId = merged)
+                }
+            }
+            val ts = m.timestampSeconds.toLong() and 0xFFFF_FFFFL
+            if (ts > 0L) {
+                val mergedTs = maxOf(next.lastSentMessageTs, ts)
+                if (mergedTs != next.lastSentMessageTs) {
+                    changed = true
+                    next = next.copy(lastSentMessageTs = mergedTs)
+                }
+            }
+        }
+        if (p.hasLastSeenMessage()) {
+            val m = p.lastSeenMessage
+            if (m.id != 0L) {
+                val merged = maxOf(next.lastSeenMessageId, m.id)
+                if (merged != next.lastSeenMessageId) {
+                    changed = true
+                    next = next.copy(lastSeenMessageId = merged)
+                }
+            }
+            val ts = m.timestampSeconds.toLong() and 0xFFFF_FFFFL
+            if (ts > 0L) {
+                val mergedTs = maxOf(next.lastSeenMessageTs, ts)
+                if (mergedTs != next.lastSeenMessageTs) {
+                    changed = true
+                    next = next.copy(lastSeenMessageTs = mergedTs)
+                }
+            }
+        }
+        return Pair(next, changed)
+    }
+
+    private fun applyDmReadStatePatchFromSocket(badgeDescs: List<ChannelDescription>) {
+        if (badgeDescs.isEmpty()) return
+        val byId = badgeDescs.associateBy { it.channelId }
+        var changed = false
+        synchronized(this) {
+            val newList = ArrayList<DirectMessage>(dialogs.size)
+            for (row in dialogs) {
+                val p = byId[row.channelId]
+                if (p == null) {
+                    newList.add(row)
+                } else {
+                    val (next, rowChanged) = patchDmRowReadStateFromSparseBadge(row, p)
+                    if (rowChanged) {
+                        changed = true
+                        dialogsDict.put(next.channelId, next)
+                    }
+                    newList.add(next)
+                }
+            }
+            if (changed) {
+                dialogs.clear()
+                dialogs.addAll(newList.sortedByDescending { it.lastSentMessageTs })
+            }
+        }
+        if (!changed) return
+        appScope.launch(ioDispatcher) {
+            val snapshot = synchronized(this@DialogsController) { ArrayList(dialogs) }
+            directMessageDao.upsertAll(snapshot)
+        }
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_BADGE
+        )
     }
 
     private suspend fun loadDialogsFromDb() {
@@ -252,23 +398,17 @@ class DialogsController @Inject constructor(
         val cached = withContext(ioDispatcher) { directMessageDao.getAll() }
         Log.d(TAG, "loadDialogsFromDb: Room returned ${cached.size} items")
         if (cached.isNotEmpty()) {
-            var staleReadStateCount = 0
             synchronized(this) {
                 dialogs.clear()
                 dialogsDict.clear()
-                val sorted = cached.sortedByDescending { it.lastMessageTimestamp }
+                val sorted = cached.sortedByDescending { it.lastSentMessageTs }
                 dialogs.addAll(sorted)
                 for (dm in sorted) {
                     dialogsDict.put(dm.channelId, dm)
-                    if (dm.lastSeenMessageId == 0L && dm.lastSentMessageId != 0L) staleReadStateCount++
                 }
             }
-            Log.d(TAG, "loadDialogsFromDb: done, posting dialogsNeedReload (staleReadState=$staleReadStateCount)")
+            Log.d(TAG, "loadDialogsFromDb: done, posting dialogsNeedReload")
             notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
-            if (staleReadStateCount > 0) {
-                Log.d(TAG, "loadDialogsFromDb: $staleReadStateCount dialogs with stale read state, scheduling API refresh")
-                loadDialogs()
-            }
         } else {
             Log.d(TAG, "loadDialogsFromDb: empty cache, no notification")
         }
@@ -317,27 +457,73 @@ class DialogsController @Inject constructor(
 
     private suspend fun observeLastSeenMessages() {
         socketEventDispatcher.lastSeenMessageEvents.collect { event ->
-            if (event.channelId == 0L || event.messageId == 0L) return@collect
-            if (event.clanId != 0L) return@collect
-            updateLastSeen(event.channelId, event.messageId)
+            applyLastSeenDmFromSocket(event)
         }
     }
 
-    fun updateLastSeen(channelId: Long, messageId: Long) {
+    private fun applyLastSeenDmFromSocket(event: LastSeenMessageEvent) {
+        if (event.channelId == 0L) return
+        if (event.clanId != 0L) return
+        val ts = event.timestampSeconds
+        when {
+            event.messageId != 0L && event.badgeCount == 0 ->
+                updateLastSeen(event.channelId, event.messageId, ts)
+            event.messageId != 0L ->
+                updateDialogLastSeen(event.channelId, event.messageId, event.badgeCount, ts)
+            ts != 0 ->
+                applyLastSeenTsOnlyDm(event.channelId, ts, event.badgeCount)
+        }
+    }
+
+    private fun applyLastSeenTsOnlyDm(channelId: Long, timestampSeconds: Int, badgeCount: Int) {
+        val tsLong = timestampSeconds.toLong() and 0xFFFF_FFFFL
+        if (tsLong == 0L) return
+        var updated: DirectMessage? = null
+        synchronized(this) {
+            val dm = dialogsDict[channelId] ?: return
+            val newSeenTs = maxOf(dm.lastSeenMessageTs, tsLong)
+            val newUnread = badgeCount.coerceAtLeast(0)
+            if (newSeenTs == dm.lastSeenMessageTs && newUnread == dm.unreadCount) return
+            val u = dm.copy(
+                lastSeenMessageTs = newSeenTs,
+                unreadCount = newUnread
+            )
+            dialogsDict.put(channelId, u)
+            val idx = dialogs.indexOfFirst { it.channelId == channelId }
+            if (idx >= 0) dialogs[idx] = u
+            updated = u
+        }
+        updated?.let { appScope.launch(ioDispatcher) { directMessageDao.upsert(it) } }
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_READ_DIALOG_MESSAGE
+        )
+    }
+
+    fun updateLastSeen(channelId: Long, messageId: Long, timestampSeconds: Int = 0) {
         var changed = false
+        var updated: DirectMessage? = null
         synchronized(this) {
             val dm = dialogsDict[channelId] ?: return
             if (messageId <= dm.lastSeenMessageId) return
-            val updated = dm.copy(
+            val tsLong = timestampSeconds.toLong() and 0xFFFF_FFFFL
+            val newSeenTs = maxOf(dm.lastSeenMessageTs, dm.lastSentMessageTs, tsLong)
+            val u = dm.copy(
                 lastSeenMessageId = messageId,
-                unreadCount = 0
+                unreadCount = 0,
+                lastSeenMessageTs = newSeenTs
             )
-            dialogsDict.put(channelId, updated)
+            dialogsDict.put(channelId, u)
             val idx = dialogs.indexOfFirst { it.channelId == channelId }
-            if (idx >= 0) { dialogs[idx] = updated; changed = true }
+            if (idx >= 0) {
+                dialogs[idx] = u
+                changed = true
+            }
+            updated = u
         }
-        if (changed) {
-            appScope.launch { directMessageDao.updateLastSeen(channelId, messageId) }
+        if (changed && updated != null) {
+            val row = updated!!
+            appScope.launch(ioDispatcher) { directMessageDao.upsert(row) }
             notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
             notificationCenter.postNotificationOnMainThread(
                 NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_READ_DIALOG_MESSAGE

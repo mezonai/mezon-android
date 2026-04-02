@@ -7,8 +7,8 @@
     </style>
 
     <style name="Theme.Mezon.Splash" parent="Theme.SplashScreen">
-        <item name="windowSplashScreenBackground">@color/window_background</item>
-        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="windowSplashScreenBackground">@color/splash_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/bootsplash_logo</item>
         <item name="postSplashScreenTheme">@style/Theme.Mezon</item>
     </style>
 
@@ -17,8 +17,9 @@
         <item name="android:fadeScrollbars">true</item>
         <item name="android:scrollbarFadeDuration">300</item>
         <item name="android:scrollbarDefaultDelayBeforeFade">1000</item>
+        <item name="android:scrollbarThumbVertical">@drawable/scrollbar_thumb</item>
+        <item name="android:scrollbarSize">4dp</item>
     </style>
 
-    <!-- Match MezonLightColors.Primary (#F2F3F5) -->
     <color name="window_background">#FFF2F3F5</color>
 </resources>

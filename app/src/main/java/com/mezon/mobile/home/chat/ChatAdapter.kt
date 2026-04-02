@@ -192,6 +192,7 @@ class ChatAdapter(
     private fun computeCombined(idx: Int): Boolean {
         if (idx + 1 >= messages.size) return false
         val current = messages[idx]
+        if (current.content.contains("\"references\"")) return false
         val prev = messages[idx + 1]
         if (current.senderId != prev.senderId) return false
         if (prev.isSystemMessage || current.isSystemMessage) return false

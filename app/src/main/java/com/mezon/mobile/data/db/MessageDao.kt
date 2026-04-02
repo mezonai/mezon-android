@@ -51,6 +51,9 @@ interface MessageDao {
     """)
     suspend fun trimAround(channelId: Long, anchorId: Long, halfKeep: Int = 100)
 
+    @Query("UPDATE messages SET content = :content, updateTimeSeconds = :updateTime, hideEditted = :hideEditted, code = :code WHERE channelId = :channelId AND id = :messageId")
+    suspend fun updateContent(channelId: Long, messageId: Long, content: String, updateTime: Long, hideEditted: Boolean, code: Int)
+
     @Query("DELETE FROM messages WHERE channelId = :channelId AND id = :messageId")
     suspend fun delete(channelId: Long, messageId: Long)
 

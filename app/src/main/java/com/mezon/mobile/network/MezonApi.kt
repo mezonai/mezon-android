@@ -2,31 +2,40 @@ package com.mezon.mobile.network
 
 import com.mezon.mobile.BuildConfig
 import android.util.Base64
-import android.util.Log
 import com.mezon.mezon.api.Account
 import com.mezon.mezon.api.AccountEmail
+import com.mezon.mezon.api.AllUserClans
+import com.mezon.mezon.api.EmojiListedResponse
+import com.mezon.mezon.api.StickerListedResponse
 import com.mezon.mezon.api.BlockFriendsRequest
 import com.mezon.mezon.api.ChannelDescList
 import com.mezon.mezon.api.ChannelMessageList
 import com.mezon.mezon.api.ClanDescList
+import com.mezon.mezon.api.ChannelUserList
+import com.mezon.mezon.api.ClanUserList
 import com.mezon.mezon.api.DeleteNotificationsRequest
 import com.mezon.mezon.api.FriendList
 import com.mezon.mezon.api.LinkAccountConfirmRequest
 import com.mezon.mezon.api.ListFriendsRequest
 import com.mezon.mezon.api.ListNotificationsRequest
 import com.mezon.mezon.api.NotificationList
+import com.mezon.mezon.api.SearchMessageResponse
 import com.mezon.mezon.api.Session
 import com.mezon.mezon.api.UploadAttachment
 import com.mezon.mezon.api.uploadAttachmentRequest
 import com.mezon.mezon.api.accountEmail
 import com.mezon.mezon.api.blockFriendsRequest
 import com.mezon.mezon.api.deleteNotificationsRequest
+import com.mezon.mezon.api.filterParam
 import com.mezon.mezon.api.linkAccountConfirmRequest
 import com.mezon.mezon.api.listClanDescRequest
+import com.mezon.mezon.api.listChannelUsersRequest
+import com.mezon.mezon.api.listClanUsersRequest
 import com.mezon.mezon.api.listChannelDescsRequest
 import com.mezon.mezon.api.listChannelMessagesRequest
 import com.mezon.mezon.api.listFriendsRequest
 import com.mezon.mezon.api.listNotificationsRequest
+import com.mezon.mezon.api.searchMessageRequest
 import com.mezon.mezon.api.sessionRefreshRequest
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -105,7 +114,7 @@ data class OtpRequestResponse(
     val status: Int = 0
 )
 
-private const val TAG = "MezonApi"
+
 private val CONTENT_TYPE_PROTO = ContentType("application", "proto")
 
 @Singleton
@@ -235,14 +244,14 @@ class MezonApi @Inject constructor(
         apiUrl: String,
         token: String,
         clanId: Long,
-        limit: Int = 200
+        limit: Int = 500
     ): ChannelDescList {
         val request = listChannelDescsRequest {
             this.clanId = clanId
             this.limit = limit
             this.state = 1
-            this.page = 1
-            this.channelType = 0
+            this.page = 0
+            this.channelType = CHANNEL_TYPE_CHANNEL
             this.isMobile = true
         }
         val bytes = rpc(apiUrl, token, "ListChannelDescs", request.toByteArray())
@@ -278,13 +287,41 @@ class MezonApi @Inject constructor(
         token: String,
         displayName: String? = null,
         avatarUrl: String? = null,
-        aboutMe: String? = null
+        aboutMe: String? = null,
+        logoUrl: String? = null
     ): ByteArray {
         val builder = com.mezon.mezon.api.UpdateAccountRequest.newBuilder()
         if (displayName != null) builder.displayName = com.google.protobuf.StringValue.of(displayName)
         if (avatarUrl != null) builder.avatarUrl = com.google.protobuf.StringValue.of(avatarUrl)
         if (aboutMe != null) builder.aboutMe = com.google.protobuf.StringValue.of(aboutMe)
+        if (logoUrl != null) builder.logo = com.google.protobuf.StringValue.of(logoUrl)
         return rpc(apiUrl, token, "UpdateAccount", builder.build().toByteArray())
+    }
+
+    suspend fun getUserProfileOnClan(
+        apiUrl: String,
+        token: String,
+        clanId: Long
+    ): com.mezon.mezon.api.ClanProfile {
+        val request = com.mezon.mezon.api.ClanProfileRequest.newBuilder()
+            .setClanId(clanId)
+            .build()
+        val bytes = rpc(apiUrl, token, "GetUserProfileOnClan", request.toByteArray())
+        return com.mezon.mezon.api.ClanProfile.parseFrom(bytes)
+    }
+
+    suspend fun updateClanProfile(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        nickName: String? = null,
+        avatar: String? = null
+    ): ByteArray {
+        val builder = com.mezon.mezon.api.UpdateClanProfileRequest.newBuilder()
+            .setClanId(clanId)
+        if (nickName != null) builder.nickName = com.google.protobuf.StringValue.of(nickName)
+        if (avatar != null) builder.avatar = com.google.protobuf.StringValue.of(avatar)
+        return rpc(apiUrl, token, "UpdateUserProfileByClan", builder.build().toByteArray())
     }
 
     suspend fun getAccount(apiUrl: String, token: String): Account {
@@ -382,6 +419,16 @@ class MezonApi @Inject constructor(
         return rpc(apiUrl, token, "DeleteFriends", request.toByteArray())
     }
 
+    suspend fun sendChannelMessage(
+        apiUrl: String,
+        token: String,
+        request: com.mezon.mezon.rtapi.ChannelMessageSend
+    ): com.mezon.mezon.rtapi.ChannelMessageAck {
+        val body = request.toByteArray()
+        val bytes = rpc(apiUrl, token, "SendChannelMessage", body)
+        return com.mezon.mezon.rtapi.ChannelMessageAck.parseFrom(bytes)
+    }
+
     suspend fun listChannelMessages(
         apiUrl: String,
         token: String,
@@ -458,9 +505,98 @@ class MezonApi @Inject constructor(
             if (height > 0) this.height = height
         }
         val bytes = rpc(apiUrl, token, "UploadAttachmentFile", request.toByteArray())
-        val result = UploadAttachment.parseFrom(bytes)
-        Log.d(TAG, "UploadAttachmentFile: filename=${result.filename} url=${result.url.take(60)}...")
-        return result
+        return UploadAttachment.parseFrom(bytes)
+    }
+
+    suspend fun listUserClansByUserId(
+        apiUrl: String,
+        token: String
+    ): AllUserClans {
+        val bytes = rpc(apiUrl, token, "ListUserClansByUserId", ByteArray(0))
+        return AllUserClans.parseFrom(bytes)
+    }
+
+    suspend fun listClanUsers(
+        apiUrl: String,
+        token: String,
+        clanId: Long
+    ): ClanUserList {
+        val request = listClanUsersRequest {
+            this.clanId = clanId
+        }
+        val bytes = rpc(apiUrl, token, "ListClanUsers", request.toByteArray())
+        return ClanUserList.parseFrom(bytes)
+    }
+
+    suspend fun listChannelUsers(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        channelId: Long,
+        channelType: Int
+    ): ChannelUserList {
+        val request = listChannelUsersRequest {
+            this.clanId = clanId
+            this.channelId = channelId
+            this.channelType = channelType
+            this.limit = 2000
+            this.state = 1
+        }
+        val bytes = rpc(apiUrl, token, "ListChannelUsers", request.toByteArray())
+        return ChannelUserList.parseFrom(bytes)
+    }
+
+    suspend fun listChannelByUserId(
+        apiUrl: String,
+        token: String
+    ): ChannelDescList {
+        val request = listChannelDescsRequest {
+            this.limit = 500
+            this.state = 1
+            this.page = 1
+            this.clanId = 0L
+            this.channelType = 0
+            this.isMobile = true
+        }
+        val bytes = rpc(apiUrl, token, "ListChannelByUserId", request.toByteArray())
+        return ChannelDescList.parseFrom(bytes)
+    }
+
+    suspend fun searchMessages(
+        apiUrl: String,
+        token: String,
+        filters: List<Pair<String, String>>,
+        from: Int = 1,
+        size: Int = 20
+    ): SearchMessageResponse {
+        val request = searchMessageRequest {
+            for ((name, value) in filters) {
+                this.filters += filterParam {
+                    fieldName = name
+                    fieldValue = value
+                }
+            }
+            this.from = from
+            this.size = size
+        }
+        val bytes = rpc(apiUrl, token, "SearchMessage", request.toByteArray())
+        return SearchMessageResponse.parseFrom(bytes)
+    }
+
+    suspend fun listEmojisByUserId(
+        apiUrl: String,
+        token: String
+    ): EmojiListedResponse {
+        val bytes = rpc(apiUrl, token, "GetListEmojisByUserId", ByteArray(0))
+        return EmojiListedResponse.parseFrom(bytes)
+    }
+
+    suspend fun listStickersByUserId(
+        apiUrl: String,
+        token: String
+    ): StickerListedResponse {
+        val bytes = rpc(apiUrl, token, "GetListStickersByUserId", ByteArray(0))
+        return StickerListedResponse.parseFrom(bytes)
     }
 
     suspend fun putFileToPresignedUrl(
@@ -473,11 +609,8 @@ class MezonApi @Inject constructor(
             setBody(fileBytes)
         }
         if (!response.status.isSuccess()) {
-            val errorBody = response.bodyAsText()
-            Log.e(TAG, "PUT upload failed: ${response.status} - $errorBody")
             throw RuntimeException("File upload failed (${response.status.value})")
         }
-        Log.d(TAG, "PUT upload success")
     }
 }
 
@@ -491,8 +624,8 @@ const val STREAM_MODE_GROUP = 3
 const val STREAM_MODE_DM = 4
 const val STREAM_MODE_THREAD = 6
 
-const val CODE_CHAT_UPDATE = 2
-const val CODE_CHAT_REMOVE = 3
+const val CODE_CHAT_UPDATE = 1
+const val CODE_CHAT_REMOVE = 2
 
 fun channelTypeToStreamMode(channelType: Int): Int = when (channelType) {
     CHANNEL_TYPE_CHANNEL -> STREAM_MODE_CHANNEL

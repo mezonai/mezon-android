@@ -5,6 +5,7 @@ import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import com.mezon.mobile.MainActivity
 import dagger.hilt.android.AndroidEntryPoint
+
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -48,6 +49,7 @@ class MezonFirebaseService : FirebaseMessagingService() {
         }
     }
 
+
     private fun handleDataPayload(data: Map<String, String>) {
         val title = data["title"] ?: getString(com.mezon.mobile.R.string.app_name)
         val body = data["body"] ?: data["message"] ?: return
@@ -78,7 +80,7 @@ class MezonFirebaseService : FirebaseMessagingService() {
                     }
 
                     if (isAppInForeground()) {
-                         notificationHelper.showInAppToast(title, body, dmId = dmId)
+                        notificationHelper.showInAppToast(title, body, dmId = dmId)
                     } else {
                         notificationHelper.showDmNotification(title, body, dmChannelId = dmId)
                     }
