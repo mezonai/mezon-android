@@ -89,6 +89,7 @@ class AccountSettingFragment : BaseFragment() {
             setOnItemClickListener(RecyclerListView.OnItemClickListener { _, position ->
                 onItemClick(position)
             })
+            itemAnimator = null
         }
 
         updateRows()
@@ -113,14 +114,11 @@ class AccountSettingFragment : BaseFragment() {
         displayNameRow = rowCount++
         emailRow = rowCount++
         phoneRow = rowCount++
-        shadowAccountRow = rowCount++
         headerUsersRow = rowCount++
         blockedUsersRow = rowCount++
-        shadowUsersRow = rowCount++
         headerManagementRow = rowCount++
         setPasswordRow = rowCount++
         deleteAccountRow = rowCount++
-        shadowManagementRow = rowCount++
         listAdapter.notifyDataSetChanged()
     }
 
@@ -228,7 +226,7 @@ class AccountSettingFragment : BaseFragment() {
                 VIEW_TYPE_HEADER -> {
                     val cell = holder.itemView as HeaderCell
                     cell.textView.setTextColor(themeColors.onSurfaceVariant)
-                    cell.setTopPadding(if (position == headerAccountInfoRow) 0 else 12)
+                    cell.setTopPadding(if (position == headerAccountInfoRow) 0 else 16)
                     cell.setSideMargin(16) 
                     when (position) {
                         headerAccountInfoRow -> cell.setText(getString(R.string.account_info_title))
@@ -238,6 +236,7 @@ class AccountSettingFragment : BaseFragment() {
                 }
                 VIEW_TYPE_ITEM -> {
                     val cell = holder.itemView as TextSettingsCell
+                    cell.setTitleColor(0)
                     cell.setTitleBold(true)
                     cell.setIcon(null)
                     when (position) {

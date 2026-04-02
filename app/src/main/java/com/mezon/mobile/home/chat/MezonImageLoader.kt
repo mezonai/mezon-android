@@ -121,7 +121,11 @@ class MezonImageLoader private constructor(context: Context) {
         val cacheKey = cacheKey(url, reqWidth, reqHeight)
 
         getFromMemory(cacheKey)?.let { cached ->
-            mainHandler.post { onSuccess(cached) }
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                onSuccess(cached)
+            } else {
+                mainHandler.post { onSuccess(cached) }
+            }
             return Cancellable.EMPTY
         }
 
@@ -390,7 +394,11 @@ class MezonImageLoader private constructor(context: Context) {
         val cacheKey = cacheKey(uri.toString(), reqWidth, reqHeight)
 
         getFromMemory(cacheKey)?.let { cached ->
-            mainHandler.post { onSuccess(cached) }
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                onSuccess(cached)
+            } else {
+                mainHandler.post { onSuccess(cached) }
+            }
             return Cancellable.EMPTY
         }
 

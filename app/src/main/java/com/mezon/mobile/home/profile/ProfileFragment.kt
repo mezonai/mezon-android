@@ -263,6 +263,7 @@ class ProfileFragment : BaseFragment() {
                         name,
                         userIdStr
                     )
+                    cell.setAvatarUrl(userController.avatarUrl)
                     
                     val unlinked = userController.email.isEmpty() || userController.phoneNumber.isEmpty()
                     cell.setWarn(unlinked)

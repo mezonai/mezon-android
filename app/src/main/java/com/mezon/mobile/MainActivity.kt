@@ -401,6 +401,25 @@ class MainActivity : BasePermissionsActivity(),
         if (lastFragment is ChatFragment && lastFragment.getChannelId() == channelId && messageId == 0L) {
             return
         }
+
+        // Remove all fragments above MainTabsActivity so Back button always returns to Home
+        val stack = actionBarLayout.getFragmentStack()
+        val fragmentsToRemove = mutableListOf<BaseFragment>()
+        for (i in stack.size - 1 downTo 1) {
+            val f = stack[i]
+            if (f !is MainTabsActivity) {
+                fragmentsToRemove.add(f)
+            }
+        }
+        fragmentsToRemove.forEach { actionBarLayout.removeFragmentFromStack(it) }
+
+        // Switch bottom tab to the correct tab for this chat
+        if (clanId != 0L) {
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.navigateToClansTab)
+        } else {
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.navigateToMessagesTab)
+        }
+
         val fragment = ChatFragment.newInstance(channelId, channelName, clanId, channelType, messageId)
         val params = INavigationLayout.NavigationParams(fragment).setNoAnimation(noAnimation)
         actionBarLayout.presentFragment(params)

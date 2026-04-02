@@ -5,6 +5,7 @@ import com.mezon.mobile.data.db.ClanDao
 import com.mezon.mobile.data.db.DirectMessageDao
 import com.mezon.mobile.data.db.MezonDatabase
 import com.mezon.mobile.data.db.MessageDao
+import com.mezon.mobile.data.db.NotificationDao
 import android.content.Context
 import androidx.room.Room
 import androidx.room.RoomDatabase
@@ -42,4 +43,8 @@ object DatabaseModule {
     @Provides
     @Singleton
     fun provideClanChannelDao(db: MezonDatabase): ClanChannelDao = db.clanChannelDao()
+
+    @Provides
+    @Singleton
+    fun provideNotificationDao(db: MezonDatabase): NotificationDao = db.notificationDao()
 }
