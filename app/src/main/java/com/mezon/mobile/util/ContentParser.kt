@@ -131,10 +131,172 @@ fun convertTimestampToTimeAgo(context: Context, timestampSeconds: Long): String 
 
 data class EmojiMarker(val emojiId: String, val startIndex: Int, val endIndex: Int)
 
+data class MarkdownMarker(val type: String, val s: Int, val e: Int)
+
+class MarkdownParseResult(
+    val cleanedText: String,
+    val markers: List<MarkdownMarker>,
+    private val removals: List<IntRange>
+) {
+    fun adjustOffset(originalOffset: Int): Int {
+        var shift = 0
+        for (range in removals) {
+            if (range.first >= originalOffset) break
+            shift += minOf(range.last + 1, originalOffset) - range.first
+        }
+        return originalOffset - shift
+    }
+}
+
+fun parseMarkdownAndStrip(rawText: String): MarkdownParseResult {
+    if (rawText.isBlank()) return MarkdownParseResult(rawText, emptyList(), emptyList())
+    val markers = mutableListOf<MarkdownMarker>()
+    val removals = mutableListOf<IntRange>()
+    val cleaned = StringBuilder()
+    var i = 0
+    var shift = 0
+
+    while (i < rawText.length) {
+
+        if (i + 2 < rawText.length &&
+            rawText[i] == '`' && rawText[i + 1] == '`' && rawText[i + 2] == '`'
+        ) {
+            var j = i + 3
+            while (j + 2 < rawText.length) {
+                if (rawText[j] == '`' && rawText[j + 1] == '`' && rawText[j + 2] == '`') break
+                j++
+            }
+            if (j + 2 < rawText.length &&
+                rawText[j] == '`' && rawText[j + 1] == '`' && rawText[j + 2] == '`'
+            ) {
+                val content = rawText.substring(i + 3, j)
+                if (content.isNotEmpty()) {
+                    val cleanContent = stripBoldFromContent(content, i + 3, removals)
+                    val s = i - shift
+                    markers.add(MarkdownMarker(MARKDOWN_PRE, s, s + cleanContent.length))
+                    cleaned.append(cleanContent)
+                    removals.add(i..i + 2)
+                    removals.add(j..j + 2)
+                    shift += 6 + (content.length - cleanContent.length)
+                    i = j + 3
+                    continue
+                }
+            }
+        }
+
+        if (rawText.startsWith("http://", i) || rawText.startsWith("https://", i)) {
+            val linkStart = i
+            val schemeLen = if (rawText.startsWith("https://", i)) 8 else 7
+            var j = i + schemeLen
+            while (j < rawText.length && rawText[j] != ' ' && rawText[j] != '\n'
+                && rawText[j] != '\r' && rawText[j] != '\t'
+            ) j++
+            var linkEnd = j
+            while (linkEnd > linkStart + schemeLen && rawText[linkEnd - 1] in TRAILING_PUNCTUATION) linkEnd--
+            if (linkEnd > linkStart + schemeLen) {
+                val s = linkStart - shift
+                markers.add(MarkdownMarker(MARKDOWN_LINK, s, s + (linkEnd - linkStart)))
+                cleaned.append(rawText, linkStart, linkEnd)
+                i = linkEnd
+                continue
+            }
+        }
+
+        if (rawText[i] == '`' &&
+            !(i + 2 < rawText.length && rawText[i + 1] == '`' && rawText[i + 2] == '`')
+        ) {
+            var j = i + 1
+            while (j < rawText.length && rawText[j] != '`') j++
+            if (j < rawText.length && rawText[j] == '`') {
+                var allow = true
+                if (j + 2 < rawText.length && rawText[j + 1] == '`' && rawText[j + 2] == '`') {
+                    var k = j + 3
+                    var hasClosingTriple = false
+                    while (k + 2 < rawText.length) {
+                        if (rawText[k] == '`' && rawText[k + 1] == '`' && rawText[k + 2] == '`') {
+                            hasClosingTriple = true
+                            break
+                        }
+                        k++
+                    }
+                    if (hasClosingTriple) allow = false
+                }
+                val content = rawText.substring(i + 1, j)
+                if (allow && !content.contains("``") && content.trim().isNotEmpty()) {
+                    val cleanContent = stripBoldFromContent(content, i + 1, removals)
+                    val s = i - shift
+                    markers.add(MarkdownMarker(MARKDOWN_CODE, s, s + cleanContent.length))
+                    cleaned.append(cleanContent)
+                    removals.add(i..i)
+                    removals.add(j..j)
+                    shift += 2 + (content.length - cleanContent.length)
+                    i = j + 1
+                    continue
+                }
+            }
+        }
+
+        if (i + 1 < rawText.length && rawText[i] == '*' && rawText[i + 1] == '*') {
+            val closeIdx = rawText.indexOf("**", i + 2)
+            if (closeIdx >= 0) {
+                val content = rawText.substring(i + 2, closeIdx)
+                if (content.trim().isNotEmpty()) {
+                    val s = i - shift
+                    markers.add(MarkdownMarker(MARKDOWN_BOLD, s, s + content.length))
+                    cleaned.append(content)
+                    removals.add(i..i + 1)
+                    removals.add(closeIdx..closeIdx + 1)
+                    shift += 4
+                    i = closeIdx + 2
+                    continue
+                }
+            }
+        }
+
+        cleaned.append(rawText[i])
+        i++
+    }
+
+    removals.sortBy { it.first }
+    return MarkdownParseResult(cleaned.toString(), markers, removals)
+}
+
+private fun stripBoldFromContent(
+    content: String,
+    originalBase: Int,
+    removals: MutableList<IntRange>
+): String {
+    val sb = StringBuilder()
+    var ci = 0
+    while (ci < content.length) {
+        if (ci + 1 < content.length && content[ci] == '*' && content[ci + 1] == '*') {
+            val closeIdx = content.indexOf("**", ci + 2)
+            if (closeIdx >= 0 && content.substring(ci + 2, closeIdx).trim().isNotEmpty()) {
+                removals.add((originalBase + ci)..(originalBase + ci + 1))
+                removals.add((originalBase + closeIdx)..(originalBase + closeIdx + 1))
+                sb.append(content, ci + 2, closeIdx)
+                ci = closeIdx + 2
+                continue
+            }
+        }
+        sb.append(content[ci])
+        ci++
+    }
+    return sb.toString()
+}
+
+private val TRAILING_PUNCTUATION = charArrayOf(',', '.', '!', '?', ';', ':')
+
+const val MARKDOWN_PRE = "pre"
+const val MARKDOWN_CODE = "c"
+const val MARKDOWN_BOLD = "b"
+const val MARKDOWN_LINK = "lk"
+
 fun buildTextContentWithEmojis(
     text: String,
     mentions: List<MentionData>?,
-    emojis: List<EmojiMarker>?
+    emojis: List<EmojiMarker>?,
+    markdowns: List<MarkdownMarker>? = null
 ): String {
     val escaped = text
         .replace("\\", "\\\\")
@@ -160,6 +322,12 @@ fun buildTextContentWithEmojis(
             "{\"emojiid\":\"${it.emojiId}\",\"s\":${it.startIndex},\"e\":${it.endIndex}}"
         }
         parts.add("\"ej\":[$ejJson]")
+    }
+    if (!markdowns.isNullOrEmpty()) {
+        val mkJson = markdowns.joinToString(",") {
+            "{\"type\":\"${it.type}\",\"s\":${it.s},\"e\":${it.e}}"
+        }
+        parts.add("\"mk\":[$mkJson]")
     }
     return "{${parts.joinToString(",")}}"
 }

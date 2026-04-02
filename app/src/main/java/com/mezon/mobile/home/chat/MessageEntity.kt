@@ -92,10 +92,15 @@ data class MessageEntity(
         get() = messageType == TYPE_PHOTO || messageType == TYPE_VIDEO || messageType == TYPE_GIF
 
     val isWelcomeMessage: Boolean
-        get() = code == CODE_FIRST_MESSAGE || code == CODE_WELCOME
+        get() = code == CODE_FIRST_MESSAGE || (
+            code == CODE_WELCOME &&
+            senderId == 0L &&
+            senderName.equals("system", ignoreCase = true) &&
+            (content.isBlank() || content == "{}" || content.contains("\"t\":\"\"") || !content.contains("\"t\""))
+        )
 
     val isSystemMessage: Boolean
-        get() = isWelcomeMessage || code == CODE_CREATE_THREAD
+        get() = isWelcomeMessage || code == CODE_WELCOME || code == CODE_CREATE_THREAD
                 || code == CODE_CREATE_PIN || code == CODE_AUDIT_LOG || code == CODE_UPCOMING_EVENT
 
     val isNormalMessage: Boolean

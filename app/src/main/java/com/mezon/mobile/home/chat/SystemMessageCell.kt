@@ -11,6 +11,8 @@ import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.util.formatRelativeTime
 import com.mezon.mobile.util.parseContentText
+import com.mezon.mobile.util.MentionColors
+import com.mezon.mobile.util.parseContentToSpannable
 
 class SystemMessageCell(context: Context, private val theme: ThemeColors) : View(context) {
 
@@ -61,9 +63,20 @@ class SystemMessageCell(context: Context, private val theme: ThemeColors) : View
         val maxWidth = measuredWidth.let { if (it > 0) it else resources.displayMetrics.widthPixels } - PAD_H * 2 - ICON_SIZE - ICON_GAP
         if (maxWidth <= 0) return
 
-        val text = parseContentText(msg.content).ifBlank { systemFallbackText(msg) }
+        val textStr = parseContentText(msg.content)
+        val charSeq: CharSequence = if (textStr.isBlank()) {
+            systemFallbackText(msg)
+        } else {
+            val mentionColors = MentionColors(
+                theme.textLink,
+                theme.midnightBlue,
+                theme.textRoleLink,
+                theme.darkMossGreen
+            )
+            parseContentToSpannable(msg.content, theme.primary, this, mentionColors, theme)
+        }
         textLayout = StaticLayout.Builder
-            .obtain(text, 0, text.length, theme.systemMessageTextPaint, maxWidth.coerceAtLeast(1))
+            .obtain(charSeq, 0, charSeq.length, theme.systemMessageTextPaint, maxWidth.coerceAtLeast(1))
             .setMaxLines(3)
             .setEllipsize(TextUtils.TruncateAt.END)
             .setLineSpacing(LayoutHelper.dpf(2f), 1f)

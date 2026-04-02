@@ -3,6 +3,7 @@ package com.mezon.mobile
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.view.ActionMode
@@ -24,8 +25,10 @@ import com.mezon.mobile.core.SharedConfig
 import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.di.FragmentEntryPoint
+import com.mezon.mobile.home.ConnectionController
 import com.mezon.mobile.home.MainTabsActivity
 import com.mezon.mobile.home.chat.ChatFragment
+import com.mezon.mobile.home.sharing.SharingFragment
 import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.notification.FcmRepository
@@ -72,6 +75,7 @@ class MainActivity : BasePermissionsActivity(),
     @Inject lateinit var themeColors: ThemeColors
     @Inject lateinit var notificationCenter: NotificationCenter
     @Inject lateinit var fcmRepository: FcmRepository
+    @Inject lateinit var connectionController: ConnectionController
 
     lateinit var actionBarLayout: ActionBarLayout
     lateinit var drawerLayoutContainer: DrawerLayoutContainer
@@ -127,10 +131,8 @@ class MainActivity : BasePermissionsActivity(),
             ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         )
         setContentView(drawerLayoutContainer)
-        window.setSoftInputMode(
-            if (Build.VERSION.SDK_INT >= 30) WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
-            else @Suppress("DEPRECATION") WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
-        )
+        @Suppress("DEPRECATION")
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
 
         applySystemBarColors(themeMode)
 
@@ -142,7 +144,9 @@ class MainActivity : BasePermissionsActivity(),
             } else {
                 showLogin()
             }
-            handleNotificationIntent(intent)
+            if (!handleShareIntent(intent)) {
+                handleNotificationIntent(intent)
+            }
         } else {
             actionBarLayout.showLastFragment()
             rewireTopFragmentCallbacks()
@@ -164,6 +168,9 @@ class MainActivity : BasePermissionsActivity(),
         isResumed = true
         applicationPaused = false
         actionBarLayout.onResume()
+        if (StartupCache.hasSession) {
+            connectionController.handleAppForeground()
+        }
     }
 
     override fun onPause() {
@@ -213,6 +220,7 @@ class MainActivity : BasePermissionsActivity(),
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        if (handleShareIntent(intent)) return
         handleNotificationIntent(intent)
     }
 
@@ -417,6 +425,49 @@ class MainActivity : BasePermissionsActivity(),
                 }
             }
         }
+    }
+
+    private fun handleShareIntent(intent: Intent?): Boolean {
+        intent ?: return false
+        val action = intent.action ?: return false
+        if (action != Intent.ACTION_SEND && action != Intent.ACTION_SEND_MULTIPLE) return false
+        if (!StartupCache.hasSession) return false
+
+        val uris = ArrayList<Uri>()
+        val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)
+        val mimeType = intent.type
+
+        when (action) {
+            Intent.ACTION_SEND -> {
+                val stream = if (Build.VERSION.SDK_INT >= 33) {
+                    intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+                }
+                stream?.let { uris.add(it) }
+            }
+            Intent.ACTION_SEND_MULTIPLE -> {
+                val streams = if (Build.VERSION.SDK_INT >= 33) {
+                    intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
+                }
+                if (streams != null) uris.addAll(streams)
+            }
+        }
+
+        if (uris.isEmpty() && sharedText.isNullOrBlank()) return false
+
+        val fragment = SharingFragment(
+            sharedUris = uris,
+            sharedText = sharedText,
+            sharedMimeType = mimeType
+        )
+        val params = INavigationLayout.NavigationParams(fragment)
+        actionBarLayout.presentFragment(params)
+        return true
     }
 
     private fun handleNotificationIntent(intent: Intent?) {

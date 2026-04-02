@@ -373,30 +373,9 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
                     }
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    if (mode == DRAG && !scaleDetector.isInProgress) {
-                        val dx = event.x - startPoint.x
-                        val dy = event.y - startPoint.y
-                        val values = FloatArray(9)
-                        matrix.getValues(values)
-                        val currentScale = values[Matrix.MSCALE_X]
-                        if (currentScale <= minScale * 1.05f && kotlin.math.abs(dy) > kotlin.math.abs(dx) * 1.5f) {
-                            val progress = (kotlin.math.abs(dy) / (view.height * 0.4f)).coerceIn(0f, 1f)
-                            view.translationY = dy
-                            backgroundDrawable.alpha = ((1f - progress) * 255).toInt()
-                        } else {
-                            matrix.set(savedMatrix)
-                            matrix.postTranslate(dx, dy)
-                            view.imageMatrix = matrix
-                        }
-                    }
+                    // Swipe to dismiss removed.
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
-                    if (mode == DRAG && kotlin.math.abs(view.translationY) > view.height * 0.15f) {
-                        dismissWithAnimation()
-                    } else if (view.translationY != 0f) {
-                        view.animate().translationY(0f).setDuration(150).start()
-                        ObjectAnimator.ofInt(backgroundDrawable, "alpha", backgroundDrawable.alpha, 255).setDuration(150).start()
-                    }
                     mode = NONE
                 }
             }

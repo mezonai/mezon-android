@@ -30,6 +30,7 @@ import com.mezon.mobile.util.MentionData
 import com.mezon.mobile.util.buildTextContent
 import com.mezon.mobile.util.buildTextContentWithMentions
 import com.mezon.mobile.util.EmojiMarker
+import com.mezon.mobile.util.MarkdownMarker
 import com.mezon.mobile.util.buildTextContentWithEmojis
 import com.mezon.mezon.api.MessageAttachment
 import com.mezon.mezon.api.messageAttachment
@@ -405,12 +406,14 @@ class ChatController @Inject constructor(
         text: String,
         references: List<com.mezon.mezon.api.MessageRef>? = null,
         mentions: List<MentionData>? = null,
-        emojiMarkers: List<EmojiMarker>? = null
+        emojiMarkers: List<EmojiMarker>? = null,
+        markdownMarkers: List<MarkdownMarker>? = null
     ) {
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
-        val content = if (emojiMarkers.isNullOrEmpty() && mentions.isNullOrEmpty()) buildTextContent(text)
-            else buildTextContentWithEmojis(text, mentions, emojiMarkers)
+        val hasExtras = !emojiMarkers.isNullOrEmpty() || !mentions.isNullOrEmpty() || !markdownMarkers.isNullOrEmpty()
+        val content = if (!hasExtras) buildTextContent(text)
+            else buildTextContentWithEmojis(text, mentions, emojiMarkers, markdownMarkers)
         val mentionEveryone = mentions?.any { it.userId == ID_MENTION_HERE } == true
         val protoMentions = mentions?.mapNotNull { m ->
             if (m.userId == ID_MENTION_HERE) return@mapNotNull null
@@ -441,23 +444,24 @@ class ChatController @Inject constructor(
 
         appScope.launch {
             try {
-                val session = sessionManager.sessionFlow.first() ?: throw RuntimeException("No session")
-                val request = channelMessageSend {
-                    this.clanId = clanId
-                    this.channelId = channelId
-                    this.mode = mode
-                    this.isPublic = isPublic
-                    this.content = content
-                    protoMentions?.let { this.mentions.addAll(it) }
-                    references?.let { this.references.addAll(it) }
-                    this.mentionEveryone = mentionEveryone
+                sessionManager.withAutoRefresh { session ->
+                    val request = channelMessageSend {
+                        this.clanId = clanId
+                        this.channelId = channelId
+                        this.mode = mode
+                        this.isPublic = isPublic
+                        this.content = content
+                        protoMentions?.let { this.mentions.addAll(it) }
+                        references?.let { this.references.addAll(it) }
+                        this.mentionEveryone = mentionEveryone
+                    }
+                    val ack = withContext(ioDispatcher) {
+                        api.sendChannelMessage(session.apiUrl, session.token, request)
+                    }
+                    notificationCenter.postNotificationOnMainThread(
+                        NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
+                    )
                 }
-                val ack = withContext(ioDispatcher) {
-                    api.sendChannelMessage(session.apiUrl, session.token, request)
-                }
-                notificationCenter.postNotificationOnMainThread(
-                    NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
-                )
             } catch (e: Exception) {
                 notificationCenter.postNotificationOnMainThread(
                     NotificationCenter.pendingMessageError, channelId, tempId
@@ -516,23 +520,24 @@ class ChatController @Inject constructor(
 
         appScope.launch {
             try {
-                val session = sessionManager.sessionFlow.first() ?: throw RuntimeException("No session")
-                val request = channelMessageSend {
-                    this.clanId = clanId
-                    this.channelId = channelId
-                    this.mode = mode
-                    this.isPublic = isPublic
-                    this.content = baseContent
-                    this.attachments.add(attachment)
-                    references?.let { this.references.addAll(it) }
+                sessionManager.withAutoRefresh { session ->
+                    val request = channelMessageSend {
+                        this.clanId = clanId
+                        this.channelId = channelId
+                        this.mode = mode
+                        this.isPublic = isPublic
+                        this.content = baseContent
+                        this.attachments.add(attachment)
+                        references?.let { this.references.addAll(it) }
+                    }
+                    val ack = withContext(ioDispatcher) {
+                        api.sendChannelMessage(session.apiUrl, session.token, request)
+                    }
+                    notificationCenter.postNotificationOnMainThread(
+                        NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
+                    )
+                    Log.d(TAG, "Direct attachment sent: channelId=$channelId url=${url.take(60)}")
                 }
-                val ack = withContext(ioDispatcher) {
-                    api.sendChannelMessage(session.apiUrl, session.token, request)
-                }
-                notificationCenter.postNotificationOnMainThread(
-                    NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
-                )
-                Log.d(TAG, "Direct attachment sent: channelId=$channelId url=${url.take(60)}")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to send direct attachment", e)
                 notificationCenter.postNotificationOnMainThread(
@@ -540,6 +545,72 @@ class ChatController @Inject constructor(
                 )
             }
         }
+    }
+
+    fun sendLocation(
+        channelId: Long,
+        clanId: Long,
+        channelType: Int,
+        isChannelPrivate: Boolean,
+        latitude: Double,
+        longitude: Double
+    ) {
+        val mode = channelTypeToStreamMode(channelType)
+        val isPublic = !isChannelPrivate
+        val googleMapsLink = "https://www.google.com/maps?q=$latitude,$longitude&z=14&t=m&mapclient=embed"
+        val content = buildLocationContent(googleMapsLink)
+
+        val tempId = generateTempId()
+        val uc = userController.get()
+        val optimistic = MessageEntity(
+            id = tempId,
+            channelId = channelId,
+            senderId = uc.userId,
+            senderName = uc.displayName.ifBlank { uc.username },
+            senderAvatar = uc.avatarUrl,
+            content = content,
+            timestampSeconds = System.currentTimeMillis() / 1000,
+            code = MessageEntity.CODE_LOCATION,
+            isMe = true,
+            sendState = MessageEntity.SEND_STATE_SENDING
+        )
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.didReceiveNewMessages, channelId, optimistic
+        )
+
+        appScope.launch {
+            try {
+                sessionManager.withAutoRefresh { session ->
+                    val request = channelMessageSend {
+                        this.clanId = clanId
+                        this.channelId = channelId
+                        this.mode = mode
+                        this.isPublic = isPublic
+                        this.content = content
+                        this.code = MessageEntity.CODE_LOCATION
+                    }
+                    val ack = withContext(ioDispatcher) {
+                        api.sendChannelMessage(session.apiUrl, session.token, request)
+                    }
+                    notificationCenter.postNotificationOnMainThread(
+                        NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
+                    )
+                    Log.d(TAG, "Location sent: channelId=$channelId lat=$latitude lng=$longitude")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to send location", e)
+                notificationCenter.postNotificationOnMainThread(
+                    NotificationCenter.pendingMessageError, channelId, tempId
+                )
+            }
+        }
+    }
+
+    private fun buildLocationContent(link: String): String {
+        val escaped = link
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+        return "{\"t\":\"$escaped\",\"lk\":[{\"s\":0,\"e\":${link.length}}],\"mk\":[{\"s\":0,\"e\":${link.length},\"type\":\"lk\"}]}"
     }
 
     companion object {
@@ -642,65 +713,66 @@ class ChatController @Inject constructor(
 
         appScope.launch(ioDispatcher) {
             try {
-                val session = sessionManager.sessionFlow.first() ?: throw RuntimeException("No session")
-                val cdnBaseUrl = BuildConfig.MEZON_BASE_IMG_URL
-                val uploadedAttachments = ArrayList<MessageAttachment>()
+                sessionManager.withAutoRefresh { session ->
+                    val cdnBaseUrl = BuildConfig.MEZON_BASE_IMG_URL
+                    val uploadedAttachments = ArrayList<MessageAttachment>()
 
-                for (item in attachments) {
-                    try {
-                        val timestamp = System.currentTimeMillis() / 1000
-                        val sanitizedName = item.filename.replace(Regex("[^a-zA-Z0-9._-]"), "_")
-                        val uploadFilename = "${timestamp}_$sanitizedName"
+                    for (item in attachments) {
+                        try {
+                            val timestamp = System.currentTimeMillis() / 1000
+                            val sanitizedName = item.filename.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+                            val uploadFilename = "${timestamp}_$sanitizedName"
 
-                        val presignResult = api.uploadAttachmentFile(
-                            session.apiUrl, session.token,
-                            uploadFilename, item.mimeType,
-                            item.size.toInt(), item.width, item.height
+                            val presignResult = api.uploadAttachmentFile(
+                                session.apiUrl, session.token,
+                                uploadFilename, item.mimeType,
+                                item.size.toInt(), item.width, item.height
+                            )
+
+                            val fileBytes = contentResolver.openInputStream(item.uri)?.use { it.readBytes() }
+                            if (fileBytes == null) {
+                                Log.e(TAG, "Failed to read file: ${item.filename}")
+                                continue
+                            }
+
+                            api.putFileToPresignedUrl(presignResult.url, fileBytes, item.mimeType)
+
+                            val cdnUrl = "$cdnBaseUrl/${presignResult.filename}"
+                            val attachment = messageAttachment {
+                                this.filename = item.filename
+                                this.url = cdnUrl
+                                this.filetype = item.mimeType
+                                this.size = item.size.toInt()
+                                this.width = item.width
+                                this.height = item.height
+                                if (item.duration > 0) this.duration = item.duration
+                            }
+                            uploadedAttachments.add(attachment)
+                            Log.d(TAG, "Uploaded: ${item.filename} → $cdnUrl")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to upload attachment: ${item.filename}", e)
+                        }
+                    }
+
+                    if (uploadedAttachments.isNotEmpty()) {
+                        val request = channelMessageSend {
+                            this.clanId = clanId
+                            this.channelId = channelId
+                            this.mode = mode
+                            this.isPublic = isPublic
+                            this.content = content
+                            this.attachments.addAll(uploadedAttachments)
+                            references?.let { this.references.addAll(it) }
+                        }
+                        val ack = api.sendChannelMessage(session.apiUrl, session.token, request)
+                        notificationCenter.postNotificationOnMainThread(
+                            NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
                         )
-
-                        val fileBytes = contentResolver.openInputStream(item.uri)?.use { it.readBytes() }
-                        if (fileBytes == null) {
-                            Log.e(TAG, "Failed to read file: ${item.filename}")
-                            continue
-                        }
-
-                        api.putFileToPresignedUrl(presignResult.url, fileBytes, item.mimeType)
-
-                        val cdnUrl = "$cdnBaseUrl/${presignResult.filename}"
-                        val attachment = messageAttachment {
-                            this.filename = item.filename
-                            this.url = cdnUrl
-                            this.filetype = item.mimeType
-                            this.size = item.size.toInt()
-                            this.width = item.width
-                            this.height = item.height
-                            if (item.duration > 0) this.duration = item.duration
-                        }
-                        uploadedAttachments.add(attachment)
-                        Log.d(TAG, "Uploaded: ${item.filename} → $cdnUrl")
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Failed to upload attachment: ${item.filename}", e)
+                    } else {
+                        notificationCenter.postNotificationOnMainThread(
+                            NotificationCenter.pendingMessageError, channelId, tempId
+                        )
                     }
-                }
-
-                if (uploadedAttachments.isNotEmpty()) {
-                    val request = channelMessageSend {
-                        this.clanId = clanId
-                        this.channelId = channelId
-                        this.mode = mode
-                        this.isPublic = isPublic
-                        this.content = content
-                        this.attachments.addAll(uploadedAttachments)
-                        references?.let { this.references.addAll(it) }
-                    }
-                    val ack = api.sendChannelMessage(session.apiUrl, session.token, request)
-                    notificationCenter.postNotificationOnMainThread(
-                        NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
-                    )
-                } else {
-                    notificationCenter.postNotificationOnMainThread(
-                        NotificationCenter.pendingMessageError, channelId, tempId
-                    )
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to send message with attachments", e)

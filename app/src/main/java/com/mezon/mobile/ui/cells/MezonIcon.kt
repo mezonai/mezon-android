@@ -219,6 +219,15 @@ enum class MezonIcon(@DrawableRes val resId: Int) {
     devicesIcon(R.drawable.ic_devices),
     searchFriendIcon(R.drawable.ic_search_friend),
     agentIcon(R.drawable.ic_agent),
+    searchRnIcon(R.drawable.ic_search_rn),
+    fileIconNew(R.drawable.ic_file_icon),
+    shareContactIcon(R.drawable.ic_share_contact_icon),
+    transferIcon(R.drawable.ic_transfer_icon),
+    buzzAdvancedIcon(R.drawable.ic_buzz_advanced),
+    sendMoneyAdvancedIcon(R.drawable.ic_transfer_advanced),
+    locationIconGray(R.drawable.ic_location_icon_gray),
+    fileIconGray(R.drawable.ic_file_icon_gray),
+    shareContactIconGray(R.drawable.ic_share_contact_icon_gray),
     backspaceIcon(R.drawable.ic_backspace);
 
     fun getDrawable(context: Context): Drawable =

@@ -15,7 +15,6 @@ import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.network.CODE_CHAT_REMOVE
 import com.mezon.mobile.network.CODE_CHAT_UPDATE
 import com.mezon.mobile.network.MezonApi
-import com.mezon.mobile.network.MezonSocket
 import com.mezon.mobile.network.NetworkMonitor
 import com.mezon.mobile.network.STREAM_MODE_DM
 import com.mezon.mobile.network.STREAM_MODE_GROUP
@@ -48,7 +47,6 @@ class DialogsController @Inject constructor(
     private val cacheTracker: ApiCacheTracker,
     private val activeChannelTracker: ActiveChannelTracker,
     private val notificationHelper: NotificationHelper,
-    private val mezonSocket: MezonSocket,
     private val badgeCoordinator: Lazy<BadgeCoordinator>,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     @ApplicationScope private val appScope: CoroutineScope
@@ -126,12 +124,23 @@ class DialogsController @Inject constructor(
                         .map { it.toDirectMessage(currentUserId) }
                         .sortedByDescending { it.lastSentMessageTs }
 
-                    Log.d(TAG, "loadDialogs: API returned ${merged.size} items")
+                    val withContent = merged.count { it.lastMessageContent.isNotBlank() }
+                    val sampleContent = merged.firstOrNull { it.lastMessageContent.isNotBlank() }
+                    Log.d(TAG, "loadDialogs: API returned ${merged.size} items, withContent=$withContent, sample='${sampleContent?.lastMessageContent?.take(60)}'")
+
+                    val sampleRaw = rawList.firstOrNull { it.hasLastSentMessage() && it.lastSentMessage.content.isNotEmpty() }
+                    Log.d(TAG, "loadDialogs: raw lastSentMessage sample: hasMsg=${sampleRaw != null}, content='${sampleRaw?.lastSentMessage?.content?.take(80)}'")
+
                     putDialogs(merged)
                     cacheTracker.markCalled(cacheKey)
                     runCatching {
-                        if (!mezonSocket.awaitConnected()) return@runCatching
-                        val badge = mezonSocket.fetchListChannelBadgeCountSocket(0L)
+                        val badge = api.listChannelBadgeCount(session.apiUrl, session.token, 0L)
+                        val badgeWithContent = badge.channeldescList.count { it.hasLastSentMessage() && it.lastSentMessage.content.isNotEmpty() }
+                        Log.d(TAG, "loadDialogs: badge returned ${badge.channeldescList.size} channels, withContent=$badgeWithContent")
+                        if (badge.channeldescList.isNotEmpty()) {
+                            val badgeSample = badge.channeldescList.firstOrNull { it.hasLastSentMessage() && it.lastSentMessage.content.isNotEmpty() }
+                            Log.d(TAG, "loadDialogs: badge sample content='${badgeSample?.lastSentMessage?.content?.take(80)}'")
+                        }
                         applyDmReadStatePatchFromSocket(badge.channeldescList)
                     }
                 }
@@ -321,6 +330,7 @@ class DialogsController @Inject constructor(
         }
         if (p.hasLastSentMessage()) {
             val m = p.lastSentMessage
+            val isNewer = m.id != 0L && m.id > next.lastSentMessageId
             if (m.id != 0L) {
                 val merged = maxOf(next.lastSentMessageId, m.id)
                 if (merged != next.lastSentMessageId) {
@@ -334,6 +344,13 @@ class DialogsController @Inject constructor(
                 if (mergedTs != next.lastSentMessageTs) {
                     changed = true
                     next = next.copy(lastSentMessageTs = mergedTs)
+                }
+            }
+            if (isNewer && m.content.isNotEmpty()) {
+                val preview = parseContentPreview(m.content)
+                if (preview.isNotBlank() && preview != next.lastMessageContent) {
+                    changed = true
+                    next = next.copy(lastMessageContent = preview)
                 }
             }
         }
