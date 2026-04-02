@@ -1,0 +1,169 @@
+package com.mezon.mobile.home.chat
+
+import android.content.Context
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Typeface
+import android.graphics.drawable.Drawable
+import android.text.StaticLayout
+import android.text.TextPaint
+import android.text.TextUtils
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.Toast
+import androidx.recyclerview.widget.GridLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import com.mezon.mobile.R
+import com.mezon.mobile.core.AndroidUtilities
+import com.mezon.mobile.core.BottomSheet
+import com.mezon.mobile.core.LayoutHelper
+import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.ui.cells.MezonIcon
+
+private const val ITEMS_PER_ROW = 4
+private const val ICON_BG_SIZE = 48
+private const val ICON_SIZE = 24
+
+class AdvancedAttachAlert(
+    context: Context,
+    private val theme: ThemeColors
+) : BottomSheet(context) {
+
+    interface AdvancedAttachAlertDelegate {
+        fun onLocationSelected()
+        fun onFilesSelected()
+    }
+
+    var advancedDelegate: AdvancedAttachAlertDelegate? = null
+
+    private data class FunctionItem(
+        val id: String,
+        val labelResId: Int,
+        val icon: MezonIcon
+    )
+
+    private val functions = listOf(
+        FunctionItem("location", R.string.advanced_location, MezonIcon.locationIconGray),
+        FunctionItem("files", R.string.advanced_files, MezonIcon.fileIconGray),
+        FunctionItem("buzz", R.string.advanced_buzz, MezonIcon.buzzAdvancedIcon),
+        FunctionItem("transfer_funds", R.string.advanced_transfer_funds, MezonIcon.sendMoneyAdvancedIcon),
+        FunctionItem("share_contact", R.string.advanced_share_contact, MezonIcon.shareContactIconGray)
+    )
+
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        super.onCreate(savedInstanceState)
+        fixNavigationBar()
+
+        val gridView = RecyclerView(context).apply {
+            layoutManager = GridLayoutManager(context, ITEMS_PER_ROW)
+            adapter = FunctionGridAdapter()
+            overScrollMode = View.OVER_SCROLL_NEVER
+            clipToPadding = false
+            setPadding(LayoutHelper.dp(12f), LayoutHelper.dp(16f), LayoutHelper.dp(12f), LayoutHelper.dp(16f))
+        }
+
+        val contentFrame = FrameLayout(context)
+        contentFrame.addView(gridView, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT
+        ))
+
+        contentLayout?.addView(contentFrame, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
+    }
+
+    private inner class FunctionGridAdapter : RecyclerView.Adapter<FunctionGridAdapter.Holder>() {
+
+        inner class Holder(val cell: FunctionCell) : RecyclerView.ViewHolder(cell)
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder {
+            val cell = FunctionCell(parent.context, theme)
+            cell.layoutParams = RecyclerView.LayoutParams(
+                RecyclerView.LayoutParams.MATCH_PARENT, LayoutHelper.dp(100f)
+            )
+            return Holder(cell)
+        }
+
+        override fun onBindViewHolder(holder: Holder, position: Int) {
+            val item = functions[position]
+            holder.cell.setData(item.labelResId, item.icon)
+            holder.cell.setOnClickListener { onFunctionClicked(item) }
+        }
+
+        override fun getItemCount() = functions.size
+    }
+
+    private fun onFunctionClicked(item: FunctionItem) {
+        dismiss()
+        when (item.id) {
+            "location" -> advancedDelegate?.onLocationSelected()
+            "files" -> advancedDelegate?.onFilesSelected()
+            else -> Toast.makeText(context, R.string.feature_coming_soon, Toast.LENGTH_SHORT).show()
+        }
+    }
+}
+
+private class FunctionCell(context: Context, private val theme: ThemeColors) : View(context) {
+
+    private var label = ""
+    private var iconDrawable: Drawable? = null
+    private var labelLayout: StaticLayout? = null
+
+    fun setData(labelResId: Int, icon: MezonIcon) {
+        this.label = context.getString(labelResId)
+        iconDrawable = icon.getDrawable(context).mutate()
+        buildLayout()
+        invalidate()
+    }
+
+    private fun buildLayout() {
+        val w = if (measuredWidth > 0) measuredWidth else AndroidUtilities.displaySize.x / ITEMS_PER_ROW
+        val textW = (w - LayoutHelper.dp(8f)).coerceAtLeast(1)
+        labelLayout = StaticLayout.Builder.obtain(label, 0, label.length, LABEL_PAINT, textW)
+            .setMaxLines(2)
+            .setAlignment(android.text.Layout.Alignment.ALIGN_CENTER)
+            .setEllipsize(TextUtils.TruncateAt.END)
+            .build()
+    }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val w = MeasureSpec.getSize(widthMeasureSpec)
+        setMeasuredDimension(w, LayoutHelper.dp(100f))
+        buildLayout()
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        val cx = width / 2f
+        val iconSize = LayoutHelper.dp(ICON_SIZE.toFloat())
+        val topPad = LayoutHelper.dp(8f).toFloat()
+
+        iconDrawable?.let {
+            val iconLeft = (cx - iconSize / 2f).toInt()
+            val iconTop = topPad.toInt()
+            it.setBounds(iconLeft, iconTop, iconLeft + iconSize, iconTop + iconSize)
+            it.draw(canvas)
+        }
+
+        labelLayout?.let {
+            val textY = topPad + iconSize + LayoutHelper.dp(6f)
+            canvas.save()
+            canvas.translate((width - it.width) / 2f, textY)
+            it.draw(canvas)
+            canvas.restore()
+        }
+    }
+
+    companion object {
+        private val LABEL_PAINT = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = LayoutHelper.dpf(12f)
+            typeface = Typeface.DEFAULT
+        }
+
+        init {
+            LABEL_PAINT.color = ThemeColors.instance.onSurface
+        }
+    }
+}
