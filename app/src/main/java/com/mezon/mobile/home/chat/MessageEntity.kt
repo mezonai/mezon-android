@@ -127,11 +127,11 @@ data class MessageEntity(
         if (content.isBlank()) return false
         return try {
             val obj = JSONObject(content)
-            val mk = obj.optJSONArray("mk") ?: return false
-            for (i in 0 until mk.length()) {
-                val item = mk.getJSONObject(i)
+            val mentions = obj.optJSONArray("mentions") ?: return false
+            for (i in 0 until mentions.length()) {
+                val item = mentions.getJSONObject(i)
                 if (item.optString("user_id") == userId) return true
-                if (item.optString("username") == "here") return true
+                if (item.optString("user_id") == "here") return true
             }
             false
         } catch (_: Exception) { false }

@@ -13,6 +13,7 @@ import android.view.WindowManager
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.core.view.WindowCompat
 import com.mezon.mobile.auth.LoginFragment
 import com.mezon.mobile.auth.OTPVerificationFragment
 import com.mezon.mobile.core.ActionBarLayout
@@ -114,6 +115,8 @@ class MainActivity : BasePermissionsActivity(),
         } else {
             isContentReady = true
         }
+
+        WindowCompat.setDecorFitsSystemWindows(window, false)
 
         actionBarLayout = ActionBarLayout(this, this)
         actionBarLayout.setDependencies(themeColors, notificationCenter)
@@ -459,6 +462,10 @@ class MainActivity : BasePermissionsActivity(),
         }
 
         if (uris.isEmpty() && sharedText.isNullOrBlank()) return false
+
+        intent.action = null
+        intent.removeExtra(Intent.EXTRA_STREAM)
+        intent.removeExtra(Intent.EXTRA_TEXT)
 
         val fragment = SharingFragment(
             sharedUris = uris,

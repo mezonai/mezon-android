@@ -136,9 +136,9 @@ class ChannelItemCell(
 
         val cy = height / 2f
 
-        if (hasUnread && !isActive) {
+        if (hasUnread && !isActive && !ch.isThread) {
             unreadDotPaint.color = themeColors.onSurface
-            canvas.drawCircle(paddingHPx / 2f, cy, unreadDotRadius, unreadDotPaint)
+            canvas.drawCircle(0f, cy, unreadDotRadius, unreadDotPaint)
         }
 
         val iconX = paddingHPx.toFloat() + iconSizePx / 2f

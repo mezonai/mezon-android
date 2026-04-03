@@ -2,12 +2,15 @@ package com.mezon.mobile.home.clans
 
 import android.content.Context
 import android.graphics.Canvas
+import android.graphics.Outline
 import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
+import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewOutlineProvider
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -47,6 +50,7 @@ class ClansFragment : BaseFragment() {
     private lateinit var serverRail: RecyclerListView
     private lateinit var channelListView: ChannelListView
     private lateinit var serverAdapter: ServerRailAdapter
+    private lateinit var channelPanel: LinearLayout
     private var listFrozen = false
 
     // Clan header views
@@ -102,12 +106,11 @@ class ClansFragment : BaseFragment() {
         }
         observe(NotificationCenter.themeChanged) { _, _, _ ->
             if (fragmentView == null) return@observe
-            fragmentView?.setBackgroundColor(themeColors.background)
+            fragmentView?.setBackgroundColor(themeColors.serverRailBg)
             serverRail.setBackgroundColor(themeColors.serverRailBg)
             serverAdapter.notifyDataSetChanged()
             channelListView.invalidateTheme()
-            // Refresh channel panel background
-            (channelListView.parent as? ViewGroup)?.setBackgroundColor(themeColors.channelPanelBg)
+            channelPanel.applyChannelPanelBg()
         }
 
         clansController.loadClans()
@@ -123,7 +126,7 @@ class ClansFragment : BaseFragment() {
     override fun createView(context: Context): View {
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
-            setBackgroundColor(themeColors.background)
+            setBackgroundColor(themeColors.serverRailBg)
         }
 
         serverRail = RecyclerListView(context).apply {
@@ -148,9 +151,16 @@ class ClansFragment : BaseFragment() {
             }
         })
 
-        val channelPanel = LinearLayout(context).apply {
+        channelPanel = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(themeColors.channelPanelBg)
+            applyChannelPanelBg()
+            val topRadius = LayoutHelper.dp(10).toFloat()
+            outlineProvider = object : ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: Outline) {
+                    outline.setRoundRect(0, 0, view.width, (view.height + topRadius).toInt(), topRadius)
+                }
+            }
+            clipToOutline = true
         }
 
         val clanHeader = buildClanHeader(context)
@@ -163,7 +173,9 @@ class ClansFragment : BaseFragment() {
         channelPanel.addView(channelListView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
 
         root.addView(serverRail, LayoutHelper.createLinear(56, LayoutHelper.MATCH_PARENT))
-        root.addView(channelPanel, LayoutHelper.createLinear(0, LayoutHelper.MATCH_PARENT, 1f))
+        root.addView(channelPanel, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f).apply {
+            topMargin = LayoutHelper.dp(8)
+        })
 
         if (clansController.clansLoaded) {
             updateServerRail()
@@ -176,6 +188,14 @@ class ClansFragment : BaseFragment() {
         viewJustCreated = true
 
         return root
+    }
+
+    private fun LinearLayout.applyChannelPanelBg() {
+        val r = LayoutHelper.dp(10).toFloat()
+        background = GradientDrawable().apply {
+            setColor(themeColors.channelPanelBg)
+            cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
+        }
     }
 
     private fun buildClanHeader(context: Context): View {

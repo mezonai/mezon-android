@@ -1,6 +1,7 @@
 package com.mezon.mobile.session
 
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 
 object SessionKeys {
@@ -10,4 +11,5 @@ object SessionKeys {
     val WS_URL = stringPreferencesKey("session_ws_url")
     val USER_ID = stringPreferencesKey("session_user_id")
     val IS_REMEMBER = booleanPreferencesKey("session_is_remember")
+    val LAST_CLAN_ID = longPreferencesKey("last_clan_id")
 }
