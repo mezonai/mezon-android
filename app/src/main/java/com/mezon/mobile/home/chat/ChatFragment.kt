@@ -31,6 +31,7 @@ import com.mezon.mobile.R
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
+import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.di.FragmentEntryPoint
@@ -691,7 +692,7 @@ class ChatFragment : BaseFragment() {
 
         observe(NotificationCenter.themeChanged) { _, _, _ ->
             if (fragmentView == null) return@observe
-            rootView.setBackgroundColor(themeColors.background)
+            rootView.setBackgroundColor(themeColors.chatBackground)
             inputBar.setBackgroundColor(themeColors.surface)
             inputField.setTextColor(themeColors.onSurface)
             inputField.setHintTextColor(themeColors.onSurfaceVariant)
@@ -775,7 +776,7 @@ class ChatFragment : BaseFragment() {
 
     override fun createView(context: Context): View {
         sizeNotifierRoot = SizeNotifierFrameLayout(context, parentLayout)
-        sizeNotifierRoot.setBackgroundColor(themeColors.background)
+        sizeNotifierRoot.setBackgroundColor(themeColors.chatBackground)
         rootView = sizeNotifierRoot
 
         val innerLayout = LinearLayout(context).apply {
@@ -1135,6 +1136,7 @@ class ChatFragment : BaseFragment() {
         adapter.channelType = channelType
         adapter.clanId = clanId
         adapter.isChannelPrivate = resolveChannelPrivate()
+        adapter.currentUserId = StartupCache.userId
         recyclerView.adapter = adapter
 
         setupSwipeInterceptor()
@@ -2694,6 +2696,7 @@ class ChatFragment : BaseFragment() {
                 inputField.setSelection(atPos + mentionText.length)
                 mentionTrackers.add(MentionData(
                     userId = ChatController.ID_MENTION_HERE,
+                    display = "@here",
                     startOffset = spanStart,
                     endOffset = spanEnd
                 ))
@@ -2713,6 +2716,7 @@ class ChatFragment : BaseFragment() {
                 inputField.setSelection(atPos + mentionText.length)
                 mentionTrackers.add(MentionData(
                     userId = member.userId.toString(),
+                    display = "@$displayName",
                     startOffset = spanStart,
                     endOffset = spanEnd
                 ))

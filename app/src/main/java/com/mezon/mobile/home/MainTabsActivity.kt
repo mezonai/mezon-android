@@ -1,13 +1,11 @@
 package com.mezon.mobile.home
 
 import android.content.Context
+import android.graphics.Color
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
-import android.widget.LinearLayout
-import android.widget.TextView
-import com.mezon.mobile.R
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
@@ -15,14 +13,12 @@ import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ViewPagerActivity
 import com.mezon.mobile.core.ViewPagerFixed
 import com.mezon.mobile.di.FragmentEntryPoint
-import com.mezon.mobile.home.ChatController
 import com.mezon.mobile.home.clans.ClansFragment
 import com.mezon.mobile.home.messages.MessagesFragment
 import com.mezon.mobile.home.notifications.NotificationStore
 import com.mezon.mobile.home.notifications.NotificationsFragment
 import com.mezon.mobile.home.profile.AccountController
 import com.mezon.mobile.home.profile.ProfileFragment
-import com.mezon.mobile.network.ConnectionState
 import com.mezon.mobile.ui.cells.BottomTabBar
 
 class MainTabsActivity : ViewPagerActivity() {
@@ -44,8 +40,6 @@ class MainTabsActivity : ViewPagerActivity() {
 
     private lateinit var contentRoot: FrameLayout
     private lateinit var bottomTabBar: BottomTabBar
-    private lateinit var connectionIndicator: View
-    private lateinit var connectionLabel: TextView
     private var currentTab = TAB_CLANS
 
     override fun getStartPosition(): Int = currentTab
@@ -89,12 +83,6 @@ class MainTabsActivity : ViewPagerActivity() {
     override fun onFragmentCreate(): Boolean {
         super.onFragmentCreate()
 
-        observe(NotificationCenter.connectionStateChanged) { _, _, args ->
-            if (fragmentView == null) return@observe
-            val state = args.firstOrNull() as? ConnectionState ?: return@observe
-            updateConnectionIndicator(state)
-        }
-
         observe(NotificationCenter.sessionExpired) { _, _, _ ->
             onLogout?.invoke()
         }
@@ -119,36 +107,10 @@ class MainTabsActivity : ViewPagerActivity() {
 
     override fun createView(context: Context): View {
         contentRoot = FrameLayout(context).apply {
-            setBackgroundColor(themeColors.background)
+            setBackgroundColor(themeColors.serverRailBg)
             setPadding(0, AndroidUtilities.statusBarHeight, 0, 0)
             clipToPadding = false
         }
-
-        val header = FrameLayout(context)
-        contentRoot.addView(header, LayoutHelper.createFrame(
-            LayoutHelper.MATCH_PARENT, 28, Gravity.TOP
-        ))
-
-        val indicatorRow = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.END or Gravity.CENTER_VERTICAL
-            val pad = LayoutHelper.dp(8)
-            setPadding(pad, 0, pad, 0)
-        }
-        header.addView(indicatorRow, LayoutHelper.createFrame(
-            LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT
-        ))
-
-        connectionIndicator = View(context).apply {
-            setBackgroundColor(themeColors.connectedColor)
-        }
-        indicatorRow.addView(connectionIndicator, LayoutHelper.createLinear(8, 8, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, 4f, 0f))
-
-        connectionLabel = TextView(context).apply {
-            textSize = 11f
-            setTextColor(themeColors.onSurfaceVariant)
-        }
-        indicatorRow.addView(connectionLabel, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT))
 
         bottomTabBar = BottomTabBar(context, themeColors).apply {
             onTabSelected = object : BottomTabBar.OnTabSelectedListener {
@@ -165,7 +127,7 @@ class MainTabsActivity : ViewPagerActivity() {
         val pagerContainer = FrameLayout(context)
         contentRoot.addView(pagerContainer, LayoutHelper.createFrame(
             LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT,
-            Gravity.TOP, 0f, 28f, 0f, 56f
+            Gravity.TOP, 0f, 0f, 0f, 56f
         ))
 
         viewPager = ViewPagerFixed(context)
@@ -179,6 +141,7 @@ class MainTabsActivity : ViewPagerActivity() {
                 if (::bottomTabBar.isInitialized) bottomTabBar.selectTab(position)
                 onTabSelected(position, forward)
                 checkFragmentsVisibility()
+                updateContentRootBackground()
             }
             override fun onPageScrolled(progress: Float) {
                 onTabAnimationUpdate(progress)
@@ -193,6 +156,10 @@ class MainTabsActivity : ViewPagerActivity() {
 
         return contentRoot
     }
+
+    override fun getStatusBarColor(): Int = Color.TRANSPARENT
+
+    override fun isLightStatusBar(): Boolean = themeColors.resolvedMode == com.mezon.mobile.ui.theme.ThemeMode.LIGHT
 
     private fun createAdapter(): ViewPagerFixed.Adapter {
         return object : ViewPagerFixed.Adapter() {
@@ -257,7 +224,6 @@ class MainTabsActivity : ViewPagerActivity() {
 
     override fun onBecomeFullyVisible() {
         super.onBecomeFullyVisible()
-        updateConnectionIndicator(connectionController.connectionState)
         connectionController.handleAppForeground()
     }
 
@@ -287,26 +253,16 @@ class MainTabsActivity : ViewPagerActivity() {
         if (::bottomTabBar.isInitialized) bottomTabBar.showTabBar(animated)
     }
 
-    private fun applyTheme() {
+    private fun updateContentRootBackground() {
         if (!::contentRoot.isInitialized) return
-        contentRoot.setBackgroundColor(themeColors.background)
-        connectionLabel.setTextColor(themeColors.onSurfaceVariant)
-        bottomTabBar.applyTheme()
-        updateConnectionIndicator(connectionController.connectionState)
+        contentRoot.setBackgroundColor(
+            if (currentTab == TAB_CLANS) themeColors.serverRailBg else themeColors.background
+        )
     }
 
-    private fun updateConnectionIndicator(state: ConnectionState) {
-        val color = when (state) {
-            ConnectionState.CONNECTED -> themeColors.connectedColor
-            ConnectionState.CONNECTING -> themeColors.connectingColor
-            ConnectionState.DISCONNECTED -> themeColors.disconnectedColor
-        }
-        val label = when (state) {
-            ConnectionState.CONNECTED -> getString(R.string.connection_connected)
-            ConnectionState.CONNECTING -> getString(R.string.connection_connecting)
-            ConnectionState.DISCONNECTED -> getString(R.string.connection_disconnected)
-        }
-        connectionIndicator.setBackgroundColor(color)
-        connectionLabel.text = label
+    private fun applyTheme() {
+        if (!::contentRoot.isInitialized) return
+        updateContentRootBackground()
+        bottomTabBar.applyTheme()
     }
 }

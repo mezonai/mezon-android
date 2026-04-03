@@ -1417,7 +1417,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         checkAvatarFallbackTimeout()
 
         if (hasMentionHighlight) {
-            MENTION_BG_PAINT.color = theme.midnightBlue and 0x00FFFFFF.toInt() or 0x26000000
+            MENTION_BG_PAINT.color = theme.mentionHighlightBg
             canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), MENTION_BG_PAINT)
             canvas.drawRect(0f, 0f, MENTION_BAR_WIDTH.toFloat(), height.toFloat(), MENTION_BAR_PAINT)
         }
@@ -2027,7 +2027,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         private val MENTION_BAR_WIDTH = LayoutHelper.dp(2)
         private val MENTION_BAR_PAINT = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
             style = android.graphics.Paint.Style.FILL
-            color = 0xFF5A62F4.toInt()
+            color = 0xFFF3E65A.toInt()
         }
         private val MENTION_BG_PAINT = android.graphics.Paint().apply {
             style = android.graphics.Paint.Style.FILL

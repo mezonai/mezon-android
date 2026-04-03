@@ -10,6 +10,7 @@ object StartupCache {
     private const val KEY_HAS_SESSION = "has_session"
     private const val KEY_THEME = "theme"
     private const val KEY_LOCALE = "locale"
+    private const val KEY_USER_ID = "user_id"
 
     private lateinit var prefs: SharedPreferences
 
@@ -34,6 +35,10 @@ object StartupCache {
     var locale: String
         get() = prefs.getString(KEY_LOCALE, "en") ?: "en"
         set(value) = prefs.edit().putString(KEY_LOCALE, value).apply()
+
+    var userId: String
+        get() = prefs.getString(KEY_USER_ID, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_USER_ID, value).apply()
 
     fun init(context: Context) {
         prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)

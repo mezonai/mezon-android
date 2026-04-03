@@ -173,6 +173,7 @@ class SessionManager @Inject constructor(
 
     suspend fun saveSession(session: StoredSession) {
         StartupCache.hasSession = true
+        StartupCache.userId = session.userId
         dataStore.edit { prefs ->
             prefs[SessionKeys.TOKEN] = session.token
             prefs[SessionKeys.REFRESH_TOKEN] = session.refreshToken
@@ -193,6 +194,13 @@ class SessionManager @Inject constructor(
             val refreshed = refresh()
             block(refreshed)
         }
+    }
+
+
+    suspend fun getLastClanId(): Long = dataStore.data.first()[SessionKeys.LAST_CLAN_ID] ?: 0L
+
+    suspend fun saveLastClanId(clanId: Long) {
+        dataStore.edit { it[SessionKeys.LAST_CLAN_ID] = clanId }
     }
 
     suspend fun clearSession() {

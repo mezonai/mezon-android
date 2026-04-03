@@ -8,6 +8,7 @@ import android.graphics.ColorFilter
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.PixelFormat
+import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
@@ -46,6 +47,8 @@ class AvatarDrawable : Drawable() {
     private var scaleSize = 1f
     private var drawableByInfo = true
     private var customTextSize = 0f
+    private val roundRectF = RectF()
+    var cornerRadius: Float = Float.MAX_VALUE
 
     fun setInfo(id: Long, firstName: String?, lastName: String?) {
         bgColor = getColorForId(id)
@@ -138,6 +141,8 @@ class AvatarDrawable : Drawable() {
         val cx = bounds.exactCenterX()
         val cy = bounds.exactCenterY()
         val radius = size / 2f
+        val r = if (cornerRadius == Float.MAX_VALUE) radius else cornerRadius
+        roundRectF.set(bounds.left.toFloat(), bounds.top.toFloat(), bounds.right.toFloat(), bounds.bottom.toFloat())
 
         val photo = photoBitmap
         if (photo != null && !photo.isRecycled) {
@@ -147,7 +152,6 @@ class AvatarDrawable : Drawable() {
                 val pw = photo.width.toFloat()
                 val ph = photo.height.toFloat()
                 val scale = maxOf(bw / pw, bh / ph)
-                
                 val matrix = android.graphics.Matrix()
                 matrix.setScale(scale, scale)
                 matrix.postTranslate(
@@ -156,7 +160,7 @@ class AvatarDrawable : Drawable() {
                 )
                 setLocalMatrix(matrix)
             }
-            canvas.drawCircle(cx, cy, radius, photoPaint)
+            canvas.drawRoundRect(roundRectF, r, r, photoPaint)
             photoPaint.shader = null
         } else if (drawableByInfo) {
             if (hasGradient) {
@@ -167,7 +171,7 @@ class AvatarDrawable : Drawable() {
                 bgPaint.shader = null
                 bgPaint.color = bgColor
             }
-            canvas.drawCircle(cx, cy, radius, bgPaint)
+            canvas.drawRoundRect(roundRectF, r, r, bgPaint)
             bgPaint.shader = null
             val textSize = when {
                 customTextSize > 0 -> customTextSize

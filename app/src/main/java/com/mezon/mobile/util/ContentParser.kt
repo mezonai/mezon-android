@@ -55,6 +55,7 @@ fun buildTextContent(text: String): String {
 data class MentionData(
     val userId: String = "",
     val roleId: String = "",
+    val display: String = "",
     val startOffset: Int = 0,
     val endOffset: Int = 0
 )
@@ -312,6 +313,7 @@ fun buildTextContentWithEmojis(
             mentionsJson.append("{")
             if (m.userId.isNotBlank()) mentionsJson.append("\"user_id\":\"${m.userId}\",")
             if (m.roleId.isNotBlank()) mentionsJson.append("\"role_id\":\"${m.roleId}\",")
+            if (m.display.isNotBlank()) mentionsJson.append("\"display\":\"${m.display}\",")
             mentionsJson.append("\"s\":${m.startOffset},\"e\":${m.endOffset}}")
         }
         mentionsJson.append("]")

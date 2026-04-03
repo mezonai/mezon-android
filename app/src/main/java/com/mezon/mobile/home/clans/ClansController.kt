@@ -66,7 +66,9 @@ class ClansController @Inject constructor(
                 clansLoaded = true
                 preWarmLogos(cached)
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.clansDidLoad)
-                selectClan(cached.first().clanId)
+                val lastClanId = withContext(ioDispatcher) { sessionManager.getLastClanId() }
+                val initialClan = cached.firstOrNull { it.clanId == lastClanId } ?: cached.first()
+                selectClan(initialClan.clanId)
                 badgeCoordinator.get().processDeferredQueue()
             }
         }
@@ -84,6 +86,7 @@ class ClansController @Inject constructor(
         _selectedClanId.value = clanId
         channelController.loadChannelsForClan(clanId)
         appScope.launch {
+            sessionManager.saveLastClanId(clanId)
             try {
                 if (clanId != 0L && mezonSocket.awaitConnected()) {
                     mezonSocket.joinClanChat(clanId)

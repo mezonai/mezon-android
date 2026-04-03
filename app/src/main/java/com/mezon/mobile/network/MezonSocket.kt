@@ -5,11 +5,9 @@ import com.mezon.mobile.session.SessionManager
 import android.util.Log
 import com.google.protobuf.StringValue
 import com.mezon.mezon.api.ListClanBadgeCountResponse
-import com.mezon.mezon.api.ListChannelBadgeCountResponse
 import com.mezon.mezon.api.MessageAttachment
 import com.mezon.mezon.api.MessageMention
 import com.mezon.mezon.api.MessageRef
-import com.mezon.mezon.api.listChannelBadgeCountRequest
 import com.mezon.mezon.api.messageReaction
 import com.mezon.mezon.rtapi.EnvelopeKt
 import com.mezon.mezon.rtapi.Envelope
@@ -216,21 +214,6 @@ class MezonSocket @Inject constructor(
         }
         val data = env.listDataSocket
         return if (data.hasClanBadgeCount()) data.clanBadgeCount else ListClanBadgeCountResponse.getDefaultInstance()
-    }
-
-    suspend fun fetchListChannelBadgeCountSocket(clanId: Long): ListChannelBadgeCountResponse {
-        val env = send {
-            this.listDataSocket = listDataSocket {
-                apiName = "ListChannelBadgeCount"
-                listChannelBadgeCountReq = listChannelBadgeCountRequest { this.clanId = clanId }
-            }
-        }
-        require(env.messageCase == Envelope.MessageCase.LIST_DATA_SOCKET) {
-            "ListChannelBadgeCount: expected LIST_DATA_SOCKET, got ${env.messageCase}"
-        }
-        val data = env.listDataSocket
-        return if (data.hasChannelBadgeCount()) data.channelBadgeCount
-        else ListChannelBadgeCountResponse.getDefaultInstance()
     }
 
     suspend fun joinChat(
@@ -627,11 +610,12 @@ class MezonSocket @Inject constructor(
         }
 
         if (envelope.messageCase == Envelope.MessageCase.PONG) {
-            Log.v(TAG, "Pong received")
             return
         }
 
-        Log.d(TAG, "Event: ${envelope.messageCase}")
+        if (envelope.messageCase != Envelope.MessageCase.MESSAGE_TYPING_EVENT) {
+            Log.d(TAG, "Event: ${envelope.messageCase}")
+        }
         scope.launch {
             _events.emit(envelope)
         }
@@ -646,7 +630,7 @@ class MezonSocket @Inject constructor(
                 try {
                     val pingEnvelope = envelope { ping = ping {} }
                     sendFireAndForget(pingEnvelope)
-                    Log.v(TAG, "Ping sent")
+                    // Log.v(TAG, "Ping sent")
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to send ping", e)
                 }

@@ -303,6 +303,13 @@ class ThemeColors @Inject constructor() {
         else -> 0xFF1C1B1F.toInt()
     }
 
+    val chatBackground: Int get() = when (resolvedMode) {
+        ThemeMode.LIGHT -> 0xFFFFFFFF.toInt()
+        ThemeMode.DARK -> 0xFF1C1D23.toInt()
+        ThemeMode.ABYSS -> 0xFF040421.toInt()
+        else -> 0xFF1C1D23.toInt()
+    }
+
     val surface: Int get() = when (resolvedMode) {
         ThemeMode.LIGHT -> 0xFFFFFBFE.toInt()
         ThemeMode.DARK -> 0xFF1C1B1F.toInt()
@@ -378,6 +385,7 @@ class ThemeColors @Inject constructor() {
         ThemeMode.DARK, ThemeMode.ABYSS -> 0xFF3B426E.toInt()
         else -> 0xFF3B426E.toInt()
     }
+    val mentionHighlightBg: Int get() = 0x14E8CA52.toInt()
     val textRoleLink: Int get() = when (resolvedMode) {
         ThemeMode.LIGHT -> 0xFF00B098.toInt()
         ThemeMode.DARK, ThemeMode.ABYSS -> 0xFF009C67.toInt()

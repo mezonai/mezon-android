@@ -417,7 +417,16 @@
     <string name="sharing_search_placeholder">Search conversations</string>
     <string name="sharing_sent">Sent!</string>
     <string name="sharing_failed">Failed to send</string>
-    <!-- Sharing -->
     <string name="sharing_no_conversations">No conversations</string>
     <string name="sharing_sending">Sending…</string>
+    <string name="sharing_filter_all">All</string>
+    <string name="sharing_filter_users">Users</string>
+    <string name="sharing_filter_channels">Channels</string>
+    <string name="sharing_filter_options">Filter options</string>
+    <string name="sharing_select_channel">Select a channel</string>
+    <string name="sharing_select_user">Select a user</string>
+    <string name="sharing_select_channel_placeholder">Select a channel or user</string>
+    <string name="sharing_suggestions">Suggestions</string>
+    <string name="sharing_add_comment">Add a comment…</string>
+    <string name="sharing_empty_content">Nothing to share</string>
 </resources>
