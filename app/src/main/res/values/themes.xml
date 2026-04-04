@@ -8,7 +8,7 @@
 
     <style name="Theme.Mezon.Splash" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">@color/splash_background</item>
-        <item name="windowSplashScreenAnimatedIcon">@android:color/transparent</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/bootsplash_logo_splash</item>
         <item name="postSplashScreenTheme">@style/Theme.Mezon</item>
         <item name="android:windowBackground">@drawable/splash_screen</item>
         <item name="android:statusBarColor">@color/splash_background</item>
