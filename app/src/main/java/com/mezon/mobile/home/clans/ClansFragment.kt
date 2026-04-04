@@ -155,7 +155,7 @@ class ClansFragment : BaseFragment() {
         channelPanel = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             applyChannelPanelBg()
-            val topRadius = LayoutHelper.dp(10).toFloat()
+            val topRadius = LayoutHelper.dp(20).toFloat()
             outlineProvider = object : ViewOutlineProvider() {
                 override fun getOutline(view: View, outline: Outline) {
                     outline.setRoundRect(0, 0, view.width, (view.height + topRadius).toInt(), topRadius)
@@ -192,7 +192,7 @@ class ClansFragment : BaseFragment() {
     }
 
     private fun LinearLayout.applyChannelPanelBg() {
-        val r = LayoutHelper.dp(10).toFloat()
+        val r = LayoutHelper.dp(20).toFloat()
         background = GradientDrawable().apply {
             setColor(themeColors.channelPanelBg)
             cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
@@ -212,7 +212,6 @@ class ClansFragment : BaseFragment() {
         }
         header.addView(bannerImage, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 140))
 
-        // Content area (RN: paddingVertical s_14, paddingHorizontal s_12)
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(LayoutHelper.dp(12), LayoutHelper.dp(14), LayoutHelper.dp(12), LayoutHelper.dp(14))
