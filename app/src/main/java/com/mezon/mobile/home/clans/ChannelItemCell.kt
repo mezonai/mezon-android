@@ -54,6 +54,7 @@ class ChannelItemCell(
     var channel: ClanChannelEntity? = null
         private set
     private var isActive = false
+    private var voiceActive = false
     private var truncatedName: CharSequence = ""
 
     private val cellHeightPx = LayoutHelper.dp(40)
@@ -65,9 +66,10 @@ class ChannelItemCell(
 
 
 
-    fun bind(channel: ClanChannelEntity, active: Boolean) {
+    fun bind(channel: ClanChannelEntity, active: Boolean, voiceActive: Boolean = false) {
         this.channel = channel
         this.isActive = active
+        this.voiceActive = voiceActive
         truncatedName = ""
         invalidate()
     }
@@ -174,9 +176,12 @@ class ChannelItemCell(
         val half = iconSizePx / 2f
         when (type) {
             VOICE_CHANNEL_TYPE -> {
+                val savedColor = iconPaint.color
+                if (voiceActive) iconPaint.color = 0xFF43B581.toInt()
                 canvas.drawLine(cx, cy - half * 0.6f, cx, cy + half * 0.6f, iconPaint)
                 canvas.drawLine(cx - half * 0.5f, cy - half * 0.3f, cx - half * 0.5f, cy + half * 0.3f, iconPaint)
                 canvas.drawLine(cx + half * 0.5f, cy - half * 0.3f, cx + half * 0.5f, cy + half * 0.3f, iconPaint)
+                if (voiceActive) iconPaint.color = savedColor
             }
             FORUM_CHANNEL_TYPE -> {
                 val r = half * 0.7f

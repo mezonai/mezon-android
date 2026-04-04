@@ -5,18 +5,21 @@ import android.graphics.drawable.GradientDrawable
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 
 class SearchCell(context: Context, private val theme: ThemeColors) : LinearLayout(context) {
 
-    val editText: EditText
+    lateinit var editText: EditText
+        private set
     private val clearButton: ImageView
     private val cancelButton: TextView
     private val searchIcon: ImageView
@@ -50,6 +53,10 @@ class SearchCell(context: Context, private val theme: ThemeColors) : LinearLayou
             val drawable = MezonIcon.searchIcon.getDrawable(context)
             drawable.colorFilter = android.graphics.PorterDuffColorFilter(theme.onSurface, android.graphics.PorterDuff.Mode.SRC_IN)
             setImageDrawable(drawable)
+            setOnClickListener {
+                editText.requestFocus()
+                AndroidUtilities.showKeyboard(editText)
+            }
         }
         barContainer.addView(searchIcon, LayoutHelper.createLinear(20, 20, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, 8f, 0f))
 
@@ -73,7 +80,15 @@ class SearchCell(context: Context, private val theme: ThemeColors) : LinearLayou
             Gravity.CENTER_VERTICAL, 0f, 0f, 6f, 0f
         ))
 
-        editText = EditText(context).apply {
+        editText = object : EditText(context) {
+            override fun onTouchEvent(event: MotionEvent): Boolean {
+                val result = super.onTouchEvent(event)
+                if (event.action == MotionEvent.ACTION_UP) {
+                    AndroidUtilities.showKeyboard(this)
+                }
+                return result
+            }
+        }.apply {
             setTextColor(theme.onSurface)
             setHintTextColor(theme.onSurfaceVariant)
             hint = "Search"

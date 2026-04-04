@@ -29,7 +29,12 @@ import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.home.messages.DirectMessage
+import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.profile.AccountController
+import com.mezon.mobile.MainActivity
+import com.mezon.mobile.home.voice.JoinVoiceBottomSheet
+import com.mezon.mobile.home.voice.VoiceController
+import com.mezon.mobile.home.voice.VoiceRoomFragment
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import com.mezon.mobile.search.GlobalSearchFragment
@@ -42,7 +47,8 @@ class ClansFragment : BaseFragment() {
     private lateinit var chatController: ChatController
     private lateinit var dialogsController: DialogsController
     private lateinit var accountController: AccountController
-    private lateinit var userClanController:    UserClanController
+    private lateinit var userClanController: UserClanController
+    private lateinit var voiceController: VoiceController
 
     var onOpenChat: ((channelId: Long, channelName: String, clanId: Long, channelType: Int) -> Unit)? = null
     var onSwitchToMessages: (() -> Unit)? = null
@@ -70,6 +76,7 @@ class ClansFragment : BaseFragment() {
         dialogsController = entryPoint.dialogsController()
         accountController = entryPoint.accountController()
         userClanController = entryPoint.userClanController()
+        voiceController = entryPoint.voiceController()
     }
 
     override fun onFragmentCreate(): Boolean {
@@ -103,6 +110,13 @@ class ClansFragment : BaseFragment() {
             if (fragmentView == null || isPaused || listFrozen) return@observe
             val mask = args.firstOrNull() as? Int ?: 0
             updateVisibleRows(mask)
+        }
+        observe(NotificationCenter.voiceChannelMembersChanged) { _, _, args ->
+            if (fragmentView == null || isPaused || listFrozen) return@observe
+            val clanId = args.firstOrNull() as? Long ?: return@observe
+            if (clanId == clansController.selectedClanId.value) {
+                updateVoiceMembers(clanId)
+            }
         }
         observe(NotificationCenter.themeChanged) { _, _, _ ->
             if (fragmentView == null) return@observe
@@ -493,6 +507,35 @@ class ClansFragment : BaseFragment() {
         val clanId = clansController.selectedClanId.value
         val sections = channelController.getChannelSections(clanId)
         channelListView.bind(sections)
+        voiceController.fetchVoiceChannelMembers(clanId)
+        updateVoiceMembers(clanId)
+    }
+
+    private fun updateVoiceMembers(clanId: Long) {
+        val channels = channelController.getChannels(clanId)
+        val voiceChannels = channels.filter { it.type == CHANNEL_TYPE_VOICE }
+        if (voiceChannels.isEmpty()) return
+
+        val clanMembers = userClanController.getClanMembers(clanId)
+        val memberMap = HashMap<Long, ClanMember>(clanMembers.size)
+        for (m in clanMembers) memberMap[m.userId] = m
+
+        val result = HashMap<Long, List<VoiceMemberDisplay>>()
+        for (vc in voiceChannels) {
+            val userIds = voiceController.getVoiceMembersForChannel(vc.channelId, clanId)
+            if (userIds.isEmpty()) continue
+            val displays = userIds.map { uid ->
+                val member = memberMap[uid]
+                val name = member?.clanNick?.ifEmpty { null }
+                    ?: member?.displayName?.ifEmpty { null }
+                    ?: member?.username
+                    ?: "User"
+                val avatar = member?.clanAvatar?.ifEmpty { null } ?: member?.avatarUrl
+                VoiceMemberDisplay(uid, name, avatar)
+            }
+            if (displays.isNotEmpty()) result[vc.channelId] = displays
+        }
+        channelListView.setVoiceMembers(result)
     }
 
     private fun onClanSelected(clan: ClanEntity) {
@@ -520,8 +563,49 @@ class ClansFragment : BaseFragment() {
 
     private fun onChannelSelected(channel: ClanChannelEntity) {
         val clanIdForJoin = if (channel.clanId != 0L) channel.clanId else clansController.selectedClanId.value
+
+        if (channel.type == CHANNEL_TYPE_VOICE) {
+            if (voiceController.isJoined && voiceController.currentVoiceInfo?.channelId == channel.channelId) {
+                (getParentActivity() as? MainActivity)?.showVoiceRoom(
+                    channel.channelId, clanIdForJoin, channel.channelLabel
+                )
+                return
+            }
+            showJoinVoiceBottomSheet(channel, clanIdForJoin)
+            return
+        }
+
         chatController.openChannel(channel.channelId, clanIdForJoin, channel.type, channel.isPrivate)
         onOpenChat?.invoke(channel.channelId, channel.channelLabel, clanIdForJoin, channel.type)
+    }
+
+    private fun showJoinVoiceBottomSheet(channel: ClanChannelEntity, clanId: Long) {
+        val activity = getParentActivity() ?: return
+        val members = voiceController.getVoiceMembersForChannel(channel.channelId, clanId)
+        val clanMembers = userClanController.getClanMembers(clanId)
+        val memberMap = HashMap<Long, ClanMember>(clanMembers.size)
+        for (m in clanMembers) memberMap[m.userId] = m
+
+        val displays = members.map { uid ->
+            val m = memberMap[uid]
+            val name = m?.clanNick?.ifEmpty { null } ?: m?.displayName?.ifEmpty { null } ?: m?.username ?: "User"
+            val avatar = m?.clanAvatar?.ifEmpty { null } ?: m?.avatarUrl
+            VoiceMemberDisplay(uid, name, avatar)
+        }
+
+        val sheet = JoinVoiceBottomSheet(
+            activity, themeColors, channel.channelLabel, channel.channelId, clanId, displays
+        )
+        sheet.onJoinVoice = {
+            (getParentActivity() as? MainActivity)?.showVoiceRoom(
+                channel.channelId, clanId, channel.channelLabel
+            )
+        }
+        sheet.onOpenChat = {
+            chatController.openChannel(channel.channelId, clanId, channel.type, channel.isPrivate)
+            onOpenChat?.invoke(channel.channelId, channel.channelLabel, clanId, channel.type)
+        }
+        sheet.show()
     }
 
     inner class ServerRailAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {

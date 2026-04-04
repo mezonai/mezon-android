@@ -30,6 +30,8 @@ import com.mezon.mobile.home.ConnectionController
 import com.mezon.mobile.home.MainTabsActivity
 import com.mezon.mobile.home.chat.ChatFragment
 import com.mezon.mobile.home.sharing.SharingFragment
+import com.mezon.mobile.home.voice.VoiceOverlayManager
+import com.mezon.mobile.home.voice.VoiceRoomFragment
 import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.notification.FcmRepository
@@ -82,6 +84,10 @@ class MainActivity : BasePermissionsActivity(),
     lateinit var drawerLayoutContainer: DrawerLayoutContainer
         private set
 
+    var voiceOverlayManager: VoiceOverlayManager? = null
+        private set
+    private var voiceRoomFragment: VoiceRoomFragment? = null
+
     private var currentConnectionState = 0
     lateinit var autoNightConfig: AutoNightConfig
         private set
@@ -133,6 +139,11 @@ class MainActivity : BasePermissionsActivity(),
             actionBarLayout,
             ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         )
+
+        voiceOverlayManager = VoiceOverlayManager(drawerLayoutContainer, themeColors).also { manager ->
+            manager.onExpandRequest = { expandVoiceRoom() }
+        }
+
         setContentView(drawerLayoutContainer)
         @Suppress("DEPRECATION")
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
@@ -190,6 +201,7 @@ class MainActivity : BasePermissionsActivity(),
 
     override fun onDestroy() {
         super.onDestroy()
+        dismissVoiceRoom()
         actionBarLayout.unregisterBackCallback()
         AndroidUtilities.cancelRunOnUIThread(dismissSplashRunnable)
         splashContentObserver?.let {
@@ -229,6 +241,11 @@ class MainActivity : BasePermissionsActivity(),
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
+        val manager = voiceOverlayManager
+        if (manager != null && manager.isExpanded()) {
+            minimizeVoiceRoom()
+            return
+        }
         if (!actionBarLayout.onBackPressedInternal()) {
             super.onBackPressed()
         }
@@ -398,6 +415,56 @@ class MainActivity : BasePermissionsActivity(),
         }
         showHome()
     }
+
+    fun showVoiceRoom(channelId: Long, clanId: Long, channelLabel: String) {
+        val manager = voiceOverlayManager ?: return
+        val existing = voiceRoomFragment
+        if (existing != null && manager.isVisible()) {
+            manager.expand()
+            return
+        }
+        val fragment = VoiceRoomFragment.create(channelId, clanId, channelLabel)
+        fragment.themeColors = themeColors
+        fragment.notificationCenter = notificationCenter
+        fragment.parentLayout = actionBarLayout
+        fragment.inject(this)
+        fragment.onFragmentCreate()
+        val contentView = fragment.createView(this)
+        voiceRoomFragment = fragment
+        fragment.onResume()
+        fragment.onBecomeFullyVisible()
+        manager.showExpanded(contentView)
+    }
+
+    fun minimizeVoiceRoom() {
+        val manager = voiceOverlayManager ?: return
+        val fragment = voiceRoomFragment ?: return
+        val focused = fragment.getFocusedContent()
+        if (focused != null) {
+            manager.minimize(
+                fragment.getRoom(), focused.videoTrack,
+                focused.name, focused.avatarUrl, focused.isMuted, focused.userId
+            )
+        } else {
+            manager.minimize(null, null, fragment.getChannelLabel(), null, false, 0L)
+        }
+    }
+
+    fun expandVoiceRoom() {
+        val manager = voiceOverlayManager ?: return
+        manager.expand()
+    }
+
+    fun dismissVoiceRoom() {
+        val manager = voiceOverlayManager ?: return
+        manager.dismiss()
+        voiceRoomFragment?.onPause()
+        voiceRoomFragment?.onFragmentDestroy()
+        voiceRoomFragment = null
+    }
+
+    fun isVoiceOverlayVisible(): Boolean = voiceOverlayManager?.isVisible() == true
+    fun isVoiceOverlayExpanded(): Boolean = voiceOverlayManager?.isExpanded() == true
 
     fun openChat(
         channelId: Long,

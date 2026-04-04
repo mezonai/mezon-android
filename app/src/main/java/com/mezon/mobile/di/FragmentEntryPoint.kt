@@ -5,6 +5,7 @@ import com.mezon.mobile.home.ChatController
 import com.mezon.mobile.home.ConnectionController
 import com.mezon.mobile.home.chat.EmojiController
 import com.mezon.mobile.home.DialogsController
+import com.mezon.mobile.home.voice.VoiceController
 import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.chat.MediaController
 import com.mezon.mobile.home.MessagesController
@@ -41,6 +42,7 @@ interface FragmentEntryPoint {
     fun searchController(): SearchController
     fun userClanController(): UserClanController
     fun emojiController(): EmojiController
+    fun voiceController(): VoiceController
 
     @IoDispatcher
     fun ioDispatcher(): CoroutineDispatcher

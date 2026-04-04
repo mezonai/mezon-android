@@ -568,6 +568,12 @@ class GlobalSearchFragment : BaseFragment() {
         }
     }
 
+    override fun onBecomeFullyVisible() {
+        super.onBecomeFullyVisible()
+        searchCell.editText.requestFocus()
+        AndroidUtilities.showKeyboard(searchCell.editText)
+    }
+
     override fun onFragmentDestroy() {
         searchRunnable?.let { handler.removeCallbacks(it) }
         pickerFilterRunnable?.let { handler.removeCallbacks(it) }

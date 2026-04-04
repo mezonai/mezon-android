@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Mezon is an Android chat/communication app (application ID: `ai.mezon.app`) built with Kotlin, Jetpack Compose, and a high-performance architecture: **MVI + Per-Channel Store + Room SQLite + Compose**. The project is porting the React Native app to native Android.
+Mezon is an Android chat/communication app (application ID: `com.mezon.mobile`) built with Kotlin, Jetpack Compose, and a high-performance architecture: **MVI + Per-Channel Store + Room SQLite + Compose**. The project is porting the React Native app to native Android.
 
 ## Build Commands
 
@@ -75,7 +75,7 @@ core-network → core-common
 ## Package Structure
 
 ```
-app/src/main/java/ai/mezon/app/
+app/src/main/java/com/mezon/mobile/
 ├── auth/             # AuthRepository, AuthViewModel, LoginScreen
 ├── data/db/          # MezonDatabase, MessageDao, DirectMessageDao
 ├── di/               # AppModule, DatabaseModule, CoroutineDispatchers
@@ -174,7 +174,7 @@ Channel types: CHANNEL(1), GROUP(2), DM(3), FORUM(5), STREAMING(6), THREAD(7), A
 | UI | Jetpack Compose (Material3) | LazyColumn with `key`/`contentType`, index-based items |
 | Theme | Material3 + ThemeManager | 4 modes: Light, Dark, Abyss, System. DataStore persistence |
 | i18n | `strings.xml` + locale qualifiers | `stringResource()`, `AppCompatDelegate.setApplicationLocales()` |
-| Images | Coil 2.6.0 | In-memory + disk cache, explicit `Modifier.size()` for avatars |
+| Images | `MezonImageLoader` (custom) | OkHttp + split LruCache + 50MB disk cache, explicit `reqWidth`/`reqHeight` for avatars, `AvatarDrawable` fallback |
 | Session | DataStore Preferences | `SessionManager` with `sessionFlow`, Mutex-based refresh |
 | Push | Firebase Cloud Messaging | `MezonFirebaseService` + local `NotificationObserver` for WebSocket events |
 | Proto | Protobuf Lite 4.28.2 (auto-generated) | `:core-proto` module |

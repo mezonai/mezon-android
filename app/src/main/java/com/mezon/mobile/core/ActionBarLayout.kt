@@ -748,7 +748,7 @@ class ActionBarLayout(context: Context, private val activity: Activity) :
             velocityTracker!!.addMovement(ev)
 
             if (!transitionAnimationInProgress && maybeStartTracking && !startedTracking
-                && dx >= (resources.displayMetrics.densityDpi / 160f * 4f).toInt()
+                && dx >= AndroidUtilities.getPixelsInCM(0.4f, true)
                 && dx / 3 > dy
             ) {
                 if (findScrollingChild(this, ev.x, ev.y) == null) {

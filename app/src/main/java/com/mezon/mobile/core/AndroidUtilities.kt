@@ -176,6 +176,13 @@ object AndroidUtilities {
     fun dp(value: Float): Int = LayoutHelper.dp(value)
 
     @JvmStatic
+    fun getPixelsInCM(cm: Float, isX: Boolean): Int {
+        val metrics = displayMetrics
+        val dpi = if (isX) metrics.xdpi else metrics.ydpi
+        return (cm / 2.54f * dpi).toInt()
+    }
+
+    @JvmStatic
     fun runOnUIThread(runnable: Runnable) {
         if (Thread.currentThread() === Looper.getMainLooper().thread) {
             runnable.run()
@@ -349,11 +356,6 @@ object AndroidUtilities {
 
     @JvmStatic
     fun isPortrait(): Boolean = displaySize.y > displaySize.x
-
-    @JvmStatic
-    fun getPixelsInCM(cm: Float, isX: Boolean): Float {
-        return cm / 2.54f * (if (isX) displayMetrics.xdpi else displayMetrics.ydpi)
-    }
 
     @JvmStatic
     fun computePerceivedBrightness(color: Int): Float {

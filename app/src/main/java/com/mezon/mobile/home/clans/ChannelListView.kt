@@ -9,6 +9,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.home.voice.VoiceUserAvatarCell
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -20,6 +21,7 @@ import kotlinx.coroutines.withContext
 private const val ROW_SECTION = 0
 private const val ROW_CHANNEL = 1
 private const val ROW_THREAD = 2
+private const val ROW_VOICE_MEMBER = 3
 private const val DIFF_BG_THRESHOLD = 50
 
 class ChannelListView(
@@ -36,6 +38,14 @@ class ChannelListView(
     private val expandedCategories = mutableSetOf<Long>()
     private var allExpanded = true
     private var currentSections: List<ChannelSection> = emptyList()
+
+    private var voiceMembersByChannel = HashMap<Long, List<VoiceMemberDisplay>>()
+
+    fun setVoiceMembers(members: Map<Long, List<VoiceMemberDisplay>>) {
+        voiceMembersByChannel.clear()
+        voiceMembersByChannel.putAll(members)
+        adapter.submitRows(buildRows(currentSections))
+    }
 
     init {
         orientation = VERTICAL
@@ -139,7 +149,14 @@ class ChannelListView(
                             visibleThreads.clear()
                         }
                         lastParentId = 0L
-                        rows.add(ChannelRow.Channel(ch, ch.channelId == activeChannelId))
+                        val voiceActive = ch.type == CHANNEL_TYPE_VOICE &&
+                            voiceMembersByChannel[ch.channelId]?.isNotEmpty() == true
+                        rows.add(ChannelRow.Channel(ch, ch.channelId == activeChannelId, voiceActive))
+                        if (ch.type == CHANNEL_TYPE_VOICE) {
+                            voiceMembersByChannel[ch.channelId]?.forEach { member ->
+                                rows.add(ChannelRow.VoiceMember(ch.channelId, member))
+                            }
+                        }
                     }
                 }
                 if (visibleThreads.isNotEmpty()) {
@@ -196,7 +213,8 @@ class ChannelListView(
                             notifyItemChanged(i)
                         }
                     }
-                    else -> {}
+                    is ChannelRow.VoiceMember -> {}
+                    is ChannelRow.Section -> {}
                 }
             }
         }
@@ -242,12 +260,14 @@ class ChannelListView(
             is ChannelRow.Section -> -row.categoryId
             is ChannelRow.Channel -> row.channel.channelId
             is ChannelRow.Thread -> row.thread.channelId
+            is ChannelRow.VoiceMember -> Long.MAX_VALUE - row.member.userId xor row.channelId
         }
 
         override fun getItemViewType(pos: Int) = when (rows[pos]) {
             is ChannelRow.Section -> ROW_SECTION
             is ChannelRow.Channel -> ROW_CHANNEL
             is ChannelRow.Thread -> ROW_THREAD
+            is ChannelRow.VoiceMember -> ROW_VOICE_MEMBER
         }
 
         override fun getItemCount() = rows.size
@@ -256,6 +276,7 @@ class ChannelListView(
             when (viewType) {
                 ROW_SECTION -> SectionVH(ChannelSectionCell(parent.context, themeColors))
                 ROW_THREAD -> ThreadVH(ChannelThreadCell(parent.context, themeColors))
+                ROW_VOICE_MEMBER -> VoiceMemberVH(VoiceUserAvatarCell(parent.context, themeColors))
                 else -> ChannelVH(ChannelItemCell(parent.context, themeColors))
             }
 
@@ -265,10 +286,15 @@ class ChannelListView(
                     (holder as SectionVH).cell.bind(row.categoryName, row.isExpanded)
                 }
                 is ChannelRow.Channel -> {
-                    (holder as ChannelVH).cell.bind(row.channel, row.isActive)
+                    (holder as ChannelVH).cell.bind(row.channel, row.isActive, row.voiceActive)
                 }
                 is ChannelRow.Thread -> {
                     (holder as ThreadVH).cell.bind(row.thread, row.isFirst, row.isLast, row.isActive)
+                }
+                is ChannelRow.VoiceMember -> {
+                    (holder as VoiceMemberVH).cell.setUser(
+                        row.member.userId, row.member.displayName, row.member.avatarUrl
+                    )
                 }
             }
         }
@@ -276,6 +302,7 @@ class ChannelListView(
         inner class SectionVH(val cell: ChannelSectionCell) : RecyclerView.ViewHolder(cell)
         inner class ChannelVH(val cell: ChannelItemCell) : RecyclerView.ViewHolder(cell)
         inner class ThreadVH(val cell: ChannelThreadCell) : RecyclerView.ViewHolder(cell)
+        inner class VoiceMemberVH(val cell: VoiceUserAvatarCell) : RecyclerView.ViewHolder(cell)
     }
 
     fun destroy() {
@@ -294,13 +321,21 @@ private class RowDiffCallback(
         if (a is ChannelRow.Section && b is ChannelRow.Section) return a.categoryId == b.categoryId
         if (a is ChannelRow.Channel && b is ChannelRow.Channel) return a.channel.channelId == b.channel.channelId
         if (a is ChannelRow.Thread && b is ChannelRow.Thread) return a.thread.channelId == b.thread.channelId
+        if (a is ChannelRow.VoiceMember && b is ChannelRow.VoiceMember) return a.channelId == b.channelId && a.member.userId == b.member.userId
         return false
     }
     override fun areContentsTheSame(o: Int, n: Int) = old[o] == new[n]
 }
 
+data class VoiceMemberDisplay(
+    val userId: Long,
+    val displayName: String,
+    val avatarUrl: String?
+)
+
 sealed class ChannelRow {
     data class Section(val categoryId: Long, val categoryName: String, val isExpanded: Boolean) : ChannelRow()
-    data class Channel(val channel: ClanChannelEntity, val isActive: Boolean) : ChannelRow()
+    data class Channel(val channel: ClanChannelEntity, val isActive: Boolean, val voiceActive: Boolean = false) : ChannelRow()
     data class Thread(val thread: ClanChannelEntity, val isFirst: Boolean, val isLast: Boolean, val isActive: Boolean) : ChannelRow()
+    data class VoiceMember(val channelId: Long, val member: VoiceMemberDisplay) : ChannelRow()
 }

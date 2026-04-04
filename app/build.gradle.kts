@@ -204,6 +204,9 @@ dependencies {
     // Lottie for animated stickers (TGS)
     implementation("com.airbnb.android:lottie:6.4.0")
 
+    // LiveKit (voice/video channels)
+    implementation(libs.livekit.android)
+
     // Firebase
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging)

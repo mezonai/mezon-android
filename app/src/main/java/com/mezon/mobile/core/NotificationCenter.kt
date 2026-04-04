@@ -110,6 +110,12 @@ class NotificationCenter(val currentAccount: Int) {
         val stickersNeedReload = nextId()
         val gifsNeedReload = nextId()
 
+        val voiceChannelMembersChanged = nextId()
+        val voiceJoinedRoom = nextId()
+        val voiceLeftRoom = nextId()
+        val voiceRoomDisconnected = nextId()
+        val voiceReactionReceived = nextId()
+
         const val UPDATE_MASK_NAME = 1
         const val UPDATE_MASK_AVATAR = 2
         const val UPDATE_MASK_STATUS = 4

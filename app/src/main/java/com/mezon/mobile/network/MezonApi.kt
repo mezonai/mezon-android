@@ -39,6 +39,10 @@ import com.mezon.mezon.api.listFriendsRequest
 import com.mezon.mezon.api.listNotificationsRequest
 import com.mezon.mezon.api.searchMessageRequest
 import com.mezon.mezon.api.sessionRefreshRequest
+import com.mezon.mezon.api.GenerateMeetTokenResponse
+import com.mezon.mezon.api.VoiceChannelUserList
+import com.mezon.mezon.api.generateMeetTokenRequest
+import com.mezon.mezon.api.meetParticipantRequest
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -608,6 +612,68 @@ class MezonApi @Inject constructor(
     ): StickerListedResponse {
         val bytes = rpc(apiUrl, token, "GetListStickersByUserId", ByteArray(0))
         return StickerListedResponse.parseFrom(bytes)
+    }
+
+    suspend fun generateMeetToken(
+        apiUrl: String,
+        token: String,
+        channelId: Long,
+        roomName: String
+    ): GenerateMeetTokenResponse {
+        val request = generateMeetTokenRequest {
+            this.channelId = channelId
+            this.roomName = roomName
+        }
+        val bytes = rpc(apiUrl, token, "GenerateMeetToken", request.toByteArray())
+        return GenerateMeetTokenResponse.parseFrom(bytes)
+    }
+
+    suspend fun listChannelVoiceUsers(
+        apiUrl: String,
+        token: String,
+        clanId: Long
+    ): VoiceChannelUserList {
+        val request = listChannelUsersRequest {
+            this.clanId = clanId
+            this.limit = 100
+            this.state = 1
+        }
+        val bytes = rpc(apiUrl, token, "ListChannelVoiceUsers", request.toByteArray())
+        return VoiceChannelUserList.parseFrom(bytes)
+    }
+
+    suspend fun removeMeetParticipant(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        channelId: Long,
+        roomName: String,
+        username: String
+    ): ByteArray {
+        val request = meetParticipantRequest {
+            this.clanId = clanId
+            this.channelId = channelId
+            this.roomName = roomName
+            this.username = username
+        }
+        return rpc(apiUrl, token, "RemoveMezonMeetParticipant", request.toByteArray())
+    }
+
+    suspend fun muteMeetParticipant(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        channelId: Long,
+        roomName: String,
+        username: String
+    ): ByteArray {
+        val request = meetParticipantRequest {
+            this.clanId = clanId
+            this.channelId = channelId
+            this.roomName = roomName
+            this.username = username
+        }
+        return rpc(apiUrl, token, "MuteMezonMeetParticipant", request.toByteArray())
     }
 
     suspend fun putFileToPresignedUrl(
