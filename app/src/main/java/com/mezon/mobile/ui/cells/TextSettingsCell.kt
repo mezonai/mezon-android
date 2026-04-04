@@ -47,7 +47,7 @@ class TextSettingsCell(context: Context, private val theme: ThemeColors) : Frame
         ))
 
         textView = TextView(context).apply {
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             setTextColor(theme.onSurface)
             maxLines = 1
             isSingleLine = true

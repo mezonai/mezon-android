@@ -86,12 +86,12 @@ class MainActivity : BasePermissionsActivity(),
     lateinit var autoNightConfig: AutoNightConfig
         private set
 
-    private var isContentReady = false
-    private val dismissSplashRunnable = Runnable { isContentReady = true }
+    private var splashOverlay: android.view.View? = null
+    private val dismissSplashRunnable = Runnable { dismissSplashOverlay() }
     private var splashContentObserver: NotificationCenter.NotificationCenterDelegate? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        val splashScreen = installSplashScreen()
+        installSplashScreen()
         instance = this
         isActive = true
         super.onCreate(savedInstanceState)
@@ -110,10 +110,7 @@ class MainActivity : BasePermissionsActivity(),
         themeColors.setTheme(themeMode, isSystemDarkMode())
 
         if (hasSession) {
-            splashScreen.setKeepOnScreenCondition { !isContentReady }
             preInitControllers()
-        } else {
-            isContentReady = true
         }
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -134,6 +131,16 @@ class MainActivity : BasePermissionsActivity(),
             ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         )
         setContentView(drawerLayoutContainer)
+
+        if (hasSession) {
+            splashOverlay = android.view.View(this).apply {
+                setBackgroundResource(R.drawable.splash_screen)
+            }
+            drawerLayoutContainer.addView(
+                splashOverlay,
+                ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+            )
+        }
         @Suppress("DEPRECATION")
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
 
@@ -192,6 +199,7 @@ class MainActivity : BasePermissionsActivity(),
         super.onDestroy()
         actionBarLayout.unregisterBackCallback()
         AndroidUtilities.cancelRunOnUIThread(dismissSplashRunnable)
+        splashOverlay = null
         splashContentObserver?.let {
             notificationCenter.removeObserver(it, NotificationCenter.clansDidLoad)
             notificationCenter.removeObserver(it, NotificationCenter.dialogsNeedReload)
@@ -345,17 +353,35 @@ class MainActivity : BasePermissionsActivity(),
     private fun setupSplashDismiss() {
         val observer = object : NotificationCenter.NotificationCenterDelegate {
             override fun didReceivedNotification(id: Int, account: Int, vararg args: Any?) {
-                isContentReady = true
                 AndroidUtilities.cancelRunOnUIThread(dismissSplashRunnable)
                 notificationCenter.removeObserver(this, NotificationCenter.clansDidLoad)
                 notificationCenter.removeObserver(this, NotificationCenter.dialogsNeedReload)
                 splashContentObserver = null
+                dismissSplashOverlay()
             }
         }
         splashContentObserver = observer
         notificationCenter.addObserver(observer, NotificationCenter.clansDidLoad)
         notificationCenter.addObserver(observer, NotificationCenter.dialogsNeedReload)
         AndroidUtilities.runOnUIThread(dismissSplashRunnable, 3000)
+    }
+
+    private fun dismissSplashOverlay() {
+        val overlay = splashOverlay ?: return
+        if (SharedConfig.animationsEnabled()) {
+            overlay.animate()
+                .alpha(0f)
+                .setDuration(300)
+                .withEndAction {
+                    (overlay.parent as? ViewGroup)?.removeView(overlay)
+                    splashOverlay = null
+                }
+                .start()
+        } else {
+            (overlay.parent as? ViewGroup)?.removeView(overlay)
+            splashOverlay = null
+        }
+        window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(themeColors.background))
     }
 
     private fun showLogin() {

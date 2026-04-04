@@ -19,7 +19,7 @@ class ChannelThreadCell(
 
     companion object {
         private val namePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = LayoutHelper.sp(14f)
+            textSize = LayoutHelper.sp(15f)
         }
         private val connectorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
