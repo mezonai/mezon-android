@@ -47,7 +47,7 @@ class ThemeColors @Inject constructor() {
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }
     val dialogTimePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = LayoutHelper.sp(11f)
+        textSize = LayoutHelper.sp(12f)
     }
     val dialogBadgePaint = Paint(Paint.ANTI_ALIAS_FLAG)
     val dialogBadgeTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -63,7 +63,7 @@ class ThemeColors @Inject constructor() {
     val dividerPaint = Paint()
 
     val chatSenderPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = LayoutHelper.sp(14f)
+        textSize = LayoutHelper.sp(15f)
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }
     val chatContentPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -81,21 +81,21 @@ class ThemeColors @Inject constructor() {
     val chatBubblePaint = Paint(Paint.ANTI_ALIAS_FLAG)
     val chatBubbleOutPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     val systemMessageTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = LayoutHelper.sp(13f)
+        textSize = LayoutHelper.sp(14f)
     }
 
     val settingsNamePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = LayoutHelper.sp(16f)
+        textSize = LayoutHelper.sp(17f)
     }
     val settingsValuePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = LayoutHelper.sp(14f)
     }
     val headerPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = LayoutHelper.sp(14f)
+        textSize = LayoutHelper.sp(15f)
         typeface = Typeface.DEFAULT_BOLD
     }
     val buttonTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = LayoutHelper.sp(14f)
+        textSize = LayoutHelper.sp(15f)
         typeface = Typeface.DEFAULT_BOLD
         textAlign = Paint.Align.CENTER
     }

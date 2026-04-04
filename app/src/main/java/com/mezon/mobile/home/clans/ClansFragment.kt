@@ -8,6 +8,7 @@ import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
@@ -225,8 +226,8 @@ class ClansFragment : BaseFragment() {
         }
         clanNameText = TextView(context).apply {
             setTextColor(themeColors.onSurface)
-            textSize = 16f // RN: s_16
-            typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, 500, false) // RN: fontWeight 500
+            textSize = 17f
+            typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, 500, false)
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
         }
@@ -252,7 +253,7 @@ class ClansFragment : BaseFragment() {
         }
         memberCountText = TextView(context).apply {
             setTextColor(themeColors.textDisabled)
-            textSize = 12f // RN: s_12
+            textSize = 13f
             text = ""
         }
         subtitleRow.addView(memberCountText, LayoutHelper.createLinear(
@@ -273,8 +274,8 @@ class ClansFragment : BaseFragment() {
             rightMargin = LayoutHelper.dp(8)
         })
         communityLabel = TextView(context).apply {
-            setTextColor(themeColors.onSurface) // RN: textStrong
-            textSize = 12f // RN: s_12
+            setTextColor(themeColors.onSurface)
+            textSize = 13f
             text = "Community"
             visibility = View.GONE
         }
@@ -305,6 +306,12 @@ class ClansFragment : BaseFragment() {
             isClickable = true
             isFocusable = true
             setOnClickListener { openSearch() }
+            setOnTouchListener { v, event ->
+                if (event.action == MotionEvent.ACTION_DOWN) {
+                    v.parent?.requestDisallowInterceptTouchEvent(true)
+                }
+                false
+            }
         }
         // Search icon pinned left (RN: position absolute, left s_12)
         val searchIcon = ImageView(context).apply {
@@ -312,6 +319,8 @@ class ClansFragment : BaseFragment() {
                 colorFilter = PorterDuffColorFilter(themeColors.textDisabled, PorterDuff.Mode.SRC_IN)
             })
             scaleType = ImageView.ScaleType.FIT_CENTER
+            isClickable = false
+            isFocusable = false
         }
         searchPill.addView(searchIcon, FrameLayout.LayoutParams(
             LayoutHelper.dp(18), LayoutHelper.dp(18), // RN: s_18
@@ -320,9 +329,11 @@ class ClansFragment : BaseFragment() {
         // Search text centered (RN: justifyContent center, fontSize s_14)
         val searchText = TextView(context).apply {
             text = "Search"
-            setTextColor(themeColors.onSurfaceVariant) // RN: colors.text
-            textSize = 14f // RN: s_14
+            setTextColor(themeColors.onSurfaceVariant)
+            textSize = 15f
             gravity = Gravity.CENTER
+            isClickable = false
+            isFocusable = false
         }
         searchPill.addView(searchText, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT
