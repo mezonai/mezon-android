@@ -141,6 +141,9 @@ class ClansFragment : BaseFragment() {
         serverRail.adapter = serverAdapter
         serverRail.setOnItemClickListener(RecyclerListView.OnItemClickListener { view, _ ->
             when (view) {
+                is DmLogoCell -> {
+                    onSwitchToMessages?.invoke()
+                }
                 is ClanCell -> {
                     val clan = view.currentClan ?: return@OnItemClickListener
                     onClanSelected(clan)
@@ -670,7 +673,6 @@ class ClansFragment : BaseFragment() {
                 is DmLogoCell -> {
                     view.setLogoUrl(logoUrl)
                     view.setPendingFriendCount(pendingFriendCount)
-                    view.setOnClickListener { onSwitchToMessages?.invoke() }
                 }
                 is UnreadDmCell -> {
                     val idx = position - dmHeaderCount

@@ -232,7 +232,10 @@ class OTPVerificationFragment : BaseFragment() {
         ))
 
         startCountdown()
-        otpFields.firstOrNull()?.requestFocus()
+        otpFields.firstOrNull()?.let {
+            it.requestFocus()
+            AndroidUtilities.showKeyboard(it)
+        }
 
         return root
     }

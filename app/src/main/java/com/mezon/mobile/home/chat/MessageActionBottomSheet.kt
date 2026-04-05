@@ -3,9 +3,6 @@ package com.mezon.mobile.home.chat
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.graphics.Canvas
-import android.graphics.Paint
-import android.graphics.RectF
 import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
@@ -153,6 +150,7 @@ class MessageActionBottomSheet(
         setCustomView(scrollView)
 
         super.onCreate(savedInstanceState)
+        fixNavigationBar()
     }
 
 
@@ -315,18 +313,13 @@ class MessageActionBottomSheet(
 
   
     private fun buildActionRow(item: ActionItem): FrameLayout {
-        val row = object : FrameLayout(context) {
-            private val ripplePaint = Paint(Paint.ANTI_ALIAS_FLAG)
-            init {
-                // RN: actionItem { backgroundColor: colors.secondary }
-                setBackgroundColor(secondaryColor)
-                // Ripple feedback
-                val outValue = TypedValue()
-                context.theme.resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)
-                foreground = context.getDrawable(outValue.resourceId)
-                isClickable = true
-                isFocusable = true
-            }
+        val row = FrameLayout(context).apply {
+            setBackgroundColor(secondaryColor)
+            val outValue = TypedValue()
+            context.theme.resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)
+            foreground = context.getDrawable(outValue.resourceId)
+            isClickable = true
+            isFocusable = true
         }
 
         val textColor = if (item.isWarning)

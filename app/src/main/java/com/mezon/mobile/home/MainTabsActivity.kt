@@ -106,7 +106,15 @@ class MainTabsActivity : ViewPagerActivity() {
     }
 
     override fun createView(context: Context): View {
-        contentRoot = FrameLayout(context).apply {
+        contentRoot = object : FrameLayout(context) {
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                val sbh = AndroidUtilities.statusBarHeight
+                if (paddingTop != sbh) {
+                    setPadding(0, sbh, 0, 0)
+                }
+                super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+            }
+        }.apply {
             setBackgroundColor(themeColors.serverRailBg)
             setPadding(0, AndroidUtilities.statusBarHeight, 0, 0)
             clipToPadding = false

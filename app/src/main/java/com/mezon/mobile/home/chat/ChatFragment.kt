@@ -150,6 +150,15 @@ class ChatFragment : BaseFragment() {
     private var initialApiDone = false
     private var pendingBottomScroll: Runnable? = null
     private var chatAdjustPanHelper: com.mezon.mobile.core.AdjustPanLayoutHelper? = null
+    private var waitingForKeyboardOpen = false
+    private var lastResumeTime = 0L
+    private val openKeyboardRunnable = object : Runnable {
+        override fun run() {
+            if (!waitingForKeyboardOpen || isPaused) return
+            AndroidUtilities.showKeyboard(inputField)
+            AndroidUtilities.runOnUIThread(this, 100)
+        }
+    }
 
     private val waitingForSocketIds = ArrayList<Long>()
     private val socketRealIds = ArrayList<Long>()
@@ -1193,11 +1202,18 @@ class ChatFragment : BaseFragment() {
         })
 
         chatAdjustPanHelper = object : com.mezon.mobile.core.AdjustPanLayoutHelper(rootView) {
+            override fun heightAnimationEnabled(): Boolean {
+                if (isPaused) return false
+                if (inTransitionAnimation) return false
+                if (android.os.SystemClock.elapsedRealtime() - lastResumeTime < 250) return false
+                return true
+            }
             override fun onTransitionStart(keyboardVisible: Boolean, contentHeight: Int) {
                 if (!keyboardVisible) recyclerView.stopScroll()
             }
             override fun onPanTranslationUpdate(y: Float, progress: Float, keyboardVisible: Boolean) {
                 actionBar?.translationY = y
+                inputBar.translationY = y
                 if (keyboardVisible && progress > 0f && !recyclerView.canScrollVertically(1)) {
                     recyclerView.scrollBy(0, -y.toInt())
                 }
@@ -1223,6 +1239,10 @@ class ChatFragment : BaseFragment() {
                 }
                 if (keyboardHeight > LayoutHelper.dp(50f)) {
                     SharedConfig.saveKeyboardHeight(keyboardHeight, isWidthGreater)
+                    if (waitingForKeyboardOpen) {
+                        waitingForKeyboardOpen = false
+                        AndroidUtilities.cancelRunOnUIThread(openKeyboardRunnable)
+                    }
                     if (emojiViewVisible) {
                         dismissEmojiSilently()
                     }
@@ -1249,6 +1269,11 @@ class ChatFragment : BaseFragment() {
 
         fragmentView = rootView
         return rootView
+    }
+
+    override fun onResume() {
+        super.onResume()
+        lastResumeTime = android.os.SystemClock.elapsedRealtime()
     }
 
     override fun onBecomeFullyVisible() {
@@ -1296,6 +1321,9 @@ class ChatFragment : BaseFragment() {
 
     override fun onPause() {
         super.onPause()
+        waitingForKeyboardOpen = false
+        AndroidUtilities.cancelRunOnUIThread(openKeyboardRunnable)
+        AndroidUtilities.cancelRunOnUIThread(showKeyboardFromEmojiRunnable)
         if (::recyclerView.isInitialized) recyclerView.stopScroll()
         saveScrollPosition()
         if (emojiViewVisible) {
@@ -1402,10 +1430,22 @@ class ChatFragment : BaseFragment() {
         updateEmojiButtonIcon(showingEmoji = true)
     }
 
-    private fun openKeyboardFromEmoji() {
+    private val showKeyboardFromEmojiRunnable = Runnable {
         inputField.requestFocus()
+        waitingForKeyboardOpen = true
+        AndroidUtilities.cancelRunOnUIThread(openKeyboardRunnable)
         AndroidUtilities.showKeyboard(inputField)
+        AndroidUtilities.runOnUIThread(openKeyboardRunnable, 100)
+    }
+
+    private fun openKeyboardFromEmoji() {
         updateEmojiButtonIcon(showingEmoji = false)
+        AndroidUtilities.cancelRunOnUIThread(showKeyboardFromEmojiRunnable)
+        if (emojiViewVisible) {
+            AndroidUtilities.runOnUIThread(showKeyboardFromEmojiRunnable, 200)
+        } else {
+            showKeyboardFromEmojiRunnable.run()
+        }
     }
 
     private fun dismissEmojiSilently() {
@@ -1596,6 +1636,9 @@ class ChatFragment : BaseFragment() {
     }
 
     override fun onFragmentDestroy() {
+        waitingForKeyboardOpen = false
+        AndroidUtilities.cancelRunOnUIThread(openKeyboardRunnable)
+        AndroidUtilities.cancelRunOnUIThread(showKeyboardFromEmojiRunnable)
         notificationCenter.removePostponeNotificationsCallback(postponeNewMessagesCallback)
         notificationCenter.onAnimationFinish(transitionAnimationIndex)
         saveScrollPosition()
@@ -2023,6 +2066,7 @@ class ChatFragment : BaseFragment() {
                 MentionData(
                     userId = m.userId,
                     roleId = m.roleId,
+                    display = m.display,
                     startOffset = mdResult.adjustOffset(m.startOffset),
                     endOffset = mdResult.adjustOffset(m.endOffset)
                 )
