@@ -87,11 +87,11 @@ class MainActivity : BasePermissionsActivity(),
         private set
 
     private var isContentReady = false
+    private val dismissSplashRunnable = Runnable { isContentReady = true }
     private var splashContentObserver: NotificationCenter.NotificationCenterDelegate? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        val splash = installSplashScreen()
-        splash.setKeepOnScreenCondition { !isContentReady }
+        val splashScreen = installSplashScreen()
         instance = this
         isActive = true
         super.onCreate(savedInstanceState)
@@ -110,7 +110,10 @@ class MainActivity : BasePermissionsActivity(),
         themeColors.setTheme(themeMode, isSystemDarkMode())
 
         if (hasSession) {
+            splashScreen.setKeepOnScreenCondition { !isContentReady }
             preInitControllers()
+        } else {
+            isContentReady = true
         }
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -143,14 +146,12 @@ class MainActivity : BasePermissionsActivity(),
                 setupSplashDismiss()
                 fcmRepository.getAndRegisterToken()
             } else {
-                isContentReady = true
                 showLogin()
             }
             if (!handleShareIntent(intent)) {
                 handleNotificationIntent(intent)
             }
         } else {
-            isContentReady = true
             actionBarLayout.showLastFragment()
             rewireTopFragmentCallbacks()
         }
@@ -191,7 +192,7 @@ class MainActivity : BasePermissionsActivity(),
     override fun onDestroy() {
         super.onDestroy()
         actionBarLayout.unregisterBackCallback()
-        AndroidUtilities.cancelRunOnUIThread(markContentReadyRunnable)
+        AndroidUtilities.cancelRunOnUIThread(dismissSplashRunnable)
         splashContentObserver?.let {
             notificationCenter.removeObserver(it, NotificationCenter.clansDidLoad)
             notificationCenter.removeObserver(it, NotificationCenter.dialogsNeedReload)
@@ -342,27 +343,20 @@ class MainActivity : BasePermissionsActivity(),
         entryPoint.dialogsController()
     }
 
-    private val markContentReadyRunnable = Runnable { markContentReady() }
-
     private fun setupSplashDismiss() {
         val observer = object : NotificationCenter.NotificationCenterDelegate {
             override fun didReceivedNotification(id: Int, account: Int, vararg args: Any?) {
-                AndroidUtilities.cancelRunOnUIThread(markContentReadyRunnable)
+                isContentReady = true
+                AndroidUtilities.cancelRunOnUIThread(dismissSplashRunnable)
                 notificationCenter.removeObserver(this, NotificationCenter.clansDidLoad)
                 notificationCenter.removeObserver(this, NotificationCenter.dialogsNeedReload)
                 splashContentObserver = null
-                markContentReady()
             }
         }
         splashContentObserver = observer
         notificationCenter.addObserver(observer, NotificationCenter.clansDidLoad)
         notificationCenter.addObserver(observer, NotificationCenter.dialogsNeedReload)
-        AndroidUtilities.runOnUIThread(markContentReadyRunnable, 3000)
-    }
-
-    private fun markContentReady() {
-        isContentReady = true
-        window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(themeColors.background))
+        AndroidUtilities.runOnUIThread(dismissSplashRunnable, 3000)
     }
 
     private fun showLogin() {
