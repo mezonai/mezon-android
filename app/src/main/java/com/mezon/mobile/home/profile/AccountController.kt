@@ -23,8 +23,6 @@ import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
-
-
 data class AccountInfo(
     val userId: Long = 0L,
     val username: String = "",
@@ -34,7 +32,12 @@ data class AccountInfo(
     val phoneNumber: String = "",
     val avatarUrl: String = "",
     val logo: String = "",
-    val passwordSetted: Boolean = false
+    val passwordSetted: Boolean = false,
+    val createTimeSeconds: Long = 0L,
+    val userStatus: String = "",
+    val onlineStatus: UserOnlineStatus = UserOnlineStatus.ONLINE,
+    val balance: String = "0",
+    val address: String = ""
 )
 
 @Singleton
@@ -45,6 +48,7 @@ class AccountController @Inject constructor(
     private val dispatcher: SocketEventDispatcher,
     private val notificationCenter: NotificationCenter,
     private val cacheTracker: ApiCacheTracker,
+    private val mezonSocket: com.mezon.mobile.network.MezonSocket,
     @ApplicationScope private val appScope: CoroutineScope,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) {
@@ -53,6 +57,9 @@ class AccountController @Inject constructor(
 
     private val _blockedUsers = MutableStateFlow<List<Friend>>(emptyList())
     val blockedUsers: StateFlow<List<Friend>> = _blockedUsers.asStateFlow()
+
+    private val _friends = MutableStateFlow<List<Friend>>(emptyList())
+    val friends: StateFlow<List<Friend>> = _friends.asStateFlow()
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
@@ -63,6 +70,8 @@ class AccountController @Inject constructor(
             loadAccountInternal()
         }
         appScope.launch { observeProfileUpdates() }
+        appScope.launch { observeUserStatusEvents() }
+        appScope.launch { observeCustomStatusEvents() }
     }
 
     private suspend fun observeProfileUpdates() {
@@ -79,6 +88,31 @@ class AccountController @Inject constructor(
         }
     }
 
+    private suspend fun observeUserStatusEvents() {
+        dispatcher.userStatusEvents.collect { event ->
+            val current = _accountInfo.value
+            if (current.userId == 0L || event.userId != current.userId) return@collect
+            val newOnlineStatus = event.customStatus
+            if (newOnlineStatus.isNotEmpty()) {
+                val updated = current.copy(onlineStatus = UserOnlineStatus.fromString(newOnlineStatus))
+                _accountInfo.value = updated
+                userController.updateFromAccount(updated)
+                notificationCenter.postNotificationOnMainThread(NotificationCenter.accountInfoLoaded)
+            }
+        }
+    }
+
+    private suspend fun observeCustomStatusEvents() {
+        dispatcher.customStatusEvents.collect { event ->
+            val current = _accountInfo.value
+            if (current.userId == 0L || event.userId != current.userId) return@collect
+            val updated = current.copy(userStatus = event.status)
+            _accountInfo.value = updated
+            userController.updateFromAccount(updated)
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.accountInfoLoaded)
+        }
+    }
+
     private val cacheKey = apiCacheKey("getAccount")
 
     private suspend fun loadAccountInternal(noCache: Boolean = false) {
@@ -89,6 +123,8 @@ class AccountController @Inject constructor(
             sessionManager.withAutoRefresh { session ->
                 val account = withContext(ioDispatcher) { api.getAccount(session.apiUrl, session.token) }
                 val user = account.user
+                val walletData = withContext(ioDispatcher) { api.getWalletBalance(user.id.toString()) }
+                
                 val info = AccountInfo(
                     userId = user.id,
                     username = user.username,
@@ -98,8 +134,14 @@ class AccountController @Inject constructor(
                     phoneNumber = user.phoneNumber,
                     avatarUrl = user.avatarUrl,
                     logo = account.logo,
-                    passwordSetted = account.passwordSetted
+                    passwordSetted = account.passwordSetted,
+                    createTimeSeconds = user.createTimeSeconds.toLong(),
+                    userStatus = user.userStatus,
+                    onlineStatus = UserOnlineStatus.fromString(user.status),
+                    balance = walletData?.balance ?: "0",
+                    address = walletData?.address ?: ""
                 )
+                
                 _accountInfo.value = info
                 cacheTracker.markCalled(cacheKey)
                 userController.updateFromAccount(info)
@@ -120,6 +162,19 @@ class AccountController @Inject constructor(
                     val friendList = withContext(ioDispatcher) { api.listFriends(session.apiUrl, session.token, state = 3) }
                     _blockedUsers.value = friendList.friendsList
                     notificationCenter.postNotificationOnMainThread(NotificationCenter.blockedUsersLoaded)
+                }
+            } catch (e: Exception) {
+            }
+        }
+    }
+
+    fun loadFriends() {
+        appScope.launch {
+            try {
+                sessionManager.withAutoRefresh { session ->
+                    val friendList = withContext(ioDispatcher) { api.listFriends(session.apiUrl, session.token, state = 0) }
+                    _friends.value = friendList.friendsList
+                    notificationCenter.postNotificationOnMainThread(NotificationCenter.friendsLoaded)
                 }
             } catch (e: Exception) {
             }
@@ -376,6 +431,42 @@ class AccountController @Inject constructor(
                 withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(false, e.message ?: "") }
             } finally {
                 _isLoading.value = false
+            }
+        }
+    }
+
+    fun updateCustomStatus(clanId: Long, status: String, timeReset: Int, noClear: Boolean, onResult: (success: Boolean) -> Unit) {
+        appScope.launch {
+            _isLoading.value = true
+            try {
+                mezonSocket.writeCustomStatus(clanId, status, timeReset, noClear)
+                val current = _accountInfo.value
+                val updated = current.copy(userStatus = status.trim())
+                _accountInfo.value = updated
+                userController.updateFromAccount(updated)
+                notificationCenter.postNotificationOnMainThread(NotificationCenter.accountInfoLoaded)
+                withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(true) }
+            } catch (e: Exception) {
+                withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(false) }
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    fun updateOnlineStatus(status: String) {
+        appScope.launch {
+            try {
+                sessionManager.withAutoRefresh { session ->
+                    api.updateUserStatus(session.apiUrl, session.token, status)
+                }
+                val current = _accountInfo.value
+                val updated = current.copy(onlineStatus = UserOnlineStatus.fromString(status))
+                _accountInfo.value = updated
+                userController.updateFromAccount(updated)
+                cacheTracker.invalidate(cacheKey)
+                notificationCenter.postNotificationOnMainThread(NotificationCenter.accountInfoLoaded)
+            } catch (e: Exception) {
             }
         }
     }

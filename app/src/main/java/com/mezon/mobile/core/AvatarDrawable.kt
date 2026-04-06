@@ -22,9 +22,12 @@ class AvatarDrawable : Drawable() {
             0xFFFF8A65.toInt(), 0xFFA1887F.toInt(), 0xFF90A4AE.toInt()
         )
 
-        fun getColorForId(id: Long): Int = avatarColors[getColorIndex(id)]
+        fun getColorForId(id: Long): Int {
+            if (id == 0L) return 0xFFBDBDBD.toInt()
+            return avatarColors[getColorIndex(id)]
+        }
 
-        fun getColorIndex(id: Long): Int = (id % avatarColors.size).toInt().coerceAtLeast(0)
+        fun getColorIndex(id: Long): Int = (java.lang.Math.abs(id) % avatarColors.size).toInt()
 
         fun getNameColorNameForId(id: Long): Int = getColorIndex(id)
     }
@@ -36,6 +39,7 @@ class AvatarDrawable : Drawable() {
         textAlign = Paint.Align.CENTER
     }
 
+    private var currentUserId: Long = 0L
     private var initial: String = ""
     private var bgColor: Int = avatarColors[0]
     private var bgColor2: Int = avatarColors[0]
@@ -46,8 +50,15 @@ class AvatarDrawable : Drawable() {
     private var scaleSize = 1f
     private var drawableByInfo = true
     private var customTextSize = 0f
+    var roundRadius: Float = -1f
 
     fun setInfo(id: Long, firstName: String?, lastName: String?) {
+        if (id == currentUserId && photoBitmap != null) {
+            initial = getAvatarSymbols(firstName, lastName)
+            invalidateSelf()
+            return
+        }
+        currentUserId = id
         bgColor = getColorForId(id)
         bgColor2 = bgColor
         hasGradient = false
@@ -156,7 +167,13 @@ class AvatarDrawable : Drawable() {
                 )
                 setLocalMatrix(matrix)
             }
-            canvas.drawCircle(cx, cy, radius, photoPaint)
+            if (roundRadius >= 0f) {
+                val r = com.mezon.mobile.core.LayoutHelper.dp(roundRadius).toFloat()
+                val rect = android.graphics.RectF(bounds)
+                canvas.drawRoundRect(rect, r, r, photoPaint)
+            } else {
+                canvas.drawCircle(cx, cy, radius, photoPaint)
+            }
             photoPaint.shader = null
         } else if (drawableByInfo) {
             if (hasGradient) {
@@ -167,7 +184,13 @@ class AvatarDrawable : Drawable() {
                 bgPaint.shader = null
                 bgPaint.color = bgColor
             }
-            canvas.drawCircle(cx, cy, radius, bgPaint)
+            if (roundRadius >= 0f) {
+                val r = com.mezon.mobile.core.LayoutHelper.dp(roundRadius).toFloat()
+                val rect = android.graphics.RectF(bounds)
+                canvas.drawRoundRect(rect, r, r, bgPaint)
+            } else {
+                canvas.drawCircle(cx, cy, radius, bgPaint)
+            }
             bgPaint.shader = null
             val textSize = when {
                 customTextSize > 0 -> customTextSize

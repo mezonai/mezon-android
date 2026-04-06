@@ -26,6 +26,11 @@ class AvatarView(context: Context) : View(context) {
         invalidate()
     }
 
+    fun setRoundRadius(dp: Float) {
+        avatarDrawable.roundRadius = dp
+        invalidate()
+    }
+
     fun setImageUrl(url: String?) {
         if (url == currentUrl && (cancellable != null || avatarDrawable.hasPhoto())) return
         currentUrl = url
