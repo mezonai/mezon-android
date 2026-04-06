@@ -38,6 +38,7 @@ import com.mezon.mezon.api.messageMention
 import com.mezon.mezon.rtapi.channelMessageSend
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -420,6 +421,9 @@ class ChatController @Inject constructor(
             messageMention {
                 if (m.userId.isNotBlank()) userId = m.userId.toLongOrNull() ?: 0L
                 if (m.roleId.isNotBlank()) roleId = m.roleId.toLongOrNull() ?: 0L
+                if (m.display.isNotBlank()) username = m.display
+                s = m.startOffset
+                e = m.endOffset
             }
         }
 
@@ -617,6 +621,8 @@ class ChatController @Inject constructor(
         const val ID_MENTION_HERE = "here"
         private const val SEND_MAX_RETRIES = 2
         private const val SEND_RETRY_DELAY_MS = 500L
+        private const val SHARE_MAX_RETRIES = 5
+        private const val SHARE_RETRY_DELAY_MS = 4000L
     }
 
     private fun generateTempId(): Long {
@@ -776,6 +782,156 @@ class ChatController @Inject constructor(
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to send message with attachments", e)
+                notificationCenter.postNotificationOnMainThread(
+                    NotificationCenter.pendingMessageError, channelId, tempId
+                )
+            }
+        }
+    }
+
+    fun shareMediaToChannel(
+        channelId: Long,
+        clanId: Long,
+        channelType: Int,
+        isChannelPrivate: Boolean,
+        text: String,
+        attachments: List<AttachmentPickerItem>,
+        contentResolver: android.content.ContentResolver
+    ) {
+        val mode = channelTypeToStreamMode(channelType)
+        val isPublic = !isChannelPrivate
+        val baseContent = if (text.isNotBlank()) buildTextContent(text) else "{\"t\":\"\"}"
+
+        val tempId = generateTempId()
+        val uc = userController.get()
+        val firstItem = attachments.firstOrNull()
+        val extraJson = if (attachments.size > 1) {
+            val arr = org.json.JSONArray()
+            for (i in 1 until attachments.size) {
+                val item = attachments[i]
+                val obj = org.json.JSONObject()
+                obj.put("url", item.uri.toString())
+                obj.put("thumb", "")
+                obj.put("width", item.width)
+                obj.put("height", item.height)
+                obj.put("filename", item.filename)
+                obj.put("filetype", item.mimeType)
+                obj.put("size", item.size.toInt())
+                obj.put("duration", item.duration)
+                arr.put(obj)
+            }
+            arr.toString()
+        } else ""
+
+        val optimistic = MessageEntity(
+            id = tempId,
+            channelId = channelId,
+            senderId = uc.userId,
+            senderName = uc.displayName.ifBlank { uc.username },
+            senderAvatar = uc.avatarUrl,
+            content = baseContent,
+            timestampSeconds = System.currentTimeMillis() / 1000,
+            code = MessageEntity.CODE_CHAT,
+            isMe = true,
+            messageType = resolveOptimisticType(firstItem),
+            attachmentUrl = firstItem?.uri?.toString().orEmpty(),
+            attachmentFilename = firstItem?.filename.orEmpty(),
+            attachmentFiletype = firstItem?.mimeType.orEmpty(),
+            attachmentWidth = firstItem?.width ?: 0,
+            attachmentHeight = firstItem?.height ?: 0,
+            extraAttachmentsJson = extraJson,
+            sendState = MessageEntity.SEND_STATE_SENDING
+        )
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.didReceiveNewMessages, channelId, optimistic
+        )
+
+        appScope.launch(ioDispatcher) {
+            try {
+                if (clanId != 0L) {
+                    runCatching {
+                        sessionManager.sessionFlow.first() ?: return@launch
+                        if (mezonSocket.awaitConnected()) {
+                            mezonSocket.joinClanChat(clanId)
+                            mezonSocket.joinChat(clanId, channelId, channelType, isPublic)
+                        }
+                    }
+                }
+
+                sessionManager.withAutoRefresh { session ->
+                    val cdnBaseUrl = BuildConfig.MEZON_BASE_IMG_URL
+                    val uploadedAttachments = ArrayList<MessageAttachment>()
+
+                    for (item in attachments) {
+                        var uploaded = false
+                        for (attempt in 1..SHARE_MAX_RETRIES) {
+                            try {
+                                val timestamp = System.currentTimeMillis() / 1000
+                                val sanitizedName = item.filename.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+                                val uploadFilename = "${timestamp}_$sanitizedName"
+
+                                val presignResult = api.uploadAttachmentFile(
+                                    session.apiUrl, session.token,
+                                    uploadFilename, item.mimeType,
+                                    item.size.toInt(), item.width, item.height
+                                )
+
+                                val fileBytes = contentResolver.openInputStream(item.uri)?.use { it.readBytes() }
+                                if (fileBytes == null) {
+                                    Log.e(TAG, "shareMedia: Failed to read file: ${item.filename}")
+                                    break
+                                }
+
+                                api.putFileToPresignedUrl(presignResult.url, fileBytes, item.mimeType)
+
+                                val cdnUrl = "$cdnBaseUrl/${presignResult.filename}"
+                                val attachment = messageAttachment {
+                                    this.filename = item.filename
+                                    this.url = cdnUrl
+                                    this.filetype = item.mimeType
+                                    this.size = item.size.toInt()
+                                    this.width = item.width
+                                    this.height = item.height
+                                    if (item.duration > 0) this.duration = item.duration
+                                }
+                                uploadedAttachments.add(attachment)
+                                uploaded = true
+                                Log.d(TAG, "shareMedia: Uploaded ${item.filename} → $cdnUrl (attempt $attempt)")
+                                break
+                            } catch (e: Exception) {
+                                Log.e(TAG, "shareMedia: Upload attempt $attempt failed for ${item.filename}", e)
+                                if (attempt < SHARE_MAX_RETRIES) {
+                                    delay(SHARE_RETRY_DELAY_MS)
+                                }
+                            }
+                        }
+                        if (!uploaded) {
+                            Log.e(TAG, "shareMedia: All retries exhausted for ${item.filename}")
+                        }
+                    }
+
+                    if (uploadedAttachments.isNotEmpty()) {
+                        val request = channelMessageSend {
+                            this.clanId = clanId
+                            this.channelId = channelId
+                            this.mode = mode
+                            this.isPublic = isPublic
+                            this.content = baseContent
+                            this.attachments.addAll(uploadedAttachments)
+                        }
+                        val ack = api.sendChannelMessage(session.apiUrl, session.token, request)
+                        notificationCenter.postNotificationOnMainThread(
+                            NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
+                        )
+                        Log.d(TAG, "shareMedia: Sent ${uploadedAttachments.size}/${attachments.size} attachments to channel $channelId")
+                    } else {
+                        notificationCenter.postNotificationOnMainThread(
+                            NotificationCenter.pendingMessageError, channelId, tempId
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "shareMedia: Failed", e)
                 notificationCenter.postNotificationOnMainThread(
                     NotificationCenter.pendingMessageError, channelId, tempId
                 )

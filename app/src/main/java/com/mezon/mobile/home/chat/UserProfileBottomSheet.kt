@@ -117,9 +117,8 @@ class UserProfileBottomSheet(
 
         setCustomView(scrollView)
         super.onCreate(savedInstanceState)
+        fixNavigationBar()
 
-        // Disable clipping on BottomSheet's internal layout hierarchy
-        // so the avatar can overflow below the backdrop
         contentLayout?.clipChildren = false
         contentLayout?.clipToPadding = false
         containerView?.clipChildren = false

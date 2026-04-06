@@ -18,7 +18,7 @@ class ChannelSectionCell(
 
     companion object {
         private val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = LayoutHelper.sp(11f)
+            textSize = LayoutHelper.sp(13f)
             typeface = android.graphics.Typeface.DEFAULT_BOLD
         }
         private val arrowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {

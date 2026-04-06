@@ -47,7 +47,7 @@ class ThemeColors @Inject constructor() {
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }
     val dialogTimePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = LayoutHelper.sp(11f)
+        textSize = LayoutHelper.sp(12f)
     }
     val dialogBadgePaint = Paint(Paint.ANTI_ALIAS_FLAG)
     val dialogBadgeTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -63,7 +63,7 @@ class ThemeColors @Inject constructor() {
     val dividerPaint = Paint()
 
     val chatSenderPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = LayoutHelper.sp(14f)
+        textSize = LayoutHelper.sp(15f)
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }
     val chatContentPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -81,21 +81,21 @@ class ThemeColors @Inject constructor() {
     val chatBubblePaint = Paint(Paint.ANTI_ALIAS_FLAG)
     val chatBubbleOutPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     val systemMessageTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = LayoutHelper.sp(13f)
+        textSize = LayoutHelper.sp(14f)
     }
 
     val settingsNamePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = LayoutHelper.sp(16f)
+        textSize = LayoutHelper.sp(17f)
     }
     val settingsValuePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = LayoutHelper.sp(14f)
     }
     val headerPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = LayoutHelper.sp(14f)
+        textSize = LayoutHelper.sp(15f)
         typeface = Typeface.DEFAULT_BOLD
     }
     val buttonTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = LayoutHelper.sp(14f)
+        textSize = LayoutHelper.sp(15f)
         typeface = Typeface.DEFAULT_BOLD
         textAlign = Paint.Align.CENTER
     }
@@ -303,6 +303,13 @@ class ThemeColors @Inject constructor() {
         else -> 0xFF1C1B1F.toInt()
     }
 
+    val chatBackground: Int get() = when (resolvedMode) {
+        ThemeMode.LIGHT -> 0xFFFFFFFF.toInt()
+        ThemeMode.DARK -> 0xFF1C1D23.toInt()
+        ThemeMode.ABYSS -> 0xFF040421.toInt()
+        else -> 0xFF1C1D23.toInt()
+    }
+
     val surface: Int get() = when (resolvedMode) {
         ThemeMode.LIGHT -> 0xFFFFFBFE.toInt()
         ThemeMode.DARK -> 0xFF1C1B1F.toInt()
@@ -378,6 +385,7 @@ class ThemeColors @Inject constructor() {
         ThemeMode.DARK, ThemeMode.ABYSS -> 0xFF3B426E.toInt()
         else -> 0xFF3B426E.toInt()
     }
+    val mentionHighlightBg: Int get() = 0x14E8CA52.toInt()
     val textRoleLink: Int get() = when (resolvedMode) {
         ThemeMode.LIGHT -> 0xFF00B098.toInt()
         ThemeMode.DARK, ThemeMode.ABYSS -> 0xFF009C67.toInt()

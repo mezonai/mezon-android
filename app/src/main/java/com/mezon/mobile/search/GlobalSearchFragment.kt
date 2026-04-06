@@ -568,9 +568,16 @@ class GlobalSearchFragment : BaseFragment() {
         }
     }
 
+    override fun onPause() {
+        super.onPause()
+        AndroidUtilities.hideKeyboard(searchCell.editText)
+    }
+
     override fun onFragmentDestroy() {
         searchRunnable?.let { handler.removeCallbacks(it) }
         pickerFilterRunnable?.let { handler.removeCallbacks(it) }
+        AndroidUtilities.hideKeyboard(searchCell.editText)
+        searchCell.editText.clearFocus()
         searchController.invalidateFilterCache()
         super.onFragmentDestroy()
     }

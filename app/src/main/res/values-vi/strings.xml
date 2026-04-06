@@ -320,4 +320,14 @@
     <string name="status_duration_1_hour">1 giờ</string>
     <string name="status_duration_30_minutes">30 phút</string>
     <string name="status_duration_dont_clear">Không xóa</string>
+    <string name="sharing_filter_all">Tất cả</string>
+    <string name="sharing_filter_users">Người dùng</string>
+    <string name="sharing_filter_channels">Kênh</string>
+    <string name="sharing_filter_options">Tuỳ chọn lọc</string>
+    <string name="sharing_select_channel">Chọn kênh</string>
+    <string name="sharing_select_user">Chọn người dùng</string>
+    <string name="sharing_select_channel_placeholder">Chọn kênh hoặc người dùng</string>
+    <string name="sharing_suggestions">Gợi ý</string>
+    <string name="sharing_add_comment">Thêm bình luận…</string>
+    <string name="sharing_empty_content">Không có nội dung để chia sẻ</string>
 </resources>
