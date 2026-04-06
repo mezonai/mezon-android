@@ -1,6 +1,7 @@
 package com.mezon.mobile.di
 
 import com.mezon.mobile.auth.AuthRepository
+import com.mezon.mobile.home.AnonymousController
 import com.mezon.mobile.home.ChatController
 import com.mezon.mobile.home.ConnectionController
 import com.mezon.mobile.home.chat.EmojiController
@@ -41,6 +42,7 @@ interface FragmentEntryPoint {
     fun searchController(): SearchController
     fun userClanController(): UserClanController
     fun emojiController(): EmojiController
+    fun anonymousController(): AnonymousController
 
     @IoDispatcher
     fun ioDispatcher(): CoroutineDispatcher

@@ -19,6 +19,7 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
 
     var directMessage: DirectMessage? = null
         private set
+    var hasBuzz = false
 
     private val avatarDrawable = AvatarDrawable()
     private var currentAvatarUrl: String? = null
@@ -33,6 +34,7 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
     private var previewLayout: StaticLayout? = null
     private var timeLayout: StaticLayout? = null
     private var badgeLayout: StaticLayout? = null
+    private var buzzLayout: StaticLayout? = null
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
@@ -189,8 +191,17 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
                 .build()
         }
 
+        buzzLayout = if (hasBuzz) {
+            val buzzText = "Buzz!!"
+            StaticLayout.Builder.obtain(buzzText, 0, buzzText.length, theme.buzzBadgeTextPaint, contentWidth)
+                .setMaxLines(1).build()
+        } else null
+
+        val buzzSpace = if (buzzLayout != null) {
+            (buzzLayout!!.getLineWidth(0) + BUZZ_H_PAD * 2).toInt() + BADGE_GAP
+        } else 0
         val badgeSpace = if (badgeLayout != null) BADGE_MIN_W + BADGE_GAP else 0
-        val previewWidth = contentWidth - badgeSpace
+        val previewWidth = contentWidth - badgeSpace - buzzSpace
         val previewText = dm.lastMessageContent.ifEmpty { "No messages" }
         previewLayout = StaticLayout.Builder.obtain(previewText, 0, previewText.length, previewPaint, previewWidth.coerceAtLeast(0))
             .setMaxLines(1)
@@ -288,6 +299,21 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
             }
         }
 
+        buzzLayout?.let { buzz ->
+            val btw = buzz.getLineWidth(0)
+            val bw = btw + BUZZ_H_PAD * 2
+            val bh = BUZZ_BADGE_H.toFloat()
+            val nameH = nameLayout?.height ?: 0
+            val bx = textLeft + (nameLayout?.getLineWidth(0) ?: 0f) + BADGE_GAP
+            val by = PADDING_V + (nameH - bh) / 2f
+            tmpRect.set(bx, by, bx + bw, by + bh)
+            canvas.drawRoundRect(tmpRect, BUZZ_RADIUS, BUZZ_RADIUS, theme.buzzBadgePaint)
+            canvas.save()
+            canvas.translate(bx + (bw - btw) / 2, by + (bh - buzz.height) / 2)
+            buzz.draw(canvas)
+            canvas.restore()
+        }
+
         val divLeft = (cx + AVATAR_SIZE + GAP_H).toFloat()
         canvas.drawRect(divLeft, height - 1f, width.toFloat(), height.toFloat(), theme.dividerPaint)
 
@@ -311,5 +337,8 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         private val BADGE_GAP = LayoutHelper.dp(8)
         private val TIME_GAP = LayoutHelper.dp(8)
         private val ONLINE_ANIM_STEP = 16f / 150f
+        private val BUZZ_H_PAD = LayoutHelper.dp(4).toFloat()
+        private val BUZZ_BADGE_H = LayoutHelper.dp(20)
+        private val BUZZ_RADIUS = LayoutHelper.dpf(4f)
     }
 }

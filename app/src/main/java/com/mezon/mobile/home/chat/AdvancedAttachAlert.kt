@@ -24,17 +24,21 @@ import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.ui.cells.MezonIcon
 
 private const val ITEMS_PER_ROW = 4
-private const val ICON_BG_SIZE = 48
+private const val ICON_BG_SIZE = 42
 private const val ICON_SIZE = 24
 
 class AdvancedAttachAlert(
     context: Context,
-    private val theme: ThemeColors
+    private val theme: ThemeColors,
+    private val clanId: Long = 0L,
+    private val isAnonymousMode: Boolean = false
 ) : BottomSheet(context) {
 
     interface AdvancedAttachAlertDelegate {
         fun onLocationSelected()
         fun onFilesSelected()
+        fun onBuzzSelected()
+        fun onAnonymousToggled()
     }
 
     var advancedDelegate: AdvancedAttachAlertDelegate? = null
@@ -45,13 +49,32 @@ class AdvancedAttachAlert(
         val icon: MezonIcon
     )
 
-    private val functions = listOf(
-        FunctionItem("location", R.string.advanced_location, MezonIcon.locationIconGray),
-        FunctionItem("files", R.string.advanced_files, MezonIcon.fileIconGray),
-        FunctionItem("buzz", R.string.advanced_buzz, MezonIcon.buzzAdvancedIcon),
-        FunctionItem("transfer_funds", R.string.advanced_transfer_funds, MezonIcon.sendMoneyAdvancedIcon),
-        FunctionItem("share_contact", R.string.advanced_share_contact, MezonIcon.shareContactIconGray)
-    )
+    private val functions: List<FunctionItem> = buildFunctions()
+
+    private fun buildFunctions(): List<FunctionItem> {
+        val list = ArrayList<FunctionItem>()
+        if (!isAnonymousMode) {
+            list.add(FunctionItem("location", R.string.advanced_location, MezonIcon.locationIconGray))
+        }
+        list.add(FunctionItem("files", R.string.advanced_files, MezonIcon.fileIconGray))
+        if (clanId != 0L) {
+            list.add(FunctionItem("create_thread", R.string.advanced_threads, MezonIcon.threadPlusIconGray))
+            val anonLabel = if (isAnonymousMode) R.string.advanced_anonymous_off else R.string.advanced_anonymous
+            list.add(FunctionItem("anonymous", anonLabel, MezonIcon.anonymousIconGray))
+        }
+        list.add(FunctionItem("buzz", R.string.advanced_buzz, MezonIcon.buzzAdvancedIcon))
+        if (clanId != 0L) {
+            list.add(FunctionItem("ephemeral", R.string.advanced_ephemeral, MezonIcon.ephemeralIconGray))
+        }
+        list.add(FunctionItem("transfer_funds", R.string.advanced_transfer_funds, MezonIcon.sendMoneyAdvancedIcon))
+        if (clanId != 0L) {
+            list.add(FunctionItem("poll", R.string.advanced_poll, MezonIcon.pollIconGray))
+        }
+        if (!isAnonymousMode) {
+            list.add(FunctionItem("share_contact", R.string.advanced_share_contact, MezonIcon.shareContactIconGray))
+        }
+        return list
+    }
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)
@@ -101,6 +124,8 @@ class AdvancedAttachAlert(
         when (item.id) {
             "location" -> advancedDelegate?.onLocationSelected()
             "files" -> advancedDelegate?.onFilesSelected()
+            "buzz" -> advancedDelegate?.onBuzzSelected()
+            "anonymous" -> advancedDelegate?.onAnonymousToggled()
             else -> Toast.makeText(context, R.string.feature_coming_soon, Toast.LENGTH_SHORT).show()
         }
     }
@@ -137,18 +162,19 @@ private class FunctionCell(context: Context, private val theme: ThemeColors) : V
 
     override fun onDraw(canvas: Canvas) {
         val cx = width / 2f
+        val bgSize = LayoutHelper.dp(ICON_BG_SIZE.toFloat())
         val iconSize = LayoutHelper.dp(ICON_SIZE.toFloat())
         val topPad = LayoutHelper.dp(8f).toFloat()
 
         iconDrawable?.let {
             val iconLeft = (cx - iconSize / 2f).toInt()
-            val iconTop = topPad.toInt()
+            val iconTop = topPad.toInt() + (bgSize - iconSize) / 2
             it.setBounds(iconLeft, iconTop, iconLeft + iconSize, iconTop + iconSize)
             it.draw(canvas)
         }
 
         labelLayout?.let {
-            val textY = topPad + iconSize + LayoutHelper.dp(6f)
+            val textY = topPad + bgSize + LayoutHelper.dp(8f)
             canvas.save()
             canvas.translate((width - it.width) / 2f, textY)
             it.draw(canvas)
