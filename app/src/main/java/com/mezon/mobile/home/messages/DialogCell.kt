@@ -32,6 +32,7 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
     private var nameLayout: StaticLayout? = null
     private var previewLayout: StaticLayout? = null
     private var timeLayout: StaticLayout? = null
+    private var timeColor: Int = 0
     private var badgeLayout: StaticLayout? = null
 
     override fun onAttachedToWindow() {
@@ -164,7 +165,7 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         val namePaint = if (isUnread) theme.dialogNameBoldPaint else theme.dialogNamePaint
         val previewPaint = if (isUnread) theme.dialogMessageBoldPaint else theme.dialogMessagePaint
         val timePaint = theme.dialogTimePaint
-        timePaint.color = if (isUnread) theme.primary else theme.onSurfaceVariant
+        timeColor = if (isUnread) theme.primary else theme.onSurfaceVariant
 
         val timeText = if (dm.lastSentMessageTs > 0) formatRelativeTime(dm.lastSentMessageTs) else ""
         timeLayout = StaticLayout.Builder.obtain(timeText, 0, timeText.length, timePaint, contentWidth)
@@ -255,6 +256,7 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         }
 
         timeLayout?.let {
+            theme.dialogTimePaint.color = timeColor
             val timeX = width - PADDING_H - it.getLineWidth(0)
             val namePaint = if (isUnread) theme.dialogNameBoldPaint else theme.dialogNamePaint
             canvas.save()

@@ -36,13 +36,16 @@ class ImageReceiver(private val parentView: View) {
 
     private var pendingLocalUri: android.net.Uri? = null
 
-    private var crossfadeAlpha = 255
-    private var crossfadeStartTime = 0L
-    private val crossfadeDuration = 200L
+    private var currentAlpha = 1f
+    private var lastAlphaUpdateTime = 0L
+    private val crossfadeDuration = 200f
     private var allowStartAnimation = true
     private var skipUpdateFrame = false
+    private var orientation = 0
+    private var invert = 0
 
     private val roundPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private val bitmapPaint = Paint(Paint.FILTER_BITMAP_FLAG)
     private val shaderMatrix = Matrix()
     private val roundPath = Path()
     private val roundRect = RectF()
@@ -174,7 +177,7 @@ class ImageReceiver(private val parentView: View) {
                             imageBitmap = drawable.bitmap
                             cachedShader = null
                             cachedShaderBitmap = null
-                            crossfadeAlpha = 255
+                            currentAlpha = 1f
                             thumbBitmap = null
                         }
                         parentView.invalidate()
@@ -191,7 +194,7 @@ class ImageReceiver(private val parentView: View) {
                     animatedDrawable = null
                     cachedShader = null
                     cachedShaderBitmap = null
-                    crossfadeAlpha = 255
+                    currentAlpha = 1f
                     thumbBitmap = null
                     parentView.invalidate()
                     return
@@ -212,10 +215,10 @@ class ImageReceiver(private val parentView: View) {
                         cachedShader = null
                         cachedShaderBitmap = null
                         if (hadThumb) {
-                            crossfadeAlpha = 0
-                            crossfadeStartTime = System.currentTimeMillis()
+                            currentAlpha = 0f
+                            lastAlphaUpdateTime = 0L
                         } else {
-                            crossfadeAlpha = 255
+                            currentAlpha = 1f
                             thumbBitmap = null
                         }
                         parentView.invalidate()
@@ -237,7 +240,7 @@ class ImageReceiver(private val parentView: View) {
                     imageBitmap = bmp
                     cachedShader = null
                     cachedShaderBitmap = null
-                    crossfadeAlpha = 255
+                    currentAlpha = 1f
                     thumbBitmap = null
                     parentView.invalidate()
                 }
@@ -265,19 +268,22 @@ class ImageReceiver(private val parentView: View) {
             return drawAnimated(canvas, anim)
         }
 
-        val mainBmp = imageBitmap
-        val thumbBmp = thumbBitmap
+        val mainBmp = imageBitmap?.takeIf { !it.isRecycled }
+        val thumbBmp = thumbBitmap?.takeIf { !it.isRecycled }
 
-        if (mainBmp != null && crossfadeAlpha < 255) {
-            val elapsed = System.currentTimeMillis() - crossfadeStartTime
-            crossfadeAlpha = ((elapsed.toFloat() / crossfadeDuration) * 255).toInt().coerceIn(0, 255)
+        if (mainBmp != null && currentAlpha < 1f) {
+            val now = System.currentTimeMillis()
+            val dt = if (lastAlphaUpdateTime == 0L) 16L
+                     else (now - lastAlphaUpdateTime).coerceIn(0, 30)
+            lastAlphaUpdateTime = now
+            currentAlpha = (currentAlpha + dt / crossfadeDuration).coerceAtMost(1f)
 
             if (thumbBmp != null) {
                 drawBitmap(canvas, thumbBmp, 255)
             }
-            drawBitmap(canvas, mainBmp, crossfadeAlpha)
+            drawBitmap(canvas, mainBmp, (currentAlpha * 255).toInt())
 
-            if (crossfadeAlpha < 255) {
+            if (currentAlpha < 1f) {
                 parentView.postInvalidateOnAnimation()
             } else {
                 thumbBitmap = null
@@ -290,21 +296,39 @@ class ImageReceiver(private val parentView: View) {
     }
 
     private fun drawAnimated(canvas: Canvas, drawable: Drawable): Boolean {
+        if (skipUpdateFrame) {
+            val fallback = imageBitmap ?: thumbBitmap
+            if (fallback != null && !fallback.isRecycled) return drawBitmap(canvas, fallback, 255)
+            return false
+        }
+        canvas.save()
         val hasRound = roundRadius.any { it > 0 }
 
         if (hasRound) {
             roundRect.set(imageX, imageY, imageX + imageW, imageY + imageH)
-            for (i in roundRadius.indices) {
-                radii[i * 2] = roundRadius[i].toFloat()
-                radii[i * 2 + 1] = roundRadius[i].toFloat()
+            val r0 = roundRadius[0]
+            if (r0 == roundRadius[1] && r0 == roundRadius[2] && r0 == roundRadius[3]) {
+                roundPath.reset()
+                roundPath.addRoundRect(roundRect, r0.toFloat(), r0.toFloat(), Path.Direction.CW)
+            } else {
+                for (i in roundRadius.indices) {
+                    radii[i * 2] = roundRadius[i].toFloat()
+                    radii[i * 2 + 1] = roundRadius[i].toFloat()
+                }
+                roundPath.reset()
+                roundPath.addRoundRect(roundRect, radii, Path.Direction.CW)
             }
-            roundPath.reset()
-            roundPath.addRoundRect(roundRect, radii, Path.Direction.CW)
-            canvas.save()
             canvas.clipPath(roundPath)
         } else {
-            canvas.save()
             canvas.clipRect(imageX, imageY, imageX + imageW, imageY + imageH)
+        }
+
+        if (orientation != 0 || invert != 0) {
+            val cx = imageX + imageW / 2f
+            val cy = imageY + imageH / 2f
+            if (invert == 1) canvas.scale(-1f, 1f, cx, cy)
+            else if (invert == 2) canvas.scale(1f, -1f, cx, cy)
+            if (orientation != 0) canvas.rotate(orientation.toFloat(), cx, cy)
         }
 
         val iw = drawable.intrinsicWidth
@@ -327,60 +351,85 @@ class ImageReceiver(private val parentView: View) {
     }
 
     private fun drawBitmap(canvas: Canvas, bmp: Bitmap, alpha: Int = 255): Boolean {
+        if (bmp.isRecycled) return false
         val bmpW = bmp.width.toFloat()
         val bmpH = bmp.height.toFloat()
         if (bmpW <= 0f || bmpH <= 0f) return false
 
-        val hasRound = roundRadius.any { it > 0 }
+        try {
+            val hasRound = roundRadius.any { it > 0 }
 
-        val scaleW = bmpW / imageW
-        val scaleH = bmpH / imageH
-        val scale = 1f / minOf(scaleW, scaleH)
+            val scaleW = bmpW / imageW
+            val scaleH = bmpH / imageH
+            val scale = 1f / minOf(scaleW, scaleH)
 
-        val scaledW = bmpW * scale
-        val scaledH = bmpH * scale
-        drawRegion.set(
-            imageX - (scaledW - imageW) / 2f,
-            imageY - (scaledH - imageH) / 2f,
-            imageX + (scaledW + imageW) / 2f,
-            imageY + (scaledH + imageH) / 2f
-        )
+            val scaledW = bmpW * scale
+            val scaledH = bmpH * scale
+            drawRegion.set(
+                imageX - (scaledW - imageW) / 2f,
+                imageY - (scaledH - imageH) / 2f,
+                imageX + (scaledW + imageW) / 2f,
+                imageY + (scaledH + imageH) / 2f
+            )
 
-        roundPaint.alpha = alpha
+            if (hasRound) {
+                val shader = getOrCreateShader(bmp)
+                shaderMatrix.reset()
+                shaderMatrix.setTranslate(drawRegion.left, drawRegion.top)
+                if (invert != 0) {
+                    shaderMatrix.preScale(
+                        if (invert == 1) -1f else 1f,
+                        if (invert == 2) -1f else 1f,
+                        drawRegion.width() / 2f, drawRegion.height() / 2f
+                    )
+                }
+                when (orientation) {
+                    90 -> { shaderMatrix.preRotate(90f); shaderMatrix.preTranslate(0f, -drawRegion.width()) }
+                    180 -> { shaderMatrix.preRotate(180f); shaderMatrix.preTranslate(-drawRegion.width(), -drawRegion.height()) }
+                    270 -> { shaderMatrix.preRotate(270f); shaderMatrix.preTranslate(-drawRegion.height(), 0f) }
+                }
+                shaderMatrix.preScale(scale, scale)
+                shader.setLocalMatrix(shaderMatrix)
+                roundPaint.shader = shader
+                roundPaint.alpha = alpha
 
-        if (hasRound) {
-            val shader = getOrCreateShader(bmp)
-            shaderMatrix.reset()
-            shaderMatrix.setTranslate(drawRegion.left, drawRegion.top)
-            shaderMatrix.preScale(scale, scale)
-            shader.setLocalMatrix(shaderMatrix)
-            roundPaint.shader = shader
+                roundRect.set(imageX, imageY, imageX + imageW, imageY + imageH)
+                val r0 = roundRadius[0]
+                if (r0 == roundRadius[1] && r0 == roundRadius[2] && r0 == roundRadius[3]) {
+                    if (r0 == 0) {
+                        canvas.drawRect(roundRect, roundPaint)
+                    } else {
+                        canvas.drawRoundRect(roundRect, r0.toFloat(), r0.toFloat(), roundPaint)
+                    }
+                } else {
+                    for (i in roundRadius.indices) {
+                        radii[i * 2] = roundRadius[i].toFloat()
+                        radii[i * 2 + 1] = roundRadius[i].toFloat()
+                    }
+                    roundPath.reset()
+                    roundPath.addRoundRect(roundRect, radii, Path.Direction.CW)
+                    roundPath.close()
+                    canvas.drawPath(roundPath, roundPaint)
+                }
 
-            roundRect.set(imageX, imageY, imageX + imageW, imageY + imageH)
-            for (i in roundRadius.indices) {
-                radii[i * 2] = roundRadius[i].toFloat()
-                radii[i * 2 + 1] = roundRadius[i].toFloat()
+                roundPaint.shader = null
+                roundPaint.alpha = 255
+            } else {
+                bitmapPaint.alpha = alpha
+                canvas.save()
+                canvas.clipRect(imageX, imageY, imageX + imageW, imageY + imageH)
+                if (invert == 1) canvas.scale(-1f, 1f, imageX + imageW / 2f, imageY + imageH / 2f)
+                else if (invert == 2) canvas.scale(1f, -1f, imageX + imageW / 2f, imageY + imageH / 2f)
+                if (orientation != 0) canvas.rotate(orientation.toFloat(), imageX + imageW / 2f, imageY + imageH / 2f)
+                canvas.drawBitmap(bmp, null, drawRegion, bitmapPaint)
+                canvas.restore()
             }
-            roundPath.reset()
-            roundPath.addRoundRect(roundRect, radii, Path.Direction.CW)
-            roundPath.close()
-            canvas.drawPath(roundPath, roundPaint)
-        } else {
-            canvas.save()
-            canvas.clipRect(imageX, imageY, imageX + imageW, imageY + imageH)
-            shaderMatrix.reset()
-            shaderMatrix.setTranslate(drawRegion.left, drawRegion.top)
-            shaderMatrix.preScale(scale, scale)
-            val shader = getOrCreateShader(bmp)
-            shader.setLocalMatrix(shaderMatrix)
-            roundPaint.shader = shader
-            canvas.drawRect(imageX, imageY, imageX + imageW, imageY + imageH, roundPaint)
-            canvas.restore()
-        }
 
-        roundPaint.shader = null
-        roundPaint.alpha = 255
-        return true
+            return true
+        } catch (e: Exception) {
+            onBitmapException()
+            return false
+        }
     }
 
     private fun getOrCreateShader(bmp: Bitmap): BitmapShader {
@@ -396,6 +445,22 @@ class ImageReceiver(private val parentView: View) {
     private fun stopAnimation() {
         (animatedDrawable as? Animatable)?.stop()
         animatedDrawable?.callback = null
+    }
+
+    private fun onBitmapException() {
+        val url = currentUrl ?: return
+        val ctx = parentView.context ?: return
+        val rw = if (requestW > 0) requestW else 800
+        val rh = if (requestH > 0) requestH else 800
+        MezonImageLoader.getInstance(ctx).removeFromCache(url, rw, rh)
+        imageBitmap = null
+        cachedShader = null
+        cachedShaderBitmap = null
+    }
+
+    fun setOrientation(degrees: Int, flip: Int = 0) {
+        orientation = degrees
+        invert = flip
     }
 
     fun hasImage(): Boolean = imageBitmap != null || thumbBitmap != null || animatedDrawable != null
@@ -438,7 +503,7 @@ class ImageReceiver(private val parentView: View) {
         val cached = loader.getBitmapFromMemory(uriString, rw, rh)
         if (cached != null) {
             imageBitmap = cached
-            crossfadeAlpha = 255
+            currentAlpha = 1f
             parentView.invalidate()
             return
         }
@@ -451,7 +516,7 @@ class ImageReceiver(private val parentView: View) {
                 imageBitmap = bmp
                 cachedShader = null
                 cachedShaderBitmap = null
-                crossfadeAlpha = 255
+                currentAlpha = 1f
                 parentView.invalidate()
             }
         )
