@@ -27,7 +27,7 @@ class AvatarView(context: Context) : View(context) {
     }
 
     fun setRoundRadius(dp: Float) {
-        avatarDrawable.roundRadius = dp
+        avatarDrawable.cornerRadius = LayoutHelper.dp(dp).toFloat()
         invalidate()
     }
 

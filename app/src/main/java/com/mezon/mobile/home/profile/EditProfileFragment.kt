@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.graphics.BitmapFactory
-import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.view.Gravity
@@ -662,7 +661,7 @@ class EditProfileFragment : BaseFragment() {
                 ))
 
                 val divider = View(context).apply {
-                    setBackgroundColor(Color.WHITE)
+                    setBackgroundColor(themeColors.outlineVariant)
                 }
                 container.addView(divider, LayoutHelper.createLinear(
                     LayoutHelper.MATCH_PARENT, 1, 0f, 0, 12f, 0f, 12f, 0f

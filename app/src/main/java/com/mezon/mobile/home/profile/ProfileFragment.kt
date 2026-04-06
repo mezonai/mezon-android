@@ -531,7 +531,6 @@ class ProfileFragment : BaseFragment() {
             setPadding(pad, LayoutHelper.dp(16), pad, LayoutHelper.dp(16))
             val bg = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(20f).toFloat(); setColor(themeColors.surfaceVariant)
-                setStroke(LayoutHelper.dp(1f).toInt(), Color.WHITE)
             }
             background = bg
         }
