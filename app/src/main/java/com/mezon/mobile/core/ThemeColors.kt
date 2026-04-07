@@ -400,6 +400,14 @@ class ThemeColors @Inject constructor() {
     val badgeRed: Int get() = 0xFFD30E0E.toInt()
     val onlineGreen: Int get() = 0xFF43B581.toInt()
 
+    val reactionBgColor: Int get() = when (resolvedMode) {
+        ThemeMode.LIGHT -> 0x99E5E7EB.toInt()
+        ThemeMode.DARK -> 0x80373A54.toInt()
+        ThemeMode.ABYSS -> 0x80373A54.toInt()
+        else -> 0x80373A54.toInt()
+    }
+    val reactionBorderColor: Int get() = 0xFF2563EB.toInt()
+
     // primary prop (outer shape) = iconSecondary || textNormal
     val tabIconPrimary: Int get() = when (resolvedMode) {
         ThemeMode.LIGHT -> 0xFFE0E1E3.toInt()  // light.textNormal

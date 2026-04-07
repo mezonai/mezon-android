@@ -8,6 +8,7 @@ import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.home.chat.AttachmentPickerItem
 import com.mezon.mobile.home.chat.MessageEntity
+import com.mezon.mobile.home.chat.applyReactionEvent
 import com.mezon.mobile.home.chat.toMessageEntity
 import com.mezon.mobile.network.ApiCacheTracker
 import com.mezon.mobile.network.CODE_CHAT_REMOVE
@@ -78,6 +79,7 @@ class ChatController @Inject constructor(
 
     init {
         appScope.launch { observeIncomingMessages() }
+        appScope.launch { observeReactionEvents() }
         appScope.launch(ioDispatcher) {
             val session = sessionManager.sessionFlow.first { it != null }
             cachedCurrentUserId = session?.userId?.toLongOrNull() ?: 0L
@@ -1046,6 +1048,77 @@ class ChatController @Inject constructor(
             }
 
             dialogsController.updateOnNewMessage(msg, currentUserId)
+        }
+    }
+
+    private suspend fun observeReactionEvents() {
+        socketEventDispatcher.messageReactions.collect { reaction ->
+            handleReactionEvent(reaction)
+        }
+    }
+
+    private fun handleReactionEvent(reaction: com.mezon.mezon.api.MessageReaction) {
+        val channelId = reaction.channelId
+        val messageId = reaction.messageId
+        if (channelId == 0L || messageId == 0L) return
+
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.reactionDidUpdate,
+            channelId,
+            messageId,
+            reaction.emojiId,
+            reaction.emoji,
+            reaction.senderId,
+            reaction.count,
+            reaction.action
+        )
+
+        appScope.launch(ioDispatcher) {
+            val existing = messageDao.getById(channelId, messageId) ?: return@launch
+            val updatedJson = applyReactionEvent(
+                existing.reactionsJson,
+                reaction.emojiId,
+                reaction.emoji,
+                reaction.senderId,
+                reaction.count,
+                reaction.action
+            )
+            messageDao.updateReactions(channelId, messageId, updatedJson)
+        }
+    }
+
+    fun sendReaction(
+        channelId: Long,
+        clanId: Long,
+        channelType: Int,
+        isChannelPrivate: Boolean,
+        messageId: Long,
+        emojiId: Long,
+        emoji: String,
+        count: Int,
+        actionDelete: Boolean,
+        messageSenderId: Long
+    ) {
+        val mode = channelTypeToStreamMode(channelType)
+        val isPublic = !isChannelPrivate
+        appScope.launch {
+            try {
+                mezonSocket.writeMessageReaction(
+                    id = emojiId,
+                    clanId = clanId,
+                    channelId = channelId,
+                    mode = mode,
+                    isPublic = isPublic,
+                    messageId = messageId,
+                    emojiId = emojiId,
+                    emoji = emoji,
+                    count = count,
+                    messageSenderId = messageSenderId,
+                    actionDelete = actionDelete
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to send reaction", e)
+            }
         }
     }
 }

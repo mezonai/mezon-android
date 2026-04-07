@@ -3,6 +3,7 @@ package com.mezon.mobile.di
 import com.mezon.mobile.auth.AuthRepository
 import com.mezon.mobile.home.ChatController
 import com.mezon.mobile.home.ConnectionController
+import com.mezon.mobile.home.MemberResolver
 import com.mezon.mobile.home.chat.EmojiController
 import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.UserClanController
@@ -41,6 +42,7 @@ interface FragmentEntryPoint {
     fun searchController(): SearchController
     fun userClanController(): UserClanController
     fun emojiController(): EmojiController
+    fun memberResolver(): MemberResolver
 
     @IoDispatcher
     fun ioDispatcher(): CoroutineDispatcher
