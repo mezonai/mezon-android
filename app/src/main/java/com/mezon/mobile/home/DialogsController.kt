@@ -8,6 +8,8 @@ import com.mezon.mobile.data.db.DirectMessageDao
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.home.messages.DirectMessage
+import com.mezon.mobile.home.messages.DmParticipant
+import com.mezon.mobile.home.messages.extractParticipants
 import com.mezon.mobile.home.messages.toDirectMessage
 import com.mezon.mobile.network.ApiCacheTracker
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
@@ -54,6 +56,7 @@ class DialogsController @Inject constructor(
 
     val dialogs = ArrayList<DirectMessage>()
     val dialogsDict = LongSparseArray<DirectMessage>()
+    private val participantsByChannel = LongSparseArray<List<DmParticipant>>()
 
     var dialogsLoaded = false
         private set
@@ -87,6 +90,7 @@ class DialogsController @Inject constructor(
         synchronized(this) {
             dialogs.clear()
             dialogsDict.clear()
+            participantsByChannel.clear()
             dialogsLoaded = false
             currentChannelId = null
         }
@@ -98,6 +102,10 @@ class DialogsController @Inject constructor(
     @Synchronized
     fun getDialog(channelId: Long): DirectMessage? = dialogsDict[channelId]
 
+    @Synchronized
+    fun getParticipants(channelId: Long): List<DmParticipant> =
+        participantsByChannel[channelId] ?: emptyList()
+
     fun setCurrentChannel(channelId: Long) {
         currentChannelId = channelId
         activeChannelTracker.setActive(channelId)
@@ -108,6 +116,36 @@ class DialogsController @Inject constructor(
     fun clearCurrentChannel() {
         currentChannelId = null
         activeChannelTracker.clear()
+    }
+
+    fun loadDmParticipants(channelId: Long) {
+        if (channelId == 0L) return
+        val hasCache: Boolean
+        synchronized(this) { hasCache = participantsByChannel[channelId] != null }
+        if (hasCache) return
+        appScope.launch(ioDispatcher) {
+            try {
+                sessionManager.withAutoRefresh { session ->
+                    val response = api.listChannelUsersUC(session.apiUrl, session.token, channelId)
+                    val count = response.userIdsCount
+                    if (count == 0) return@withAutoRefresh
+                    val participants = ArrayList<DmParticipant>(count)
+                    for (i in 0 until count) {
+                        participants.add(DmParticipant(
+                            userId = response.getUserIds(i),
+                            username = response.usernamesList.getOrElse(i) { "" },
+                            displayName = response.displayNamesList.getOrElse(i) { "" },
+                            avatarUrl = response.avatarsList.getOrElse(i) { "" }
+                        ))
+                    }
+                    synchronized(this@DialogsController) {
+                        participantsByChannel.put(channelId, participants)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "loadDmParticipants failed for channel $channelId", e)
+            }
+        }
     }
 
     fun loadDialogs(page: Int = 1, limit: Int = 500) {
@@ -135,8 +173,17 @@ class DialogsController @Inject constructor(
                     //     Log.d(TAG, "  [$i] channelId=${ch.channelId} type=${ch.type} active=${ch.active} label='${ch.channelLabel}'")
                     // }
 
-                    val merged = rawList
-                        .filter { it.active == 1 }
+                    val activeDescs = rawList.filter { it.active == 1 }
+                    synchronized(this@DialogsController) {
+                        for (desc in activeDescs) {
+                            val participants = desc.extractParticipants()
+                            if (participants.isNotEmpty()) {
+                                participantsByChannel.put(desc.channelId, participants)
+                            }
+                        }
+                    }
+
+                    val merged = activeDescs
                         .map { it.toDirectMessage(currentUserId) }
                         .sortedByDescending { it.lastSentMessageTs }
 

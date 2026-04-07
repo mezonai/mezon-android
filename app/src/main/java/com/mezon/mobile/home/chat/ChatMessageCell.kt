@@ -24,6 +24,7 @@ import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.util.FileUtils
 import com.mezon.mobile.util.createImgproxyUrl
+import com.mezon.mobile.util.getEmojiUrl
 import com.mezon.mobile.util.MentionColors
 import com.mezon.mobile.util.EmbedData
 import com.mezon.mobile.util.OgpData
@@ -141,6 +142,18 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var cachedInnerWidth = 0
     private val forwardArrowPath = Path()
 
+    private var reactionGroups: List<ReactionGroup> = emptyList()
+    private var reactionCountLayouts: Array<StaticLayout?> = emptyArray()
+    private var reactionChipBounds: ArrayList<RectF> = ArrayList()
+    private var reactionIsMyFlags: BooleanArray = BooleanArray(0)
+    private var reactionRowHeight = 0
+    private val reactionChipRect = RectF()
+    private var reactionEmojiBitmaps: Array<android.graphics.Bitmap?> = emptyArray()
+    private var reactionEmojiCancellables: Array<MezonImageLoader.Cancellable?> = emptyArray()
+    private var reactionAddBounds = RectF()
+    private var reactionAddIcon: android.graphics.drawable.Drawable? = null
+    var currentUserId: Long = 0L
+
     private var currentContentPaint = theme.chatContentPaint
     private var currentTimePaint = theme.chatTimePaint
     private val senderPaint get() = theme.chatSenderPaint
@@ -175,6 +188,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         embedThumbImage.onDetachedFromWindow()
         avatarCancellable?.cancel()
         avatarCancellable = null
+        reactionEmojiCancellables.forEach { it?.cancel() }
         cancelEmojiLoads()
     }
 
@@ -341,7 +355,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
 
         if ((mask and NotificationCenter.UPDATE_MASK_REACTIONS) != 0) {
-            needInvalidate = true
+            rebuildLayout = true
         }
 
         if (newMsg != null) messageEntity = newMsg
@@ -622,18 +636,20 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         if (ogpData != null) {
             val ogp = ogpData!!
             val ogpTextW = (textWidth * 0.9f).toInt().coerceAtLeast(1)
-            ogpTitleLayout = StaticLayout.Builder.obtain(ogp.title, 0, ogp.title.length, currentContentPaint, ogpTextW)
+            val truncTitle = if (ogp.title.length > OGP_MAX_CHARS) ogp.title.substring(0, OGP_MAX_CHARS) else ogp.title
+            ogpTitleLayout = StaticLayout.Builder.obtain(truncTitle, 0, truncTitle.length, currentContentPaint, ogpTextW)
                 .setMaxLines(2)
                 .setEllipsize(TextUtils.TruncateAt.END)
                 .build()
-            ogpDescLayout = StaticLayout.Builder.obtain(ogp.description, 0, ogp.description.length, theme.chatTimePaint, ogpTextW)
+            val truncDesc = if (ogp.description.length > OGP_MAX_CHARS) ogp.description.substring(0, OGP_MAX_CHARS) else ogp.description
+            ogpDescLayout = StaticLayout.Builder.obtain(truncDesc, 0, truncDesc.length, theme.chatTimePaint, ogpTextW)
                 .setMaxLines(2)
                 .setEllipsize(TextUtils.TruncateAt.END)
                 .build()
             ogpImageW = (textWidth * 0.6f).toInt().coerceAtLeast(LayoutHelper.dp(120))
             ogpImageH = (ogpImageW * 0.6f).toInt().coerceAtLeast(LayoutHelper.dp(80))
             ogpImage.setRoundRadius(OGP_RADIUS.toInt())
-            val proxiedImg = createImgproxyUrl(ogp.image, ogpImageW * 2, ogpImageH * 2, "fill")
+            val proxiedImg = createImgproxyUrl(ogp.image, ogpImageW, ogpImageH, "fill")
             ogpImage.setImage(proxiedImg, null, context)
         } else {
             ogpTitleLayout = null
@@ -670,6 +686,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         cachedFileNameW = fileNameLayout?.let { maxLineWidth(it) } ?: 0f
         cachedFileSizeW = fileSizeLayout?.let { maxLineWidth(it) } ?: 0f
         cachedEphW = ephemeralLayout?.let { maxLineWidth(it) + EPHEMERAL_ICON_SIZE + GAP_V_INNER } ?: 0f
+
+        buildReactionLayouts(msg, textWidth)
 
         val replyW = if (hasReply) cachedReplyNameW + cachedReplyTextW + REPLY_AVATAR_SIZE + REPLY_H_GAP * 2 else 0f
         val ogpW = if (ogpData != null) maxOf(cachedOgpTitleW, cachedOgpDescW, ogpImageW.toFloat()) else 0f
@@ -725,6 +743,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
         if (drawEphemeral) {
             ephemeralLayout?.let { h += it.height + GAP_V_INNER }
+        }
+
+        if (reactionGroups.isNotEmpty()) {
+            h += REACTION_TOP_PAD + reactionRowHeight
         }
 
         // time is drawn inline with senderLayout row — no separate height needed
@@ -887,7 +909,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             embedImageW = contentW
             embedImageH = (embedImageW / aspect).toInt().coerceIn(LayoutHelper.dp(60), LayoutHelper.dp(300))
             embedImage.setRoundRadius(EMBED_IMG_RADIUS.toInt())
-            val proxyUrl = createImgproxyUrl(data.imageUrl, embedImageW * 2, embedImageH * 2, "fit")
+            val proxyUrl = createImgproxyUrl(data.imageUrl, embedImageW, embedImageH, "fit")
             embedImage.setImage(proxyUrl, null, context)
         } else {
             embedImageW = 0
@@ -897,7 +919,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
         if (hasThumb) {
             embedThumbImage.setRoundRadius(EMBED_IMG_RADIUS.toInt())
-            val thumbProxy = createImgproxyUrl(data.thumbnailUrl, EMBED_THUMB_SIZE * 2, EMBED_THUMB_SIZE * 2, "fit")
+            val thumbProxy = createImgproxyUrl(data.thumbnailUrl, EMBED_THUMB_SIZE, EMBED_THUMB_SIZE, "fit")
             embedThumbImage.setImage(thumbProxy, null, context)
         } else {
             embedThumbImage.setImage(null, null, context)
@@ -1156,6 +1178,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         fun didLongPress(cell: ChatMessageCell, msg: MessageEntity) {}
         fun didClickAvatar(cell: ChatMessageCell, msg: MessageEntity) {}
         fun didPressReply(cell: ChatMessageCell, replyMessageId: Long) {}
+        fun didTapReaction(cell: ChatMessageCell, msg: MessageEntity, group: ReactionGroup) {}
+        fun didLongPressReaction(cell: ChatMessageCell, msg: MessageEntity, group: ReactionGroup) {}
+        fun didTapAddReaction(cell: ChatMessageCell, msg: MessageEntity) {}
     }
 
     private var pressedLink: ClickableSpan? = null
@@ -1165,6 +1190,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var pressedOnFile = false
     private var pressedOnAvatar = false
     private var pressedOnReply = false
+    private var pressedReactionIndex = -1
     private var fileBlockLeft = 0f
     private var fileBlockTop = 0f
     private var fileBlockRight = 0f
@@ -1187,7 +1213,12 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         longPressHandled = true
         val msg = messageEntity ?: return@Runnable
         performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
-        delegate?.didLongPress(this, msg)
+        if (pressedReactionIndex >= 0 && pressedReactionIndex < reactionGroups.size) {
+            delegate?.didLongPressReaction(this, msg, reactionGroups[pressedReactionIndex])
+            pressedReactionIndex = -1
+        } else {
+            delegate?.didLongPress(this, msg)
+        }
         pressedLink = null
         pressedOnMedia = false
         pressedOnOgp = false
@@ -1208,6 +1239,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 pressedOnFile = false
                 pressedOnAvatar = false
                 pressedOnReply = false
+                pressedReactionIndex = -1
                 longPressHandled = false
                 startX = x
                 startY = y
@@ -1276,6 +1308,48 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     scheduleLongPress()
                     return true
                 }
+                if (reactionGroups.isNotEmpty()) {
+                    val contentLeft = if (isCombined) PAD_H + AVATAR_SIZE + GAP_AVATAR else PAD_H + AVATAR_SIZE + GAP_AVATAR
+                    val topPad = if (isCombined) COMBINE_PAD_V else PAD_V
+                    var reacBaseY = topPad.toFloat()
+                    if (hasReply) reacBaseY += REPLY_ROW_HEIGHT + REPLY_V_GAP
+                    forwardLayout?.let { reacBaseY += it.height + GAP_V_INNER }
+                    senderLayout?.let { reacBaseY += it.height + GAP_V_INNER }
+                    if (drawPhotoImage) {
+                        val imgH = if (mediaGridCount > 1) mediaGridTotalH else photoHeight
+                        reacBaseY += imgH + GAP_V_INNER
+                    }
+                    if (drawFileAttachment) reacBaseY += FILE_ICON_SIZE + GAP_V_INNER
+                    contentLayout?.let { reacBaseY += it.height + GAP_V_INNER }
+                    if (ogpData != null) {
+                        reacBaseY += GAP_V_INNER
+                        ogpTitleLayout?.let { reacBaseY += it.height + GAP_V_INNER }
+                        ogpDescLayout?.let { reacBaseY += it.height + GAP_V_INNER }
+                        reacBaseY += ogpImageH + GAP_V_INNER
+                    }
+                    if (embedData != null) reacBaseY += computeEmbedHeight()
+                    if (drawEphemeral) ephemeralLayout?.let { reacBaseY += it.height + GAP_V_INNER }
+                    reacBaseY += REACTION_TOP_PAD
+
+                    if (reactionAddBounds.width() > 0) {
+                        val ax = contentLeft + reactionAddBounds.left
+                        val ay = reacBaseY + reactionAddBounds.top
+                        if (x >= ax && x <= ax + reactionAddBounds.width() && y >= ay && y <= ay + REACTION_CHIP_H) {
+                            pressedReactionIndex = -2
+                            return true
+                        }
+                    }
+                    for (i in reactionChipBounds.indices) {
+                        val b = reactionChipBounds[i]
+                        val bx = contentLeft + b.left
+                        val by = reacBaseY + b.top
+                        if (x >= bx && x <= bx + b.width() && y >= by && y <= by + b.height()) {
+                            pressedReactionIndex = i
+                            scheduleLongPress()
+                            return true
+                        }
+                    }
+                }
                 val layout = contentLayout
                 if (layout != null) {
                     val text = layout.text
@@ -1320,6 +1394,22 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     pressedOnFile = false
                     pressedOnAvatar = false
                     pressedOnReply = false
+                    pressedReactionIndex = -1
+                    return true
+                }
+                if (pressedReactionIndex >= 0) {
+                    val idx = pressedReactionIndex
+                    pressedReactionIndex = -1
+                    val msg = messageEntity
+                    if (msg != null && idx < reactionGroups.size) {
+                        delegate?.didTapReaction(this, msg, reactionGroups[idx])
+                    }
+                    return true
+                }
+                if (pressedReactionIndex == -2) {
+                    pressedReactionIndex = -1
+                    val msg = messageEntity
+                    if (msg != null) delegate?.didTapAddReaction(this, msg)
                     return true
                 }
                 if (pressedOnAvatar) {
@@ -1629,6 +1719,12 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
         if (drawEphemeral) {
             yOff = drawEphemeralIndicator(canvas, contentLeft.toFloat(), yOff)
+        }
+
+        if (reactionGroups.isNotEmpty()) {
+            yOff += REACTION_TOP_PAD
+            drawReactionRow(canvas, contentLeft.toFloat(), yOff)
+            yOff += reactionRowHeight
         }
 
         // timeLayout is drawn on the same row as senderLayout (right side) — not at the bottom
@@ -2061,6 +2157,147 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
     }
 
+    private fun buildReactionLayouts(msg: MessageEntity, maxWidth: Int) {
+        reactionEmojiCancellables.forEach { it?.cancel() }
+
+        val groups = msg.combineReactions()
+        reactionGroups = groups
+        if (groups.isEmpty()) {
+            reactionCountLayouts = emptyArray()
+            reactionChipBounds.clear()
+            reactionIsMyFlags = BooleanArray(0)
+            reactionEmojiBitmaps = emptyArray()
+            reactionEmojiCancellables = emptyArray()
+            reactionRowHeight = 0
+            return
+        }
+
+        reactionIsMyFlags = BooleanArray(groups.size) { i ->
+            groups[i].senders.any { it.senderId == currentUserId && it.count > 0 }
+        }
+
+        REACTION_COUNT_PAINT.color = theme.onSurface
+        val countLayouts = Array<StaticLayout?>(groups.size) { i ->
+            val txt = groups[i].totalCount.toString()
+            StaticLayout.Builder.obtain(txt, 0, txt.length, REACTION_COUNT_PAINT, LayoutHelper.dp(60))
+                .setMaxLines(1)
+                .build()
+        }
+        reactionCountLayouts = countLayouts
+
+        val bitmaps = Array<android.graphics.Bitmap?>(groups.size) { null }
+        val cancellables = Array<MezonImageLoader.Cancellable?>(groups.size) { null }
+        val loader = MezonImageLoader.getInstance(context)
+        var pendingLoads = 0
+
+        for (i in groups.indices) {
+            val url = getEmojiUrl(groups[i].emojiId.toString()) ?: continue
+            val cached = loader.getBitmapFromMemory(url, REACTION_EMOJI_SIZE, REACTION_EMOJI_SIZE)
+            if (cached != null) {
+                bitmaps[i] = cached
+                continue
+            }
+            pendingLoads++
+            val idx = i
+            cancellables[i] = loader.load(url, REACTION_EMOJI_SIZE, REACTION_EMOJI_SIZE,
+                onSuccess = { bmp ->
+                    bitmaps[idx] = bmp
+                    reactionEmojiBitmaps = bitmaps
+                    pendingLoads--
+                    if (pendingLoads <= 0) invalidate()
+                }, onError = { pendingLoads-- })
+        }
+        reactionEmojiBitmaps = bitmaps
+        reactionEmojiCancellables = cancellables
+
+        reactionChipBounds.clear()
+        var x = 0f
+        var y = 0f
+        val availW = maxWidth.toFloat()
+        for (i in groups.indices) {
+            val countW = countLayouts[i]?.let { it.getLineWidth(0) } ?: 0f
+            val chipW = REACTION_CHIP_PAD * 2 + REACTION_EMOJI_SIZE + REACTION_EMOJI_MR + countW
+            if (x > 0 && x + chipW > availW) {
+                x = 0f
+                y += REACTION_CHIP_H + REACTION_GAP
+            }
+            reactionChipBounds.add(RectF(x, y, x + chipW, y + REACTION_CHIP_H))
+            x += chipW + REACTION_GAP
+        }
+
+        val addChipW = REACTION_ADD_SIZE.toFloat()
+        if (x > 0 && x + addChipW > availW) {
+            x = 0f
+            y += REACTION_CHIP_H + REACTION_GAP
+        }
+        reactionAddBounds = RectF(x, y, x + addChipW, y + REACTION_CHIP_H)
+
+        reactionRowHeight = (y + REACTION_CHIP_H).toInt()
+    }
+
+    private fun drawReactionRow(canvas: Canvas, startX: Float, startY: Float) {
+        val groups = reactionGroups
+        val secondaryColor = theme.tertiary
+        val myBg = theme.reactionBgColor
+        val myBorder = theme.reactionBorderColor
+
+        for (i in groups.indices) {
+            val bounds = reactionChipBounds.getOrNull(i) ?: continue
+            val chipX = startX + bounds.left
+            val chipY = startY + bounds.top
+
+            val isMyReaction = reactionIsMyFlags.getOrElse(i) { false }
+            reactionChipRect.set(chipX, chipY, chipX + bounds.width(), chipY + bounds.height())
+
+            if (isMyReaction) {
+                REACTION_BG_PAINT.color = myBg
+                canvas.drawRoundRect(reactionChipRect, REACTION_CHIP_RADIUS, REACTION_CHIP_RADIUS, REACTION_BG_PAINT)
+                REACTION_BORDER_PAINT.color = myBorder
+                canvas.drawRoundRect(reactionChipRect, REACTION_CHIP_RADIUS, REACTION_CHIP_RADIUS, REACTION_BORDER_PAINT)
+            } else {
+                REACTION_BG_PAINT.color = secondaryColor
+                canvas.drawRoundRect(reactionChipRect, REACTION_CHIP_RADIUS, REACTION_CHIP_RADIUS, REACTION_BG_PAINT)
+            }
+
+            val emojiX = chipX + REACTION_CHIP_PAD
+            val emojiY = chipY + (REACTION_CHIP_H - REACTION_EMOJI_SIZE) / 2f
+            val bmp = reactionEmojiBitmaps.getOrNull(i)
+            if (bmp != null && !bmp.isRecycled) {
+                tmpRect.set(emojiX, emojiY, emojiX + REACTION_EMOJI_SIZE, emojiY + REACTION_EMOJI_SIZE)
+                canvas.drawBitmap(bmp, null, tmpRect, null)
+            } else {
+                tmpRect.set(emojiX, emojiY, emojiX + REACTION_EMOJI_SIZE, emojiY + REACTION_EMOJI_SIZE)
+                REACTION_BG_PAINT.color = EMOJI_PLACEHOLDER_COLOR
+                canvas.drawRoundRect(tmpRect, EMOJI_PLACEHOLDER_RADIUS, EMOJI_PLACEHOLDER_RADIUS, REACTION_BG_PAINT)
+            }
+
+            val countLayout = reactionCountLayouts.getOrNull(i)
+            if (countLayout != null) {
+                val countX = emojiX + REACTION_EMOJI_SIZE + REACTION_EMOJI_MR
+                val countY = chipY + (REACTION_CHIP_H - countLayout.height) / 2f
+                canvas.save()
+                canvas.translate(countX, countY)
+                REACTION_COUNT_PAINT.color = theme.onSurface
+                countLayout.draw(canvas)
+                canvas.restore()
+            }
+        }
+
+        val addBounds = reactionAddBounds
+        if (addBounds.width() > 0) {
+            val addX = startX + addBounds.left
+            val addY = startY + addBounds.top + (REACTION_CHIP_H - REACTION_ADD_SIZE) / 2f
+            val icon = reactionAddIcon ?: run {
+                com.mezon.mobile.ui.cells.MezonIcon.reactionIcon.getDrawable(context).mutate().also {
+                    it.colorFilter = android.graphics.PorterDuffColorFilter(0xFF808080.toInt(), android.graphics.PorterDuff.Mode.SRC_IN)
+                    reactionAddIcon = it
+                }
+            }
+            icon.setBounds(addX.toInt(), addY.toInt(), (addX + REACTION_ADD_SIZE).toInt(), (addY + REACTION_ADD_SIZE).toInt())
+            icon.draw(canvas)
+        }
+    }
+
     companion object {
         const val COMBINE_TIME_THRESHOLD = 2 * 60L
         private const val TAG = "ChatMessageCell"
@@ -2084,6 +2321,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         private val GAP_V_INNER = LayoutHelper.dp(6) 
         private val MEDIA_RADIUS = LayoutHelper.dp(12).toFloat()
         private val OGP_RADIUS = LayoutHelper.dp(8).toFloat()
+        private const val OGP_MAX_CHARS = 200
         private val PLAY_BTN_SIZE = LayoutHelper.dp(48).toFloat()
         private val REPLY_AVATAR_SIZE = LayoutHelper.dp(16)
         private val REPLY_H_GAP = LayoutHelper.dp(4)
@@ -2237,6 +2475,31 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             strokeCap = Paint.Cap.ROUND
             strokeJoin = Paint.Join.ROUND
         }
+
+        private val REACTION_CHIP_H = LayoutHelper.dp(30)
+        private val REACTION_EMOJI_SIZE = LayoutHelper.dp(18)
+        private val REACTION_CHIP_PAD = LayoutHelper.dp(2)
+        private val REACTION_CHIP_RADIUS = LayoutHelper.dpf(5f)
+        private val REACTION_GAP = LayoutHelper.dp(6)
+        private val REACTION_EMOJI_MR = LayoutHelper.dp(2)
+        private val REACTION_ADD_SIZE = LayoutHelper.dp(20)
+        private val REACTION_TOP_PAD = LayoutHelper.dp(6)
+
+        private val REACTION_COUNT_PAINT = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = LayoutHelper.dpf(12f)
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+
+        private val REACTION_BG_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+        }
+
+        private val REACTION_BORDER_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = LayoutHelper.dpf(1f)
+        }
+        private const val EMOJI_PLACEHOLDER_COLOR = 0x1A000000
+        private val EMOJI_PLACEHOLDER_RADIUS = LayoutHelper.dpf(4f)
 
         private val EMBED_COLOR_BAR_W = LayoutHelper.dp(4)
         private val EMBED_PAD = LayoutHelper.dp(10)

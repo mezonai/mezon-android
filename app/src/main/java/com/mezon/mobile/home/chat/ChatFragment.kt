@@ -41,6 +41,7 @@ import com.mezon.mobile.home.ChatController
 import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.LOAD_TYPE_INITIAL
 import com.mezon.mobile.home.DialogsController
+import com.mezon.mobile.home.MemberResolver
 import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
@@ -183,6 +184,8 @@ class ChatFragment : BaseFragment() {
     private var editCloseButton: ImageButton? = null
 
     private lateinit var userClanController: UserClanController
+    private lateinit var userController: com.mezon.mobile.home.profile.UserController
+    private lateinit var memberResolver: MemberResolver
     private var mentionsPopup: MentionsPopupView? = null
     private var mentionsAdapter: MentionSuggestionsAdapter? = null
     private val mentionTrackers = mutableListOf<MentionData>()
@@ -256,6 +259,8 @@ class ChatFragment : BaseFragment() {
                 val targetChannelId = if (ch.parentId != 0L) ch.parentId else channelId
                 userClanController.loadChannelMembers(clanId, targetChannelId, channelType)
             }
+        } else if (channelType == CHANNEL_TYPE_GROUP) {
+            dialogsController.loadDmParticipants(channelId)
         }
         Log.d(TAG, "onFragmentCreate: startLoadFromMessageId=$startLoadFromMessageId forceLatest=$forceLatest channelId=$channelId")
         if (startLoadFromMessageId == 0L && !forceLatest) {
@@ -722,6 +727,29 @@ class ChatFragment : BaseFragment() {
             updateVisibleRows(mask)
         }
 
+        observe(NotificationCenter.reactionDidUpdate) { _, _, args ->
+            if (isPaused || fragmentView == null) return@observe
+            if (args.size < 7) return@observe
+            val eventChannelId = args[0] as? Long ?: return@observe
+            if (eventChannelId != channelId) return@observe
+            val messageId = args[1] as? Long ?: return@observe
+            val emojiId = args[2] as? Long ?: return@observe
+            val emoji = args[3] as? String ?: return@observe
+            val senderId = args[4] as? Long ?: return@observe
+            val count = args[5] as? Int ?: return@observe
+            val actionRemove = args[6] as? Boolean ?: return@observe
+
+            val idx = messages.indexOfFirst { it.id == messageId }
+            if (idx >= 0) {
+                val old = messages[idx]
+                val updatedJson = applyReactionEvent(old.reactionsJson, emojiId, emoji, senderId, count, actionRemove)
+                val updated = old.copy(reactionsJson = updatedJson)
+                messages[idx] = updated
+                messagesDict.put(messageId, updated)
+                updateVisibleRows(NotificationCenter.UPDATE_MASK_REACTIONS)
+            }
+        }
+
         observe(NotificationCenter.themeChanged) { _, _, _ ->
             if (fragmentView == null) return@observe
             rootView.setBackgroundColor(themeColors.chatBackground)
@@ -816,6 +844,8 @@ class ChatFragment : BaseFragment() {
         channelController = entryPoint.channelController()
         mediaController = entryPoint.mediaController()
         userClanController = entryPoint.userClanController()
+        userController = entryPoint.userController()
+        memberResolver = entryPoint.memberResolver()
         emojiController = entryPoint.emojiController()
         anonymousController = entryPoint.anonymousController()
     }
@@ -1196,6 +1226,15 @@ class ChatFragment : BaseFragment() {
             }
             override fun didPressReply(cell: ChatMessageCell, replyMessageId: Long) {
                 scrollToReplyMessage(replyMessageId)
+            }
+            override fun didTapReaction(cell: ChatMessageCell, msg: MessageEntity, group: ReactionGroup) {
+                handleReactionTap(msg, group)
+            }
+            override fun didLongPressReaction(cell: ChatMessageCell, msg: MessageEntity, group: ReactionGroup) {
+                showReactionDetailSheet(msg, group.emojiId)
+            }
+            override fun didTapAddReaction(cell: ChatMessageCell, msg: MessageEntity) {
+                showReactionEmojiPicker(msg)
             }
         })
         adapter.channelType = channelType
@@ -2090,14 +2129,7 @@ class ChatFragment : BaseFragment() {
     }
 
     private fun resolveMentionMembers(): List<ClanMember> {
-        if (clanId == 0L) return emptyList()
-        val ch = channelController.findChannelById(channelId)
-        if (ch != null && (ch.isPrivate || ch.parentId != 0L)) {
-            val targetChannelId = if (ch.parentId != 0L) ch.parentId else channelId
-            val channelMembers = userClanController.getChannelMembers(targetChannelId)
-            if (channelMembers.isNotEmpty()) return channelMembers
-        }
-        return userClanController.getClanMembers(clanId)
+        return memberResolver.resolveChannelMembers(clanId, channelId, channelType)
     }
 
     private fun sendMessage() {
@@ -2631,6 +2663,54 @@ class ChatFragment : BaseFragment() {
         }
     }
 
+    private fun handleReactionTap(msg: MessageEntity, group: ReactionGroup) {
+        chatController.sendReaction(
+            channelId, clanId, channelType, resolveChannelPrivate(),
+            msg.id, group.emojiId, group.emoji,
+            1, actionDelete = false, msg.senderId
+        )
+    }
+
+    private fun showReactionEmojiPicker(msg: MessageEntity) {
+        val ctx = getContext() ?: return
+        val activity = getParentActivity() ?: return
+        if (activity.isFinishing || activity.isDestroyed) return
+        val sheet = ReactionEmojiPickerSheet(ctx, themeColors, emojiController, notificationCenter) { emojiId, emojiShortname ->
+            chatController.sendReaction(
+                channelId, clanId, channelType, resolveChannelPrivate(),
+                msg.id, emojiId, emojiShortname,
+                1, actionDelete = false, msg.senderId
+            )
+        }
+        sheet.show()
+    }
+
+    private fun showReactionDetailSheet(msg: MessageEntity, selectedEmojiId: Long) {
+        val ctx = getContext() ?: return
+        val activity = getParentActivity() ?: return
+        if (activity.isFinishing || activity.isDestroyed) return
+        val userId = chatController.getCurrentUserId()
+        val sheet = ReactionDetailBottomSheet(
+            context = ctx,
+            message = msg,
+            selectedEmojiId = selectedEmojiId,
+            currentUserId = userId,
+            themeColors = themeColors,
+            memberResolver = { senderId ->
+                memberResolver.resolveMember(senderId, clanId, channelId, channelType)
+            },
+            onRemoveReaction = { emojiId, emoji, count ->
+                chatController.sendReaction(
+                    channelId, clanId, channelType, resolveChannelPrivate(),
+                    msg.id, emojiId, emoji,
+                    count, actionDelete = true, msg.senderId
+                )
+            }
+        )
+        sheet.setDrawNavigationBar(true)
+        sheet.show()
+    }
+
     private fun showMessageActionSheet(msg: MessageEntity) {
         val ctx = getContext() ?: return
         val activity = getParentActivity() ?: return
@@ -2654,6 +2734,15 @@ class ChatFragment : BaseFragment() {
             listener = object : MessageActionBottomSheet.MessageActionListener {
                 override fun onActionSelected(action: MessageActionBottomSheet.ActionType, message: MessageEntity) {
                     handleMessageAction(action, message)
+                }
+                override fun onReactionSelected(emojiId: Long, emoji: String, message: MessageEntity) {
+                    chatController.sendReaction(
+                        channelId, clanId, channelType, resolveChannelPrivate(),
+                        message.id, emojiId, emoji, 1, actionDelete = false, message.senderId
+                    )
+                }
+                override fun onOpenEmojiPicker(message: MessageEntity) {
+                    showReactionEmojiPicker(message)
                 }
             }
         )

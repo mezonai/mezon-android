@@ -43,7 +43,11 @@ private const val SEARCH_DEBOUNCE_MS = 300L
 private const val EMOJI_COLUMNS = 9
 private const val STICKER_COLUMNS = 5
 
-class EmojiView(context: Context, private val themeColors: ThemeColors) : FrameLayout(context) {
+class EmojiView(
+    context: Context,
+    private val themeColors: ThemeColors,
+    private val emojiOnly: Boolean = false
+) : FrameLayout(context) {
 
     interface EmojiViewDelegate {
         fun onEmojiSelected(emoji: EmojiItem)
@@ -78,6 +82,20 @@ class EmojiView(context: Context, private val themeColors: ThemeColors) : FrameL
     private var gifCategoryAdapter: GifCategoryAdapter? = null
     private var gifSearchActive = false
     private var gifAdapter: GifGridAdapter? = null
+
+    private val gifScrollListener = object : RecyclerView.OnScrollListener() {
+        override fun onScrollStateChanged(rv: RecyclerView, newState: Int) {
+            val stop = newState == RecyclerView.SCROLL_STATE_DRAGGING || newState == RecyclerView.SCROLL_STATE_SETTLING
+            for (i in 0 until rv.childCount) {
+                val child = rv.getChildAt(i)
+                if (child is GifCell) {
+                    if (stop) child.stopHeavyOperations() else child.startHeavyOperations()
+                } else if (child is GifCategoryCell) {
+                    if (stop) child.stopHeavyOperations() else child.startHeavyOperations()
+                }
+            }
+        }
+    }
 
     private var velocityTracker: VelocityTracker? = null
     private var dragging = false
@@ -123,6 +141,10 @@ class EmojiView(context: Context, private val themeColors: ThemeColors) : FrameL
         tabBar.addView(tabEmoji, LayoutHelper.createLinear(0, 36, 1f, leftMargin = 4f, rightMargin = 2f))
         tabBar.addView(tabGif, LayoutHelper.createLinear(0, 36, 1f, leftMargin = 2f, rightMargin = 2f))
         tabBar.addView(tabSticker, LayoutHelper.createLinear(0, 36, 1f, leftMargin = 2f, rightMargin = 4f))
+        if (emojiOnly) {
+            tabBar.visibility = View.GONE
+            dragHandle.visibility = View.GONE
+        }
         root.addView(tabBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         val searchBar = FrameLayout(context).apply {
@@ -144,7 +166,7 @@ class EmojiView(context: Context, private val themeColors: ThemeColors) : FrameL
         }
 
         val searchIcon = ImageView(context).apply {
-            val d = MezonIcon.searchIcon.getDrawable(context).mutate()
+            val d = MezonIcon.magnifyingIcon.getDrawable(context).mutate()
             d.colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
             setImageDrawable(d)
             scaleType = ImageView.ScaleType.FIT_CENTER
@@ -192,6 +214,7 @@ class EmojiView(context: Context, private val themeColors: ThemeColors) : FrameL
         bottomBar.addView(backspaceButton, FrameLayout.LayoutParams(
             LayoutHelper.dp(40f), LayoutHelper.dp(40f), Gravity.END or Gravity.CENTER_VERTICAL
         ).apply { rightMargin = LayoutHelper.dp(8f) })
+        if (emojiOnly) bottomBar.visibility = View.GONE
         root.addView(bottomBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 44))
 
         addView(root, FrameLayout.LayoutParams(
@@ -287,6 +310,8 @@ class EmojiView(context: Context, private val themeColors: ThemeColors) : FrameL
                     setHasFixedSize(true)
                     (itemAnimator as? SimpleItemAnimator)?.supportsChangeAnimations = false
                     overScrollMode = OVER_SCROLL_NEVER
+                    setPadding(LayoutHelper.dp(11f), 0, LayoutHelper.dp(11f), 0)
+                    clipToPadding = false
                 }
                 contentContainer.addView(emojiGrid, matchLp)
             }
@@ -325,6 +350,7 @@ class EmojiView(context: Context, private val themeColors: ThemeColors) : FrameL
                         addItemDecoration(GifSpacingDecoration(gifSpacing))
                         setPadding(gifSpacing, gifSpacing, gifSpacing, gifSpacing)
                         clipToPadding = false
+                        addOnScrollListener(gifScrollListener)
                     }
                     contentContainer.addView(gifCategoryGrid, matchLp)
                 }
@@ -342,6 +368,7 @@ class EmojiView(context: Context, private val themeColors: ThemeColors) : FrameL
                         setPadding(gifSpacing, gifSpacing, gifSpacing, gifSpacing)
                         clipToPadding = false
                         visibility = View.GONE
+                        addOnScrollListener(gifScrollListener)
                     }
                     contentContainer.addView(gifGrid, matchLp)
                 }

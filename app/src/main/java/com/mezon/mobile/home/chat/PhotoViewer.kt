@@ -6,10 +6,8 @@ import android.app.DownloadManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.graphics.Color
-import android.graphics.Matrix
-import android.graphics.PointF
 import android.graphics.Bitmap
+import android.graphics.Color
 import android.graphics.drawable.AnimatedImageDrawable
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ColorDrawable
@@ -19,9 +17,7 @@ import android.os.Environment
 import android.view.GestureDetector
 import android.view.Gravity
 import android.view.MotionEvent
-import android.view.ScaleGestureDetector
 import android.view.ViewGroup
-import android.view.ViewTreeObserver
 import android.view.Window
 import android.view.WindowManager
 import android.widget.FrameLayout
@@ -37,15 +33,6 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
     private val backgroundDrawable = ColorDrawable(Color.BLACK)
     private val closeButton: ImageView
 
-    private val matrix = Matrix()
-    private val savedMatrix = Matrix()
-    private val startPoint = PointF()
-    private val midPoint = PointF()
-    private var oldDist = 1f
-    private var mode = NONE
-    private var minScale = 1f
-    private var maxScale = 5f
-
     init {
         requestWindowFeature(Window.FEATURE_NO_TITLE)
         window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
@@ -55,7 +42,7 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
         val root = FrameLayout(context)
 
         imageView = ImageView(context).apply {
-            scaleType = ImageView.ScaleType.MATRIX
+            scaleType = ImageView.ScaleType.FIT_CENTER
         }
         root.addView(imageView, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
@@ -105,7 +92,6 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
     private var currentUrl = ""
     private var isAnimated = false
     private var urls = emptyList<String>()
-    private var currentIndex = 0
 
     private fun createToolbarButton(ctx: Context, iconRes: Int, desc: String, onClick: () -> Unit): ImageView {
         return ImageView(ctx).apply {
@@ -153,36 +139,21 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
         } catch (_: Exception) {}
     }
 
-    private var switchedToMatrix = false
+    private var currentIndex = 0
 
     fun show(url: String, animated: Boolean = false, gallery: List<String> = emptyList(), index: Int = 0, thumbBitmap: Bitmap? = null) {
         urls = if (gallery.isEmpty()) listOf(url) else gallery
         currentIndex = if (index in urls.indices) index else 0
         currentUrl = urls[currentIndex]
         isAnimated = animated
-        switchedToMatrix = false
 
         if (thumbBitmap != null && !animated) {
-            imageView.scaleType = ImageView.ScaleType.FIT_CENTER
             imageView.setImageDrawable(BitmapDrawable(context.resources, thumbBitmap))
         }
 
         backgroundDrawable.alpha = 0
         super.show()
         ObjectAnimator.ofInt(backgroundDrawable, "alpha", 0, 255).setDuration(200).start()
-
-        if (!animated) {
-            imageView.viewTreeObserver.addOnGlobalLayoutListener(object : ViewTreeObserver.OnGlobalLayoutListener {
-                override fun onGlobalLayout() {
-                    imageView.viewTreeObserver.removeOnGlobalLayoutListener(this)
-                    if (!switchedToMatrix && imageView.drawable != null) {
-                        imageView.scaleType = ImageView.ScaleType.MATRIX
-                        fitImageToScreen()
-                        switchedToMatrix = true
-                    }
-                }
-            })
-        }
 
         val screenW = context.resources.displayMetrics.widthPixels
         val screenH = context.resources.displayMetrics.heightPixels
@@ -192,7 +163,6 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 loader.loadDrawable(url, screenW, screenH,
                     onSuccess = { drawable ->
-                        imageView.scaleType = ImageView.ScaleType.FIT_CENTER
                         imageView.setImageDrawable(drawable)
                         if (drawable is AnimatedImageDrawable) {
                             drawable.repeatCount = AnimatedImageDrawable.REPEAT_INFINITE
@@ -203,7 +173,6 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
             } else {
                 loader.load(url, screenW, screenH,
                     onSuccess = { bmp ->
-                        imageView.scaleType = ImageView.ScaleType.FIT_CENTER
                         imageView.setImageDrawable(BitmapDrawable(context.resources, bmp))
                     }
                 )
@@ -212,13 +181,7 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
             val loadUrl = createImgproxyUrl(url, screenW, screenH, "fit")
             loader.load(loadUrl, screenW, screenH,
                 onSuccess = { bmp ->
-                    val drawable = BitmapDrawable(context.resources, bmp)
-                    imageView.setImageDrawable(drawable)
-                    if (switchedToMatrix) {
-                        fitImageToScreen()
-                    } else {
-                        imageView.scaleType = ImageView.ScaleType.FIT_CENTER
-                    }
+                    imageView.setImageDrawable(BitmapDrawable(context.resources, bmp))
                 }
             )
         }
@@ -228,7 +191,6 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
         if (index !in urls.indices) return
         currentIndex = index
         currentUrl = urls[currentIndex]
-        val direction = if (index > currentIndex) 1f else -1f
         imageView.animate().alpha(0f).setDuration(100).withEndAction {
             loadCurrentImage()
             imageView.animate().alpha(1f).setDuration(150).start()
@@ -243,7 +205,6 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
         if (isAnimated && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             loader.loadDrawable(currentUrl, screenW, screenH,
                 onSuccess = { drawable ->
-                    imageView.scaleType = ImageView.ScaleType.FIT_CENTER
                     imageView.setImageDrawable(drawable)
                     if (drawable is AnimatedImageDrawable) {
                         drawable.repeatCount = AnimatedImageDrawable.REPEAT_INFINITE
@@ -256,32 +217,9 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
             loader.load(loadUrl, screenW, screenH,
                 onSuccess = { bmp ->
                     imageView.setImageDrawable(BitmapDrawable(context.resources, bmp))
-                    if (isAnimated) {
-                        imageView.scaleType = ImageView.ScaleType.FIT_CENTER
-                    } else {
-                        imageView.scaleType = ImageView.ScaleType.MATRIX
-                        fitImageToScreen()
-                    }
                 }
             )
         }
-    }
-
-    private fun fitImageToScreen() {
-        val drawable = imageView.drawable ?: return
-        val dw = drawable.intrinsicWidth.toFloat()
-        val dh = drawable.intrinsicHeight.toFloat()
-        val vw = imageView.width.toFloat()
-        val vh = imageView.height.toFloat()
-        if (dw <= 0 || dh <= 0 || vw <= 0 || vh <= 0) return
-
-        val scale = minOf(vw / dw, vh / dh)
-        minScale = scale
-        maxScale = scale * 5f
-        matrix.reset()
-        matrix.setScale(scale, scale)
-        matrix.postTranslate((vw - dw * scale) / 2f, (vh - dh * scale) / 2f)
-        imageView.imageMatrix = matrix
     }
 
     private fun dismissWithAnimation() {
@@ -301,36 +239,7 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
     }
 
     private fun setupTouchHandling(view: ImageView) {
-        val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
-            override fun onScale(detector: ScaleGestureDetector): Boolean {
-                val values = FloatArray(9)
-                matrix.getValues(values)
-                val currentScale = values[Matrix.MSCALE_X]
-                var scaleFactor = detector.scaleFactor
-                val newScale = currentScale * scaleFactor
-                if (newScale > maxScale) scaleFactor = maxScale / currentScale
-                if (newScale < minScale) scaleFactor = minScale / currentScale
-                matrix.postScale(scaleFactor, scaleFactor, detector.focusX, detector.focusY)
-                view.imageMatrix = matrix
-                return true
-            }
-        })
-
         val gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
-            override fun onDoubleTap(e: MotionEvent): Boolean {
-                val values = FloatArray(9)
-                matrix.getValues(values)
-                val currentScale = values[Matrix.MSCALE_X]
-                if (currentScale > minScale * 1.5f) {
-                    fitImageToScreen()
-                } else {
-                    val targetScale = minScale * 2.5f
-                    matrix.postScale(targetScale / currentScale, targetScale / currentScale, e.x, e.y)
-                    view.imageMatrix = matrix
-                }
-                return true
-            }
-
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
                 dismissWithAnimation()
                 return true
@@ -338,9 +247,6 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
 
             override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
                 if (urls.size <= 1) return false
-                val values = FloatArray(9)
-                matrix.getValues(values)
-                if (values[Matrix.MSCALE_X] > minScale * 1.05f) return false
                 if (kotlin.math.abs(velocityX) > kotlin.math.abs(velocityY) && kotlin.math.abs(velocityX) > 800) {
                     if (velocityX < 0 && currentIndex < urls.size - 1) {
                         navigateTo(currentIndex + 1)
@@ -355,49 +261,8 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
         })
 
         view.setOnTouchListener { _, event ->
-            scaleDetector.onTouchEvent(event)
             gestureDetector.onTouchEvent(event)
-
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    savedMatrix.set(matrix)
-                    startPoint.set(event.x, event.y)
-                    mode = DRAG
-                }
-                MotionEvent.ACTION_POINTER_DOWN -> {
-                    oldDist = spacing(event)
-                    if (oldDist > 10f) {
-                        savedMatrix.set(matrix)
-                        midPoint(midPoint, event)
-                        mode = ZOOM
-                    }
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    // Swipe to dismiss removed.
-                }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
-                    mode = NONE
-                }
-            }
             true
         }
-    }
-
-    private fun spacing(event: MotionEvent): Float {
-        if (event.pointerCount < 2) return 0f
-        val x = event.getX(0) - event.getX(1)
-        val y = event.getY(0) - event.getY(1)
-        return kotlin.math.sqrt(x * x + y * y)
-    }
-
-    private fun midPoint(point: PointF, event: MotionEvent) {
-        if (event.pointerCount < 2) return
-        point.set((event.getX(0) + event.getX(1)) / 2, (event.getY(0) + event.getY(1)) / 2)
-    }
-
-    companion object {
-        private const val NONE = 0
-        private const val DRAG = 1
-        private const val ZOOM = 2
     }
 }
