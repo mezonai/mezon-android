@@ -2,6 +2,7 @@ package com.mezon.mobile.home.chat
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.PorterDuff
@@ -27,6 +28,7 @@ import android.widget.TextView
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BaseFragment
@@ -47,6 +49,7 @@ import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.ui.cells.ActionBarView
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.PageDownButton
+import com.mezon.mobile.util.FileUtils
 import com.mezon.mobile.util.EmojiMarker
 import com.mezon.mobile.util.MentionData
 import com.mezon.mobile.util.parseContentText
@@ -71,6 +74,9 @@ class ChatFragment : BaseFragment() {
         private const val PAGE_DOWN_SCROLL_THRESHOLD = 2
         private const val SCROLL_PREFS = "chat_scroll_positions"
         private const val REQUEST_CODE_LOCATION_PERMISSION = 1002
+        private const val REQUEST_CODE_PICK_FILE = 1001
+        private const val MAX_LENGTH_MESSAGE_BUZZ = 160
+        private val ANONYMOUS_USER_ID = BuildConfig.MEZON_ANONYMOUS_USER_ID.toLongOrNull() ?: 0L
 
         fun newInstance(
             channelId: Long,
@@ -115,6 +121,8 @@ class ChatFragment : BaseFragment() {
     private var attachmentPreviewScroll: HorizontalScrollView? = null
 
     private lateinit var emojiController: EmojiController
+    private lateinit var anonymousController: com.mezon.mobile.home.AnonymousController
+    private var anonymousIndicator: ImageView? = null
     private var emojiView: EmojiView? = null
     private var emojiViewVisible = false
     private var emojiPadding = 0
@@ -125,6 +133,7 @@ class ChatFragment : BaseFragment() {
 
     private val pendingAttachments = ArrayList<AttachmentPickerItem>()
     private val pendingAttachmentThumbTasks = ArrayList<Runnable?>()
+    private var buzzMediaPlayer: android.media.MediaPlayer? = null
 
     private var channelId = 0L
     private var channelName = ""
@@ -599,6 +608,20 @@ class ChatFragment : BaseFragment() {
                 return@observe
             }
 
+            if (entity.senderId == ANONYMOUS_USER_ID) {
+                val pendingIdx = messages.indexOfFirst {
+                    it.isSending && it.senderId == ANONYMOUS_USER_ID && it.content == entity.content
+                }
+                if (pendingIdx >= 0) {
+                    val old = messages[pendingIdx]
+                    messagesDict.delete(old.id)
+                    messages[pendingIdx] = entity
+                    messagesDict.put(entity.id, entity)
+                    if (fragmentView != null) refreshUI()
+                    return@observe
+                }
+            }
+
             if (messagesDict.get(entity.id) != null) return@observe
             if (entity.id > lastSentMessageId) lastSentMessageId = entity.id
 
@@ -779,6 +802,19 @@ class ChatFragment : BaseFragment() {
             markAsRead()
         }
 
+        observe(NotificationCenter.buzzMessageReceived) { _, _, args ->
+            val buzzChannelId = args.firstOrNull() as? Long ?: return@observe
+            if (buzzChannelId != channelId) return@observe
+            playBuzzSound()
+        }
+
+        observe(NotificationCenter.anonymousModeChanged) { _, _, args ->
+            val changedClanId = args.firstOrNull() as? Long ?: return@observe
+            if (changedClanId != clanId) return@observe
+            val isAnon = anonymousController.isAnonymous(clanId)
+            anonymousIndicator?.visibility = if (isAnon) View.VISIBLE else View.GONE
+        }
+
         observe(NotificationCenter.channelMembersDidLoad) { _, _, args ->
             if (isPaused) return@observe
             val loadedChannelId = args.firstOrNull() as? Long ?: return@observe
@@ -811,6 +847,7 @@ class ChatFragment : BaseFragment() {
         userController = entryPoint.userController()
         memberResolver = entryPoint.memberResolver()
         emojiController = entryPoint.emojiController()
+        anonymousController = entryPoint.anonymousController()
     }
 
     override fun createView(context: Context): View {
@@ -992,6 +1029,8 @@ class ChatFragment : BaseFragment() {
             gravity = Gravity.BOTTOM
             setBackgroundColor(themeColors.surface)
             setPadding(LayoutHelper.dp(6f), LayoutHelper.dp(10f), LayoutHelper.dp(2f), LayoutHelper.dp(10f))
+            clipChildren = false
+            clipToPadding = false
         }
         innerLayout.addView(inputBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
@@ -1024,7 +1063,10 @@ class ChatFragment : BaseFragment() {
         }
         inputBar.addView(advancedFunctionButton, LayoutHelper.createLinear(40, 40, gravity = Gravity.BOTTOM, leftMargin = 6f))
 
-        inputWrapper = FrameLayout(context)
+        inputWrapper = FrameLayout(context).apply {
+            clipChildren = false
+            clipToPadding = false
+        }
         inputBar.addView(inputWrapper, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.BOTTOM, 6f, 0f, 6f, 0f))
 
         inputField = EditText(context).apply {
@@ -1067,6 +1109,20 @@ class ChatFragment : BaseFragment() {
         ).apply {
             rightMargin = LayoutHelper.dp(8f)
             bottomMargin = LayoutHelper.dp(8f)
+        })
+
+        anonymousIndicator = ImageView(context).apply {
+            setImageDrawable(MezonIcon.anonymous.getDrawable(context))
+            scaleType = ImageView.ScaleType.CENTER
+            rotation = 45f
+            visibility = if (anonymousController.isAnonymous(clanId)) View.VISIBLE else View.GONE
+        }
+        inputWrapper.addView(anonymousIndicator, FrameLayout.LayoutParams(
+            LayoutHelper.dp(20f), LayoutHelper.dp(20f),
+            Gravity.END or Gravity.TOP
+        ).apply {
+            rightMargin = -LayoutHelper.dp(10f)
+            topMargin = -LayoutHelper.dp(10f)
         })
 
         sendButton = ImageButton(context).apply {
@@ -1703,6 +1759,8 @@ class ChatFragment : BaseFragment() {
         chatAdjustPanHelper = null
         emojiView = null
         emojiObjPicked.clear()
+        buzzMediaPlayer?.release()
+        buzzMediaPlayer = null
         super.onFragmentDestroy()
     }
 
@@ -2181,6 +2239,9 @@ class ChatFragment : BaseFragment() {
                 updateAttachmentPreview()
                 updateSendButtonState()
             }
+            override fun onFilesRequested() {
+                launchDocumentPicker()
+            }
         }
         alert.setDrawNavigationBar(true)
         alert.show()
@@ -2188,17 +2249,59 @@ class ChatFragment : BaseFragment() {
 
     private fun showAdvancedFunctionMenu() {
         val ctx = getContext() ?: return
-        val alert = AdvancedAttachAlert(ctx, themeColors)
+        val isAnon = anonymousController.isAnonymous(clanId)
+        val alert = AdvancedAttachAlert(ctx, themeColors, clanId, isAnon)
         alert.advancedDelegate = object : AdvancedAttachAlert.AdvancedAttachAlertDelegate {
             override fun onLocationSelected() {
                 requestLocationAndSend()
             }
             override fun onFilesSelected() {
-                showAttachmentPicker()
+                launchDocumentPicker()
+            }
+            override fun onBuzzSelected() {
+                showBuzzConfirmDialog()
+            }
+            override fun onAnonymousToggled() {
+                anonymousController.toggleAnonymous(clanId)
             }
         }
         alert.setDrawNavigationBar(true)
         alert.show()
+    }
+
+    private fun launchDocumentPicker() {
+        val activity = getParentActivity() ?: return
+        if (activity.isFinishing || activity.isDestroyed) return
+        val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+            type = "*/*"
+            addCategory(Intent.CATEGORY_OPENABLE)
+        }
+        startActivityForResult(
+            Intent.createChooser(intent, getString(R.string.advanced_files)),
+            REQUEST_CODE_PICK_FILE
+        )
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode != REQUEST_CODE_PICK_FILE || resultCode != android.app.Activity.RESULT_OK) return
+        val uri = data?.data ?: return
+        val ctx = getContext() ?: return
+        val item = AttachmentPickerItem.fromDocumentUri(ctx, uri) ?: return
+
+        val maxSize = if (item.mimeType.startsWith("image/")) {
+            AttachmentPickerItem.IMAGE_MAX_FILE_SIZE
+        } else {
+            AttachmentPickerItem.MAX_FILE_SIZE
+        }
+        if (item.size > maxSize) {
+            val limitText = FileUtils.formatFileSize(maxSize)
+            android.widget.Toast.makeText(ctx, getString(R.string.file_too_large, limitText), android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        pendingAttachments.add(item)
+        updateAttachmentPreview()
+        updateSendButtonState()
     }
 
     private fun requestLocationAndSend() {
@@ -2304,6 +2407,47 @@ class ChatFragment : BaseFragment() {
         alertDialog.show()
     }
 
+    private fun playBuzzSound() {
+        try {
+            buzzMediaPlayer?.release()
+            val ctx = getContext() ?: return
+            buzzMediaPlayer = android.media.MediaPlayer.create(ctx, R.raw.buzz)?.apply {
+                setOnCompletionListener { mp -> mp.release(); buzzMediaPlayer = null }
+                start()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to play buzz sound", e)
+        }
+    }
+
+    private fun showBuzzConfirmDialog() {
+        val activity = getParentActivity() ?: return
+        val inputView = EditText(activity).apply {
+            setText(getString(R.string.buzz_default_text))
+            setSelection(text.length)
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            maxLines = 4
+            filters = arrayOf(android.text.InputFilter.LengthFilter(MAX_LENGTH_MESSAGE_BUZZ))
+            setPadding(LayoutHelper.dp(16f), LayoutHelper.dp(12f), LayoutHelper.dp(16f), LayoutHelper.dp(12f))
+            setTextColor(themeColors.onSurface)
+            setHintTextColor(themeColors.onSurfaceVariant)
+        }
+        com.mezon.mobile.core.AlertDialog.Builder(activity)
+            .setTitle(getString(R.string.buzz_dialog_title))
+            .setView(inputView)
+            .setPositiveButton(getString(R.string.buzz_dialog_send)) { _, _ ->
+                val buzzText = inputView.text?.toString()?.trim().orEmpty()
+                if (buzzText.isNotBlank()) {
+                    chatController.sendBuzzMessage(
+                        channelId, clanId, channelType, resolveChannelPrivate(), buzzText
+                    )
+                }
+            }
+            .setNegativeButton(getString(R.string.common_cancel), null)
+            .create()
+            .show()
+    }
+
     private fun updateSendButtonState() {
         val hasText = inputField.text?.isNotBlank() == true
         val hasAttachments = pendingAttachments.isNotEmpty()
@@ -2333,24 +2477,12 @@ class ChatFragment : BaseFragment() {
         for (i in pendingAttachments.indices) {
             val item = pendingAttachments[i]
             val container = FrameLayout(ctx)
-            val bindId = item.id
 
-            val thumb = ImageView(ctx).apply {
-                scaleType = ImageView.ScaleType.CENTER_CROP
-                tag = bindId
-            }
-            val cached = ThumbnailCache.get(bindId)
-            if (cached != null) {
-                thumb.setImageBitmap(cached)
+            if (item.isFileType) {
+                buildFilePreviewItem(ctx, container, item, thumbSize)
             } else {
-                val task = ThumbnailCache.load(resolver, item, object : ThumbnailCache.Callback {
-                    override fun onThumbnailLoaded(id: Long, bitmap: Bitmap) {
-                        if (thumb.tag == bindId) thumb.setImageBitmap(bitmap)
-                    }
-                })
-                if (task != null) pendingAttachmentThumbTasks.add(task)
+                buildMediaPreviewItem(ctx, container, item, resolver, thumbSize)
             }
-            container.addView(thumb, FrameLayout.LayoutParams(thumbSize, thumbSize))
 
             val closeBtn = ImageView(ctx).apply {
                 val drawable = MezonIcon.closeSmallBold.getDrawable(ctx)
@@ -2375,6 +2507,82 @@ class ChatFragment : BaseFragment() {
             }
             strip.addView(container, lp)
         }
+    }
+
+    private fun buildMediaPreviewItem(
+        ctx: Context,
+        container: FrameLayout,
+        item: AttachmentPickerItem,
+        resolver: android.content.ContentResolver,
+        thumbSize: Int
+    ) {
+        val bindId = item.id
+        val thumb = ImageView(ctx).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            tag = bindId
+        }
+        val cached = ThumbnailCache.get(bindId)
+        if (cached != null) {
+            thumb.setImageBitmap(cached)
+        } else {
+            val task = ThumbnailCache.load(resolver, item, object : ThumbnailCache.Callback {
+                override fun onThumbnailLoaded(id: Long, bitmap: Bitmap) {
+                    if (thumb.tag == bindId) thumb.setImageBitmap(bitmap)
+                }
+            })
+            if (task != null) pendingAttachmentThumbTasks.add(task)
+        }
+        container.addView(thumb, FrameLayout.LayoutParams(thumbSize, thumbSize))
+    }
+
+    private fun buildFilePreviewItem(
+        ctx: Context,
+        container: FrameLayout,
+        item: AttachmentPickerItem,
+        thumbSize: Int
+    ) {
+        val fileContainer = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setBackgroundColor(themeColors.secondaryLight)
+        }
+
+        val iconSize = LayoutHelper.dp(24f)
+        val icon = ImageView(ctx).apply {
+            setImageDrawable(MezonIcon.fileIconNew.getDrawable(ctx))
+        }
+        fileContainer.addView(icon, LinearLayout.LayoutParams(iconSize, iconSize).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+        })
+
+        val nameLabel = TextView(ctx).apply {
+            text = item.filename
+            setTextColor(themeColors.onSurface)
+            textSize = 9f
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.MIDDLE
+            gravity = Gravity.CENTER
+            setPadding(LayoutHelper.dp(2f), LayoutHelper.dp(1f), LayoutHelper.dp(2f), 0)
+        }
+        fileContainer.addView(nameLabel, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
+
+        val subtype = item.mimeType.substringAfterLast('/', "").uppercase()
+        if (subtype.isNotEmpty()) {
+            val typeLabel = TextView(ctx).apply {
+                text = subtype
+                setTextColor(themeColors.onSurfaceVariant)
+                textSize = 8f
+                maxLines = 1
+                gravity = Gravity.CENTER
+            }
+            fileContainer.addView(typeLabel, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ))
+        }
+
+        container.addView(fileContainer, FrameLayout.LayoutParams(thumbSize, thumbSize))
     }
 
     private fun clearPendingAttachments() {

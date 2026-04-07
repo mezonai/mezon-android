@@ -401,6 +401,7 @@
     <string name="advanced_files">Files</string>
     <string name="advanced_threads">Threads</string>
     <string name="advanced_anonymous">Anonymous</string>
+    <string name="advanced_anonymous_off">Turn off anonymous</string>
     <string name="advanced_buzz">Buzz</string>
     <string name="advanced_ephemeral">Ephemeral</string>
     <string name="advanced_transfer_funds">Transfer Funds</string>
@@ -411,6 +412,7 @@
     <string name="share_location_cancel">Cancel</string>
     <string name="share_location_send">Send</string>
     <string name="feature_coming_soon">Coming soon</string>
+    <string name="file_too_large">File exceeds the %s limit</string>
 
     <!-- sharing -->
     <string name="sharing_title">Share to…</string>
@@ -429,4 +431,8 @@
     <string name="sharing_suggestions">Suggestions</string>
     <string name="sharing_add_comment">Add a comment…</string>
     <string name="sharing_empty_content">Nothing to share</string>
+
+    <string name="buzz_dialog_title">Enter your message Buzz!!</string>
+    <string name="buzz_dialog_send">Send</string>
+    <string name="buzz_default_text">Buzz!!</string>
 </resources>

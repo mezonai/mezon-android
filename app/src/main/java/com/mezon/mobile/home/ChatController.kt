@@ -69,13 +69,19 @@ class ChatController @Inject constructor(
     private val badgeCoordinator: BadgeCoordinator,
     private val channelController: dagger.Lazy<com.mezon.mobile.home.clans.ChannelController>,
     private val userController: dagger.Lazy<UserController>,
+    private val anonymousController: dagger.Lazy<AnonymousController>,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     @ApplicationScope private val appScope: CoroutineScope
 ) {
 
     val dialogMessage = LongSparseArray<MessageEntity>()
     private val initialFetchDone = HashSet<Long>()
-    private val lastMessageByChannel = LongSparseArray<Long>()  // channelId → newest messageId
+    private val lastMessageByChannel = LongSparseArray<Long>()
+
+    private fun isAnonymousSend(clanId: Long): Boolean =
+        clanId != 0L && anonymousController.get().isAnonymous(clanId)
+
+    private val ANONYMOUS_USER_ID = BuildConfig.MEZON_ANONYMOUS_USER_ID.toLongOrNull() ?: 0L  // channelId → newest messageId
 
     init {
         appScope.launch { observeIncomingMessages() }
@@ -431,13 +437,14 @@ class ChatController @Inject constructor(
 
         val tempId = generateTempId()
         val uc = userController.get()
+        val anon = isAnonymousSend(clanId)
         val optimisticContent = mergeRefsIntoOptimisticContent(content, references)
         val optimistic = MessageEntity(
             id = tempId,
             channelId = channelId,
-            senderId = uc.userId,
-            senderName = uc.displayName.ifBlank { uc.username },
-            senderAvatar = uc.avatarUrl,
+            senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
+            senderName = if (anon) "Anonymous" else uc.displayName.ifBlank { uc.username },
+            senderAvatar = if (anon) "" else uc.avatarUrl,
             content = optimisticContent,
             timestampSeconds = System.currentTimeMillis() / 1000,
             code = MessageEntity.CODE_CHAT,
@@ -460,6 +467,7 @@ class ChatController @Inject constructor(
                         protoMentions?.let { this.mentions.addAll(it) }
                         references?.let { this.references.addAll(it) }
                         this.mentionEveryone = mentionEveryone
+                        if (anon) this.anonymousMessage = true
                     }
                     val ack = withContext(ioDispatcher) {
                         api.sendChannelMessage(session.apiUrl, session.token, request)
@@ -498,6 +506,7 @@ class ChatController @Inject constructor(
 
         val tempId = generateTempId()
         val uc = userController.get()
+        val anon = isAnonymousSend(clanId)
         val msgType = when {
             filetype.startsWith("image/gif") || filetype.endsWith("gif") -> MessageEntity.TYPE_GIF
             filetype.startsWith("image/") -> MessageEntity.TYPE_PHOTO
@@ -507,9 +516,9 @@ class ChatController @Inject constructor(
         val optimistic = MessageEntity(
             id = tempId,
             channelId = channelId,
-            senderId = uc.userId,
-            senderName = uc.displayName.ifBlank { uc.username },
-            senderAvatar = uc.avatarUrl,
+            senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
+            senderName = if (anon) "Anonymous" else uc.displayName.ifBlank { uc.username },
+            senderAvatar = if (anon) "" else uc.avatarUrl,
             content = content,
             timestampSeconds = System.currentTimeMillis() / 1000,
             code = MessageEntity.CODE_CHAT,
@@ -535,6 +544,7 @@ class ChatController @Inject constructor(
                         this.content = baseContent
                         this.attachments.add(attachment)
                         references?.let { this.references.addAll(it) }
+                        if (anon) this.anonymousMessage = true
                     }
                     val ack = withContext(ioDispatcher) {
                         api.sendChannelMessage(session.apiUrl, session.token, request)
@@ -568,12 +578,13 @@ class ChatController @Inject constructor(
 
         val tempId = generateTempId()
         val uc = userController.get()
+        val anon = isAnonymousSend(clanId)
         val optimistic = MessageEntity(
             id = tempId,
             channelId = channelId,
-            senderId = uc.userId,
-            senderName = uc.displayName.ifBlank { uc.username },
-            senderAvatar = uc.avatarUrl,
+            senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
+            senderName = if (anon) "Anonymous" else uc.displayName.ifBlank { uc.username },
+            senderAvatar = if (anon) "" else uc.avatarUrl,
             content = content,
             timestampSeconds = System.currentTimeMillis() / 1000,
             code = MessageEntity.CODE_LOCATION,
@@ -594,6 +605,7 @@ class ChatController @Inject constructor(
                         this.isPublic = isPublic
                         this.content = content
                         this.code = MessageEntity.CODE_LOCATION
+                        if (anon) this.anonymousMessage = true
                     }
                     val ack = withContext(ioDispatcher) {
                         api.sendChannelMessage(session.apiUrl, session.token, request)
@@ -605,6 +617,64 @@ class ChatController @Inject constructor(
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to send location", e)
+                notificationCenter.postNotificationOnMainThread(
+                    NotificationCenter.pendingMessageError, channelId, tempId
+                )
+            }
+        }
+    }
+
+    fun sendBuzzMessage(
+        channelId: Long,
+        clanId: Long,
+        channelType: Int,
+        isChannelPrivate: Boolean,
+        text: String
+    ) {
+        val mode = channelTypeToStreamMode(channelType)
+        val isPublic = !isChannelPrivate
+        val content = buildTextContent(text.ifBlank { "Buzz!!" })
+
+        val tempId = generateTempId()
+        val uc = userController.get()
+        val anon = isAnonymousSend(clanId)
+        val optimistic = MessageEntity(
+            id = tempId,
+            channelId = channelId,
+            senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
+            senderName = if (anon) "Anonymous" else uc.displayName.ifBlank { uc.username },
+            senderAvatar = if (anon) "" else uc.avatarUrl,
+            content = content,
+            timestampSeconds = System.currentTimeMillis() / 1000,
+            code = MessageEntity.CODE_MESSAGE_BUZZ,
+            isMe = true,
+            sendState = MessageEntity.SEND_STATE_SENDING
+        )
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.didReceiveNewMessages, channelId, optimistic
+        )
+
+        appScope.launch {
+            try {
+                sessionManager.withAutoRefresh { session ->
+                    val request = channelMessageSend {
+                        this.clanId = clanId
+                        this.channelId = channelId
+                        this.mode = mode
+                        this.isPublic = isPublic
+                        this.content = content
+                        this.code = MessageEntity.CODE_MESSAGE_BUZZ
+                        if (anon) this.anonymousMessage = true
+                    }
+                    val ack = withContext(ioDispatcher) {
+                        api.sendChannelMessage(session.apiUrl, session.token, request)
+                    }
+                    notificationCenter.postNotificationOnMainThread(
+                        NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to send buzz message", e)
                 notificationCenter.postNotificationOnMainThread(
                     NotificationCenter.pendingMessageError, channelId, tempId
                 )
@@ -678,6 +748,7 @@ class ChatController @Inject constructor(
 
         val tempId = generateTempId()
         val uc = userController.get()
+        val anon = isAnonymousSend(clanId)
         val firstItem = attachments.firstOrNull()
         val extraJson = if (attachments.size > 1) {
             val arr = org.json.JSONArray()
@@ -699,9 +770,9 @@ class ChatController @Inject constructor(
         val optimistic = MessageEntity(
             id = tempId,
             channelId = channelId,
-            senderId = uc.userId,
-            senderName = uc.displayName.ifBlank { uc.username },
-            senderAvatar = uc.avatarUrl,
+            senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
+            senderName = if (anon) "Anonymous" else uc.displayName.ifBlank { uc.username },
+            senderAvatar = if (anon) "" else uc.avatarUrl,
             content = content,
             timestampSeconds = System.currentTimeMillis() / 1000,
             code = MessageEntity.CODE_CHAT,
@@ -771,6 +842,7 @@ class ChatController @Inject constructor(
                             this.content = content
                             this.attachments.addAll(uploadedAttachments)
                             references?.let { this.references.addAll(it) }
+                            if (anon) this.anonymousMessage = true
                         }
                         val ack = api.sendChannelMessage(session.apiUrl, session.token, request)
                         notificationCenter.postNotificationOnMainThread(
@@ -806,6 +878,7 @@ class ChatController @Inject constructor(
 
         val tempId = generateTempId()
         val uc = userController.get()
+        val anon = isAnonymousSend(clanId)
         val firstItem = attachments.firstOrNull()
         val extraJson = if (attachments.size > 1) {
             val arr = org.json.JSONArray()
@@ -828,9 +901,9 @@ class ChatController @Inject constructor(
         val optimistic = MessageEntity(
             id = tempId,
             channelId = channelId,
-            senderId = uc.userId,
-            senderName = uc.displayName.ifBlank { uc.username },
-            senderAvatar = uc.avatarUrl,
+            senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
+            senderName = if (anon) "Anonymous" else uc.displayName.ifBlank { uc.username },
+            senderAvatar = if (anon) "" else uc.avatarUrl,
             content = baseContent,
             timestampSeconds = System.currentTimeMillis() / 1000,
             code = MessageEntity.CODE_CHAT,
@@ -920,6 +993,7 @@ class ChatController @Inject constructor(
                             this.isPublic = isPublic
                             this.content = baseContent
                             this.attachments.addAll(uploadedAttachments)
+                            if (anon) this.anonymousMessage = true
                         }
                         val ack = api.sendChannelMessage(session.apiUrl, session.token, request)
                         notificationCenter.postNotificationOnMainThread(
@@ -1044,6 +1118,12 @@ class ChatController @Inject constructor(
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_NEW_MESSAGE
                     )
+                    if (entity.code == MessageEntity.CODE_MESSAGE_BUZZ && !entity.isMe) {
+                        notificationCenter.postNotificationOnMainThread(
+                            NotificationCenter.buzzMessageReceived, entity.channelId
+                        )
+                        dialogsController.setBuzzState(entity.channelId)
+                    }
                 }
             }
 

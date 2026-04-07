@@ -138,7 +138,7 @@ class MessagesFragment : BaseFragment() {
         }
         contentFrame.addView(errorView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
-        adapter = DmListAdapter(themeColors)
+        adapter = DmListAdapter(themeColors) { channelId -> controller.isBuzzActive(channelId) }
         recyclerView.adapter = adapter
 
         val dialogs = controller.getDialogs()

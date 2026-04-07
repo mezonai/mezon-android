@@ -109,6 +109,8 @@ class NotificationCenter(val currentAccount: Int) {
         val emojisNeedReload = nextId()
         val stickersNeedReload = nextId()
         val gifsNeedReload = nextId()
+        val buzzMessageReceived = nextId()
+        val anonymousModeChanged = nextId()
         val reactionDidUpdate = nextId()
 
         const val UPDATE_MASK_NAME = 1

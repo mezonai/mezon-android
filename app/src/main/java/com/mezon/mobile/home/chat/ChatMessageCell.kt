@@ -1,7 +1,7 @@
 package com.mezon.mobile.home.chat
 
-import android.content.Intent
 import android.content.Context
+import android.content.Intent
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
@@ -14,6 +14,7 @@ import android.text.StaticLayout
 import android.text.TextUtils
 import android.text.style.ClickableSpan
 import android.view.MotionEvent
+import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.BaseCell
@@ -21,6 +22,7 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.util.FileUtils
 import com.mezon.mobile.util.createImgproxyUrl
 import com.mezon.mobile.util.getEmojiUrl
 import com.mezon.mobile.util.MentionColors
@@ -38,7 +40,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import android.graphics.Bitmap
+import android.graphics.Color
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffColorFilter
 import android.util.Log
+import androidx.core.content.ContextCompat
 import kotlin.math.min
 
 class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCell(context) {
@@ -78,6 +85,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var drawError = false
     private var drawSending = false
     private var fileIconDrawable: Drawable? = null
+    private val fileRoundRect = RectF()
+    private var fileRowWidth = 0
 
     private val photoImage = ImageReceiver(this)
     private val extraPhotoImages = arrayOf(ImageReceiver(this), ImageReceiver(this), ImageReceiver(this))
@@ -288,8 +297,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             if (drawPhotoImage) computePhotoSize(msg)
             buildLayouts(msg)
             if (!isCombined) {
-                avatarDrawable.setInfo(msg.senderId, msg.senderName)
-                loadAvatar(msg.senderAvatar)
+                val isAnon = msg.senderId == ANONYMOUS_USER_ID
+                val displayName = if (isAnon) "Anonymous" else msg.senderName
+                avatarDrawable.setInfo(msg.senderId, displayName)
+                if (isAnon) loadAnonymousAvatar() else loadAvatar(msg.senderAvatar)
             }
             if (drawPhotoImage) loadPhotoImage(msg)
             if (drawPhotoImage) {
@@ -335,8 +346,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
         if ((mask and NotificationCenter.UPDATE_MASK_AVATAR) != 0) {
             if (!isCombined && messageEntity?.senderAvatar != msg.senderAvatar) {
-                avatarDrawable.setInfo(msg.senderId, msg.senderName)
-                loadAvatar(msg.senderAvatar)
+                val isAnon = msg.senderId == ANONYMOUS_USER_ID
+                val displayName = if (isAnon) "Anonymous" else msg.senderName
+                avatarDrawable.setInfo(msg.senderId, displayName)
+                if (isAnon) loadAnonymousAvatar() else loadAvatar(msg.senderAvatar)
                 needInvalidate = true
             }
         }
@@ -532,7 +545,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     }
 
     private fun updateColors(msg: MessageEntity) {
-        currentContentPaint = theme.chatContentPaint
+        currentContentPaint = if (msg.code == MessageEntity.CODE_MESSAGE_BUZZ) theme.chatBuzzTextPaint
+            else theme.chatContentPaint
         currentTimePaint = theme.chatTimePaint
     }
 
@@ -603,7 +617,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         } else null
 
         senderLayout = if (!isCombined) {
-            val s = msg.senderName
+            val s = if (msg.senderId == ANONYMOUS_USER_ID) "Anonymous" else msg.senderName
             val senderMaxW = (bubbleMaxW * 0.60f).toInt().coerceAtLeast(1) 
             StaticLayout.Builder.obtain(s, 0, s.length, senderPaint, senderMaxW)
                 .setMaxLines(1)
@@ -677,7 +691,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
         val replyW = if (hasReply) cachedReplyNameW + cachedReplyTextW + REPLY_AVATAR_SIZE + REPLY_H_GAP * 2 else 0f
         val ogpW = if (ogpData != null) maxOf(cachedOgpTitleW, cachedOgpDescW, ogpImageW.toFloat()) else 0f
-        val fileW = if (drawFileAttachment) maxOf(FILE_ICON_SIZE + FILE_ICON_GAP + cachedFileNameW, FILE_ICON_SIZE + FILE_ICON_GAP + cachedFileSizeW) else 0f
+        val fileW = if (drawFileAttachment) fileRowWidth.toFloat() else 0f
         val embedW = if (embedData != null) (bubbleMaxW).toFloat() else 0f
         cachedInnerWidth = if (drawPhotoImage) {
             photoWidth
@@ -709,7 +723,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
 
         if (drawFileAttachment) {
-            h += FILE_ICON_SIZE + GAP_V_INNER
+            val textH = (fileNameLayout?.height ?: 0) + (fileSizeLayout?.height ?: 0)
+            val innerH = maxOf(FILE_ICON_SIZE, textH)
+            h += FILE_ROW_V_PAD * 2 + maxOf(innerH, FILE_ROW_MIN_HEIGHT - FILE_ROW_V_PAD * 2) + GAP_V_INNER
         }
 
         contentLayout?.let { h += it.height + GAP_V_INNER }
@@ -748,40 +764,25 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             fileNameLayout = null
             fileSizeLayout = null
             fileIconDrawable = null
+            fileRowWidth = 0
             return
         }
-        val fileTextW = (textWidth - FILE_ICON_SIZE - FILE_ICON_GAP).coerceAtLeast(1)
+        val cardInnerW = ((textWidth * 0.8f).toInt()).coerceAtLeast(FILE_ICON_SIZE + FILE_ICON_GAP + 1)
+        val fileTextW = (cardInnerW - FILE_ROW_H_PAD * 2 - FILE_ICON_SIZE - FILE_ICON_GAP).coerceAtLeast(1)
         val name = msg.attachmentFilename.ifEmpty { "File" }
-        fileNameLayout = StaticLayout.Builder.obtain(name, 0, name.length, currentContentPaint, fileTextW)
-            .setMaxLines(1)
-            .setEllipsize(TextUtils.TruncateAt.MIDDLE)
+        fileNameLayout = StaticLayout.Builder.obtain(name, 0, name.length, theme.chatFileNamePaint, fileTextW)
+            .setMaxLines(2)
+            .setEllipsize(TextUtils.TruncateAt.END)
             .build()
 
-        val sizeText = formatFileSize(msg.attachmentSize)
+        val sizeText = FileUtils.formatFileSize(msg.attachmentSize.toLong())
         fileSizeLayout = StaticLayout.Builder.obtain(sizeText, 0, sizeText.length, currentTimePaint, fileTextW)
             .setMaxLines(1)
             .build()
 
-        val d = MezonIcon.fileIcon.getDrawable(context).mutate()
-        val tint = getFileColor(msg.attachmentFilename)
-        d.setTint(tint)
-        fileIconDrawable = d
-    }
+        fileRowWidth = cardInnerW
 
-    private fun getFileColor(filename: String): Int {
-        val ext = filename.substringAfterLast('.', "").lowercase()
-        return when (ext) {
-            "pdf" -> 0xFFE53935.toInt()
-            "doc", "docx" -> 0xFF1E88E5.toInt()
-            "xls", "xlsx" -> 0xFF43A047.toInt()
-            "ppt", "pptx" -> 0xFFF4511E.toInt()
-            "zip", "rar", "7z", "tar", "gz" -> 0xFFFDD835.toInt()
-            "mp3", "wav", "aac", "flac", "ogg" -> 0xFFE040FB.toInt()
-            "txt", "csv", "log" -> 0xFF78909C.toInt()
-            "apk" -> 0xFF66BB6A.toInt()
-            "json", "xml", "html", "css", "js", "ts", "kt", "java", "py" -> 0xFF26C6DA.toInt()
-            else -> theme.primary
-        }
+        fileIconDrawable = MezonIcon.fileIconNew.getDrawable(context)
     }
 
     private fun buildEphemeralLayout(msg: MessageEntity, textWidth: Int) {
@@ -1082,6 +1083,37 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             avatarDrawable.setDrawableByInfo(true)
             avatarFallbackVisible = true
         }
+    }
+
+    private fun loadAnonymousAvatar() {
+        currentAvatarUrl = ""
+        avatarCancellable?.cancel()
+        avatarCancellable = null
+
+        val bgColor = theme.colorAvatarDefault
+        val cached = anonymousAvatarBitmaps[bgColor]
+            ?: createAnonymousAvatarBitmap(bgColor).also { anonymousAvatarBitmaps[bgColor] = it }
+        avatarDrawable.setPhoto(cached)
+        avatarDrawable.setDrawableByInfo(true)
+        avatarFallbackVisible = true
+    }
+
+    private fun createAnonymousAvatarBitmap(bgColor: Int): Bitmap {
+        val size = AVATAR_SIZE
+        val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val c = Canvas(bmp)
+        val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+        bgPaint.color = bgColor
+        c.drawCircle(size / 2f, size / 2f, size / 2f, bgPaint)
+        val icon = ContextCompat.getDrawable(context, com.mezon.mobile.R.drawable.ic_anonymous_icon)?.mutate()
+        if (icon != null) {
+            icon.colorFilter = PorterDuffColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN)
+            val iconSize = (size * 0.5f).toInt()
+            val pad = (size - iconSize) / 2
+            icon.setBounds(pad, pad, pad + iconSize, pad + iconSize)
+            icon.draw(c)
+        }
+        return bmp
     }
 
     private fun loadReplyAvatar(url: String) {
@@ -1719,14 +1751,32 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private fun drawFileBlock(canvas: Canvas, x: Float, y: Float): Float {
         val iconD = fileIconDrawable ?: return y
+        val cardW = fileRowWidth.toFloat()
+        val textH = (fileNameLayout?.height ?: 0) + (fileSizeLayout?.height ?: 0)
+        val innerH = maxOf(FILE_ICON_SIZE, textH)
+        val cardH = (FILE_ROW_V_PAD * 2 + maxOf(innerH, FILE_ROW_MIN_HEIGHT - FILE_ROW_V_PAD * 2)).toFloat()
+
         fileBlockLeft = x
         fileBlockTop = y
-        val iconY = y.toInt()
-        iconD.setBounds(x.toInt(), iconY, x.toInt() + FILE_ICON_SIZE, iconY + FILE_ICON_SIZE)
+        fileBlockRight = x + cardW
+        fileBlockBottom = y + cardH
+
+        EMBED_BG_PAINT.color = theme.secondaryLight
+        fileRoundRect.set(x, y, x + cardW, y + cardH)
+        canvas.drawRoundRect(fileRoundRect, FILE_ROW_RADIUS, FILE_ROW_RADIUS, EMBED_BG_PAINT)
+
+        val innerX = x + FILE_ROW_H_PAD
+        val innerY = y + FILE_ROW_V_PAD
+        val iconCenterY = innerY + (cardH - FILE_ROW_V_PAD * 2 - FILE_ICON_SIZE) / 2f
+        iconD.setBounds(
+            innerX.toInt(), iconCenterY.toInt(),
+            innerX.toInt() + FILE_ICON_SIZE, iconCenterY.toInt() + FILE_ICON_SIZE
+        )
         iconD.draw(canvas)
 
-        val textX = x + FILE_ICON_SIZE + FILE_ICON_GAP
-        var textY = y
+        val textX = innerX + FILE_ICON_SIZE + FILE_ICON_GAP
+        val totalTextH = textH.toFloat()
+        var textY = innerY + (cardH - FILE_ROW_V_PAD * 2 - totalTextH) / 2f
         fileNameLayout?.let {
             canvas.save()
             canvas.translate(textX, textY)
@@ -1740,10 +1790,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             it.draw(canvas)
             canvas.restore()
         }
-        val blockW = FILE_ICON_SIZE + FILE_ICON_GAP + maxOf(cachedFileNameW, cachedFileSizeW)
-        fileBlockRight = x + blockW
-        fileBlockBottom = y + FILE_ICON_SIZE
-        return y + FILE_ICON_SIZE + GAP_V_INNER
+        return y + cardH + GAP_V_INNER
     }
 
     private fun drawEphemeralIndicator(canvas: Canvas, x: Float, y: Float): Float {
@@ -2254,6 +2301,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     companion object {
         const val COMBINE_TIME_THRESHOLD = 2 * 60L
         private const val TAG = "ChatMessageCell"
+        private val ANONYMOUS_USER_ID = BuildConfig.MEZON_ANONYMOUS_USER_ID.toLongOrNull() ?: 0L
+        private val anonymousAvatarBitmaps = HashMap<Int, Bitmap>(2)
 
         private val AVATAR_SIZE = LayoutHelper.dp(40)  
         private val PAD_H = LayoutHelper.dp(6)          
@@ -2281,8 +2330,12 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         private val CONNECTOR_RADIUS = LayoutHelper.dpf(6f)
         private val CONNECTOR_STROKE = LayoutHelper.dpf(1.5f)
         private val CONNECTOR_GAP = LayoutHelper.dp(4)
-        private val FILE_ICON_SIZE = LayoutHelper.dp(40)
-        private val FILE_ICON_GAP = LayoutHelper.dp(10)
+        private val FILE_ICON_SIZE = LayoutHelper.dp(30)
+        private val FILE_ICON_GAP = LayoutHelper.dp(6)
+        private val FILE_ROW_H_PAD = LayoutHelper.dp(10)
+        private val FILE_ROW_V_PAD = LayoutHelper.dp(6)
+        private val FILE_ROW_RADIUS = LayoutHelper.dpf(6f)
+        private val FILE_ROW_MIN_HEIGHT = LayoutHelper.dp(50)
         private val FORWARD_ICON_SIZE = LayoutHelper.dp(14)
         private val FORWARD_ICON_GAP = LayoutHelper.dp(4).toFloat()
         private val EPHEMERAL_ICON_SIZE = LayoutHelper.dp(12)
@@ -2502,13 +2555,5 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             return "%d:%02d".format(m, s)
         }
 
-        private fun formatFileSize(bytes: Int): String {
-            if (bytes <= 0) return ""
-            return when {
-                bytes < 1024 -> "$bytes B"
-                bytes < 1024 * 1024 -> "${bytes / 1024} KB"
-                else -> "%.1f MB".format(bytes / (1024f * 1024f))
-            }
-        }
     }
 }

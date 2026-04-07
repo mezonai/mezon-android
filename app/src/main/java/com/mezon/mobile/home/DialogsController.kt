@@ -63,6 +63,22 @@ class DialogsController @Inject constructor(
 
     private var currentChannelId: Long? = null
 
+    private val buzzStates = HashMap<Long, Long>()
+    private val buzzHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
+    fun setBuzzState(channelId: Long) {
+        synchronized(this) { buzzStates[channelId] = System.currentTimeMillis() }
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
+        buzzHandler.postDelayed({
+            synchronized(this) { buzzStates.remove(channelId) }
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
+        }, 10_000)
+    }
+
+    fun isBuzzActive(channelId: Long): Boolean {
+        return synchronized(this) { buzzStates.containsKey(channelId) }
+    }
+
     init {
         appScope.launch { loadDialogsFromDb() }
         appScope.launch { observePresenceChanges() }
