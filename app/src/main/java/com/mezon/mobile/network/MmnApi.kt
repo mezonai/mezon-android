@@ -14,6 +14,8 @@ import kotlinx.serialization.json.Json
 import javax.inject.Inject
 import javax.inject.Singleton
 
+private val json = Json { ignoreUnknownKeys = true }
+
 @Serializable
 data class MmnGetAccountResponse(
     val address: String = "",
@@ -45,7 +47,7 @@ class MmnApi @Inject constructor(
             }
             if (!response.status.isSuccess()) return null
             val responseBody = response.bodyAsText()
-            val rpcResult = Json { ignoreUnknownKeys = true }.decodeFromString<MmnJsonRpcResponse>(responseBody)
+            val rpcResult = json.decodeFromString<MmnJsonRpcResponse>(responseBody)
             return rpcResult.result
         } catch (e: Exception) {
             return null
