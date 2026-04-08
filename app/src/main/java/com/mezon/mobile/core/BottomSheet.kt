@@ -122,7 +122,7 @@ open class BottomSheet(
         private set
 
     private var customView: View? = null
-    private var containerHeight = ViewGroup.LayoutParams.WRAP_CONTENT
+    protected var containerHeight = ViewGroup.LayoutParams.WRAP_CONTENT
     private var dismissed = false
     private var allowCustomAnimation = true
     @JvmField protected var canDismissWithSwipe = true

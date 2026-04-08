@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffColorFilter
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
@@ -13,15 +15,18 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.mezon.mobile.R
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BottomSheet
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.PhotoAttachPhotoCell
 
 private const val TAG = "ChatAttachAlert"
@@ -36,6 +41,7 @@ class ChatAttachAlert(
 
     interface ChatAttachAlertDelegate {
         fun onAttachmentsSelected(items: List<AttachmentPickerItem>)
+        fun onFilesRequested() {}
     }
 
     var attachDelegate: ChatAttachAlertDelegate? = null
@@ -75,6 +81,21 @@ class ChatAttachAlert(
         val availableWidth = AndroidUtilities.displaySize.x
         itemSize = (availableWidth - LayoutHelper.dp(GRID_GAP.toFloat()) * (ITEMS_PER_ROW - 1)) / ITEMS_PER_ROW
 
+        val headerHeight = LayoutHelper.dp(44f)
+
+        val headerRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(LayoutHelper.dp(12f), 0, LayoutHelper.dp(12f), 0)
+        }
+        buildHeaderButton(headerRow, MezonIcon.fileIconGray, R.string.advanced_files) {
+            dismiss()
+            attachDelegate?.onFilesRequested()
+        }
+        parent.addView(headerRow, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, headerHeight, Gravity.TOP
+        ))
+
         adapter = PhotoAttachAdapter()
 
         val layoutManager = GridLayoutManager(context, ITEMS_PER_ROW)
@@ -83,7 +104,8 @@ class ChatAttachAlert(
             this.layoutManager = layoutManager
             this.adapter = this@ChatAttachAlert.adapter
             clipToPadding = false
-            setPadding(0, 0, 0, LayoutHelper.dp(56f))
+            setPadding(0, headerHeight, 0, LayoutHelper.dp(56f))
+            clipChildren = false
             addItemDecoration(object : RecyclerView.ItemDecoration() {
                 override fun getItemOffsets(outRect: Rect, view: View, parent: RecyclerView, state: RecyclerView.State) {
                     val pos = parent.getChildAdapterPosition(view)
@@ -128,6 +150,43 @@ class ChatAttachAlert(
                 rightMargin = LayoutHelper.dp(12f)
             }
         )
+    }
+
+    private fun buildHeaderButton(
+        parent: LinearLayout,
+        icon: MezonIcon,
+        textRes: Int,
+        onClick: () -> Unit
+    ) {
+        val btn = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val hPad = LayoutHelper.dp(10f)
+            val vPad = LayoutHelper.dp(6f)
+            setPadding(hPad, vPad, hPad, vPad)
+            setBackgroundResource(android.R.drawable.list_selector_background)
+            setOnClickListener { onClick() }
+        }
+
+        val iconView = ImageView(context).apply {
+            val d = icon.getDrawable(context).mutate()
+            d.colorFilter = PorterDuffColorFilter(theme.onSurface, PorterDuff.Mode.SRC_IN)
+            setImageDrawable(d)
+        }
+        val iconSize = LayoutHelper.dp(20f)
+        btn.addView(iconView, LinearLayout.LayoutParams(iconSize, iconSize))
+
+        val label = TextView(context).apply {
+            setText(textRes)
+            setTextColor(theme.onSurface)
+            textSize = 13f
+            setPadding(LayoutHelper.dp(6f), 0, 0, 0)
+        }
+        btn.addView(label, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
+
+        parent.addView(btn)
     }
 
     override fun onGalleryLoaded(photos: List<AttachmentPickerItem>, totalLoaded: Int, hasMore: Boolean) {

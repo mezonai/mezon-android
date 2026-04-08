@@ -4,7 +4,9 @@ import com.mezon.mobile.BuildConfig
 import android.util.Base64
 import com.mezon.mezon.api.Account
 import com.mezon.mezon.api.AccountEmail
+import com.mezon.mezon.api.AllUsersAddChannelResponse
 import com.mezon.mezon.api.AllUserClans
+import com.mezon.mezon.api.allUsersAddChannelRequest
 import com.mezon.mezon.api.EmojiListedResponse
 import com.mezon.mezon.api.StickerListedResponse
 import com.mezon.mezon.api.BlockFriendsRequest
@@ -577,6 +579,20 @@ class MezonApi @Inject constructor(
         }
         val bytes = rpc(apiUrl, token, "ListChannelUsers", request.toByteArray())
         return ChannelUserList.parseFrom(bytes)
+    }
+
+    suspend fun listChannelUsersUC(
+        apiUrl: String,
+        token: String,
+        channelId: Long,
+        limit: Int = 500
+    ): AllUsersAddChannelResponse {
+        val request = allUsersAddChannelRequest {
+            this.channelId = channelId
+            this.limit = limit
+        }
+        val bytes = rpc(apiUrl, token, "ListChannelUsersUC", request.toByteArray())
+        return AllUsersAddChannelResponse.parseFrom(bytes)
     }
 
     suspend fun listChannelByUserId(

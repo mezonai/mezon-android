@@ -233,7 +233,11 @@ enum class MezonIcon(@DrawableRes val resId: Int) {
     shopIcon(R.drawable.ic_shop_icon),
     editProfileIcon(R.drawable.ic_edit_icon),
     balanceIcon(R.drawable.ic_balance_icon),
-    historyTransactionIcon(R.drawable.ic_history_icon);
+    historyTransactionIcon(R.drawable.ic_history_icon),
+    threadPlusIconGray(R.drawable.ic_thread_plus_icon_gray),
+    anonymousIconGray(R.drawable.ic_anonymous_icon_gray),
+    ephemeralIconGray(R.drawable.ic_ephemeral_icon_gray),
+    pollIconGray(R.drawable.ic_poll_icon_gray);
 
     fun getDrawable(context: Context): Drawable =
         ContextCompat.getDrawable(context, resId)!!.mutate()
