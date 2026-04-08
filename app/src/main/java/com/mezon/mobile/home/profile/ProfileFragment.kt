@@ -319,7 +319,9 @@ class ProfileFragment : BaseFragment() {
         val gapIcon = View(context)
         rightIconsLayout.addView(gapIcon, LinearLayout.LayoutParams(LayoutHelper.dp(12), 0))
         rightIconsLayout.addView(createCircleIconButton(context, MezonIcon.settingProfileIcon) {
-            openAccountSetting()
+            presentFragment(SettingsFragment().apply {
+                onLogout = this@ProfileFragment.onLogout
+            })
         })
 
         usernameText = TextView(context).apply {

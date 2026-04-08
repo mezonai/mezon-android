@@ -224,6 +224,9 @@
     <string name="setting_log_out_description">Bạn có chắc chắn muốn đăng xuất không?</string>
     <string name="setting_log_out_no">Không</string>
     <string name="setting_log_out_yes">Có</string>
+    <string name="setting_scan_qr">Quét mã QR</string>
+    <string name="setting_devices">Thiết bị</string>
+    <string name="setting_app_version_label">Phiên bản ứng dụng</string>
 
     <!-- theme -->
     <string name="setting_theme_title">Giao diện</string>
