@@ -1,7 +1,6 @@
 package com.mezon.mobile.home.profile
 
 import android.content.Context
-import android.graphics.Color
 import android.graphics.Typeface
 import androidx.core.content.ContextCompat
 import android.graphics.drawable.GradientDrawable
@@ -133,7 +132,7 @@ class ChangeUserStatusBottomSheet(
             optionsContainer.addView(createOptionRow(label, value, icon))
             if (!isLast) {
                 val separator = View(context).apply {
-                    setBackgroundColor(Color.WHITE)
+                    setBackgroundColor(themeColors.dividerColor)
                 }
                 optionsContainer.addView(separator, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LayoutHelper.dp(0.5f)).apply {
                     leftMargin = -LayoutHelper.dp(8)

@@ -356,6 +356,8 @@ class ThemeColors @Inject constructor() {
         else -> 0xFF49454F.toInt()
     }
 
+    val dividerColor: Int get() = outlineVariant
+
     val error: Int get() = 0xFFD30E0E.toInt()
     val success: Int get() = 0xFF00D4AA.toInt()
 

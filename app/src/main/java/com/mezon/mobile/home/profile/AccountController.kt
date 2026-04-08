@@ -8,12 +8,15 @@ import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.network.ApiCacheTracker
+import com.mezon.mobile.network.MmnApi
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.network.SocketEventDispatcher
 import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.session.SessionManager
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -43,6 +46,7 @@ data class AccountInfo(
 @Singleton
 class AccountController @Inject constructor(
     private val api: MezonApi,
+    private val mmnApi: MmnApi,
     private val sessionManager: SessionManager,
     private val userController: UserController,
     private val dispatcher: SocketEventDispatcher,
@@ -121,31 +125,37 @@ class AccountController @Inject constructor(
                 cacheTracker.shouldCall(cacheKey, noCache = false) == ApiCacheTracker.ShouldCall.SKIP
             ) return
             sessionManager.withAutoRefresh { session ->
-                val account = withContext(ioDispatcher) { api.getAccount(session.apiUrl, session.token) }
-                val user = account.user
-                val walletData = withContext(ioDispatcher) { api.getWalletBalance(user.id.toString()) }
-                
-                val info = AccountInfo(
-                    userId = user.id,
-                    username = user.username,
-                    displayName = user.displayName,
-                    aboutMe = user.aboutMe,
-                    email = account.email,
-                    phoneNumber = user.phoneNumber,
-                    avatarUrl = user.avatarUrl,
-                    logo = account.logo,
-                    passwordSetted = account.passwordSetted,
-                    createTimeSeconds = user.createTimeSeconds.toLong(),
-                    userStatus = user.userStatus,
-                    onlineStatus = UserOnlineStatus.fromString(user.status),
-                    balance = walletData?.balance ?: "0",
-                    address = walletData?.address ?: ""
-                )
-                
-                _accountInfo.value = info
-                cacheTracker.markCalled(cacheKey)
-                userController.updateFromAccount(info)
-                notificationCenter.postNotificationOnMainThread(NotificationCenter.accountInfoLoaded)
+                coroutineScope {
+                    val accountDeferred = async(ioDispatcher) { api.getAccount(session.apiUrl, session.token) }
+                    val walletDeferred = async(ioDispatcher) {
+                        runCatching { mmnApi.getWalletBalance(session.userId) }.getOrNull()
+                    }
+                    val account = accountDeferred.await()
+                    val walletData = walletDeferred.await()
+                    val user = account.user
+
+                    val info = AccountInfo(
+                        userId = user.id,
+                        username = user.username,
+                        displayName = user.displayName,
+                        aboutMe = user.aboutMe,
+                        email = account.email,
+                        phoneNumber = user.phoneNumber,
+                        avatarUrl = user.avatarUrl,
+                        logo = account.logo,
+                        passwordSetted = account.passwordSetted,
+                        createTimeSeconds = user.createTimeSeconds.toLong(),
+                        userStatus = user.userStatus,
+                        onlineStatus = UserOnlineStatus.fromString(user.status),
+                        balance = walletData?.balance ?: "0",
+                        address = walletData?.address ?: ""
+                    )
+
+                    _accountInfo.value = info
+                    cacheTracker.markCalled(cacheKey)
+                    userController.updateFromAccount(info)
+                    notificationCenter.postNotificationOnMainThread(NotificationCenter.accountInfoLoaded)
+                }
             }
         } catch (e: Exception) {
         }

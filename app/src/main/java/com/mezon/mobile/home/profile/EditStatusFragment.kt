@@ -1,7 +1,6 @@
 package com.mezon.mobile.home.profile
 
 import android.content.Context
-import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.View
@@ -47,7 +46,7 @@ class EditStatusFragment : BaseFragment() {
             val saveItem = createMenu().addItem(1, context.getString(R.string.common_save))
             val saveButtonView = TextView(context).apply {
                 text = context.getString(R.string.common_save)
-                setTextColor(Color.parseColor("#5C6BC0"))
+                setTextColor(themeColors.primary)
                 textSize = 16f
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER_VERTICAL
@@ -169,7 +168,7 @@ class EditStatusFragment : BaseFragment() {
                 val bg = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL
                     setColor(0x00000000)
-                    setStroke(LayoutHelper.dp(2), if (isSelected) Color.parseColor("#5C6BC0") else themeColors.outline)
+                    setStroke(LayoutHelper.dp(2), if (isSelected) themeColors.primary else themeColors.outline)
                 }
                 background = bg
             }
@@ -177,7 +176,7 @@ class EditStatusFragment : BaseFragment() {
                 val innerCircle = View(context).apply {
                     background = GradientDrawable().apply {
                         shape = GradientDrawable.OVAL
-                        setColor(Color.parseColor("#5C6BC0"))
+                        setColor(themeColors.primary)
                     }
                 }
                 radioContainer.addView(innerCircle, LayoutHelper.createFrame(12, 12, Gravity.CENTER))
@@ -188,7 +187,7 @@ class EditStatusFragment : BaseFragment() {
 
             if (index < durations.size - 1) {
                 val divider = View(context).apply {
-                    setBackgroundColor(Color.WHITE)
+                    setBackgroundColor(themeColors.dividerColor)
                 }
                 optionsContainer.addView(divider, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 1, 0f, 0, 16f, 0f, 16f, 0f))
             }
