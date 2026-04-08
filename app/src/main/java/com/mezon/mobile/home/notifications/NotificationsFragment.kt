@@ -67,7 +67,11 @@ class NotificationsFragment : BaseFragment() {
         observe(NotificationCenter.clansDidLoad) { _, _, _ ->
             if (fragmentView == null || isPaused) return@observe
             val id = clansController.selectedClanId.value
-            if (id != 0L) store.setCurrentClan(id)
+            if (id != 0L) {
+                if (store.setCurrentClan(id)) {
+                    selectTab(currentCategory, forceRefresh = true)
+                }
+            }
         }
         observe(NotificationCenter.notificationsDidLoad) { _, _, args ->
             if (fragmentView == null || isPaused) return@observe
@@ -79,7 +83,14 @@ class NotificationsFragment : BaseFragment() {
             if (fragmentView == null || isPaused) return@observe
             val category = args.firstOrNull() as? Int ?: return@observe
             isLoadingMoreMap[category] = false
-            if (category == currentCategory) showEmpty()
+            if (category == currentCategory) {
+                val items = store.getForCategory(currentCategory).value
+                if (items.isNotEmpty()) {
+                    showList(items)
+                } else {
+                    showEmpty()
+                }
+            }
         }
         observe(NotificationCenter.updateInterfaces) { _, _, args ->
             if (fragmentView == null || isPaused) return@observe
@@ -186,9 +197,9 @@ class NotificationsFragment : BaseFragment() {
         super.onBecomeFullyVisible()
 
         val clanId = clansController.selectedClanId.value
-        store.setCurrentClan(clanId)
+        val isClanChanged = store.setCurrentClan(clanId)
 
-        selectTab(currentCategory, forceRefresh = false)
+        selectTab(currentCategory, forceRefresh = isClanChanged)
     }
 
     private fun handleNotificationPress(entity: NotificationEntity) {
@@ -288,7 +299,7 @@ class NotificationsFragment : BaseFragment() {
         if (cached.isNotEmpty()) {
             showList(cached, isTabChanged)
         } else {
-            if (isTabChanged) {
+            if (isTabChanged || forceRefresh) {
                 adapter.setData(emptyList(), false, true)
             }
             showLoading()

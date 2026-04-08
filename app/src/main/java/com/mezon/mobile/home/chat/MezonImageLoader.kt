@@ -38,6 +38,11 @@ class MezonImageLoader private constructor(context: Context) {
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    private inline fun runOnMain(crossinline block: () -> Unit) {
+        if (Looper.myLooper() == Looper.getMainLooper()) block()
+        else mainHandler.post { block() }
+    }
+
     private val maxMemory = (Runtime.getRuntime().maxMemory() / 1024).toInt()
     private val totalCacheSize = maxMemory / 6
 
@@ -123,7 +128,7 @@ class MezonImageLoader private constructor(context: Context) {
         val cacheKey = cacheKey(url, reqWidth, reqHeight)
 
         getFromMemory(cacheKey)?.let { cached ->
-            mainHandler.post { onSuccess(cached) }
+            runOnMain { onSuccess(cached) }
             return Cancellable.EMPTY
         }
 
@@ -402,7 +407,7 @@ class MezonImageLoader private constructor(context: Context) {
         val cacheKey = cacheKey(uri.toString(), reqWidth, reqHeight)
 
         getFromMemory(cacheKey)?.let { cached ->
-            mainHandler.post { onSuccess(cached) }
+            runOnMain { onSuccess(cached) }
             return Cancellable.EMPTY
         }
 

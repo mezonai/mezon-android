@@ -411,11 +411,41 @@ class MainActivity : BasePermissionsActivity(),
     ) {
         val lastFragment = actionBarLayout.getLastFragment()
         if (lastFragment is ChatFragment && lastFragment.getChannelId() == channelId && messageId == 0L) {
+            if (fromNotification) {
+                clearStackAboveTabs()
+                switchToTabForClan(clanId)
+            }
             return
         }
+
+        if (fromNotification) {
+            clearStackAboveTabs()
+            switchToTabForClan(clanId)
+        }
+
         val fragment = ChatFragment.newInstance(channelId, channelName, clanId, channelType, messageId)
         val params = INavigationLayout.NavigationParams(fragment).setNoAnimation(noAnimation)
         actionBarLayout.presentFragment(params)
+    }
+
+    private fun clearStackAboveTabs() {
+        val stack = actionBarLayout.getFragmentStack()
+        val toRemove = ArrayList<BaseFragment>(stack.size)
+        for (i in 1 until stack.size) {
+            val f = stack[i]
+            if (f !is MainTabsActivity) {
+                toRemove.add(f)
+            }
+        }
+        toRemove.forEach { actionBarLayout.removeFragmentFromStack(it) }
+    }
+
+    private fun switchToTabForClan(clanId: Long) {
+        if (clanId != 0L) {
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.navigateToClansTab)
+        } else {
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.navigateToMessagesTab)
+        }
     }
 
     private fun rewireTopFragmentCallbacks() {

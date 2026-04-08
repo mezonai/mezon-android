@@ -734,7 +734,10 @@ class ProfileFragment : BaseFragment() {
         }.show()
     }
     private fun getThemeDisplayName(mode: ThemeMode): String = when (mode) {
-        ThemeMode.LIGHT -> getString(R.string.setting_theme_light); ThemeMode.DARK -> getString(R.string.setting_theme_dark)
-        ThemeMode.ABYSS -> getString(R.string.setting_theme_abyss); ThemeMode.SYSTEM -> getString(R.string.setting_theme_system)
+        ThemeMode.LIGHT -> getString(R.string.setting_theme_light)
+        ThemeMode.DARK -> getString(R.string.setting_theme_dark)
+        ThemeMode.ABYSS -> getString(R.string.setting_theme_abyss)
+        ThemeMode.SYSTEM -> getString(R.string.setting_theme_system)
     }
+
 }
