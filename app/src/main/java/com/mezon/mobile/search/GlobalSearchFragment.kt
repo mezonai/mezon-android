@@ -3,6 +3,7 @@ package com.mezon.mobile.search
 import android.content.Context
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
@@ -23,14 +24,20 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.di.FragmentEntryPoint
+import com.mezon.mobile.home.ChatController
+import com.mezon.mobile.home.DialogsController
+import com.mezon.mobile.home.MemberResolver
 import com.mezon.mobile.home.clans.ClanChannelEntity
 import com.mezon.mobile.ui.cells.ChannelSearchCell
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.PopupMenu
 import com.mezon.mobile.ui.cells.ProfileSearchCell
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.ui.cells.SearchCell
 import com.mezon.mobile.ui.cells.SearchTabHeader
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class GlobalSearchFragment : BaseFragment() {
 
@@ -47,9 +54,33 @@ class GlobalSearchFragment : BaseFragment() {
         private val FILTER_ICON_SIZE = LayoutHelper.dp(20f)
         private val FILTER_BUTTON_PADDING = LayoutHelper.dp(10f)
         private val FILTER_BUTTON_MARGIN_START = LayoutHelper.dp(8f)
+
+        private const val ARG_FILTER_CHANNEL_ID = "filterChannelId"
+        private const val ARG_FILTER_CHANNEL_NAME = "filterChannelName"
+        private const val ARG_CLAN_ID = "clanId"
+        private const val ARG_CHANNEL_TYPE = "channelType"
+
+        fun newInstance(
+            filterChannelId: Long,
+            filterChannelName: String,
+            clanId: Long = 0L,
+            channelType: Int = 0
+        ): GlobalSearchFragment {
+            return GlobalSearchFragment().apply {
+                arguments = Bundle().apply {
+                    putLong(ARG_FILTER_CHANNEL_ID, filterChannelId)
+                    putString(ARG_FILTER_CHANNEL_NAME, filterChannelName)
+                    putLong(ARG_CLAN_ID, clanId)
+                    putInt(ARG_CHANNEL_TYPE, channelType)
+                }
+            }
+        }
     }
 
     private lateinit var searchController: SearchController
+    private var memberResolver: MemberResolver? = null
+    private lateinit var dialogsController: DialogsController
+    private lateinit var chatController: ChatController
 
     private lateinit var searchCell: SearchCell
     private lateinit var tabHeader: SearchTabHeader
@@ -73,6 +104,11 @@ class GlobalSearchFragment : BaseFragment() {
     private var scrollingManually = false
     private var filterChannelId = 0L
     private var filterChannelName = ""
+    private var hideChannelsTab = false
+    private var visibleTabs = listOf(TAB_MEMBERS, TAB_CHANNELS, TAB_MESSAGES)
+    private var argClanId = 0L
+    private var argChannelType = 0
+    private var channelScopedMembers: List<SearchMember>? = null
     private var membersRequested = false
     private var channelsRequested = false
     private var isChannelPickerMode = false
@@ -84,13 +120,34 @@ class GlobalSearchFragment : BaseFragment() {
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
         searchController = entryPoint.searchController()
+        memberResolver = entryPoint.memberResolver()
+        dialogsController = entryPoint.dialogsController()
+        chatController = entryPoint.chatController()
     }
 
     override fun onFragmentCreate(): Boolean {
         super.onFragmentCreate()
 
+        val argChannelId = arguments?.getLong(ARG_FILTER_CHANNEL_ID) ?: 0L
+        val argChannelName = arguments?.getString(ARG_FILTER_CHANNEL_NAME) ?: ""
+        argClanId = arguments?.getLong(ARG_CLAN_ID) ?: 0L
+        argChannelType = arguments?.getInt(ARG_CHANNEL_TYPE) ?: 0
+        if (argChannelId != 0L) {
+            filterChannelId = argChannelId
+            filterChannelName = argChannelName
+            hideChannelsTab = true
+            buildChannelScopedMembers()
+        }
+
+        visibleTabs = if (hideChannelsTab) {
+            listOf(TAB_MEMBERS, TAB_MESSAGES)
+        } else {
+            listOf(TAB_MEMBERS, TAB_CHANNELS, TAB_MESSAGES)
+        }
+
         observe(NotificationCenter.searchMembersDidLoad) { _, _, _ ->
             if (fragmentView == null || isPaused) return@observe
+            if (channelScopedMembers != null) return@observe
             if (currentTab == TAB_MEMBERS) {
                 loadingView.visibility = View.GONE
                 recyclerView.visibility = View.VISIBLE
@@ -100,7 +157,22 @@ class GlobalSearchFragment : BaseFragment() {
         }
         observe(NotificationCenter.userClansDidLoad) { _, _, _ ->
             if (fragmentView == null || isPaused) return@observe
+            if (channelScopedMembers != null) return@observe
             searchController.rebuildMembers()
+        }
+        observe(NotificationCenter.clanMembersDidLoad) { _, _, _ ->
+            if (fragmentView == null || isPaused) return@observe
+            if (channelScopedMembers == null) return@observe
+            buildChannelScopedMembers()
+            if (currentTab == TAB_MEMBERS) updateMembersList()
+            updateTabCounts()
+        }
+        observe(NotificationCenter.channelMembersDidLoad) { _, _, _ ->
+            if (fragmentView == null || isPaused) return@observe
+            if (channelScopedMembers == null) return@observe
+            buildChannelScopedMembers()
+            if (currentTab == TAB_MEMBERS) updateMembersList()
+            updateTabCounts()
         }
         observe(NotificationCenter.searchChannelsDidLoad) { _, _, _ ->
             if (fragmentView == null || isPaused) return@observe
@@ -122,9 +194,30 @@ class GlobalSearchFragment : BaseFragment() {
             isLoadingMore = false
         }
 
-        membersRequested = true
-        searchController.loadMembers()
+        if (channelScopedMembers != null) {
+            membersRequested = true
+        } else {
+            membersRequested = true
+            searchController.loadMembers()
+        }
         return true
+    }
+
+    private fun buildChannelScopedMembers() {
+        val resolver = memberResolver ?: return
+        val members = resolver.resolveChannelMembers(argClanId, filterChannelId, argChannelType)
+        channelScopedMembers = members.map { m ->
+            SearchMember(
+                id = m.userId,
+                username = m.username,
+                displayName = m.displayName.ifEmpty { m.username },
+                avatarUrl = m.clanAvatar.ifEmpty { m.avatarUrl },
+                isOnline = m.isOnline,
+                isDm = argClanId == 0L,
+                channelId = filterChannelId,
+                channelType = argChannelType
+            )
+        }
     }
 
     override fun createView(context: Context): View {
@@ -214,16 +307,29 @@ class GlobalSearchFragment : BaseFragment() {
             LinearLayout.LayoutParams.WRAP_CONTENT
         ))
 
+        val tabLabels = visibleTabs.map { tab ->
+            when (tab) {
+                TAB_MEMBERS -> "Members"
+                TAB_CHANNELS -> "Channels"
+                TAB_MESSAGES -> "Messages"
+                else -> ""
+            }
+        }
         tabHeader = SearchTabHeader(context, themeColors).apply {
-            setTabs(listOf("Members", "Channels", "Messages"))
-            onTabSelected = { tab ->
+            setTabs(tabLabels)
+            onTabSelected = { visualIndex ->
                 searchRunnable?.let { handler.removeCallbacks(it) }
-                currentTab = tab
+                currentTab = visibleTabs.getOrElse(visualIndex) { TAB_MEMBERS }
                 membersDisplayLimit = LOCAL_PAGE_SIZE
                 channelsDisplayLimit = LOCAL_PAGE_SIZE
                 updateFilterButtonVisibility()
                 updateCurrentTab()
             }
+        }
+
+        if (filterChannelId != 0L) {
+            searchCell.setBadge("in: $filterChannelName")
+            searchCell.setPlaceholder("Search messages...")
         }
         root.addView(tabHeader, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
@@ -267,6 +373,8 @@ class GlobalSearchFragment : BaseFragment() {
                     val member = view.member ?: return@OnItemClickListener
                     if (member.isDm && member.channelId != 0L) {
                         onOpenChat?.invoke(member.channelId, member.displayName, 0L, member.channelType)
+                    } else {
+                        navigateToDm(member)
                     }
                 }
                 is ChannelSearchCell -> {
@@ -302,8 +410,15 @@ class GlobalSearchFragment : BaseFragment() {
         })
 
         updateFilterButtonVisibility()
-        loadingView.visibility = View.VISIBLE
-        recyclerView.visibility = View.GONE
+        if (channelScopedMembers != null) {
+            loadingView.visibility = View.GONE
+            recyclerView.visibility = View.VISIBLE
+            updateMembersList()
+            updateTabCounts()
+        } else {
+            loadingView.visibility = View.VISIBLE
+            recyclerView.visibility = View.GONE
+        }
 
         fragmentView = root
         return root
@@ -332,7 +447,11 @@ class GlobalSearchFragment : BaseFragment() {
     private fun updateCurrentTab() {
         when (currentTab) {
             TAB_MEMBERS -> {
-                if (!membersRequested) {
+                if (channelScopedMembers != null) {
+                    loadingView.visibility = View.GONE
+                    recyclerView.visibility = View.VISIBLE
+                    updateMembersList()
+                } else if (!membersRequested) {
                     membersRequested = true
                     loadingView.visibility = View.VISIBLE
                     recyclerView.visibility = View.GONE
@@ -354,7 +473,7 @@ class GlobalSearchFragment : BaseFragment() {
                 }
             }
             TAB_MESSAGES -> {
-                if (searchText.isNotBlank() || filterChannelId != 0L) {
+                if (searchText.isNotBlank()) {
                     loadingView.visibility = View.VISIBLE
                     recyclerView.visibility = View.GONE
                     searchController.searchMessagesApi(
@@ -371,6 +490,24 @@ class GlobalSearchFragment : BaseFragment() {
     }
 
     private fun updateMembersList() {
+        val scoped = channelScopedMembers
+        if (scoped != null) {
+            val all = if (searchText.isBlank()) {
+                scoped
+            } else {
+                val q = SearchController.removeDiacritics(searchText.trim().lowercase())
+                scoped.filter { m ->
+                    val dn = SearchController.removeDiacritics(m.displayName.lowercase())
+                    val un = SearchController.removeDiacritics(m.username.lowercase())
+                    dn.contains(q) || un.contains(q)
+                }
+            }
+            val page = all.take(membersDisplayLimit)
+            adapter.setMembers(page)
+            adapter.hasMore = page.size < all.size
+            updateEmptyState(page.isEmpty())
+            return
+        }
         val filtered = searchController.filterMembers(searchText, membersDisplayLimit)
         adapter.setMembers(filtered)
         val totalCount = searchController.totalMembersForQuery(searchText)
@@ -390,13 +527,14 @@ class GlobalSearchFragment : BaseFragment() {
         val messages = searchController.getMessages()
         adapter.setMessages(messages)
         adapter.hasMore = searchController.hasMoreMessages && messages.isNotEmpty()
-        updateEmptyState(messages.isEmpty() && (searchText.isNotBlank() || filterChannelId != 0L))
+        updateEmptyState(messages.isEmpty() && searchText.isNotBlank())
     }
 
     private fun loadMoreResults() {
         when (currentTab) {
             TAB_MEMBERS -> {
-                val total = searchController.totalMembersForQuery(searchText)
+                val scoped = channelScopedMembers
+                val total = scoped?.size ?: searchController.totalMembersForQuery(searchText)
                 if (membersDisplayLimit >= total) return
                 isLoadingMore = true
                 membersDisplayLimit += LOCAL_PAGE_SIZE
@@ -433,10 +571,30 @@ class GlobalSearchFragment : BaseFragment() {
     }
 
     private fun updateTabCounts() {
-        val membersCount = searchController.filterMembersCount(searchText)
+        val scoped = channelScopedMembers
+        val membersCount = if (scoped != null) {
+            if (searchText.isBlank()) scoped.size else {
+                val q = SearchController.removeDiacritics(searchText.trim().lowercase())
+                scoped.count { m ->
+                    val dn = SearchController.removeDiacritics(m.displayName.lowercase())
+                    val un = SearchController.removeDiacritics(m.username.lowercase())
+                    dn.contains(q) || un.contains(q)
+                }
+            }
+        } else {
+            searchController.filterMembersCount(searchText)
+        }
         val channelsCount = searchController.filterChannelsCount(searchText)
         val messagesCount = searchController.searchMessagesTotal
-        tabHeader.updateCounts(listOf(membersCount, channelsCount, messagesCount))
+        val counts = visibleTabs.map { tab ->
+            when (tab) {
+                TAB_MEMBERS -> membersCount
+                TAB_CHANNELS -> channelsCount
+                TAB_MESSAGES -> messagesCount
+                else -> 0
+            }
+        }
+        tabHeader.updateCounts(counts)
     }
 
     private fun updateFilterButtonVisibility() {
@@ -564,6 +722,18 @@ class GlobalSearchFragment : BaseFragment() {
             } else {
                 searchController.clearSearchMessages()
                 updateMessagesList()
+            }
+        }
+    }
+
+    private fun navigateToDm(member: SearchMember) {
+        fragmentScope.launch {
+            val dmChannelId = dialogsController.getOrCreateDm(member.id)
+            if (dmChannelId != 0L) {
+                chatController.openChannel(dmChannelId, 0L, CHANNEL_TYPE_DM)
+                launch(Dispatchers.Main.immediate) {
+                    onOpenChat?.invoke(dmChannelId, member.displayName, 0L, CHANNEL_TYPE_DM)
+                }
             }
         }
     }

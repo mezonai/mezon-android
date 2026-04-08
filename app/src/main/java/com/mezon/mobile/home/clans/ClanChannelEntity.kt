@@ -10,6 +10,7 @@ import com.mezon.mobile.home.extractLastSentMessageTs
 
 const val CHANNEL_TYPE_VOICE = 10
 const val CHANNEL_TYPE_FORUM = 5
+const val CHANNEL_TYPE_STREAMING = 6
 const val CHANNEL_TYPE_ANNOUNCEMENT = 9
 const val CHANNEL_TYPE_APP = 8
 

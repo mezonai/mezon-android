@@ -240,7 +240,7 @@ class UserProfileBottomSheet(
             // Add Friend button
             actionsRow.addView(buildActionButton(
                 context.getString(R.string.user_profile_add_friend),
-                R.drawable.ic_userplus,
+                R.drawable.ic_user_plus_icon,
                 0xFF42A869.toInt()  // baseColor.green
             ) {
                 dismiss()

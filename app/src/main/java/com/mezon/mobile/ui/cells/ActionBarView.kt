@@ -139,6 +139,11 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
 
     fun getTitle(): CharSequence? = titleTextView?.text
 
+    fun setTitleOnClickListener(listener: OnClickListener?) {
+        if (titleTextView == null) createTitleTextView()
+        titleTextView?.setOnClickListener(listener)
+    }
+
     private fun createTitleTextView() {
         titleTextView = TextView(context).apply {
             setTextColor(theme.onSurface)

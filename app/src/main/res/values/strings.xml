@@ -5,6 +5,7 @@
     <string name="common_search">Search</string>
     <string name="common_search_placeholder">Search</string>
     <string name="common_yes">Yes</string>
+    <string name="common_no">No</string>
     <string name="common_cancel">Cancel</string>
     <string name="common_delete">Delete</string>
     <string name="common_save">Save</string>
@@ -174,6 +175,11 @@
     <string name="action_copy_text">Copy Text</string>
     <string name="action_pin">Pin Message</string>
     <string name="action_unpin">Unpin Message</string>
+    <string name="pin_message_confirm_title">Pin Message</string>
+    <string name="pin_message_confirm_description">Please confirm if you would like to pin this message?</string>
+    <string name="unpin_message_confirm_title">Unpin Message</string>
+    <string name="unpin_message_confirm_description">Please confirm if you would like to remove this pinned message?</string>
+    <string name="pin_message_empty">This channel doesn\'t have any pinned messages\u2026 yet.</string>
     <string name="action_mark_unread">Mark Unread</string>
     <string name="action_delete">Delete Message</string>
     <string name="action_report">Report</string>

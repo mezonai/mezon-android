@@ -55,6 +55,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     var messageEntity: MessageEntity? = null
         private set
     var isCombined: Boolean = false
+    var isInPinMode: Boolean = false
 
     private val avatarDrawable = AvatarDrawable()
     private var currentAvatarUrl: String? = null
@@ -292,7 +293,14 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             drawEphemeral = msg.isEphemeral
             drawError = msg.isError
             drawSending = msg.isSending
-            hasReply = parseReply(msg)
+            hasReply = if (isInPinMode) false else parseReply(msg)
+            if (isInPinMode) {
+                drawForwardHeader = false
+                drawEdited = false
+                drawEphemeral = false
+                drawError = false
+                drawSending = false
+            }
             updateColors(msg)
             if (drawPhotoImage) computePhotoSize(msg)
             buildLayouts(msg)
@@ -386,7 +394,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val screenW = min(resources.displayMetrics.widthPixels, resources.displayMetrics.heightPixels)
         val isStickerMsg = msg.messageType == MessageEntity.TYPE_GIF &&
             (msg.attachmentFiletype.equals("sticker", true) || msg.attachmentUrl.contains("/stickers/"))
-        val maxW = if (isStickerMsg) LayoutHelper.dp(160) else (screenW * 0.65f).toInt()
+        val rawMaxW = if (isStickerMsg) LayoutHelper.dp(160) else (screenW * 0.65f).toInt()
+        val maxW = if (isInPinMode) rawMaxW.coerceAtMost(maxBubbleWidth()) else rawMaxW
         val maxH = maxW + LayoutHelper.dp(100)
 
         var imgW = msg.attachmentWidth
@@ -552,7 +561,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private fun maxBubbleWidth(): Int {
         val w = if (measuredWidth > 0) measuredWidth else resources.displayMetrics.widthPixels
-        // Subtract left-side space (avatar + paddings) + right padding (RN paddingRight:28dp)
+        if (isInPinMode) return w - PIN_PAD_H * 2
         return w - PAD_H - AVATAR_SIZE - GAP_AVATAR - LayoutHelper.dp(28)
     }
 
@@ -1228,6 +1237,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (isInPinMode) return false
         val x = event.x
         val y = event.y
         when (event.action) {
@@ -1622,7 +1632,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             }
         }
 
-        val imgX = (PAD_H + AVATAR_SIZE + GAP_AVATAR).toFloat()
+        val imgX = if (isInPinMode) PIN_PAD_H.toFloat() else (PAD_H + AVATAR_SIZE + GAP_AVATAR).toFloat()
         photoImage.setRoundRadius(0)
         photoImage.setImageCoords(imgX, yOff, photoWidth.toFloat(), photoHeight.toFloat())
         photoImage.draw(canvas)
@@ -1645,7 +1655,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private fun drawMessageBubble(canvas: Canvas, msg: MessageEntity) {
         val topPad = if (isCombined) COMBINE_PAD_V else PAD_V
-        val contentLeft = PAD_H + AVATAR_SIZE + GAP_AVATAR
+        val contentLeft = if (isInPinMode) PIN_PAD_H else PAD_H + AVATAR_SIZE + GAP_AVATAR
 
         var yOff = topPad.toFloat()
 
@@ -2160,6 +2170,17 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private fun buildReactionLayouts(msg: MessageEntity, maxWidth: Int) {
         reactionEmojiCancellables.forEach { it?.cancel() }
 
+        if (isInPinMode) {
+            reactionGroups = emptyList()
+            reactionCountLayouts = emptyArray()
+            reactionChipBounds.clear()
+            reactionIsMyFlags = BooleanArray(0)
+            reactionEmojiBitmaps = emptyArray()
+            reactionEmojiCancellables = emptyArray()
+            reactionRowHeight = 0
+            return
+        }
+
         val groups = msg.combineReactions()
         reactionGroups = groups
         if (groups.isEmpty()) {
@@ -2309,6 +2330,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         private val PAD_V = LayoutHelper.dp(10)         
         private val PAD_BOTTOM = LayoutHelper.dp(6)    
         private val COMBINE_PAD_V = LayoutHelper.dp(1)
+        private val PIN_PAD_H = LayoutHelper.dp(4)
         private val GAP_AVATAR = LayoutHelper.dp(12)   
         private val MENTION_BAR_WIDTH = LayoutHelper.dp(2)
         private val MENTION_BAR_PAINT = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {

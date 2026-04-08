@@ -5,6 +5,7 @@ import com.mezon.mobile.home.AnonymousController
 import com.mezon.mobile.home.ChatController
 import com.mezon.mobile.home.ConnectionController
 import com.mezon.mobile.home.MemberResolver
+import com.mezon.mobile.home.PinMessageController
 import com.mezon.mobile.home.chat.EmojiController
 import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.UserClanController
@@ -45,6 +46,7 @@ interface FragmentEntryPoint {
     fun emojiController(): EmojiController
     fun anonymousController(): AnonymousController
     fun memberResolver(): MemberResolver
+    fun pinMessageController(): PinMessageController
 
     @IoDispatcher
     fun ioDispatcher(): CoroutineDispatcher

@@ -36,6 +36,8 @@ class MainTabsActivity : ViewPagerActivity() {
     private lateinit var accountController: AccountController
     @Suppress("unused")
     private lateinit var anonymousController: AnonymousController
+    @Suppress("unused")
+    private lateinit var pinMessageController: PinMessageController
 
     var onLogout: (() -> Unit)? = null
     var onOpenChat: ((channelId: Long, channelName: String, clanId: Long, channelType: Int) -> Unit)? = null
@@ -80,6 +82,7 @@ class MainTabsActivity : ViewPagerActivity() {
         messagesController = entryPoint.messagesController()
         accountController = entryPoint.accountController()
         anonymousController = entryPoint.anonymousController()
+        pinMessageController = entryPoint.pinMessageController()
         entryPoint.notificationStore()
     }
 

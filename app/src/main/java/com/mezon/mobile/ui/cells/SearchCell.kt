@@ -42,16 +42,14 @@ class SearchCell(context: Context, private val theme: ThemeColors) : LinearLayou
             minimumHeight = LayoutHelper.dp(40)
             background = GradientDrawable().apply {
                 setColor(theme.surfaceVariant)
-                cornerRadius = LayoutHelper.dpf(10f)
+                cornerRadius = LayoutHelper.dpf(50f)
             }
             val padH = LayoutHelper.dp(15)
             setPadding(padH, 0, padH, 0)
         }
 
         searchIcon = ImageView(context).apply {
-            val drawable = MezonIcon.searchIcon.getDrawable(context)
-            drawable.colorFilter = android.graphics.PorterDuffColorFilter(theme.onSurface, android.graphics.PorterDuff.Mode.SRC_IN)
-            setImageDrawable(drawable)
+            setImageDrawable(MezonIcon.searchIcon.getDrawable(context))
         }
         barContainer.addView(searchIcon, LayoutHelper.createLinear(20, 20, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, 10f, 0f))
 

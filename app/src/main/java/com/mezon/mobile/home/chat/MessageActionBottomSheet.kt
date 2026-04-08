@@ -280,7 +280,7 @@ class MessageActionBottomSheet(
             actions.add(ActionItem(
                 ActionType.CreateThread,
                 context.getString(R.string.action_create_thread),
-                R.drawable.ic_thread_icon
+                R.drawable.ic_thread_new_icon
             ))
         }
 

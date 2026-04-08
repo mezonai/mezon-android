@@ -38,9 +38,7 @@ class WelcomeMessageCell(context: Context, private val theme: ThemeColors) : Vie
     private fun resolveIcon(): Drawable? {
         if (isDM) return null
         val icon = if (isPrivate) MezonIcon.channelTextLock else MezonIcon.channelText
-        val d = icon.getDrawable(context).mutate()
-        d.setTint(theme.onSurfaceVariant)
-        return d
+        return icon.getDrawable(context)
     }
 
     private fun buildLayouts() {

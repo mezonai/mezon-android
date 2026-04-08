@@ -149,9 +149,9 @@ class BadgeCoordinator @Inject constructor(
         }
         if (p.badgeCount == 0) {
             if (p.clanId != 0L) {
-                channelController.get().markChannelAsRead(p.channelId, p.timestampSeconds)
+                channelController.get().markChannelAsRead(p.channelId, p.timestampSeconds, p.messageId)
             } else {
-                dialogsController.markDialogAsRead(p.channelId, seenTimestampSeconds = p.timestampSeconds)
+                dialogsController.markDialogAsRead(p.channelId, seenTimestampSeconds = p.timestampSeconds, seenMessageId = p.messageId)
             }
         } else {
             if (p.clanId != 0L) {
