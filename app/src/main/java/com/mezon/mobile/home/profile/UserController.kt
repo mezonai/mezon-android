@@ -42,6 +42,12 @@ class UserController @Inject constructor(
         private set
     @Volatile var avatarUrl: String = ""
         private set
+    @Volatile var aboutMe: String = ""
+        private set
+    @Volatile var createTimeSeconds: Long = 0L
+        private set
+    @Volatile var userStatus: String = ""
+        private set
 
     init {
         appScope.launch { load() }
@@ -77,6 +83,9 @@ class UserController @Inject constructor(
             email = info.email
             phoneNumber = info.phoneNumber
             avatarUrl = info.avatarUrl
+            aboutMe = info.aboutMe
+            createTimeSeconds = info.createTimeSeconds
+            userStatus = info.userStatus
             if (info.userId != 0L) {
                 userId = info.userId
                 userIdStr = info.userId.toString()

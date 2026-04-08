@@ -221,6 +221,10 @@
     <string name="profile_copy_success">User ID Copied</string>
     <string name="profile_sign_out">Sign Out</string>
     <string name="profile_enable_wallet">Enable Wallet</string>
+    <string name="profile_balance">Balance: %1$s đồng</string>
+    <string name="profile_transfer">Transfer Funds</string>
+    <string name="profile_history_transaction">Transaction History</string>
+    <string name="profile_add_status">Add Status</string>
 
     <!-- friends -->
     <string name="friends_title">Friends</string>
@@ -421,6 +425,23 @@
     <string name="sharing_failed">Failed to send</string>
     <string name="sharing_no_conversations">No conversations</string>
     <string name="sharing_sending">Sending…</string>
+
+    <!-- Online Status -->
+    <string name="status_change_online_status">Change Online Status</string>
+    <string name="status_online_status">Online Status</string>
+    <string name="status_online">Online</string>
+    <string name="status_idle">Idle</string>
+    <string name="status_do_not_disturb">Do Not Disturb</string>
+    <string name="status_invisible">Invisible</string>
+    <string name="status_set_custom_status">Set a custom status</string>
+    <string name="status_edit_status">Edit Status</string>
+    <string name="status_hint">What\'re you up to?</string>
+    <string name="status_duration">Status Duration</string>
+    <string name="status_duration_today">Today</string>
+    <string name="status_duration_4_hours">4 hours</string>
+    <string name="status_duration_1_hour">1 hour</string>
+    <string name="status_duration_30_minutes">30 minutes</string>
+    <string name="status_duration_dont_clear">Don\'t clear</string>
     <string name="sharing_filter_all">All</string>
     <string name="sharing_filter_users">Users</string>
     <string name="sharing_filter_channels">Channels</string>
