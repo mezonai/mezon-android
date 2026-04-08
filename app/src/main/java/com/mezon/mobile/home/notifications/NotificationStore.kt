@@ -14,7 +14,6 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -24,6 +23,7 @@ import javax.inject.Singleton
 private const val TAG = "NotificationStore"
 private const val PAGE_SIZE = 50
 private const val DB_CACHE_LIMIT = 200
+private const val VIEWPORT_LIMIT = 300
 
 @Singleton
 class NotificationStore @Inject constructor(
@@ -104,33 +104,34 @@ class NotificationStore @Inject constructor(
             }
 
             try {
-                val session = sessionManager.sessionFlow.first() ?: return@launch
-                val result = withContext(ioDispatcher) {
-                    api.listNotifications(session.apiUrl, session.token, clanId, category, notificationId, PAGE_SIZE)
-                }
-                val entities = result.notificationsList.map { proto ->
-                    proto.toNotificationEntity().let { e ->
-                        e.copy(
-                            category = if (e.category == 0) category else e.category,
-                            clanId = if (e.clanId == 0L) clanId else e.clanId
-                        )
+                sessionManager.withAutoRefresh { session ->
+                    val result = withContext(ioDispatcher) {
+                        api.listNotifications(session.apiUrl, session.token, clanId, category, notificationId, PAGE_SIZE)
                     }
-                }
-                val hasMore = entities.size >= PAGE_SIZE
-                updateCategoryState(category, entities, notificationId == 0L, hasMore)
-
-                if (entities.isNotEmpty()) {
-                    appScope.launch(ioDispatcher) {
-                        notificationDao.upsertAll(entities)
-                        if (notificationId == 0L) {
-                            notificationDao.trimCategory(category, DB_CACHE_LIMIT)
+                    val entities = result.notificationsList.map { proto ->
+                        proto.toNotificationEntity().let { e ->
+                            e.copy(
+                                category = if (e.category == 0) category else e.category,
+                                clanId = if (e.clanId == 0L) clanId else e.clanId
+                            )
                         }
                     }
-                }
+                    val hasMore = entities.size >= PAGE_SIZE
+                    updateCategoryState(category, entities, notificationId == 0L, hasMore)
 
-                notificationCenter.postNotificationOnMainThread(
-                    NotificationCenter.notificationsDidLoad, category
-                )
+                    if (entities.isNotEmpty()) {
+                        appScope.launch(ioDispatcher) {
+                            notificationDao.upsertAll(entities)
+                            if (notificationId == 0L) {
+                                notificationDao.trimCategory(category, DB_CACHE_LIMIT)
+                            }
+                        }
+                    }
+
+                    notificationCenter.postNotificationOnMainThread(
+                        NotificationCenter.notificationsDidLoad, category
+                    )
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "loadCategory $category failed", e)
 
@@ -171,9 +172,10 @@ class NotificationStore @Inject constructor(
         getMutableForCategory(category)?.update { old -> old.filter { it.id != id } }
         appScope.launch {
             try {
-                val session = sessionManager.sessionFlow.first() ?: return@launch
-                withContext(ioDispatcher) {
-                    api.deleteNotifications(session.apiUrl, session.token, listOf(id), category)
+                sessionManager.withAutoRefresh { session ->
+                    withContext(ioDispatcher) {
+                        api.deleteNotifications(session.apiUrl, session.token, listOf(id), category)
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "deleteNotification failed", e)
@@ -202,7 +204,8 @@ class NotificationStore @Inject constructor(
             NOTIF_CATEGORY_FOR_YOU -> hasMoreForYou = hasMore
         }
         flow.update { old ->
-            if (isRefresh) items else (old + items).distinctBy { it.id }
+            if (isRefresh) items
+            else (old + items).distinctBy { it.id }.takeLast(VIEWPORT_LIMIT)
         }
     }
 

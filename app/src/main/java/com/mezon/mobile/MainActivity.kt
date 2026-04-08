@@ -410,7 +410,10 @@ class MainActivity : BasePermissionsActivity(),
                 fragmentsToRemove.add(f)
             }
         }
-        fragmentsToRemove.forEach { actionBarLayout.removeFragmentFromStack(it) }
+        fragmentsToRemove.forEach { fragment ->
+            fragment.onPause()
+            actionBarLayout.removeFragmentFromStack(fragment)
+        }
 
         if (clanId != 0L) {
             notificationCenter.postNotificationOnMainThread(NotificationCenter.navigateToClansTab)
