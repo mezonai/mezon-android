@@ -214,6 +214,34 @@ data class MessageEntity(
                     it.filetype.contains("gif", true) || it.url.contains("tenor.com", true)
             }
         }
+
+    fun buildAttachmentJson(): String {
+        if (attachmentUrl.isEmpty()) return ""
+        val arr = JSONArray()
+        val first = JSONObject()
+        first.put("url", attachmentUrl)
+        first.put("filename", attachmentFilename)
+        first.put("filetype", attachmentFiletype)
+        first.put("width", attachmentWidth)
+        first.put("height", attachmentHeight)
+        first.put("thumbnail", attachmentThumb)
+        first.put("size", attachmentSize)
+        first.put("duration", attachmentDuration)
+        arr.put(first)
+        for (extra in extraAttachments) {
+            val obj = JSONObject()
+            obj.put("url", extra.url)
+            obj.put("filename", extra.filename)
+            obj.put("filetype", extra.filetype)
+            obj.put("width", extra.width)
+            obj.put("height", extra.height)
+            obj.put("thumbnail", extra.thumb)
+            obj.put("size", extra.size)
+            obj.put("duration", extra.duration)
+            arr.put(obj)
+        }
+        return arr.toString()
+    }
 }
 
 fun ChannelMessage.toMessageEntity(currentUserId: Long): MessageEntity {

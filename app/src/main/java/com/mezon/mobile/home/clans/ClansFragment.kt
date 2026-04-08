@@ -35,6 +35,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import com.mezon.mobile.search.GlobalSearchFragment
 import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.ui.cells.PopupMenu
 
 class ClansFragment : BaseFragment() {
 
@@ -115,6 +116,13 @@ class ClansFragment : BaseFragment() {
         }
 
         clansController.loadClans()
+        observe(NotificationCenter.favoriteChannelsChanged) { _, _, args ->
+            if (fragmentView == null || isPaused || listFrozen) return@observe
+            val clanId = args.firstOrNull() as? Long ?: return@observe
+            if (clanId == clansController.selectedClanId.value) {
+                updateChannelList()
+            }
+        }
         observe(NotificationCenter.selectedClanChanged) { _, _, args ->
             if (fragmentView == null || !clansController.clansLoaded) return@observe
             val clanId = args.firstOrNull() as? Long ?: 0L
@@ -171,6 +179,7 @@ class ClansFragment : BaseFragment() {
 
         channelListView = ChannelListView(context, themeColors).apply {
             onChannelClick = { channel -> onChannelSelected(channel) }
+            onChannelLongClick = { channel, anchorView -> showChannelContextMenu(channel, anchorView) }
         }
 
         channelPanel.addView(clanHeader, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
@@ -317,9 +326,7 @@ class ClansFragment : BaseFragment() {
         }
         // Search icon pinned left (RN: position absolute, left s_12)
         val searchIcon = ImageView(context).apply {
-            setImageDrawable(MezonIcon.searchIcon.getDrawable(context).apply {
-                colorFilter = PorterDuffColorFilter(themeColors.textDisabled, PorterDuff.Mode.SRC_IN)
-            })
+            setImageDrawable(MezonIcon.searchIcon.getDrawable(context))
             scaleType = ImageView.ScaleType.FIT_CENTER
             isClickable = false
             isFocusable = false
@@ -351,9 +358,7 @@ class ClansFragment : BaseFragment() {
                 setColor(themeColors.tertiary)
             }
             background = circleBg
-            setImageDrawable(MezonIcon.scanQR.getDrawable(context).apply {
-                colorFilter = PorterDuffColorFilter(themeColors.textDisabled, PorterDuff.Mode.SRC_IN)
-            })
+            setImageDrawable(MezonIcon.scanQR.getDrawable(context))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             val pad = LayoutHelper.dp(8) // (32-16)/2 = 8dp padding for 16dp icon
             setPadding(pad, pad, pad, pad)
@@ -369,9 +374,7 @@ class ClansFragment : BaseFragment() {
                 setColor(themeColors.tertiary)
             }
             background = circleBg
-            setImageDrawable(MezonIcon.calendarIcon.getDrawable(context).apply {
-                colorFilter = PorterDuffColorFilter(themeColors.textDisabled, PorterDuff.Mode.SRC_IN)
-            })
+            setImageDrawable(MezonIcon.calendarIcon.getDrawable(context))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             val pad = LayoutHelper.dp(7) // (32-18)/2 = 7dp padding for 18dp icon
             setPadding(pad, pad, pad, pad)
@@ -513,7 +516,6 @@ class ClansFragment : BaseFragment() {
         if (clan.clanId == prevId) return
         channelListView.resetExpansion()
         clansController.selectClan(clan.clanId)
-        channelListView.clear()
         updateClanHeader(clan)
 
         val count = serverRail.childCount
@@ -529,6 +531,22 @@ class ClansFragment : BaseFragment() {
 
         updateChannelList()
         userClanController.loadClanMembers(clan.clanId)
+    }
+
+    private fun showChannelContextMenu(channel: ClanChannelEntity, anchorView: View) {
+        val clanId = clansController.selectedClanId.value
+        val isFav = channelController.isFavorite(clanId, channel.channelId)
+        val menu = PopupMenu(anchorView.context, themeColors)
+        val label = if (isFav) "Unmark Favorite" else "Mark Favorite"
+        menu.addItem(label, MezonIcon.favoriteFilledIcon)
+        menu.setOnItemClickListener { _ ->
+            if (isFav) {
+                channelController.removeFavorite(clanId, channel.channelId)
+            } else {
+                channelController.addFavorite(clanId, channel.channelId)
+            }
+        }
+        menu.show(anchorView)
     }
 
     private fun onChannelSelected(channel: ClanChannelEntity) {

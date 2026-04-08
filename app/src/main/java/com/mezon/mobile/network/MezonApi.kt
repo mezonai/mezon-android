@@ -11,8 +11,13 @@ import com.mezon.mezon.api.EmojiListedResponse
 import com.mezon.mezon.api.StickerListedResponse
 import com.mezon.mezon.api.BlockFriendsRequest
 import com.mezon.mezon.api.ChannelDescList
+import com.mezon.mezon.api.ChannelDescription
 import com.mezon.mezon.api.ChannelMessageList
+import com.mezon.mezon.api.createChannelDescRequest
 import com.mezon.mezon.api.ClanDescList
+import com.mezon.mezon.api.PinMessagesList
+import com.mezon.mezon.api.pinMessageRequest
+import com.mezon.mezon.api.deletePinMessage
 import com.mezon.mezon.api.ChannelUserList
 import com.mezon.mezon.api.ClanUserList
 import com.mezon.mezon.api.DeleteNotificationsRequest
@@ -36,6 +41,11 @@ import com.mezon.mezon.api.listClanUsersRequest
 import com.mezon.mezon.api.ListChannelBadgeCountResponse
 import com.mezon.mezon.api.listChannelBadgeCountRequest
 import com.mezon.mezon.api.listChannelDescsRequest
+import com.mezon.mezon.api.ListFavoriteChannelResponse
+import com.mezon.mezon.api.AddFavoriteChannelResponse
+import com.mezon.mezon.api.addFavoriteChannelRequest
+import com.mezon.mezon.api.listFavoriteChannelRequest
+import com.mezon.mezon.api.removeFavoriteChannelRequest
 import com.mezon.mezon.api.listChannelMessagesRequest
 import com.mezon.mezon.api.listFriendsRequest
 import com.mezon.mezon.api.listNotificationsRequest
@@ -230,6 +240,24 @@ class MezonApi @Inject constructor(
         val bytes = rpc(apiUrl, token, "ListChannelDescs", request.toByteArray())
         val result = ChannelDescList.parseFrom(bytes)
         return result
+    }
+
+    suspend fun createChannelDesc(
+        apiUrl: String,
+        token: String,
+        type: Int,
+        userIds: List<Long>,
+        clanId: Long = 0L,
+        channelPrivate: Int = 1
+    ): ChannelDescription {
+        val request = createChannelDescRequest {
+            this.type = type
+            this.clanId = clanId
+            this.channelPrivate = channelPrivate
+            this.userIds.addAll(userIds)
+        }
+        val bytes = rpc(apiUrl, token, "CreateChannelDesc", request.toByteArray())
+        return ChannelDescription.parseFrom(bytes)
     }
 
     suspend fun listChannelBadgeCount(
@@ -523,6 +551,50 @@ class MezonApi @Inject constructor(
         return rpc(apiUrl, token, "DeleteNotifications", request.toByteArray())
     }
 
+    suspend fun listPinMessages(
+        apiUrl: String,
+        token: String,
+        channelId: Long,
+        clanId: Long
+    ): PinMessagesList {
+        val request = pinMessageRequest {
+            this.channelId = channelId
+            this.clanId = clanId
+        }
+        val bytes = rpc(apiUrl, token, "GetPinMessagesList", request.toByteArray())
+        return PinMessagesList.parseFrom(bytes)
+    }
+
+    suspend fun createPinMessage(
+        apiUrl: String,
+        token: String,
+        channelId: Long,
+        clanId: Long,
+        messageId: Long
+    ): ByteArray {
+        val request = pinMessageRequest {
+            this.messageId = messageId
+            this.channelId = channelId
+            this.clanId = clanId
+        }
+        return rpc(apiUrl, token, "CreatePinMessage", request.toByteArray())
+    }
+
+    suspend fun deletePinMessage(
+        apiUrl: String,
+        token: String,
+        messageId: Long,
+        channelId: Long,
+        clanId: Long
+    ): ByteArray {
+        val request = deletePinMessage {
+            this.messageId = messageId
+            this.channelId = channelId
+            this.clanId = clanId
+        }
+        return rpc(apiUrl, token, "DeletePinMessage", request.toByteArray())
+    }
+
     suspend fun uploadAttachmentFile(
         apiUrl: String,
         token: String,
@@ -646,6 +718,45 @@ class MezonApi @Inject constructor(
     ): StickerListedResponse {
         val bytes = rpc(apiUrl, token, "GetListStickersByUserId", ByteArray(0))
         return StickerListedResponse.parseFrom(bytes)
+    }
+
+    suspend fun listFavoriteChannels(
+        apiUrl: String,
+        token: String,
+        clanId: Long
+    ): ListFavoriteChannelResponse {
+        val request = listFavoriteChannelRequest {
+            this.clanId = clanId
+        }
+        val bytes = rpc(apiUrl, token, "GetListFavoriteChannel", request.toByteArray())
+        return ListFavoriteChannelResponse.parseFrom(bytes)
+    }
+
+    suspend fun addFavoriteChannel(
+        apiUrl: String,
+        token: String,
+        channelId: Long,
+        clanId: Long
+    ): AddFavoriteChannelResponse {
+        val request = addFavoriteChannelRequest {
+            this.channelId = channelId
+            this.clanId = clanId
+        }
+        val bytes = rpc(apiUrl, token, "AddChannelFavorite", request.toByteArray())
+        return AddFavoriteChannelResponse.parseFrom(bytes)
+    }
+
+    suspend fun removeFavoriteChannel(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        channelId: Long
+    ) {
+        val request = removeFavoriteChannelRequest {
+            this.clanId = clanId
+            this.channelId = channelId
+        }
+        rpc(apiUrl, token, "RemoveChannelFavorite", request.toByteArray())
     }
 
     suspend fun putFileToPresignedUrl(

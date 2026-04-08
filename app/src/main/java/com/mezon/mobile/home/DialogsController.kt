@@ -148,6 +148,31 @@ class DialogsController @Inject constructor(
         }
     }
 
+    suspend fun getOrCreateDm(userId: Long): Long {
+        synchronized(this) {
+            for (i in 0 until dialogsDict.size()) {
+                val dm = dialogsDict.valueAt(i)
+                if (dm.type == CHANNEL_TYPE_DM && dm.otherUserId == userId) {
+                    return dm.channelId
+                }
+            }
+        }
+        return try {
+            sessionManager.withAutoRefresh { session ->
+                val response = api.createChannelDesc(
+                    apiUrl = session.apiUrl,
+                    token = session.token,
+                    type = CHANNEL_TYPE_DM,
+                    userIds = listOf(userId)
+                )
+                response.channelId
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "getOrCreateDm failed for userId=$userId", e)
+            0L
+        }
+    }
+
     fun loadDialogs(page: Int = 1, limit: Int = 500) {
         appScope.launch(ioDispatcher) {
             try {
@@ -252,14 +277,14 @@ class DialogsController @Inject constructor(
         updated?.let { appScope.launch(ioDispatcher) { directMessageDao.upsert(it) } }
     }
 
-    fun markDialogAsRead(channelId: Long, postEvent: Boolean = true, seenTimestampSeconds: Int = 0) {
+    fun markDialogAsRead(channelId: Long, postEvent: Boolean = true, seenTimestampSeconds: Int = 0, seenMessageId: Long = 0L) {
         var changed = false
         var newSeenId = 0L
         var updated: DirectMessage? = null
         synchronized(this) {
-            val dm = dialogsDict[channelId]
-            if (dm == null || dm.unreadCount == 0) return
-            newSeenId = maxOf(dm.lastSeenMessageId, dm.lastSentMessageId)
+            val dm = dialogsDict[channelId] ?: return
+            if (dm.unreadCount == 0 && seenMessageId <= dm.lastSeenMessageId) return
+            newSeenId = maxOf(dm.lastSeenMessageId, dm.lastSentMessageId, seenMessageId)
             val tsLong = seenTimestampSeconds.toLong() and 0xFFFF_FFFFL
             val newSeenTs = maxOf(dm.lastSeenMessageTs, dm.lastSentMessageTs, tsLong)
             val u = dm.copy(

@@ -6,7 +6,6 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.text.TextPaint
 import android.text.TextUtils
-import android.view.View
 import com.mezon.mobile.core.BaseCell
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
@@ -35,13 +34,10 @@ class ChannelSectionCell(
     private var truncated: CharSequence = ""
 
     private val paddingHPx = LayoutHelper.dp(16)
-    private val paddingVPx = LayoutHelper.dp(10)
     private val arrowSizePx = LayoutHelper.dp(10)
     private val cellHeightPx = LayoutHelper.dp(36)
 
-
-
-    fun bind(name: String, expanded: Boolean) {
+    fun bind(name: String, expanded: Boolean, favorite: Boolean = false) {
         categoryName = name.uppercase()
         isExpanded = expanded
         truncated = ""
@@ -54,20 +50,20 @@ class ChannelSectionCell(
 
     override fun onDraw(canvas: Canvas) {
         textPaint.color = themeColors.onSurfaceVariant
+        val cy = (height / 2).toFloat()
 
         val arrowX = paddingHPx.toFloat()
-        val arrowY = (height / 2).toFloat()
         arrowPaint.color = themeColors.onSurfaceVariant
 
         arrowPath.reset()
         if (isExpanded) {
-            arrowPath.moveTo(arrowX, arrowY - arrowSizePx / 3f)
-            arrowPath.lineTo(arrowX + arrowSizePx / 2f, arrowY + arrowSizePx / 3f)
-            arrowPath.lineTo(arrowX + arrowSizePx.toFloat(), arrowY - arrowSizePx / 3f)
+            arrowPath.moveTo(arrowX, cy - arrowSizePx / 3f)
+            arrowPath.lineTo(arrowX + arrowSizePx / 2f, cy + arrowSizePx / 3f)
+            arrowPath.lineTo(arrowX + arrowSizePx.toFloat(), cy - arrowSizePx / 3f)
         } else {
-            arrowPath.moveTo(arrowX + arrowSizePx / 3f, arrowY - arrowSizePx / 2f)
-            arrowPath.lineTo(arrowX + arrowSizePx - arrowSizePx / 3f, arrowY)
-            arrowPath.lineTo(arrowX + arrowSizePx / 3f, arrowY + arrowSizePx / 2f)
+            arrowPath.moveTo(arrowX + arrowSizePx / 3f, cy - arrowSizePx / 2f)
+            arrowPath.lineTo(arrowX + arrowSizePx - arrowSizePx / 3f, cy)
+            arrowPath.lineTo(arrowX + arrowSizePx / 3f, cy + arrowSizePx / 2f)
         }
         canvas.drawPath(arrowPath, arrowPaint)
 
@@ -76,7 +72,7 @@ class ChannelSectionCell(
         if (truncated.isEmpty() || truncated.length != categoryName.length) {
             truncated = TextUtils.ellipsize(categoryName, textPaint, availW.toFloat(), TextUtils.TruncateAt.END)
         }
-        val textY = arrowY - (textPaint.descent() + textPaint.ascent()) / 2
+        val textY = cy - (textPaint.descent() + textPaint.ascent()) / 2
         canvas.drawText(truncated.toString(), textX.toFloat(), textY, textPaint)
     }
 }

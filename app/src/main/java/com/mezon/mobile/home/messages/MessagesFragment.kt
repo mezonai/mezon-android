@@ -226,9 +226,7 @@ class MessagesFragment : BaseFragment() {
             }
             val rippleColor = android.content.res.ColorStateList.valueOf(themeColors.onSurface and 0x1A_FFFFFF)
             background = android.graphics.drawable.RippleDrawable(rippleColor, circleBg, rippleMask)
-            setImageDrawable(MezonIcon.searchIcon.getDrawable(context).apply {
-                colorFilter = PorterDuffColorFilter(themeColors.textDisabled, PorterDuff.Mode.SRC_IN)
-            })
+            setImageDrawable(MezonIcon.searchIcon.getDrawable(context))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             val iconPad = LayoutHelper.dp(7)
             setPadding(iconPad, iconPad, iconPad, iconPad)
@@ -268,12 +266,12 @@ class MessagesFragment : BaseFragment() {
         }
 
         val icon = ImageView(context).apply {
-            setImageDrawable(MezonIcon.userPlusIcon.getDrawable(context).apply {
-                colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
-            })
+            setImageDrawable(MezonIcon.userPlusIcon.getDrawable(context))
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
-        pill.addView(icon, LayoutHelper.createLinear(14, 14))
+        pill.addView(icon, LinearLayout.LayoutParams(
+            LayoutHelper.dp(14), LayoutHelper.dp(14)
+        ).apply { gravity = Gravity.CENTER_VERTICAL })
 
         val label = TextView(context).apply {
             text = getString(R.string.dm_add_friend)
@@ -281,7 +279,9 @@ class MessagesFragment : BaseFragment() {
             textSize = 15f
             setPadding(LayoutHelper.dp(4), 0, 0, 0)
         }
-        pill.addView(label, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT))
+        pill.addView(label, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { gravity = Gravity.CENTER_VERTICAL })
 
         return pill
     }

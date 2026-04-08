@@ -68,6 +68,7 @@ class PageDownButton(context: Context, private val theme: ThemeColors) : View(co
     fun show(visible: Boolean) {
         if (wantShow == visible) return
         wantShow = visible
+        visibility = if (visible) VISIBLE else GONE
         invalidate()
     }
 

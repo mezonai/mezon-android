@@ -14,9 +14,10 @@ import androidx.room.RoomDatabase
         DirectMessage::class,
         ClanEntity::class,
         ClanChannelEntity::class,
-        NotificationEntity::class
+        NotificationEntity::class,
+        FavoriteChannelEntity::class
     ],
-    version = 20,
+    version = 23,
     exportSchema = false
 )
 abstract class MezonDatabase : RoomDatabase() {
@@ -25,4 +26,5 @@ abstract class MezonDatabase : RoomDatabase() {
     abstract fun clanDao(): ClanDao
     abstract fun clanChannelDao(): ClanChannelDao
     abstract fun notificationDao(): NotificationDao
+    abstract fun favoriteChannelDao(): FavoriteChannelDao
 }
