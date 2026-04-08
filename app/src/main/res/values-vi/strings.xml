@@ -195,6 +195,10 @@
     <string name="profile_copy_success">Đã sao chép ID người dùng</string>
     <string name="profile_sign_out">Đăng xuất</string>
     <string name="profile_enable_wallet">Mở ví</string>
+    <string name="profile_balance">Số dư: %1$s đồng</string>
+    <string name="profile_transfer">Chuyển khoản</string>
+    <string name="profile_history_transaction">Lịch sử giao dịch</string>
+    <string name="profile_add_status">Thêm trạng thái</string>
 
     <!-- friends -->
     <string name="friends_title">Bạn bè</string>
@@ -299,6 +303,23 @@
     <string name="sharing_sent">Đã gửi!</string>
     <string name="sharing_failed">Gửi thất bại</string>
     <string name="sharing_no_conversations">Không tìm thấy cuộc trò chuyện</string>
+
+    <!-- Online Status -->
+    <string name="status_change_online_status">Thay đổi trạng thái trực tuyến</string>
+    <string name="status_online_status">Trạng thái trực tuyến</string>
+    <string name="status_online">Trực tuyến</string>
+    <string name="status_idle">Chờ</string>
+    <string name="status_do_not_disturb">Không làm phiền</string>
+    <string name="status_invisible">Ẩn</string>
+    <string name="status_set_custom_status">Đặt trạng thái tùy chỉnh</string>
+    <string name="status_edit_status">Chỉnh sửa trạng thái</string>
+    <string name="status_hint">Bạn đang làm gì thế?</string>
+    <string name="status_duration">Thời lượng trạng thái</string>
+    <string name="status_duration_today">Hôm nay</string>
+    <string name="status_duration_4_hours">4 giờ</string>
+    <string name="status_duration_1_hour">1 giờ</string>
+    <string name="status_duration_30_minutes">30 phút</string>
+    <string name="status_duration_dont_clear">Không xóa</string>
     <string name="sharing_filter_all">Tất cả</string>
     <string name="sharing_filter_users">Người dùng</string>
     <string name="sharing_filter_channels">Kênh</string>

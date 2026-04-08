@@ -59,7 +59,6 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import javax.inject.Inject
 import javax.inject.Singleton
-
 class UnauthorizedException(message: String) : RuntimeException(message)
 
 @Serializable
@@ -342,6 +341,29 @@ class MezonApi @Inject constructor(
         if (nickName != null) builder.nickName = com.google.protobuf.StringValue.of(nickName)
         if (avatar != null) builder.avatar = com.google.protobuf.StringValue.of(avatar)
         return rpc(apiUrl, token, "UpdateUserProfileByClan", builder.build().toByteArray())
+    }
+
+    suspend fun updateUserStatus(
+        apiUrl: String,
+        token: String,
+        status: String,
+        minutes: Int = 0,
+        untilTurnOn: Boolean = true
+    ): ByteArray {
+        val request = com.mezon.mezon.api.UserStatusUpdate.newBuilder()
+            .setStatus(status)
+            .setMinutes(minutes)
+            .setUntilTurnOn(untilTurnOn)
+            .build()
+        return rpc(apiUrl, token, "UpdateUserStatus", request.toByteArray())
+    }
+
+    suspend fun getUserStatus(
+        apiUrl: String,
+        token: String
+    ): com.mezon.mezon.api.UserStatus {
+        val bytes = rpc(apiUrl, token, "GetUserStatus", ByteArray(0))
+        return com.mezon.mezon.api.UserStatus.parseFrom(bytes)
     }
 
     suspend fun getAccount(apiUrl: String, token: String): Account {
@@ -639,6 +661,7 @@ class MezonApi @Inject constructor(
             throw RuntimeException("File upload failed (${response.status.value})")
         }
     }
+
 }
 
 const val CHANNEL_TYPE_CHANNEL = 1
