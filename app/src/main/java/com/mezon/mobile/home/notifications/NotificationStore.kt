@@ -9,6 +9,8 @@ import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.session.SessionManager
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import java.util.Collections
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -47,7 +49,7 @@ class NotificationStore @Inject constructor(
     private var hasMoreMessages = false
     private var hasMoreForYou = false
 
-    private val dbLoadedCategories = mutableSetOf<Int>()
+    private val dbLoadedCategories = Collections.newSetFromMap(ConcurrentHashMap<Int, Boolean>())
 
     fun cleanup() {
         _mentions.value = emptyList()
@@ -92,7 +94,7 @@ class NotificationStore @Inject constructor(
 
         appScope.launch {
             if (notificationId == 0L && category !in dbLoadedCategories) {
-                loadFromDb(category, clanId)
+                loadFromDb(category)
                 val dbData = getForCategory(category).value
                 if (dbData.isNotEmpty()) {
                     notificationCenter.postNotificationOnMainThread(
@@ -121,7 +123,7 @@ class NotificationStore @Inject constructor(
                     appScope.launch(ioDispatcher) {
                         notificationDao.upsertAll(entities)
                         if (notificationId == 0L) {
-                            notificationDao.trimCategory(category, clanId, DB_CACHE_LIMIT)
+                            notificationDao.trimCategory(category, DB_CACHE_LIMIT)
                         }
                     }
                 }
@@ -131,14 +133,14 @@ class NotificationStore @Inject constructor(
                 )
             } catch (e: Exception) {
                 Log.e(TAG, "loadCategory $category failed", e)
-                
+
                 if (notificationId != 0L) {
                     val list = getForCategory(category).value
                     val lastRecord = list.firstOrNull { it.id == notificationId }
                     if (lastRecord != null) {
                         try {
                             val dbData = withContext(ioDispatcher) {
-                                notificationDao.getByCategoryBefore(category, clanId, lastRecord.createTimeSeconds, lastRecord.id, PAGE_SIZE)
+                                notificationDao.getByCategoryBefore(category, lastRecord.createTimeSeconds, lastRecord.id, PAGE_SIZE)
                             }
                             if (dbData.isNotEmpty()) {
                                 Log.d(TAG, "Offline pagination loaded ${dbData.size} from DB")
@@ -204,14 +206,14 @@ class NotificationStore @Inject constructor(
         }
     }
 
-    private suspend fun loadFromDb(category: Int, clanId: Long) {
+    private suspend fun loadFromDb(category: Int) {
         val cached = withContext(ioDispatcher) {
-            notificationDao.getByCategory(category, clanId, PAGE_SIZE)
+            notificationDao.getByCategory(category, PAGE_SIZE)
         }
-        Log.d(TAG, "loadFromDb: category=$category clanId=$clanId returned ${cached.size} items")
+        Log.d(TAG, "loadFromDb: category=$category returned ${cached.size} items")
         if (cached.isNotEmpty()) {
             val flow = getMutableForCategory(category) ?: return
-            
+
             val hasMore = cached.size >= PAGE_SIZE
             when (category) {
                 NOTIF_CATEGORY_MENTIONS -> hasMoreMentions = hasMore
@@ -226,4 +228,3 @@ class NotificationStore @Inject constructor(
         dbLoadedCategories.add(category)
     }
 }
-

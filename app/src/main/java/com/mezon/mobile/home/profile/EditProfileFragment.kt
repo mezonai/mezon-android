@@ -1023,7 +1023,7 @@ class EditProfileFragment : BaseFragment() {
         accountController.updateClanProfile(
             clan.clanId,
             nickToSave,
-            avatarToSave
+            avatarToSave ?: ""
         ) { success, errorMsg ->
             loadingView.visibility = View.GONE
             if (success) {
