@@ -299,4 +299,14 @@
     <string name="sharing_sent">Đã gửi!</string>
     <string name="sharing_failed">Gửi thất bại</string>
     <string name="sharing_no_conversations">Không tìm thấy cuộc trò chuyện</string>
+    <string name="sharing_filter_all">Tất cả</string>
+    <string name="sharing_filter_users">Người dùng</string>
+    <string name="sharing_filter_channels">Kênh</string>
+    <string name="sharing_filter_options">Tuỳ chọn lọc</string>
+    <string name="sharing_select_channel">Chọn kênh</string>
+    <string name="sharing_select_user">Chọn người dùng</string>
+    <string name="sharing_select_channel_placeholder">Chọn kênh hoặc người dùng</string>
+    <string name="sharing_suggestions">Gợi ý</string>
+    <string name="sharing_add_comment">Thêm bình luận…</string>
+    <string name="sharing_empty_content">Không có nội dung để chia sẻ</string>
 </resources>

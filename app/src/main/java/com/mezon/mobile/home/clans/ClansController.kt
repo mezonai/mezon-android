@@ -66,7 +66,9 @@ class ClansController @Inject constructor(
                 clansLoaded = true
                 preWarmLogos(cached)
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.clansDidLoad)
-                selectClan(cached.first().clanId)
+                val lastClanId = withContext(ioDispatcher) { sessionManager.getLastClanId() }
+                val initialClan = cached.firstOrNull { it.clanId == lastClanId } ?: cached.first()
+                selectClan(initialClan.clanId)
                 badgeCoordinator.get().processDeferredQueue()
             }
         }
@@ -84,6 +86,7 @@ class ClansController @Inject constructor(
         _selectedClanId.value = clanId
         channelController.loadChannelsForClan(clanId)
         appScope.launch {
+            sessionManager.saveLastClanId(clanId)
             try {
                 if (clanId != 0L && mezonSocket.awaitConnected()) {
                     mezonSocket.joinClanChat(clanId)
@@ -99,7 +102,6 @@ class ClansController @Inject constructor(
         val cacheKey = apiCacheKey("listClanDescs")
         appScope.launch {
             try {
-                val session = sessionManager.sessionFlow.first() ?: return@launch
                 if (!force && cacheTracker.shouldCall(cacheKey) == ApiCacheTracker.ShouldCall.SKIP) {
                     Log.d(TAG, "loadClans: SKIP listClanDescs cache (still may fetch badges)")
                     if (_clans.value.isNotEmpty()) {
@@ -114,8 +116,10 @@ class ClansController @Inject constructor(
                     }
                     return@launch
                 }
-                val result = withContext(ioDispatcher) {
-                    api.listClanDescs(session.apiUrl, session.token)
+                val result = sessionManager.withAutoRefresh { session ->
+                    withContext(ioDispatcher) {
+                        api.listClanDescs(session.apiUrl, session.token)
+                    }
                 }
                 val apiEntities = result.clandescList.mapIndexed { index, desc ->
                     desc.toClanEntity().let { entity ->

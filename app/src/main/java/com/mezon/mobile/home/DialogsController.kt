@@ -8,6 +8,8 @@ import com.mezon.mobile.data.db.DirectMessageDao
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.home.messages.DirectMessage
+import com.mezon.mobile.home.messages.DmParticipant
+import com.mezon.mobile.home.messages.extractParticipants
 import com.mezon.mobile.home.messages.toDirectMessage
 import com.mezon.mobile.network.ApiCacheTracker
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
@@ -15,7 +17,6 @@ import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.network.CODE_CHAT_REMOVE
 import com.mezon.mobile.network.CODE_CHAT_UPDATE
 import com.mezon.mobile.network.MezonApi
-import com.mezon.mobile.network.MezonSocket
 import com.mezon.mobile.network.NetworkMonitor
 import com.mezon.mobile.network.STREAM_MODE_DM
 import com.mezon.mobile.network.STREAM_MODE_GROUP
@@ -48,7 +49,6 @@ class DialogsController @Inject constructor(
     private val cacheTracker: ApiCacheTracker,
     private val activeChannelTracker: ActiveChannelTracker,
     private val notificationHelper: NotificationHelper,
-    private val mezonSocket: MezonSocket,
     private val badgeCoordinator: Lazy<BadgeCoordinator>,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     @ApplicationScope private val appScope: CoroutineScope
@@ -56,11 +56,28 @@ class DialogsController @Inject constructor(
 
     val dialogs = ArrayList<DirectMessage>()
     val dialogsDict = LongSparseArray<DirectMessage>()
+    private val participantsByChannel = LongSparseArray<List<DmParticipant>>()
 
     var dialogsLoaded = false
         private set
 
     private var currentChannelId: Long? = null
+
+    private val buzzStates = HashMap<Long, Long>()
+    private val buzzHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
+    fun setBuzzState(channelId: Long) {
+        synchronized(this) { buzzStates[channelId] = System.currentTimeMillis() }
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
+        buzzHandler.postDelayed({
+            synchronized(this) { buzzStates.remove(channelId) }
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
+        }, 10_000)
+    }
+
+    fun isBuzzActive(channelId: Long): Boolean {
+        return synchronized(this) { buzzStates.containsKey(channelId) }
+    }
 
     init {
         appScope.launch { loadDialogsFromDb() }
@@ -73,6 +90,7 @@ class DialogsController @Inject constructor(
         synchronized(this) {
             dialogs.clear()
             dialogsDict.clear()
+            participantsByChannel.clear()
             dialogsLoaded = false
             currentChannelId = null
         }
@@ -84,6 +102,10 @@ class DialogsController @Inject constructor(
     @Synchronized
     fun getDialog(channelId: Long): DirectMessage? = dialogsDict[channelId]
 
+    @Synchronized
+    fun getParticipants(channelId: Long): List<DmParticipant> =
+        participantsByChannel[channelId] ?: emptyList()
+
     fun setCurrentChannel(channelId: Long) {
         currentChannelId = channelId
         activeChannelTracker.setActive(channelId)
@@ -94,6 +116,36 @@ class DialogsController @Inject constructor(
     fun clearCurrentChannel() {
         currentChannelId = null
         activeChannelTracker.clear()
+    }
+
+    fun loadDmParticipants(channelId: Long) {
+        if (channelId == 0L) return
+        val hasCache: Boolean
+        synchronized(this) { hasCache = participantsByChannel[channelId] != null }
+        if (hasCache) return
+        appScope.launch(ioDispatcher) {
+            try {
+                sessionManager.withAutoRefresh { session ->
+                    val response = api.listChannelUsersUC(session.apiUrl, session.token, channelId)
+                    val count = response.userIdsCount
+                    if (count == 0) return@withAutoRefresh
+                    val participants = ArrayList<DmParticipant>(count)
+                    for (i in 0 until count) {
+                        participants.add(DmParticipant(
+                            userId = response.getUserIds(i),
+                            username = response.usernamesList.getOrElse(i) { "" },
+                            displayName = response.displayNamesList.getOrElse(i) { "" },
+                            avatarUrl = response.avatarsList.getOrElse(i) { "" }
+                        ))
+                    }
+                    synchronized(this@DialogsController) {
+                        participantsByChannel.put(channelId, participants)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "loadDmParticipants failed for channel $channelId", e)
+            }
+        }
     }
 
     fun loadDialogs(page: Int = 1, limit: Int = 500) {
@@ -121,17 +173,37 @@ class DialogsController @Inject constructor(
                     //     Log.d(TAG, "  [$i] channelId=${ch.channelId} type=${ch.type} active=${ch.active} label='${ch.channelLabel}'")
                     // }
 
-                    val merged = rawList
-                        .filter { it.active == 1 }
+                    val activeDescs = rawList.filter { it.active == 1 }
+                    synchronized(this@DialogsController) {
+                        for (desc in activeDescs) {
+                            val participants = desc.extractParticipants()
+                            if (participants.isNotEmpty()) {
+                                participantsByChannel.put(desc.channelId, participants)
+                            }
+                        }
+                    }
+
+                    val merged = activeDescs
                         .map { it.toDirectMessage(currentUserId) }
                         .sortedByDescending { it.lastSentMessageTs }
 
-                    Log.d(TAG, "loadDialogs: API returned ${merged.size} items")
+                    val withContent = merged.count { it.lastMessageContent.isNotBlank() }
+                    val sampleContent = merged.firstOrNull { it.lastMessageContent.isNotBlank() }
+                    Log.d(TAG, "loadDialogs: API returned ${merged.size} items, withContent=$withContent, sample='${sampleContent?.lastMessageContent?.take(60)}'")
+
+                    val sampleRaw = rawList.firstOrNull { it.hasLastSentMessage() && it.lastSentMessage.content.isNotEmpty() }
+                    Log.d(TAG, "loadDialogs: raw lastSentMessage sample: hasMsg=${sampleRaw != null}, content='${sampleRaw?.lastSentMessage?.content?.take(80)}'")
+
                     putDialogs(merged)
                     cacheTracker.markCalled(cacheKey)
                     runCatching {
-                        if (!mezonSocket.awaitConnected()) return@runCatching
-                        val badge = mezonSocket.fetchListChannelBadgeCountSocket(0L)
+                        val badge = api.listChannelBadgeCount(session.apiUrl, session.token, 0L)
+                        val badgeWithContent = badge.channeldescList.count { it.hasLastSentMessage() && it.lastSentMessage.content.isNotEmpty() }
+                        Log.d(TAG, "loadDialogs: badge returned ${badge.channeldescList.size} channels, withContent=$badgeWithContent")
+                        if (badge.channeldescList.isNotEmpty()) {
+                            val badgeSample = badge.channeldescList.firstOrNull { it.hasLastSentMessage() && it.lastSentMessage.content.isNotEmpty() }
+                            Log.d(TAG, "loadDialogs: badge sample content='${badgeSample?.lastSentMessage?.content?.take(80)}'")
+                        }
                         applyDmReadStatePatchFromSocket(badge.channeldescList)
                     }
                 }
@@ -321,6 +393,7 @@ class DialogsController @Inject constructor(
         }
         if (p.hasLastSentMessage()) {
             val m = p.lastSentMessage
+            val isNewer = m.id != 0L && m.id > next.lastSentMessageId
             if (m.id != 0L) {
                 val merged = maxOf(next.lastSentMessageId, m.id)
                 if (merged != next.lastSentMessageId) {
@@ -334,6 +407,13 @@ class DialogsController @Inject constructor(
                 if (mergedTs != next.lastSentMessageTs) {
                     changed = true
                     next = next.copy(lastSentMessageTs = mergedTs)
+                }
+            }
+            if (isNewer && m.content.isNotEmpty()) {
+                val preview = parseContentPreview(m.content)
+                if (preview.isNotBlank() && preview != next.lastMessageContent) {
+                    changed = true
+                    next = next.copy(lastMessageContent = preview)
                 }
             }
         }

@@ -164,6 +164,7 @@ class ChatAdapter(
             is MessageViewHolder -> {
                 holder.cell.delegate = cellDelegate
                 holder.cell.isCombined = computeCombined(idx)
+                holder.cell.currentUserId = currentUserId.toLongOrNull() ?: 0L
                 val msg = messages[idx]
                 holder.cell.hasMentionHighlight = currentUserId.isNotEmpty() &&
                     msg.hasMention(currentUserId)

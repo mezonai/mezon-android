@@ -8,6 +8,7 @@ import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.home.chat.AttachmentPickerItem
 import com.mezon.mobile.home.chat.MessageEntity
+import com.mezon.mobile.home.chat.applyReactionEvent
 import com.mezon.mobile.home.chat.toMessageEntity
 import com.mezon.mobile.network.ApiCacheTracker
 import com.mezon.mobile.network.CODE_CHAT_REMOVE
@@ -30,6 +31,7 @@ import com.mezon.mobile.util.MentionData
 import com.mezon.mobile.util.buildTextContent
 import com.mezon.mobile.util.buildTextContentWithMentions
 import com.mezon.mobile.util.EmojiMarker
+import com.mezon.mobile.util.MarkdownMarker
 import com.mezon.mobile.util.buildTextContentWithEmojis
 import com.mezon.mezon.api.MessageAttachment
 import com.mezon.mezon.api.messageAttachment
@@ -37,6 +39,7 @@ import com.mezon.mezon.api.messageMention
 import com.mezon.mezon.rtapi.channelMessageSend
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -66,16 +69,23 @@ class ChatController @Inject constructor(
     private val badgeCoordinator: BadgeCoordinator,
     private val channelController: dagger.Lazy<com.mezon.mobile.home.clans.ChannelController>,
     private val userController: dagger.Lazy<UserController>,
+    private val anonymousController: dagger.Lazy<AnonymousController>,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     @ApplicationScope private val appScope: CoroutineScope
 ) {
 
     val dialogMessage = LongSparseArray<MessageEntity>()
     private val initialFetchDone = HashSet<Long>()
-    private val lastMessageByChannel = LongSparseArray<Long>()  // channelId → newest messageId
+    private val lastMessageByChannel = LongSparseArray<Long>()
+
+    private fun isAnonymousSend(clanId: Long): Boolean =
+        clanId != 0L && anonymousController.get().isAnonymous(clanId)
+
+    private val ANONYMOUS_USER_ID = BuildConfig.MEZON_ANONYMOUS_USER_ID.toLongOrNull() ?: 0L  // channelId → newest messageId
 
     init {
         appScope.launch { observeIncomingMessages() }
+        appScope.launch { observeReactionEvents() }
         appScope.launch(ioDispatcher) {
             val session = sessionManager.sessionFlow.first { it != null }
             cachedCurrentUserId = session?.userId?.toLongOrNull() ?: 0L
@@ -405,30 +415,36 @@ class ChatController @Inject constructor(
         text: String,
         references: List<com.mezon.mezon.api.MessageRef>? = null,
         mentions: List<MentionData>? = null,
-        emojiMarkers: List<EmojiMarker>? = null
+        emojiMarkers: List<EmojiMarker>? = null,
+        markdownMarkers: List<MarkdownMarker>? = null
     ) {
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
-        val content = if (emojiMarkers.isNullOrEmpty() && mentions.isNullOrEmpty()) buildTextContent(text)
-            else buildTextContentWithEmojis(text, mentions, emojiMarkers)
+        val hasExtras = !emojiMarkers.isNullOrEmpty() || !mentions.isNullOrEmpty() || !markdownMarkers.isNullOrEmpty()
+        val content = if (!hasExtras) buildTextContent(text)
+            else buildTextContentWithEmojis(text, mentions, emojiMarkers, markdownMarkers)
         val mentionEveryone = mentions?.any { it.userId == ID_MENTION_HERE } == true
         val protoMentions = mentions?.mapNotNull { m ->
             if (m.userId == ID_MENTION_HERE) return@mapNotNull null
             messageMention {
                 if (m.userId.isNotBlank()) userId = m.userId.toLongOrNull() ?: 0L
                 if (m.roleId.isNotBlank()) roleId = m.roleId.toLongOrNull() ?: 0L
+                if (m.display.isNotBlank()) username = m.display
+                s = m.startOffset
+                e = m.endOffset
             }
         }
 
         val tempId = generateTempId()
         val uc = userController.get()
+        val anon = isAnonymousSend(clanId)
         val optimisticContent = mergeRefsIntoOptimisticContent(content, references)
         val optimistic = MessageEntity(
             id = tempId,
             channelId = channelId,
-            senderId = uc.userId,
-            senderName = uc.displayName.ifBlank { uc.username },
-            senderAvatar = uc.avatarUrl,
+            senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
+            senderName = if (anon) "Anonymous" else uc.displayName.ifBlank { uc.username },
+            senderAvatar = if (anon) "" else uc.avatarUrl,
             content = optimisticContent,
             timestampSeconds = System.currentTimeMillis() / 1000,
             code = MessageEntity.CODE_CHAT,
@@ -441,23 +457,25 @@ class ChatController @Inject constructor(
 
         appScope.launch {
             try {
-                val session = sessionManager.sessionFlow.first() ?: throw RuntimeException("No session")
-                val request = channelMessageSend {
-                    this.clanId = clanId
-                    this.channelId = channelId
-                    this.mode = mode
-                    this.isPublic = isPublic
-                    this.content = content
-                    protoMentions?.let { this.mentions.addAll(it) }
-                    references?.let { this.references.addAll(it) }
-                    this.mentionEveryone = mentionEveryone
+                sessionManager.withAutoRefresh { session ->
+                    val request = channelMessageSend {
+                        this.clanId = clanId
+                        this.channelId = channelId
+                        this.mode = mode
+                        this.isPublic = isPublic
+                        this.content = content
+                        protoMentions?.let { this.mentions.addAll(it) }
+                        references?.let { this.references.addAll(it) }
+                        this.mentionEveryone = mentionEveryone
+                        if (anon) this.anonymousMessage = true
+                    }
+                    val ack = withContext(ioDispatcher) {
+                        api.sendChannelMessage(session.apiUrl, session.token, request)
+                    }
+                    notificationCenter.postNotificationOnMainThread(
+                        NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
+                    )
                 }
-                val ack = withContext(ioDispatcher) {
-                    api.sendChannelMessage(session.apiUrl, session.token, request)
-                }
-                notificationCenter.postNotificationOnMainThread(
-                    NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
-                )
             } catch (e: Exception) {
                 notificationCenter.postNotificationOnMainThread(
                     NotificationCenter.pendingMessageError, channelId, tempId
@@ -488,6 +506,7 @@ class ChatController @Inject constructor(
 
         val tempId = generateTempId()
         val uc = userController.get()
+        val anon = isAnonymousSend(clanId)
         val msgType = when {
             filetype.startsWith("image/gif") || filetype.endsWith("gif") -> MessageEntity.TYPE_GIF
             filetype.startsWith("image/") -> MessageEntity.TYPE_PHOTO
@@ -497,9 +516,9 @@ class ChatController @Inject constructor(
         val optimistic = MessageEntity(
             id = tempId,
             channelId = channelId,
-            senderId = uc.userId,
-            senderName = uc.displayName.ifBlank { uc.username },
-            senderAvatar = uc.avatarUrl,
+            senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
+            senderName = if (anon) "Anonymous" else uc.displayName.ifBlank { uc.username },
+            senderAvatar = if (anon) "" else uc.avatarUrl,
             content = content,
             timestampSeconds = System.currentTimeMillis() / 1000,
             code = MessageEntity.CODE_CHAT,
@@ -516,23 +535,25 @@ class ChatController @Inject constructor(
 
         appScope.launch {
             try {
-                val session = sessionManager.sessionFlow.first() ?: throw RuntimeException("No session")
-                val request = channelMessageSend {
-                    this.clanId = clanId
-                    this.channelId = channelId
-                    this.mode = mode
-                    this.isPublic = isPublic
-                    this.content = baseContent
-                    this.attachments.add(attachment)
-                    references?.let { this.references.addAll(it) }
+                sessionManager.withAutoRefresh { session ->
+                    val request = channelMessageSend {
+                        this.clanId = clanId
+                        this.channelId = channelId
+                        this.mode = mode
+                        this.isPublic = isPublic
+                        this.content = baseContent
+                        this.attachments.add(attachment)
+                        references?.let { this.references.addAll(it) }
+                        if (anon) this.anonymousMessage = true
+                    }
+                    val ack = withContext(ioDispatcher) {
+                        api.sendChannelMessage(session.apiUrl, session.token, request)
+                    }
+                    notificationCenter.postNotificationOnMainThread(
+                        NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
+                    )
+                    Log.d(TAG, "Direct attachment sent: channelId=$channelId url=${url.take(60)}")
                 }
-                val ack = withContext(ioDispatcher) {
-                    api.sendChannelMessage(session.apiUrl, session.token, request)
-                }
-                notificationCenter.postNotificationOnMainThread(
-                    NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
-                )
-                Log.d(TAG, "Direct attachment sent: channelId=$channelId url=${url.take(60)}")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to send direct attachment", e)
                 notificationCenter.postNotificationOnMainThread(
@@ -542,10 +563,138 @@ class ChatController @Inject constructor(
         }
     }
 
+    fun sendLocation(
+        channelId: Long,
+        clanId: Long,
+        channelType: Int,
+        isChannelPrivate: Boolean,
+        latitude: Double,
+        longitude: Double
+    ) {
+        val mode = channelTypeToStreamMode(channelType)
+        val isPublic = !isChannelPrivate
+        val googleMapsLink = "https://www.google.com/maps?q=$latitude,$longitude&z=14&t=m&mapclient=embed"
+        val content = buildLocationContent(googleMapsLink)
+
+        val tempId = generateTempId()
+        val uc = userController.get()
+        val anon = isAnonymousSend(clanId)
+        val optimistic = MessageEntity(
+            id = tempId,
+            channelId = channelId,
+            senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
+            senderName = if (anon) "Anonymous" else uc.displayName.ifBlank { uc.username },
+            senderAvatar = if (anon) "" else uc.avatarUrl,
+            content = content,
+            timestampSeconds = System.currentTimeMillis() / 1000,
+            code = MessageEntity.CODE_LOCATION,
+            isMe = true,
+            sendState = MessageEntity.SEND_STATE_SENDING
+        )
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.didReceiveNewMessages, channelId, optimistic
+        )
+
+        appScope.launch {
+            try {
+                sessionManager.withAutoRefresh { session ->
+                    val request = channelMessageSend {
+                        this.clanId = clanId
+                        this.channelId = channelId
+                        this.mode = mode
+                        this.isPublic = isPublic
+                        this.content = content
+                        this.code = MessageEntity.CODE_LOCATION
+                        if (anon) this.anonymousMessage = true
+                    }
+                    val ack = withContext(ioDispatcher) {
+                        api.sendChannelMessage(session.apiUrl, session.token, request)
+                    }
+                    notificationCenter.postNotificationOnMainThread(
+                        NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
+                    )
+                    Log.d(TAG, "Location sent: channelId=$channelId lat=$latitude lng=$longitude")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to send location", e)
+                notificationCenter.postNotificationOnMainThread(
+                    NotificationCenter.pendingMessageError, channelId, tempId
+                )
+            }
+        }
+    }
+
+    fun sendBuzzMessage(
+        channelId: Long,
+        clanId: Long,
+        channelType: Int,
+        isChannelPrivate: Boolean,
+        text: String
+    ) {
+        val mode = channelTypeToStreamMode(channelType)
+        val isPublic = !isChannelPrivate
+        val content = buildTextContent(text.ifBlank { "Buzz!!" })
+
+        val tempId = generateTempId()
+        val uc = userController.get()
+        val anon = isAnonymousSend(clanId)
+        val optimistic = MessageEntity(
+            id = tempId,
+            channelId = channelId,
+            senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
+            senderName = if (anon) "Anonymous" else uc.displayName.ifBlank { uc.username },
+            senderAvatar = if (anon) "" else uc.avatarUrl,
+            content = content,
+            timestampSeconds = System.currentTimeMillis() / 1000,
+            code = MessageEntity.CODE_MESSAGE_BUZZ,
+            isMe = true,
+            sendState = MessageEntity.SEND_STATE_SENDING
+        )
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.didReceiveNewMessages, channelId, optimistic
+        )
+
+        appScope.launch {
+            try {
+                sessionManager.withAutoRefresh { session ->
+                    val request = channelMessageSend {
+                        this.clanId = clanId
+                        this.channelId = channelId
+                        this.mode = mode
+                        this.isPublic = isPublic
+                        this.content = content
+                        this.code = MessageEntity.CODE_MESSAGE_BUZZ
+                        if (anon) this.anonymousMessage = true
+                    }
+                    val ack = withContext(ioDispatcher) {
+                        api.sendChannelMessage(session.apiUrl, session.token, request)
+                    }
+                    notificationCenter.postNotificationOnMainThread(
+                        NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to send buzz message", e)
+                notificationCenter.postNotificationOnMainThread(
+                    NotificationCenter.pendingMessageError, channelId, tempId
+                )
+            }
+        }
+    }
+
+    private fun buildLocationContent(link: String): String {
+        val escaped = link
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+        return "{\"t\":\"$escaped\",\"lk\":[{\"s\":0,\"e\":${link.length}}],\"mk\":[{\"s\":0,\"e\":${link.length},\"type\":\"lk\"}]}"
+    }
+
     companion object {
         const val ID_MENTION_HERE = "here"
         private const val SEND_MAX_RETRIES = 2
         private const val SEND_RETRY_DELAY_MS = 500L
+        private const val SHARE_MAX_RETRIES = 5
+        private const val SHARE_RETRY_DELAY_MS = 4000L
     }
 
     private fun generateTempId(): Long {
@@ -599,6 +748,7 @@ class ChatController @Inject constructor(
 
         val tempId = generateTempId()
         val uc = userController.get()
+        val anon = isAnonymousSend(clanId)
         val firstItem = attachments.firstOrNull()
         val extraJson = if (attachments.size > 1) {
             val arr = org.json.JSONArray()
@@ -620,9 +770,9 @@ class ChatController @Inject constructor(
         val optimistic = MessageEntity(
             id = tempId,
             channelId = channelId,
-            senderId = uc.userId,
-            senderName = uc.displayName.ifBlank { uc.username },
-            senderAvatar = uc.avatarUrl,
+            senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
+            senderName = if (anon) "Anonymous" else uc.displayName.ifBlank { uc.username },
+            senderAvatar = if (anon) "" else uc.avatarUrl,
             content = content,
             timestampSeconds = System.currentTimeMillis() / 1000,
             code = MessageEntity.CODE_CHAT,
@@ -642,68 +792,222 @@ class ChatController @Inject constructor(
 
         appScope.launch(ioDispatcher) {
             try {
-                val session = sessionManager.sessionFlow.first() ?: throw RuntimeException("No session")
-                val cdnBaseUrl = BuildConfig.MEZON_BASE_IMG_URL
-                val uploadedAttachments = ArrayList<MessageAttachment>()
+                sessionManager.withAutoRefresh { session ->
+                    val cdnBaseUrl = BuildConfig.MEZON_BASE_IMG_URL
+                    val uploadedAttachments = ArrayList<MessageAttachment>()
 
-                for (item in attachments) {
-                    try {
-                        val timestamp = System.currentTimeMillis() / 1000
-                        val sanitizedName = item.filename.replace(Regex("[^a-zA-Z0-9._-]"), "_")
-                        val uploadFilename = "${timestamp}_$sanitizedName"
+                    for (item in attachments) {
+                        try {
+                            val timestamp = System.currentTimeMillis() / 1000
+                            val sanitizedName = item.filename.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+                            val uploadFilename = "${timestamp}_$sanitizedName"
 
-                        val presignResult = api.uploadAttachmentFile(
-                            session.apiUrl, session.token,
-                            uploadFilename, item.mimeType,
-                            item.size.toInt(), item.width, item.height
+                            val presignResult = api.uploadAttachmentFile(
+                                session.apiUrl, session.token,
+                                uploadFilename, item.mimeType,
+                                item.size.toInt(), item.width, item.height
+                            )
+
+                            val fileBytes = contentResolver.openInputStream(item.uri)?.use { it.readBytes() }
+                            if (fileBytes == null) {
+                                Log.e(TAG, "Failed to read file: ${item.filename}")
+                                continue
+                            }
+
+                            api.putFileToPresignedUrl(presignResult.url, fileBytes, item.mimeType)
+
+                            val cdnUrl = "$cdnBaseUrl/${presignResult.filename}"
+                            val attachment = messageAttachment {
+                                this.filename = item.filename
+                                this.url = cdnUrl
+                                this.filetype = item.mimeType
+                                this.size = item.size.toInt()
+                                this.width = item.width
+                                this.height = item.height
+                                if (item.duration > 0) this.duration = item.duration
+                            }
+                            uploadedAttachments.add(attachment)
+                            Log.d(TAG, "Uploaded: ${item.filename} → $cdnUrl")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to upload attachment: ${item.filename}", e)
+                        }
+                    }
+
+                    if (uploadedAttachments.isNotEmpty()) {
+                        val request = channelMessageSend {
+                            this.clanId = clanId
+                            this.channelId = channelId
+                            this.mode = mode
+                            this.isPublic = isPublic
+                            this.content = content
+                            this.attachments.addAll(uploadedAttachments)
+                            references?.let { this.references.addAll(it) }
+                            if (anon) this.anonymousMessage = true
+                        }
+                        val ack = api.sendChannelMessage(session.apiUrl, session.token, request)
+                        notificationCenter.postNotificationOnMainThread(
+                            NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
                         )
-
-                        val fileBytes = contentResolver.openInputStream(item.uri)?.use { it.readBytes() }
-                        if (fileBytes == null) {
-                            Log.e(TAG, "Failed to read file: ${item.filename}")
-                            continue
-                        }
-
-                        api.putFileToPresignedUrl(presignResult.url, fileBytes, item.mimeType)
-
-                        val cdnUrl = "$cdnBaseUrl/${presignResult.filename}"
-                        val attachment = messageAttachment {
-                            this.filename = item.filename
-                            this.url = cdnUrl
-                            this.filetype = item.mimeType
-                            this.size = item.size.toInt()
-                            this.width = item.width
-                            this.height = item.height
-                            if (item.duration > 0) this.duration = item.duration
-                        }
-                        uploadedAttachments.add(attachment)
-                        Log.d(TAG, "Uploaded: ${item.filename} → $cdnUrl")
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Failed to upload attachment: ${item.filename}", e)
+                    } else {
+                        notificationCenter.postNotificationOnMainThread(
+                            NotificationCenter.pendingMessageError, channelId, tempId
+                        )
                     }
-                }
-
-                if (uploadedAttachments.isNotEmpty()) {
-                    val request = channelMessageSend {
-                        this.clanId = clanId
-                        this.channelId = channelId
-                        this.mode = mode
-                        this.isPublic = isPublic
-                        this.content = content
-                        this.attachments.addAll(uploadedAttachments)
-                        references?.let { this.references.addAll(it) }
-                    }
-                    val ack = api.sendChannelMessage(session.apiUrl, session.token, request)
-                    notificationCenter.postNotificationOnMainThread(
-                        NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
-                    )
-                } else {
-                    notificationCenter.postNotificationOnMainThread(
-                        NotificationCenter.pendingMessageError, channelId, tempId
-                    )
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to send message with attachments", e)
+                notificationCenter.postNotificationOnMainThread(
+                    NotificationCenter.pendingMessageError, channelId, tempId
+                )
+            }
+        }
+    }
+
+    fun shareMediaToChannel(
+        channelId: Long,
+        clanId: Long,
+        channelType: Int,
+        isChannelPrivate: Boolean,
+        text: String,
+        attachments: List<AttachmentPickerItem>,
+        contentResolver: android.content.ContentResolver
+    ) {
+        val mode = channelTypeToStreamMode(channelType)
+        val isPublic = !isChannelPrivate
+        val baseContent = if (text.isNotBlank()) buildTextContent(text) else "{\"t\":\"\"}"
+
+        val tempId = generateTempId()
+        val uc = userController.get()
+        val anon = isAnonymousSend(clanId)
+        val firstItem = attachments.firstOrNull()
+        val extraJson = if (attachments.size > 1) {
+            val arr = org.json.JSONArray()
+            for (i in 1 until attachments.size) {
+                val item = attachments[i]
+                val obj = org.json.JSONObject()
+                obj.put("url", item.uri.toString())
+                obj.put("thumb", "")
+                obj.put("width", item.width)
+                obj.put("height", item.height)
+                obj.put("filename", item.filename)
+                obj.put("filetype", item.mimeType)
+                obj.put("size", item.size.toInt())
+                obj.put("duration", item.duration)
+                arr.put(obj)
+            }
+            arr.toString()
+        } else ""
+
+        val optimistic = MessageEntity(
+            id = tempId,
+            channelId = channelId,
+            senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
+            senderName = if (anon) "Anonymous" else uc.displayName.ifBlank { uc.username },
+            senderAvatar = if (anon) "" else uc.avatarUrl,
+            content = baseContent,
+            timestampSeconds = System.currentTimeMillis() / 1000,
+            code = MessageEntity.CODE_CHAT,
+            isMe = true,
+            messageType = resolveOptimisticType(firstItem),
+            attachmentUrl = firstItem?.uri?.toString().orEmpty(),
+            attachmentFilename = firstItem?.filename.orEmpty(),
+            attachmentFiletype = firstItem?.mimeType.orEmpty(),
+            attachmentWidth = firstItem?.width ?: 0,
+            attachmentHeight = firstItem?.height ?: 0,
+            extraAttachmentsJson = extraJson,
+            sendState = MessageEntity.SEND_STATE_SENDING
+        )
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.didReceiveNewMessages, channelId, optimistic
+        )
+
+        appScope.launch(ioDispatcher) {
+            try {
+                if (clanId != 0L) {
+                    runCatching {
+                        sessionManager.sessionFlow.first() ?: return@launch
+                        if (mezonSocket.awaitConnected()) {
+                            mezonSocket.joinClanChat(clanId)
+                            mezonSocket.joinChat(clanId, channelId, channelType, isPublic)
+                        }
+                    }
+                }
+
+                sessionManager.withAutoRefresh { session ->
+                    val cdnBaseUrl = BuildConfig.MEZON_BASE_IMG_URL
+                    val uploadedAttachments = ArrayList<MessageAttachment>()
+
+                    for (item in attachments) {
+                        var uploaded = false
+                        for (attempt in 1..SHARE_MAX_RETRIES) {
+                            try {
+                                val timestamp = System.currentTimeMillis() / 1000
+                                val sanitizedName = item.filename.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+                                val uploadFilename = "${timestamp}_$sanitizedName"
+
+                                val presignResult = api.uploadAttachmentFile(
+                                    session.apiUrl, session.token,
+                                    uploadFilename, item.mimeType,
+                                    item.size.toInt(), item.width, item.height
+                                )
+
+                                val fileBytes = contentResolver.openInputStream(item.uri)?.use { it.readBytes() }
+                                if (fileBytes == null) {
+                                    Log.e(TAG, "shareMedia: Failed to read file: ${item.filename}")
+                                    break
+                                }
+
+                                api.putFileToPresignedUrl(presignResult.url, fileBytes, item.mimeType)
+
+                                val cdnUrl = "$cdnBaseUrl/${presignResult.filename}"
+                                val attachment = messageAttachment {
+                                    this.filename = item.filename
+                                    this.url = cdnUrl
+                                    this.filetype = item.mimeType
+                                    this.size = item.size.toInt()
+                                    this.width = item.width
+                                    this.height = item.height
+                                    if (item.duration > 0) this.duration = item.duration
+                                }
+                                uploadedAttachments.add(attachment)
+                                uploaded = true
+                                Log.d(TAG, "shareMedia: Uploaded ${item.filename} → $cdnUrl (attempt $attempt)")
+                                break
+                            } catch (e: Exception) {
+                                Log.e(TAG, "shareMedia: Upload attempt $attempt failed for ${item.filename}", e)
+                                if (attempt < SHARE_MAX_RETRIES) {
+                                    delay(SHARE_RETRY_DELAY_MS)
+                                }
+                            }
+                        }
+                        if (!uploaded) {
+                            Log.e(TAG, "shareMedia: All retries exhausted for ${item.filename}")
+                        }
+                    }
+
+                    if (uploadedAttachments.isNotEmpty()) {
+                        val request = channelMessageSend {
+                            this.clanId = clanId
+                            this.channelId = channelId
+                            this.mode = mode
+                            this.isPublic = isPublic
+                            this.content = baseContent
+                            this.attachments.addAll(uploadedAttachments)
+                            if (anon) this.anonymousMessage = true
+                        }
+                        val ack = api.sendChannelMessage(session.apiUrl, session.token, request)
+                        notificationCenter.postNotificationOnMainThread(
+                            NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
+                        )
+                        Log.d(TAG, "shareMedia: Sent ${uploadedAttachments.size}/${attachments.size} attachments to channel $channelId")
+                    } else {
+                        notificationCenter.postNotificationOnMainThread(
+                            NotificationCenter.pendingMessageError, channelId, tempId
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "shareMedia: Failed", e)
                 notificationCenter.postNotificationOnMainThread(
                     NotificationCenter.pendingMessageError, channelId, tempId
                 )
@@ -814,10 +1118,87 @@ class ChatController @Inject constructor(
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_NEW_MESSAGE
                     )
+                    if (entity.code == MessageEntity.CODE_MESSAGE_BUZZ && !entity.isMe) {
+                        notificationCenter.postNotificationOnMainThread(
+                            NotificationCenter.buzzMessageReceived, entity.channelId
+                        )
+                        dialogsController.setBuzzState(entity.channelId)
+                    }
                 }
             }
 
             dialogsController.updateOnNewMessage(msg, currentUserId)
+        }
+    }
+
+    private suspend fun observeReactionEvents() {
+        socketEventDispatcher.messageReactions.collect { reaction ->
+            handleReactionEvent(reaction)
+        }
+    }
+
+    private fun handleReactionEvent(reaction: com.mezon.mezon.api.MessageReaction) {
+        val channelId = reaction.channelId
+        val messageId = reaction.messageId
+        if (channelId == 0L || messageId == 0L) return
+
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.reactionDidUpdate,
+            channelId,
+            messageId,
+            reaction.emojiId,
+            reaction.emoji,
+            reaction.senderId,
+            reaction.count,
+            reaction.action
+        )
+
+        appScope.launch(ioDispatcher) {
+            val existing = messageDao.getById(channelId, messageId) ?: return@launch
+            val updatedJson = applyReactionEvent(
+                existing.reactionsJson,
+                reaction.emojiId,
+                reaction.emoji,
+                reaction.senderId,
+                reaction.count,
+                reaction.action
+            )
+            messageDao.updateReactions(channelId, messageId, updatedJson)
+        }
+    }
+
+    fun sendReaction(
+        channelId: Long,
+        clanId: Long,
+        channelType: Int,
+        isChannelPrivate: Boolean,
+        messageId: Long,
+        emojiId: Long,
+        emoji: String,
+        count: Int,
+        actionDelete: Boolean,
+        messageSenderId: Long
+    ) {
+        val mode = channelTypeToStreamMode(channelType)
+        val isPublic = !isChannelPrivate
+        appScope.launch {
+            try {
+                mezonSocket.writeMessageReaction(
+                    id = emojiId,
+                    clanId = clanId,
+                    channelId = channelId,
+                    mode = mode,
+                    isPublic = isPublic,
+                    messageId = messageId,
+                    emojiId = emojiId,
+                    emoji = emoji,
+                    count = count,
+                    messageSenderId = messageSenderId,
+                    actionDelete = actionDelete
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to send reaction", e)
+            }
         }
     }
 }

@@ -396,12 +396,43 @@
     <string name="user_profile_member_since">Mezon Member Since</string>
     <string name="user_profile_about_me">About Me</string>
 
+    <!-- Advanced Functions -->
+    <string name="advanced_location">Location</string>
+    <string name="advanced_files">Files</string>
+    <string name="advanced_threads">Threads</string>
+    <string name="advanced_anonymous">Anonymous</string>
+    <string name="advanced_anonymous_off">Turn off anonymous</string>
+    <string name="advanced_buzz">Buzz</string>
+    <string name="advanced_ephemeral">Ephemeral</string>
+    <string name="advanced_transfer_funds">Transfer Funds</string>
+    <string name="advanced_poll">Poll</string>
+    <string name="advanced_share_contact">Share Contact</string>
+    <string name="share_location_title">Send this location to %s</string>
+    <string name="share_location_coordinate">Coordinate (%1$.6f, %2$.6f)</string>
+    <string name="share_location_cancel">Cancel</string>
+    <string name="share_location_send">Send</string>
+    <string name="feature_coming_soon">Coming soon</string>
+    <string name="file_too_large">File exceeds the %s limit</string>
+
     <!-- sharing -->
     <string name="sharing_title">Share to…</string>
     <string name="sharing_search_placeholder">Search conversations</string>
     <string name="sharing_sent">Sent!</string>
     <string name="sharing_failed">Failed to send</string>
-    <!-- Sharing -->
     <string name="sharing_no_conversations">No conversations</string>
     <string name="sharing_sending">Sending…</string>
+    <string name="sharing_filter_all">All</string>
+    <string name="sharing_filter_users">Users</string>
+    <string name="sharing_filter_channels">Channels</string>
+    <string name="sharing_filter_options">Filter options</string>
+    <string name="sharing_select_channel">Select a channel</string>
+    <string name="sharing_select_user">Select a user</string>
+    <string name="sharing_select_channel_placeholder">Select a channel or user</string>
+    <string name="sharing_suggestions">Suggestions</string>
+    <string name="sharing_add_comment">Add a comment…</string>
+    <string name="sharing_empty_content">Nothing to share</string>
+
+    <string name="buzz_dialog_title">Enter your message Buzz!!</string>
+    <string name="buzz_dialog_send">Send</string>
+    <string name="buzz_default_text">Buzz!!</string>
 </resources>

@@ -13,7 +13,7 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.ui.cells.MezonIcon
 
-private val CELL_HEIGHT = LayoutHelper.dp(32f)
+private val CELL_HEIGHT = LayoutHelper.dp(36f)
 private val TEXT_LEFT = LayoutHelper.dp(12f)
 private val CHEVRON_SIZE = LayoutHelper.dp(16f)
 private val CHEVRON_RIGHT = LayoutHelper.dp(12f)
@@ -48,7 +48,7 @@ class CollapsibleHeaderCell(context: Context, private val themeColors: ThemeColo
 
     override fun onDraw(canvas: Canvas) {
         val cy = measuredHeight / 2f
-        canvas.drawText(title, TEXT_LEFT.toFloat(), cy - (textPaint.ascent() + textPaint.descent()) / 2f, textPaint)
+        canvas.drawText(title.uppercase(), TEXT_LEFT.toFloat(), cy - (textPaint.ascent() + textPaint.descent()) / 2f, textPaint)
 
         val chevron = if (isExpanded) {
             chevronDown ?: MezonIcon.chevronDownSmallIcon.getDrawable(context).mutate().also {
@@ -69,11 +69,12 @@ class CollapsibleHeaderCell(context: Context, private val themeColors: ThemeColo
 
     companion object {
         private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = LayoutHelper.dp(13f).toFloat()
+            textSize = LayoutHelper.dp(14f).toFloat()
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
         }
 
         fun applyTheme(themeColors: ThemeColors) {
-            textPaint.color = themeColors.onSurfaceVariant
+            textPaint.color = themeColors.onSurface
         }
     }
 }

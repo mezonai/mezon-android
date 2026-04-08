@@ -19,7 +19,7 @@ class ChannelThreadCell(
 
     companion object {
         private val namePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = LayoutHelper.sp(14f)
+            textSize = LayoutHelper.sp(15f)
         }
         private val connectorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
@@ -33,7 +33,6 @@ class ChannelThreadCell(
             typeface = Typeface.DEFAULT_BOLD
             textAlign = Paint.Align.CENTER
         }
-        private val unreadDotPaint = Paint(Paint.ANTI_ALIAS_FLAG)
         private val activeBgRectF = RectF()
         private val arcRectF = RectF()
     }
@@ -53,8 +52,6 @@ class ChannelThreadCell(
     private val cornerRadius = LayoutHelper.dp(6).toFloat()
     private val paddingRightPx = LayoutHelper.dp(16)
     private val badgeSizePx = LayoutHelper.dp(18)
-    private val unreadDotRadius = LayoutHelper.dp(3f).toFloat()
-
     fun bind(thread: ClanChannelEntity, isFirst: Boolean, isLast: Boolean, isActive: Boolean) {
         this.thread = thread
         this.isFirst = isFirst
@@ -138,12 +135,6 @@ class ChannelThreadCell(
         }
         namePaint.color = textColor
         namePaint.typeface = if (hasUnread) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-
-        if (hasUnread && !isActive) {
-            unreadDotPaint.color = themeColors.onSurface
-            val dotX = connectorLineX - LayoutHelper.dp(10).toFloat()
-            canvas.drawCircle(dotX, cy, unreadDotRadius, unreadDotPaint)
-        }
 
         val badgeWidth = if (hasMentionBadge) badgeSizePx + LayoutHelper.dp(4) else 0
         val availW = width - textStartX - paddingRightPx - badgeWidth

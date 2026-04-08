@@ -138,7 +138,7 @@ class MessagesFragment : BaseFragment() {
         }
         contentFrame.addView(errorView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
-        adapter = DmListAdapter(themeColors)
+        adapter = DmListAdapter(themeColors) { channelId -> controller.isBuzzActive(channelId) }
         recyclerView.adapter = adapter
 
         val dialogs = controller.getDialogs()
@@ -188,7 +188,7 @@ class MessagesFragment : BaseFragment() {
         headerTitle = TextView(context).apply {
             text = getString(R.string.dm_title)
             setTextColor(themeColors.onSurface)
-            textSize = 16f
+            textSize = 18f
             setTypeface(typeface, Typeface.BOLD)
             setPadding(LayoutHelper.dp(10), 0, 0, 0)
         }
@@ -278,7 +278,7 @@ class MessagesFragment : BaseFragment() {
         val label = TextView(context).apply {
             text = getString(R.string.dm_add_friend)
             setTextColor(themeColors.onSurface)
-            textSize = 14f
+            textSize = 15f
             setPadding(LayoutHelper.dp(4), 0, 0, 0)
         }
         pill.addView(label, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT))

@@ -8,6 +8,7 @@ import android.graphics.ColorFilter
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.PixelFormat
+import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
@@ -46,6 +47,18 @@ class AvatarDrawable : Drawable() {
     private var scaleSize = 1f
     private var drawableByInfo = true
     private var customTextSize = 0f
+    private val roundRectF = RectF()
+    var cornerRadius: Float = Float.MAX_VALUE
+
+    private var cachedShader: BitmapShader? = null
+    private var cachedShaderBitmap: Bitmap? = null
+    private val shaderMatrix = android.graphics.Matrix()
+    private var cachedGradient: LinearGradient? = null
+    private var cachedGradientColor1 = 0
+    private var cachedGradientColor2 = 0
+    private var cachedGradientHeight = 0f
+    private var lastBoundsWidth = -1
+    private var lastBoundsHeight = -1
 
     fun setInfo(id: Long, firstName: String?, lastName: String?) {
         bgColor = getColorForId(id)
@@ -53,6 +66,9 @@ class AvatarDrawable : Drawable() {
         hasGradient = false
         initial = getAvatarSymbols(firstName, lastName)
         photoBitmap = null
+        cachedShader = null
+        cachedShaderBitmap = null
+        cachedGradient = null
         invalidateSelf()
     }
 
@@ -127,6 +143,8 @@ class AvatarDrawable : Drawable() {
 
     fun setPhoto(bitmap: Bitmap?) {
         photoBitmap = bitmap
+        cachedShader = null
+        cachedShaderBitmap = null
         invalidateSelf()
     }
 
@@ -138,36 +156,51 @@ class AvatarDrawable : Drawable() {
         val cx = bounds.exactCenterX()
         val cy = bounds.exactCenterY()
         val radius = size / 2f
+        val r = if (cornerRadius == Float.MAX_VALUE) radius else cornerRadius
+        roundRectF.set(bounds.left.toFloat(), bounds.top.toFloat(), bounds.right.toFloat(), bounds.bottom.toFloat())
+
+        val boundsChanged = bounds.width() != lastBoundsWidth || bounds.height() != lastBoundsHeight
+        if (boundsChanged) {
+            lastBoundsWidth = bounds.width()
+            lastBoundsHeight = bounds.height()
+        }
 
         val photo = photoBitmap
         if (photo != null && !photo.isRecycled) {
-            photoPaint.shader = BitmapShader(photo, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP).apply {
+            if (cachedShaderBitmap !== photo || cachedShader == null || boundsChanged) {
+                cachedShaderBitmap = photo
+                val shader = BitmapShader(photo, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
                 val bw = bounds.width().toFloat()
                 val bh = bounds.height().toFloat()
                 val pw = photo.width.toFloat()
                 val ph = photo.height.toFloat()
                 val scale = maxOf(bw / pw, bh / ph)
-                
-                val matrix = android.graphics.Matrix()
-                matrix.setScale(scale, scale)
-                matrix.postTranslate(
+                shaderMatrix.setScale(scale, scale)
+                shaderMatrix.postTranslate(
                     bounds.left + (bw - pw * scale) * 0.5f,
                     bounds.top + (bh - ph * scale) * 0.5f
                 )
-                setLocalMatrix(matrix)
+                shader.setLocalMatrix(shaderMatrix)
+                cachedShader = shader
             }
-            canvas.drawCircle(cx, cy, radius, photoPaint)
-            photoPaint.shader = null
+            photoPaint.shader = cachedShader
+            canvas.drawRoundRect(roundRectF, r, r, photoPaint)
         } else if (drawableByInfo) {
             if (hasGradient) {
-                val gradient = LinearGradient(0f, 0f, 0f, size.toFloat(), bgColor, bgColor2, Shader.TileMode.CLAMP)
-                bgPaint.shader = gradient
+                val h = size.toFloat()
+                if (cachedGradient == null || cachedGradientColor1 != bgColor || cachedGradientColor2 != bgColor2 || cachedGradientHeight != h) {
+                    cachedGradient = LinearGradient(0f, 0f, 0f, h, bgColor, bgColor2, Shader.TileMode.CLAMP)
+                    cachedGradientColor1 = bgColor
+                    cachedGradientColor2 = bgColor2
+                    cachedGradientHeight = h
+                }
+                bgPaint.shader = cachedGradient
                 bgPaint.color = Color.TRANSPARENT
             } else {
                 bgPaint.shader = null
                 bgPaint.color = bgColor
             }
-            canvas.drawCircle(cx, cy, radius, bgPaint)
+            canvas.drawRoundRect(roundRectF, r, r, bgPaint)
             bgPaint.shader = null
             val textSize = when {
                 customTextSize > 0 -> customTextSize

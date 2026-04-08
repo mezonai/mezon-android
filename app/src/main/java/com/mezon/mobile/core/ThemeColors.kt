@@ -47,13 +47,18 @@ class ThemeColors @Inject constructor() {
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }
     val dialogTimePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = LayoutHelper.sp(11f)
+        textSize = LayoutHelper.sp(12f)
     }
     val dialogBadgePaint = Paint(Paint.ANTI_ALIAS_FLAG)
     val dialogBadgeTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = LayoutHelper.sp(11f)
         color = Color.WHITE
         typeface = Typeface.DEFAULT_BOLD
+    }
+    val buzzBadgePaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    val buzzBadgeTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = LayoutHelper.sp(14f)
+        color = Color.WHITE
     }
     val dialogOnlinePaint = Paint(Paint.ANTI_ALIAS_FLAG)
     val dialogOnlineBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -63,7 +68,7 @@ class ThemeColors @Inject constructor() {
     val dividerPaint = Paint()
 
     val chatSenderPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = LayoutHelper.sp(14f)
+        textSize = LayoutHelper.sp(15f)
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }
     val chatContentPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -78,24 +83,30 @@ class ThemeColors @Inject constructor() {
     val chatTimeOutPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = LayoutHelper.sp(11f)
     }
+    val chatFileNamePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = LayoutHelper.sp(12f)
+    }
+    val chatBuzzTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = LayoutHelper.sp(14f)
+    }
     val chatBubblePaint = Paint(Paint.ANTI_ALIAS_FLAG)
     val chatBubbleOutPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     val systemMessageTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = LayoutHelper.sp(13f)
+        textSize = LayoutHelper.sp(14f)
     }
 
     val settingsNamePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = LayoutHelper.sp(16f)
+        textSize = LayoutHelper.sp(17f)
     }
     val settingsValuePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = LayoutHelper.sp(14f)
     }
     val headerPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = LayoutHelper.sp(14f)
+        textSize = LayoutHelper.sp(15f)
         typeface = Typeface.DEFAULT_BOLD
     }
     val buttonTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = LayoutHelper.sp(14f)
+        textSize = LayoutHelper.sp(15f)
         typeface = Typeface.DEFAULT_BOLD
         textAlign = Paint.Align.CENTER
     }
@@ -266,6 +277,7 @@ class ThemeColors @Inject constructor() {
         dialogMessageBoldPaint.color = onSurface
         dialogTimePaint.color = onSurfaceVariant
         dialogBadgePaint.color = badgeRed
+        buzzBadgePaint.color = buzzRed
         dialogOnlinePaint.color = onlineGreen
         dialogOnlineBorderPaint.color = surface
         dividerPaint.color = outlineVariant
@@ -277,6 +289,9 @@ class ThemeColors @Inject constructor() {
         chatContentOutPaint.textSize = fs
         chatTimePaint.color = onSurfaceVariant
         chatTimeOutPaint.color = onPrimary and 0x99FFFFFF.toInt()
+        chatFileNamePaint.color = onSurface
+        chatBuzzTextPaint.color = buzzRed
+        chatBuzzTextPaint.textSize = LayoutHelper.sp(SharedConfig.fontSize.toFloat())
         chatBubblePaint.color = surfaceVariant
         chatBubbleOutPaint.color = primary
         systemMessageTextPaint.color = onSurfaceVariant
@@ -294,6 +309,7 @@ class ThemeColors @Inject constructor() {
         val fs = LayoutHelper.sp(SharedConfig.fontSize.toFloat())
         chatContentPaint.textSize = fs
         chatContentOutPaint.textSize = fs
+        chatBuzzTextPaint.textSize = fs
     }
 
     val background: Int get() = when (resolvedMode) {
@@ -301,6 +317,13 @@ class ThemeColors @Inject constructor() {
         ThemeMode.DARK -> 0xFF1C1B1F.toInt()
         ThemeMode.ABYSS -> 0xFF0A0A12.toInt()
         else -> 0xFF1C1B1F.toInt()
+    }
+
+    val chatBackground: Int get() = when (resolvedMode) {
+        ThemeMode.LIGHT -> 0xFFFFFFFF.toInt()
+        ThemeMode.DARK -> 0xFF1C1D23.toInt()
+        ThemeMode.ABYSS -> 0xFF040421.toInt()
+        else -> 0xFF1C1D23.toInt()
     }
 
     val surface: Int get() = when (resolvedMode) {
@@ -315,6 +338,13 @@ class ThemeColors @Inject constructor() {
         ThemeMode.DARK -> 0xFF49454F.toInt()
         ThemeMode.ABYSS -> 0xFF1A1A2E.toInt()
         else -> 0xFF49454F.toInt()
+    }
+
+    val secondaryLight: Int get() = when (resolvedMode) {
+        ThemeMode.LIGHT -> 0xFFFEFDFE.toInt()
+        ThemeMode.DARK -> 0xFF26272F.toInt()
+        ThemeMode.ABYSS -> 0xFF1E143A.toInt()
+        else -> 0xFF26272F.toInt()
     }
 
     val primary: Int get() = 0xFF5A62F4.toInt()
@@ -378,6 +408,7 @@ class ThemeColors @Inject constructor() {
         ThemeMode.DARK, ThemeMode.ABYSS -> 0xFF3B426E.toInt()
         else -> 0xFF3B426E.toInt()
     }
+    val mentionHighlightBg: Int get() = 0x14E8CA52.toInt()
     val textRoleLink: Int get() = when (resolvedMode) {
         ThemeMode.LIGHT -> 0xFF00B098.toInt()
         ThemeMode.DARK, ThemeMode.ABYSS -> 0xFF009C67.toInt()
@@ -391,6 +422,14 @@ class ThemeColors @Inject constructor() {
 
     val badgeRed: Int get() = 0xFFD30E0E.toInt()
     val onlineGreen: Int get() = 0xFF43B581.toInt()
+
+    val reactionBgColor: Int get() = when (resolvedMode) {
+        ThemeMode.LIGHT -> 0x99E5E7EB.toInt()
+        ThemeMode.DARK -> 0x80373A54.toInt()
+        ThemeMode.ABYSS -> 0x80373A54.toInt()
+        else -> 0x80373A54.toInt()
+    }
+    val reactionBorderColor: Int get() = 0xFF2563EB.toInt()
 
     // primary prop (outer shape) = iconSecondary || textNormal
     val tabIconPrimary: Int get() = when (resolvedMode) {
@@ -452,7 +491,14 @@ class ThemeColors @Inject constructor() {
         else -> 0xFF6B6B6B.toInt()
     }
 
-    val buzzRed: Int get() = 0xFFD9534F.toInt()
+    val colorAvatarDefault: Int get() = when (resolvedMode) {
+        ThemeMode.LIGHT -> 0xFF8A97A5.toInt()
+        ThemeMode.DARK -> 0xFF334155.toInt()
+        ThemeMode.ABYSS -> 0xFF334155.toInt()
+        else -> 0xFF334155.toInt()
+    }
+
+    val buzzRed: Int get() = 0xFFEA2420.toInt()
 
     val codeInlineBg: Int get() = tertiary
 

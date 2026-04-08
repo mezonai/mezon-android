@@ -14,7 +14,6 @@ import com.mezon.mobile.network.TenorGif
 import com.mezon.mobile.session.SessionManager
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -152,8 +151,9 @@ class EmojiController @Inject constructor(
         if (emojisLoaded && cacheTracker.shouldCall("emojis_by_user") == ApiCacheTracker.ShouldCall.SKIP) return
         appScope.launch(ioDispatcher) {
             try {
-                val session = sessionManager.sessionFlow.first() ?: return@launch
-                val response = api.listEmojisByUserId(session.apiUrl, session.token)
+                val response = sessionManager.withAutoRefresh { session ->
+                    api.listEmojisByUserId(session.apiUrl, session.token)
+                }
                 val items = response.emojiListList.map { proto ->
                     EmojiItem(
                         id = proto.id.toString(),
@@ -187,8 +187,9 @@ class EmojiController @Inject constructor(
         if (stickersLoaded && cacheTracker.shouldCall("stickers_by_user") == ApiCacheTracker.ShouldCall.SKIP) return
         appScope.launch(ioDispatcher) {
             try {
-                val session = sessionManager.sessionFlow.first() ?: return@launch
-                val response = api.listStickersByUserId(session.apiUrl, session.token)
+                val response = sessionManager.withAutoRefresh { session ->
+                    api.listStickersByUserId(session.apiUrl, session.token)
+                }
                 val items = response.stickersList.map { proto ->
                     StickerItem(
                         id = proto.id.toString(),

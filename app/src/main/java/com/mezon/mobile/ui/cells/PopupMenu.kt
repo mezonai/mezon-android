@@ -10,6 +10,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.graphics.drawable.ColorDrawable
 import android.widget.PopupWindow
 import android.widget.ScrollView
 import androidx.annotation.DrawableRes
@@ -74,10 +75,11 @@ class PopupMenu(private val context: Context, private val theme: ThemeColors) {
         }
 
         val menuWidth = LayoutHelper.dp(200)
-        popupWindow = PopupWindow(scrollView, menuWidth, ViewGroup.LayoutParams.WRAP_CONTENT, true).apply {
+        popupWindow = PopupWindow(scrollView, menuWidth, ViewGroup.LayoutParams.WRAP_CONTENT, false).apply {
             elevation = LayoutHelper.dpf(8f)
             isOutsideTouchable = true
-            isFocusable = true
+            isFocusable = false
+            setBackgroundDrawable(ColorDrawable(0))
             showAsDropDown(anchorView, 0, 0, Gravity.END or Gravity.TOP)
         }
     }

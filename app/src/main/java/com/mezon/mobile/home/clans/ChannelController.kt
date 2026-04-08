@@ -8,7 +8,6 @@ import com.mezon.mobile.network.ApiCacheTracker
 import com.mezon.mobile.network.CODE_CHAT_REMOVE
 import com.mezon.mobile.network.CODE_CHAT_UPDATE
 import com.mezon.mobile.network.MezonApi
-import com.mezon.mobile.network.MezonSocket
 import com.mezon.mobile.network.STREAM_MODE_DM
 import com.mezon.mobile.network.SocketEventDispatcher
 import com.mezon.mobile.network.apiCacheKey
@@ -42,7 +41,6 @@ class ChannelController @Inject constructor(
     private val cacheTracker: ApiCacheTracker,
     private val clansController: dagger.Lazy<ClansController>,
     private val badgeCoordinator: dagger.Lazy<com.mezon.mobile.home.BadgeCoordinator>,
-    private val mezonSocket: MezonSocket,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     @ApplicationScope private val appScope: CoroutineScope
 ) {
@@ -86,30 +84,31 @@ class ChannelController @Inject constructor(
         }
         channelListLoading[clanId] = true
         try {
-            val session = sessionManager.sessionFlow.first() ?: return
-            val result = withContext(ioDispatcher) {
-                api.listChannelsByClan(session.apiUrl, session.token, clanId)
-            }
-            val categoryOrderMap = LinkedHashMap<Long, Int>()
-            result.channeldescList.forEach { ch ->
-                categoryOrderMap.putIfAbsent(ch.categoryId, categoryOrderMap.size)
-            }
-            val entities = result.channeldescList.map { ch ->
-                withClanIdFromContext(
-                    clanId,
-                    ch.toClanChannelEntity().copy(categoryOrder = categoryOrderMap[ch.categoryId] ?: 0)
-                )
-            }
-            mergeCache(clanId, entities)
-            runCatching {
-                if (!mezonSocket.awaitConnected()) return@runCatching
-                val badge = mezonSocket.fetchListChannelBadgeCountSocket(clanId)
-                if (badge.channeldescList.isNotEmpty()) {
-                    applyChannelBadgeReadStatePatch(clanId, badge.channeldescList)
+            val entitiesList = sessionManager.withAutoRefresh { session ->
+                val result = withContext(ioDispatcher) {
+                    api.listChannelsByClan(session.apiUrl, session.token, clanId)
                 }
+                val categoryOrderMap = LinkedHashMap<Long, Int>()
+                result.channeldescList.forEach { ch ->
+                    categoryOrderMap.putIfAbsent(ch.categoryId, categoryOrderMap.size)
+                }
+                val entities = result.channeldescList.map { ch ->
+                    withClanIdFromContext(
+                        clanId,
+                        ch.toClanChannelEntity().copy(categoryOrder = categoryOrderMap[ch.categoryId] ?: 0)
+                    )
+                }
+                mergeCache(clanId, entities)
+                runCatching {
+                    val badge = api.listChannelBadgeCount(session.apiUrl, session.token, clanId)
+                    if (badge.channeldescList.isNotEmpty()) {
+                        applyChannelBadgeReadStatePatch(clanId, badge.channeldescList)
+                    }
+                }
+                entities
             }
             cacheTracker.markCalled(cacheKey)
-            val merged = _channelsByClan.value[clanId] ?: entities
+            val merged = _channelsByClan.value[clanId] ?: entitiesList
             withContext(ioDispatcher) { clanChannelDao.upsertAll(merged) }
             notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
         } catch (_: Exception) {
@@ -134,9 +133,10 @@ class ChannelController @Inject constructor(
             return fromDb.channelLabel
         }
         if (clanId != 0L) {
-            val session = sessionManager.sessionFlow.first() ?: return ""
             val result = runCatching {
-                withContext(ioDispatcher) { api.listChannelsByClan(session.apiUrl, session.token, clanId) }
+                sessionManager.withAutoRefresh { session ->
+                    withContext(ioDispatcher) { api.listChannelsByClan(session.apiUrl, session.token, clanId) }
+                }
             }.getOrNull() ?: return ""
             val entities = result.channeldescList.map { ch ->
                 withClanIdFromContext(clanId, ch.toClanChannelEntity())

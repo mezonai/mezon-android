@@ -83,27 +83,28 @@ class AccountController @Inject constructor(
 
     private suspend fun loadAccountInternal(noCache: Boolean = false) {
         try {
-            val session = withContext(ioDispatcher) { sessionManager.sessionFlow.first() } ?: return
             if (!noCache && _accountInfo.value.userId != 0L &&
                 cacheTracker.shouldCall(cacheKey, noCache = false) == ApiCacheTracker.ShouldCall.SKIP
             ) return
-            val account = withContext(ioDispatcher) { api.getAccount(session.apiUrl, session.token) }
-            val user = account.user
-            val info = AccountInfo(
-                userId = user.id,
-                username = user.username,
-                displayName = user.displayName,
-                aboutMe = user.aboutMe,
-                email = account.email,
-                phoneNumber = user.phoneNumber,
-                avatarUrl = user.avatarUrl,
-                logo = account.logo,
-                passwordSetted = account.passwordSetted
-            )
-            _accountInfo.value = info
-            cacheTracker.markCalled(cacheKey)
-            userController.updateFromAccount(info)
-            notificationCenter.postNotificationOnMainThread(NotificationCenter.accountInfoLoaded)
+            sessionManager.withAutoRefresh { session ->
+                val account = withContext(ioDispatcher) { api.getAccount(session.apiUrl, session.token) }
+                val user = account.user
+                val info = AccountInfo(
+                    userId = user.id,
+                    username = user.username,
+                    displayName = user.displayName,
+                    aboutMe = user.aboutMe,
+                    email = account.email,
+                    phoneNumber = user.phoneNumber,
+                    avatarUrl = user.avatarUrl,
+                    logo = account.logo,
+                    passwordSetted = account.passwordSetted
+                )
+                _accountInfo.value = info
+                cacheTracker.markCalled(cacheKey)
+                userController.updateFromAccount(info)
+                notificationCenter.postNotificationOnMainThread(NotificationCenter.accountInfoLoaded)
+            }
         } catch (e: Exception) {
         }
     }
@@ -115,10 +116,11 @@ class AccountController @Inject constructor(
     fun loadBlockedUsers() {
         appScope.launch {
             try {
-                val session = withContext(ioDispatcher) { sessionManager.sessionFlow.first() } ?: return@launch
-                val friendList = withContext(ioDispatcher) { api.listFriends(session.apiUrl, session.token, state = 3) }
-                _blockedUsers.value = friendList.friendsList
-                notificationCenter.postNotificationOnMainThread(NotificationCenter.blockedUsersLoaded)
+                sessionManager.withAutoRefresh { session ->
+                    val friendList = withContext(ioDispatcher) { api.listFriends(session.apiUrl, session.token, state = 3) }
+                    _blockedUsers.value = friendList.friendsList
+                    notificationCenter.postNotificationOnMainThread(NotificationCenter.blockedUsersLoaded)
+                }
             } catch (e: Exception) {
             }
         }
@@ -128,8 +130,9 @@ class AccountController @Inject constructor(
         appScope.launch {
             _isLoading.value = true
             try {
-                val session = withContext(ioDispatcher) { sessionManager.sessionFlow.first() } ?: return@launch
-                val bytes = withContext(ioDispatcher) { api.linkEmail(session.apiUrl, session.token, email) }
+                val bytes = sessionManager.withAutoRefresh { session ->
+                    withContext(ioDispatcher) { api.linkEmail(session.apiUrl, session.token, email) }
+                }
                 val reqId = if (bytes.isNotEmpty()) {
                     com.mezon.mezon.api.LinkAccountConfirmRequest.parseFrom(bytes).reqId
                 } else ""
@@ -150,8 +153,9 @@ class AccountController @Inject constructor(
         appScope.launch {
             _isLoading.value = true
             try {
-                val session = withContext(ioDispatcher) { sessionManager.sessionFlow.first() } ?: return@launch
-                withContext(ioDispatcher) { api.confirmLinkOTP(session.apiUrl, session.token, reqId, otpCode) }
+                sessionManager.withAutoRefresh { session ->
+                    withContext(ioDispatcher) { api.confirmLinkOTP(session.apiUrl, session.token, reqId, otpCode) }
+                }
                 cacheTracker.invalidate(cacheKey)
                 loadAccount()
                 withContext(kotlinx.coroutines.Dispatchers.Main) {
@@ -171,13 +175,14 @@ class AccountController @Inject constructor(
         appScope.launch {
             _isLoading.value = true
             try {
-                val session = withContext(ioDispatcher) { sessionManager.sessionFlow.first() } ?: return@launch
                 val requestBytes = com.mezon.mezon.api.AccountMezon.newBuilder()
                     .setPhoneNumber(phoneNumber)
                     .build()
                     .toByteArray()
-                val bytes = withContext(ioDispatcher) {
-                    api.rpc(session.apiUrl, session.token, "LinkSms", requestBytes)
+                val bytes = sessionManager.withAutoRefresh { session ->
+                    withContext(ioDispatcher) {
+                        api.rpc(session.apiUrl, session.token, "LinkSms", requestBytes)
+                    }
                 }
                 val reqId = if (bytes.isNotEmpty()) {
                     com.mezon.mezon.api.LinkAccountConfirmRequest.parseFrom(bytes).reqId
@@ -199,8 +204,9 @@ class AccountController @Inject constructor(
         appScope.launch {
             _isLoading.value = true
             try {
-                val session = withContext(ioDispatcher) { sessionManager.sessionFlow.first() } ?: return@launch
-                withContext(ioDispatcher) { api.deleteAccount(session.apiUrl, session.token) }
+                sessionManager.withAutoRefresh { session ->
+                    withContext(ioDispatcher) { api.deleteAccount(session.apiUrl, session.token) }
+                }
                 withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(true) }
             } catch (e: Exception) {
                 withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(false) }
@@ -219,9 +225,10 @@ class AccountController @Inject constructor(
         appScope.launch {
             _isLoading.value = true
             try {
-                val session = withContext(ioDispatcher) { sessionManager.sessionFlow.first() } ?: return@launch
-                withContext(ioDispatcher) {
-                    api.registrationEmail(session.apiUrl, session.token, email, newPassword, oldPassword)
+                sessionManager.withAutoRefresh { session ->
+                    withContext(ioDispatcher) {
+                        api.registrationEmail(session.apiUrl, session.token, email, newPassword, oldPassword)
+                    }
                 }
                 _accountInfo.value = _accountInfo.value.copy(passwordSetted = true)
                 withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(true, "") }
@@ -243,16 +250,17 @@ class AccountController @Inject constructor(
         appScope.launch {
             _isLoading.value = true
             try {
-                val session = withContext(ioDispatcher) { sessionManager.sessionFlow.first() } ?: return@launch
-                withContext(ioDispatcher) {
-                    api.updateAccount(
-                        session.apiUrl,
-                        session.token,
-                        displayName,
-                        avatarUrl.ifEmpty { null },
-                        aboutMe,
-                        logoUrl
-                    )
+                sessionManager.withAutoRefresh { session ->
+                    withContext(ioDispatcher) {
+                        api.updateAccount(
+                            session.apiUrl,
+                            session.token,
+                            displayName,
+                            avatarUrl.ifEmpty { null },
+                            aboutMe,
+                            logoUrl
+                        )
+                    }
                 }
                 val current = _accountInfo.value
                 val updated = current.copy(
@@ -277,9 +285,10 @@ class AccountController @Inject constructor(
     fun unblockUser(userId: Long, username: String, onResult: (success: Boolean) -> Unit) {
         appScope.launch {
             try {
-                val session = withContext(ioDispatcher) { sessionManager.sessionFlow.first() } ?: return@launch
-                withContext(ioDispatcher) {
-                    api.unblockFriends(session.apiUrl, session.token, listOf(userId), listOf(username))
+                sessionManager.withAutoRefresh { session ->
+                    withContext(ioDispatcher) {
+                        api.unblockFriends(session.apiUrl, session.token, listOf(userId), listOf(username))
+                    }
                 }
                 _blockedUsers.value = _blockedUsers.value.filter { it.user.id != userId }
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.blockedUsersLoaded)
@@ -297,7 +306,6 @@ class AccountController @Inject constructor(
     ) {
         appScope.launch {
             try {
-                val session = withContext(ioDispatcher) { sessionManager.sessionFlow.first() } ?: return@launch
                 val fileBytes = withContext(ioDispatcher) {
                     contentResolver.openInputStream(uri)?.use { it.readBytes() }
                 } ?: throw RuntimeException("Cannot read file")
@@ -306,13 +314,15 @@ class AccountController @Inject constructor(
                 val filename = "${timestamp}_avatar.jpg"
                 val mimeType = contentResolver.getType(uri) ?: "image/jpeg"
 
-                val cdnUrl = withContext(ioDispatcher) {
-                    val presignResult = api.uploadAttachmentFile(
-                        session.apiUrl, session.token,
-                        filename, mimeType, fileBytes.size, 400, 400
-                    )
-                    api.putFileToPresignedUrl(presignResult.url, fileBytes, mimeType)
-                    "${BuildConfig.MEZON_BASE_IMG_URL}/${presignResult.filename}"
+                val cdnUrl = sessionManager.withAutoRefresh { session ->
+                    withContext(ioDispatcher) {
+                        val presignResult = api.uploadAttachmentFile(
+                            session.apiUrl, session.token,
+                            filename, mimeType, fileBytes.size, 400, 400
+                        )
+                        api.putFileToPresignedUrl(presignResult.url, fileBytes, mimeType)
+                        "${BuildConfig.MEZON_BASE_IMG_URL}/${presignResult.filename}"
+                    }
                 }
                 withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(true, cdnUrl) }
             } catch (e: Exception) {
@@ -327,9 +337,10 @@ class AccountController @Inject constructor(
     ) {
         appScope.launch {
             try {
-                val session = withContext(ioDispatcher) { sessionManager.sessionFlow.first() } ?: return@launch
-                val profile = withContext(ioDispatcher) {
-                    api.getUserProfileOnClan(session.apiUrl, session.token, clanId)
+                val profile = sessionManager.withAutoRefresh { session ->
+                    withContext(ioDispatcher) {
+                        api.getUserProfileOnClan(session.apiUrl, session.token, clanId)
+                    }
                 }
                 withContext(kotlinx.coroutines.Dispatchers.Main) {
                     onResult(profile.nickName, profile.avatar)
@@ -349,15 +360,16 @@ class AccountController @Inject constructor(
         appScope.launch {
             _isLoading.value = true
             try {
-                val session = withContext(ioDispatcher) { sessionManager.sessionFlow.first() } ?: return@launch
-                withContext(ioDispatcher) {
-                    api.updateClanProfile(
-                        session.apiUrl,
-                        session.token,
-                        clanId,
-                        nickName,
-                        avatar
-                    )
+                sessionManager.withAutoRefresh { session ->
+                    withContext(ioDispatcher) {
+                        api.updateClanProfile(
+                            session.apiUrl,
+                            session.token,
+                            clanId,
+                            nickName,
+                            avatar
+                        )
+                    }
                 }
                 withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(true, "") }
             } catch (e: Exception) {
