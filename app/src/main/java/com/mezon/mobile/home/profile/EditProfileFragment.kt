@@ -83,6 +83,7 @@ class EditProfileFragment : BaseFragment() {
 
     private fun selectClan(clan: ClanEntity) {
         selectClanData(clan)
+        clanProfileLoaded = true
         updateClanUI()
         loadClanProfileData(clan.clanId)
     }
@@ -583,23 +584,7 @@ class EditProfileFragment : BaseFragment() {
         return scrollView
     }
 
-    private fun resetPersonalProfile() {
-        val info = accountController.accountInfo.value
-        val displayName = info.displayName.ifEmpty { userController.displayName }
-        val username = info.username.ifEmpty { userController.username }
-        
-        displayNameCell.setText(displayName)
-        aboutMeCell.setText(info.aboutMe)
-        
-        currentAvatarUrl = info.avatarUrl.ifEmpty { userController.avatarUrl }
-        avatarView.setImageUrl(currentAvatarUrl)
-        loadBannerFromAvatar(currentAvatarUrl)
-        
-        currentDmLogoUrl = info.logo
-        dmLogoView.setImageUrl(currentDmLogoUrl)
-        
-        nameView.text = displayName.ifEmpty { username }
-    }
+    private var clanProfileLoaded = false
 
     private fun switchTab(tab: Int) {
         if (tab == activeTab) return
@@ -612,7 +597,6 @@ class EditProfileFragment : BaseFragment() {
         }
 
         if (tab == TAB_PERSONAL) {
-            resetPersonalProfile()
             personalContent.visibility = View.VISIBLE
             clanContent.visibility = View.GONE
             
@@ -628,10 +612,14 @@ class EditProfileFragment : BaseFragment() {
                 val clan = clans.find { it.clanId == curId } ?: clans.firstOrNull()
                 if (clan != null) {
                     selectClan(clan)
+                    clanProfileLoaded = true
                 }
             } else {
                 updateClanUI()
-                selectedClan?.let { loadClanProfileData(it.clanId) }
+                if (!clanProfileLoaded) {
+                    selectedClan?.let { loadClanProfileData(it.clanId) }
+                    clanProfileLoaded = true
+                }
             }
             if (clanAvatarUrl.isNotEmpty()) {
                 loadClanBannerFromAvatar(clanAvatarUrl)

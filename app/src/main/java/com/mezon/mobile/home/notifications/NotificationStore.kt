@@ -9,8 +9,6 @@ import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.session.SessionManager
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
-import java.util.Collections
-import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -49,7 +47,7 @@ class NotificationStore @Inject constructor(
     private var hasMoreMessages = false
     private var hasMoreForYou = false
 
-    private val dbLoadedCategories = Collections.newSetFromMap(ConcurrentHashMap<Int, Boolean>())
+    private val dbLoadedCategories = HashSet<Int>(4)
 
     fun cleanup() {
         _mentions.value = emptyList()
@@ -64,14 +62,8 @@ class NotificationStore @Inject constructor(
 
     fun setCurrentClan(clanId: Long): Boolean {
         if (currentClanId == clanId) return false
+        cleanup()
         currentClanId = clanId
-        dbLoadedCategories.clear()
-        _mentions.value = emptyList()
-        _messages.value = emptyList()
-        _forYou.value = emptyList()
-        hasMoreMentions = false
-        hasMoreMessages = false
-        hasMoreForYou = false
         return true
     }
 
@@ -120,7 +112,7 @@ class NotificationStore @Inject constructor(
                     updateCategoryState(category, entities, notificationId == 0L, hasMore)
 
                     if (entities.isNotEmpty()) {
-                        appScope.launch(ioDispatcher) {
+                        withContext(ioDispatcher) {
                             notificationDao.upsertAll(entities)
                             if (notificationId == 0L) {
                                 notificationDao.trimCategory(category, DB_CACHE_LIMIT)
@@ -136,33 +128,14 @@ class NotificationStore @Inject constructor(
                 Log.e(TAG, "loadCategory $category failed", e)
 
                 if (notificationId != 0L) {
-                    val list = getForCategory(category).value
-                    val lastRecord = list.firstOrNull { it.id == notificationId }
-                    if (lastRecord != null) {
-                        try {
-                            val dbData = withContext(ioDispatcher) {
-                                notificationDao.getByCategoryBefore(category, lastRecord.createTimeSeconds, lastRecord.id, PAGE_SIZE)
-                            }
-                            if (dbData.isNotEmpty()) {
-                                Log.d(TAG, "Offline pagination loaded ${dbData.size} from DB")
-                                val hasMore = dbData.size >= PAGE_SIZE
-                                updateCategoryState(category, dbData, isRefresh = false, hasMore = hasMore)
-                                notificationCenter.postNotificationOnMainThread(
-                                    NotificationCenter.notificationsDidLoad, category
-                                )
-                                return@launch
-                            }
-                        } catch (dbError: Exception) {
-                            Log.e(TAG, "DB fallback pagination failed", dbError)
-                        }
+                    tryOfflinePagination(category, notificationId)
+                } else {
+                    val cached = getForCategory(category).value
+                    if (cached.isEmpty()) {
+                        notificationCenter.postNotificationOnMainThread(
+                            NotificationCenter.notificationsLoadError, category
+                        )
                     }
-                }
-
-                val cached = getForCategory(category).value
-                if (cached.isEmpty()) {
-                    notificationCenter.postNotificationOnMainThread(
-                        NotificationCenter.notificationsLoadError, category
-                    )
                 }
             }
         }
@@ -198,14 +171,43 @@ class NotificationStore @Inject constructor(
 
     private fun updateCategoryState(category: Int, items: List<NotificationEntity>, isRefresh: Boolean, hasMore: Boolean) {
         val flow = getMutableForCategory(category) ?: return
+        setHasMore(category, hasMore)
+        flow.update { old ->
+            if (isRefresh) items
+            else (old + items).distinctBy { it.id }.takeLast(VIEWPORT_LIMIT)
+        }
+    }
+
+    private suspend fun tryOfflinePagination(category: Int, notificationId: Long) {
+        val list = getForCategory(category).value
+        val lastRecord = list.firstOrNull { it.id == notificationId }
+        if (lastRecord != null) {
+            try {
+                val dbData = withContext(ioDispatcher) {
+                    notificationDao.getByCategoryBefore(category, lastRecord.createTimeSeconds, lastRecord.id, PAGE_SIZE)
+                }
+                if (dbData.isNotEmpty()) {
+                    updateCategoryState(category, dbData, isRefresh = false, hasMore = dbData.size >= PAGE_SIZE)
+                    notificationCenter.postNotificationOnMainThread(
+                        NotificationCenter.notificationsDidLoad, category
+                    )
+                    return
+                }
+            } catch (dbError: Exception) {
+                Log.e(TAG, "DB fallback pagination failed", dbError)
+            }
+        }
+        setHasMore(category, false)
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.notificationsDidLoad, category
+        )
+    }
+
+    private fun setHasMore(category: Int, hasMore: Boolean) {
         when (category) {
             NOTIF_CATEGORY_MENTIONS -> hasMoreMentions = hasMore
             NOTIF_CATEGORY_MESSAGES -> hasMoreMessages = hasMore
             NOTIF_CATEGORY_FOR_YOU -> hasMoreForYou = hasMore
-        }
-        flow.update { old ->
-            if (isRefresh) items
-            else (old + items).distinctBy { it.id }.takeLast(VIEWPORT_LIMIT)
         }
     }
 
@@ -213,17 +215,9 @@ class NotificationStore @Inject constructor(
         val cached = withContext(ioDispatcher) {
             notificationDao.getByCategory(category, PAGE_SIZE)
         }
-        Log.d(TAG, "loadFromDb: category=$category returned ${cached.size} items")
         if (cached.isNotEmpty()) {
             val flow = getMutableForCategory(category) ?: return
-
-            val hasMore = cached.size >= PAGE_SIZE
-            when (category) {
-                NOTIF_CATEGORY_MENTIONS -> hasMoreMentions = hasMore
-                NOTIF_CATEGORY_MESSAGES -> hasMoreMessages = hasMore
-                NOTIF_CATEGORY_FOR_YOU -> hasMoreForYou = hasMore
-            }
-
+            setHasMore(category, cached.size >= PAGE_SIZE)
             flow.update { old ->
                 if (old.isEmpty()) cached else old
             }
