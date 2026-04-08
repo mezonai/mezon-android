@@ -250,6 +250,9 @@
     <string name="setting_log_out_description">Please confirm if you would like to log out?</string>
     <string name="setting_log_out_no">No</string>
     <string name="setting_log_out_yes">Yes</string>
+    <string name="setting_scan_qr">Scan QR Code</string>
+    <string name="setting_devices">Devices</string>
+    <string name="setting_app_version_label">App Version</string>
 
     <!-- theme -->
     <string name="setting_theme_title">Theme</string>
