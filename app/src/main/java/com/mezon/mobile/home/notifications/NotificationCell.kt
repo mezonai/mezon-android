@@ -3,6 +3,7 @@ package com.mezon.mobile.home.notifications
 import android.content.Context
 import android.graphics.Canvas
 import android.text.StaticLayout
+import android.text.TextPaint
 import android.text.TextUtils
 import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.BaseCell
@@ -134,7 +135,9 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : BaseC
             .build()
 
         val bodyText = if (n.category == NOTIF_CATEGORY_FOR_YOU) "" else n.messageText
-        val bodyPaint = theme.dialogMessagePaint
+        val bodyPaint = TextPaint(theme.dialogMessagePaint).apply {
+            textSize = LayoutHelper.sp(15f)
+        }
         bodyLayout = if (bodyText.isEmpty()) null else StaticLayout.Builder
             .obtain(bodyText, 0, bodyText.length, bodyPaint, contentWidth)
             .setMaxLines(2)

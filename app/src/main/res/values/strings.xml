@@ -191,11 +191,17 @@
 
     <!-- notification -->
     <string name="notification_header">Notifications</string>
-    <string name="notif_inbox_title">Inbox</string>
+    <string name="notif_inbox_title">Notifications</string>
     <string name="notif_tab_mentions">Mentions</string>
     <string name="notif_tab_messages">Messages</string>
+    <string name="notif_tab_topics">Topics</string>
     <string name="notif_tab_for_you">For You</string>
     <string name="notif_empty">No notifications</string>
+    <string name="notif_topics_load_error">Couldn\'t load topics. Pull to refresh or try again later.</string>
+    <string name="notif_topic_and_you">Topic and you</string>
+    <string name="notif_topic_replied_to">Replied To:</string>
+    <string name="message_attachment_file_bracket">[File]</string>
+    <string name="message_attachment_contact_bracket">[Contact]</string>
     <string name="notification_tab_for_you">For you</string>
     <string name="notification_tab_mention">Mention</string>
     <string name="notification_tab_messages">Messages</string>

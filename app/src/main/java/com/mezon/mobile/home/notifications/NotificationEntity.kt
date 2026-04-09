@@ -1,6 +1,5 @@
 package com.mezon.mobile.home.notifications
 
-import android.util.Log
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -9,11 +8,10 @@ import com.mezon.mezon.api.Notification
 import com.mezon.mobile.util.parseContentText
 import org.json.JSONObject
 
-private const val TAG = "NotifParse"
-
 const val NOTIF_CATEGORY_MENTIONS = 1
 const val NOTIF_CATEGORY_MESSAGES = 2
 const val NOTIF_CATEGORY_FOR_YOU = 3
+const val NOTIF_CATEGORY_TOPICS = 4
 
 @Entity(
     tableName = "notifications",
@@ -56,7 +54,6 @@ fun Notification.toNotificationEntity(): NotificationEntity {
             val bytes = content.toByteArray()
             val firstByte = bytes[0].toInt() and 0xFF
             if (firstByte == 123 || firstByte == 91) {
-                // Byte đầu là '{' (123) hoặc '[' (91) → raw JSON
                 val obj = JSONObject(content.toStringUtf8())
                 if (channelId == 0L) channelId = obj.optString("channel_id", "0").toLongOrNull() ?: 0L
                 if (clanId == 0L) clanId = obj.optString("clan_id", "0").toLongOrNull() ?: 0L
@@ -69,7 +66,6 @@ fun Notification.toNotificationEntity(): NotificationEntity {
                 } else obj.optString("t", "")
                 messageText = parseContentText(textRaw).ifEmpty { textRaw }
             } else {
-                // Proto-encoded DirectFcmProto
                 val fcm = DirectFcmProto.parseFrom(bytes)
                 if (channelId == 0L) channelId = fcm.channelId
                 if (clanId == 0L) clanId = fcm.clanId
@@ -84,7 +80,6 @@ fun Notification.toNotificationEntity(): NotificationEntity {
                 messageText = parseContentText(textRaw).ifEmpty { textRaw }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "content parse error id=$id", e)
         }
     }
 
@@ -112,14 +107,12 @@ fun Notification.toNotificationEntity(): NotificationEntity {
     )
 }
 
-// Dùng cho REST JSON response fallback
 fun parseNotificationsJson(jsonString: String): List<NotificationEntity> {
     return try {
         val root = JSONObject(jsonString)
         val arr = root.optJSONArray("notifications") ?: return emptyList()
         (0 until arr.length()).map { parseNotificationItemJson(arr.getJSONObject(it)) }
     } catch (e: Exception) {
-        Log.e(TAG, "parseNotificationsJson error", e)
         emptyList()
     }
 }
