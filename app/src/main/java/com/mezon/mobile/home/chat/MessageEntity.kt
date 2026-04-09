@@ -5,6 +5,7 @@ import androidx.room.Index
 import com.mezon.mezon.api.ChannelMessage
 import com.mezon.mezon.api.MessageAttachmentList
 import com.mezon.mezon.api.MessageMentionList
+import com.mezon.mezon.api.MessageReactionList
 import com.mezon.mezon.api.MessageRefList
 import org.json.JSONArray
 import org.json.JSONObject
@@ -19,6 +20,15 @@ data class AttachmentInfo(
     val filetype: String,
     val size: Int,
     val duration: Int
+)
+
+data class ReactionSender(val senderId: Long, val count: Int)
+
+data class ReactionGroup(
+    val emojiId: Long,
+    val emoji: String,
+    val senders: List<ReactionSender>,
+    val totalCount: Int
 )
 
 @Entity(
@@ -50,7 +60,8 @@ data class MessageEntity(
     val isForwarded: Boolean = false,
     val isError: Boolean = false,
     val extraAttachmentsJson: String = "",
-    val sendState: Int = SEND_STATE_SENT
+    val sendState: Int = SEND_STATE_SENT,
+    val reactionsJson: String = ""
 ) {
     companion object {
         const val UNREAD_DIVIDER_ID = Long.MIN_VALUE
@@ -123,6 +134,40 @@ data class MessageEntity(
     val isFileAttachment: Boolean
         get() = messageType == TYPE_FILE && attachmentUrl.isNotEmpty()
 
+    val hasReactions: Boolean
+        get() = reactionsJson.isNotEmpty() && reactionsJson != "[]"
+
+    fun combineReactions(): List<ReactionGroup> {
+        if (reactionsJson.isEmpty()) return emptyList()
+        return try {
+            val arr = JSONArray(reactionsJson)
+            val grouped = LinkedHashMap<Long, MutableList<ReactionSender>>()
+            val emojiNames = HashMap<Long, String>()
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                val emojiId = obj.optLong("emoji_id", 0L)
+                val count = obj.optInt("count", 0)
+                if (emojiId == 0L || count < 1) continue
+                emojiNames.putIfAbsent(emojiId, obj.optString("emoji", ""))
+                val senderId = obj.optLong("sender_id", 0L)
+                val senders = grouped.getOrPut(emojiId) { mutableListOf() }
+                val existing = senders.indexOfFirst { it.senderId == senderId }
+                if (existing >= 0) {
+                    senders[existing] = ReactionSender(senderId, count)
+                } else {
+                    senders.add(ReactionSender(senderId, count))
+                }
+            }
+            grouped.mapNotNull { (emojiId, senders) ->
+                val total = senders.sumOf { it.count }
+                if (total <= 0) return@mapNotNull null
+                ReactionGroup(emojiId, emojiNames[emojiId].orEmpty(), senders, total)
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
     fun hasMention(userId: String): Boolean {
         if (content.isBlank()) return false
         return try {
@@ -169,6 +214,34 @@ data class MessageEntity(
                     it.filetype.contains("gif", true) || it.url.contains("tenor.com", true)
             }
         }
+
+    fun buildAttachmentJson(): String {
+        if (attachmentUrl.isEmpty()) return ""
+        val arr = JSONArray()
+        val first = JSONObject()
+        first.put("url", attachmentUrl)
+        first.put("filename", attachmentFilename)
+        first.put("filetype", attachmentFiletype)
+        first.put("width", attachmentWidth)
+        first.put("height", attachmentHeight)
+        first.put("thumbnail", attachmentThumb)
+        first.put("size", attachmentSize)
+        first.put("duration", attachmentDuration)
+        arr.put(first)
+        for (extra in extraAttachments) {
+            val obj = JSONObject()
+            obj.put("url", extra.url)
+            obj.put("filename", extra.filename)
+            obj.put("filetype", extra.filetype)
+            obj.put("width", extra.width)
+            obj.put("height", extra.height)
+            obj.put("thumbnail", extra.thumb)
+            obj.put("size", extra.size)
+            obj.put("duration", extra.duration)
+            arr.put(obj)
+        }
+        return arr.toString()
+    }
 }
 
 fun ChannelMessage.toMessageEntity(currentUserId: Long): MessageEntity {
@@ -197,6 +270,8 @@ fun ChannelMessage.toMessageEntity(currentUserId: Long): MessageEntity {
         arr.toString()
     } else ""
 
+    val reactionsJson = parseReactionsToJson(reactions)
+
     return MessageEntity(
         id = messageId,
         channelId = channelId,
@@ -219,7 +294,8 @@ fun ChannelMessage.toMessageEntity(currentUserId: Long): MessageEntity {
         updateTimeSeconds = updateTimeSeconds.toLong(),
         hideEditted = hideEditted,
         isForwarded = forwarded,
-        extraAttachmentsJson = extraJson
+        extraAttachmentsJson = extraJson,
+        reactionsJson = reactionsJson
     )
 }
 
@@ -323,4 +399,61 @@ private fun resolveMessageType(attachment: ParsedAttachment?): Int {
         ft.startsWith("video/") -> MessageEntity.TYPE_VIDEO
         else -> MessageEntity.TYPE_FILE
     }
+}
+
+private fun parseReactionsToJson(bytes: com.google.protobuf.ByteString): String {
+    if (bytes.isEmpty) return ""
+    return try {
+        val list = MessageReactionList.parseFrom(bytes)
+        if (list.reactionsList.isEmpty()) return ""
+        val arr = JSONArray()
+        for (r in list.reactionsList) {
+            if (r.count < 1) continue
+            val obj = JSONObject()
+            obj.put("emoji_id", r.emojiId)
+            obj.put("emoji", r.emoji)
+            obj.put("sender_id", r.senderId)
+            obj.put("count", r.count)
+            arr.put(obj)
+        }
+        if (arr.length() == 0) "" else arr.toString()
+    } catch (_: Exception) {
+        ""
+    }
+}
+
+fun applyReactionEvent(
+    currentJson: String,
+    emojiId: Long,
+    emoji: String,
+    senderId: Long,
+    count: Int,
+    actionRemove: Boolean
+): String {
+    val arr = if (currentJson.isNotEmpty()) {
+        try { JSONArray(currentJson) } catch (_: Exception) { JSONArray() }
+    } else JSONArray()
+
+    var found = false
+    for (i in 0 until arr.length()) {
+        val obj = arr.getJSONObject(i)
+        if (obj.optLong("emoji_id") == emojiId && obj.optLong("sender_id") == senderId) {
+            if (actionRemove) {
+                obj.put("count", 0)
+            } else {
+                obj.put("count", obj.optInt("count", 0) + 1)
+            }
+            found = true
+            break
+        }
+    }
+    if (!found && !actionRemove) {
+        val obj = JSONObject()
+        obj.put("emoji_id", emojiId)
+        obj.put("emoji", emoji)
+        obj.put("sender_id", senderId)
+        obj.put("count", count.coerceAtLeast(1))
+        arr.put(obj)
+    }
+    return arr.toString()
 }

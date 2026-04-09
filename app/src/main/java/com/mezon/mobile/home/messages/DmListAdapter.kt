@@ -13,7 +13,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class DmListAdapter(
-    private val themeColors: ThemeColors
+    private val themeColors: ThemeColors,
+    private val buzzChecker: ((Long) -> Boolean)? = null
 ) : RecyclerView.Adapter<DmListAdapter.ViewHolder>() {
 
     companion object {
@@ -70,6 +71,7 @@ class DmListAdapter(
             val child = recyclerView.getChildAt(i)
             if (child is DialogCell) {
                 val current = child.directMessage ?: continue
+                child.hasBuzz = buzzChecker?.invoke(current.channelId) == true
                 val updated = dialogMap?.get(current.channelId)
                 if (child.update(mask, updated)) {
                     setData(dialogs ?: items)
@@ -92,6 +94,7 @@ class DmListAdapter(
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val dm = items[position]
+        holder.cell.hasBuzz = buzzChecker?.invoke(dm.channelId) == true
         holder.cell.update(0, dm)
     }
 

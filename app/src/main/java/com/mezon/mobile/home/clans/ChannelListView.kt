@@ -30,6 +30,7 @@ class ChannelListView(
 ) : LinearLayout(context) {
 
     var onChannelClick: ((channel: ClanChannelEntity) -> Unit)? = null
+    var onChannelLongClick: ((channel: ClanChannelEntity, anchorView: android.view.View) -> Unit)? = null
     var activeChannelId: Long = 0L
 
     private val recyclerView: RecyclerListView
@@ -68,12 +69,25 @@ class ChannelListView(
                 is ChannelThreadCell -> view.thread?.let { onChannelClick?.invoke(it) }
             }
         })
+        recyclerView.setOnItemLongClickListener(RecyclerListView.OnItemLongClickListener { view, _ ->
+            when (view) {
+                is ChannelItemCell -> {
+                    view.channel?.let { onChannelLongClick?.invoke(it, view) }
+                    true
+                }
+                is ChannelThreadCell -> {
+                    view.thread?.let { onChannelLongClick?.invoke(it, view) }
+                    true
+                }
+                else -> false
+            }
+        })
         addView(recyclerView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
     }
 
     fun bind(sections: List<ChannelSection>) {
-        val prevCategoryIds = currentSections.map { it.categoryId }.toSet()
-        val newCategoryIds = sections.map { it.categoryId }.toSet()
+        val prevCategoryIds = currentSections.mapNotNull { if (it.categoryId != FAVORITE_CATEGORY_ID) it.categoryId else null }.toSet()
+        val newCategoryIds = sections.mapNotNull { if (it.categoryId != FAVORITE_CATEGORY_ID) it.categoryId else null }.toSet()
         val isClanSwitch = prevCategoryIds.isNotEmpty() && prevCategoryIds != newCategoryIds
         currentSections = sections
         val newRows = buildRows(sections)
@@ -125,11 +139,17 @@ class ChannelListView(
     private fun buildRows(sections: List<ChannelSection>): List<ChannelRow> {
         val rows = mutableListOf<ChannelRow>()
         for (section in sections) {
+            val isFav = section.categoryId == FAVORITE_CATEGORY_ID
             val expanded = allExpanded || section.categoryId in expandedCategories
             if (section.categoryName.isNotEmpty()) {
-                rows.add(ChannelRow.Section(section.categoryId, section.categoryName, expanded))
+                rows.add(ChannelRow.Section(section.categoryId, section.categoryName, expanded, isFav))
             }
             if (expanded || section.categoryName.isEmpty()) {
+                if (isFav) {
+                    for (ch in section.channels) {
+                        rows.add(ChannelRow.Channel(ch, ch.channelId == activeChannelId, isFavorite = true))
+                    }
+                } else {
                 val visibleThreads = mutableListOf<Triple<ClanChannelEntity, Boolean, Boolean>>()
                 var lastParentId = 0L
                 for (ch in section.channels) {
@@ -166,6 +186,7 @@ class ChannelListView(
                         rows.add(ChannelRow.Thread(t.first, t.second, isLast, t.third))
                     }
                     visibleThreads.clear()
+                }
                 }
             }
         }
@@ -258,7 +279,7 @@ class ChannelListView(
 
         override fun getItemId(pos: Int): Long = when (val row = rows[pos]) {
             is ChannelRow.Section -> -row.categoryId
-            is ChannelRow.Channel -> row.channel.channelId
+            is ChannelRow.Channel -> if (row.isFavorite) row.channel.channelId.inv() else row.channel.channelId
             is ChannelRow.Thread -> row.thread.channelId
             is ChannelRow.VoiceMember -> Long.MAX_VALUE - row.member.userId xor row.channelId
         }
@@ -283,7 +304,7 @@ class ChannelListView(
         override fun onBindViewHolder(holder: RecyclerView.ViewHolder, pos: Int) {
             when (val row = rows[pos]) {
                 is ChannelRow.Section -> {
-                    (holder as SectionVH).cell.bind(row.categoryName, row.isExpanded)
+                    (holder as SectionVH).cell.bind(row.categoryName, row.isExpanded, row.isFavorite)
                 }
                 is ChannelRow.Channel -> {
                     (holder as ChannelVH).cell.bind(row.channel, row.isActive, row.voiceActive)
@@ -319,7 +340,7 @@ private class RowDiffCallback(
     override fun areItemsTheSame(o: Int, n: Int): Boolean {
         val a = old[o]; val b = new[n]
         if (a is ChannelRow.Section && b is ChannelRow.Section) return a.categoryId == b.categoryId
-        if (a is ChannelRow.Channel && b is ChannelRow.Channel) return a.channel.channelId == b.channel.channelId
+        if (a is ChannelRow.Channel && b is ChannelRow.Channel) return a.channel.channelId == b.channel.channelId && a.isFavorite == b.isFavorite
         if (a is ChannelRow.Thread && b is ChannelRow.Thread) return a.thread.channelId == b.thread.channelId
         if (a is ChannelRow.VoiceMember && b is ChannelRow.VoiceMember) return a.channelId == b.channelId && a.member.userId == b.member.userId
         return false
@@ -334,8 +355,18 @@ data class VoiceMemberDisplay(
 )
 
 sealed class ChannelRow {
-    data class Section(val categoryId: Long, val categoryName: String, val isExpanded: Boolean) : ChannelRow()
-    data class Channel(val channel: ClanChannelEntity, val isActive: Boolean, val voiceActive: Boolean = false) : ChannelRow()
+    data class Section(
+        val categoryId: Long,
+        val categoryName: String,
+        val isExpanded: Boolean,
+        val isFavorite: Boolean = false
+    ) : ChannelRow()
+    data class Channel(
+        val channel: ClanChannelEntity,
+        val isActive: Boolean,
+        val isFavorite: Boolean = false,
+        val voiceActive: Boolean = false
+    ) : ChannelRow()
     data class Thread(val thread: ClanChannelEntity, val isFirst: Boolean, val isLast: Boolean, val isActive: Boolean) : ChannelRow()
     data class VoiceMember(val channelId: Long, val member: VoiceMemberDisplay) : ChannelRow()
 }

@@ -20,6 +20,8 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.security.MessageDigest
+import android.graphics.Matrix
+import android.media.ExifInterface
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.ThreadPoolExecutor
@@ -35,6 +37,11 @@ class MezonImageLoader private constructor(context: Context) {
         .build()
 
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    private inline fun runOnMain(crossinline block: () -> Unit) {
+        if (Looper.myLooper() == Looper.getMainLooper()) block()
+        else mainHandler.post { block() }
+    }
 
     private val maxMemory = (Runtime.getRuntime().maxMemory() / 1024).toInt()
     private val totalCacheSize = maxMemory / 6
@@ -121,7 +128,7 @@ class MezonImageLoader private constructor(context: Context) {
         val cacheKey = cacheKey(url, reqWidth, reqHeight)
 
         getFromMemory(cacheKey)?.let { cached ->
-            mainHandler.post { onSuccess(cached) }
+            runOnMain { onSuccess(cached) }
             return Cancellable.EMPTY
         }
 
@@ -165,7 +172,7 @@ class MezonImageLoader private constructor(context: Context) {
 
         val diskFile = diskFile(cacheKey)
         if (diskFile.exists()) {
-            decodeAnimatedInBackground(diskFile, cacheKey)
+            decodeAnimatedInBackground(diskFile, cacheKey, reqWidth, reqHeight)
             return Cancellable { removePendingCallback(cacheKey, cb) }
         }
 
@@ -187,11 +194,12 @@ class MezonImageLoader private constructor(context: Context) {
                     return
                 }
                 try {
-                    val bytes = response.body?.bytes() ?: throw IOException("Empty body")
+                    response.body?.byteStream()?.use { input ->
+                        FileOutputStream(diskFile).use { output -> input.copyTo(output) }
+                    } ?: throw IOException("Empty body")
                     response.close()
-                    FileOutputStream(diskFile).use { it.write(bytes) }
                     trimDiskCache()
-                    decodeAnimatedInBackground(diskFile, cacheKey)
+                    decodeAnimatedInBackground(diskFile, cacheKey, reqWidth, reqHeight)
                 } catch (e: Exception) {
                     dispatchError(cacheKey, e as? Exception ?: Exception(e))
                 }
@@ -252,27 +260,14 @@ class MezonImageLoader private constructor(context: Context) {
                 }
 
                 try {
-                    val bytes = response.body?.bytes() ?: throw IOException("Empty body")
-                    response.close()
-
                     val diskFile = diskFile(cacheKey)
-                    FileOutputStream(diskFile).use { it.write(bytes) }
+                    response.body?.byteStream()?.use { input ->
+                        FileOutputStream(diskFile).use { output -> input.copyTo(output) }
+                    } ?: throw IOException("Empty body")
+                    response.close()
                     trimDiskCache()
 
-                    val opts = BitmapFactory.Options()
-                    opts.inJustDecodeBounds = true
-                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
-                    opts.inSampleSize = calculateInSampleSize(opts, reqWidth, reqHeight)
-                    opts.inJustDecodeBounds = false
-                    opts.inPreferredConfig = Bitmap.Config.ARGB_8888
-
-                    val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
-                    if (bmp != null) {
-                        putToMemory(cacheKey, bmp, reqWidth, reqHeight)
-                        dispatchSuccess(cacheKey, bmp)
-                    } else {
-                        dispatchError(cacheKey, IOException("Decode failed"))
-                    }
+                    decodeInBackground(diskFile, cacheKey, reqWidth, reqHeight)
                 } catch (e: Exception) {
                     dispatchError(cacheKey, e as? Exception ?: Exception(e))
                 }
@@ -288,9 +283,12 @@ class MezonImageLoader private constructor(context: Context) {
                 BitmapFactory.decodeFile(file.absolutePath, opts)
                 opts.inSampleSize = calculateInSampleSize(opts, reqWidth, reqHeight)
                 opts.inJustDecodeBounds = false
-                opts.inPreferredConfig = Bitmap.Config.ARGB_8888
-                val bmp = BitmapFactory.decodeFile(file.absolutePath, opts)
+                val isSmallThumb = reqWidth <= SMALL_IMAGE_THRESHOLD && reqHeight <= SMALL_IMAGE_THRESHOLD
+                opts.inPreferredConfig = if (isSmallThumb) Bitmap.Config.RGB_565 else Bitmap.Config.ARGB_8888
+                var bmp = BitmapFactory.decodeFile(file.absolutePath, opts)
                 if (bmp != null) {
+                    bmp = clampBitmap(bmp, reqWidth, reqHeight)
+                    bmp = applyExifRotation(file, bmp)
                     putToMemory(cacheKey, bmp, reqWidth, reqHeight)
                     dispatchSuccess(cacheKey, bmp)
                 } else {
@@ -303,19 +301,32 @@ class MezonImageLoader private constructor(context: Context) {
         }
     }
 
-    private fun decodeAnimatedInBackground(file: File, cacheKey: String) {
+    private fun decodeAnimatedInBackground(file: File, cacheKey: String, reqWidth: Int = 0, reqHeight: Int = 0) {
         DECODE_EXECUTOR.execute {
             try {
-                // Decode first frame as Bitmap and cache it for instant placeholder on rebind
-                val firstFrame = BitmapFactory.decodeFile(file.absolutePath)
+                val targetW = if (reqWidth > 0) reqWidth else 800
+                val targetH = if (reqHeight > 0) reqHeight else 800
+
+                val boundsOpts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeFile(file.absolutePath, boundsOpts)
+                val sampleSize = calculateInSampleSize(boundsOpts, targetW, targetH)
+                val decodeOpts = BitmapFactory.Options().apply {
+                    inSampleSize = sampleSize
+                    inPreferredConfig = Bitmap.Config.ARGB_8888
+                }
+                var firstFrame = BitmapFactory.decodeFile(file.absolutePath, decodeOpts)
                 if (firstFrame != null) {
-                    putToMemory(cacheKey, firstFrame, 800, 800)
+                    firstFrame = clampBitmap(firstFrame, targetW, targetH)
+                    putToMemory(cacheKey, firstFrame, targetW, targetH)
                 }
 
                 if (Build.VERSION.SDK_INT >= 28) {
                     val source = ImageDecoder.createSource(file)
                     val drawable = ImageDecoder.decodeDrawable(source) { decoder, _, _ ->
                         decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                        if (reqWidth > 0 && reqHeight > 0) {
+                            decoder.setTargetSize(reqWidth, reqHeight)
+                        }
                     }
                     dispatchSuccess(cacheKey, drawable)
                 } else {
@@ -345,6 +356,12 @@ class MezonImageLoader private constructor(context: Context) {
     fun clearMemoryCache() {
         smallCache.evictAll()
         largeCache.evictAll()
+    }
+
+    fun removeFromCache(url: String, reqWidth: Int, reqHeight: Int) {
+        val key = cacheKey(url, reqWidth, reqHeight)
+        smallCache.remove(key)
+        largeCache.remove(key)
     }
 
     private fun cacheKey(url: String, w: Int, h: Int): String {
@@ -390,7 +407,7 @@ class MezonImageLoader private constructor(context: Context) {
         val cacheKey = cacheKey(uri.toString(), reqWidth, reqHeight)
 
         getFromMemory(cacheKey)?.let { cached ->
-            mainHandler.post { onSuccess(cached) }
+            runOnMain { onSuccess(cached) }
             return Cancellable.EMPTY
         }
 
@@ -402,17 +419,21 @@ class MezonImageLoader private constructor(context: Context) {
 
         DECODE_EXECUTOR.execute {
             try {
-                val stream = appContext.contentResolver.openInputStream(uri)
-                    ?: throw IOException("Cannot open URI: $uri")
-                val bytes = stream.use { it.readBytes() }
+                val tmpFile = diskFile(cacheKey)
+                appContext.contentResolver.openInputStream(uri)?.use { input ->
+                    FileOutputStream(tmpFile).use { output -> input.copyTo(output) }
+                } ?: throw IOException("Cannot open URI: $uri")
+
                 val opts = BitmapFactory.Options()
                 opts.inJustDecodeBounds = true
-                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+                BitmapFactory.decodeFile(tmpFile.absolutePath, opts)
                 opts.inSampleSize = calculateInSampleSize(opts, reqWidth, reqHeight)
                 opts.inJustDecodeBounds = false
                 opts.inPreferredConfig = Bitmap.Config.ARGB_8888
-                val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+                var bmp = BitmapFactory.decodeFile(tmpFile.absolutePath, opts)
                 if (bmp != null) {
+                    bmp = clampBitmap(bmp, reqWidth, reqHeight)
+                    bmp = applyExifRotation(tmpFile, bmp)
                     putToMemory(cacheKey, bmp, reqWidth, reqHeight)
                     dispatchSuccess(cacheKey, bmp)
                 } else {
@@ -469,19 +490,65 @@ class MezonImageLoader private constructor(context: Context) {
             return url.startsWith("http://") || url.startsWith("https://")
         }
 
-        private fun calculateInSampleSize(options: BitmapFactory.Options, reqWidth: Int, reqHeight: Int): Int {
-            val height = options.outHeight
-            val width = options.outWidth
-            var inSampleSize = 1
-            if (reqWidth <= 0 || reqHeight <= 0) return 1
-            if (height > reqHeight || width > reqWidth) {
-                val halfH = height / 2
-                val halfW = width / 2
-                while (halfH / inSampleSize >= reqHeight && halfW / inSampleSize >= reqWidth) {
-                    inSampleSize *= 2
+        private fun applyExifRotation(file: File, bmp: Bitmap): Bitmap {
+            try {
+                val exif = ExifInterface(file.absolutePath)
+                val orient = exif.getAttributeInt(
+                    ExifInterface.TAG_ORIENTATION,
+                    ExifInterface.ORIENTATION_NORMAL
+                )
+                val matrix = Matrix()
+                when (orient) {
+                    ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+                    ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+                    ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+                    ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.postScale(-1f, 1f)
+                    ExifInterface.ORIENTATION_FLIP_VERTICAL -> {
+                        matrix.postRotate(180f); matrix.postScale(-1f, 1f)
+                    }
+                    ExifInterface.ORIENTATION_TRANSPOSE -> {
+                        matrix.postRotate(90f); matrix.postScale(-1f, 1f)
+                    }
+                    ExifInterface.ORIENTATION_TRANSVERSE -> {
+                        matrix.postRotate(270f); matrix.postScale(-1f, 1f)
+                    }
+                    else -> return bmp
                 }
+                val rotated = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, matrix, true)
+                if (rotated !== bmp) bmp.recycle()
+                return rotated
+            } catch (_: Exception) {
+                return bmp
             }
-            return inSampleSize
+        }
+
+        private fun calculateInSampleSize(options: BitmapFactory.Options, reqWidth: Int, reqHeight: Int): Int {
+            val photoW = options.outWidth.toFloat()
+            val photoH = options.outHeight.toFloat()
+            if (reqWidth <= 0 || reqHeight <= 0 || photoW <= 0f || photoH <= 0f) return 1
+
+            val scaleFactor = if (photoW > photoH) {
+                maxOf(photoW / reqWidth, photoH / reqHeight)
+            } else {
+                minOf(photoW / reqWidth, photoH / reqHeight)
+            }
+            if (scaleFactor <= 1.2f) return 1
+            var sample = 1
+            while (sample * 2 < scaleFactor) {
+                sample *= 2
+            }
+            return sample
+        }
+
+        private fun clampBitmap(bmp: Bitmap, reqWidth: Int, reqHeight: Int): Bitmap {
+            if (reqWidth <= 0 || reqHeight <= 0) return bmp
+            if (bmp.width <= reqWidth + 20 && bmp.height <= reqHeight + 20) return bmp
+            val scale = minOf(reqWidth.toFloat() / bmp.width, reqHeight.toFloat() / bmp.height)
+            val dstW = (bmp.width * scale).toInt().coerceAtLeast(1)
+            val dstH = (bmp.height * scale).toInt().coerceAtLeast(1)
+            val scaled = Bitmap.createScaledBitmap(bmp, dstW, dstH, true)
+            if (scaled !== bmp) bmp.recycle()
+            return scaled
         }
     }
 }

@@ -187,7 +187,7 @@ class DrawerLayoutContainer(context: Context) : FrameLayout(context) {
                 (measuredHeight - combined.bottom).toFloat(),
                 measuredWidth.toFloat(),
                 measuredHeight.toFloat(),
-                internalNavbarPaint
+                backgroundPaint
             )
         }
 

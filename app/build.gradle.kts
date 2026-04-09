@@ -103,6 +103,7 @@ android {
         // Misc
         buildConfigField("String", "MEZON_ANONYMOUS_USER_ID", "\"1767478432163172999\"")
         buildConfigField("int", "MEZON_MAX_LENGTH_NAME_ALLOWED", "64")
+        buildConfigField("String", "MEZON_MMN_API_URL", "\"https://dong.mezon.ai/mmn-api/\"")
     }
 
     signingConfigs {

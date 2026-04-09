@@ -41,24 +41,19 @@ class SearchCell(context: Context, private val theme: ThemeColors) : LinearLayou
         barContainer = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = LayoutHelper.dp(40)
             background = GradientDrawable().apply {
                 setColor(theme.surfaceVariant)
-                cornerRadius = LayoutHelper.dpf(20f)
+                cornerRadius = LayoutHelper.dpf(50f)
             }
-            val padH = LayoutHelper.dp(12)
-            setPadding(padH, LayoutHelper.dp(8), padH, LayoutHelper.dp(8))
+            val padH = LayoutHelper.dp(15)
+            setPadding(padH, 0, padH, 0)
         }
 
         searchIcon = ImageView(context).apply {
-            val drawable = MezonIcon.searchIcon.getDrawable(context)
-            drawable.colorFilter = android.graphics.PorterDuffColorFilter(theme.onSurface, android.graphics.PorterDuff.Mode.SRC_IN)
-            setImageDrawable(drawable)
-            setOnClickListener {
-                editText.requestFocus()
-                AndroidUtilities.showKeyboard(editText)
-            }
+            setImageDrawable(MezonIcon.searchIcon.getDrawable(context))
         }
-        barContainer.addView(searchIcon, LayoutHelper.createLinear(20, 20, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, 8f, 0f))
+        barContainer.addView(searchIcon, LayoutHelper.createLinear(20, 20, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, 10f, 0f))
 
         badgeView = TextView(context).apply {
             textSize = 12f
@@ -92,13 +87,15 @@ class SearchCell(context: Context, private val theme: ThemeColors) : LinearLayou
             setTextColor(theme.onSurface)
             setHintTextColor(theme.onSurfaceVariant)
             hint = "Search"
-            textSize = 15f
+            textSize = 14f
             background = null
             setPadding(0, 0, 0, 0)
             isSingleLine = true
+            includeFontPadding = false
+            gravity = Gravity.CENTER_VERTICAL
             imeOptions = EditorInfo.IME_ACTION_SEARCH
         }
-        barContainer.addView(editText, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f))
+        barContainer.addView(editText, LayoutHelper.createLinear(0, LayoutHelper.MATCH_PARENT, 1f))
 
         clearButton = ImageView(context).apply {
             setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
@@ -110,6 +107,10 @@ class SearchCell(context: Context, private val theme: ThemeColors) : LinearLayou
         }
         barContainer.addView(clearButton, LayoutHelper.createLinear(18, 18, 0f, Gravity.CENTER_VERTICAL, 8f, 0f, 0f, 0f))
 
+        barContainer.setOnClickListener {
+            editText.requestFocus()
+            AndroidUtilities.showKeyboard(editText)
+        }
         addView(barContainer, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f))
 
         cancelButton = TextView(context).apply {
@@ -122,7 +123,7 @@ class SearchCell(context: Context, private val theme: ThemeColors) : LinearLayou
                 onCancelClick?.invoke()
             }
         }
-        addView(cancelButton, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.CENTER_VERTICAL, 12f, 0f, 0f, 0f))
+        addView(cancelButton, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.CENTER_VERTICAL, 15f, 0f, 0f, 0f))
 
         editText.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}

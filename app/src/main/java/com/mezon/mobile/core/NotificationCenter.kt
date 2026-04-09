@@ -81,6 +81,7 @@ class NotificationCenter(val currentAccount: Int) {
         val clanInfoUpdated = nextId()
         val accountInfoLoaded = nextId()
         val blockedUsersLoaded = nextId()
+        val friendsLoaded = nextId()
         val notificationsDidLoad = nextId()
         val notificationsLoadError = nextId()
 
@@ -109,6 +110,14 @@ class NotificationCenter(val currentAccount: Int) {
         val emojisNeedReload = nextId()
         val stickersNeedReload = nextId()
         val gifsNeedReload = nextId()
+        val buzzMessageReceived = nextId()
+        val anonymousModeChanged = nextId()
+        val reactionDidUpdate = nextId()
+        val favoriteChannelsChanged = nextId()
+        val pinMessagesDidLoad = nextId()
+        val pinMessageAdded = nextId()
+        val pinMessageRemoved = nextId()
+        val jumpToMessage = nextId()
 
         val voiceChannelMembersChanged = nextId()
         val voiceJoinedRoom = nextId()

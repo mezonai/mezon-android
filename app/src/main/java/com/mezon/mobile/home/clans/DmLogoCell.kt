@@ -24,8 +24,8 @@ class DmLogoCell(
         private const val DEFAULT_LOGO_URL = "https://cdn.mezon.ai/landing-page-mezon/logodefault.webp"
     }
 
-    private val iconSizePx = LayoutHelper.dp(40)
-    private val cornerRadius = LayoutHelper.dp(12).toFloat()
+    private val iconSizePx = LayoutHelper.dp(42)
+    private val cornerRadius = LayoutHelper.dp(8).toFloat()
     private val fallbackDrawable: Drawable = MezonIcon.logoMezon.getDrawable(context).mutate()
     private var logoBitmap: Bitmap? = null
     private var currentLogoUrl: String = ""

@@ -36,6 +36,9 @@ class MainTabsActivity : ViewPagerActivity() {
     private lateinit var accountController: AccountController
     @Suppress("unused")
     private lateinit var voiceController: com.mezon.mobile.home.voice.VoiceController
+    private lateinit var anonymousController: AnonymousController
+    @Suppress("unused")
+    private lateinit var pinMessageController: PinMessageController
 
     var onLogout: (() -> Unit)? = null
     var onOpenChat: ((channelId: Long, channelName: String, clanId: Long, channelType: Int) -> Unit)? = null
@@ -80,6 +83,8 @@ class MainTabsActivity : ViewPagerActivity() {
         messagesController = entryPoint.messagesController()
         accountController = entryPoint.accountController()
         voiceController = entryPoint.voiceController()
+        anonymousController = entryPoint.anonymousController()
+        pinMessageController = entryPoint.pinMessageController()
         entryPoint.notificationStore()
     }
 
@@ -109,7 +114,15 @@ class MainTabsActivity : ViewPagerActivity() {
     }
 
     override fun createView(context: Context): View {
-        contentRoot = FrameLayout(context).apply {
+        contentRoot = object : FrameLayout(context) {
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                val sbh = AndroidUtilities.statusBarHeight
+                if (paddingTop != sbh) {
+                    setPadding(0, sbh, 0, 0)
+                }
+                super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+            }
+        }.apply {
             setBackgroundColor(themeColors.serverRailBg)
             setPadding(0, AndroidUtilities.statusBarHeight, 0, 0)
             clipToPadding = false

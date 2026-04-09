@@ -122,7 +122,7 @@ open class BottomSheet(
         private set
 
     private var customView: View? = null
-    private var containerHeight = ViewGroup.LayoutParams.WRAP_CONTENT
+    protected var containerHeight = ViewGroup.LayoutParams.WRAP_CONTENT
     private var dismissed = false
     private var allowCustomAnimation = true
     @JvmField protected var canDismissWithSwipe = true
@@ -270,7 +270,7 @@ open class BottomSheet(
     }
 
     open fun setBackgroundColor(color: Int) {
-        shadowDrawable?.setTint(color)
+        (shadowDrawable as? GradientDrawable)?.setColor(color)
     }
 
     fun setItems(itemTexts: Array<CharSequence>, icons: IntArray? = null, listener: OnClickListener?) {
@@ -309,14 +309,16 @@ open class BottomSheet(
         val vc = ViewConfiguration.get(context)
         touchSlop = vc.scaledTouchSlop
 
-        // Shadow drawable for rounded top corners
-        val padding = Rect()
-        shadowDrawable = context.resources.getDrawable(android.R.drawable.dialog_holo_light_frame, null)?.mutate()?.also {
-            it.setTint(theme.getColor(ThemeColors.key_sheetBackground))
-            it.getPadding(padding)
+        backgroundPaddingLeft = 0
+        backgroundPaddingTop = 0
+        shadowDrawable = GradientDrawable().apply {
+            setColor(theme.getColor(ThemeColors.key_sheetBackground))
+            cornerRadii = floatArrayOf(
+                LayoutHelper.dp(14).toFloat(), LayoutHelper.dp(14).toFloat(),
+                LayoutHelper.dp(14).toFloat(), LayoutHelper.dp(14).toFloat(),
+                0f, 0f, 0f, 0f
+            )
         }
-        backgroundPaddingLeft = padding.left
-        backgroundPaddingTop = padding.top
 
         // --- Container (full-screen overlay) ---
         container = ContainerView(context)
@@ -333,24 +335,23 @@ open class BottomSheet(
             v.requestLayout()
             if (Build.VERSION.SDK_INT >= 30) WindowInsets.CONSUMED else insets.consumeSystemWindowInsets()
         }
+        if (Build.VERSION.SDK_INT >= 30) {
+            container.systemUiVisibility = View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                    View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                    View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+        } else {
+            container.systemUiVisibility = View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                    View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+        }
 
         backDrawable.alpha = 0
 
         // --- containerView (content panel) ---
-        val bgDrawable = GradientDrawable().apply {
-            setColor(theme.getColor(ThemeColors.key_sheetBackground))
-            cornerRadii = floatArrayOf(
-                LayoutHelper.dp(14).toFloat(), LayoutHelper.dp(14).toFloat(),
-                LayoutHelper.dp(14).toFloat(), LayoutHelper.dp(14).toFloat(),
-                0f, 0f, 0f, 0f
-            )
-        }
-
         containerView = FrameLayout(context).apply {
-            background = bgDrawable
+            background = shadowDrawable
             setPadding(
                 backgroundPaddingLeft,
-                (if (applyTopPadding) LayoutHelper.dp(8) else 0) + backgroundPaddingTop,
+                if (applyTopPadding) LayoutHelper.dp(8) else 0,
                 backgroundPaddingLeft,
                 if (applyBottomPadding) LayoutHelper.dp(8) else 0
             )
@@ -375,8 +376,8 @@ open class BottomSheet(
         }
         contentLayout!!.addView(handleView, LinearLayout.LayoutParams(LayoutHelper.dp(36), LayoutHelper.dp(4)).apply {
             gravity = Gravity.CENTER_HORIZONTAL
-            topMargin = if (applyTopPadding) LayoutHelper.dp(10) else 0
-            bottomMargin = if (applyBottomPadding) LayoutHelper.dp(10) else 0
+            topMargin = LayoutHelper.dp(10)
+            bottomMargin = LayoutHelper.dp(10)
         })
 
         // Title
@@ -454,15 +455,16 @@ open class BottomSheet(
             lp.gravity = Gravity.TOP or Gravity.LEFT
             lp.dimAmount = 0f // we control dim ourselves via backDrawable
             lp.flags = lp.flags and WindowManager.LayoutParams.FLAG_DIM_BEHIND.inv()
+            lp.flags = lp.flags or (WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                    or WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
             if (needFocusable) {
                 lp.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
             } else {
+                lp.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
                 lp.flags = lp.flags or WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM
             }
             if (isFullscreen) {
-                lp.flags = lp.flags or (WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-                        or WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR
-                        or WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS
+                lp.flags = lp.flags or (WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR
                         or WindowManager.LayoutParams.FLAG_FULLSCREEN)
             }
             if (Build.VERSION.SDK_INT >= 28) {
@@ -489,10 +491,11 @@ open class BottomSheet(
             )
         }
 
-        if (showWithoutAnimation || !SharedConfig.animationsEnabled()) {
+        if (showWithoutAnimation) {
             backDrawable.alpha = if (dimBehind) dimAlpha else 0
             containerView?.translationY = 0f
             containerView?.visibility = View.VISIBLE
+            onContainerViewTranslation()
             delegate?.onOpenAnimationStart()
             delegate?.onOpenAnimationEnd()
             onOpenAnimationEnd()
@@ -506,6 +509,7 @@ open class BottomSheet(
                 (containerView?.measuredHeight ?: AndroidUtilities.dp(300)) +
                 (if (scrollNavBar) AndroidUtilities.navigationBarHeight.coerceAtMost(getBottomInsetInternal()).coerceAtLeast(0) else 0)
                 ).toFloat()
+        onContainerViewTranslation()
 
         val delay = if (openNoDelay) 0L else 150L
         startAnimationRunnable = Runnable {
@@ -535,6 +539,7 @@ open class BottomSheet(
                         AndroidUtilities.navigationBarHeight.coerceAtMost(getBottomInsetInternal()).coerceAtLeast(0)
                         ).toFloat()
             }
+            onContainerViewTranslation()
 
             currentSheetAnimationType = 1
             navigationBarAnimation?.cancel()
@@ -549,7 +554,9 @@ open class BottomSheet(
                 val animators = ArrayList<Animator>()
                 animators.add(ObjectAnimator.ofFloat(cv, View.TRANSLATION_X, 0f))
                 animators.add(ObjectAnimator.ofFloat(cv, View.ALPHA, 1f))
-                animators.add(ObjectAnimator.ofFloat(cv, View.TRANSLATION_Y, 0f))
+                animators.add(ObjectAnimator.ofFloat(cv, View.TRANSLATION_Y, 0f).apply {
+                    addUpdateListener { onContainerViewTranslation() }
+                })
                 animators.add(ObjectAnimator.ofInt(backDrawable, "alpha", if (dimBehind) dimAlpha else 0))
                 navigationBarAnimation?.let { animators.add(it) }
                 playTogether(animators)
@@ -612,6 +619,7 @@ open class BottomSheet(
         if (skipDismissAnimation) {
             AndroidUtilities.runOnUIThread { dismissInternal() }
         } else if (!allowCustomAnimation || !onCustomCloseAnimation()) {
+            AndroidUtilities.hideKeyboard(container)
             currentSheetAnimationType = 2
             navigationBarAnimation?.cancel()
             navigationBarAnimation = ValueAnimator.ofFloat(navigationBarAlpha, 0f).apply {
@@ -633,7 +641,9 @@ open class BottomSheet(
                             (getContainerViewHeight() + keyboardHeight + LayoutHelper.dp(10) +
                                     AndroidUtilities.navigationBarHeight.coerceAtMost(getBottomInsetInternal()).coerceAtLeast(0)
                                     ).toFloat()
-                        ))
+                        ).apply {
+                            addUpdateListener { onContainerViewTranslation() }
+                        })
                     }
                 }
                 animators.add(ObjectAnimator.ofInt(backDrawable, "alpha", 0))
@@ -679,12 +689,15 @@ open class BottomSheet(
 
         currentSheetAnimation = AnimatorSet().apply {
             val cv = containerView ?: return
+            val translationYAnim = ObjectAnimator.ofFloat(cv, View.TRANSLATION_Y,
+                (getContainerViewHeight() + keyboardHeight + LayoutHelper.dp(10) +
+                        AndroidUtilities.navigationBarHeight.coerceAtMost(getBottomInsetInternal()).coerceAtLeast(0)
+                        ).toFloat()
+            ).apply {
+                addUpdateListener { onContainerViewTranslation() }
+            }
             playTogether(
-                ObjectAnimator.ofFloat(cv, View.TRANSLATION_Y,
-                    (getContainerViewHeight() + keyboardHeight + LayoutHelper.dp(10) +
-                            AndroidUtilities.navigationBarHeight.coerceAtMost(getBottomInsetInternal()).coerceAtLeast(0)
-                            ).toFloat()
-                ),
+                translationYAnim,
                 ObjectAnimator.ofInt(backDrawable, "alpha", 0)
             )
             duration = 180
@@ -1064,6 +1077,7 @@ open class BottomSheet(
         }
 
         override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+            layoutCount--
             val adjustedBottom = bottom - (if (lastInsets != null && !drawNavigationBar) this@BottomSheet.bottomInset else 0)
 
             containerView?.let { cv ->
@@ -1101,7 +1115,6 @@ open class BottomSheet(
                 startAnimationRunnable?.run()
                 startAnimationRunnable = null
             }
-            layoutCount = (layoutCount - 1).coerceAtLeast(0)
         }
 
         override fun onDraw(canvas: Canvas) {

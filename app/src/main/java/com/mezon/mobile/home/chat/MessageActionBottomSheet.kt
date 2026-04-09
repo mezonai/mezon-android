@@ -3,9 +3,6 @@ package com.mezon.mobile.home.chat
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.graphics.Canvas
-import android.graphics.Paint
-import android.graphics.RectF
 import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
@@ -56,6 +53,8 @@ class MessageActionBottomSheet(
 
     interface MessageActionListener {
         fun onActionSelected(action: ActionType, message: MessageEntity)
+        fun onReactionSelected(emojiId: Long, emoji: String, message: MessageEntity) {}
+        fun onOpenEmojiPicker(message: MessageEntity) {}
     }
 
     private val theme: ThemeColors = ThemeColors.instance
@@ -85,6 +84,18 @@ class MessageActionBottomSheet(
             orientation = LinearLayout.VERTICAL
             setPadding(0, LayoutHelper.dp(20), 0, LayoutHelper.dp(20))
         }
+
+        rootLayout.addView(
+            buildQuickReactionStrip(),
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                leftMargin = LayoutHelper.dp(12)
+                rightMargin = LayoutHelper.dp(12)
+                bottomMargin = LayoutHelper.dp(6)
+            }
+        )
 
         val frequentActions = buildFrequentActions()
         val normalActions = buildNormalActions()
@@ -153,6 +164,7 @@ class MessageActionBottomSheet(
         setCustomView(scrollView)
 
         super.onCreate(savedInstanceState)
+        fixNavigationBar()
     }
 
 
@@ -164,6 +176,83 @@ class MessageActionBottomSheet(
     )
 
   
+    private fun buildQuickReactionStrip(): LinearLayout {
+        val strip = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        data class QuickEmoji(val id: Long, val shortname: String)
+        val fallbacks = listOf(
+            QuickEmoji(7227274405304181951L, ":100:"),
+            QuickEmoji(7227274405302432668L, ":joy:"),
+            QuickEmoji(7227274405303613492L, ":like:"),
+            QuickEmoji(7227274405305046042L, ":laughing:"),
+            QuickEmoji(7227274405301971870L, ":innocent:")
+        )
+
+        val emojiSize = LayoutHelper.dp(22)
+        val btnPad = LayoutHelper.dp(10)
+        val loader = MezonImageLoader.getInstance(context)
+
+        for (qe in fallbacks) {
+            val btn = FrameLayout(context).apply {
+                val bg = GradientDrawable().apply {
+                    setColor(secondaryColor)
+                    cornerRadius = LayoutHelper.dp(50).toFloat()
+                }
+                background = bg
+                setPadding(btnPad, btnPad, btnPad, btnPad)
+            }
+            val iv = ImageView(context).apply {
+                scaleType = ImageView.ScaleType.FIT_CENTER
+            }
+            btn.addView(iv, FrameLayout.LayoutParams(emojiSize, emojiSize, Gravity.CENTER))
+
+            val url = com.mezon.mobile.util.getEmojiUrl(qe.id.toString())
+            if (url != null) {
+                loader.load(url, emojiSize, emojiSize, onSuccess = { bmp ->
+                    iv.setImageBitmap(bmp)
+                })
+            }
+
+            btn.setOnClickListener {
+                listener.onReactionSelected(qe.id, qe.shortname, message)
+                dismiss()
+            }
+
+            strip.addView(btn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                leftMargin = if (qe == fallbacks.first()) 0 else LayoutHelper.dp(4)
+                rightMargin = if (qe == fallbacks.last()) 0 else LayoutHelper.dp(4)
+            })
+        }
+
+        val plusBtn = FrameLayout(context).apply {
+            val bg = GradientDrawable().apply {
+                setColor(secondaryColor)
+                cornerRadius = LayoutHelper.dp(50).toFloat()
+            }
+            background = bg
+            setPadding(btnPad, btnPad, btnPad, btnPad)
+        }
+        val plusIv = ImageView(context).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            val d = com.mezon.mobile.ui.cells.MezonIcon.reactionIcon.getDrawable(context)
+            d.colorFilter = android.graphics.PorterDuffColorFilter(theme.onSurface, android.graphics.PorterDuff.Mode.SRC_IN)
+            setImageDrawable(d)
+        }
+        plusBtn.addView(plusIv, FrameLayout.LayoutParams(emojiSize, emojiSize, Gravity.CENTER))
+        plusBtn.setOnClickListener {
+            listener.onOpenEmojiPicker(message)
+            dismiss()
+        }
+        strip.addView(plusBtn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+            leftMargin = LayoutHelper.dp(4)
+        })
+
+        return strip
+    }
+
     private fun buildFrequentActions(): List<ActionItem> {
         val actions = mutableListOf<ActionItem>()
 
@@ -191,7 +280,7 @@ class MessageActionBottomSheet(
             actions.add(ActionItem(
                 ActionType.CreateThread,
                 context.getString(R.string.action_create_thread),
-                R.drawable.ic_thread_icon
+                R.drawable.ic_thread_new_icon
             ))
         }
 
@@ -315,18 +404,13 @@ class MessageActionBottomSheet(
 
   
     private fun buildActionRow(item: ActionItem): FrameLayout {
-        val row = object : FrameLayout(context) {
-            private val ripplePaint = Paint(Paint.ANTI_ALIAS_FLAG)
-            init {
-                // RN: actionItem { backgroundColor: colors.secondary }
-                setBackgroundColor(secondaryColor)
-                // Ripple feedback
-                val outValue = TypedValue()
-                context.theme.resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)
-                foreground = context.getDrawable(outValue.resourceId)
-                isClickable = true
-                isFocusable = true
-            }
+        val row = FrameLayout(context).apply {
+            setBackgroundColor(secondaryColor)
+            val outValue = TypedValue()
+            context.theme.resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)
+            foreground = context.getDrawable(outValue.resourceId)
+            isClickable = true
+            isFocusable = true
         }
 
         val textColor = if (item.isWarning)

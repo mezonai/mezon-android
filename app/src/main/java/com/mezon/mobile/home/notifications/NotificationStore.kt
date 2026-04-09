@@ -2,6 +2,7 @@ package com.mezon.mobile.home.notifications
 
 import android.util.Log
 import com.mezon.mobile.core.NotificationCenter
+import com.mezon.mobile.data.db.NotificationDao
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.network.MezonApi
@@ -19,10 +20,13 @@ import javax.inject.Singleton
 
 private const val TAG = "NotificationStore"
 private const val PAGE_SIZE = 50
+private const val DB_CACHE_LIMIT = 200
+private const val VIEWPORT_LIMIT = 300
 
 @Singleton
 class NotificationStore @Inject constructor(
     private val api: MezonApi,
+    private val notificationDao: NotificationDao,
     private val sessionManager: SessionManager,
     private val notificationCenter: NotificationCenter,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
@@ -43,6 +47,8 @@ class NotificationStore @Inject constructor(
     private var hasMoreMessages = false
     private var hasMoreForYou = false
 
+    private val dbLoadedCategories = HashSet<Int>(4)
+
     fun cleanup() {
         _mentions.value = emptyList()
         _messages.value = emptyList()
@@ -51,12 +57,14 @@ class NotificationStore @Inject constructor(
         hasMoreMentions = false
         hasMoreMessages = false
         hasMoreForYou = false
+        dbLoadedCategories.clear()
     }
 
-    fun setCurrentClan(clanId: Long) {
-        if (currentClanId == clanId) return
+    fun setCurrentClan(clanId: Long): Boolean {
+        if (currentClanId == clanId) return false
+        cleanup()
         currentClanId = clanId
-        loadCategory(NOTIF_CATEGORY_MENTIONS)
+        return true
     }
 
     fun hasMoreForCategory(category: Int): Boolean = when (category) {
@@ -75,24 +83,60 @@ class NotificationStore @Inject constructor(
     fun loadCategory(category: Int, notificationId: Long = 0L) {
         val clanId = currentClanId
         if (clanId == 0L) return
+
         appScope.launch {
+            if (notificationId == 0L && category !in dbLoadedCategories) {
+                loadFromDb(category)
+                val dbData = getForCategory(category).value
+                if (dbData.isNotEmpty()) {
+                    notificationCenter.postNotificationOnMainThread(
+                        NotificationCenter.notificationsDidLoad, category
+                    )
+                }
+            }
+
             try {
-                val result = sessionManager.withAutoRefresh { session ->
-                    withContext(ioDispatcher) {
+                sessionManager.withAutoRefresh { session ->
+                    val result = withContext(ioDispatcher) {
                         api.listNotifications(session.apiUrl, session.token, clanId, category, notificationId, PAGE_SIZE)
                     }
+                    val entities = result.notificationsList.map { proto ->
+                        proto.toNotificationEntity().let { e ->
+                            e.copy(
+                                category = if (e.category == 0) category else e.category,
+                                clanId = if (e.clanId == 0L) clanId else e.clanId
+                            )
+                        }
+                    }
+                    val hasMore = entities.size >= PAGE_SIZE
+                    updateCategoryState(category, entities, notificationId == 0L, hasMore)
+
+                    if (entities.isNotEmpty()) {
+                        withContext(ioDispatcher) {
+                            notificationDao.upsertAll(entities)
+                            if (notificationId == 0L) {
+                                notificationDao.trimCategory(category, DB_CACHE_LIMIT)
+                            }
+                        }
+                    }
+
+                    notificationCenter.postNotificationOnMainThread(
+                        NotificationCenter.notificationsDidLoad, category
+                    )
                 }
-                val entities = result.notificationsList.map { it.toNotificationEntity() }
-                val hasMore = entities.size >= PAGE_SIZE
-                updateCategoryState(category, entities, notificationId == 0L, hasMore)
-                notificationCenter.postNotificationOnMainThread(
-                    NotificationCenter.notificationsDidLoad, category
-                )
             } catch (e: Exception) {
                 Log.e(TAG, "loadCategory $category failed", e)
-                notificationCenter.postNotificationOnMainThread(
-                    NotificationCenter.notificationsLoadError, category
-                )
+
+                if (notificationId != 0L) {
+                    tryOfflinePagination(category, notificationId)
+                } else {
+                    val cached = getForCategory(category).value
+                    if (cached.isEmpty()) {
+                        notificationCenter.postNotificationOnMainThread(
+                            NotificationCenter.notificationsLoadError, category
+                        )
+                    }
+                }
             }
         }
     }
@@ -109,6 +153,9 @@ class NotificationStore @Inject constructor(
             } catch (e: Exception) {
                 Log.e(TAG, "deleteNotification failed", e)
             }
+            withContext(ioDispatcher) {
+                try { notificationDao.deleteById(id) } catch (_: Exception) {}
+            }
         }
     }
 
@@ -124,13 +171,57 @@ class NotificationStore @Inject constructor(
 
     private fun updateCategoryState(category: Int, items: List<NotificationEntity>, isRefresh: Boolean, hasMore: Boolean) {
         val flow = getMutableForCategory(category) ?: return
+        setHasMore(category, hasMore)
+        flow.update { old ->
+            if (isRefresh) items
+            else (old + items).distinctBy { it.id }.takeLast(VIEWPORT_LIMIT)
+        }
+    }
+
+    private suspend fun tryOfflinePagination(category: Int, notificationId: Long) {
+        val list = getForCategory(category).value
+        val lastRecord = list.firstOrNull { it.id == notificationId }
+        if (lastRecord != null) {
+            try {
+                val dbData = withContext(ioDispatcher) {
+                    notificationDao.getByCategoryBefore(category, lastRecord.createTimeSeconds, lastRecord.id, PAGE_SIZE)
+                }
+                if (dbData.isNotEmpty()) {
+                    updateCategoryState(category, dbData, isRefresh = false, hasMore = dbData.size >= PAGE_SIZE)
+                    notificationCenter.postNotificationOnMainThread(
+                        NotificationCenter.notificationsDidLoad, category
+                    )
+                    return
+                }
+            } catch (dbError: Exception) {
+                Log.e(TAG, "DB fallback pagination failed", dbError)
+            }
+        }
+        setHasMore(category, false)
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.notificationsDidLoad, category
+        )
+    }
+
+    private fun setHasMore(category: Int, hasMore: Boolean) {
         when (category) {
             NOTIF_CATEGORY_MENTIONS -> hasMoreMentions = hasMore
             NOTIF_CATEGORY_MESSAGES -> hasMoreMessages = hasMore
             NOTIF_CATEGORY_FOR_YOU -> hasMoreForYou = hasMore
         }
-        flow.update { old ->
-            if (isRefresh) items else (old + items).distinctBy { it.id }
+    }
+
+    private suspend fun loadFromDb(category: Int) {
+        val cached = withContext(ioDispatcher) {
+            notificationDao.getByCategory(category, PAGE_SIZE)
         }
+        if (cached.isNotEmpty()) {
+            val flow = getMutableForCategory(category) ?: return
+            setHasMore(category, cached.size >= PAGE_SIZE)
+            flow.update { old ->
+                if (old.isEmpty()) cached else old
+            }
+        }
+        dbLoadedCategories.add(category)
     }
 }

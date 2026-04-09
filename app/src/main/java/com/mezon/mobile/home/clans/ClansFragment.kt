@@ -8,6 +8,7 @@ import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
@@ -39,6 +40,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import com.mezon.mobile.search.GlobalSearchFragment
 import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.ui.cells.PopupMenu
 
 class ClansFragment : BaseFragment() {
 
@@ -128,6 +130,13 @@ class ClansFragment : BaseFragment() {
         }
 
         clansController.loadClans()
+        observe(NotificationCenter.favoriteChannelsChanged) { _, _, args ->
+            if (fragmentView == null || isPaused || listFrozen) return@observe
+            val clanId = args.firstOrNull() as? Long ?: return@observe
+            if (clanId == clansController.selectedClanId.value) {
+                updateChannelList()
+            }
+        }
         observe(NotificationCenter.selectedClanChanged) { _, _, args ->
             if (fragmentView == null || !clansController.clansLoaded) return@observe
             val clanId = args.firstOrNull() as? Long ?: 0L
@@ -154,6 +163,9 @@ class ClansFragment : BaseFragment() {
         serverRail.adapter = serverAdapter
         serverRail.setOnItemClickListener(RecyclerListView.OnItemClickListener { view, _ ->
             when (view) {
+                is DmLogoCell -> {
+                    onSwitchToMessages?.invoke()
+                }
                 is ClanCell -> {
                     val clan = view.currentClan ?: return@OnItemClickListener
                     onClanSelected(clan)
@@ -168,7 +180,7 @@ class ClansFragment : BaseFragment() {
         channelPanel = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             applyChannelPanelBg()
-            val topRadius = LayoutHelper.dp(10).toFloat()
+            val topRadius = LayoutHelper.dp(20).toFloat()
             outlineProvider = object : ViewOutlineProvider() {
                 override fun getOutline(view: View, outline: Outline) {
                     outline.setRoundRect(0, 0, view.width, (view.height + topRadius).toInt(), topRadius)
@@ -181,6 +193,7 @@ class ClansFragment : BaseFragment() {
 
         channelListView = ChannelListView(context, themeColors).apply {
             onChannelClick = { channel -> onChannelSelected(channel) }
+            onChannelLongClick = { channel, anchorView -> showChannelContextMenu(channel, anchorView) }
         }
 
         channelPanel.addView(clanHeader, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
@@ -205,7 +218,7 @@ class ClansFragment : BaseFragment() {
     }
 
     private fun LinearLayout.applyChannelPanelBg() {
-        val r = LayoutHelper.dp(10).toFloat()
+        val r = LayoutHelper.dp(20).toFloat()
         background = GradientDrawable().apply {
             setColor(themeColors.channelPanelBg)
             cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
@@ -225,7 +238,6 @@ class ClansFragment : BaseFragment() {
         }
         header.addView(bannerImage, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 140))
 
-        // Content area (RN: paddingVertical s_14, paddingHorizontal s_12)
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(LayoutHelper.dp(12), LayoutHelper.dp(14), LayoutHelper.dp(12), LayoutHelper.dp(14))
@@ -239,8 +251,8 @@ class ClansFragment : BaseFragment() {
         }
         clanNameText = TextView(context).apply {
             setTextColor(themeColors.onSurface)
-            textSize = 16f // RN: s_16
-            typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, 500, false) // RN: fontWeight 500
+            textSize = 17f
+            typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, 500, false)
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
         }
@@ -266,7 +278,7 @@ class ClansFragment : BaseFragment() {
         }
         memberCountText = TextView(context).apply {
             setTextColor(themeColors.textDisabled)
-            textSize = 12f // RN: s_12
+            textSize = 13f
             text = ""
         }
         subtitleRow.addView(memberCountText, LayoutHelper.createLinear(
@@ -287,8 +299,8 @@ class ClansFragment : BaseFragment() {
             rightMargin = LayoutHelper.dp(8)
         })
         communityLabel = TextView(context).apply {
-            setTextColor(themeColors.onSurface) // RN: textStrong
-            textSize = 12f // RN: s_12
+            setTextColor(themeColors.onSurface)
+            textSize = 13f
             text = "Community"
             visibility = View.GONE
         }
@@ -319,13 +331,19 @@ class ClansFragment : BaseFragment() {
             isClickable = true
             isFocusable = true
             setOnClickListener { openSearch() }
+            setOnTouchListener { v, event ->
+                if (event.action == MotionEvent.ACTION_DOWN) {
+                    v.parent?.requestDisallowInterceptTouchEvent(true)
+                }
+                false
+            }
         }
         // Search icon pinned left (RN: position absolute, left s_12)
         val searchIcon = ImageView(context).apply {
-            setImageDrawable(MezonIcon.searchIcon.getDrawable(context).apply {
-                colorFilter = PorterDuffColorFilter(themeColors.textDisabled, PorterDuff.Mode.SRC_IN)
-            })
+            setImageDrawable(MezonIcon.searchIcon.getDrawable(context))
             scaleType = ImageView.ScaleType.FIT_CENTER
+            isClickable = false
+            isFocusable = false
         }
         searchPill.addView(searchIcon, FrameLayout.LayoutParams(
             LayoutHelper.dp(18), LayoutHelper.dp(18), // RN: s_18
@@ -334,9 +352,11 @@ class ClansFragment : BaseFragment() {
         // Search text centered (RN: justifyContent center, fontSize s_14)
         val searchText = TextView(context).apply {
             text = "Search"
-            setTextColor(themeColors.onSurfaceVariant) // RN: colors.text
-            textSize = 14f // RN: s_14
+            setTextColor(themeColors.onSurfaceVariant)
+            textSize = 15f
             gravity = Gravity.CENTER
+            isClickable = false
+            isFocusable = false
         }
         searchPill.addView(searchText, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT
@@ -352,9 +372,7 @@ class ClansFragment : BaseFragment() {
                 setColor(themeColors.tertiary)
             }
             background = circleBg
-            setImageDrawable(MezonIcon.scanQR.getDrawable(context).apply {
-                colorFilter = PorterDuffColorFilter(themeColors.textDisabled, PorterDuff.Mode.SRC_IN)
-            })
+            setImageDrawable(MezonIcon.scanQR.getDrawable(context))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             val pad = LayoutHelper.dp(8) // (32-16)/2 = 8dp padding for 16dp icon
             setPadding(pad, pad, pad, pad)
@@ -370,9 +388,7 @@ class ClansFragment : BaseFragment() {
                 setColor(themeColors.tertiary)
             }
             background = circleBg
-            setImageDrawable(MezonIcon.calendarIcon.getDrawable(context).apply {
-                colorFilter = PorterDuffColorFilter(themeColors.textDisabled, PorterDuff.Mode.SRC_IN)
-            })
+            setImageDrawable(MezonIcon.calendarIcon.getDrawable(context))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             val pad = LayoutHelper.dp(7) // (32-18)/2 = 7dp padding for 18dp icon
             setPadding(pad, pad, pad, pad)
@@ -543,7 +559,6 @@ class ClansFragment : BaseFragment() {
         if (clan.clanId == prevId) return
         channelListView.resetExpansion()
         clansController.selectClan(clan.clanId)
-        channelListView.clear()
         updateClanHeader(clan)
 
         val count = serverRail.childCount
@@ -559,6 +574,22 @@ class ClansFragment : BaseFragment() {
 
         updateChannelList()
         userClanController.loadClanMembers(clan.clanId)
+    }
+
+    private fun showChannelContextMenu(channel: ClanChannelEntity, anchorView: View) {
+        val clanId = clansController.selectedClanId.value
+        val isFav = channelController.isFavorite(clanId, channel.channelId)
+        val menu = PopupMenu(anchorView.context, themeColors)
+        val label = if (isFav) "Unmark Favorite" else "Mark Favorite"
+        menu.addItem(label, MezonIcon.favoriteFilledIcon)
+        menu.setOnItemClickListener { _ ->
+            if (isFav) {
+                channelController.removeFavorite(clanId, channel.channelId)
+            } else {
+                channelController.addFavorite(clanId, channel.channelId)
+            }
+        }
+        menu.show(anchorView)
     }
 
     private fun onChannelSelected(channel: ClanChannelEntity) {
@@ -744,7 +775,6 @@ class ClansFragment : BaseFragment() {
                 is DmLogoCell -> {
                     view.setLogoUrl(logoUrl)
                     view.setPendingFriendCount(pendingFriendCount)
-                    view.setOnClickListener { onSwitchToMessages?.invoke() }
                 }
                 is UnreadDmCell -> {
                     val idx = position - dmHeaderCount
