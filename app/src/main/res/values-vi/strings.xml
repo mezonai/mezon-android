@@ -86,7 +86,7 @@
     <string name="otp_change_phone">Đổi số điện thoại</string>
     <string name="otp_not_match">Mã OTP không khớp</string>
     <string name="otp_resend_failed">Gửi lại OTP thất bại</string>
-    <string name="otp_verify_failed">Xác nhận OTP thất bại</string>
+    <string name="otp_verify_failed">Mã xác minh không hợp lệ. Vui lòng thử lại.</string>
     <string name="otp_send_failed">Gửi OTP thất bại</string>
     <string name="otp_change_confirm_title">Đổi %1$s?</string>
     <string name="otp_change_confirm_message">Bạn sẽ quay lại màn hình đăng nhập.</string>
@@ -288,7 +288,7 @@
     <string name="account_email">Email</string>
     <string name="account_username">Tên người dùng</string>
     <string name="account_display_name">Tên hiển thị</string>
-    <string name="account_link_email">Liên kết email</string>
+    <string name="account_link_email">Vui lòng liên kết email</string>
     <string name="account_link_phone">Liên kết số điện thoại</string>
     <string name="account_phone">Số điện thoại</string>
     <string name="account_blocked_users">Người dùng bị chặn</string>
@@ -301,6 +301,32 @@
     <string name="account_delete_description">Hành động này là vĩnh viễn và không thể hoàn tác. Bạn có chắc chắn không?</string>
     <string name="account_delete_confirm">Xóa</string>
     <string name="account_delete_error">Xóa tài khoản thất bại. Vui lòng thử lại.</string>
+
+    <!-- Update Email -->
+    <string name="update_email_title">Liên kết email</string>
+    <string name="email_next_button">Tiếp theo</string>
+    <string name="email_invalid">Vui lòng nhập địa chỉ email hợp lệ</string>
+    <string name="email_already_linked">Email này đã được liên kết với tài khoản của bạn</string>
+    <string name="email_too_fast">Vui lòng đợi %d giây trước khi gửi lại</string>
+    <string name="email_link_failed">Liên kết email thất bại. Vui lòng thử lại.</string>
+
+    <!-- Update Phone -->
+    <string name="update_phone_title">Cập nhật số điện thoại</string>
+    <string name="phone_new_number_label">Số điện thoại</string>
+    <string name="phone_number_hint">Nhập số điện thoại</string>
+    <string name="phone_next_button">Tiếp theo</string>
+    <string name="phone_already_linked">Số điện thoại này đã được liên kết với tài khoản của bạn</string>
+    <string name="phone_link_failed">Liên kết số điện thoại thất bại. Vui lòng thử lại.</string>
+
+    <!-- OTP Verify (liên kết email / điện thoại) -->
+    <string name="verify_email_title">Xác minh email</string>
+    <string name="verify_phone_title">Xác minh số điện thoại</string>
+    <string name="otp_description_email">Chúng tôi đã gửi mã xác minh tới %s</string>
+    <string name="otp_description_phone">Chúng tôi đã gửi mã SMS xác minh tới %s</string>
+    <string name="otp_verify_button">Xác minh</string>
+    <string name="email_verify_success">Đã liên kết email thành công!</string>
+    <string name="phone_verify_success">Đã liên kết số điện thoại thành công!</string>
+    <string name="email_next_button_cooldown">Tiếp theo (%ds)</string>
 
     <string name="common_ok">OK</string>
     <string name="common_error">Lỗi</string>

@@ -297,7 +297,8 @@
     <string name="account_email">Email</string>
     <string name="account_username">Username</string>
     <string name="account_display_name">Display Name</string>
-    <string name="account_link_email">Link email</string>
+    <string name="account_link_email">Please link your email</string>
+    <string name="account_email_linked_hidden">Email linked</string>
     <string name="account_link_phone">Link phone</string>
     <string name="account_phone">Phone Number</string>
     <string name="account_blocked_users">Blocked Users</string>
@@ -314,8 +315,7 @@
     <string name="account_delete_error">Failed to delete account. Please try again.</string>
 
     <!-- Update Email -->
-    <string name="update_email_title">Update Your Email</string>
-    <string name="email_new_email_label">New Email Address</string>
+    <string name="update_email_title">Link Email</string>
     <string name="email_next_button">Next</string>
     <string name="email_invalid">Please enter a valid email address</string>
     <string name="email_already_linked">This email is already linked to your account</string>
@@ -337,6 +337,9 @@
     <string name="otp_description_phone">We sent an SMS verification code to %s</string>
     <string name="otp_verify_button">Verify</string>
     <string name="otp_verify_failed">Invalid verification code. Please try again.</string>
+    <string name="email_verify_success">Email linked successfully!</string>
+    <string name="phone_verify_success">Phone number linked successfully!</string>
+    <string name="email_next_button_cooldown">Next (%ds)</string>
 
     <!-- Blocked Users -->
     <string name="blocked_users_title">Blocked Users</string>

@@ -74,10 +74,15 @@ class ActionButton(context: Context, private val theme: ThemeColors) : View(cont
         if (isOutlined) {
             bgPaint.style = Paint.Style.STROKE
             bgPaint.strokeWidth = LayoutHelper.dp(1.5f).toFloat()
-            bgPaint.color = theme.primary
+            if (isEnabled) {
+                bgPaint.color = theme.primary
+                theme.buttonTextPaint.color = theme.primary
+            } else {
+                bgPaint.color = theme.outlineVariant
+                theme.buttonTextPaint.color = theme.onSurfaceVariant
+            }
             canvas.drawRoundRect(rect, cornerRadius, cornerRadius, bgPaint)
             bgPaint.style = Paint.Style.FILL
-            theme.buttonTextPaint.color = theme.primary
         } else if (useGradient) {
             bgPaint.style = Paint.Style.FILL
             if (isEnabled) {
@@ -97,9 +102,14 @@ class ActionButton(context: Context, private val theme: ThemeColors) : View(cont
             theme.buttonTextPaint.color = 0xFFFFFFFF.toInt()
         } else {
             bgPaint.style = Paint.Style.FILL
-            bgPaint.color = if (isEnabled) theme.primary else theme.outline
+            if (isEnabled) {
+                bgPaint.color = theme.primary
+                theme.buttonTextPaint.color = theme.onPrimary
+            } else {
+                bgPaint.color = theme.surfaceVariant
+                theme.buttonTextPaint.color = theme.onSurfaceVariant
+            }
             canvas.drawRoundRect(rect, cornerRadius, cornerRadius, bgPaint)
-            theme.buttonTextPaint.color = theme.onPrimary
         }
 
         if (isPressed && isEnabled) {
