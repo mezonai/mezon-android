@@ -19,6 +19,7 @@ import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.notification.FcmRepository
 import com.mezon.mobile.search.SearchController
+import com.mezon.mobile.session.SessionManager
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
@@ -47,6 +48,7 @@ interface FragmentEntryPoint {
     fun anonymousController(): AnonymousController
     fun memberResolver(): MemberResolver
     fun pinMessageController(): PinMessageController
+    fun sessionManager(): SessionManager
 
     @IoDispatcher
     fun ioDispatcher(): CoroutineDispatcher

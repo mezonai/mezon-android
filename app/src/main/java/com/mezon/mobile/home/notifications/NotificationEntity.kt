@@ -11,6 +11,8 @@ import org.json.JSONObject
 
 private const val TAG = "NotifParse"
 
+const val NOTIF_TAB_TOPICS_UI = -1
+
 const val NOTIF_CATEGORY_MENTIONS = 1
 const val NOTIF_CATEGORY_MESSAGES = 2
 const val NOTIF_CATEGORY_FOR_YOU = 3

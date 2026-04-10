@@ -7,10 +7,14 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
+import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
 import android.text.Editable
+import android.text.SpannableString
+import android.text.Spanned
 import android.text.TextWatcher
+import android.view.TouchDelegate
 import android.util.Log
 import android.util.LongSparseArray
 import android.view.Gravity
@@ -44,9 +48,12 @@ import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.MemberResolver
 import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.clans.ChannelController
+import com.mezon.mobile.home.clans.CHANNEL_TYPE_APP
+import com.mezon.mobile.home.clans.CHANNEL_TYPE_STREAMING
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.ui.cells.ActionBarView
+import com.mezon.mobile.ui.cells.ColoredImageSpan
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.PageDownButton
 import com.mezon.mobile.util.FileUtils
@@ -787,6 +794,12 @@ class ChatFragment : BaseFragment() {
                 btn.setImageDrawable(d)
             }
             actionBar?.applyTheme()
+            val ent = channelController.findChannelById(channelId)
+            val clanThread = channelType != CHANNEL_TYPE_DM && channelType != CHANNEL_TYPE_GROUP &&
+                clanId != 0L && ent?.isThread == true
+            if (clanThread) {
+                actionBar?.setSubtitleColor(themeColors.onSurfaceVariant)
+            }
             pageDownButton.applyColors()
             unreadDecoration.applyColors()
             adapter.notifyDataSetChanged()
@@ -877,7 +890,6 @@ class ChatFragment : BaseFragment() {
         }
 
         val chatActionBar = ActionBarView(context, themeColors).apply {
-            setTitle(channelName)
             setBackClickListener {
                 if (emojiViewVisible) {
                     hideEmojiView()
@@ -891,6 +903,36 @@ class ChatFragment : BaseFragment() {
                         channelId, channelName, clanId, channelType
                     )
                 )
+            }
+            val entity = channelController.findChannelById(channelId)
+            val isDmHeader = channelType == CHANNEL_TYPE_DM || channelType == CHANNEL_TYPE_GROUP
+            val clanThreadHeader = !isDmHeader && clanId != 0L && entity?.isThread == true
+            if (clanThreadHeader) {
+                val iconEnum = resolveChannelIcon(entity)
+                val iconPx = channelTitleIconSizePx()
+                val d = iconEnum.getDrawable(context, themeColors)
+                setTitleStartIcon(d, iconPx, LayoutHelper.dp(6))
+                setTitle(channelName)
+                setSubtitleStartPadding(0)
+                setSubtitleColor(themeColors.onSurfaceVariant)
+                if (entity != null && entity.parentId != 0L) {
+                    val parent = channelController.findChannelById(entity.parentId)
+                    if (parent != null) setSubtitle(parent.channelLabel)
+                }
+            } else {
+                setTitleStartIcon(null, 0, 0)
+                setTitle(buildChannelTitle(context))
+                setSubtitleStartPadding(0)
+                if (entity != null && entity.isThread && entity.parentId != 0L) {
+                    val parent = channelController.findChannelById(entity.parentId)
+                    if (parent != null) setSubtitle(parent.channelLabel)
+                }
+            }
+            post {
+                val tv = getTitleTextView() ?: return@post
+                val backWidth = LayoutHelper.dp(54)
+                val rect = Rect(backWidth, 0, width, height)
+                touchDelegate = TouchDelegate(rect, tv)
             }
         }
         actionBar = chatActionBar
@@ -3170,5 +3212,41 @@ class ChatFragment : BaseFragment() {
             }
         }
         hideMentionsPopup()
+    }
+
+    private fun channelTitleIconSizePx(): Int = LayoutHelper.dp(20)
+
+    private fun buildChannelTitle(context: Context): CharSequence {
+        val isDmChannel = channelType == CHANNEL_TYPE_DM || channelType == CHANNEL_TYPE_GROUP
+        if (isDmChannel || clanId == 0L) return channelName
+
+        val entity = channelController.findChannelById(channelId)
+        val iconEnum = resolveChannelIcon(entity)
+        val isThread = entity?.isThread == true
+
+        val iconSize = channelTitleIconSizePx()
+        val span = ColoredImageSpan(iconEnum.getDrawable(context, themeColors), ColoredImageSpan.ALIGN_CENTER)
+        span.setSize(iconSize)
+        if (isThread) {
+            span.usePaintColor = false
+        } else {
+            span.overrideColor = themeColors.onSurface
+        }
+
+        val text = SpannableString("\u200B $channelName")
+        text.setSpan(span, 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        return text
+    }
+
+    private fun resolveChannelIcon(entity: com.mezon.mobile.home.clans.ClanChannelEntity?): MezonIcon {
+        if (entity == null) return MezonIcon.channelText
+
+        if (entity.isPrivate && entity.isThread) return MezonIcon.threadLockIcon
+        if (entity.isThread) return MezonIcon.threadIcon
+        if (entity.isPrivate && entity.type != CHANNEL_TYPE_APP) return MezonIcon.channelTextLock
+        if (entity.type == CHANNEL_TYPE_STREAMING) return MezonIcon.channelStream
+        if (entity.type == CHANNEL_TYPE_APP) return MezonIcon.channelApp
+
+        return MezonIcon.channelText
     }
 }

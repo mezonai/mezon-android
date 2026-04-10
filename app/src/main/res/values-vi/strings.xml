@@ -163,6 +163,11 @@
     <string name="message_slide_to_cancel">Vuốt để hủy</string>
 
     <!-- notification -->
+    <string name="notif_tab_mentions">Nhắc đến</string>
+    <string name="notif_tab_messages">Tin nhắn</string>
+    <string name="notif_tab_topics">Chủ đề</string>
+    <string name="notif_tab_for_you">Dành cho bạn</string>
+    <string name="notif_empty">Không có thông báo</string>
     <string name="notification_header">Thông báo</string>
     <string name="notification_tab_for_you">Dành cho bạn</string>
     <string name="notification_tab_mention">Nhắc đến</string>
