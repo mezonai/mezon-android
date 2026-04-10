@@ -175,7 +175,19 @@ class ProfileFragment : BaseFragment() {
                 info.userStatus,
                 { newStatus -> accountController.updateOnlineStatus(newStatus) },
                 { presentFragment(EditStatusFragment()) },
-                { accountController.updateCustomStatus(0L, "", 0, false) {} }
+                {
+                    accountController.updateCustomStatus(0L, "", 0, false) { success ->
+                        if (success) {
+                            return@updateCustomStatus
+                        }
+                        val parent = getLayoutContainer() ?: (fragmentView as? ViewGroup) ?: return@updateCustomStatus
+                        ToastOverlay(requireContext(), themeColors).show(
+                            parent,
+                            ToastOverlay.ToastType.ERROR,
+                            getString(R.string.common_error_connection_failed)
+                        )
+                    }
+                }
             )
             sheet.show()
         }

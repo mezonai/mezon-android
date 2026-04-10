@@ -14,6 +14,7 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.clans.ClansController
 import com.mezon.mobile.ui.cells.InputCell
+import com.mezon.mobile.ui.cells.ToastOverlay
 
 class EditStatusFragment : BaseFragment() {
 
@@ -219,7 +220,14 @@ class EditStatusFragment : BaseFragment() {
         accountController.updateCustomStatus(clanId, statusText, minutes, noClear) { success ->
             if (success) {
                 finishFragment()
+                return@updateCustomStatus
             }
+            val parent = getLayoutContainer() ?: (fragmentView as? android.view.ViewGroup) ?: return@updateCustomStatus
+            ToastOverlay(requireContext(), themeColors).show(
+                parent,
+                ToastOverlay.ToastType.ERROR,
+                getString(R.string.common_error_connection_failed)
+            )
         }
     }
 }
