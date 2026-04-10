@@ -1003,13 +1003,16 @@ class EditProfileFragment : BaseFragment() {
                 finishFragment()
                 onSaved?.invoke()
             } else {
-                AlertsCreator.showSimpleAlert(
-                    requireContext(),
-                    getString(R.string.common_error),
-                    errorMsg.ifEmpty { getString(R.string.edit_profile_save_error) }
-                )
+                showProfileSaveErrorToast()
             }
         }
+    }
+
+    private fun showProfileSaveErrorToast() {
+        val ctx = getContext() ?: return
+        getParentActivity()?.findViewById<ViewGroup>(android.R.id.content)?.let { root ->
+            ToastOverlay(ctx, themeColors).show(root, ToastOverlay.ToastType.ERROR, getString(R.string.profile_update_failed))
+        } ?: Toast.makeText(ctx, getString(R.string.profile_update_failed), Toast.LENGTH_LONG).show()
     }
 
     private fun handleSaveClan() {

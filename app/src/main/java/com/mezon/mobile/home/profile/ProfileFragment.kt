@@ -82,6 +82,7 @@ class ProfileFragment : BaseFragment() {
     private lateinit var balanceText: TextView
     private lateinit var aboutMeContainer: LinearLayout
     private lateinit var aboutMeValueText: TextView
+    private lateinit var memberSinceContainer: LinearLayout
     private lateinit var memberSinceText: TextView
     private lateinit var statusBubble: LinearLayout
     private lateinit var plusIconView: View
@@ -396,12 +397,12 @@ class ProfileFragment : BaseFragment() {
         }
         aboutMeContainer.addView(aboutMeValueText)
 
-        val memberSinceContainer = LinearLayout(context).apply {
+        memberSinceContainer = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
         }
         aboutSection.addView(memberSinceContainer, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { topMargin = LayoutHelper.dp(18) })
+        ).apply { topMargin = 0 })
 
         val memberSinceLabel = TextView(context).apply {
             text = getString(R.string.profile_mezon_member_since)
@@ -637,11 +638,18 @@ class ProfileFragment : BaseFragment() {
         walletSection.visibility = if (info.address.isNotEmpty()) View.VISIBLE else View.GONE
 
         val aboutMe = info.aboutMe.ifEmpty { userController.aboutMe }
-        if (aboutMe.isNotEmpty()) {
+        val hasAboutMe = aboutMe.isNotEmpty()
+        if (hasAboutMe) {
             aboutMeContainer.visibility = View.VISIBLE
             aboutMeValueText.text = aboutMe
         } else {
             aboutMeContainer.visibility = View.GONE
+        }
+        val memberLp = memberSinceContainer.layoutParams as LinearLayout.LayoutParams
+        val memberTop = if (hasAboutMe) LayoutHelper.dp(18) else 0
+        if (memberLp.topMargin != memberTop) {
+            memberLp.topMargin = memberTop
+            memberSinceContainer.layoutParams = memberLp
         }
 
         val createTime = userController.createTimeSeconds
