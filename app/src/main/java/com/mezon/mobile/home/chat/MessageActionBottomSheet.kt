@@ -172,7 +172,8 @@ class MessageActionBottomSheet(
         val type: ActionType,
         val title: String,
         val iconRes: Int,
-        val isWarning: Boolean = false
+        val isWarning: Boolean = false,
+        val applyIconTint: Boolean = true
     )
 
   
@@ -280,7 +281,8 @@ class MessageActionBottomSheet(
             actions.add(ActionItem(
                 ActionType.CreateThread,
                 context.getString(R.string.action_create_thread),
-                R.drawable.ic_thread_new_icon
+                R.drawable.ic_thread_new_icon,
+                applyIconTint = false
             ))
         }
 
@@ -428,8 +430,10 @@ class MessageActionBottomSheet(
             try {
                 setImageResource(item.iconRes)
             } catch (_: Exception) {}
-            setColorFilter(iconColor)
-            scaleType = ImageView.ScaleType.FIT_CENTER  // Scale down large PNGs to fit
+            if (item.applyIconTint) {
+                setColorFilter(iconColor)
+            }
+            scaleType = ImageView.ScaleType.FIT_CENTER
         }
 
         // RN: actionText { fontSize: h8 = verticalScale(11) } ≈ 15sp on Android

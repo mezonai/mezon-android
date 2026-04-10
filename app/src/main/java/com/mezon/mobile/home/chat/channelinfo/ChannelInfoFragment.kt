@@ -5,6 +5,8 @@ import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.text.SpannableString
+import android.text.Spanned
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -26,16 +28,22 @@ import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.MemberResolver
 import com.mezon.mobile.home.UserClanController
+import com.mezon.mobile.home.clans.ChannelController
+import com.mezon.mobile.home.clans.CHANNEL_TYPE_APP
+import com.mezon.mobile.home.clans.CHANNEL_TYPE_STREAMING
 import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import com.mezon.mobile.home.chat.thread.ThreadListFragment
 import com.mezon.mobile.home.PinMessageController
 import com.mezon.mobile.MainActivity
 import com.mezon.mobile.search.GlobalSearchFragment
 import com.mezon.mobile.ui.cells.ActionBarView
+import com.mezon.mobile.ui.cells.AvatarView
+import com.mezon.mobile.ui.cells.ColoredImageSpan
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.ScreenStateView
 
@@ -73,6 +81,7 @@ class ChannelInfoFragment : BaseFragment() {
     private lateinit var userController: UserController
     private lateinit var chatController: ChatController
     private lateinit var pinMessageController: PinMessageController
+    private lateinit var channelController: ChannelController
 
     private var memberListAdapter: MemberListAdapter? = null
     private var membersRecyclerView: RecyclerListView? = null
@@ -98,11 +107,6 @@ class ChannelInfoFragment : BaseFragment() {
         }
 
         observe(NotificationCenter.channelMembersDidLoad) { _, _, args ->
-            if (isPaused) return@observe
-            reloadMembers()
-        }
-
-        observe(NotificationCenter.onlineStatusChanged) { _, _, _ ->
             if (isPaused) return@observe
             reloadMembers()
         }
@@ -134,6 +138,7 @@ class ChannelInfoFragment : BaseFragment() {
         userController = entryPoint.userController()
         chatController = entryPoint.chatController()
         pinMessageController = entryPoint.pinMessageController()
+        channelController = entryPoint.channelController()
     }
 
     override fun createView(context: Context): View {
@@ -143,11 +148,19 @@ class ChannelInfoFragment : BaseFragment() {
         }
 
         val chatActionBar = ActionBarView(context, themeColors).apply {
-            setTitle(channelName)
             setBackClickListener { finishFragment() }
+            setBackgroundColor(themeColors.surface)
+            setTitle(buildActionBarTitle(context))
+            setCenterTitle(true)
         }
         actionBar = chatActionBar
         root.addView(chatActionBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 56))
+
+        if (isDm) {
+            root.addView(buildDmHeader(context), LayoutHelper.createLinear(
+                LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT
+            ))
+        }
 
         root.addView(buildActionRow(context), LayoutHelper.createLinear(
             LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT
@@ -199,6 +212,113 @@ class ChannelInfoFragment : BaseFragment() {
         return root
     }
 
+    private fun buildActionBarTitle(context: Context): CharSequence {
+        if (isDm) return channelName
+        val entity = channelController.findChannelById(channelId)
+        val iconEnum = resolveChannelTypeIcon(entity)
+        val iconSize = LayoutHelper.dp(20)
+        val d = iconEnum.getDrawable(context, themeColors)
+        val span = ColoredImageSpan(d, ColoredImageSpan.ALIGN_CENTER)
+        span.setSize(iconSize)
+        if (iconEnum == MezonIcon.threadIcon || iconEnum == MezonIcon.threadLockIcon) {
+            span.usePaintColor = false
+        } else {
+            span.overrideColor = themeColors.onSurface
+        }
+        val text = SpannableString("\u200B $channelName")
+        text.setSpan(span, 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        return text
+    }
+
+    private fun buildDmHeader(context: Context): LinearLayout {
+        val container = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            val padTop = LayoutHelper.dp(10)
+            setPadding(0, padTop, 0, 0)
+        }
+
+        val avatarSize = 50
+        val avatarContainer = FrameLayout(context)
+
+        val dm = dialogsController.getDialog(channelId)
+        val avatarUrl = dm?.avatarUrl ?: ""
+        val displayName = dm?.displayName?.ifBlank { dm.label } ?: channelName
+
+        if (channelType == CHANNEL_TYPE_GROUP) {
+            val hasCustomAvatar = avatarUrl.isNotEmpty() && !avatarUrl.contains("avatar-group.png")
+            if (hasCustomAvatar) {
+                val av = AvatarView(context).apply {
+                    setSizeDp(avatarSize)
+                    setInfo(channelId, channelName)
+                    setImageUrl(avatarUrl)
+                }
+                avatarContainer.addView(av, LayoutHelper.createFrame(avatarSize, avatarSize, Gravity.CENTER))
+            } else {
+                val groupCircle = FrameLayout(context).apply {
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.OVAL
+                        setColor(0xFFF97316.toInt())
+                    }
+                }
+                val groupIconView = ImageView(context).apply {
+                    val d = MezonIcon.groupIcon.getDrawable(context)
+                    d.colorFilter = PorterDuffColorFilter(0xFFFFFFFF.toInt(), PorterDuff.Mode.SRC_IN)
+                    setImageDrawable(d)
+                }
+                groupCircle.addView(groupIconView, LayoutHelper.createFrame(24, 24, Gravity.CENTER))
+                avatarContainer.addView(groupCircle, LayoutHelper.createFrame(avatarSize, avatarSize, Gravity.CENTER))
+            }
+        } else {
+            val av = AvatarView(context).apply {
+                setSizeDp(avatarSize)
+                setInfo(channelId, displayName)
+                setImageUrl(avatarUrl)
+            }
+            avatarContainer.addView(av, LayoutHelper.createFrame(avatarSize, avatarSize, Gravity.CENTER))
+
+            if (dm?.isOnline == true) {
+                val dotSize = 14
+                val borderSize = 2
+                val dotView = View(context).apply {
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.OVAL
+                        setColor(themeColors.onlineGreen)
+                        setStroke(LayoutHelper.dp(borderSize), themeColors.surface)
+                    }
+                }
+                avatarContainer.addView(dotView, FrameLayout.LayoutParams(
+                    LayoutHelper.dp(dotSize), LayoutHelper.dp(dotSize)
+                ).apply {
+                    gravity = Gravity.BOTTOM or Gravity.END
+                })
+            }
+        }
+
+        container.addView(avatarContainer, LayoutHelper.createLinear(
+            avatarSize, avatarSize, 0f, Gravity.CENTER_HORIZONTAL
+        ))
+
+        return container
+    }
+
+    private fun resolveChannelTypeIcon(entity: com.mezon.mobile.home.clans.ClanChannelEntity?): MezonIcon {
+        if (entity == null) return MezonIcon.channelText
+
+        val isChannel = !entity.isThread
+        val isPrivate = entity.isPrivate
+
+        if (entity.type == CHANNEL_TYPE_STREAMING) return MezonIcon.channelStream
+
+        if (entity.type == CHANNEL_TYPE_APP) return MezonIcon.channelApp
+
+        if (isPrivate) {
+            return if (isChannel) MezonIcon.channelTextLock else MezonIcon.threadLockIcon
+        }
+
+        return if (isChannel) MezonIcon.channelText else MezonIcon.threadIcon
+    }
+
     private fun buildActionRow(context: Context): LinearLayout {
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -217,7 +337,7 @@ class ChannelInfoFragment : BaseFragment() {
         if (!isDmContext && channelType == CHANNEL_TYPE_CHANNEL) {
             addActionGap(row)
             row.addView(createActionButton(context, MezonIcon.threadIcon, "Threads", applyTint = false) {
-                Toast.makeText(context, "Coming soon", Toast.LENGTH_SHORT).show()
+                presentFragment(ThreadListFragment.newInstance(channelId, channelName, clanId))
             })
         }
 

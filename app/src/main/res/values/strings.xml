@@ -191,9 +191,9 @@
 
     <!-- notification -->
     <string name="notification_header">Notifications</string>
-    <string name="notif_inbox_title">Inbox</string>
     <string name="notif_tab_mentions">Mentions</string>
     <string name="notif_tab_messages">Messages</string>
+    <string name="notif_tab_topics">Topics</string>
     <string name="notif_tab_for_you">For You</string>
     <string name="notif_empty">No notifications</string>
     <string name="notification_tab_for_you">For you</string>
