@@ -256,9 +256,10 @@ class EditProfileFragment : BaseFragment() {
             loadBannerFromAvatar(currentAvatarUrl)
         }
 
+        val nameForAvatar = displayName.ifEmpty { username }
         avatarView = AvatarView(context).apply {
             setSizeDp(100)
-            setInfo(userId, displayName)
+            setInfo(userId, nameForAvatar)
             if (currentAvatarUrl.isNotEmpty()) setImageUrl(currentAvatarUrl)
         }
         val avatarBorderColor = if (themeColors.resolvedMode == com.mezon.mobile.ui.theme.ThemeMode.LIGHT) 0xFFFFFFFF.toInt() else 0xFF0D0D18.toInt()
@@ -317,8 +318,11 @@ class EditProfileFragment : BaseFragment() {
             setMaxCharacter(32)
             setCellBackgroundColor(themeColors.surface)
             setCellStrokeColor(0x00000000)
-            onTextChanged = { text -> 
-                nameView.text = text.ifEmpty { username }
+            onTextChanged = { text ->
+                val forAvatar = text.ifEmpty { username }
+                nameView.text = forAvatar
+                avatarView.setInfo(userId, forAvatar)
+                if (::clanAvatarView.isInitialized) clanAvatarView.setInfo(userId, forAvatar)
             }
         }
         inputGroupCard.addView(displayNameCell, LayoutHelper.createLinear(
@@ -363,10 +367,9 @@ class EditProfileFragment : BaseFragment() {
 
         dmLogoView = AvatarView(context).apply {
             setSizeDp(50)
-            setInfo(userId, "D")
-            if (currentDmLogoUrl.isNotEmpty()) setImageUrl(currentDmLogoUrl)
             setOnClickListener { openDmLogoPicker() }
         }
+        bindDmLogoPreview()
         val dmWrapper = FrameLayout(context)
         dmWrapper.addView(dmLogoView, LayoutHelper.createFrame(50, 50))
         
@@ -443,6 +446,7 @@ class EditProfileFragment : BaseFragment() {
         val displayName = info.displayName.ifEmpty { userController.displayName }
         val username = info.username.ifEmpty { userController.username }
         val userId = info.userId.takeIf { it != 0L } ?: userController.userId
+        val clanNameForAvatar = displayName.ifEmpty { username }
 
         val scrollView = ScrollView(context).apply {
             isFillViewport = true
@@ -503,7 +507,7 @@ class EditProfileFragment : BaseFragment() {
 
         clanAvatarView = AvatarView(context).apply {
             setSizeDp(100)
-            setInfo(userId, displayName)
+            setInfo(userId, clanNameForAvatar)
             if (currentAvatarUrl.isNotEmpty()) setImageUrl(currentAvatarUrl)
         }
         val clanAvatarBorderColor = if (themeColors.resolvedMode == com.mezon.mobile.ui.theme.ThemeMode.LIGHT) 0xFFFFFFFF.toInt() else 0xFF0D0D18.toInt()
@@ -768,10 +772,14 @@ class EditProfileFragment : BaseFragment() {
             }
             if (currentDmLogoUrl.isEmpty() && updatedInfo.logo.isNotEmpty()) {
                 currentDmLogoUrl = updatedInfo.logo
-                dmLogoView.setImageUrl(currentDmLogoUrl)
             }
+            bindDmLogoPreview()
             nameView.text = updatedInfo.displayName.ifEmpty { updatedInfo.username }
             usernameSubView.text = updatedInfo.username
+            val uid = updatedInfo.userId.takeIf { it != 0L } ?: userController.userId
+            val refreshedName = updatedInfo.displayName.ifEmpty { updatedInfo.username.ifEmpty { userController.username } }
+            avatarView.setInfo(uid, refreshedName)
+            if (::clanAvatarView.isInitialized) clanAvatarView.setInfo(uid, refreshedName)
         }
         observe(NotificationCenter.themeChanged) { _, _, _ ->
             fragmentView?.setBackgroundColor(themeColors.background)
@@ -880,7 +888,7 @@ class EditProfileFragment : BaseFragment() {
             loadingView.visibility = View.GONE
             if (success) {
                 currentDmLogoUrl = cdnUrl
-                dmLogoView.setImageUrl(cdnUrl)
+                bindDmLogoPreview()
             } else {
                 val overlay = ToastOverlay(context, themeColors)
                 getParentActivity()?.findViewById<ViewGroup>(android.R.id.content)?.let { root ->
@@ -890,9 +898,15 @@ class EditProfileFragment : BaseFragment() {
         }
     }
 
+    private fun bindDmLogoPreview() {
+        if (!::dmLogoView.isInitialized) return
+        val url = currentDmLogoUrl.ifEmpty { com.mezon.mobile.BuildConfig.MEZON_LOGO_URL }
+        dmLogoView.setImageUrl(url)
+    }
+
     private fun removeDmLogo() {
         currentDmLogoUrl = com.mezon.mobile.BuildConfig.MEZON_LOGO_URL
-        dmLogoView.setImageUrl(currentDmLogoUrl)
+        bindDmLogoPreview()
     }
 
     private fun updateSaveButtonState() {

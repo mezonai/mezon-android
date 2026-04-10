@@ -54,6 +54,8 @@ class ProfileFragment : BaseFragment() {
         )
         private val MILLION = java.math.BigDecimal(1000000)
         private val VI_LOCALE = Locale("vi", "VN")
+        private const val PROFILE_AVATAR_SIZE_DP = 96
+        private const val PROFILE_AVATAR_CORNER_RADIUS_DP = 22f
     }
 
     private var cachedDateFormat: SimpleDateFormat? = null
@@ -183,13 +185,14 @@ class ProfileFragment : BaseFragment() {
         val avatarContainer = FrameLayout(context).apply {
             clipChildren = false
         }
+        val avatarSizePx = LayoutHelper.dp(PROFILE_AVATAR_SIZE_DP)
         avatarStatusRow.addView(avatarContainer, LinearLayout.LayoutParams(
-            LayoutHelper.dp(96), LayoutHelper.dp(96)
+            avatarSizePx, avatarSizePx
         ))
 
-        avatarView = AvatarView(context).apply { 
-            setSizeDp(96)
-            setRoundRadius(22f)
+        avatarView = AvatarView(context).apply {
+            setSizeDp(PROFILE_AVATAR_SIZE_DP)
+            setRoundRadius(PROFILE_AVATAR_CORNER_RADIUS_DP)
         }
         avatarContainer.addView(avatarView, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT
