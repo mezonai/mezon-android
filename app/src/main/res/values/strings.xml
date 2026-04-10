@@ -231,6 +231,7 @@
     <string name="profile_transfer">Transfer Funds</string>
     <string name="profile_history_transaction">Transaction History</string>
     <string name="profile_add_status">Add Status</string>
+    <string name="profile_update_failed">Update profile failed.</string>
 
     <!-- friends -->
     <string name="friends_title">Friends</string>

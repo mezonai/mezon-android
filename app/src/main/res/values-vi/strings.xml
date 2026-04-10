@@ -204,6 +204,7 @@
     <string name="profile_transfer">Chuyển khoản</string>
     <string name="profile_history_transaction">Lịch sử giao dịch</string>
     <string name="profile_add_status">Thêm trạng thái</string>
+    <string name="profile_update_failed">Cập nhật hồ sơ thất bại.</string>
 
     <!-- friends -->
     <string name="friends_title">Bạn bè</string>
