@@ -214,15 +214,22 @@ class AccountController @Inject constructor(
         }
     }
 
-    fun confirmLinkOTP(reqId: String, otpCode: String, onResult: (success: Boolean, errorMsg: String) -> Unit) {
+    fun confirmLinkOTP(reqId: String, otpCode: String, contact: String, isPhone: Boolean, onResult: (success: Boolean, errorMsg: String) -> Unit) {
         appScope.launch {
             _isLoading.value = true
             try {
                 sessionManager.withAutoRefresh { session ->
                     withContext(ioDispatcher) { api.confirmLinkOTP(session.apiUrl, session.token, reqId, otpCode) }
                 }
+                val updated = if (isPhone) {
+                    _accountInfo.value.copy(phoneNumber = contact)
+                } else {
+                    _accountInfo.value.copy(email = contact)
+                }
+                _accountInfo.value = updated
+                userController.updateFromAccount(updated)
+                notificationCenter.postNotificationOnMainThread(NotificationCenter.accountInfoLoaded)
                 cacheTracker.invalidate(cacheKey)
-                loadAccount()
                 withContext(kotlinx.coroutines.Dispatchers.Main) {
                     onResult(true, "")
                 }
