@@ -39,7 +39,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import com.mezon.mobile.search.GlobalSearchFragment
 import com.mezon.mobile.ui.cells.MezonIcon
-import com.mezon.mobile.ui.cells.PopupMenu
 
 class ClansFragment : BaseFragment() {
 
@@ -183,7 +182,6 @@ class ClansFragment : BaseFragment() {
 
         channelListView = ChannelListView(context, themeColors).apply {
             onChannelClick = { channel -> onChannelSelected(channel) }
-            onChannelLongClick = { channel, anchorView -> showChannelContextMenu(channel, anchorView) }
         }
 
         channelPanel.addView(clanHeader, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
@@ -559,22 +557,6 @@ class ClansFragment : BaseFragment() {
 
         updateChannelList()
         userClanController.loadClanMembers(clan.clanId)
-    }
-
-    private fun showChannelContextMenu(channel: ClanChannelEntity, anchorView: View) {
-        val clanId = clansController.selectedClanId.value
-        val isFav = channelController.isFavorite(clanId, channel.channelId)
-        val menu = PopupMenu(anchorView.context, themeColors)
-        val label = if (isFav) "Unmark Favorite" else "Mark Favorite"
-        menu.addItem(label, MezonIcon.favoriteFilledIcon)
-        menu.setOnItemClickListener { _ ->
-            if (isFav) {
-                channelController.removeFavorite(clanId, channel.channelId)
-            } else {
-                channelController.addFavorite(clanId, channel.channelId)
-            }
-        }
-        menu.show(anchorView)
     }
 
     private fun onChannelSelected(channel: ClanChannelEntity) {
