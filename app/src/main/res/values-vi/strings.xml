@@ -365,4 +365,8 @@
     <string name="sharing_suggestions">Gợi ý</string>
     <string name="sharing_add_comment">Thêm bình luận…</string>
     <string name="sharing_empty_content">Không có nội dung để chia sẻ</string>
+    <string name="search_section_text_channels">Kênh văn bản</string>
+    <string name="search_section_voice_channels">Kênh thoại</string>
+    <string name="search_section_streaming_channels">Kênh phát trực tuyến</string>
+    <string name="search_join_channel">Tham gia</string>
 </resources>

@@ -276,23 +276,6 @@ class ChannelInfoFragment : BaseFragment() {
                 setImageUrl(avatarUrl)
             }
             avatarContainer.addView(av, LayoutHelper.createFrame(avatarSize, avatarSize, Gravity.CENTER))
-
-            if (dm?.isOnline == true) {
-                val dotSize = 14
-                val borderSize = 2
-                val dotView = View(context).apply {
-                    background = GradientDrawable().apply {
-                        shape = GradientDrawable.OVAL
-                        setColor(themeColors.onlineGreen)
-                        setStroke(LayoutHelper.dp(borderSize), themeColors.surface)
-                    }
-                }
-                avatarContainer.addView(dotView, FrameLayout.LayoutParams(
-                    LayoutHelper.dp(dotSize), LayoutHelper.dp(dotSize)
-                ).apply {
-                    gravity = Gravity.BOTTOM or Gravity.END
-                })
-            }
         }
 
         container.addView(avatarContainer, LayoutHelper.createLinear(

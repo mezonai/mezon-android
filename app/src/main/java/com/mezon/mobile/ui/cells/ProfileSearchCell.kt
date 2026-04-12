@@ -23,7 +23,6 @@ class ProfileSearchCell(context: Context, private val theme: ThemeColors) : Base
     private var avatarDisposable: MezonImageLoader.Cancellable? = null
     private var attachedToWindow = false
     private val tmpRect = RectF()
-    private var onlineProgress = 0f
 
     private var nameLayout: StaticLayout? = null
     private var statusLayout: StaticLayout? = null
@@ -60,7 +59,6 @@ class ProfileSearchCell(context: Context, private val theme: ThemeColors) : Base
         if (newMember != null) member = newMember
 
         avatarDrawable.setInfo(m.id, m.displayName.ifEmpty { m.username })
-        onlineProgress = if (m.isOnline) 1f else 0f
         loadAvatar(m.avatarUrl)
         buildLayouts()
         invalidate()
@@ -127,15 +125,6 @@ class ProfileSearchCell(context: Context, private val theme: ThemeColors) : Base
         avatarDrawable.setBounds(tmpRect.left.toInt(), tmpRect.top.toInt(), tmpRect.right.toInt(), tmpRect.bottom.toInt())
         avatarDrawable.draw(canvas)
 
-        if (onlineProgress > 0f) {
-            val dotSize = ONLINE_DOT_SIZE
-            val cx = tmpRect.right - dotSize / 2f + ONLINE_DOT_OFFSET
-            val cy = tmpRect.bottom - dotSize / 2f + ONLINE_DOT_OFFSET
-            theme.dialogOnlinePaint.alpha = (255 * onlineProgress).toInt()
-            canvas.drawCircle(cx, cy, dotSize / 2f + ONLINE_BORDER_WIDTH, theme.dialogOnlineBorderPaint)
-            canvas.drawCircle(cx, cy, dotSize / 2f, theme.dialogOnlinePaint)
-        }
-
         val textLeft = (AVATAR_LEFT + AVATAR_SIZE + TEXT_LEFT_MARGIN).toFloat()
 
         val hasStatus = statusLayout != null
@@ -169,9 +158,6 @@ class ProfileSearchCell(context: Context, private val theme: ThemeColors) : Base
         private val AVATAR_LEFT = LayoutHelper.dp(16f)
         private val TEXT_LEFT_MARGIN = LayoutHelper.dp(12f)
         private val PAD_RIGHT = LayoutHelper.dp(16f)
-        private val ONLINE_DOT_SIZE = LayoutHelper.dpf(10f)
-        private val ONLINE_DOT_OFFSET = LayoutHelper.dpf(1f)
-        private val ONLINE_BORDER_WIDTH = LayoutHelper.dpf(1.5f)
         private val NAME_STATUS_GAP = LayoutHelper.dp(2f).toFloat()
     }
 }

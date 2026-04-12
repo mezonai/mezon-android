@@ -268,6 +268,7 @@ class MezonApi @Inject constructor(
     ): ListChannelBadgeCountResponse {
         val request = listChannelBadgeCountRequest {
             this.clanId = clanId
+            this.isMobile = true
         }
         val bytes = rpc(apiUrl, token, "ListChannelBadgeCount", request.toByteArray())
         return ListChannelBadgeCountResponse.parseFrom(bytes)

@@ -418,7 +418,10 @@ class DialogsController @Inject constructor(
         }
         if (p.hasLastSentMessage()) {
             val m = p.lastSentMessage
-            val isNewer = m.id != 0L && m.id > next.lastSentMessageId
+            val ts = m.timestampSeconds.toLong() and 0xFFFF_FFFFL
+            val idNewer = m.id != 0L && m.id > next.lastSentMessageId
+            val tsNewerNoMessageId = m.id == 0L && ts > 0L && ts > next.lastSentMessageTs
+            val isNewer = idNewer || tsNewerNoMessageId
             if (m.id != 0L) {
                 val merged = maxOf(next.lastSentMessageId, m.id)
                 if (merged != next.lastSentMessageId) {
@@ -426,7 +429,6 @@ class DialogsController @Inject constructor(
                     next = next.copy(lastSentMessageId = merged)
                 }
             }
-            val ts = m.timestampSeconds.toLong() and 0xFFFF_FFFFL
             if (ts > 0L) {
                 val mergedTs = maxOf(next.lastSentMessageTs, ts)
                 if (mergedTs != next.lastSentMessageTs) {
@@ -434,11 +436,17 @@ class DialogsController @Inject constructor(
                     next = next.copy(lastSentMessageTs = mergedTs)
                 }
             }
-            if (isNewer && m.content.isNotEmpty()) {
+            if (m.content.isNotEmpty()) {
                 val preview = parseContentPreview(m.content)
                 if (preview.isNotBlank() && preview != next.lastMessageContent) {
-                    changed = true
-                    next = next.copy(lastMessageContent = preview)
+                    val sameLastMessage = m.id != 0L && m.id == next.lastSentMessageId
+                    val sameTsSparseHeader = m.id == 0L && ts > 0L && ts == next.lastSentMessageTs
+                    val shouldTakePreview =
+                        isNewer || next.lastMessageContent.isBlank() || sameLastMessage || sameTsSparseHeader
+                    if (shouldTakePreview) {
+                        changed = true
+                        next = next.copy(lastMessageContent = preview)
+                    }
                 }
             }
         }
