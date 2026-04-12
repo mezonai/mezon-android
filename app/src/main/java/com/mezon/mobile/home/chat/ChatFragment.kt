@@ -1364,9 +1364,10 @@ class ChatFragment : BaseFragment() {
 
         chatAdjustPanHelper = object : com.mezon.mobile.core.AdjustPanLayoutHelper(rootView) {
             override fun heightAnimationEnabled(): Boolean {
-                if (isPaused) return false
-                if (inTransitionAnimation) return false
+                val layout = parentLayout
+                if (layout == null) return false
                 if (android.os.SystemClock.elapsedRealtime() - lastResumeTime < 250) return false
+                if ((this@ChatFragment == layout.getLastFragment() && layout.isTransitionAnimationInProgress()) || isPaused) return false
                 return true
             }
             override fun onTransitionStart(keyboardVisible: Boolean, contentHeight: Int) {

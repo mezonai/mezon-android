@@ -11,6 +11,7 @@ import com.mezon.mobile.core.BaseCell
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
 import com.mezon.mobile.ui.cells.MezonIcon
 
 class ChannelItemCell(
@@ -45,6 +46,7 @@ class ChannelItemCell(
             CHANNEL_TYPE_APP -> MezonIcon.channelApp
             CHANNEL_TYPE_FORUM -> MezonIcon.forumIcon
             CHANNEL_TYPE_ANNOUNCEMENT -> MezonIcon.announcementIcon
+            CHANNEL_TYPE_THREAD -> if (isPrivate) MezonIcon.threadLockIcon else MezonIcon.threadIcon
             else -> if (isPrivate) MezonIcon.channelTextLock else MezonIcon.channelText
         }
     }

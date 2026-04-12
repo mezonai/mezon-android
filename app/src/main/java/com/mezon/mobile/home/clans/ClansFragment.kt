@@ -628,8 +628,7 @@ class ClansFragment : BaseFragment() {
                 val old = oldUnreadDms.getOrNull(i)
                 val new = newUnreadDms[i]
                 if (old == null || old.unreadCount != new.unreadCount ||
-                    old.lastMessageContent != new.lastMessageContent ||
-                    old.isOnline != new.isOnline) {
+                    old.lastMessageContent != new.lastMessageContent) {
                     notifyItemChanged(dmHeaderCount + i)
                 }
             }

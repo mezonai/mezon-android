@@ -466,6 +466,11 @@
     <string name="sharing_add_comment">Add a comment…</string>
     <string name="sharing_empty_content">Nothing to share</string>
 
+    <string name="search_section_text_channels">Text Channels</string>
+    <string name="search_section_voice_channels">Voice Channels</string>
+    <string name="search_section_streaming_channels">Streaming Channels</string>
+    <string name="search_join_channel">Join</string>
+
     <string name="buzz_dialog_title">Enter your message Buzz!!</string>
     <string name="buzz_dialog_send">Send</string>
     <string name="buzz_default_text">Buzz!!</string>

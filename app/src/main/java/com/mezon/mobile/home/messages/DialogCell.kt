@@ -11,7 +11,6 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.chat.MezonImageLoader
-import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.util.createImgproxyUrl
 import com.mezon.mobile.util.formatRelativeTime
 
@@ -27,7 +26,6 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
     private var attachedToWindow = false
     private var needsLayout = false
     private var visibleOnScreen = true
-    private var onlineProgress = 0f
     private val tmpRect = RectF()
 
     private var nameLayout: StaticLayout? = null
@@ -94,19 +92,12 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
             val changed = newDm != null && newDm != directMessage
             if (newDm != null) directMessage = newDm
             avatarDrawable.setInfo(dm.channelId, dm.displayName.ifEmpty { dm.label })
-            onlineProgress = if (dm.type == CHANNEL_TYPE_DM && dm.isOnline) 1f else 0f
             if (changed) {
                 buildLayouts()
                 loadAvatar(dm.avatarUrl)
                 invalidate()
             }
             return changed
-        }
-
-        if ((mask and NotificationCenter.UPDATE_MASK_STATUS) != 0) {
-            if (directMessage?.isOnline != dm.isOnline) {
-                needInvalidate = true
-            }
         }
 
         if ((mask and NotificationCenter.UPDATE_MASK_NAME) != 0) {
@@ -232,29 +223,12 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
     override fun onDraw(canvas: Canvas) {
         if (!visibleOnScreen) return
         val dm = directMessage ?: return
-        var needInvalidate = false
         val cx = PADDING_H
         val cy = (height - AVATAR_SIZE) / 2
         val isUnread = dm.unreadCount > 0
 
         avatarDrawable.setBounds(cx, cy, cx + AVATAR_SIZE, cy + AVATAR_SIZE)
         avatarDrawable.draw(canvas)
-
-        val isOnline = dm.type == CHANNEL_TYPE_DM && dm.isOnline
-        if (false) {
-            val dotR = ONLINE_DOT / 2f
-            val dotCx = cx + AVATAR_SIZE - dotR
-            val dotCy = cy + AVATAR_SIZE - dotR
-            canvas.drawCircle(dotCx, dotCy, (dotR + ONLINE_BORDER / 2f) * onlineProgress, theme.dialogOnlineBorderPaint)
-            canvas.drawCircle(dotCx, dotCy, (dotR - 1f) * onlineProgress, theme.dialogOnlinePaint)
-            if (isOnline && onlineProgress < 1f) {
-                onlineProgress = (onlineProgress + ONLINE_ANIM_STEP).coerceAtMost(1f)
-                needInvalidate = true
-            } else if (!isOnline && onlineProgress > 0f) {
-                onlineProgress = (onlineProgress - ONLINE_ANIM_STEP).coerceAtLeast(0f)
-                needInvalidate = true
-            }
-        }
 
         val textLeft = (cx + AVATAR_SIZE + GAP_H).toFloat()
         var textTop = PADDING_V.toFloat()
@@ -318,10 +292,6 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
 
         val divLeft = (cx + AVATAR_SIZE + GAP_H).toFloat()
         canvas.drawRect(divLeft, height - 1f, width.toFloat(), height.toFloat(), theme.dividerPaint)
-
-        if (needInvalidate) {
-            invalidate()
-        }
     }
 
     companion object {
@@ -330,15 +300,12 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         private val PADDING_V = LayoutHelper.dp(12)
         private val GAP_H = LayoutHelper.dp(12)
         private val GAP_V = LayoutHelper.dp(2)
-        private val ONLINE_DOT = LayoutHelper.dp(12)
-        private val ONLINE_BORDER = LayoutHelper.dp(2)
         private val BADGE_MIN_W = LayoutHelper.dp(20)
         private val BADGE_H = LayoutHelper.dp(20)
         private val CELL_HEIGHT = LayoutHelper.dp(72)
         private val BADGE_PAD = LayoutHelper.dp(10)
         private val BADGE_GAP = LayoutHelper.dp(8)
         private val TIME_GAP = LayoutHelper.dp(8)
-        private val ONLINE_ANIM_STEP = 16f / 150f
         private val BUZZ_H_PAD = LayoutHelper.dp(4).toFloat()
         private val BUZZ_BADGE_H = LayoutHelper.dp(20)
         private val BUZZ_RADIUS = LayoutHelper.dpf(4f)
