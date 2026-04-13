@@ -1,8 +1,11 @@
 package com.mezon.mobile.di
 
 import com.mezon.mobile.auth.AuthRepository
+import com.mezon.mobile.home.AnonymousController
 import com.mezon.mobile.home.ChatController
 import com.mezon.mobile.home.ConnectionController
+import com.mezon.mobile.home.MemberResolver
+import com.mezon.mobile.home.PinMessageController
 import com.mezon.mobile.home.chat.EmojiController
 import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.UserClanController
@@ -16,6 +19,7 @@ import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.notification.FcmRepository
 import com.mezon.mobile.search.SearchController
+import com.mezon.mobile.session.SessionManager
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
@@ -41,6 +45,10 @@ interface FragmentEntryPoint {
     fun searchController(): SearchController
     fun userClanController(): UserClanController
     fun emojiController(): EmojiController
+    fun anonymousController(): AnonymousController
+    fun memberResolver(): MemberResolver
+    fun pinMessageController(): PinMessageController
+    fun sessionManager(): SessionManager
 
     @IoDispatcher
     fun ioDispatcher(): CoroutineDispatcher

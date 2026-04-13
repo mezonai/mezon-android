@@ -1,15 +1,22 @@
 package com.mezon.mobile.home.chat.emoji
 
+import android.animation.ValueAnimator
 import android.content.Context
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
+import android.graphics.RectF
 import android.os.Handler
 import android.os.Looper
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.Gravity
+import android.view.MotionEvent
+import android.view.VelocityTracker
 import android.view.View
+import android.view.ViewConfiguration
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageView
@@ -36,7 +43,11 @@ private const val SEARCH_DEBOUNCE_MS = 300L
 private const val EMOJI_COLUMNS = 9
 private const val STICKER_COLUMNS = 5
 
-class EmojiView(context: Context, private val themeColors: ThemeColors) : FrameLayout(context) {
+class EmojiView(
+    context: Context,
+    private val themeColors: ThemeColors,
+    private val emojiOnly: Boolean = false
+) : FrameLayout(context) {
 
     interface EmojiViewDelegate {
         fun onEmojiSelected(emoji: EmojiItem)
@@ -44,6 +55,7 @@ class EmojiView(context: Context, private val themeColors: ThemeColors) : FrameL
         fun onGifSelected(gifUrl: String)
         fun onBackspace()
         fun onSearchFocusChanged(focused: Boolean) {}
+        fun onDismissRequested() {}
     }
 
     var delegate: EmojiViewDelegate? = null
@@ -71,12 +83,45 @@ class EmojiView(context: Context, private val themeColors: ThemeColors) : FrameL
     private var gifSearchActive = false
     private var gifAdapter: GifGridAdapter? = null
 
-    init {
-        setBackgroundColor(themeColors.surface)
+    private val gifScrollListener = object : RecyclerView.OnScrollListener() {
+        override fun onScrollStateChanged(rv: RecyclerView, newState: Int) {
+            val stop = newState == RecyclerView.SCROLL_STATE_DRAGGING || newState == RecyclerView.SCROLL_STATE_SETTLING
+            for (i in 0 until rv.childCount) {
+                val child = rv.getChildAt(i)
+                if (child is GifCell) {
+                    if (stop) child.stopHeavyOperations() else child.startHeavyOperations()
+                } else if (child is GifCategoryCell) {
+                    if (stop) child.stopHeavyOperations() else child.startHeavyOperations()
+                }
+            }
+        }
+    }
 
+    private var velocityTracker: VelocityTracker? = null
+    private var dragging = false
+    private var dragStartY = 0f
+    private var dragTranslation = 0f
+    private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
+    private val dismissVelocity = LayoutHelper.dp(800f).toFloat()
+
+    init {
+        setBackgroundColor(Color.TRANSPARENT)
+        clipChildren = false
+        clipToPadding = false
+
+        val sheetRadius = LayoutHelper.dp(16f).toFloat()
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(themeColors.surface)
+                cornerRadii = floatArrayOf(sheetRadius, sheetRadius, sheetRadius, sheetRadius, 0f, 0f, 0f, 0f)
+            }
         }
+
+        val dragHandle = DragHandleView(context, themeColors)
+        root.addView(dragHandle, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, DRAG_HANDLE_HEIGHT
+        ))
 
         tabBar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -96,38 +141,44 @@ class EmojiView(context: Context, private val themeColors: ThemeColors) : FrameL
         tabBar.addView(tabEmoji, LayoutHelper.createLinear(0, 36, 1f, leftMargin = 4f, rightMargin = 2f))
         tabBar.addView(tabGif, LayoutHelper.createLinear(0, 36, 1f, leftMargin = 2f, rightMargin = 2f))
         tabBar.addView(tabSticker, LayoutHelper.createLinear(0, 36, 1f, leftMargin = 2f, rightMargin = 4f))
+        if (emojiOnly) {
+            tabBar.visibility = View.GONE
+            dragHandle.visibility = View.GONE
+        }
         root.addView(tabBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         val searchBar = FrameLayout(context).apply {
-            setPadding(LayoutHelper.dp(8f), LayoutHelper.dp(4f), LayoutHelper.dp(8f), LayoutHelper.dp(4f))
+            setPadding(LayoutHelper.dp(10f), LayoutHelper.dp(10f), LayoutHelper.dp(10f), LayoutHelper.dp(10f))
         }
 
         searchField = EditText(context).apply {
             hint = "Search"
-            setHintTextColor(themeColors.onSurfaceVariant)
+            setHintTextColor(themeColors.textDisabled)
             setTextColor(themeColors.onSurface)
             textSize = 14f
             maxLines = 1
             isSingleLine = true
             background = android.graphics.drawable.GradientDrawable().apply {
                 setColor(themeColors.tertiary)
-                cornerRadius = LayoutHelper.dp(16f).toFloat()
+                cornerRadius = LayoutHelper.dp(10f).toFloat()
             }
-            setPadding(LayoutHelper.dp(36f), LayoutHelper.dp(6f), LayoutHelper.dp(12f), LayoutHelper.dp(6f))
+            setPadding(LayoutHelper.dp(38f), LayoutHelper.dp(8f), LayoutHelper.dp(10f), LayoutHelper.dp(8f))
         }
 
         val searchIcon = ImageView(context).apply {
-            val d = MezonIcon.searchIcon.getDrawable(context)
-            d.colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
+            val d = MezonIcon.magnifyingIcon.getDrawable(context).mutate()
+            d.colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
             setImageDrawable(d)
-            scaleType = ImageView.ScaleType.CENTER
+            scaleType = ImageView.ScaleType.FIT_CENTER
         }
         searchBar.addView(searchField, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, LayoutHelper.dp(36f)
+            FrameLayout.LayoutParams.MATCH_PARENT, LayoutHelper.dp(40f)
         ))
         searchBar.addView(searchIcon, FrameLayout.LayoutParams(
-            LayoutHelper.dp(36f), LayoutHelper.dp(36f), Gravity.START or Gravity.CENTER_VERTICAL
-        ))
+            LayoutHelper.dp(18f), LayoutHelper.dp(18f), Gravity.START or Gravity.CENTER_VERTICAL
+        ).apply {
+            leftMargin = LayoutHelper.dp(10f)
+        })
         root.addView(searchBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         searchField.setOnFocusChangeListener { _, hasFocus ->
@@ -163,6 +214,7 @@ class EmojiView(context: Context, private val themeColors: ThemeColors) : FrameL
         bottomBar.addView(backspaceButton, FrameLayout.LayoutParams(
             LayoutHelper.dp(40f), LayoutHelper.dp(40f), Gravity.END or Gravity.CENTER_VERTICAL
         ).apply { rightMargin = LayoutHelper.dp(8f) })
+        if (emojiOnly) bottomBar.visibility = View.GONE
         root.addView(bottomBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 44))
 
         addView(root, FrameLayout.LayoutParams(
@@ -258,6 +310,8 @@ class EmojiView(context: Context, private val themeColors: ThemeColors) : FrameL
                     setHasFixedSize(true)
                     (itemAnimator as? SimpleItemAnimator)?.supportsChangeAnimations = false
                     overScrollMode = OVER_SCROLL_NEVER
+                    setPadding(LayoutHelper.dp(11f), 0, LayoutHelper.dp(11f), 0)
+                    clipToPadding = false
                 }
                 contentContainer.addView(emojiGrid, matchLp)
             }
@@ -296,6 +350,7 @@ class EmojiView(context: Context, private val themeColors: ThemeColors) : FrameL
                         addItemDecoration(GifSpacingDecoration(gifSpacing))
                         setPadding(gifSpacing, gifSpacing, gifSpacing, gifSpacing)
                         clipToPadding = false
+                        addOnScrollListener(gifScrollListener)
                     }
                     contentContainer.addView(gifCategoryGrid, matchLp)
                 }
@@ -313,6 +368,7 @@ class EmojiView(context: Context, private val themeColors: ThemeColors) : FrameL
                         setPadding(gifSpacing, gifSpacing, gifSpacing, gifSpacing)
                         clipToPadding = false
                         visibility = View.GONE
+                        addOnScrollListener(gifScrollListener)
                     }
                     contentContainer.addView(gifGrid, matchLp)
                 }
@@ -422,9 +478,116 @@ class EmojiView(context: Context, private val themeColors: ThemeColors) : FrameL
 
     val isSearchFocused: Boolean get() = searchField.hasFocus()
 
+    override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
+        when (ev.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                dragStartY = ev.rawY
+                dragTranslation = 0f
+                dragging = false
+                velocityTracker?.recycle()
+                velocityTracker = VelocityTracker.obtain()
+                velocityTracker?.addMovement(ev)
+                if (ev.y < DRAG_HANDLE_HEIGHT) return true
+            }
+            MotionEvent.ACTION_MOVE -> {
+                velocityTracker?.addMovement(ev)
+                val dy = ev.rawY - dragStartY
+                if (!dragging && dy > touchSlop && ev.y < DRAG_HANDLE_HEIGHT + tabBar.height) {
+                    dragging = true
+                    dragStartY = ev.rawY
+                    return true
+                }
+            }
+        }
+        return super.onInterceptTouchEvent(ev)
+    }
+
+    override fun onTouchEvent(ev: MotionEvent): Boolean {
+        velocityTracker?.addMovement(ev)
+        when (ev.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                dragStartY = ev.rawY
+                return true
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val dy = (ev.rawY - dragStartY).coerceAtLeast(0f)
+                if (!dragging && dy > touchSlop) {
+                    dragging = true
+                    dragStartY = ev.rawY
+                }
+                if (dragging) {
+                    dragTranslation = (ev.rawY - dragStartY).coerceAtLeast(0f)
+                    val child = getChildAt(0)
+                    child?.translationY = dragTranslation
+                }
+                return true
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (dragging) {
+                    dragging = false
+                    velocityTracker?.computeCurrentVelocity(1000)
+                    val vy = velocityTracker?.yVelocity ?: 0f
+                    val child = getChildAt(0) ?: return true
+                    val h = child.height.toFloat()
+                    if (vy > dismissVelocity || dragTranslation > h * 0.4f) {
+                        animateSlide(child, dragTranslation, h, dismiss = true)
+                    } else {
+                        animateSlide(child, dragTranslation, 0f, dismiss = false)
+                    }
+                }
+                velocityTracker?.recycle()
+                velocityTracker = null
+                return true
+            }
+        }
+        return super.onTouchEvent(ev)
+    }
+
+    private fun animateSlide(child: View, from: Float, to: Float, dismiss: Boolean) {
+        ValueAnimator.ofFloat(from, to).apply {
+            duration = if (dismiss) 200L else 150L
+            addUpdateListener { child.translationY = it.animatedValue as Float }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    if (dismiss) {
+                        child.translationY = 0f
+                        delegate?.onDismissRequested()
+                    }
+                }
+            })
+            start()
+        }
+    }
+
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         searchRunnable?.let { handler.removeCallbacks(it) }
+        velocityTracker?.recycle()
+        velocityTracker = null
+    }
+
+    private class DragHandleView(context: Context, themeColors: ThemeColors) : View(context) {
+
+        private val handlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = themeColors.onSurfaceVariant
+            style = Paint.Style.FILL
+        }
+        private val handleRect = RectF()
+
+        override fun onDraw(canvas: Canvas) {
+            val cx = width / 2f
+            val cy = height / 2f
+            val hw = HANDLE_W / 2f
+            val hh = HANDLE_H / 2f
+            handleRect.set(cx - hw, cy - hh, cx + hw, cy + hh)
+            canvas.drawRoundRect(handleRect, hh, hh, handlePaint)
+        }
+    }
+
+    companion object {
+        private val DRAG_HANDLE_HEIGHT = LayoutHelper.dp(20f)
+        private val HANDLE_W = LayoutHelper.dp(36f).toFloat()
+        private val HANDLE_H = LayoutHelper.dp(4f).toFloat()
     }
 
     private class GifSpacingDecoration(private val spacing: Int) : RecyclerView.ItemDecoration() {

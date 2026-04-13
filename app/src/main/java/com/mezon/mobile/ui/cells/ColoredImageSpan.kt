@@ -11,6 +11,8 @@ import android.text.style.ReplacementSpan
 import androidx.annotation.DrawableRes
 import androidx.core.content.ContextCompat
 import com.mezon.mobile.core.LayoutHelper
+import kotlin.math.max
+import kotlin.math.min
 
 class ColoredImageSpan : ReplacementSpan {
 
@@ -68,9 +70,25 @@ class ColoredImageSpan : ReplacementSpan {
         end: Int,
         fm: Paint.FontMetricsInt?
     ): Int {
-        if (sizeWidth != 0) return (kotlin.math.abs(scaleX) * sizeWidth).toInt()
-        val w = if (size != 0) size else (drawable?.intrinsicWidth ?: 0)
-        return (kotlin.math.abs(scaleX) * kotlin.math.abs(1f) * w).toInt()
+        val w = if (sizeWidth != 0) {
+            (kotlin.math.abs(scaleX) * sizeWidth).toInt()
+        } else {
+            val baseW = if (size != 0) size else (drawable?.intrinsicWidth ?: 0)
+            (kotlin.math.abs(scaleX) * baseW).toInt()
+        }
+        if (fm != null && verticalAlignment == ALIGN_CENTER) {
+            val h = if (size != 0) size else (drawable?.intrinsicHeight ?: 0)
+            if (h > 0) {
+                val p = paint.fontMetricsInt
+                val textH = p.descent - p.ascent
+                val off = (h - textH) / 2
+                fm.ascent = p.ascent - off
+                fm.descent = p.descent + off
+                fm.top = min(p.top, fm.ascent)
+                fm.bottom = max(p.bottom, fm.descent)
+            }
+        }
+        return w
     }
 
     override fun draw(
@@ -96,6 +114,11 @@ class ColoredImageSpan : ReplacementSpan {
             if (drawableColor != color) {
                 drawableColor = color
                 d.colorFilter = PorterDuffColorFilter(drawableColor, PorterDuff.Mode.SRC_IN)
+            }
+        } else {
+            if (drawableColor != 0 || d.colorFilter != null) {
+                drawableColor = 0
+                d.clearColorFilter()
             }
         }
 

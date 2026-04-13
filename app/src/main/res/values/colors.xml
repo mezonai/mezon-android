@@ -9,4 +9,6 @@
     <color name="white">#FFFFFFFF</color>
     <color name="notification_color">#FF5A62F4</color>
     <color name="splash_background">#FF000000</color>
+    <color name="checkbox_selected">#FF4F46E5</color>
+    <color name="checkbox_unselected">#FFC4C4C4</color>
 </resources>

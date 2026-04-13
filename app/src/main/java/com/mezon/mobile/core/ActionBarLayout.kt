@@ -7,8 +7,11 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Rect
 import android.graphics.drawable.Drawable
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.view.Menu
 import android.view.MotionEvent
@@ -29,6 +32,12 @@ class ActionBarLayout(context: Context, private val activity: Activity) :
     inner class LayoutContainer(context: Context) : FrameLayout(context) {
 
         var isLayoutToIgnore = false
+
+        override fun requestLayout() {
+            if (isLayoutToIgnore) return
+            super.requestLayout()
+        }
+
         var fragmentPanTranslationOffset = 0
             set(value) {
                 field = value
@@ -38,9 +47,11 @@ class ActionBarLayout(context: Context, private val activity: Activity) :
         private val backgroundPaint = Paint()
         private var backgroundColor = 0
         private var wasPortrait = false
-        private var isKeyboardVisible = false
+        var isKeyboardVisible = false
+            private set
         var keyboardHeight = 0
             private set
+        private val visibleRect = Rect()
 
         init {
             setWillNotDraw(false)
@@ -59,11 +70,6 @@ class ActionBarLayout(context: Context, private val activity: Activity) :
         }
 
         override fun hasOverlappingRendering(): Boolean = Build.VERSION.SDK_INT >= 28
-
-        override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-            if (isLayoutToIgnore) return false
-            return super.dispatchTouchEvent(ev)
-        }
 
         override fun drawChild(canvas: Canvas, child: View, drawingTime: Long): Boolean {
             val tX = this@ActionBarLayout.innerTranslationX
@@ -94,6 +100,10 @@ class ActionBarLayout(context: Context, private val activity: Activity) :
         }
 
         override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            if (isLayoutToIgnore && measuredWidth > 0 && measuredHeight > 0) {
+                setMeasuredDimension(measuredWidth, measuredHeight)
+                return
+            }
             val width = MeasureSpec.getSize(widthMeasureSpec)
             var height = MeasureSpec.getSize(heightMeasureSpec)
             val isPortrait = height > width
@@ -101,6 +111,17 @@ class ActionBarLayout(context: Context, private val activity: Activity) :
                 finishPreviewFragment()
             }
             wasPortrait = isPortrait
+
+            val rootView = rootView
+            if (rootView != null) {
+                rootView.getWindowVisibleDisplayFrame(visibleRect)
+                val usableHeight = rootView.height -
+                    (if (visibleRect.top != 0) AndroidUtilities.statusBarHeight else 0) -
+                    AndroidUtilities.getViewInset(rootView)
+                isKeyboardVisible = usableHeight - (visibleRect.bottom - visibleRect.top) > 0
+            }
+
+            checkWaitingForKeyboardClose()
 
             var actionBarHeight = 0
             for (i in 0 until childCount) {
@@ -131,6 +152,7 @@ class ActionBarLayout(context: Context, private val activity: Activity) :
         }
 
         override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+            if (isLayoutToIgnore) return
             val count = childCount
             var actionBarHeight = 0
             for (i in 0 until count) {
@@ -183,16 +205,18 @@ class ActionBarLayout(context: Context, private val activity: Activity) :
 
     private var maybeStartTracking = false
     private var startedTracking = false
+    private var beginTrackingSent = false
     private var startedTrackingX = 0
     private var startedTrackingY = 0
     private var startedTrackingPointerId = -1
     private var velocityTracker: VelocityTracker? = null
     private var backAnimator: ValueAnimator? = null
-    private var layoutToIgnore: LayoutContainer? = null
 
     private var onBackInvokedCallback: Any? = null
 
     private var headerShadowDrawable: Drawable? = null
+
+    private var waitingForKeyboardCloseRunnable: Runnable? = null
 
     private var rebuildAfterAnimation = false
     private var rebuildLastAfterAnimation = false
@@ -394,24 +418,33 @@ class ActionBarLayout(context: Context, private val activity: Activity) :
         return super.onKeyUp(keyCode, event)
     }
 
-    override fun onAttachedToWindow() {
-        super.onAttachedToWindow()
-    }
-
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         unregisterBackCallback()
+        waitingForKeyboardCloseRunnable?.let { AndroidUtilities.cancelRunOnUIThread(it) }
+        waitingForKeyboardCloseRunnable = null
     }
+
+    private val keyboardRect = Rect()
 
     fun measureKeyboardHeight(): Int {
         val rootView = rootView ?: return 0
-        val rect = android.graphics.Rect()
-        rootView.getWindowVisibleDisplayFrame(rect)
+        rootView.getWindowVisibleDisplayFrame(keyboardRect)
+        val rect = keyboardRect
         if (rect.bottom == 0 && rect.top == 0) return 0
         val usableViewHeight = rootView.height -
                 (if (rect.top != 0) AndroidUtilities.statusBarHeight else 0) -
                 AndroidUtilities.getViewInset(rootView)
         return (usableViewHeight - (rect.bottom - rect.top)).coerceAtLeast(0)
+    }
+
+    private fun checkWaitingForKeyboardClose() {
+        val pending = waitingForKeyboardCloseRunnable ?: return
+        if (!containerView.isKeyboardVisible && !containerViewBack.isKeyboardVisible) {
+            AndroidUtilities.cancelRunOnUIThread(pending)
+            pending.run()
+            waitingForKeyboardCloseRunnable = null
+        }
     }
 
     fun relayout() {
@@ -558,36 +591,49 @@ class ActionBarLayout(context: Context, private val activity: Activity) :
             containerView.alpha = 0f
             containerView.translationX = openSlideDistance
 
-            transitionAnimationInProgress = true
-            ValueAnimator.ofFloat(0f, 1f).apply {
-                duration = openAnimDuration
-                interpolator = slideInterpolator
-                addUpdateListener { anim ->
-                    val progress = anim.animatedValue as Float
-                    containerView.alpha = progress
-                    containerView.translationX = openSlideDistance * (1f - progress)
-                }
-                addListener(object : AnimatorListenerAdapter() {
-                    override fun onAnimationEnd(animation: Animator) {
-                        transitionAnimationInProgress = false
-                        containerView.alpha = 1f
-                        containerView.translationX = 0f
-                        if (params.removeLast) {
-                            containerViewBack.removeAllViews()
-                            destroyFragment(currentFragment)
-                        } else {
-                            currentFragment.onBecomeFullyHidden()
-                            currentFragment.onPause()
-                        }
-                        containerViewBack.visibility = INVISIBLE
-                        currentFragment.onTransitionAnimationEnd(isOpen = false, backward = false)
-                        fragment.onTransitionAnimationEnd(isOpen = true, backward = false)
-                        fragment.onBecomeFullyVisible()
-                        notifyStackChanged()
-                        checkPendingRebuild()
+            val startAnimation = Runnable {
+                transitionAnimationInProgress = true
+                ValueAnimator.ofFloat(0f, 1f).apply {
+                    duration = openAnimDuration
+                    interpolator = slideInterpolator
+                    addUpdateListener { anim ->
+                        val progress = anim.animatedValue as Float
+                        containerView.alpha = progress
+                        containerView.translationX = openSlideDistance * (1f - progress)
                     }
-                })
-                start()
+                    addListener(object : AnimatorListenerAdapter() {
+                        override fun onAnimationEnd(animation: Animator) {
+                            transitionAnimationInProgress = false
+                            containerView.alpha = 1f
+                            containerView.translationX = 0f
+                            if (params.removeLast) {
+                                containerViewBack.removeAllViews()
+                                destroyFragment(currentFragment)
+                            } else {
+                                currentFragment.onBecomeFullyHidden()
+                                currentFragment.onPause()
+                            }
+                            containerViewBack.visibility = INVISIBLE
+                            currentFragment.onTransitionAnimationEnd(isOpen = false, backward = false)
+                            fragment.onTransitionAnimationEnd(isOpen = true, backward = false)
+                            fragment.onBecomeFullyVisible()
+                            notifyStackChanged()
+                            checkPendingRebuild()
+                        }
+                    })
+                    start()
+                }
+            }
+
+            if (containerView.isKeyboardVisible || containerViewBack.isKeyboardVisible) {
+                waitingForKeyboardCloseRunnable = Runnable {
+                    if (waitingForKeyboardCloseRunnable !== this.waitingForKeyboardCloseRunnable) return@Runnable
+                    waitingForKeyboardCloseRunnable = null
+                    startAnimation.run()
+                }
+                AndroidUtilities.runOnUIThread(waitingForKeyboardCloseRunnable!!, KEYBOARD_CLOSE_DELAY_PRESENT)
+            } else {
+                startAnimation.run()
             }
         } else {
             containerView.removeAllViews()
@@ -616,7 +662,7 @@ class ActionBarLayout(context: Context, private val activity: Activity) :
 
     override fun closeLastFragment(animated: Boolean, forceNoAnimation: Boolean) {
         if (fragmentStack.size <= 1) return
-        if (checkTransitionAnimation() && animated && !forceNoAnimation) return
+        if ((checkTransitionAnimation() || startedTracking) && animated && !forceNoAnimation) return
         val closingFragment = fragmentStack.lastOrNull()
         if (closingFragment?.closeLastFragment() == true) return
         if (delegate?.needCloseLastFragment(this) == false) return
@@ -657,24 +703,38 @@ class ActionBarLayout(context: Context, private val activity: Activity) :
 
         val needAnim = animated && !forceNoAnimation && SharedConfig.animationsEnabled()
         if (needAnim) {
-            transitionAnimationInProgress = true
             previousFragment.onTransitionAnimationStart(isOpen = true, backward = true)
             previousFragment.onResume()
-            ValueAnimator.ofFloat(0f, 1f).apply {
-                duration = openAnimDuration
-                interpolator = slideInterpolator
-                addUpdateListener { anim ->
-                    val progress = anim.animatedValue as Float
-                    containerView.alpha = 1f - progress
-                    containerView.translationX = openSlideDistance * progress
-                }
-                addListener(object : AnimatorListenerAdapter() {
-                    override fun onAnimationEnd(animation: Animator) {
-                        transitionAnimationInProgress = false
-                        finishCloseAnimation(removingFragment)
+
+            val startCloseAnimation = Runnable {
+                transitionAnimationInProgress = true
+                ValueAnimator.ofFloat(0f, 1f).apply {
+                    duration = openAnimDuration
+                    interpolator = slideInterpolator
+                    addUpdateListener { anim ->
+                        val progress = anim.animatedValue as Float
+                        containerView.alpha = 1f - progress
+                        containerView.translationX = openSlideDistance * progress
                     }
-                })
-                start()
+                    addListener(object : AnimatorListenerAdapter() {
+                        override fun onAnimationEnd(animation: Animator) {
+                            transitionAnimationInProgress = false
+                            finishCloseAnimation(removingFragment)
+                        }
+                    })
+                    start()
+                }
+            }
+
+            if (containerView.isKeyboardVisible || containerViewBack.isKeyboardVisible) {
+                waitingForKeyboardCloseRunnable = Runnable {
+                    if (waitingForKeyboardCloseRunnable !== this.waitingForKeyboardCloseRunnable) return@Runnable
+                    waitingForKeyboardCloseRunnable = null
+                    startCloseAnimation.run()
+                }
+                AndroidUtilities.runOnUIThread(waitingForKeyboardCloseRunnable!!, KEYBOARD_CLOSE_DELAY_CLOSE)
+            } else {
+                startCloseAnimation.run()
             }
         } else {
             previousFragment.onTransitionAnimationStart(isOpen = true, backward = true)
@@ -702,9 +762,6 @@ class ActionBarLayout(context: Context, private val activity: Activity) :
         }
 
         containerViewBack.visibility = INVISIBLE
-        containerViewBack.isLayoutToIgnore = false
-        containerView.isLayoutToIgnore = false
-        layoutToIgnore = null
         containerView.setLayerType(LAYER_TYPE_NONE, null)
 
         notifyStackChanged()
@@ -748,7 +805,7 @@ class ActionBarLayout(context: Context, private val activity: Activity) :
             velocityTracker!!.addMovement(ev)
 
             if (!transitionAnimationInProgress && maybeStartTracking && !startedTracking
-                && dx >= (resources.displayMetrics.densityDpi / 160f * 4f).toInt()
+                && dx >= AndroidUtilities.getPixelsInCM(0.4f, true).toInt()
                 && dx / 3 > dy
             ) {
                 if (findScrollingChild(this, ev.x, ev.y) == null) {
@@ -763,6 +820,13 @@ class ActionBarLayout(context: Context, private val activity: Activity) :
                     maybeStartTracking = false
                 }
             } else if (startedTracking) {
+                if (!beginTrackingSent) {
+                    beginTrackingSent = true
+                    if (activity.currentFocus != null) {
+                        AndroidUtilities.hideKeyboard(activity.currentFocus)
+                    }
+                    fragmentStack.last().onBeginSlide()
+                }
                 val translationX = (ev.x - startedTrackingX).coerceAtLeast(0f)
                 containerView.translationX = translationX
                 innerTranslationX = (translationX)
@@ -779,7 +843,10 @@ class ActionBarLayout(context: Context, private val activity: Activity) :
             if (!startedTracking && ev.action != MotionEvent.ACTION_CANCEL) {
                 val velX = velocityTracker!!.xVelocity
                 val velY = velocityTracker!!.yVelocity
-                if (velX >= 3500f && velX > Math.abs(velY)) {
+                val currentFragment = fragmentStack.last()
+                if (velX >= 3500f && velX > Math.abs(velY)
+                    && currentFragment.isSwipeBackEnabled(ev)
+                ) {
                     startedTrackingX = ev.x.toInt()
                     prepareForMoving(fragmentStack[fragmentStack.size - 2])
                 }
@@ -795,7 +862,6 @@ class ActionBarLayout(context: Context, private val activity: Activity) :
             } else {
                 maybeStartTracking = false
                 startedTracking = false
-                layoutToIgnore = null
                 containerView.setLayerType(LAYER_TYPE_NONE, null)
             }
             velocityTracker?.recycle()
@@ -803,13 +869,55 @@ class ActionBarLayout(context: Context, private val activity: Activity) :
         } else if (ev == null) {
             maybeStartTracking = false
             startedTracking = false
-            layoutToIgnore = null
             containerView.setLayerType(LAYER_TYPE_NONE, null)
             velocityTracker?.recycle()
             velocityTracker = null
         }
 
         return startedTracking
+    }
+
+    override fun drawChild(canvas: Canvas, child: View, drawingTime: Long): Boolean {
+        val w = width - paddingLeft - paddingRight
+        val tx = innerTranslationX.toInt() + paddingRight
+        var clipLeft = paddingLeft
+        var clipRight = w + paddingLeft
+
+        if (child == containerViewBack) {
+            clipRight = tx + LayoutHelper.dp(1)
+        } else if (child == containerView) {
+            clipLeft = tx
+        }
+
+        val restoreCount = canvas.save()
+        if (!transitionAnimationInProgress && !inPreviewMode) {
+            canvas.clipRect(clipLeft, 0, clipRight, height)
+        }
+        val result = super.drawChild(canvas, child, drawingTime)
+        canvas.restoreToCount(restoreCount)
+
+        if (tx != 0) {
+            val widthOffset = w - tx
+            if (child == containerView) {
+                val alpha = (255 * widthOffset / LayoutHelper.dp(20)).coerceIn(0, 255)
+                if (alpha > 0) {
+                    layerShadowDrawable.setBounds(
+                        tx - layerShadowDrawable.intrinsicWidth,
+                        child.top,
+                        tx,
+                        child.bottom
+                    )
+                    layerShadowDrawable.alpha = alpha
+                    layerShadowDrawable.draw(canvas)
+                }
+            } else if (child == containerViewBack) {
+                val opacity = (widthOffset / w.toFloat()).coerceIn(0f, 0.8f)
+                scrimPaint.color = Color.argb((120 * opacity).toInt(), 0x00, 0x00, 0x00)
+                canvas.drawRect(clipLeft.toFloat(), 0f, clipRight.toFloat(), height * 1.5f, scrimPaint)
+            }
+        }
+
+        return result
     }
 
     override fun dispatchDraw(canvas: Canvas) {
@@ -824,8 +932,6 @@ class ActionBarLayout(context: Context, private val activity: Activity) :
     // ── Internal helpers ────────────────────────────────────────────────────
 
     private fun setupContainerBack(previousFragment: BaseFragment) {
-        layoutToIgnore = containerViewBack
-        containerViewBack.isLayoutToIgnore = true
         containerViewBack.visibility = VISIBLE
 
         val fragmentView = previousFragment.fragmentView
@@ -837,6 +943,15 @@ class ActionBarLayout(context: Context, private val activity: Activity) :
         containerViewBack.addView(fragmentView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addActionBarToContainer(previousFragment, containerViewBack)
         fragmentView.visibility = VISIBLE
+
+        if (measuredWidth > 0 && measuredHeight > 0) {
+            val fullHeight = measuredHeight + measureKeyboardHeight()
+            val w = MeasureSpec.makeMeasureSpec(measuredWidth, MeasureSpec.EXACTLY)
+            val h = MeasureSpec.makeMeasureSpec(fullHeight, MeasureSpec.EXACTLY)
+            containerViewBack.measure(w, h)
+            containerViewBack.layout(0, 0, measuredWidth, fullHeight)
+            containerViewBack.isLayoutToIgnore = true
+        }
         previousFragment.onResume()
 
         containerView.setLayerType(LAYER_TYPE_HARDWARE, null)
@@ -845,11 +960,7 @@ class ActionBarLayout(context: Context, private val activity: Activity) :
     private fun prepareForMoving(previousFragment: BaseFragment) {
         maybeStartTracking = false
         startedTracking = true
-        if (activity.currentFocus != null) {
-            AndroidUtilities.hideKeyboard(activity.currentFocus)
-        }
-        (parent as? DrawerLayoutContainer)?.resetImeHeight()
-        fragmentStack.last().onBeginSlide()
+        beginTrackingSent = false
         setupContainerBack(previousFragment)
     }
 
@@ -873,7 +984,6 @@ class ActionBarLayout(context: Context, private val activity: Activity) :
         backAnimator?.cancel()
         backAnimator = ValueAnimator.ofFloat(x, endTx).apply {
             this.duration = duration
-            interpolator = slideInterpolator
             addUpdateListener { anim ->
                 val tx = anim.animatedValue as Float
                 containerView.translationX = tx
@@ -896,30 +1006,29 @@ class ActionBarLayout(context: Context, private val activity: Activity) :
             })
             start()
         }
-        layoutToIgnore = containerViewBack
         containerViewBack.isLayoutToIgnore = true
     }
 
     private fun onSlideAnimationEnd(backAnimation: Boolean) {
         if (!backAnimation) {
-            if (fragmentStack.size < 2) return
+            if (fragmentStack.size >= 2) {
+                val removingFragment = fragmentStack.last()
+                removingFragment.onPause()
+                removingFragment.onFragmentDestroy()
+                removingFragment.parentLayout = null
+                fragmentStack.removeAt(fragmentStack.size - 1)
 
-            val removingFragment = fragmentStack.last()
-            removingFragment.onPause()
-            removingFragment.onFragmentDestroy()
-            removingFragment.parentLayout = null
-            fragmentStack.removeAt(fragmentStack.size - 1)
+                containerView.alpha = 1f
+                swapContainers()
+                bringChildToFront(containerView)
 
-            containerView.alpha = 1f
-            swapContainers()
-            bringChildToFront(containerView)
-
-            removingFragment.onTransitionAnimationEnd(isOpen = false, backward = true)
-            val nowCurrent = fragmentStack.lastOrNull()
-            nowCurrent?.let {
-                it.onResume()
-                it.onTransitionAnimationEnd(isOpen = true, backward = true)
-                it.onBecomeFullyVisible()
+                removingFragment.onTransitionAnimationEnd(isOpen = false, backward = true)
+                val nowCurrent = fragmentStack.lastOrNull()
+                nowCurrent?.let {
+                    it.onResume()
+                    it.onTransitionAnimationEnd(isOpen = true, backward = true)
+                    it.onBecomeFullyVisible()
+                }
             }
         } else {
             if (fragmentStack.size >= 2) {
@@ -930,19 +1039,23 @@ class ActionBarLayout(context: Context, private val activity: Activity) :
                 }
                 prevFragment.onPause()
             }
-            layoutToIgnore = null
         }
 
         containerViewBack.visibility = INVISIBLE
+        val wasFrozen = containerViewBack.isLayoutToIgnore || containerView.isLayoutToIgnore
         containerViewBack.isLayoutToIgnore = false
         containerView.isLayoutToIgnore = false
-        layoutToIgnore = null
         startedTracking = false
         animationInProgress = false
         containerView.translationX = 0f
         containerViewBack.translationX = 0f
         containerView.setLayerType(LAYER_TYPE_NONE, null)
         innerTranslationX = (0f)
+
+        if (wasFrozen) {
+            containerView.requestLayout()
+            containerViewBack.requestLayout()
+        }
 
         notifyStackChanged()
         checkPendingRebuild()
@@ -1036,16 +1149,28 @@ class ActionBarLayout(context: Context, private val activity: Activity) :
     }
 
     companion object {
+        private const val KEYBOARD_CLOSE_DELAY_PRESENT = 250L
+        private const val KEYBOARD_CLOSE_DELAY_CLOSE = 200L
+
+        private val scrimPaint = Paint()
+        private val hitRect = Rect()
+
+        private val layerShadowDrawable: GradientDrawable by lazy {
+            GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(0x00000000, 0x20000000)
+            ).apply { setSize(LayoutHelper.dp(3), 0) }
+        }
+
         fun findScrollingChild(parent: ViewGroup, x: Float, y: Float): View? {
-            val rect = android.graphics.Rect()
             for (i in 0 until parent.childCount) {
                 val child = parent.getChildAt(i)
                 if (child.visibility != VISIBLE) continue
-                child.getHitRect(rect)
-                if (rect.contains(x.toInt(), y.toInt())) {
+                child.getHitRect(hitRect)
+                if (hitRect.contains(x.toInt(), y.toInt())) {
                     if (child.canScrollHorizontally(-1)) return child
                     if (child is ViewGroup) {
-                        val found = findScrollingChild(child, x - rect.left, y - rect.top)
+                        val found = findScrollingChild(child, x - hitRect.left, y - hitRect.top)
                         if (found != null) return found
                     }
                 }

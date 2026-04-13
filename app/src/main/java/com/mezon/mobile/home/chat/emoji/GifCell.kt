@@ -9,6 +9,7 @@ import android.graphics.drawable.Drawable
 import android.os.Build
 import android.view.View
 import com.mezon.mobile.core.LayoutHelper
+import com.mezon.mobile.core.SharedConfig
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.network.TenorGif
@@ -45,7 +46,7 @@ class GifCell(context: Context, private val themeColors: ThemeColors) : View(con
         gif = item
 
         val reqW = if (measuredWidth > 0) measuredWidth else LayoutHelper.dp(170f)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && !SharedConfig.deviceIsLow()) {
             cancellable = loader.loadDrawable(item.thumbnailUrl, reqW, CELL_HEIGHT,
                 onSuccess = { d ->
                     animDrawable = d
@@ -122,6 +123,16 @@ class GifCell(context: Context, private val themeColors: ThemeColors) : View(con
         stopAnimation()
         cancellable?.cancel()
         cancellable = null
+    }
+
+    fun stopHeavyOperations() {
+        val d = animDrawable
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && d is AnimatedImageDrawable) d.stop()
+    }
+
+    fun startHeavyOperations() {
+        val d = animDrawable
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && d is AnimatedImageDrawable) d.start()
     }
 
     private fun stopAnimation() {

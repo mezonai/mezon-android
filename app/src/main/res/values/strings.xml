@@ -5,6 +5,7 @@
     <string name="common_search">Search</string>
     <string name="common_search_placeholder">Search</string>
     <string name="common_yes">Yes</string>
+    <string name="common_no">No</string>
     <string name="common_cancel">Cancel</string>
     <string name="common_delete">Delete</string>
     <string name="common_save">Save</string>
@@ -174,6 +175,11 @@
     <string name="action_copy_text">Copy Text</string>
     <string name="action_pin">Pin Message</string>
     <string name="action_unpin">Unpin Message</string>
+    <string name="pin_message_confirm_title">Pin Message</string>
+    <string name="pin_message_confirm_description">Please confirm if you would like to pin this message?</string>
+    <string name="unpin_message_confirm_title">Unpin Message</string>
+    <string name="unpin_message_confirm_description">Please confirm if you would like to remove this pinned message?</string>
+    <string name="pin_message_empty">This channel doesn\'t have any pinned messages\u2026 yet.</string>
     <string name="action_mark_unread">Mark Unread</string>
     <string name="action_delete">Delete Message</string>
     <string name="action_report">Report</string>
@@ -185,9 +191,9 @@
 
     <!-- notification -->
     <string name="notification_header">Notifications</string>
-    <string name="notif_inbox_title">Inbox</string>
     <string name="notif_tab_mentions">Mentions</string>
     <string name="notif_tab_messages">Messages</string>
+    <string name="notif_tab_topics">Topics</string>
     <string name="notif_tab_for_you">For You</string>
     <string name="notif_empty">No notifications</string>
     <string name="notification_tab_for_you">For you</string>
@@ -234,6 +240,11 @@
     <string name="profile_copy_success">User ID Copied</string>
     <string name="profile_sign_out">Sign Out</string>
     <string name="profile_enable_wallet">Enable Wallet</string>
+    <string name="profile_balance">Balance: %1$s đồng</string>
+    <string name="profile_transfer">Transfer Funds</string>
+    <string name="profile_history_transaction">Transaction History</string>
+    <string name="profile_add_status">Add Status</string>
+    <string name="profile_update_failed">Update profile failed.</string>
 
     <!-- friends -->
     <string name="friends_title">Friends</string>
@@ -259,6 +270,9 @@
     <string name="setting_log_out_description">Please confirm if you would like to log out?</string>
     <string name="setting_log_out_no">No</string>
     <string name="setting_log_out_yes">Yes</string>
+    <string name="setting_scan_qr">Scan QR Code</string>
+    <string name="setting_devices">Devices</string>
+    <string name="setting_app_version_label">App Version</string>
 
     <!-- theme -->
     <string name="setting_theme_title">Theme</string>
@@ -297,7 +311,8 @@
     <string name="account_email">Email</string>
     <string name="account_username">Username</string>
     <string name="account_display_name">Display Name</string>
-    <string name="account_link_email">Link email</string>
+    <string name="account_link_email">Please link your email</string>
+    <string name="account_email_linked_hidden">Email linked</string>
     <string name="account_link_phone">Link phone</string>
     <string name="account_phone">Phone Number</string>
     <string name="account_blocked_users">Blocked Users</string>
@@ -314,8 +329,7 @@
     <string name="account_delete_error">Failed to delete account. Please try again.</string>
 
     <!-- Update Email -->
-    <string name="update_email_title">Update Your Email</string>
-    <string name="email_new_email_label">New Email Address</string>
+    <string name="update_email_title">Link Email</string>
     <string name="email_next_button">Next</string>
     <string name="email_invalid">Please enter a valid email address</string>
     <string name="email_already_linked">This email is already linked to your account</string>
@@ -337,6 +351,9 @@
     <string name="otp_description_phone">We sent an SMS verification code to %s</string>
     <string name="otp_verify_button">Verify</string>
     <string name="otp_verify_failed">Invalid verification code. Please try again.</string>
+    <string name="email_verify_success">Email linked successfully!</string>
+    <string name="phone_verify_success">Phone number linked successfully!</string>
+    <string name="email_next_button_cooldown">Next (%ds)</string>
 
     <!-- Blocked Users -->
     <string name="blocked_users_title">Blocked Users</string>
@@ -412,12 +429,65 @@
     <!-- local data maintenance -->
     <string name="setting_clear_local_data">Clear local data</string>
     <string name="setting_clear_local_data_description">This removes cached chats and clan data from this device. Continue?</string>
+    <!-- Advanced Functions -->
+    <string name="advanced_location">Location</string>
+    <string name="advanced_files">Files</string>
+    <string name="advanced_threads">Threads</string>
+    <string name="advanced_anonymous">Anonymous</string>
+    <string name="advanced_anonymous_off">Turn off anonymous</string>
+    <string name="advanced_buzz">Buzz</string>
+    <string name="advanced_ephemeral">Ephemeral</string>
+    <string name="advanced_transfer_funds">Transfer Funds</string>
+    <string name="advanced_poll">Poll</string>
+    <string name="advanced_share_contact">Share Contact</string>
+    <string name="share_location_title">Send this location to %s</string>
+    <string name="share_location_coordinate">Coordinate (%1$.6f, %2$.6f)</string>
+    <string name="share_location_cancel">Cancel</string>
+    <string name="share_location_send">Send</string>
+    <string name="feature_coming_soon">Coming soon</string>
+    <string name="file_too_large">File exceeds the %s limit</string>
+
     <!-- sharing -->
     <string name="sharing_title">Share to…</string>
     <string name="sharing_search_placeholder">Search conversations</string>
     <string name="sharing_sent">Sent!</string>
     <string name="sharing_failed">Failed to send</string>
-    <!-- Sharing -->
     <string name="sharing_no_conversations">No conversations</string>
     <string name="sharing_sending">Sending…</string>
+
+    <!-- Online Status -->
+    <string name="status_change_online_status">Change Online Status</string>
+    <string name="status_online_status">Online Status</string>
+    <string name="status_online">Online</string>
+    <string name="status_idle">Idle</string>
+    <string name="status_do_not_disturb">Do Not Disturb</string>
+    <string name="status_invisible">Invisible</string>
+    <string name="status_set_custom_status">Set a custom status</string>
+    <string name="status_edit_status">Edit Status</string>
+    <string name="status_hint">What\'re you up to?</string>
+    <string name="status_duration">Status Duration</string>
+    <string name="status_duration_today">Today</string>
+    <string name="status_duration_4_hours">4 hours</string>
+    <string name="status_duration_1_hour">1 hour</string>
+    <string name="status_duration_30_minutes">30 minutes</string>
+    <string name="status_duration_dont_clear">Don\'t clear</string>
+    <string name="sharing_filter_all">All</string>
+    <string name="sharing_filter_users">Users</string>
+    <string name="sharing_filter_channels">Channels</string>
+    <string name="sharing_filter_options">Filter options</string>
+    <string name="sharing_select_channel">Select a channel</string>
+    <string name="sharing_select_user">Select a user</string>
+    <string name="sharing_select_channel_placeholder">Select a channel or user</string>
+    <string name="sharing_suggestions">Suggestions</string>
+    <string name="sharing_add_comment">Add a comment…</string>
+    <string name="sharing_empty_content">Nothing to share</string>
+
+    <string name="search_section_text_channels">Text Channels</string>
+    <string name="search_section_voice_channels">Voice Channels</string>
+    <string name="search_section_streaming_channels">Streaming Channels</string>
+    <string name="search_join_channel">Join</string>
+
+    <string name="buzz_dialog_title">Enter your message Buzz!!</string>
+    <string name="buzz_dialog_send">Send</string>
+    <string name="buzz_default_text">Buzz!!</string>
 </resources>

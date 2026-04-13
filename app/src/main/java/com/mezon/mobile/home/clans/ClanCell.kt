@@ -28,7 +28,7 @@ class ClanCell(
     var currentClan: ClanEntity? = null
         private set
     private var isSelected = false
-    private var cornerRadius = LayoutHelper.dp(24).toFloat()
+    private var cornerRadius = LayoutHelper.dp(8).toFloat()
     private var logoCancellable: MezonImageLoader.Cancellable? = null
     private var currentLogoUrl: String? = null
 
@@ -46,12 +46,12 @@ class ClanCell(
     private val selectedBarPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val clipPath = Path()
 
-    private val iconSizePx = LayoutHelper.dp(40)
+    private val iconSizePx = LayoutHelper.dp(42)
     private val selectedBarPx = LayoutHelper.dp(4)
     private val selectedBarHeightSmall = LayoutHelper.dp(8).toFloat()
     private val selectedBarHeightLarge = LayoutHelper.dp(20).toFloat()
     private val paddingHPx = LayoutHelper.dp(6)
-    private val paddingVPx = LayoutHelper.dp(6)
+    private val paddingVPx = LayoutHelper.dp(8)
 
 
 
@@ -171,7 +171,7 @@ class ClanCell(
         val right = cx + iconSizePx / 2f
         val bottom = cy + iconSizePx / 2f
 
-        val targetRadius = if (isSelected) LayoutHelper.dp(16).toFloat() else LayoutHelper.dp(24).toFloat()
+        val targetRadius = cornerRadius
         if (cornerRadius != targetRadius) {
             cornerRadius = targetRadius
         }
@@ -185,6 +185,7 @@ class ClanCell(
 
         val avatar = cachedAvatars.get(clan.clanId)
         if (avatar != null && (avatar.hasPhoto() || clan.logo.isEmpty())) {
+            avatar.cornerRadius = cornerRadius
             avatar.setBounds(left.toInt(), top.toInt(), right.toInt(), bottom.toInt())
             avatar.draw(canvas)
         } else {

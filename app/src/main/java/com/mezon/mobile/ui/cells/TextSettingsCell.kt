@@ -47,7 +47,7 @@ class TextSettingsCell(context: Context, private val theme: ThemeColors) : Frame
         ))
 
         textView = TextView(context).apply {
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             setTextColor(theme.onSurface)
             maxLines = 1
             isSingleLine = true
@@ -107,7 +107,7 @@ class TextSettingsCell(context: Context, private val theme: ThemeColors) : Frame
 
         minimumHeight = LayoutHelper.dp(56)
         setWillNotDraw(backgroundType == BG_TYPE_NONE && !needDivider)
-        backgroundPaint.color = theme.surfaceVariant
+        backgroundPaint.color = theme.getColor(ThemeColors.key_sheetItemBackground)
     }
 
     fun setBackgroundType(type: Int) {
@@ -194,10 +194,11 @@ class TextSettingsCell(context: Context, private val theme: ThemeColors) : Frame
         val hasValue = valueTextView.visibility == VISIBLE
         val hasWarn = warnImageView.visibility == VISIBLE
         
-        dividerLeftPad = LayoutHelper.dp(leftDp).toFloat()
+        val textLeftPad = LayoutHelper.dp(leftDp).toFloat()
+        dividerLeftPad = LayoutHelper.dp(if (isCard) 16f else leftDp).toFloat()
 
         val lpTitle = textView.layoutParams as LayoutParams
-        lpTitle.leftMargin = dividerLeftPad.toInt()
+        lpTitle.leftMargin = textLeftPad.toInt()
         textView.layoutParams = lpTitle
 
         val lpValue = valueContainer.layoutParams as LayoutParams
@@ -268,6 +269,7 @@ class TextSettingsCell(context: Context, private val theme: ThemeColors) : Frame
     }
 
     fun updateColors() {
+        backgroundPaint.color = theme.getColor(ThemeColors.key_sheetItemBackground)
         textView.setTextColor(if (titleColorOverride != 0) titleColorOverride else theme.onSurface)
         valueTextView.setTextColor(theme.onSurfaceVariant)
         imageView.drawable?.colorFilter = PorterDuffColorFilter(theme.onSurfaceVariant, PorterDuff.Mode.SRC_IN)

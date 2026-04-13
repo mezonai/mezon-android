@@ -8,28 +8,34 @@ import android.graphics.drawable.Drawable
 import androidx.annotation.DrawableRes
 import androidx.core.content.ContextCompat
 import com.mezon.mobile.R
+import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.ui.theme.ThemeMode
 
 enum class MezonIcon(@DrawableRes val resId: Int) {
-    channelText(R.drawable.ic_hashtag),
-    channelTextLock(R.drawable.ic_hashtaglog),
-    channelTextWarning(R.drawable.ic_hashtagwarning),
-    channelVoice(R.drawable.ic_speaker),
-    channelVoiceLock(R.drawable.ic_speakerlock),
-    channelStream(R.drawable.ic_stream),
-    channelApp(R.drawable.ic_channelapp),
+    channelText(R.drawable.ic_channel_open),
+    channelTextLock(R.drawable.ic_channel_lock),
+    channelTextWarning(R.drawable.ic_channel_open),
+    channelVoice(R.drawable.ic_channel_voice),
+    channelVoiceLock(R.drawable.ic_channel_voice),
+    channelStream(R.drawable.ic_channel_stream),
+    channelApp(R.drawable.ic_channel_app),
     calendarIcon(R.drawable.ic_calendar),
     chevronDownSmallIcon(R.drawable.ic_chevrondown),
     magnifyingIcon(R.drawable.ic_magnifying),
-    searchIcon(R.drawable.ic_search_icon),
-    userPlusIcon(R.drawable.ic_userplus),
+    searchIcon(R.drawable.ic_search_new_icon),
+    userPlusIcon(R.drawable.ic_user_plus_icon),
     longCorner(R.drawable.ic_long_corner),
     shortCorner(R.drawable.ic_short_corner),
-    bellIcon(R.drawable.ic_bellbell),
-    bellSlashIcon(R.drawable.ic_bellslash),
-    threadIcon(R.drawable.ic_thread_icon),
+    bellIcon(R.drawable.ic_bell_icon),
+    bellSlashIcon(R.drawable.ic_bell_slash_icon),
+    threadIcon(R.drawable.ic_thread_bubble_icon),
     threadLockIcon(R.drawable.ic_threadlockicon),
     backArrowLarge(R.drawable.ic_arrow_left_svgrepo_com),
     inbox(R.drawable.ic_inbox),
+    notificationTabMention(R.drawable.ic_notif_tab_mention),
+    notificationTabMessages(R.drawable.ic_notif_tab_messages),
+    notificationTabTopic(R.drawable.ic_notif_tab_topic),
+    notificationTabForYou(R.drawable.ic_notif_tab_for_you),
     reply(R.drawable.ic_reply),
     replyDelete(R.drawable.ic_replydelete),
     faceIcon(R.drawable.ic_face_icon),
@@ -61,7 +67,8 @@ enum class MezonIcon(@DrawableRes val resId: Int) {
     clipboardIcon(R.drawable.ic_clipboard_icon),
     reactionIcon(R.drawable.ic_reaction_icon),
     circleXIcon(R.drawable.ic_circle_xicon),
-    settingIcon(R.drawable.ic_setting_icon),
+    settingIcon(R.drawable.ic_settings_gear_icon),
+    settingProfileIcon(R.drawable.ic_setting_profile_icon),
     circleIcon(R.drawable.ic_circle_icon),
     verifyIcon(R.drawable.ic_verify_icon),
     eyeIcon(R.drawable.ic_eye_icon),
@@ -219,10 +226,48 @@ enum class MezonIcon(@DrawableRes val resId: Int) {
     devicesIcon(R.drawable.ic_devices),
     searchFriendIcon(R.drawable.ic_search_friend),
     agentIcon(R.drawable.ic_agent),
-    backspaceIcon(R.drawable.ic_backspace);
+    searchRnIcon(R.drawable.ic_search_rn),
+    fileIconNew(R.drawable.ic_file_icon),
+    shareContactIcon(R.drawable.ic_share_contact_icon),
+    transferIcon(R.drawable.ic_transfer_icon),
+    buzzAdvancedIcon(R.drawable.ic_buzz_advanced),
+    sendMoneyAdvancedIcon(R.drawable.ic_transfer_advanced),
+    locationIconGray(R.drawable.ic_location_icon_gray),
+    fileIconGray(R.drawable.ic_file_icon_gray),
+    shareContactIconGray(R.drawable.ic_share_contact_icon_gray),
+    backspaceIcon(R.drawable.ic_backspace),
+    shopIcon(R.drawable.ic_shop_icon),
+    editProfileIcon(R.drawable.ic_edit_icon),
+    balanceIcon(R.drawable.ic_balance_icon),
+    historyTransactionIcon(R.drawable.ic_history_icon),
+    threadPlusIconGray(R.drawable.ic_thread_plus_icon_gray),
+    anonymousIconGray(R.drawable.ic_anonymous_icon_gray),
+    ephemeralIconGray(R.drawable.ic_ephemeral_icon_gray),
+    pollIconGray(R.drawable.ic_poll_icon_gray);
 
     fun getDrawable(context: Context): Drawable =
         ContextCompat.getDrawable(context, resId)!!.mutate()
+
+    fun getDrawable(context: Context, themeColors: ThemeColors): Drawable =
+        when (this) {
+            threadLockIcon -> {
+                val resId = if (themeColors.resolvedMode == ThemeMode.LIGHT) {
+                    R.drawable.ic_threadlockicon_light
+                } else {
+                    R.drawable.ic_threadlockicon
+                }
+                ContextCompat.getDrawable(context, resId)!!.mutate()
+            }
+            scanQR -> {
+                val resId = if (themeColors.resolvedMode == ThemeMode.LIGHT) {
+                    R.drawable.ic_qr_scan_light
+                } else {
+                    R.drawable.ic_qr_scan
+                }
+                ContextCompat.getDrawable(context, resId)!!.mutate()
+            }
+            else -> getDrawable(context)
+        }
 
     fun getDrawable(context: Context, tintColor: Int): Drawable =
         getDrawable(context).apply {

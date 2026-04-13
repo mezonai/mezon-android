@@ -13,6 +13,7 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
+import android.widget.Toast
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.R
@@ -138,7 +139,7 @@ class MessagesFragment : BaseFragment() {
         }
         contentFrame.addView(errorView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
-        adapter = DmListAdapter(themeColors)
+        adapter = DmListAdapter(themeColors) { channelId -> controller.isBuzzActive(channelId) }
         recyclerView.adapter = adapter
 
         val dialogs = controller.getDialogs()
@@ -188,7 +189,7 @@ class MessagesFragment : BaseFragment() {
         headerTitle = TextView(context).apply {
             text = getString(R.string.dm_title)
             setTextColor(themeColors.onSurface)
-            textSize = 16f
+            textSize = 18f
             setTypeface(typeface, Typeface.BOLD)
             setPadding(LayoutHelper.dp(10), 0, 0, 0)
         }
@@ -226,9 +227,7 @@ class MessagesFragment : BaseFragment() {
             }
             val rippleColor = android.content.res.ColorStateList.valueOf(themeColors.onSurface and 0x1A_FFFFFF)
             background = android.graphics.drawable.RippleDrawable(rippleColor, circleBg, rippleMask)
-            setImageDrawable(MezonIcon.searchIcon.getDrawable(context).apply {
-                colorFilter = PorterDuffColorFilter(themeColors.textDisabled, PorterDuff.Mode.SRC_IN)
-            })
+            setImageDrawable(MezonIcon.searchIcon.getDrawable(context))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             val iconPad = LayoutHelper.dp(7)
             setPadding(iconPad, iconPad, iconPad, iconPad)
@@ -268,26 +267,28 @@ class MessagesFragment : BaseFragment() {
         }
 
         val icon = ImageView(context).apply {
-            setImageDrawable(MezonIcon.userPlusIcon.getDrawable(context).apply {
-                colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
-            })
+            setImageDrawable(MezonIcon.userPlusIcon.getDrawable(context))
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
-        pill.addView(icon, LayoutHelper.createLinear(14, 14))
+        pill.addView(icon, LinearLayout.LayoutParams(
+            LayoutHelper.dp(14), LayoutHelper.dp(14)
+        ).apply { gravity = Gravity.CENTER_VERTICAL })
 
         val label = TextView(context).apply {
             text = getString(R.string.dm_add_friend)
             setTextColor(themeColors.onSurface)
-            textSize = 14f
+            textSize = 15f
             setPadding(LayoutHelper.dp(4), 0, 0, 0)
         }
-        pill.addView(label, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT))
+        pill.addView(label, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { gravity = Gravity.CENTER_VERTICAL })
 
         return pill
     }
 
     private fun onAddFriendClicked() {
-        // TODO: navigate to Add Friend screen when FriendController is implemented
+        Toast.makeText(requireContext(), getString(R.string.feature_coming_soon), Toast.LENGTH_SHORT).show()
     }
 
     private fun openSearch() {

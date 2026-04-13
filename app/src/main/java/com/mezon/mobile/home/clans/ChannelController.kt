@@ -2,13 +2,14 @@ package com.mezon.mobile.home.clans
 
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.data.db.ClanChannelDao
+import com.mezon.mobile.data.db.FavoriteChannelDao
+import com.mezon.mobile.data.db.FavoriteChannelEntity
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.network.ApiCacheTracker
 import com.mezon.mobile.network.CODE_CHAT_REMOVE
 import com.mezon.mobile.network.CODE_CHAT_UPDATE
 import com.mezon.mobile.network.MezonApi
-import com.mezon.mobile.network.MezonSocket
 import com.mezon.mobile.network.STREAM_MODE_DM
 import com.mezon.mobile.network.SocketEventDispatcher
 import com.mezon.mobile.network.apiCacheKey
@@ -32,17 +33,20 @@ private const val NOTIFICATION_CODE_USER_MENTIONED = -9
 private const val NOTIFICATION_CODE_USER_REPLIED = -11
 private const val MAX_BADGE_CACHE = 500
 
+const val FAVORITE_CATEGORY_ID = -1L
+const val FAVORITE_CATEGORY_NAME = "Favorites"
+
 @Singleton
 class ChannelController @Inject constructor(
     private val api: MezonApi,
     private val sessionManager: SessionManager,
     private val clanChannelDao: ClanChannelDao,
+    private val favoriteChannelDao: FavoriteChannelDao,
     private val dispatcher: SocketEventDispatcher,
     private val notificationCenter: NotificationCenter,
     private val cacheTracker: ApiCacheTracker,
     private val clansController: dagger.Lazy<ClansController>,
     private val badgeCoordinator: dagger.Lazy<com.mezon.mobile.home.BadgeCoordinator>,
-    private val mezonSocket: MezonSocket,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     @ApplicationScope private val appScope: CoroutineScope
 ) {
@@ -50,6 +54,7 @@ class ChannelController @Inject constructor(
     val channelsByClan: StateFlow<Map<Long, List<ClanChannelEntity>>> = _channelsByClan.asStateFlow()
 
     private val channelListLoading = ConcurrentHashMap<Long, Boolean>()
+    private val favoritesByClan = ConcurrentHashMap<Long, MutableSet<Long>>()
 
     init {
         observeSocketEvents()
@@ -62,6 +67,7 @@ class ChannelController @Inject constructor(
         currentOpenChannelId = 0L
         processedBadgeKeys.clear()
         channelListLoading.clear()
+        favoritesByClan.clear()
     }
 
     fun loadChannelsForClan(clanId: Long, force: Boolean = false) {
@@ -72,9 +78,16 @@ class ChannelController @Inject constructor(
         val cacheKey = apiCacheKey("listChannelsByClan", clanId.toString())
         val inMemory = _channelsByClan.value[clanId]
         if (!inMemory.isNullOrEmpty()) {
+            if (favoritesByClan[clanId] == null) {
+                val cachedFavs = withContext(ioDispatcher) { favoriteChannelDao.getByClan(clanId) }
+                favoritesByClan[clanId] = LinkedHashSet(cachedFavs)
+            }
             notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
         } else {
-            val cached = withContext(ioDispatcher) { clanChannelDao.getByClan(clanId) }
+            val (cached, cachedFavs) = withContext(ioDispatcher) {
+                clanChannelDao.getByClan(clanId) to favoriteChannelDao.getByClan(clanId)
+            }
+            favoritesByClan[clanId] = LinkedHashSet(cachedFavs)
             if (cached.isNotEmpty()) {
                 updateCache(clanId, cached)
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
@@ -86,30 +99,44 @@ class ChannelController @Inject constructor(
         }
         channelListLoading[clanId] = true
         try {
-            val session = sessionManager.sessionFlow.first() ?: return
-            val result = withContext(ioDispatcher) {
-                api.listChannelsByClan(session.apiUrl, session.token, clanId)
-            }
-            val categoryOrderMap = LinkedHashMap<Long, Int>()
-            result.channeldescList.forEach { ch ->
-                categoryOrderMap.putIfAbsent(ch.categoryId, categoryOrderMap.size)
-            }
-            val entities = result.channeldescList.map { ch ->
-                withClanIdFromContext(
-                    clanId,
-                    ch.toClanChannelEntity().copy(categoryOrder = categoryOrderMap[ch.categoryId] ?: 0)
-                )
-            }
-            mergeCache(clanId, entities)
-            runCatching {
-                if (!mezonSocket.awaitConnected()) return@runCatching
-                val badge = mezonSocket.fetchListChannelBadgeCountSocket(clanId)
-                if (badge.channeldescList.isNotEmpty()) {
-                    applyChannelBadgeReadStatePatch(clanId, badge.channeldescList)
+            val entitiesList = sessionManager.withAutoRefresh { session ->
+                val result = withContext(ioDispatcher) {
+                    api.listChannelsByClan(session.apiUrl, session.token, clanId)
                 }
+                val categoryOrderMap = LinkedHashMap<Long, Int>()
+                result.channeldescList.forEach { ch ->
+                    categoryOrderMap.putIfAbsent(ch.categoryId, categoryOrderMap.size)
+                }
+                val entities = result.channeldescList.map { ch ->
+                    withClanIdFromContext(
+                        clanId,
+                        ch.toClanChannelEntity().copy(categoryOrder = categoryOrderMap[ch.categoryId] ?: 0)
+                    )
+                }
+                mergeCache(clanId, entities)
+                runCatching {
+                    val badge = api.listChannelBadgeCount(session.apiUrl, session.token, clanId)
+                    if (badge.channeldescList.isNotEmpty()) {
+                        applyChannelBadgeReadStatePatch(clanId, badge.channeldescList)
+                    }
+                }
+                runCatching {
+                    val favResponse = api.listFavoriteChannels(session.apiUrl, session.token, clanId)
+                    val ids = favResponse.channelIdsList
+                    favoritesByClan[clanId] = LinkedHashSet(ids)
+                    appScope.launch(ioDispatcher) {
+                        favoriteChannelDao.deleteByClan(clanId)
+                        if (ids.isNotEmpty()) {
+                            favoriteChannelDao.upsertAll(ids.mapIndexed { idx, id ->
+                                FavoriteChannelEntity(clanId, id, idx)
+                            })
+                        }
+                    }
+                }
+                entities
             }
             cacheTracker.markCalled(cacheKey)
-            val merged = _channelsByClan.value[clanId] ?: entities
+            val merged = _channelsByClan.value[clanId] ?: entitiesList
             withContext(ioDispatcher) { clanChannelDao.upsertAll(merged) }
             notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
         } catch (_: Exception) {
@@ -134,9 +161,10 @@ class ChannelController @Inject constructor(
             return fromDb.channelLabel
         }
         if (clanId != 0L) {
-            val session = sessionManager.sessionFlow.first() ?: return ""
             val result = runCatching {
-                withContext(ioDispatcher) { api.listChannelsByClan(session.apiUrl, session.token, clanId) }
+                sessionManager.withAutoRefresh { session ->
+                    withContext(ioDispatcher) { api.listChannelsByClan(session.apiUrl, session.token, clanId) }
+                }
             }.getOrNull() ?: return ""
             val entities = result.channeldescList.map { ch ->
                 withClanIdFromContext(clanId, ch.toClanChannelEntity())
@@ -147,12 +175,49 @@ class ChannelController @Inject constructor(
         return findChannelById(channelId)?.channelLabel.orEmpty()
     }
 
+    fun isFavorite(clanId: Long, channelId: Long): Boolean =
+        favoritesByClan[clanId]?.contains(channelId) == true
+
+    fun getFavoriteChannelIds(clanId: Long): Set<Long> =
+        favoritesByClan[clanId]?.toSet() ?: emptySet()
+
+    fun addFavorite(clanId: Long, channelId: Long) {
+        val favSet = favoritesByClan.getOrPut(clanId) { LinkedHashSet() }
+        favSet.add(channelId)
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.favoriteChannelsChanged, clanId)
+        appScope.launch(ioDispatcher) {
+            favoriteChannelDao.upsertAll(listOf(FavoriteChannelEntity(clanId, channelId, favSet.size - 1)))
+        }
+        appScope.launch {
+            runCatching {
+                sessionManager.withAutoRefresh { session ->
+                    api.addFavoriteChannel(session.apiUrl, session.token, channelId, clanId)
+                }
+            }
+        }
+    }
+
+    fun removeFavorite(clanId: Long, channelId: Long) {
+        favoritesByClan[clanId]?.remove(channelId)
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.favoriteChannelsChanged, clanId)
+        appScope.launch(ioDispatcher) {
+            favoriteChannelDao.delete(clanId, channelId)
+        }
+        appScope.launch {
+            runCatching {
+                sessionManager.withAutoRefresh { session ->
+                    api.removeFavoriteChannel(session.apiUrl, session.token, clanId, channelId)
+                }
+            }
+        }
+    }
+
     fun getChannelSections(clanId: Long): List<ChannelSection> {
         val channels = getChannels(clanId)
         val threads = channels.filter { it.isThread }.groupBy { it.parentId }
         val nonThreads = channels.filter { !it.isThread }.sortedBy { it.channelId }
 
-        return nonThreads
+        val categorySections = nonThreads
             .groupBy { it.categoryId }
             .entries
             .sortedBy { (_, items) -> items.first().categoryOrder }
@@ -169,6 +234,20 @@ class ChannelController @Inject constructor(
                     channels = channelsWithThreads
                 )
             }
+
+        val favIds = getFavoriteChannelIds(clanId)
+        if (favIds.isEmpty()) return categorySections
+
+        val channelMap = channels.associateBy { it.channelId }
+        val favChannels = favIds.mapNotNull { channelMap[it] }
+        if (favChannels.isEmpty()) return categorySections
+
+        val favSection = ChannelSection(
+            categoryId = FAVORITE_CATEGORY_ID,
+            categoryName = FAVORITE_CATEGORY_NAME,
+            channels = favChannels
+        )
+        return listOf(favSection) + categorySections
     }
 
     private fun updateCache(clanId: Long, channels: List<ClanChannelEntity>) {
@@ -395,14 +474,14 @@ class ChannelController @Inject constructor(
         }
     }
 
-    fun markChannelAsRead(channelId: Long, seenTimestampSeconds: Int = 0) {
+    fun markChannelAsRead(channelId: Long, seenTimestampSeconds: Int = 0, seenMessageId: Long = 0L) {
         for ((clanId, channels) in _channelsByClan.value) {
             val idx = channels.indexOfFirst { it.channelId == channelId }
             if (idx >= 0) {
                 val ch = channels[idx]
-                if (!ch.hasUnread && ch.unreadCount == 0) return
+                if (!ch.hasUnread && ch.unreadCount == 0 && seenMessageId <= ch.lastSeenMessageId) return
                 val oldUnread = ch.unreadCount
-                val newSeenId = maxOf(ch.lastSeenMessageId, ch.lastSentMessageId)
+                val newSeenId = maxOf(ch.lastSeenMessageId, ch.lastSentMessageId, seenMessageId)
                 val tsLong = seenTimestampSeconds.toLong() and 0xFFFF_FFFFL
                 val newSeenTs = maxOf(ch.lastSeenMessageTs, ch.lastSentMessageTs, tsLong)
                 val newRow = ch.copy(

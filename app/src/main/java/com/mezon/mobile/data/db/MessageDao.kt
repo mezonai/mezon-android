@@ -59,4 +59,10 @@ interface MessageDao {
 
     @Query("DELETE FROM messages WHERE channelId = :channelId")
     suspend fun deleteByChannel(channelId: Long)
+
+    @Query("SELECT * FROM messages WHERE channelId = :channelId AND id = :messageId LIMIT 1")
+    suspend fun getById(channelId: Long, messageId: Long): MessageEntity?
+
+    @Query("UPDATE messages SET reactionsJson = :reactionsJson WHERE channelId = :channelId AND id = :messageId")
+    suspend fun updateReactions(channelId: Long, messageId: Long, reactionsJson: String)
 }

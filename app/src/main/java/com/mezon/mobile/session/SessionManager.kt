@@ -4,6 +4,7 @@ import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.network.NetworkMonitor
+import com.mezon.mobile.network.UnauthorizedException
 import android.util.Base64
 import android.util.Log
 import java.io.IOException
@@ -44,7 +45,7 @@ class SessionManager @Inject constructor(
     companion object {
         private const val TAG = "SessionManager"
         private const val MAX_REFRESH_RETRIES = 5
-        private const val TOKEN_EXPIRY_BUFFER_SEC = 30
+        private const val TOKEN_EXPIRY_BUFFER_SEC = 60
     }
 
     val sessionFlow: Flow<StoredSession?> = dataStore.data.map { prefs ->
@@ -102,24 +103,21 @@ class SessionManager @Inject constructor(
     }
 
     private suspend fun doRefresh(): StoredSession {
+        val current = sessionFlow.first()
+            ?: throw SessionExpiredException("No session to refresh")
+
+        if (!networkMonitor.isOnline.value) {
+            Log.w(TAG, "Offline during refresh — returning cached session")
+            return current
+        }
+
+        if (lastRefreshToken == current.refreshToken && failCount >= MAX_REFRESH_RETRIES) {
+            Log.e(TAG, "Max retries ($MAX_REFRESH_RETRIES) with same refresh token")
+            emitSessionExpired()
+            throw SessionExpiredException("Session refresh failed: max retries with same token")
+        }
+
         try {
-            val current = sessionFlow.first()
-                ?: throw SessionExpiredException("No session to refresh")
-
-            val isSameToken = lastRefreshToken == current.refreshToken
-            if (isSameToken) {
-                failCount++
-            } else {
-                lastRefreshToken = current.refreshToken
-                failCount = 0
-            }
-
-            if (failCount >= MAX_REFRESH_RETRIES) {
-                Log.e(TAG, "Max refresh retries ($MAX_REFRESH_RETRIES) with same token")
-                emitSessionExpired()
-                throw SessionExpiredException("Session refresh failed: max retries with same token")
-            }
-
             val protoSession = api.sessionRefresh(
                 apiUrl = current.apiUrl,
                 refreshToken = current.refreshToken,
@@ -142,18 +140,29 @@ class SessionManager @Inject constructor(
             return newSession
         } catch (e: SessionExpiredException) {
             throw e
+        } catch (e: kotlin.coroutines.cancellation.CancellationException) {
+            throw e
+        } catch (e: UnauthorizedException) {
+            incrementFailCount(current.refreshToken)
+            Log.e(TAG, "Session refresh 401/403 (failCount=$failCount/$MAX_REFRESH_RETRIES)", e)
+            emitSessionExpired()
+            throw SessionExpiredException("Session refresh failed: ${e.message}")
         } catch (e: IOException) {
             Log.w(TAG, "Network error during refresh, not logging out", e)
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Session refresh failed (auth error)", e)
-            emitSessionExpired()
-            throw SessionExpiredException("Session refresh failed: ${e.message}")
+            incrementFailCount(current.refreshToken)
+            Log.w(TAG, "Server error during refresh (failCount=$failCount/$MAX_REFRESH_RETRIES)", e)
+            throw IOException("Session refresh server error: ${e.message}", e)
         } finally {
             refreshMutex.withLock {
                 activeRefresh = null
             }
         }
+    }
+
+    private fun incrementFailCount(refreshToken: String) {
+        if (lastRefreshToken == refreshToken) failCount++ else { lastRefreshToken = refreshToken; failCount = 1 }
     }
 
     private fun emitSessionExpired() {
@@ -164,6 +173,7 @@ class SessionManager @Inject constructor(
 
     suspend fun saveSession(session: StoredSession) {
         StartupCache.hasSession = true
+        StartupCache.userId = session.userId
         dataStore.edit { prefs ->
             prefs[SessionKeys.TOKEN] = session.token
             prefs[SessionKeys.REFRESH_TOKEN] = session.refreshToken
@@ -184,6 +194,13 @@ class SessionManager @Inject constructor(
             val refreshed = refresh()
             block(refreshed)
         }
+    }
+
+
+    suspend fun getLastClanId(): Long = dataStore.data.first()[SessionKeys.LAST_CLAN_ID] ?: 0L
+
+    suspend fun saveLastClanId(clanId: Long) {
+        dataStore.edit { it[SessionKeys.LAST_CLAN_ID] = clanId }
     }
 
     suspend fun clearSession() {

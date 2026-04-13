@@ -8,6 +8,8 @@ import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.home.ClanUser
 import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.UserClanController
+import com.mezon.mobile.home.clans.CHANNEL_TYPE_STREAMING
+import com.mezon.mobile.home.clans.CHANNEL_TYPE_VOICE
 import com.mezon.mobile.home.clans.ClanChannelEntity
 import com.mezon.mobile.home.clans.ClansController
 import com.mezon.mobile.home.clans.toClanChannelEntity
@@ -39,6 +41,16 @@ data class SearchMember(
     val channelId: Long,
     val channelType: Int
 )
+
+data class ChannelSearchDisplay(
+    val channel: ClanChannelEntity,
+    val clanName: String,
+    val parentChannelLabel: String,
+    val hideClanName: Boolean = false
+) {
+    val showJoinUi: Boolean
+        get() = channel.type == CHANNEL_TYPE_VOICE || channel.type == CHANNEL_TYPE_STREAMING
+}
 
 @Singleton
 class SearchController @Inject constructor(
@@ -213,10 +225,18 @@ class SearchController @Inject constructor(
         return result.take(limit)
     }
 
-    fun filterChannels(query: String, limit: Int = LOCAL_PAGE_SIZE): List<ClanChannelEntity> {
-        val result = getFilteredChannelsCached(query)
-        return result.take(limit)
+    fun filterChannelDisplays(
+        query: String,
+        limit: Int = LOCAL_PAGE_SIZE,
+        hideClanName: Boolean = false
+    ): List<ChannelSearchDisplay> {
+        val filtered = getFilteredChannelsCached(query)
+        val enriched = enrichChannelDisplays(filtered, hideClanName)
+        return orderTextVoiceStreaming(enriched).take(limit)
     }
+
+    fun channelDisplaysForPicker(entities: List<ClanChannelEntity>): List<ChannelSearchDisplay> =
+        enrichChannelDisplays(entities, hideClanName = true)
 
     fun filterMembersCount(query: String): Int = getFilteredMembersCached(query).size
 
@@ -315,6 +335,50 @@ class SearchController @Inject constructor(
             messagesPage = 1
             hasMoreMessages = true
         }
+    }
+
+    private fun enrichChannelDisplays(
+        entities: List<ClanChannelEntity>,
+        hideClanName: Boolean
+    ): List<ChannelSearchDisplay> {
+        val labelById = HashMap<Long, String>()
+        synchronized(this) {
+            for (c in allChannels) {
+                labelById[c.channelId] = c.channelLabel
+            }
+        }
+        val clanNames = clansController.clans.value.associate { it.clanId to it.clanName }
+        return entities.map { ch ->
+            val parent = if (ch.parentId != 0L) {
+                labelById[ch.parentId].orEmpty()
+            } else {
+                ""
+            }
+            ChannelSearchDisplay(
+                channel = ch,
+                clanName = clanNames[ch.clanId].orEmpty(),
+                parentChannelLabel = parent,
+                hideClanName = hideClanName
+            )
+        }
+    }
+
+    private fun orderTextVoiceStreaming(items: List<ChannelSearchDisplay>): List<ChannelSearchDisplay> {
+        val text = ArrayList<ChannelSearchDisplay>()
+        val voice = ArrayList<ChannelSearchDisplay>()
+        val stream = ArrayList<ChannelSearchDisplay>()
+        for (d in items) {
+            when (d.channel.type) {
+                CHANNEL_TYPE_VOICE -> voice.add(d)
+                CHANNEL_TYPE_STREAMING -> stream.add(d)
+                else -> text.add(d)
+            }
+        }
+        val out = ArrayList<ChannelSearchDisplay>(items.size)
+        out.addAll(text)
+        out.addAll(voice)
+        out.addAll(stream)
+        return out
     }
 
     private fun compareByLabel(a: ClanChannelEntity, b: ClanChannelEntity, search: String): Int {

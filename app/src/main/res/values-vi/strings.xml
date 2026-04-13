@@ -86,7 +86,7 @@
     <string name="otp_change_phone">Đổi số điện thoại</string>
     <string name="otp_not_match">Mã OTP không khớp</string>
     <string name="otp_resend_failed">Gửi lại OTP thất bại</string>
-    <string name="otp_verify_failed">Xác nhận OTP thất bại</string>
+    <string name="otp_verify_failed">Mã xác minh không hợp lệ. Vui lòng thử lại.</string>
     <string name="otp_send_failed">Gửi OTP thất bại</string>
     <string name="otp_change_confirm_title">Đổi %1$s?</string>
     <string name="otp_change_confirm_message">Bạn sẽ quay lại màn hình đăng nhập.</string>
@@ -163,6 +163,11 @@
     <string name="message_slide_to_cancel">Vuốt để hủy</string>
 
     <!-- notification -->
+    <string name="notif_tab_mentions">Nhắc đến</string>
+    <string name="notif_tab_messages">Tin nhắn</string>
+    <string name="notif_tab_topics">Chủ đề</string>
+    <string name="notif_tab_for_you">Dành cho bạn</string>
+    <string name="notif_empty">Không có thông báo</string>
     <string name="notification_header">Thông báo</string>
     <string name="notification_tab_for_you">Dành cho bạn</string>
     <string name="notification_tab_mention">Nhắc đến</string>
@@ -208,6 +213,11 @@
     <string name="profile_copy_success">Đã sao chép ID người dùng</string>
     <string name="profile_sign_out">Đăng xuất</string>
     <string name="profile_enable_wallet">Mở ví</string>
+    <string name="profile_balance">Số dư: %1$s đồng</string>
+    <string name="profile_transfer">Chuyển khoản</string>
+    <string name="profile_history_transaction">Lịch sử giao dịch</string>
+    <string name="profile_add_status">Thêm trạng thái</string>
+    <string name="profile_update_failed">Cập nhật hồ sơ thất bại.</string>
 
     <!-- friends -->
     <string name="friends_title">Bạn bè</string>
@@ -233,6 +243,9 @@
     <string name="setting_log_out_description">Bạn có chắc chắn muốn đăng xuất không?</string>
     <string name="setting_log_out_no">Không</string>
     <string name="setting_log_out_yes">Có</string>
+    <string name="setting_scan_qr">Quét mã QR</string>
+    <string name="setting_devices">Thiết bị</string>
+    <string name="setting_app_version_label">Phiên bản ứng dụng</string>
 
     <!-- theme -->
     <string name="setting_theme_title">Giao diện</string>
@@ -289,7 +302,7 @@
     <string name="account_email">Email</string>
     <string name="account_username">Tên người dùng</string>
     <string name="account_display_name">Tên hiển thị</string>
-    <string name="account_link_email">Liên kết email</string>
+    <string name="account_link_email">Vui lòng liên kết email</string>
     <string name="account_link_phone">Liên kết số điện thoại</string>
     <string name="account_phone">Số điện thoại</string>
     <string name="account_blocked_users">Người dùng bị chặn</string>
@@ -303,6 +316,32 @@
     <string name="account_delete_confirm">Xóa</string>
     <string name="account_delete_error">Xóa tài khoản thất bại. Vui lòng thử lại.</string>
 
+    <!-- Update Email -->
+    <string name="update_email_title">Liên kết email</string>
+    <string name="email_next_button">Tiếp theo</string>
+    <string name="email_invalid">Vui lòng nhập địa chỉ email hợp lệ</string>
+    <string name="email_already_linked">Email này đã được liên kết với tài khoản của bạn</string>
+    <string name="email_too_fast">Vui lòng đợi %d giây trước khi gửi lại</string>
+    <string name="email_link_failed">Liên kết email thất bại. Vui lòng thử lại.</string>
+
+    <!-- Update Phone -->
+    <string name="update_phone_title">Cập nhật số điện thoại</string>
+    <string name="phone_new_number_label">Số điện thoại</string>
+    <string name="phone_number_hint">Nhập số điện thoại</string>
+    <string name="phone_next_button">Tiếp theo</string>
+    <string name="phone_already_linked">Số điện thoại này đã được liên kết với tài khoản của bạn</string>
+    <string name="phone_link_failed">Liên kết số điện thoại thất bại. Vui lòng thử lại.</string>
+
+    <!-- OTP Verify (liên kết email / điện thoại) -->
+    <string name="verify_email_title">Xác minh email</string>
+    <string name="verify_phone_title">Xác minh số điện thoại</string>
+    <string name="otp_description_email">Chúng tôi đã gửi mã xác minh tới %s</string>
+    <string name="otp_description_phone">Chúng tôi đã gửi mã SMS xác minh tới %s</string>
+    <string name="otp_verify_button">Xác minh</string>
+    <string name="email_verify_success">Đã liên kết email thành công!</string>
+    <string name="phone_verify_success">Đã liên kết số điện thoại thành công!</string>
+    <string name="email_next_button_cooldown">Tiếp theo (%ds)</string>
+
     <string name="common_ok">OK</string>
     <string name="common_error">Lỗi</string>
     <!-- sharing -->
@@ -312,4 +351,35 @@
     <string name="sharing_sent">Đã gửi!</string>
     <string name="sharing_failed">Gửi thất bại</string>
     <string name="sharing_no_conversations">Không tìm thấy cuộc trò chuyện</string>
+
+    <!-- Online Status -->
+    <string name="status_change_online_status">Thay đổi trạng thái trực tuyến</string>
+    <string name="status_online_status">Trạng thái trực tuyến</string>
+    <string name="status_online">Trực tuyến</string>
+    <string name="status_idle">Chờ</string>
+    <string name="status_do_not_disturb">Không làm phiền</string>
+    <string name="status_invisible">Ẩn</string>
+    <string name="status_set_custom_status">Đặt trạng thái tùy chỉnh</string>
+    <string name="status_edit_status">Chỉnh sửa trạng thái</string>
+    <string name="status_hint">Bạn đang làm gì thế?</string>
+    <string name="status_duration">Thời lượng trạng thái</string>
+    <string name="status_duration_today">Hôm nay</string>
+    <string name="status_duration_4_hours">4 giờ</string>
+    <string name="status_duration_1_hour">1 giờ</string>
+    <string name="status_duration_30_minutes">30 phút</string>
+    <string name="status_duration_dont_clear">Không xóa</string>
+    <string name="sharing_filter_all">Tất cả</string>
+    <string name="sharing_filter_users">Người dùng</string>
+    <string name="sharing_filter_channels">Kênh</string>
+    <string name="sharing_filter_options">Tuỳ chọn lọc</string>
+    <string name="sharing_select_channel">Chọn kênh</string>
+    <string name="sharing_select_user">Chọn người dùng</string>
+    <string name="sharing_select_channel_placeholder">Chọn kênh hoặc người dùng</string>
+    <string name="sharing_suggestions">Gợi ý</string>
+    <string name="sharing_add_comment">Thêm bình luận…</string>
+    <string name="sharing_empty_content">Không có nội dung để chia sẻ</string>
+    <string name="search_section_text_channels">Kênh văn bản</string>
+    <string name="search_section_voice_channels">Kênh thoại</string>
+    <string name="search_section_streaming_channels">Kênh phát trực tuyến</string>
+    <string name="search_join_channel">Tham gia</string>
 </resources>

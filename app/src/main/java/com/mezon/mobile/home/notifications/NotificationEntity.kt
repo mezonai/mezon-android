@@ -1,6 +1,9 @@
 package com.mezon.mobile.home.notifications
 
 import android.util.Log
+import androidx.room.Entity
+import androidx.room.Index
+import androidx.room.PrimaryKey
 import com.mezon.mezon.api.DirectFcmProto
 import com.mezon.mezon.api.Notification
 import com.mezon.mobile.util.parseContentText
@@ -8,12 +11,18 @@ import org.json.JSONObject
 
 private const val TAG = "NotifParse"
 
+const val NOTIF_TAB_TOPICS_UI = -1
+
 const val NOTIF_CATEGORY_MENTIONS = 1
 const val NOTIF_CATEGORY_MESSAGES = 2
 const val NOTIF_CATEGORY_FOR_YOU = 3
 
+@Entity(
+    tableName = "notifications",
+    indices = [Index(value = ["category", "createTimeSeconds"])]
+)
 data class NotificationEntity(
-    val id: Long,
+    @PrimaryKey val id: Long,
     val subject: String,
     val code: Int,
     val senderId: Long,

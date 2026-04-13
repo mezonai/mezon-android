@@ -5,6 +5,7 @@ import android.text.InputType
 import android.view.View
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AlertsCreator
@@ -83,8 +84,16 @@ class SetPasswordFragment : BaseFragment() {
         saveButton = ActionButton(context, themeColors).apply { setText(getString(R.string.set_password_save)) }
         content.addView(saveButton, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 48))
 
+        val scrollView = ScrollView(context).apply {
+            isFillViewport = true
+            isVerticalScrollBarEnabled = false
+        }
+        scrollView.addView(content, FrameLayout.LayoutParams(
+            LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT
+        ))
+
         val rootFrame = FrameLayout(context)
-        rootFrame.addView(wrapWithActionBar(getString(R.string.set_password_title), content), LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
+        rootFrame.addView(wrapWithActionBar(getString(R.string.set_password_title), scrollView), LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
         loadingView = View(context).apply {
             setBackgroundColor(0x88000000.toInt())
             visibility = View.GONE
