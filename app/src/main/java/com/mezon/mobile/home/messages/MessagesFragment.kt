@@ -13,6 +13,7 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
+import android.widget.Toast
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.R
@@ -287,7 +288,7 @@ class MessagesFragment : BaseFragment() {
     }
 
     private fun onAddFriendClicked() {
-        // TODO: navigate to Add Friend screen when FriendController is implemented
+        Toast.makeText(requireContext(), getString(R.string.feature_coming_soon), Toast.LENGTH_SHORT).show()
     }
 
     private fun openSearch() {

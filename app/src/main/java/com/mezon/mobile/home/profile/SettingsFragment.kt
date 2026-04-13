@@ -57,6 +57,7 @@ class SettingsFragment : BaseFragment() {
 
     private lateinit var scrollContent: LinearLayout
     private lateinit var searchBarWrap: LinearLayout
+    private lateinit var searchBarIconView: ImageView
     private lateinit var searchEditText: EditText
     private lateinit var menuContainer: LinearLayout
 
@@ -91,6 +92,8 @@ class SettingsFragment : BaseFragment() {
             fragmentView?.setBackgroundColor(themeColors.background)
             scrollContent.setBackgroundColor(themeColors.background)
             applySearchBarBackground()
+            applySearchBarIconTint()
+            fullMenu = buildMenuModel()
             applySearchQuery(searchEditText.text?.toString()?.trim() ?: "")
         }
         observe(NotificationCenter.languageChanged) { _, _, _ ->
@@ -141,6 +144,14 @@ class SettingsFragment : BaseFragment() {
         return wrapWithActionBar(getString(R.string.common_settings), scroll)
     }
 
+    private fun settingIconLightQr(): Int =
+        if (themeColors.resolvedMode == ThemeMode.LIGHT) R.drawable.ic_qr_scan_setting_icon_black
+        else R.drawable.ic_qr_scan_setting_icon
+
+    private fun settingIconLightApp(): Int =
+        if (themeColors.resolvedMode == ThemeMode.LIGHT) R.drawable.ic_app_icon_black
+        else R.drawable.ic_app_icon
+
     private fun buildMenuModel(): List<MenuSection> {
         val accountItems = listOf(
             MenuItem(
@@ -161,7 +172,7 @@ class SettingsFragment : BaseFragment() {
             ),
             MenuItem(
                 getString(R.string.setting_scan_qr),
-                R.drawable.ic_qr_scan_setting_icon,
+                settingIconLightQr(),
                 null,
                 true,
                 false,
@@ -179,7 +190,7 @@ class SettingsFragment : BaseFragment() {
         val appItems = listOf(
             MenuItem(
                 getString(R.string.setting_app_version_label),
-                R.drawable.ic_app_icon,
+                settingIconLightApp(),
                 BuildConfig.VERSION_NAME,
                 false,
                 false,
@@ -234,6 +245,12 @@ class SettingsFragment : BaseFragment() {
         }
     }
 
+    private fun applySearchBarIconTint() {
+        if (!::searchBarIconView.isInitialized) return
+        searchBarIconView.drawable?.mutate()?.colorFilter =
+            PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
+    }
+
     private fun buildSearchBar(context: Context) {
         val wrap = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -247,13 +264,12 @@ class SettingsFragment : BaseFragment() {
         }
         searchBarWrap = wrap
         applySearchBarBackground()
-        val icon = ImageView(context).apply {
-            setImageDrawable(MezonIcon.searchIcon.getDrawable(context).apply {
-                colorFilter = PorterDuffColorFilter(themeColors.textDisabled, PorterDuff.Mode.SRC_IN)
-            })
+        searchBarIconView = ImageView(context).apply {
+            setImageDrawable(MezonIcon.magnifyingIcon.getDrawable(context))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
         }
-        wrap.addView(icon, LinearLayout.LayoutParams(LayoutHelper.dp(18), LayoutHelper.dp(18)))
+        applySearchBarIconTint()
+        wrap.addView(searchBarIconView, LinearLayout.LayoutParams(LayoutHelper.dp(18), LayoutHelper.dp(18)))
         searchEditText = EditText(context).apply {
             hint = getString(R.string.common_search_placeholder)
             setHintTextColor(themeColors.onSurfaceVariant)

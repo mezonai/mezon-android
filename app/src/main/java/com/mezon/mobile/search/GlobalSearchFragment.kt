@@ -183,6 +183,14 @@ class GlobalSearchFragment : BaseFragment() {
             }
             updateTabCounts()
         }
+        observe(NotificationCenter.clansDidLoad) { _, _, _ ->
+            if (fragmentView == null || isPaused) return@observe
+            searchController.invalidateFilterCache()
+            if (currentTab == TAB_CHANNELS) {
+                updateChannelsList()
+            }
+            updateTabCounts()
+        }
         observe(NotificationCenter.searchMessagesDidLoad) { _, _, _ ->
             if (fragmentView == null || isPaused) return@observe
             if (currentTab == TAB_MESSAGES) {
@@ -365,6 +373,9 @@ class GlobalSearchFragment : BaseFragment() {
         contentFrame!!.addView(loadingView, LayoutHelper.createFrame(48, 48, Gravity.CENTER))
 
         adapter = GlobalSearchAdapter(themeColors)
+        adapter.onChannelJoinClick = { d ->
+            onOpenChat?.invoke(d.channel.channelId, d.channel.channelLabel, d.channel.clanId, d.channel.type)
+        }
         recyclerView.adapter = adapter
 
         recyclerView.setOnItemClickListener(RecyclerListView.OnItemClickListener { view, _ ->
@@ -516,8 +527,18 @@ class GlobalSearchFragment : BaseFragment() {
     }
 
     private fun updateChannelsList() {
-        val filtered = searchController.filterChannels(searchText, channelsDisplayLimit)
-        adapter.setChannels(filtered)
+        val ctx = fragmentView?.context ?: return
+        val filtered = searchController.filterChannelDisplays(
+            searchText,
+            channelsDisplayLimit,
+            hideClanName = false
+        )
+        adapter.setChannelSearchItems(
+            filtered,
+            ctx.getString(R.string.search_section_text_channels),
+            ctx.getString(R.string.search_section_voice_channels),
+            ctx.getString(R.string.search_section_streaming_channels)
+        )
         val totalCount = searchController.totalChannelsForQuery(searchText)
         adapter.hasMore = filtered.size < totalCount
         updateEmptyState(filtered.isEmpty())
@@ -614,7 +635,7 @@ class GlobalSearchFragment : BaseFragment() {
     private fun ensureChannelPicker() {
         if (channelPickerView != null) return
         val ctx = fragmentView?.context ?: return
-        val pickerAdapter = ChannelPickerAdapter(themeColors)
+        val pickerAdapter = ChannelPickerAdapter(themeColors, searchController)
         channelPickerAdapter = pickerAdapter
         channelPickerView = RecyclerListView(ctx).apply {
             layoutManager = LinearLayoutManager(ctx)
@@ -754,11 +775,12 @@ class GlobalSearchFragment : BaseFragment() {
 }
 
 private class ChannelPickerAdapter(
-    private val themeColors: ThemeColors
+    private val themeColors: ThemeColors,
+    private val searchController: SearchController
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     private val allChannels = ArrayList<ClanChannelEntity>()
-    private val displayed = ArrayList<ClanChannelEntity>()
+    private val displayed = ArrayList<ChannelSearchDisplay>()
     private var lastFilteredAll = ArrayList<ClanChannelEntity>()
     var hasMore = false
         private set
@@ -768,7 +790,7 @@ private class ChannelPickerAdapter(
     }
 
     override fun getItemId(position: Int): Long =
-        if (position in displayed.indices) displayed[position].channelId else RecyclerView.NO_ID
+        if (position in displayed.indices) displayed[position].channel.channelId else RecyclerView.NO_ID
 
     override fun getItemCount(): Int = displayed.size
 
@@ -783,7 +805,9 @@ private class ChannelPickerAdapter(
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         if (position !in displayed.indices) return
-        (holder.itemView as? ChannelSearchCell)?.update(0, displayed[position])
+        val cell = holder.itemView as? ChannelSearchCell ?: return
+        cell.setJoinClickListener(null)
+        cell.update(0, displayed[position])
     }
 
     fun setAllChannels(channels: List<ClanChannelEntity>) {
@@ -808,23 +832,24 @@ private class ChannelPickerAdapter(
         val page = if (limit < all.size) ArrayList(all.subList(0, limit)) else all
         hasMore = page.size < all.size
 
+        val pageDisplays = searchController.channelDisplaysForPicker(page)
         val oldList = ArrayList(displayed)
         displayed.clear()
-        displayed.addAll(page)
+        displayed.addAll(pageDisplays)
 
-        val diff = DiffUtil.calculateDiff(ChannelDiffCallback(oldList, displayed))
+        val diff = DiffUtil.calculateDiff(ChannelPickerDiffCallback(oldList, displayed))
         diff.dispatchUpdatesTo(this)
     }
 }
 
-private class ChannelDiffCallback(
-    private val oldList: List<ClanChannelEntity>,
-    private val newList: List<ClanChannelEntity>
+private class ChannelPickerDiffCallback(
+    private val oldList: List<ChannelSearchDisplay>,
+    private val newList: List<ChannelSearchDisplay>
 ) : DiffUtil.Callback() {
     override fun getOldListSize() = oldList.size
     override fun getNewListSize() = newList.size
     override fun areItemsTheSame(oldPos: Int, newPos: Int) =
-        oldList[oldPos].channelId == newList[newPos].channelId
+        oldList[oldPos].channel.channelId == newList[newPos].channel.channelId
     override fun areContentsTheSame(oldPos: Int, newPos: Int) =
         oldList[oldPos] == newList[newPos]
 }

@@ -41,6 +41,7 @@ import com.mezon.mezon.api.listClanUsersRequest
 import com.mezon.mezon.api.ListChannelBadgeCountResponse
 import com.mezon.mezon.api.listChannelBadgeCountRequest
 import com.mezon.mezon.api.listChannelDescsRequest
+import com.mezon.mezon.api.listThreadRequest
 import com.mezon.mezon.api.ListFavoriteChannelResponse
 import com.mezon.mezon.api.AddFavoriteChannelResponse
 import com.mezon.mezon.api.addFavoriteChannelRequest
@@ -271,6 +272,7 @@ class MezonApi @Inject constructor(
     ): ListChannelBadgeCountResponse {
         val request = listChannelBadgeCountRequest {
             this.clanId = clanId
+            this.isMobile = true
         }
         val bytes = rpc(apiUrl, token, "ListChannelBadgeCount", request.toByteArray())
         return ListChannelBadgeCountResponse.parseFrom(bytes)
@@ -308,6 +310,25 @@ class MezonApi @Inject constructor(
         val bytes = rpc(apiUrl, token, "ListChannelDescs", request.toByteArray())
         val result = ChannelDescList.parseFrom(bytes)
         return result
+    }
+
+    suspend fun listThreadDescs(
+        apiUrl: String,
+        token: String,
+        channelId: Long,
+        clanId: Long,
+        page: Int = 1,
+        limit: Int = 50
+    ): ChannelDescList {
+        val request = listThreadRequest {
+            this.channelId = channelId
+            this.clanId = clanId
+            this.page = page
+            this.limit = limit
+            this.state = 1
+        }
+        val bytes = rpc(apiUrl, token, "ListThreadDescs", request.toByteArray())
+        return ChannelDescList.parseFrom(bytes)
     }
 
     suspend fun registFcmDeviceToken(

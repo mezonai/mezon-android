@@ -191,9 +191,9 @@
 
     <!-- notification -->
     <string name="notification_header">Notifications</string>
-    <string name="notif_inbox_title">Inbox</string>
     <string name="notif_tab_mentions">Mentions</string>
     <string name="notif_tab_messages">Messages</string>
+    <string name="notif_tab_topics">Topics</string>
     <string name="notif_tab_for_you">For You</string>
     <string name="notif_empty">No notifications</string>
     <string name="notification_tab_for_you">For you</string>
@@ -231,6 +231,7 @@
     <string name="profile_transfer">Transfer Funds</string>
     <string name="profile_history_transaction">Transaction History</string>
     <string name="profile_add_status">Add Status</string>
+    <string name="profile_update_failed">Update profile failed.</string>
 
     <!-- friends -->
     <string name="friends_title">Friends</string>
@@ -297,7 +298,8 @@
     <string name="account_email">Email</string>
     <string name="account_username">Username</string>
     <string name="account_display_name">Display Name</string>
-    <string name="account_link_email">Link email</string>
+    <string name="account_link_email">Please link your email</string>
+    <string name="account_email_linked_hidden">Email linked</string>
     <string name="account_link_phone">Link phone</string>
     <string name="account_phone">Phone Number</string>
     <string name="account_blocked_users">Blocked Users</string>
@@ -314,8 +316,7 @@
     <string name="account_delete_error">Failed to delete account. Please try again.</string>
 
     <!-- Update Email -->
-    <string name="update_email_title">Update Your Email</string>
-    <string name="email_new_email_label">New Email Address</string>
+    <string name="update_email_title">Link Email</string>
     <string name="email_next_button">Next</string>
     <string name="email_invalid">Please enter a valid email address</string>
     <string name="email_already_linked">This email is already linked to your account</string>
@@ -337,6 +338,9 @@
     <string name="otp_description_phone">We sent an SMS verification code to %s</string>
     <string name="otp_verify_button">Verify</string>
     <string name="otp_verify_failed">Invalid verification code. Please try again.</string>
+    <string name="email_verify_success">Email linked successfully!</string>
+    <string name="phone_verify_success">Phone number linked successfully!</string>
+    <string name="email_next_button_cooldown">Next (%ds)</string>
 
     <!-- Blocked Users -->
     <string name="blocked_users_title">Blocked Users</string>
@@ -461,6 +465,11 @@
     <string name="sharing_suggestions">Suggestions</string>
     <string name="sharing_add_comment">Add a comment…</string>
     <string name="sharing_empty_content">Nothing to share</string>
+
+    <string name="search_section_text_channels">Text Channels</string>
+    <string name="search_section_voice_channels">Voice Channels</string>
+    <string name="search_section_streaming_channels">Streaming Channels</string>
+    <string name="search_join_channel">Join</string>
 
     <string name="buzz_dialog_title">Enter your message Buzz!!</string>
     <string name="buzz_dialog_send">Send</string>

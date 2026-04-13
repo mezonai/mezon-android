@@ -54,6 +54,8 @@ class ProfileFragment : BaseFragment() {
         )
         private val MILLION = java.math.BigDecimal(1000000)
         private val VI_LOCALE = Locale("vi", "VN")
+        private const val PROFILE_AVATAR_SIZE_DP = 96
+        private const val PROFILE_AVATAR_CORNER_RADIUS_DP = 22f
     }
 
     private var cachedDateFormat: SimpleDateFormat? = null
@@ -80,6 +82,7 @@ class ProfileFragment : BaseFragment() {
     private lateinit var balanceText: TextView
     private lateinit var aboutMeContainer: LinearLayout
     private lateinit var aboutMeValueText: TextView
+    private lateinit var memberSinceContainer: LinearLayout
     private lateinit var memberSinceText: TextView
     private lateinit var statusBubble: LinearLayout
     private lateinit var plusIconView: View
@@ -175,7 +178,19 @@ class ProfileFragment : BaseFragment() {
                 info.userStatus,
                 { newStatus -> accountController.updateOnlineStatus(newStatus) },
                 { presentFragment(EditStatusFragment()) },
-                { accountController.updateCustomStatus(0L, "", 0, false) {} }
+                {
+                    accountController.updateCustomStatus(0L, "", 0, false) { success ->
+                        if (success) {
+                            return@updateCustomStatus
+                        }
+                        val parent = getLayoutContainer() ?: (fragmentView as? ViewGroup) ?: return@updateCustomStatus
+                        ToastOverlay(requireContext(), themeColors).show(
+                            parent,
+                            ToastOverlay.ToastType.ERROR,
+                            getString(R.string.common_error_connection_failed)
+                        )
+                    }
+                }
             )
             sheet.show()
         }
@@ -183,13 +198,14 @@ class ProfileFragment : BaseFragment() {
         val avatarContainer = FrameLayout(context).apply {
             clipChildren = false
         }
+        val avatarSizePx = LayoutHelper.dp(PROFILE_AVATAR_SIZE_DP)
         avatarStatusRow.addView(avatarContainer, LinearLayout.LayoutParams(
-            LayoutHelper.dp(96), LayoutHelper.dp(96)
+            avatarSizePx, avatarSizePx
         ))
 
-        avatarView = AvatarView(context).apply { 
-            setSizeDp(96)
-            setRoundRadius(22f)
+        avatarView = AvatarView(context).apply {
+            setSizeDp(PROFILE_AVATAR_SIZE_DP)
+            setRoundRadius(PROFILE_AVATAR_CORNER_RADIUS_DP)
         }
         avatarContainer.addView(avatarView, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT
@@ -393,12 +409,12 @@ class ProfileFragment : BaseFragment() {
         }
         aboutMeContainer.addView(aboutMeValueText)
 
-        val memberSinceContainer = LinearLayout(context).apply {
+        memberSinceContainer = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
         }
         aboutSection.addView(memberSinceContainer, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { topMargin = LayoutHelper.dp(18) })
+        ).apply { topMargin = 0 })
 
         val memberSinceLabel = TextView(context).apply {
             text = getString(R.string.profile_mezon_member_since)
@@ -634,11 +650,18 @@ class ProfileFragment : BaseFragment() {
         walletSection.visibility = if (info.address.isNotEmpty()) View.VISIBLE else View.GONE
 
         val aboutMe = info.aboutMe.ifEmpty { userController.aboutMe }
-        if (aboutMe.isNotEmpty()) {
+        val hasAboutMe = aboutMe.isNotEmpty()
+        if (hasAboutMe) {
             aboutMeContainer.visibility = View.VISIBLE
             aboutMeValueText.text = aboutMe
         } else {
             aboutMeContainer.visibility = View.GONE
+        }
+        val memberLp = memberSinceContainer.layoutParams as LinearLayout.LayoutParams
+        val memberTop = if (hasAboutMe) LayoutHelper.dp(18) else 0
+        if (memberLp.topMargin != memberTop) {
+            memberLp.topMargin = memberTop
+            memberSinceContainer.layoutParams = memberLp
         }
 
         val createTime = userController.createTimeSeconds

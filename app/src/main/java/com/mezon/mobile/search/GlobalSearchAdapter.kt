@@ -5,7 +5,8 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mezon.api.SearchMessageDocument
 import com.mezon.mobile.core.ThemeColors
-import com.mezon.mobile.home.clans.ClanChannelEntity
+import com.mezon.mobile.home.clans.CHANNEL_TYPE_STREAMING
+import com.mezon.mobile.home.clans.CHANNEL_TYPE_VOICE
 import com.mezon.mobile.ui.cells.ChannelSearchCell
 import com.mezon.mobile.ui.cells.HeaderCell
 import com.mezon.mobile.ui.cells.ProfileSearchCell
@@ -34,6 +35,7 @@ class GlobalSearchAdapter(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var diffJob: Job? = null
     var hasMore = false
+    var onChannelJoinClick: ((ChannelSearchDisplay) -> Unit)? = null
 
     init {
         setHasStableIds(true)
@@ -43,12 +45,12 @@ class GlobalSearchAdapter(
         if (position !in items.indices) return RecyclerView.NO_ID
         return when (val item = items[position]) {
             is SearchMember -> item.id
-            is ClanChannelEntity -> item.channelId
+            is ChannelSearchDisplay -> item.channel.channelId
             is SearchMessageDocument -> {
                 item.messageId.toLongOrNull()
                     ?: (item.messageId.hashCode().toLong() xor (item.channelId.hashCode().toLong() shl 32))
             }
-            is SectionHeader -> -(item.hashCode().toLong() + 1000)
+            is SectionHeader -> item.stableId
             is EmptyItem -> -999L
             else -> RecyclerView.NO_ID
         }
@@ -58,7 +60,7 @@ class GlobalSearchAdapter(
         if (position !in items.indices) return VIEW_TYPE_EMPTY
         return when (items[position]) {
             is SearchMember -> VIEW_TYPE_MEMBER
-            is ClanChannelEntity -> VIEW_TYPE_CHANNEL
+            is ChannelSearchDisplay -> VIEW_TYPE_CHANNEL
             is SearchMessageDocument -> VIEW_TYPE_MESSAGE
             is SectionHeader -> VIEW_TYPE_HEADER
             is EmptyItem -> VIEW_TYPE_EMPTY
@@ -89,7 +91,12 @@ class GlobalSearchAdapter(
         val item = items[position]
         when (val view = holder.itemView) {
             is ProfileSearchCell -> if (item is SearchMember) view.update(0, item)
-            is ChannelSearchCell -> if (item is ClanChannelEntity) view.update(0, item)
+            is ChannelSearchCell -> if (item is ChannelSearchDisplay) {
+                view.setJoinClickListener(
+                    if (item.showJoinUi) onChannelJoinClick else null
+                )
+                view.update(0, item)
+            }
             is MessageSearchCell -> if (item is SearchMessageDocument) view.update(0, item)
             is HeaderCell -> if (item is SectionHeader) view.setText(item.title)
         }
@@ -105,12 +112,30 @@ class GlobalSearchAdapter(
         submitList(newItems)
     }
 
-    fun setChannels(channels: List<ClanChannelEntity>) {
+    fun setChannelSearchItems(
+        displays: List<ChannelSearchDisplay>,
+        textHeader: String,
+        voiceHeader: String,
+        streamHeader: String
+    ) {
         val newItems = ArrayList<Any>()
-        if (channels.isEmpty()) {
+        if (displays.isEmpty()) {
             newItems.add(EmptyItem)
         } else {
-            newItems.addAll(channels)
+            var lastSec = -1
+            for (d in displays) {
+                val sec = channelSectionIndex(d.channel.type)
+                if (sec != lastSec) {
+                    val title = when (sec) {
+                        0 -> textHeader
+                        1 -> voiceHeader
+                        else -> streamHeader
+                    }
+                    newItems.add(SectionHeader(title, sectionStableId(sec)))
+                    lastSec = sec
+                }
+                newItems.add(d)
+            }
         }
         submitList(newItems)
     }
@@ -155,9 +180,17 @@ class GlobalSearchAdapter(
         if (position in items.indices) items[position] else null
 }
 
-data class SectionHeader(val title: String)
+data class SectionHeader(val title: String, val stableId: Long)
 
 object EmptyItem
+
+private fun channelSectionIndex(type: Int): Int = when (type) {
+    CHANNEL_TYPE_VOICE -> 1
+    CHANNEL_TYPE_STREAMING -> 2
+    else -> 0
+}
+
+private fun sectionStableId(sec: Int): Long = -(2000L + sec)
 
 private class SearchDiffCallback(
     private val oldList: List<Any>,
@@ -173,9 +206,10 @@ private class SearchDiffCallback(
         if (oldItem::class != newItem::class) return false
         return when (oldItem) {
             is SearchMember -> oldItem.id == (newItem as SearchMember).id
-            is ClanChannelEntity -> oldItem.channelId == (newItem as ClanChannelEntity).channelId
+            is ChannelSearchDisplay ->
+                oldItem.channel.channelId == (newItem as ChannelSearchDisplay).channel.channelId
             is SearchMessageDocument -> oldItem.messageId == (newItem as SearchMessageDocument).messageId
-            is SectionHeader -> oldItem.title == (newItem as SectionHeader).title
+            is SectionHeader -> oldItem.stableId == (newItem as SectionHeader).stableId
             is EmptyItem -> true
             else -> false
         }

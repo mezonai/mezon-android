@@ -8,6 +8,8 @@ import android.graphics.drawable.Drawable
 import androidx.annotation.DrawableRes
 import androidx.core.content.ContextCompat
 import com.mezon.mobile.R
+import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.ui.theme.ThemeMode
 
 enum class MezonIcon(@DrawableRes val resId: Int) {
     channelText(R.drawable.ic_channel_open),
@@ -26,10 +28,14 @@ enum class MezonIcon(@DrawableRes val resId: Int) {
     shortCorner(R.drawable.ic_short_corner),
     bellIcon(R.drawable.ic_bell_icon),
     bellSlashIcon(R.drawable.ic_bell_slash_icon),
-    threadIcon(R.drawable.ic_thread_new_icon),
+    threadIcon(R.drawable.ic_thread_bubble_icon),
     threadLockIcon(R.drawable.ic_threadlockicon),
     backArrowLarge(R.drawable.ic_arrow_left_svgrepo_com),
     inbox(R.drawable.ic_inbox),
+    notificationTabMention(R.drawable.ic_notif_tab_mention),
+    notificationTabMessages(R.drawable.ic_notif_tab_messages),
+    notificationTabTopic(R.drawable.ic_notif_tab_topic),
+    notificationTabForYou(R.drawable.ic_notif_tab_for_you),
     reply(R.drawable.ic_reply),
     replyDelete(R.drawable.ic_replydelete),
     faceIcon(R.drawable.ic_face_icon),
@@ -241,6 +247,27 @@ enum class MezonIcon(@DrawableRes val resId: Int) {
 
     fun getDrawable(context: Context): Drawable =
         ContextCompat.getDrawable(context, resId)!!.mutate()
+
+    fun getDrawable(context: Context, themeColors: ThemeColors): Drawable =
+        when (this) {
+            threadLockIcon -> {
+                val resId = if (themeColors.resolvedMode == ThemeMode.LIGHT) {
+                    R.drawable.ic_threadlockicon_light
+                } else {
+                    R.drawable.ic_threadlockicon
+                }
+                ContextCompat.getDrawable(context, resId)!!.mutate()
+            }
+            scanQR -> {
+                val resId = if (themeColors.resolvedMode == ThemeMode.LIGHT) {
+                    R.drawable.ic_qr_scan_light
+                } else {
+                    R.drawable.ic_qr_scan
+                }
+                ContextCompat.getDrawable(context, resId)!!.mutate()
+            }
+            else -> getDrawable(context)
+        }
 
     fun getDrawable(context: Context, tintColor: Int): Drawable =
         getDrawable(context).apply {

@@ -1,12 +1,14 @@
 package com.mezon.mobile.home.clans
 
 import android.content.Context
+import android.content.res.ColorStateList
 import android.graphics.Canvas
 import android.graphics.Outline
 import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -16,9 +18,11 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.mezon.mobile.R
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
@@ -40,7 +44,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import com.mezon.mobile.search.GlobalSearchFragment
 import com.mezon.mobile.ui.cells.MezonIcon
-import com.mezon.mobile.ui.cells.PopupMenu
 
 class ClansFragment : BaseFragment() {
 
@@ -193,7 +196,6 @@ class ClansFragment : BaseFragment() {
 
         channelListView = ChannelListView(context, themeColors).apply {
             onChannelClick = { channel -> onChannelSelected(channel) }
-            onChannelLongClick = { channel, anchorView -> showChannelContextMenu(channel, anchorView) }
         }
 
         channelPanel.addView(clanHeader, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
@@ -365,33 +367,57 @@ class ClansFragment : BaseFragment() {
             0, LayoutHelper.dp(32), 1f // RN: flex 1, height s_32
         ))
 
-        // QR button (RN: iconWrapper 32dp, QrIcon 16dp)
         val qrButton = ImageView(context).apply {
-            val circleBg = android.graphics.drawable.GradientDrawable().apply {
-                shape = android.graphics.drawable.GradientDrawable.OVAL
+            val circleBg = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
                 setColor(themeColors.tertiary)
             }
-            background = circleBg
-            setImageDrawable(MezonIcon.scanQR.getDrawable(context))
+            val rippleMask = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(0xFFFFFFFF.toInt())
+            }
+            background = RippleDrawable(
+                ColorStateList.valueOf(themeColors.onSurface and 0x1AFFFFFF),
+                circleBg,
+                rippleMask
+            )
+            setImageDrawable(MezonIcon.scanQR.getDrawable(context, themeColors))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
-            val pad = LayoutHelper.dp(8) // (32-16)/2 = 8dp padding for 16dp icon
+            val pad = LayoutHelper.dp(8)
             setPadding(pad, pad, pad, pad)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                Toast.makeText(context, getString(R.string.feature_coming_soon), Toast.LENGTH_SHORT).show()
+            }
         }
         navBar.addView(qrButton, LinearLayout.LayoutParams(
             LayoutHelper.dp(32), LayoutHelper.dp(32) // RN: s_32
         ).apply { leftMargin = LayoutHelper.dp(8) }) // RN: gap s_8
 
-        // Event/Calendar button (RN: iconWrapper 32dp, EventIcon 18dp)
         val eventButton = ImageView(context).apply {
-            val circleBg = android.graphics.drawable.GradientDrawable().apply {
-                shape = android.graphics.drawable.GradientDrawable.OVAL
+            val circleBg = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
                 setColor(themeColors.tertiary)
             }
-            background = circleBg
+            val rippleMask = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(0xFFFFFFFF.toInt())
+            }
+            background = RippleDrawable(
+                ColorStateList.valueOf(themeColors.onSurface and 0x1AFFFFFF),
+                circleBg,
+                rippleMask
+            )
             setImageDrawable(MezonIcon.calendarIcon.getDrawable(context))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
-            val pad = LayoutHelper.dp(7) // (32-18)/2 = 7dp padding for 18dp icon
+            val pad = LayoutHelper.dp(7)
             setPadding(pad, pad, pad, pad)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                Toast.makeText(context, getString(R.string.feature_coming_soon), Toast.LENGTH_SHORT).show()
+            }
         }
         navBar.addView(eventButton, LinearLayout.LayoutParams(
             LayoutHelper.dp(32), LayoutHelper.dp(32) // RN: s_32
@@ -576,22 +602,6 @@ class ClansFragment : BaseFragment() {
         userClanController.loadClanMembers(clan.clanId)
     }
 
-    private fun showChannelContextMenu(channel: ClanChannelEntity, anchorView: View) {
-        val clanId = clansController.selectedClanId.value
-        val isFav = channelController.isFavorite(clanId, channel.channelId)
-        val menu = PopupMenu(anchorView.context, themeColors)
-        val label = if (isFav) "Unmark Favorite" else "Mark Favorite"
-        menu.addItem(label, MezonIcon.favoriteFilledIcon)
-        menu.setOnItemClickListener { _ ->
-            if (isFav) {
-                channelController.removeFavorite(clanId, channel.channelId)
-            } else {
-                channelController.addFavorite(clanId, channel.channelId)
-            }
-        }
-        menu.show(anchorView)
-    }
-
     private fun onChannelSelected(channel: ClanChannelEntity) {
         val clanIdForJoin = if (channel.clanId != 0L) channel.clanId else clansController.selectedClanId.value
 
@@ -702,8 +712,7 @@ class ClansFragment : BaseFragment() {
                 val old = oldUnreadDms.getOrNull(i)
                 val new = newUnreadDms[i]
                 if (old == null || old.unreadCount != new.unreadCount ||
-                    old.lastMessageContent != new.lastMessageContent ||
-                    old.isOnline != new.isOnline) {
+                    old.lastMessageContent != new.lastMessageContent) {
                     notifyItemChanged(dmHeaderCount + i)
                 }
             }

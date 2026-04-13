@@ -70,13 +70,16 @@ class ChannelListView(
             }
         })
         recyclerView.setOnItemLongClickListener(RecyclerListView.OnItemLongClickListener { view, _ ->
+            val cb = onChannelLongClick ?: return@OnItemLongClickListener false
             when (view) {
                 is ChannelItemCell -> {
-                    view.channel?.let { onChannelLongClick?.invoke(it, view) }
+                    val ch = view.channel ?: return@OnItemLongClickListener false
+                    cb(ch, view)
                     true
                 }
                 is ChannelThreadCell -> {
-                    view.thread?.let { onChannelLongClick?.invoke(it, view) }
+                    val th = view.thread ?: return@OnItemLongClickListener false
+                    cb(th, view)
                     true
                 }
                 else -> false

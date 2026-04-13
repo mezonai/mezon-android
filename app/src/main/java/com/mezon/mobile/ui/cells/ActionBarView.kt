@@ -5,6 +5,7 @@ import android.graphics.Canvas
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.Drawable
 import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
@@ -31,6 +32,10 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
     private var backButtonImageView: ImageView? = null
     private var titleTextView: TextView? = null
     private var subtitleTextView: TextView? = null
+    private var titleStartImageView: ImageView? = null
+    private var titleStartIconSize = 0
+    private var titleStartIconGap = 0
+    private var subtitleStartPadding = 0
     var menu: ActionBarMenu? = null
         private set
     var actionMode: ActionBarMenu? = null
@@ -164,6 +169,39 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
 
     fun getSubtitle(): CharSequence? = subtitleTextView?.text
 
+    fun setSubtitleStartPadding(paddingPx: Int) {
+        subtitleStartPadding = paddingPx
+        subtitleTextView?.setPaddingRelative(paddingPx, 0, 0, 0)
+        requestLayout()
+    }
+
+    fun setTitleStartIcon(drawable: Drawable?, iconSizePx: Int, gapAfterIconPx: Int) {
+        if (drawable == null || iconSizePx <= 0) {
+            titleStartIconSize = 0
+            titleStartIconGap = 0
+            titleStartImageView?.visibility = GONE
+            requestLayout()
+            return
+        }
+        titleStartIconSize = iconSizePx
+        titleStartIconGap = gapAfterIconPx
+        if (titleStartImageView == null) {
+            titleStartImageView = ImageView(context).apply {
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                visibility = GONE
+                addView(this)
+            }
+        }
+        titleStartImageView!!.setImageDrawable(drawable)
+        titleStartImageView!!.visibility = if (isSearchFieldVisible) GONE else VISIBLE
+        requestLayout()
+    }
+
+    private fun titleStartLeadWidth(): Int =
+        if (titleStartIconSize > 0 && titleStartImageView?.visibility != GONE) {
+            titleStartIconSize + titleStartIconGap
+        } else 0
+
     private fun createSubtitleTextView() {
         subtitleTextView = TextView(context).apply {
             setTextColor(theme.onSurface)
@@ -171,6 +209,7 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
             gravity = Gravity.CENTER_VERTICAL
+            setPaddingRelative(subtitleStartPadding, 0, 0, 0)
         }
         addView(subtitleTextView)
     }
@@ -207,6 +246,7 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
                     actionMode!!.alpha = p
                     titleTextView?.alpha = 1f - p
                     subtitleTextView?.alpha = 1f - p
+                    titleStartImageView?.alpha = 1f - p
                     menu?.alpha = 1f - p
                     invalidate()
                 }
@@ -215,6 +255,7 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
                         actionModeAnimationProgress = 1f
                         titleTextView?.visibility = INVISIBLE
                         subtitleTextView?.visibility = INVISIBLE
+                        titleStartImageView?.visibility = INVISIBLE
                         menu?.visibility = INVISIBLE
                         actionModeAnimation = null
                     }
@@ -226,6 +267,7 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
             actionMode!!.alpha = 1f
             titleTextView?.visibility = INVISIBLE
             subtitleTextView?.visibility = INVISIBLE
+            titleStartImageView?.visibility = INVISIBLE
             menu?.visibility = INVISIBLE
             invalidate()
         }
@@ -239,6 +281,10 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
         subtitleTextView?.let {
             if (!it.text.isNullOrEmpty() && !isSearchFieldVisible) it.visibility = VISIBLE
         }
+        if (titleStartIconSize > 0 && !isSearchFieldVisible) {
+            titleStartImageView?.visibility = VISIBLE
+            titleStartImageView?.alpha = 1f
+        }
         menu?.visibility = VISIBLE
         if (animated && SharedConfig.animationsEnabled()) {
             actionModeAnimation?.cancel()
@@ -250,6 +296,7 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
                     actionMode!!.alpha = p
                     titleTextView?.alpha = 1f - p
                     subtitleTextView?.alpha = 1f - p
+                    titleStartImageView?.alpha = 1f - p
                     menu?.alpha = 1f - p
                     invalidate()
                 }
@@ -301,6 +348,11 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
         titleTextView?.visibility = if (visible) INVISIBLE else VISIBLE
         subtitleTextView?.let {
             it.visibility = if (visible || it.text.isNullOrEmpty()) GONE else VISIBLE
+        }
+        titleStartImageView?.visibility = when {
+            visible -> GONE
+            titleStartIconSize > 0 -> VISIBLE
+            else -> GONE
         }
         requestLayout()
     }
@@ -538,7 +590,17 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
         }
 
         val backWidth = if (backButtonImageView != null && backButtonImageView!!.visibility != GONE) BACK_BUTTON_SIZE else 0
-        val titleAvailableWidth = (widthSize - backWidth - menuWidth - LayoutHelper.dp(16)).coerceAtLeast(0)
+        val lead = titleStartLeadWidth()
+        val titleAvailableWidth = (widthSize - backWidth - menuWidth - LayoutHelper.dp(16) - lead).coerceAtLeast(0)
+
+        titleStartImageView?.let { iv ->
+            if (iv.visibility != GONE && titleStartIconSize > 0) {
+                iv.measure(
+                    MeasureSpec.makeMeasureSpec(titleStartIconSize, MeasureSpec.EXACTLY),
+                    MeasureSpec.makeMeasureSpec(titleStartIconSize, MeasureSpec.EXACTLY)
+                )
+            }
+        }
 
         titleTextView?.let { tv ->
             if (tv.visibility != GONE) {
@@ -592,6 +654,7 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
         val titleRight = w - menuWidth - LayoutHelper.dp(8)
 
         val hasSubtitle = subtitleTextView != null && subtitleTextView!!.visibility == VISIBLE
+        val lead = titleStartLeadWidth()
 
         if (centerTitle) {
             titleTextView?.let { tv ->
@@ -607,26 +670,41 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
             val subH = subtitleTextView?.measuredHeight ?: 0
             val totalH = titleH + subH
             val topMargin = statusBarOffset + (actionBarHeight - totalH) / 2
+            val textStart = titleLeft + lead
+
+            titleStartImageView?.let { iv ->
+                if (iv.visibility != GONE && titleStartIconSize > 0) {
+                    val iconTop = topMargin + (totalH - titleStartIconSize) / 2
+                    iv.layout(titleLeft, iconTop, titleLeft + titleStartIconSize, iconTop + titleStartIconSize)
+                }
+            }
 
             titleTextView?.let { tv ->
                 if (tv.visibility != GONE) {
-                    val r = (titleLeft + tv.measuredWidth).coerceAtMost(titleRight)
-                    tv.layout(titleLeft, topMargin, r, topMargin + titleH)
+                    val r = (textStart + tv.measuredWidth).coerceAtMost(titleRight)
+                    tv.layout(textStart, topMargin, r, topMargin + titleH)
                 }
             }
 
             subtitleTextView?.let { sv ->
                 val subTop = topMargin + titleH
-                val r = (titleLeft + sv.measuredWidth).coerceAtMost(titleRight)
-                sv.layout(titleLeft, subTop, r, subTop + subH)
+                val r = (textStart + sv.measuredWidth).coerceAtMost(titleRight)
+                sv.layout(textStart, subTop, r, subTop + subH)
             }
         } else {
             titleTextView?.let { tv ->
                 if (tv.visibility != GONE) {
                     val titleH = tv.measuredHeight
                     val topMargin = statusBarOffset + (actionBarHeight - titleH) / 2
-                    val r = (titleLeft + tv.measuredWidth).coerceAtMost(titleRight)
-                    tv.layout(titleLeft, topMargin, r, topMargin + titleH)
+                    val textStart = titleLeft + lead
+                    titleStartImageView?.let { iv ->
+                        if (iv.visibility != GONE && titleStartIconSize > 0) {
+                            val iconTop = topMargin + (titleH - titleStartIconSize) / 2
+                            iv.layout(titleLeft, iconTop, titleLeft + titleStartIconSize, iconTop + titleStartIconSize)
+                        }
+                    }
+                    val r = (textStart + tv.measuredWidth).coerceAtMost(titleRight)
+                    tv.layout(textStart, topMargin, r, topMargin + titleH)
                 }
             }
         }

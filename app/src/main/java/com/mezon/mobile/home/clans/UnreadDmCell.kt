@@ -32,7 +32,6 @@ class UnreadDmCell(
         color = android.graphics.Color.WHITE
     }
     private val badgeRect = RectF()
-    private val onlineDotPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var badgeText = ""
     private var currentAvatarUrl: String? = null
     private var avatarCancellable: MezonImageLoader.Cancellable? = null
@@ -104,17 +103,6 @@ class UnreadDmCell(
 
         avatar.setBounds(left, top, right, bottom)
         avatar.draw(canvas)
-
-        if (dm.isOnline) {
-            onlineDotPaint.color = 0xFF43A047.toInt()
-            val dotR = LayoutHelper.dp(5f).toFloat()
-            val dotCx = right - dotR * 0.3f
-            val dotCy = bottom - dotR * 0.3f
-            onlineDotPaint.color = themeColors.surface
-            canvas.drawCircle(dotCx, dotCy, dotR + LayoutHelper.dp(1.5f), onlineDotPaint)
-            onlineDotPaint.color = 0xFF43A047.toInt()
-            canvas.drawCircle(dotCx, dotCy, dotR, onlineDotPaint)
-        }
 
         if (dm.unreadCount > 0) {
             badgeBgPaint.color = themeColors.badgeRed

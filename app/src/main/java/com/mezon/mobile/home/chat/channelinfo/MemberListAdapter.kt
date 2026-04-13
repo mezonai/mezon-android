@@ -55,23 +55,9 @@ class MemberListAdapter(
 
         val newRows = ArrayList<Any>()
 
-        if (isDm) {
-            val count = filtered.size
-            newRows.add(SectionHeader("Members — $count"))
-            newRows.addAll(filtered.sortedBy { resolveSortName(it) })
-        } else {
-            val online = filtered.filter { it.isOnline }.sortedBy { resolveSortName(it) }
-            val offline = filtered.filter { !it.isOnline }.sortedBy { resolveSortName(it) }
-
-            if (online.isNotEmpty()) {
-                newRows.add(SectionHeader("Online — ${online.size}"))
-                newRows.addAll(online)
-            }
-            if (offline.isNotEmpty()) {
-                newRows.add(SectionHeader("Offline — ${offline.size}"))
-                newRows.addAll(offline)
-            }
-        }
+        val count = filtered.size
+        newRows.add(SectionHeader("Members — $count"))
+        newRows.addAll(filtered.sortedBy { resolveSortName(it) })
 
         diffJob?.cancel()
         val oldRows = ArrayList(rows)

@@ -2,7 +2,6 @@ package com.mezon.mobile.home.chat.channelinfo
 
 import android.content.Context
 import android.graphics.Canvas
-import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.Drawable
@@ -29,13 +28,6 @@ class MemberCell(context: Context, private val theme: ThemeColors) : BaseCell(co
     private var ownerDrawable: Drawable? = null
     private var isOwner = false
     private var creatorId = 0L
-
-    private val onlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = theme.onlineGreen
-    }
-    private val onlineBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = theme.surface
-    }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val width = MeasureSpec.getSize(widthMeasureSpec)
@@ -72,7 +64,6 @@ class MemberCell(context: Context, private val theme: ThemeColors) : BaseCell(co
 
         if (mask and UPDATE_MASK_NAME != 0) buildLayouts()
         if (mask and UPDATE_MASK_AVATAR != 0) loadAvatar(resolveAvatar(m))
-        if (mask and UPDATE_MASK_STATUS != 0) invalidate()
     }
 
     override fun invalidate() {
@@ -138,14 +129,6 @@ class MemberCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         )
         avatarDrawable.draw(canvas)
 
-        if (m.isOnline) {
-            val dotCx = (cx + AVATAR_SIZE / 2 - ONLINE_DOT_SIZE / 2).toFloat()
-            val dotCy = (cy + AVATAR_SIZE / 2 - ONLINE_DOT_SIZE / 2).toFloat()
-            val borderRadius = (ONLINE_DOT_SIZE / 2 + ONLINE_BORDER).toFloat()
-            canvas.drawCircle(dotCx, dotCy, borderRadius, onlineBorderPaint)
-            canvas.drawCircle(dotCx, dotCy, (ONLINE_DOT_SIZE / 2).toFloat(), onlinePaint)
-        }
-
         var textX = NAME_LEFT.toFloat()
         val textY = ((CELL_HEIGHT - (nameLayout?.height ?: 0)) / 2).toFloat()
         nameLayout?.let { layout ->
@@ -187,12 +170,9 @@ class MemberCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         private val PADDING_RIGHT = LayoutHelper.dp(16f)
         private val AVATAR_SIZE = LayoutHelper.dp(36f)
         private val NAME_LEFT = PADDING_LEFT + AVATAR_SIZE + LayoutHelper.dp(12f)
-        private val ONLINE_DOT_SIZE = LayoutHelper.dp(10f)
-        private val ONLINE_BORDER = LayoutHelper.dp(2f)
         private val OWNER_ICON_SIZE = LayoutHelper.dp(16f)
 
         const val UPDATE_MASK_NAME = 1
         const val UPDATE_MASK_AVATAR = 2
-        const val UPDATE_MASK_STATUS = 4
     }
 }
