@@ -23,6 +23,7 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.R
+import com.mezon.mobile.core.AlertDialog
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
@@ -555,7 +556,9 @@ class ClansFragment : BaseFragment() {
 
     private fun updateVoiceMembers(clanId: Long) {
         val channels = channelController.getChannels(clanId)
-        val voiceChannels = channels.filter { it.type == CHANNEL_TYPE_VOICE }
+        val voiceChannels = channels.filter {
+            it.type == CHANNEL_TYPE_VOICE || it.type == CHANNEL_TYPE_STREAMING || it.type == CHANNEL_TYPE_APP
+        }
         if (voiceChannels.isEmpty()) return
 
         val clanMembers = userClanController.getClanMembers(clanId)
@@ -606,10 +609,25 @@ class ClansFragment : BaseFragment() {
         val clanIdForJoin = if (channel.clanId != 0L) channel.clanId else clansController.selectedClanId.value
 
         if (channel.type == CHANNEL_TYPE_VOICE) {
-            if (voiceController.isJoined && voiceController.currentVoiceInfo?.channelId == channel.channelId) {
+            val inRoom = voiceController.isJoined || voiceController.isConnecting
+            if (inRoom && voiceController.currentVoiceInfo?.channelId == channel.channelId) {
                 (getParentActivity() as? MainActivity)?.showVoiceRoom(
                     channel.channelId, clanIdForJoin, channel.channelLabel
                 )
+                return
+            }
+            val currentVoice = voiceController.currentVoiceInfo
+            if (inRoom && currentVoice != null && currentVoice.channelId != channel.channelId) {
+                val activity = getParentActivity() ?: return
+                val currentName = currentVoice.channelLabel.ifEmpty { "current voice room" }
+                AlertDialog.Builder(activity)
+                    .setTitle("Switch Voice Room")
+                    .setMessage("You are in \"$currentName\". Leave and join \"${channel.channelLabel}\"?")
+                    .setPositiveButton("Switch") { _, _ ->
+                        showJoinVoiceBottomSheet(channel, clanIdForJoin)
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
                 return
             }
             showJoinVoiceBottomSheet(channel, clanIdForJoin)
@@ -635,7 +653,7 @@ class ClansFragment : BaseFragment() {
         }
 
         val sheet = JoinVoiceBottomSheet(
-            activity, themeColors, channel.channelLabel, channel.channelId, clanId, displays
+            activity, themeColors, channel.channelLabel, channel.channelId, clanId, displays, channel.unreadCount
         )
         sheet.onJoinVoice = {
             (getParentActivity() as? MainActivity)?.showVoiceRoom(

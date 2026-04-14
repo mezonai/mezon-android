@@ -32,7 +32,7 @@ class VoiceAudioManager(private val context: Context) {
 
     fun start() {
         requestAudioFocus()
-        setEarpiece()
+        setSpeaker()
         registerBluetoothReceiver()
     }
 
@@ -69,6 +69,28 @@ class VoiceAudioManager(private val context: Context) {
 
     fun isBluetoothAvailable(): Boolean = bluetoothAvailable
 
+    private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
+        when (focusChange) {
+            AudioManager.AUDIOFOCUS_LOSS,
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                savedDevice = currentDevice
+                audioManager.isSpeakerphoneOn = false
+                stopBluetoothSco()
+            }
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                val restore = savedDevice ?: return@OnAudioFocusChangeListener
+                savedDevice = null
+                when (restore) {
+                    AudioOutputDevice.SPEAKER -> setSpeaker()
+                    AudioOutputDevice.BLUETOOTH -> if (bluetoothAvailable) setBluetooth() else setSpeaker()
+                    AudioOutputDevice.EARPIECE -> setEarpiece()
+                }
+            }
+        }
+    }
+
+    private var savedDevice: AudioOutputDevice? = null
+
     private fun requestAudioFocus() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
@@ -78,14 +100,14 @@ class VoiceAudioManager(private val context: Context) {
                         .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
                         .build()
                 )
-                .setOnAudioFocusChangeListener { }
+                .setOnAudioFocusChangeListener(audioFocusChangeListener)
                 .build()
             audioFocusRequest = request
             audioManager.requestAudioFocus(request)
         } else {
             @Suppress("DEPRECATION")
             audioManager.requestAudioFocus(
-                { }, AudioManager.STREAM_VOICE_CALL, AudioManager.AUDIOFOCUS_GAIN
+                audioFocusChangeListener, AudioManager.STREAM_VOICE_CALL, AudioManager.AUDIOFOCUS_GAIN
             )
         }
     }
@@ -132,7 +154,11 @@ class VoiceAudioManager(private val context: Context) {
             addAction(BluetoothAdapter.ACTION_CONNECTION_STATE_CHANGED)
             addAction(AudioManager.ACTION_SCO_AUDIO_STATE_UPDATED)
         }
-        context.registerReceiver(bluetoothReceiver, filter)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.registerReceiver(bluetoothReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            context.registerReceiver(bluetoothReceiver, filter)
+        }
         checkBluetoothAvailability()
     }
 

@@ -207,6 +207,7 @@ dependencies {
 
     // LiveKit (voice/video channels)
     implementation(libs.livekit.android)
+    implementation("com.otaliastudios:zoomlayout:1.9.0")
 
     // Firebase
     implementation(platform(libs.firebase.bom))

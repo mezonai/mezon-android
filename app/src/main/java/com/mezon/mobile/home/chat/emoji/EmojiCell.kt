@@ -9,8 +9,9 @@ import android.graphics.PorterDuffColorFilter
 import android.graphics.Rect
 import android.graphics.drawable.Drawable
 import android.view.Gravity
-import android.view.View
+import android.view.MotionEvent
 import android.widget.FrameLayout
+import com.mezon.mobile.core.BaseCell
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.SharedConfig
 import com.mezon.mobile.core.ThemeColors
@@ -24,7 +25,7 @@ private val IMAGE_SIZE = LayoutHelper.dp(30f)
 private val LOCK_SIZE = LayoutHelper.dp(12f)
 private val LOCK_PAD = LayoutHelper.dp(2f)
 
-class EmojiCell(context: Context, private val themeColors: ThemeColors) : View(context) {
+class EmojiCell(context: Context, private val themeColors: ThemeColors) : BaseCell(context) {
 
     private var emoji: EmojiItem? = null
     private var bitmap: Bitmap? = null
@@ -47,10 +48,13 @@ class EmojiCell(context: Context, private val themeColors: ThemeColors) : View(c
         layoutParams = FrameLayout.LayoutParams(CELL_SIZE, CELL_SIZE, Gravity.CENTER)
         isClickable = true
         isFocusable = true
-        val attrs = intArrayOf(android.R.attr.selectableItemBackgroundBorderless)
-        val ta = context.obtainStyledAttributes(attrs)
-        foreground = ta.getDrawable(0)
-        ta.recycle()
+        setOnTouchListener { _, ev ->
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_DOWN -> alpha = 0.7f
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> alpha = 1f
+            }
+            false
+        }
     }
 
     fun setEmoji(item: EmojiItem) {
@@ -147,6 +151,8 @@ class EmojiCell(context: Context, private val themeColors: ThemeColors) : View(c
         stopAnimation()
         animDrawable = null
     }
+
+    override fun allowCaching(): Boolean = false
 
     companion object {
         private val bitmapPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)

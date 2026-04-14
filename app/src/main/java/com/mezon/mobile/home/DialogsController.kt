@@ -223,7 +223,7 @@ class DialogsController @Inject constructor(
                     cacheTracker.markCalled(cacheKey)
                     runCatching {
                         val badge = api.listChannelBadgeCount(session.apiUrl, session.token, 0L)
-                        val badgeWithContent = badge.channeldescList.count { it.hasLastSentMessage() && it.lastSentMessage.content.isNotEmpty() }
+                            val badgeWithContent = badge.channeldescList.count { it.hasLastSentMessage() && it.lastSentMessage.content.isNotEmpty() }
                         Log.d(TAG, "loadDialogs: badge returned ${badge.channeldescList.size} channels, withContent=$badgeWithContent")
                         if (badge.channeldescList.isNotEmpty()) {
                             val badgeSample = badge.channeldescList.firstOrNull { it.hasLastSentMessage() && it.lastSentMessage.content.isNotEmpty() }

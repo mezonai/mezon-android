@@ -19,13 +19,17 @@ class VoiceControlBar(
 
     companion object {
         private val BUTTON_SIZE = LayoutHelper.dp(50)
-        private val ICON_SIZE = LayoutHelper.dp(20)
+        private val DEFAULT_ICON_SIZE = LayoutHelper.dp(20)
+        private val RAISE_HAND_ICON_SIZE = LayoutHelper.dp(32)
+        private val END_CALL_ICON_SIZE = LayoutHelper.dp(24)
         private val BUTTON_GAP = LayoutHelper.dp(10)
         private val PILL_H_PADDING = LayoutHelper.dp(10)
         private val PILL_V_PADDING = LayoutHelper.dp(4)
+        private val INNER_PADDING = LayoutHelper.dp(6)
         private val PILL_RADIUS = LayoutHelper.dp(80).toFloat()
         private val BORDER_WIDTH = LayoutHelper.dp(1).toFloat() * 0.5f
         private val RED_STRONG = 0xFFC61E1B.toInt()
+        private val RAISE_HAND_ACTIVE = 0xFFEFBC39.toInt()
     }
 
     var onCameraToggle: ((enabled: Boolean) -> Unit)? = null
@@ -53,24 +57,21 @@ class VoiceControlBar(
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             background = pillBg
-            setPadding(PILL_H_PADDING, PILL_V_PADDING, PILL_H_PADDING, PILL_V_PADDING)
+            setPadding(
+                PILL_H_PADDING + INNER_PADDING,
+                PILL_V_PADDING + INNER_PADDING,
+                PILL_H_PADDING + INNER_PADDING,
+                PILL_V_PADDING + INNER_PADDING
+            )
         }
 
         val defaultTint = themeColors.tabLabelActive
-        val activeBg = themeColors.onSurface
         val btnBorder = themeColors.textDisabled
 
         cameraButton = ControlButton(context, MezonIcon.videoSlashIcon, themeColors.tertiary, btnBorder, defaultTint).apply {
             setOnClickListener {
                 cameraEnabled = !cameraEnabled
                 updateIcon(if (cameraEnabled) MezonIcon.videoIcon else MezonIcon.videoSlashIcon)
-                if (cameraEnabled) {
-                    updateBgColor(activeBg)
-                    updateIconTint(0xFF000000.toInt())
-                } else {
-                    updateBgColor(themeColors.tertiary)
-                    updateIconTint(defaultTint)
-                }
                 onCameraToggle?.invoke(cameraEnabled)
             }
         }
@@ -80,29 +81,37 @@ class VoiceControlBar(
             setOnClickListener {
                 micEnabled = !micEnabled
                 updateIcon(if (micEnabled) MezonIcon.microphoneIcon else MezonIcon.microphoneSlashIcon)
-                if (micEnabled) {
-                    updateBgColor(activeBg)
-                    updateIconTint(0xFF000000.toInt())
-                } else {
-                    updateBgColor(themeColors.tertiary)
-                    updateIconTint(defaultTint)
-                }
                 onMicToggle?.invoke(micEnabled)
             }
         }
         addButton(row, micButton, true)
 
-        chatButton = ControlButton(context, MezonIcon.chatIcon, themeColors.tertiary, btnBorder, defaultTint).apply {
+        chatButton = ControlButton(context, MezonIcon.notificationTabMessages, themeColors.tertiary, btnBorder, defaultTint).apply {
             setOnClickListener { onChatClick?.invoke() }
+            setApplyTint(false)
         }
         addButton(row, chatButton, true)
 
-        raiseHandButton = ControlButton(context, MezonIcon.raiseHandIcon, themeColors.tertiary, btnBorder, defaultTint).apply {
+        raiseHandButton = ControlButton(
+            context,
+            MezonIcon.raiseHandIcon,
+            themeColors.tertiary,
+            btnBorder,
+            defaultTint,
+            RAISE_HAND_ICON_SIZE
+        ).apply {
             setOnClickListener { onRaiseHandClick?.invoke() }
         }
         addButton(row, raiseHandButton, true)
 
-        endCallButton = ControlButton(context, MezonIcon.callCancelIcon, RED_STRONG, 0, 0xFFFFFFFF.toInt()).apply {
+        endCallButton = ControlButton(
+            context,
+            MezonIcon.callCancelIcon,
+            RED_STRONG,
+            0,
+            0xFFFFFFFF.toInt(),
+            END_CALL_ICON_SIZE
+        ).apply {
             setOnClickListener { onEndCallClick?.invoke() }
         }
         addButton(row, endCallButton, true)
@@ -116,12 +125,29 @@ class VoiceControlBar(
         row.addView(button, lp)
     }
 
+    fun setGroupCallMode(isGroupCall: Boolean) {
+        val visibility = if (isGroupCall) GONE else VISIBLE
+        chatButton.visibility = visibility
+        raiseHandButton.visibility = visibility
+    }
+
+    fun setRaiseHandActive(active: Boolean) {
+        if (active) {
+            raiseHandButton.updateBgColor(themeColors.tertiary)
+            raiseHandButton.updateIconTint(RAISE_HAND_ACTIVE)
+        } else {
+            raiseHandButton.updateBgColor(themeColors.tertiary)
+            raiseHandButton.updateIconTint(themeColors.tabLabelActive)
+        }
+    }
+
     class ControlButton(
         context: Context,
         private var icon: MezonIcon,
         bgColor: Int,
         borderColor: Int,
-        initialTint: Int
+        initialTint: Int,
+        private val iconSize: Int = DEFAULT_ICON_SIZE
     ) : FrameLayout(context) {
 
         private val bgDrawable = GradientDrawable().apply {
@@ -133,26 +159,31 @@ class VoiceControlBar(
         }
         private val iconView: ImageView
         private var iconTint = initialTint
+        private var applyTint = true
 
         init {
             background = bgDrawable
             isClickable = true
             isFocusable = true
 
-            val iconSz = LayoutHelper.dp(20)
             iconView = ImageView(context).apply {
                 setImageDrawable(icon.getDrawable(context).apply {
-                    colorFilter = PorterDuffColorFilter(iconTint, PorterDuff.Mode.SRC_IN)
+                    if (applyTint) {
+                        colorFilter = PorterDuffColorFilter(iconTint, PorterDuff.Mode.SRC_IN)
+                    }
                 })
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
             }
-            addView(iconView, LayoutParams(iconSz, iconSz, Gravity.CENTER))
+            addView(iconView, LayoutParams(iconSize, iconSize, Gravity.CENTER))
+            applyVoiceButtonPressFeedback()
         }
 
         fun updateIcon(newIcon: MezonIcon) {
             icon = newIcon
             iconView.setImageDrawable(icon.getDrawable(context).apply {
-                colorFilter = PorterDuffColorFilter(iconTint, PorterDuff.Mode.SRC_IN)
+                if (applyTint) {
+                    colorFilter = PorterDuffColorFilter(iconTint, PorterDuff.Mode.SRC_IN)
+                }
             })
         }
 
@@ -162,8 +193,19 @@ class VoiceControlBar(
 
         fun updateIconTint(color: Int) {
             iconTint = color
+            if (!applyTint) return
             iconView.setImageDrawable(icon.getDrawable(context).apply {
                 colorFilter = PorterDuffColorFilter(iconTint, PorterDuff.Mode.SRC_IN)
+            })
+        }
+
+        fun setApplyTint(enabled: Boolean) {
+            if (applyTint == enabled) return
+            applyTint = enabled
+            iconView.setImageDrawable(icon.getDrawable(context).apply {
+                if (applyTint) {
+                    colorFilter = PorterDuffColorFilter(iconTint, PorterDuff.Mode.SRC_IN)
+                }
             })
         }
     }

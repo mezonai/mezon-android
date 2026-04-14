@@ -40,7 +40,6 @@ class VoiceOverlayManager(
     private var currentAnimator: ValueAnimator? = null
 
     var onExpandRequest: (() -> Unit)? = null
-    var onMinimizeRequest: (() -> Unit)? = null
 
     init {
         overlayContainer.visibility = View.GONE

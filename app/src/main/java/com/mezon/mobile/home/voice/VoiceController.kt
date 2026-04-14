@@ -5,6 +5,7 @@ import com.mezon.mezon.rtapi.VoiceEndedEvent
 import com.mezon.mezon.rtapi.VoiceJoinedEvent
 import com.mezon.mezon.rtapi.VoiceLeavedEvent
 import com.mezon.mezon.rtapi.VoiceReactionSend
+import com.mezon.mezon.rtapi.AIAgentEnabledEvent
 import com.mezon.mezon.rtapi.VoiceStartedEvent
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.ApplicationScope
@@ -42,8 +43,12 @@ class VoiceController @Inject constructor(
         private set
     var isJoined: Boolean = false
         private set
+    var isConnecting: Boolean = false
+        private set
     var meetToken: String? = null
         private set
+
+    private val aiAgentEnabled = HashMap<String, Boolean>()
 
     init {
         appScope.launch { dispatcher.voiceJoinedEvents.collect { onVoiceJoined(it) } }
@@ -51,6 +56,10 @@ class VoiceController @Inject constructor(
         appScope.launch { dispatcher.voiceEndedEvents.collect { onVoiceEnded(it) } }
         appScope.launch { dispatcher.voiceStartedEvents.collect { onVoiceStarted(it) } }
         appScope.launch { dispatcher.voiceReactionEvents.collect { onVoiceReaction(it) } }
+        appScope.launch { dispatcher.channelDeletedEvents.collect { onChannelDeleted(it.clanId, it.channelId) } }
+        appScope.launch { dispatcher.clanDeletedEvents.collect { onClanDeleted(it.clanId) } }
+        appScope.launch { dispatcher.userClanRemovedEvents.collect { onUserRemovedFromClan(it.clanId) } }
+        appScope.launch { dispatcher.aiagentEnabledEvents.collect { onAiAgentEnabled(it) } }
     }
 
     fun cleanup() {
@@ -59,7 +68,9 @@ class VoiceController @Inject constructor(
             inVoiceStatus.clear()
             currentVoiceInfo = null
             isJoined = false
+            isConnecting = false
             meetToken = null
+            aiAgentEnabled.clear()
         }
     }
 
@@ -122,13 +133,20 @@ class VoiceController @Inject constructor(
 
     suspend fun joinVoiceChannel(channelId: Long, clanId: Long, channelLabel: String): String? {
         Log.d(TAG, "joinVoiceChannel: channelId=$channelId clanId=$clanId label=$channelLabel")
-        if (isJoined && currentVoiceInfo?.channelId == channelId) {
-            Log.d(TAG, "Already joined this channel, returning existing token")
-            return meetToken
+        synchronized(this) {
+            if (isJoined && currentVoiceInfo?.channelId == channelId) {
+                Log.d(TAG, "Already joined this channel, returning existing token")
+                return meetToken
+            }
+            if (isJoined || isConnecting) {
+                Log.d(TAG, "Already in another channel or connecting, leaving first")
+            }
         }
-        if (isJoined) {
-            Log.d(TAG, "Already in another channel, leaving first")
+        if (isJoined || isConnecting) {
             leaveVoiceChannel()
+        }
+        synchronized(this) {
+            isConnecting = true
         }
         return try {
             sessionManager.withAutoRefresh { session ->
@@ -139,18 +157,29 @@ class VoiceController @Inject constructor(
                 }
                 val token = response.token
                 Log.d(TAG, "generateMeetToken response: token=${if (token.isNullOrEmpty()) "NULL/EMPTY" else "${token.length} chars"}")
-                if (token.isNullOrEmpty()) return@withAutoRefresh null
+                if (token.isNullOrEmpty()) {
+                    synchronized(this) { isConnecting = false }
+                    return@withAutoRefresh null
+                }
                 synchronized(this) {
                     currentVoiceInfo = VoiceInfo(channelId, clanId, channelLabel, roomName)
                     meetToken = token
-                    isJoined = true
+                    isJoined = false
                 }
-                notificationCenter.postNotificationOnMainThread(NotificationCenter.voiceJoinedRoom)
                 token
             }
         } catch (e: Exception) {
             Log.e(TAG, "joinVoiceChannel failed", e)
+            synchronized(this) { isConnecting = false }
             null
+        }
+    }
+
+    fun onRoomConnected(channelId: Long) {
+        synchronized(this) {
+            if (currentVoiceInfo?.channelId != channelId) return
+            isJoined = true
+            isConnecting = false
         }
     }
 
@@ -159,6 +188,7 @@ class VoiceController @Inject constructor(
             currentVoiceInfo = null
             meetToken = null
             isJoined = false
+            isConnecting = false
         }
         notificationCenter.postNotificationOnMainThread(NotificationCenter.voiceLeftRoom)
     }
@@ -168,6 +198,7 @@ class VoiceController @Inject constructor(
             currentVoiceInfo = null
             meetToken = null
             isJoined = false
+            isConnecting = false
         }
         notificationCenter.postNotificationOnMainThread(
             NotificationCenter.voiceRoomDisconnected, reason
@@ -251,7 +282,7 @@ class VoiceController @Inject constructor(
         val channelId = channelIdStr.toLongOrNull() ?: return
         if (clanId == 0L || channelId == 0L) return
 
-        synchronized(this) {
+        val shouldDisconnect = synchronized(this) {
             val removed = voiceMembersByClan[clanId]?.remove(channelId)
             removed?.forEach { uid ->
                 val status = inVoiceStatus[uid]
@@ -259,9 +290,10 @@ class VoiceController @Inject constructor(
                     inVoiceStatus.remove(uid)
                 }
             }
+            currentVoiceInfo?.channelId == channelId
         }
 
-        if (currentVoiceInfo?.channelId == channelId) {
+        if (shouldDisconnect) {
             onDisconnectedFromRoom("deleted")
         }
 
@@ -275,6 +307,41 @@ class VoiceController @Inject constructor(
         Log.d(TAG, "Voice started: clan=${event.clanId} channel=${event.voiceChannelId}")
     }
 
+    @Synchronized
+    fun isAiAgentEnabled(clanId: Long, channelId: Long): Boolean {
+        return aiAgentEnabled["$clanId:$channelId"] == true
+    }
+
+    private fun aiAgentKey(clanId: Long, channelId: Long) = "$clanId:$channelId"
+
+    private fun onAiAgentEnabled(event: AIAgentEnabledEvent) {
+        val c = event.clanId
+        val ch = event.channelId
+        synchronized(this) {
+            aiAgentEnabled[aiAgentKey(c, ch)] = event.enabled
+        }
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.voiceAiAgentStateChanged,
+            c, ch, event.enabled
+        )
+    }
+
+    suspend fun addAiAgentToChannel(channelId: Long, roomName: String) {
+        sessionManager.withAutoRefresh { session ->
+            withContext(ioDispatcher) {
+                api.addAgentToChannel(session.apiUrl, session.token, channelId, roomName)
+            }
+        }
+    }
+
+    suspend fun disconnectAiAgent(channelId: Long, roomName: String) {
+        sessionManager.withAutoRefresh { session ->
+            withContext(ioDispatcher) {
+                api.disconnectAgent(session.apiUrl, session.token, channelId, roomName)
+            }
+        }
+    }
+
     private fun onVoiceReaction(event: VoiceReactionSend) {
         notificationCenter.postNotificationOnMainThread(
             NotificationCenter.voiceReactionReceived,
@@ -282,5 +349,35 @@ class VoiceController @Inject constructor(
             event.channelId,
             event.senderId
         )
+    }
+
+    private fun onChannelDeleted(clanId: Long, channelId: Long) {
+        if (clanId == 0L || channelId == 0L) return
+        val shouldDisconnect = synchronized(this) {
+            currentVoiceInfo?.clanId == clanId && currentVoiceInfo?.channelId == channelId
+        }
+        if (shouldDisconnect) {
+            onDisconnectedFromRoom("deleted")
+        }
+    }
+
+    private fun onClanDeleted(clanId: Long) {
+        if (clanId == 0L) return
+        val shouldDisconnect = synchronized(this) {
+            currentVoiceInfo?.clanId == clanId
+        }
+        if (shouldDisconnect) {
+            onDisconnectedFromRoom("deleted")
+        }
+    }
+
+    private fun onUserRemovedFromClan(clanId: Long) {
+        if (clanId == 0L) return
+        val shouldDisconnect = synchronized(this) {
+            currentVoiceInfo?.clanId == clanId
+        }
+        if (shouldDisconnect) {
+            onDisconnectedFromRoom("removed")
+        }
     }
 }

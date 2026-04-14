@@ -56,6 +56,7 @@ import com.mezon.mezon.api.GenerateMeetTokenResponse
 import com.mezon.mezon.api.VoiceChannelUserList
 import com.mezon.mezon.api.generateMeetTokenRequest
 import com.mezon.mezon.api.meetParticipantRequest
+import com.mezon.mezon.api.updateAIAgentRequest
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -804,9 +805,35 @@ class MezonApi @Inject constructor(
             this.roomName = roomName
             this.username = username
         }
-        return rpc(apiUrl, token, "MuteMezonMeetParticipant", request.toByteArray())
+ return rpc(apiUrl, token, "MuteMezonMeetParticipant", request.toByteArray())
     }
-    
+
+    suspend fun addAgentToChannel(
+        apiUrl: String,
+        token: String,
+        channelId: Long,
+        roomName: String
+    ): ByteArray {
+        val request = updateAIAgentRequest {
+            this.channelId = channelId
+            this.roomName = roomName
+        }
+        return rpc(apiUrl, token, "AddAgentToChannel", request.toByteArray())
+    }
+
+    suspend fun disconnectAgent(
+        apiUrl: String,
+        token: String,
+        channelId: Long,
+        roomName: String
+    ): ByteArray {
+        val request = updateAIAgentRequest {
+            this.channelId = channelId
+            this.roomName = roomName
+        }
+        return rpc(apiUrl, token, "DisconnectAgent", request.toByteArray())
+    }
+
     suspend fun listFavoriteChannels(
         apiUrl: String,
         token: String,

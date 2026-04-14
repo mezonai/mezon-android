@@ -26,6 +26,7 @@ import com.mezon.mobile.util.createImgproxyUrl
 import io.livekit.android.renderer.SurfaceViewRenderer
 import io.livekit.android.room.Room
 import io.livekit.android.room.track.VideoTrack
+import livekit.org.webrtc.RendererCommon
 
 class ParticipantCell(
     context: Context,
@@ -267,6 +268,22 @@ class ParticipantCell(
 
         videoTrack.addRenderer(renderer)
         currentVideoTrack = videoTrack
+        if (isScreenShare) {
+            renderer.setScalingType(
+                RendererCommon.ScalingType.SCALE_ASPECT_FIT,
+                RendererCommon.ScalingType.SCALE_ASPECT_FIT
+            )
+            renderer.setEnableHardwareScaler(false)
+        } else {
+            renderer.setScalingType(
+                RendererCommon.ScalingType.SCALE_ASPECT_FILL,
+                RendererCommon.ScalingType.SCALE_ASPECT_FILL
+            )
+            renderer.setEnableHardwareScaler(true)
+        }
+        renderer.setMirror(!isScreenShare)
+        renderer.requestLayout()
+        renderer.invalidate()
         renderer.visibility = VISIBLE
         avatarView.visibility = GONE
         nameOverlay.visibility = VISIBLE

@@ -11,6 +11,8 @@ import android.view.View
 import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.home.chat.MezonImageLoader
+import com.mezon.mobile.util.createImgproxyUrl
 
 class VoiceUserAvatarCell(
     context: Context,
@@ -18,10 +20,10 @@ class VoiceUserAvatarCell(
 ) : View(context) {
 
     companion object {
-        private val avatarSize = LayoutHelper.dp(28)
-        private val cellHeight = LayoutHelper.dp(32)
-        private val paddingLeft = LayoutHelper.dp(52)
-        private val avatarTextGap = LayoutHelper.dp(8)
+        private val AVATAR_SIZE = LayoutHelper.dp(18)
+        private val CELL_HEIGHT = LayoutHelper.dp(26)
+        private val PADDING_LEFT = LayoutHelper.dp(40)
+        private val AVATAR_TEXT_GAP = LayoutHelper.dp(10)
         private val nameTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             textSize = LayoutHelper.sp(13f)
         }
@@ -37,6 +39,8 @@ class VoiceUserAvatarCell(
     private val avatarDrawable = AvatarDrawable()
     private val avatarRect = RectF()
     private var nameLayout: StaticLayout? = null
+    private var avatarCancellable: MezonImageLoader.Cancellable? = null
+    private var currentAvatarUrl: String? = null
 
     private var userId: Long = 0
     private var displayName: String = ""
@@ -51,6 +55,7 @@ class VoiceUserAvatarCell(
         this.isOverflowItem = false
         this.overflowCount = 0
         avatarDrawable.setInfo(userId, name)
+        loadAvatar(avatarUrl)
         buildNameLayout()
         invalidate()
     }
@@ -59,7 +64,35 @@ class VoiceUserAvatarCell(
         this.isOverflowItem = true
         this.overflowCount = count
         this.nameLayout = null
+        cancelAvatarLoad()
         invalidate()
+    }
+
+    private fun loadAvatar(url: String?) {
+        if (url == currentAvatarUrl && avatarDrawable.hasPhoto()) return
+        currentAvatarUrl = url
+        avatarDrawable.setPhoto(null)
+        cancelAvatarLoad()
+
+        if (url.isNullOrEmpty()) return
+        val proxyUrl = createImgproxyUrl(url, AVATAR_SIZE * 2, AVATAR_SIZE * 2, "fill")
+        avatarCancellable = MezonImageLoader.getInstance(context).load(
+            proxyUrl, AVATAR_SIZE, AVATAR_SIZE,
+            onSuccess = { bmp ->
+                avatarDrawable.setPhoto(bmp)
+                invalidate()
+            }
+        )
+    }
+
+    private fun cancelAvatarLoad() {
+        avatarCancellable?.cancel()
+        avatarCancellable = null
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        cancelAvatarLoad()
     }
 
     private fun buildNameLayout() {
@@ -67,7 +100,7 @@ class VoiceUserAvatarCell(
             nameLayout = null
             return
         }
-        val availWidth = measuredWidth - paddingLeft - avatarSize - avatarTextGap - LayoutHelper.dp(16)
+        val availWidth = measuredWidth - PADDING_LEFT - AVATAR_SIZE - AVATAR_TEXT_GAP - LayoutHelper.dp(16)
         if (availWidth <= 0) {
             nameLayout = null
             return
@@ -81,36 +114,36 @@ class VoiceUserAvatarCell(
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), cellHeight)
+        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), CELL_HEIGHT)
         if (!isOverflowItem) buildNameLayout()
     }
 
     override fun onDraw(canvas: Canvas) {
         val cy = height / 2f
-        val avatarLeft = paddingLeft.toFloat()
-        val avatarTop = cy - avatarSize / 2f
+        val avatarLeft = PADDING_LEFT.toFloat()
+        val avatarTop = cy - AVATAR_SIZE / 2f
 
         if (isOverflowItem) {
             overflowBgPaint.color = themeColors.surfaceVariant
             canvas.drawCircle(
-                avatarLeft + avatarSize / 2f,
+                avatarLeft + AVATAR_SIZE / 2f,
                 cy,
-                avatarSize / 2f,
+                AVATAR_SIZE / 2f,
                 overflowBgPaint
             )
             val text = "+$overflowCount"
             val textY = cy - (overflowTextPaint.descent() + overflowTextPaint.ascent()) / 2
-            canvas.drawText(text, avatarLeft + avatarSize / 2f, textY, overflowTextPaint)
+            canvas.drawText(text, avatarLeft + AVATAR_SIZE / 2f, textY, overflowTextPaint)
             return
         }
 
-        avatarRect.set(avatarLeft, avatarTop, avatarLeft + avatarSize, avatarTop + avatarSize)
+        avatarRect.set(avatarLeft, avatarTop, avatarLeft + AVATAR_SIZE, avatarTop + AVATAR_SIZE)
         avatarDrawable.setBounds(avatarRect.left.toInt(), avatarRect.top.toInt(), avatarRect.right.toInt(), avatarRect.bottom.toInt())
         avatarDrawable.draw(canvas)
 
         nameLayout?.let {
             canvas.save()
-            val textX = avatarLeft + avatarSize + avatarTextGap
+            val textX = avatarLeft + AVATAR_SIZE + AVATAR_TEXT_GAP
             val textY = cy - it.height / 2f
             canvas.translate(textX, textY)
             it.draw(canvas)
