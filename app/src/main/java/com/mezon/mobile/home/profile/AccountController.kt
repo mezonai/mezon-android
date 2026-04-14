@@ -253,7 +253,7 @@ class AccountController @Inject constructor(
                     .toByteArray()
                 val bytes = sessionManager.withAutoRefresh { session ->
                     withContext(ioDispatcher) {
-                        api.rpc(session.apiUrl, session.token, "LinkSms", requestBytes)
+                        api.linkSms(session.apiUrl, session.token, requestBytes)
                     }
                 }
                 val reqId = if (bytes.isNotEmpty()) {
