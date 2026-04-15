@@ -493,6 +493,27 @@ class ThemeColors @Inject constructor() {
         else -> 0xFF6B6B6B.toInt()
     }
 
+    val borderDim: Int get() = when (resolvedMode) {
+        ThemeMode.LIGHT -> 0xFFDFDFDF.toInt()
+        ThemeMode.DARK -> 0xFF2F2F37.toInt()
+        ThemeMode.ABYSS -> 0xFF16206A.toInt()
+        else -> 0xFF2F2F37.toInt()
+    }
+
+    val border: Int get() = when (resolvedMode) {
+        ThemeMode.LIGHT -> 0xFFEDEDF1.toInt()
+        ThemeMode.DARK -> 0xFF2A2D31.toInt()
+        ThemeMode.ABYSS -> 0xFF16206A.toInt()
+        else -> 0xFF2A2D31.toInt()
+    }
+
+    val colorText: Int get() = when (resolvedMode) {
+        ThemeMode.LIGHT -> 0xFF29292B.toInt()
+        ThemeMode.DARK -> 0xFFCCCCCC.toInt()
+        ThemeMode.ABYSS -> 0xFFD6D0EB.toInt()
+        else -> 0xFFCCCCCC.toInt()
+    }
+
     val colorAvatarDefault: Int get() = when (resolvedMode) {
         ThemeMode.LIGHT -> 0xFF8A97A5.toInt()
         ThemeMode.DARK -> 0xFF334155.toInt()

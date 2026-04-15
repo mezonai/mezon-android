@@ -2,6 +2,8 @@ package com.mezon.mobile.util
 
 import android.content.Context
 import com.mezon.mobile.R
+import org.json.JSONArray
+import org.json.JSONObject
 
 private val CONTENT_REGEX = Regex("\"t\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"")
 
@@ -42,6 +44,8 @@ fun parseContentPreview(content: String): String {
     }
 }
 
+const val MENTION_HERE_USER_ID = "1775731111020111321"
+
 fun buildTextContent(text: String): String {
     val escaped = text
         .replace("\\", "\\\\")
@@ -59,6 +63,28 @@ data class MentionData(
     val startOffset: Int = 0,
     val endOffset: Int = 0
 )
+
+fun mergePendingMentionsIntoContent(baseContent: String, mentions: List<MentionData>?): String {
+    if (mentions.isNullOrEmpty()) return baseContent
+    if (baseContent.contains("\"mentions\"")) return baseContent
+    return try {
+        val arr = JSONArray()
+        for (m in mentions) {
+            val item = JSONObject()
+            item.put("s", m.startOffset)
+            item.put("e", m.endOffset)
+            if (m.userId.isNotBlank()) item.put("user_id", m.userId)
+            if (m.roleId.isNotBlank()) item.put("role_id", m.roleId)
+            if (m.display.isNotBlank()) item.put("username", m.display)
+            arr.put(item)
+        }
+        val lastBrace = baseContent.lastIndexOf('}')
+        if (lastBrace < 0) return baseContent
+        baseContent.substring(0, lastBrace) + ",\"mentions\":" + arr.toString() + "}"
+    } catch (_: Exception) {
+        baseContent
+    }
+}
 
 fun buildTextContentWithMentions(text: String, mentions: List<MentionData>): String {
     val escaped = text

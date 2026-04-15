@@ -7,8 +7,8 @@ import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.Drawable
 import android.view.Gravity
-import android.view.View
 import android.widget.FrameLayout
+import com.mezon.mobile.core.BaseCell
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.ui.cells.MezonIcon
@@ -18,7 +18,7 @@ private val TEXT_LEFT = LayoutHelper.dp(12f)
 private val CHEVRON_SIZE = LayoutHelper.dp(16f)
 private val CHEVRON_RIGHT = LayoutHelper.dp(12f)
 
-class CollapsibleHeaderCell(context: Context, private val themeColors: ThemeColors) : View(context) {
+class CollapsibleHeaderCell(context: Context, private val themeColors: ThemeColors) : BaseCell(context) {
 
     var title: String = ""
         private set

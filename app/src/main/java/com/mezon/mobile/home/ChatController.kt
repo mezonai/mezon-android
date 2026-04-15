@@ -19,6 +19,8 @@ import com.mezon.mobile.network.NetworkMonitor
 import com.mezon.mobile.network.SocketEventDispatcher
 import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.network.channelTypeToStreamMode
+import com.mezon.mobile.network.STREAM_MODE_CHANNEL
+import com.mezon.mobile.network.STREAM_MODE_THREAD
 import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
@@ -27,12 +29,13 @@ import com.mezon.mobile.home.clans.CHANNEL_TYPE_VOICE
 import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.BuildConfig
+import com.mezon.mobile.util.MENTION_HERE_USER_ID
 import com.mezon.mobile.util.MentionData
 import com.mezon.mobile.util.buildTextContent
-import com.mezon.mobile.util.buildTextContentWithMentions
 import com.mezon.mobile.util.EmojiMarker
 import com.mezon.mobile.util.MarkdownMarker
 import com.mezon.mobile.util.buildTextContentWithEmojis
+import com.mezon.mobile.util.mergePendingMentionsIntoContent
 import com.mezon.mezon.api.MessageAttachment
 import com.mezon.mezon.api.messageAttachment
 import com.mezon.mezon.api.messageMention
@@ -43,6 +46,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -70,6 +74,7 @@ class ChatController @Inject constructor(
     private val channelController: dagger.Lazy<com.mezon.mobile.home.clans.ChannelController>,
     private val userController: dagger.Lazy<UserController>,
     private val anonymousController: dagger.Lazy<AnonymousController>,
+    private val userClanController: dagger.Lazy<UserClanController>,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     @ApplicationScope private val appScope: CoroutineScope
 ) {
@@ -80,6 +85,22 @@ class ChatController @Inject constructor(
 
     private fun isAnonymousSend(clanId: Long): Boolean =
         clanId != 0L && anonymousController.get().isAnonymous(clanId)
+
+    private fun optimisticSenderPresentation(uc: UserController, clanId: Long, channelType: Int, anon: Boolean): Pair<String, String> {
+        if (anon) return Pair("Anonymous", "")
+        val mode = channelTypeToStreamMode(channelType)
+        val useClanPersona = clanId != 0L && (mode == STREAM_MODE_CHANNEL || mode == STREAM_MODE_THREAD)
+        val fallbackName = uc.displayName.ifBlank { uc.username }
+        if (!useClanPersona) return Pair(fallbackName, uc.avatarUrl)
+        val myId = uc.userId
+        val member = userClanController.get().getClanMembers(clanId).firstOrNull { it.userId == myId }
+        if (member != null) {
+            val name = member.clanNick.ifBlank { member.displayName.ifBlank { member.username } }
+            val avatar = member.clanAvatar.ifBlank { member.avatarUrl }
+            return Pair(name, avatar)
+        }
+        return Pair(fallbackName, uc.avatarUrl)
+    }
 
     private val ANONYMOUS_USER_ID = BuildConfig.MEZON_ANONYMOUS_USER_ID.toLongOrNull() ?: 0L  // channelId → newest messageId
 
@@ -162,22 +183,25 @@ class ChatController @Inject constructor(
             try {
                 val cacheKey = apiCacheKey("fetchMessages", clanId, channelId)
                 if (forceRefresh) cacheTracker.invalidate(cacheKey)
+                val isOnlineNow = networkMonitor.isOnline.value
 
-                val fromDb = messageDao.getLatestByChannel(channelId, PAGE_SIZE)
-                if (fromDb.isNotEmpty()) {
-                    Log.d(TAG, "Loaded ${fromDb.size} cached messages for channel $channelId")
-                    notificationCenter.postNotificationOnMainThread(
-                        NotificationCenter.messagesDidLoad, channelId, ArrayList(fromDb), true, false, true
-                    )
-                }
-
-                if (!networkMonitor.isOnline.value) {
-                    Log.d(TAG, "Offline — showing cached messages for channel $channelId")
+                if (!isOnlineNow) {
+                    val fromDb = messageDao.getLatestByChannel(channelId, PAGE_SIZE)
+                    if (fromDb.isNotEmpty()) {
+                        notificationCenter.postNotificationOnMainThread(
+                            NotificationCenter.messagesDidLoad, channelId, ArrayList(fromDb), true, false, true
+                        )
+                    }
                     return@launch
                 }
 
-                if (fromDb.isNotEmpty() && cacheTracker.shouldCall(cacheKey) == ApiCacheTracker.ShouldCall.SKIP) {
-                    Log.d(TAG, "Cache valid for channel $channelId, skipping API")
+                if (!forceRefresh && cacheTracker.shouldCall(cacheKey) == ApiCacheTracker.ShouldCall.SKIP) {
+                    val fromDb = messageDao.getLatestByChannel(channelId, PAGE_SIZE)
+                    if (fromDb.isNotEmpty()) {
+                        notificationCenter.postNotificationOnMainThread(
+                            NotificationCenter.messagesDidLoad, channelId, ArrayList(fromDb), true, false, true
+                        )
+                    }
                     return@launch
                 }
 
@@ -194,25 +218,28 @@ class ChatController @Inject constructor(
                         .filter { it.isRenderable }
                         .sortedBy { it.id }
 
-                    messageDao.upsertAll(messages)
-                    messageDao.trimToLatest(channelId, PAGE_SIZE * 4)
                     synchronized(this@ChatController) { initialFetchDone.add(channelId) }
                     val serverLastSentId = if (response.hasLastSentMessage()) response.lastSentMessage.id else 0L
                     updateLastMessageByChannel(channelId, messages, serverLastSentId)
-                    Log.d(TAG, "loadMessages hasMoreTop=$hasMoreTop firstMessageReached=$firstMessageReached size=${response.messagesList.size} hasLastSentMessage=${response.hasLastSentMessage()} serverLastSentId=$serverLastSentId")
-                    // arg[5] = serverLastSeenId — embedded inline so ChatFragment reads it
-                    // BEFORE insertUnreadDividerIfNeeded (fixes race condition)
                     val serverLastSeenId = if (response.hasLastSeenMessage()) response.lastSeenMessage.id else 0L
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.messagesDidLoad, channelId, ArrayList(messages), hasMoreTop, false, false, serverLastSeenId
                     )
                     cacheTracker.markCalled(cacheKey)
+                    launch { messageDao.upsertAll(messages); messageDao.trimToLatest(channelId, PAGE_SIZE * 4) }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "loadMessages failed for channel $channelId", e)
-                notificationCenter.postNotificationOnMainThread(
-                    NotificationCenter.messagesLoadError, channelId, e.message ?: "Failed to load"
-                )
+                val fromDb = messageDao.getLatestByChannel(channelId, PAGE_SIZE)
+                if (fromDb.isNotEmpty()) {
+                    notificationCenter.postNotificationOnMainThread(
+                        NotificationCenter.messagesDidLoad, channelId, ArrayList(fromDb), true, false, true
+                    )
+                } else {
+                    notificationCenter.postNotificationOnMainThread(
+                        NotificationCenter.messagesLoadError, channelId, e.message ?: "Failed to load"
+                    )
+                }
             }
         }
     }
@@ -420,12 +447,11 @@ class ChatController @Inject constructor(
     ) {
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
-        val hasExtras = !emojiMarkers.isNullOrEmpty() || !mentions.isNullOrEmpty() || !markdownMarkers.isNullOrEmpty()
-        val content = if (!hasExtras) buildTextContent(text)
-            else buildTextContentWithEmojis(text, mentions, emojiMarkers, markdownMarkers)
+        val hasContentExtras = !emojiMarkers.isNullOrEmpty() || !markdownMarkers.isNullOrEmpty()
+        val content = if (!hasContentExtras) buildTextContent(text)
+            else buildTextContentWithEmojis(text, null, emojiMarkers, markdownMarkers)
         val mentionEveryone = mentions?.any { it.userId == ID_MENTION_HERE } == true
-        val protoMentions = mentions?.mapNotNull { m ->
-            if (m.userId == ID_MENTION_HERE) return@mapNotNull null
+        val protoMentions = mentions?.map { m ->
             messageMention {
                 if (m.userId.isNotBlank()) userId = m.userId.toLongOrNull() ?: 0L
                 if (m.roleId.isNotBlank()) roleId = m.roleId.toLongOrNull() ?: 0L
@@ -438,13 +464,17 @@ class ChatController @Inject constructor(
         val tempId = generateTempId()
         val uc = userController.get()
         val anon = isAnonymousSend(clanId)
-        val optimisticContent = mergeRefsIntoOptimisticContent(content, references)
+        val (optName, optAvatar) = optimisticSenderPresentation(uc, clanId, channelType, anon)
+        val optimisticContent = mergePendingMentionsIntoContent(
+            mergeRefsIntoOptimisticContent(content, references),
+            mentions
+        )
         val optimistic = MessageEntity(
             id = tempId,
             channelId = channelId,
             senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
-            senderName = if (anon) "Anonymous" else uc.displayName.ifBlank { uc.username },
-            senderAvatar = if (anon) "" else uc.avatarUrl,
+            senderName = optName,
+            senderAvatar = optAvatar,
             content = optimisticContent,
             timestampSeconds = System.currentTimeMillis() / 1000,
             code = MessageEntity.CODE_CHAT,
@@ -507,6 +537,7 @@ class ChatController @Inject constructor(
         val tempId = generateTempId()
         val uc = userController.get()
         val anon = isAnonymousSend(clanId)
+        val (optName, optAvatar) = optimisticSenderPresentation(uc, clanId, channelType, anon)
         val msgType = when {
             filetype.startsWith("image/gif") || filetype.endsWith("gif") -> MessageEntity.TYPE_GIF
             filetype.startsWith("image/") -> MessageEntity.TYPE_PHOTO
@@ -517,8 +548,8 @@ class ChatController @Inject constructor(
             id = tempId,
             channelId = channelId,
             senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
-            senderName = if (anon) "Anonymous" else uc.displayName.ifBlank { uc.username },
-            senderAvatar = if (anon) "" else uc.avatarUrl,
+            senderName = optName,
+            senderAvatar = optAvatar,
             content = content,
             timestampSeconds = System.currentTimeMillis() / 1000,
             code = MessageEntity.CODE_CHAT,
@@ -579,12 +610,13 @@ class ChatController @Inject constructor(
         val tempId = generateTempId()
         val uc = userController.get()
         val anon = isAnonymousSend(clanId)
+        val (optName, optAvatar) = optimisticSenderPresentation(uc, clanId, channelType, anon)
         val optimistic = MessageEntity(
             id = tempId,
             channelId = channelId,
             senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
-            senderName = if (anon) "Anonymous" else uc.displayName.ifBlank { uc.username },
-            senderAvatar = if (anon) "" else uc.avatarUrl,
+            senderName = optName,
+            senderAvatar = optAvatar,
             content = content,
             timestampSeconds = System.currentTimeMillis() / 1000,
             code = MessageEntity.CODE_LOCATION,
@@ -638,12 +670,13 @@ class ChatController @Inject constructor(
         val tempId = generateTempId()
         val uc = userController.get()
         val anon = isAnonymousSend(clanId)
+        val (optName, optAvatar) = optimisticSenderPresentation(uc, clanId, channelType, anon)
         val optimistic = MessageEntity(
             id = tempId,
             channelId = channelId,
             senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
-            senderName = if (anon) "Anonymous" else uc.displayName.ifBlank { uc.username },
-            senderAvatar = if (anon) "" else uc.avatarUrl,
+            senderName = optName,
+            senderAvatar = optAvatar,
             content = content,
             timestampSeconds = System.currentTimeMillis() / 1000,
             code = MessageEntity.CODE_MESSAGE_BUZZ,
@@ -690,7 +723,7 @@ class ChatController @Inject constructor(
     }
 
     companion object {
-        const val ID_MENTION_HERE = "here"
+        const val ID_MENTION_HERE = MENTION_HERE_USER_ID
         private const val SEND_MAX_RETRIES = 2
         private const val SEND_RETRY_DELAY_MS = 500L
         private const val SHARE_MAX_RETRIES = 5
@@ -739,16 +772,31 @@ class ChatController @Inject constructor(
         text: String,
         attachments: List<AttachmentPickerItem>,
         contentResolver: android.content.ContentResolver,
-        references: List<com.mezon.mezon.api.MessageRef>? = null
+        references: List<com.mezon.mezon.api.MessageRef>? = null,
+        mentions: List<MentionData>? = null
     ) {
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
-        val baseContent = if (text.isNotBlank()) buildTextContent(text) else "{\"t\":\"\"}"
-        val content = mergeRefsIntoOptimisticContent(baseContent, references)
+        val wireBase = if (text.isNotBlank()) buildTextContent(text) else "{\"t\":\"\"}"
+        val optimisticContent = mergePendingMentionsIntoContent(
+            mergeRefsIntoOptimisticContent(wireBase, references),
+            mentions
+        )
+        val mentionEveryone = mentions?.any { it.userId == ID_MENTION_HERE } == true
+        val protoMentions = mentions?.map { m ->
+            messageMention {
+                if (m.userId.isNotBlank()) userId = m.userId.toLongOrNull() ?: 0L
+                if (m.roleId.isNotBlank()) roleId = m.roleId.toLongOrNull() ?: 0L
+                if (m.display.isNotBlank()) username = m.display
+                s = m.startOffset
+                e = m.endOffset
+            }
+        }
 
         val tempId = generateTempId()
         val uc = userController.get()
         val anon = isAnonymousSend(clanId)
+        val (optName, optAvatar) = optimisticSenderPresentation(uc, clanId, channelType, anon)
         val firstItem = attachments.firstOrNull()
         val extraJson = if (attachments.size > 1) {
             val arr = org.json.JSONArray()
@@ -771,9 +819,9 @@ class ChatController @Inject constructor(
             id = tempId,
             channelId = channelId,
             senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
-            senderName = if (anon) "Anonymous" else uc.displayName.ifBlank { uc.username },
-            senderAvatar = if (anon) "" else uc.avatarUrl,
-            content = content,
+            senderName = optName,
+            senderAvatar = optAvatar,
+            content = optimisticContent,
             timestampSeconds = System.currentTimeMillis() / 1000,
             code = MessageEntity.CODE_CHAT,
             isMe = true,
@@ -839,9 +887,11 @@ class ChatController @Inject constructor(
                             this.channelId = channelId
                             this.mode = mode
                             this.isPublic = isPublic
-                            this.content = content
+                            this.content = wireBase
                             this.attachments.addAll(uploadedAttachments)
+                            protoMentions?.let { this.mentions.addAll(it) }
                             references?.let { this.references.addAll(it) }
+                            this.mentionEveryone = mentionEveryone
                             if (anon) this.anonymousMessage = true
                         }
                         val ack = api.sendChannelMessage(session.apiUrl, session.token, request)
@@ -879,6 +929,7 @@ class ChatController @Inject constructor(
         val tempId = generateTempId()
         val uc = userController.get()
         val anon = isAnonymousSend(clanId)
+        val (optName, optAvatar) = optimisticSenderPresentation(uc, clanId, channelType, anon)
         val firstItem = attachments.firstOrNull()
         val extraJson = if (attachments.size > 1) {
             val arr = org.json.JSONArray()
@@ -902,8 +953,8 @@ class ChatController @Inject constructor(
             id = tempId,
             channelId = channelId,
             senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
-            senderName = if (anon) "Anonymous" else uc.displayName.ifBlank { uc.username },
-            senderAvatar = if (anon) "" else uc.avatarUrl,
+            senderName = optName,
+            senderAvatar = optAvatar,
             content = baseContent,
             timestampSeconds = System.currentTimeMillis() / 1000,
             code = MessageEntity.CODE_CHAT,
@@ -1181,6 +1232,9 @@ class ChatController @Inject constructor(
     ) {
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
+        val uc = userController.get()
+        val anon = isAnonymousSend(clanId)
+        val (reactionSenderName, _) = optimisticSenderPresentation(uc, clanId, channelType, anon)
         appScope.launch {
             try {
                 mezonSocket.writeMessageReaction(
@@ -1194,7 +1248,8 @@ class ChatController @Inject constructor(
                     emoji = emoji,
                     count = count,
                     messageSenderId = messageSenderId,
-                    actionDelete = actionDelete
+                    actionDelete = actionDelete,
+                    senderName = reactionSenderName
                 )
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to send reaction", e)

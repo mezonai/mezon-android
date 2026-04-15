@@ -35,6 +35,7 @@ class MainTabsActivity : ViewPagerActivity() {
     @Suppress("unused")
     private lateinit var accountController: AccountController
     @Suppress("unused")
+    private lateinit var voiceController: com.mezon.mobile.home.voice.VoiceController
     private lateinit var anonymousController: AnonymousController
     @Suppress("unused")
     private lateinit var pinMessageController: PinMessageController
@@ -81,6 +82,7 @@ class MainTabsActivity : ViewPagerActivity() {
         connectionController = entryPoint.connectionController()
         messagesController = entryPoint.messagesController()
         accountController = entryPoint.accountController()
+        voiceController = entryPoint.voiceController()
         anonymousController = entryPoint.anonymousController()
         pinMessageController = entryPoint.pinMessageController()
         entryPoint.notificationStore()

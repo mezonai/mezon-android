@@ -44,23 +44,23 @@ class NotificationObserver @Inject constructor(
             val senderName = msg.displayName.ifBlank { msg.username }
             val isDm = msg.mode == STREAM_MODE_DM || msg.mode == STREAM_MODE_GROUP
 
-            if (isDm) {
-                notificationHelper.showDmNotification(
-                    title = senderName,
-                    body = body,
-                    dmChannelId = msg.channelId
-                )
-            } else {
-                val channelLabel = msg.channelLabel.ifBlank { "Channel" }
-                notificationHelper.showMessageNotification(
-                    title = "$senderName · $channelLabel",
-                    body = body,
-                    channelId = msg.channelId,
-                    clanId = msg.clanId,
-                    channelName = channelLabel,
-                    channelType = streamModeToChannelType(msg.mode)
-                )
-            }
+            // if (isDm) {
+            //     notificationHelper.showDmNotification(
+            //         title = senderName,
+            //         body = body,
+            //         dmChannelId = msg.channelId
+            //     )
+            // } else {
+            //     val channelLabel = msg.channelLabel.ifBlank { "Channel" }
+            //     notificationHelper.showMessageNotification(
+            //         title = "$senderName · $channelLabel",
+            //         body = body,
+            //         channelId = msg.channelId,
+            //         clanId = msg.clanId,
+            //         channelName = channelLabel,
+            //         channelType = streamModeToChannelType(msg.mode)
+            //     )
+            // }
         }
     }
 }

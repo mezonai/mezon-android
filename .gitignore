@@ -1,9 +1,3 @@
-# Built application files
-**/build/
-*.apk
-*.aab
-*.ap_
-*.dex
 
 # Files for the ART/Dalvik VM
 *.odex
@@ -21,8 +15,8 @@ out/
 gradle-app.setting
 
 # Local configuration (contains machine-specific paths)
-local.properties
-gradle.properties
+# local.properties
+# gradle.properties
 
 # Android Studio
 /.idea/workspace.xml
@@ -49,7 +43,7 @@ captures/
 ._*
 
 # Firebase / Secrets — contains API keys, project IDs
-app/google-services.json
+# app/google-services.json
 
 # Signing keys
 *.jks
@@ -73,3 +67,5 @@ core-proto/src/main/java/
 .env.*
 secrets/
 credentials/
+
+.gitnexus

@@ -15,13 +15,6 @@ import com.mezon.mobile.util.convertTimestampToTimeAgo
 
 class NotificationCell(context: Context, private val theme: ThemeColors) : BaseCell(context) {
 
-    init {
-        isClickable = true
-        val outValue = android.util.TypedValue()
-        context.theme.resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)
-        setBackgroundResource(outValue.resourceId)
-    }
-
     var entity: NotificationEntity? = null
         private set
 

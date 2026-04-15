@@ -8,9 +8,11 @@ import com.mezon.mobile.home.MemberResolver
 import com.mezon.mobile.home.PinMessageController
 import com.mezon.mobile.home.chat.EmojiController
 import com.mezon.mobile.home.DialogsController
+import com.mezon.mobile.home.voice.VoiceController
 import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.chat.MediaController
 import com.mezon.mobile.home.MessagesController
+import com.mezon.mobile.home.clans.ChannelCategoryExpandStore
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.ClansController
 import com.mezon.mobile.home.notifications.NotificationStore
@@ -33,6 +35,7 @@ interface FragmentEntryPoint {
     fun chatController(): ChatController
     fun clansController(): ClansController
     fun channelController(): ChannelController
+    fun channelCategoryExpandStore(): ChannelCategoryExpandStore
     fun connectionController(): ConnectionController
     fun dialogsController(): DialogsController
     fun messagesController(): MessagesController
@@ -45,6 +48,7 @@ interface FragmentEntryPoint {
     fun searchController(): SearchController
     fun userClanController(): UserClanController
     fun emojiController(): EmojiController
+    fun voiceController(): VoiceController
     fun anonymousController(): AnonymousController
     fun memberResolver(): MemberResolver
     fun pinMessageController(): PinMessageController
