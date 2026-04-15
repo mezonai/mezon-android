@@ -369,4 +369,7 @@
     <string name="search_section_voice_channels">Kênh thoại</string>
     <string name="search_section_streaming_channels">Kênh phát trực tuyến</string>
     <string name="search_join_channel">Tham gia</string>
+
+    <string name="voice_room_agent_request_failed">Không cập nhật được trợ lý thoại.</string>
+    <string name="voice_room_agent_server_error">Lỗi máy chủ khi cập nhật trợ lý thoại. Vui lòng thử lại sau.</string>
 </resources>

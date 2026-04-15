@@ -10,6 +10,7 @@ import com.mezon.mezon.api.MessageRefList
 import org.json.JSONArray
 import org.json.JSONObject
 import android.util.Log
+import com.mezon.mobile.util.MENTION_HERE_USER_ID
 
 data class AttachmentInfo(
     val url: String,
@@ -177,6 +178,7 @@ data class MessageEntity(
                 val item = mentions.getJSONObject(i)
                 if (item.optString("user_id") == userId) return true
                 if (item.optString("user_id") == "here") return true
+                if (item.optString("user_id") == MENTION_HERE_USER_ID) return true
             }
             false
         } catch (_: Exception) { false }
@@ -373,7 +375,6 @@ private fun mergeReferencesIntoContent(content: String, referencesBytes: com.goo
             item.put("mesages_sender_avatar", ref.messageSenderAvatar)
             item.put("message_sender_clan_nick", ref.messageSenderClanNick)
             item.put("message_sender_display_name", ref.messageSenderDisplayName)
-            Log.d("ReplyAvatar", "mergeRef: senderId=${ref.messageSenderId} name=${ref.messageSenderDisplayName} avatar=[${ref.messageSenderAvatar}]")
             item.put("content", ref.content)
             item.put("has_attachment", ref.hasAttachment)
             arr.put(item)

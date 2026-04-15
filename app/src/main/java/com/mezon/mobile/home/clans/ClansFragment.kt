@@ -55,6 +55,7 @@ class ClansFragment : BaseFragment() {
     private lateinit var accountController: AccountController
     private lateinit var userClanController: UserClanController
     private lateinit var voiceController: VoiceController
+    private lateinit var channelCategoryExpandStore: ChannelCategoryExpandStore
 
     var onOpenChat: ((channelId: Long, channelName: String, clanId: Long, channelType: Int) -> Unit)? = null
     var onSwitchToMessages: (() -> Unit)? = null
@@ -83,6 +84,7 @@ class ClansFragment : BaseFragment() {
         accountController = entryPoint.accountController()
         userClanController = entryPoint.userClanController()
         voiceController = entryPoint.voiceController()
+        channelCategoryExpandStore = entryPoint.channelCategoryExpandStore()
     }
 
     override fun onFragmentCreate(): Boolean {
@@ -195,7 +197,7 @@ class ClansFragment : BaseFragment() {
 
         val clanHeader = buildClanHeader(context)
 
-        channelListView = ChannelListView(context, themeColors).apply {
+        channelListView = ChannelListView(context, themeColors, channelCategoryExpandStore).apply {
             onChannelClick = { channel -> onChannelSelected(channel) }
         }
 
@@ -549,7 +551,7 @@ class ClansFragment : BaseFragment() {
     private fun updateChannelList() {
         val clanId = clansController.selectedClanId.value
         val sections = channelController.getChannelSections(clanId)
-        channelListView.bind(sections)
+        channelListView.bind(clanId, sections)
         voiceController.fetchVoiceChannelMembers(clanId)
         updateVoiceMembers(clanId)
     }
@@ -586,7 +588,6 @@ class ClansFragment : BaseFragment() {
     private fun onClanSelected(clan: ClanEntity) {
         val prevId = clansController.selectedClanId.value
         if (clan.clanId == prevId) return
-        channelListView.resetExpansion()
         clansController.selectClan(clan.clanId)
         updateClanHeader(clan)
 

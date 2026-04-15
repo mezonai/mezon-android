@@ -28,7 +28,8 @@ private const val DIFF_BG_THRESHOLD = 50
 
 class ChannelListView(
     context: Context,
-    private val themeColors: ThemeColors
+    private val themeColors: ThemeColors,
+    private val expandStore: ChannelCategoryExpandStore
 ) : LinearLayout(context) {
 
     var onChannelClick: ((channel: ClanChannelEntity) -> Unit)? = null
@@ -40,6 +41,7 @@ class ChannelListView(
 
     private val expandedCategories = mutableSetOf<Long>()
     private var allExpanded = true
+    private var boundClanId: Long = 0L
     private var currentSections: List<ChannelSection> = emptyList()
 
     private var voiceMembersByChannel = HashMap<Long, List<VoiceMemberDisplay>>()
@@ -90,7 +92,11 @@ class ChannelListView(
         addView(recyclerView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
     }
 
-    fun bind(sections: List<ChannelSection>) {
+    fun bind(clanId: Long, sections: List<ChannelSection>) {
+        if (clanId != boundClanId) {
+            boundClanId = clanId
+            applyExpandState(expandStore.load(clanId), sections)
+        }
         val prevCategoryIds = currentSections.mapNotNull { if (it.categoryId != FAVORITE_CATEGORY_ID) it.categoryId else null }.toSet()
         val newCategoryIds = sections.mapNotNull { if (it.categoryId != FAVORITE_CATEGORY_ID) it.categoryId else null }.toSet()
         val isClanSwitch = prevCategoryIds.isNotEmpty() && prevCategoryIds != newCategoryIds
@@ -106,6 +112,7 @@ class ChannelListView(
 
     fun clear() {
         currentSections = emptyList()
+        boundClanId = 0L
         allExpanded = true
         expandedCategories.clear()
         adapter.swapRows(emptyList())
@@ -114,6 +121,22 @@ class ChannelListView(
     fun resetExpansion() {
         allExpanded = true
         expandedCategories.clear()
+        persistExpansion()
+    }
+
+    private fun applyExpandState(state: CategoryExpandState, sections: List<ChannelSection>) {
+        val valid = sections.map { it.categoryId }.toSet()
+        allExpanded = state.allExpanded
+        expandedCategories.clear()
+        if (!allExpanded) {
+            expandedCategories.addAll(state.expandedCategoryIds.filter { it in valid })
+        }
+    }
+
+    private fun persistExpansion() {
+        if (boundClanId != 0L) {
+            expandStore.save(boundClanId, allExpanded, expandedCategories)
+        }
     }
 
     fun invalidateTheme() {
@@ -164,9 +187,7 @@ class ChannelListView(
                     if (ch.isThread) {
                         val isFirst = ch.parentId != lastParentId
                         lastParentId = ch.parentId
-                        if (ch.active == 1 || ch.hasUnread || ch.unreadCount > 0 || ch.channelId == activeChannelId) {
-                            visibleThreads.add(Triple(ch, isFirst, ch.channelId == activeChannelId))
-                        }
+                        visibleThreads.add(Triple(ch, isFirst, ch.channelId == activeChannelId))
                     } else {
                         if (visibleThreads.isNotEmpty()) {
                             for ((idx, t) in visibleThreads.withIndex()) {
@@ -218,6 +239,7 @@ class ChannelListView(
         }
         if (categoryId in expandedCategories) expandedCategories.remove(categoryId)
         else expandedCategories.add(categoryId)
+        persistExpansion()
         adapter.submitRows(buildRows(currentSections))
     }
 

@@ -3,6 +3,7 @@ package com.mezon.mobile.home.voice
 import android.app.Activity
 import android.media.AudioAttributes
 import android.media.MediaPlayer
+import android.util.Log
 import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
@@ -27,6 +28,7 @@ class VoiceReactionHandler(
     private val getRoomScope: () -> CoroutineScope?
 ) {
     companion object {
+        private const val TAG = "VoiceReactionHandler"
         private const val RAISE_UP_PREFIX = "raising-up:"
         private const val RAISE_DOWN_PREFIX = "raising-down:"
         private const val DEFAULT_BADGE_DURATION_MS = 3000L
@@ -64,7 +66,10 @@ class VoiceReactionHandler(
 
     fun playSoundReaction(soundValue: String) {
         val source = normalizeSoundSource(soundValue)
-        if (source.isBlank()) return
+        if (source.isBlank()) {
+            Log.w(TAG, "playSoundReaction blank source raw=${soundValue.take(80)}")
+            return
+        }
         try {
             MediaPlayer().apply {
                 setAudioAttributes(
@@ -82,7 +87,8 @@ class VoiceReactionHandler(
                 setDataSource(source)
                 prepareAsync()
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w(TAG, "playSoundReaction failed src=${source.take(120)}", e)
         }
     }
 

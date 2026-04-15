@@ -758,9 +758,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             h += REACTION_TOP_PAD + reactionRowHeight
         }
 
-        // time is drawn inline with senderLayout row — no separate height needed
-        // (if isCombined, senderLayout=null and timeLayout=null, so nothing to add)
-
         if (drawError) {
             errorLayout?.let { h += it.height + GAP_V_INNER }
         }
@@ -988,8 +985,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             val avatarMatch = REFERENCE_AVATAR_REGEX.find(content)
             replySenderAvatarUrl = avatarMatch?.groupValues?.getOrNull(1)?.replace("\\/", "/")
 
-            Log.d("ReplyAvatar", "parseReply: name=$replySenderName senderId=$replySenderId avatarUrl=$replySenderAvatarUrl content=${replyContent.take(30)}")
-
             replyAvatarDrawable.setInfo(replySenderId, replySenderName)
             loadReplyAvatar(replySenderAvatarUrl ?: "")
             replySenderName.isNotEmpty() || replyContent.isNotEmpty()
@@ -1129,29 +1124,24 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         replyAvatarCancellable?.cancel()
         replyAvatarCancellable = null
         if (url.isEmpty()) {
-            Log.d("ReplyAvatar", "loadReplyAvatar: url is empty, showing initials")
             replyAvatarDrawable.setPhoto(null)
             replyAvatarDrawable.setDrawableByInfo(true)
             return
         }
         val proxyUrl = createImgproxyUrl(url, REPLY_AVATAR_SIZE * 2, REPLY_AVATAR_SIZE * 2, "fill")
-        Log.d("ReplyAvatar", "loadReplyAvatar: url=$url proxyUrl=$proxyUrl")
         val loader = MezonImageLoader.getInstance(context)
         val cached = loader.getBitmapFromMemory(proxyUrl, REPLY_AVATAR_SIZE, REPLY_AVATAR_SIZE)
         if (cached != null) {
-            Log.d("ReplyAvatar", "loadReplyAvatar: found in memory cache")
             replyAvatarDrawable.setPhoto(cached)
             replyAvatarDrawable.setDrawableByInfo(true)
             return
         }
         replyAvatarDrawable.setDrawableByInfo(true)
         replyAvatarCancellable = loader.load(proxyUrl, REPLY_AVATAR_SIZE, REPLY_AVATAR_SIZE, onSuccess = { bmp ->
-            Log.d("ReplyAvatar", "loadReplyAvatar: loaded successfully ${bmp.width}x${bmp.height}")
             replyAvatarDrawable.setPhoto(bmp)
             replyAvatarDrawable.setDrawableByInfo(true)
             invalidate()
         }, onError = {
-            Log.d("ReplyAvatar", "loadReplyAvatar: load FAILED for url=$url")
             replyAvatarDrawable.setDrawableByInfo(true)
         })
     }
@@ -1614,6 +1604,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private fun drawStickerOnly(canvas: Canvas, msg: MessageEntity) {
         val topPad = if (isCombined) COMBINE_PAD_V else PAD_V
+        val contentLeft = if (isInPinMode) PIN_PAD_H else PAD_H + AVATAR_SIZE + GAP_AVATAR
         var yOff = topPad.toFloat()
 
         if (!isCombined) {
@@ -1622,17 +1613,27 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
 
         if (!isCombined) {
-            senderLayout?.let {
-                val sx = (PAD_H + AVATAR_SIZE + GAP_AVATAR).toFloat()
+            senderLayout?.let { sender ->
                 canvas.save()
-                canvas.translate(sx, yOff)
-                it.draw(canvas)
+                canvas.translate(contentLeft.toFloat(), yOff)
+                sender.draw(canvas)
                 canvas.restore()
-                yOff += it.height + GAP_V_INNER
+
+                timeLayout?.let { time ->
+                    val timeX = (contentLeft + cachedSenderW + LayoutHelper.dp(6)).toFloat()
+                        .coerceAtMost((width - LayoutHelper.dp(4)).toFloat())
+                    val timeY = yOff + sender.height - time.height
+                    canvas.save()
+                    canvas.translate(timeX, timeY)
+                    time.draw(canvas)
+                    canvas.restore()
+                }
+
+                yOff += sender.height + GAP_V_INNER
             }
         }
 
-        val imgX = if (isInPinMode) PIN_PAD_H.toFloat() else (PAD_H + AVATAR_SIZE + GAP_AVATAR).toFloat()
+        val imgX = contentLeft.toFloat()
         photoImage.setRoundRadius(0)
         photoImage.setImageCoords(imgX, yOff, photoWidth.toFloat(), photoHeight.toFloat())
         photoImage.draw(canvas)
@@ -1642,14 +1643,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             shimmerEffect.draw(canvas, imgX, yOff, imgX + photoWidth, yOff + photoHeight, 0f,
                 theme.resolvedMode != com.mezon.mobile.ui.theme.ThemeMode.LIGHT)
             postInvalidateDelayed(32)
-        }
-        yOff += photoHeight + GAP_V_INNER
-
-        timeLayout?.let {
-            canvas.save()
-            canvas.translate(imgX, yOff)
-            it.draw(canvas)
-            canvas.restore()
         }
     }
 

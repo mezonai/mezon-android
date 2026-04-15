@@ -79,7 +79,6 @@ class ChatFragment : BaseFragment() {
         private const val ARG_FORCE_LATEST = "force_latest"
         private const val VIEWPORT_LIMIT = 300
         private const val PAGE_DOWN_SCROLL_THRESHOLD = 2
-        private const val SCROLL_PREFS = "chat_scroll_positions"
         private const val REQUEST_CODE_LOCATION_PERMISSION = 1002
         private const val REQUEST_CODE_PICK_FILE = 1001
         private const val MAX_LENGTH_MESSAGE_BUZZ = 160
@@ -150,7 +149,6 @@ class ChatFragment : BaseFragment() {
     private var forceLatest = false
     private var startLoadFromMessageId = 0L
     private var startLoadFromMessageOffset = Int.MAX_VALUE
-    private var loadingFromOldPosition = false
     private var pausedOnLastMessage = false
     private var needScrollRestore = false
     private var isLoading = false
@@ -242,10 +240,9 @@ class ChatFragment : BaseFragment() {
         clanId = arguments?.getLong(ARG_CLAN_ID) ?: 0L
         channelType = arguments?.getInt(ARG_CHANNEL_TYPE) ?: 0
         forceLatest = arguments?.getBoolean(ARG_FORCE_LATEST) ?: false
-        startLoadFromMessageId = arguments?.getLong(ARG_MESSAGE_ID) ?: 0L
-        if (startLoadFromMessageId != 0L) {
-            needScrollRestore = true
-        }
+        startLoadFromMessageId = 0L
+        startLoadFromMessageOffset = Int.MAX_VALUE
+        needScrollRestore = false
 
         if (clanId == 0L) {
             val dm = dialogsController.getDialog(channelId)
@@ -272,26 +269,6 @@ class ChatFragment : BaseFragment() {
         }
         pinMessageController.loadPinMessages(channelId, clanId)
         Log.d(TAG, "onFragmentCreate: startLoadFromMessageId=$startLoadFromMessageId forceLatest=$forceLatest channelId=$channelId")
-        if (startLoadFromMessageId == 0L && !forceLatest) {
-            val prefs = getParentActivity()?.getSharedPreferences(SCROLL_PREFS, android.content.Context.MODE_PRIVATE)
-            val savedMid = prefs?.getLong("mid_$channelId", 0L) ?: 0L
-            val savedOffset = prefs?.getInt("off_$channelId", 0) ?: 0
-            val savedAtBottom = prefs?.getBoolean("bot_$channelId", true) ?: true
-            Log.d(TAG, "scrollRestore: savedMid=$savedMid savedOffset=$savedOffset savedAtBottom=$savedAtBottom")
-            if (savedAtBottom) {
-                pausedOnLastMessage = true
-            } else if (savedMid != 0L) {
-                loadingFromOldPosition = true
-                needScrollRestore = true
-                startLoadFromMessageOffset = savedOffset
-                startLoadFromMessageId = savedMid
-                Log.d(TAG, "scrollRestore: will loadMessagesAround mid=$savedMid offset=$savedOffset")
-            }
-        }
-        if (hasUnread && startLoadFromMessageId == 0L && !forceLatest) {
-            needScrollRestore = true
-        }
-
         observe(NotificationCenter.messagesDidLoad) { _, _, args ->
             if (args.size < 5 || args[0] != channelId) return@observe
             @Suppress("UNCHECKED_CAST")
@@ -343,7 +320,6 @@ class ChatFragment : BaseFragment() {
                     trimViewportOldest()
                     if (!hasMoreBottom) {
                         isViewingOlder = false
-                        clearSavedScrollPosition()
                     }
                     updatePageDownVisibility()
                     if (newRowsCount > 0 && newUnreadCount > 0) {
@@ -460,7 +436,6 @@ class ChatFragment : BaseFragment() {
                 if (!hasUnread && lastSentMessageId != 0L && lastSeenMessageId != 0L
                     && lastSeenMessageId < lastSentMessageId) {
                     hasUnread = true
-                    needScrollRestore = true
                     if (dividerSeenMessageId == 0L) dividerSeenMessageId = lastSeenMessageId
                     Log.d(TAG, "hasUnread re-evaluated to TRUE: lastSeen=$lastSeenMessageId < lastSent=$lastSentMessageId dividerSeen=$dividerSeenMessageId")
                 }
@@ -477,7 +452,6 @@ class ChatFragment : BaseFragment() {
                 val newestInList = messages.first().id
                 if (newestInList > lastSeenMessageId && messages.any { it.id == lastSeenMessageId }) {
                     hasUnread = true
-                    if (!needScrollRestore && startLoadFromMessageId == 0L) needScrollRestore = true
                 }
             }
 
@@ -547,38 +521,6 @@ class ChatFragment : BaseFragment() {
                     } else if (forceLatest && wasFirstLoad) {
                         forceScrollToBottom()
                         markAsRead()
-                    } else if (startLoadFromMessageId != 0L) {
-                        Log.d(TAG, "scrollDecision: startLoadFromMessageId=$startLoadFromMessageId offset=$startLoadFromMessageOffset")
-                        scrollToMessageWithOffset(startLoadFromMessageId, startLoadFromMessageOffset)
-                        if (loadingFromOldPosition) {
-                            isViewingOlder = true
-                            val newestInList = messages.firstOrNull()?.id ?: 0L
-                            val moreBelow = lastSentMessageId != 0L && newestInList < lastSentMessageId
-                            if (moreBelow) {
-                                hasMoreBottom = true
-                            }
-                            if (hasUnread) applyInitialUnreadCount()
-                        }
-                        updatePageDownVisibility()
-                        startLoadFromMessageId = 0L
-                        startLoadFromMessageOffset = Int.MAX_VALUE
-                        loadingFromOldPosition = false
-                        recyclerView.post { markVisibleAsRead() }
-                    } else if (needScrollRestore && lastSeenMessageId != 0L && hasUnread) {
-                        scrollToFirstUnread()
-                        needScrollRestore = false
-                        recyclerView.post {
-                            if (recyclerView.visibility != View.VISIBLE) {
-                                recyclerView.visibility = View.VISIBLE
-                            }
-                        }
-                        isViewingOlder = true
-                        val newestInList = messages.firstOrNull()?.id ?: 0L
-                        if (lastSentMessageId != 0L && newestInList < lastSentMessageId) {
-                            hasMoreBottom = true
-                        }
-                        applyInitialUnreadCount()
-                        updatePageDownVisibility()
                     } else if (wasFirstLoad) {
                         Log.d(TAG, "scrollDecision: wasFirstLoad→forceScrollToBottom")
                         forceScrollToBottom()
@@ -808,7 +750,7 @@ class ChatFragment : BaseFragment() {
         observe(NotificationCenter.appDidReconnect) { _, _, _ ->
             if (isPaused) return@observe
             Log.d(TAG, "appDidReconnect: reloading messages for channel $channelId")
-            chatController.loadMessages(channelId, clanId)
+            chatController.loadMessages(channelId, clanId, forceRefresh = true)
         }
 
         observe(NotificationCenter.scrollToBottomChat) { _, _, args ->
@@ -858,11 +800,9 @@ class ChatFragment : BaseFragment() {
 
         isLoading = true
         if (forceLatest) {
-            chatController.loadMessages(channelId, clanId)
-        } else if (startLoadFromMessageId != 0L) {
-            chatController.loadMessagesAround(channelId, clanId, startLoadFromMessageId)
+            chatController.loadMessages(channelId, clanId, forceRefresh = true)
         } else {
-            chatController.loadMessages(channelId, clanId)
+            chatController.loadMessages(channelId, clanId, forceRefresh = true)
         }
         return true
     }
@@ -1454,7 +1394,11 @@ class ChatFragment : BaseFragment() {
         if (pendingJumpMessageId != 0L) {
             val jumpId = pendingJumpMessageId
             pendingJumpMessageId = 0L
-            scrollToReplyMessage(jumpId)
+            if (messages.isEmpty() || firstLoad || isLoading) {
+                pendingHighlightMessageId = jumpId
+            } else {
+                scrollToReplyMessage(jumpId)
+            }
             return
         }
 
@@ -1479,11 +1423,7 @@ class ChatFragment : BaseFragment() {
         } else if (!isLoading) {
             isLoading = true
             showLoading()
-            if (startLoadFromMessageId != 0L) {
-                chatController.loadMessagesAround(channelId, clanId, startLoadFromMessageId)
-            } else {
-                chatController.loadMessages(channelId, clanId)
-            }
+            chatController.loadMessages(channelId, clanId, forceRefresh = true)
         } else {
             showLoading()
         }
@@ -1495,7 +1435,6 @@ class ChatFragment : BaseFragment() {
         AndroidUtilities.cancelRunOnUIThread(openKeyboardRunnable)
         AndroidUtilities.cancelRunOnUIThread(showKeyboardFromEmojiRunnable)
         if (::recyclerView.isInitialized) recyclerView.stopScroll()
-        saveScrollPosition()
         if (emojiViewVisible) {
             dismissEmojiSilently()
         }
@@ -1511,65 +1450,6 @@ class ChatFragment : BaseFragment() {
             return false
         }
         return super.onBackPressed()
-    }
-
-    private fun saveScrollPosition() {
-        Log.d(TAG, "saveScrollPosition: called firstLoad=$firstLoad rvInit=${::recyclerView.isInitialized}")
-        if (firstLoad || !::recyclerView.isInitialized) return
-
-        val lm = recyclerView.layoutManager as? LinearLayoutManager ?: return
-        val position = lm.findFirstVisibleItemPosition()
-        Log.d(TAG, "saveScrollPosition: position=$position isViewingOlder=$isViewingOlder hasMoreBottom=$hasMoreBottom")
-        if (position == RecyclerView.NO_POSITION) return
-        val prefs = getParentActivity()?.getSharedPreferences(SCROLL_PREFS, android.content.Context.MODE_PRIVATE)
-            ?: return
-
-        if (position <= PAGE_DOWN_SCROLL_THRESHOLD && !hasMoreBottom) {
-            Log.d(TAG, "saveScrollPosition: atBottom (pos=$position threshold=$PAGE_DOWN_SCROLL_THRESHOLD hasMoreBottom=$hasMoreBottom)")
-            prefs.edit()
-                .putLong("mid_$channelId", 0L)
-                .putInt("off_$channelId", 0)
-                .putBoolean("bot_$channelId", true)
-                .commit()
-            return
-        }
-
-        var messageId = 0L
-        var offset = 0
-        for (i in 0..1) {
-            val holder = recyclerView.findViewHolderForAdapterPosition(position + i) ?: continue
-            val msgId = when (val v = holder.itemView) {
-                is ChatMessageCell -> v.messageEntity?.id
-                is SystemMessageCell -> v.messageEntity?.id
-                else -> null
-            }
-            if (msgId != null && msgId != 0L) {
-                messageId = msgId
-                offset = holder.itemView.bottom - recyclerView.measuredHeight
-                break
-            }
-        }
-
-        if (messageId != 0L) {
-            Log.d(TAG, "saveScrollPosition: mid=$messageId offset=$offset")
-            prefs.edit()
-                .putLong("mid_$channelId", messageId)
-                .putInt("off_$channelId", offset)
-                .putBoolean("bot_$channelId", false)
-                .commit()
-        } else {
-            val fallbackMsg = messages.firstOrNull()
-            if (fallbackMsg != null && (isViewingOlder || hasMoreBottom)) {
-                Log.d(TAG, "saveScrollPosition: fallback mid=${fallbackMsg.id}")
-                prefs.edit()
-                    .putLong("mid_$channelId", fallbackMsg.id)
-                    .putInt("off_$channelId", Int.MAX_VALUE)
-                    .putBoolean("bot_$channelId", false)
-                    .commit()
-            } else {
-                Log.d(TAG, "saveScrollPosition: no messageId found, isViewingOlder=$isViewingOlder hasMoreBottom=$hasMoreBottom msgs=${messages.size}")
-            }
-        }
     }
 
     private fun showEmojiView() {
@@ -1811,7 +1691,6 @@ class ChatFragment : BaseFragment() {
         AndroidUtilities.cancelRunOnUIThread(showKeyboardFromEmojiRunnable)
         notificationCenter.removePostponeNotificationsCallback(postponeNewMessagesCallback)
         notificationCenter.onAnimationFinish(transitionAnimationIndex)
-        saveScrollPosition()
         if (::recyclerView.isInitialized) cancelPendingScroll()
         cancelPendingLoading()
         mainHandler.removeCallbacks(markVisibleRunnable)
@@ -1977,7 +1856,6 @@ class ChatFragment : BaseFragment() {
         pausedOnLastMessage = true
         pageDownButton.show(false)
         pageDownButton.setUnreadCount(0)
-        clearSavedScrollPosition()
         unreadDecoration.clear()
 
         val latestId = lastSentMessageId
@@ -1998,15 +1876,6 @@ class ChatFragment : BaseFragment() {
             Log.d(TAG, "jumpToPresent: cleared list, calling loadMessages forceRefresh=true")
             chatController.loadMessages(channelId, clanId, forceRefresh = true)
         }
-    }
-
-    private fun clearSavedScrollPosition() {
-        getParentActivity()?.getSharedPreferences(SCROLL_PREFS, android.content.Context.MODE_PRIVATE)
-            ?.edit()
-            ?.putLong("mid_$channelId", 0L)
-            ?.putInt("off_$channelId", 0)
-            ?.putBoolean("bot_$channelId", true)
-            ?.commit()
     }
 
     private fun markAsRead() {
@@ -2245,17 +2114,17 @@ class ChatFragment : BaseFragment() {
         val cleanedText = mdResult.cleanedText
         val mdMarkers = mdResult.markers.ifEmpty { null }
 
-        val mentions = if (mentionTrackers.isNotEmpty()) {
-            mentionTrackers.map { m ->
-                MentionData(
-                    userId = m.userId,
-                    roleId = m.roleId,
-                    display = m.display,
-                    startOffset = mdResult.adjustOffset(m.startOffset),
-                    endOffset = mdResult.adjustOffset(m.endOffset)
-                )
-            }
-        } else null
+        val fromTrackers = mentionTrackers.map { m ->
+            MentionData(
+                userId = m.userId,
+                roleId = m.roleId,
+                display = m.display,
+                startOffset = mdResult.adjustOffset(m.startOffset),
+                endOffset = mdResult.adjustOffset(m.endOffset)
+            )
+        }
+        val mergedMentions = mergeAtHereMentionsFromText(cleanedText, fromTrackers)
+        val mentions = mergedMentions.ifEmpty { null }
         Log.d(TAG, "sendMessage channelId=$channelId clanId=$clanId channelType=$channelType isPrivate=$isPrivate textLen=${cleanedText.length} attachments=${pendingAttachments.size} hasReply=${references != null} mdMarkers=${mdMarkers?.size ?: 0}")
 
         if (pendingAttachments.isNotEmpty()) {
@@ -2264,7 +2133,8 @@ class ChatFragment : BaseFragment() {
                 channelId, clanId, channelType, isPrivate, cleanedText,
                 ArrayList(pendingAttachments),
                 ctx.contentResolver,
-                references
+                references,
+                mentions
             )
             clearPendingAttachments()
         } else {
@@ -3164,6 +3034,29 @@ class ChatFragment : BaseFragment() {
         mentionAtPosition = -1
         mentionQueryLength = 0
     }
+
+    private fun mergeAtHereMentionsFromText(cleanedText: String, existing: List<MentionData>): List<MentionData> {
+        val result = existing.toMutableList()
+        if (cleanedText.isEmpty()) return result
+        val atHere = "(?<!\\w)@here(?!\\w)".toRegex()
+        for (match in atHere.findAll(cleanedText)) {
+            val s = match.range.first
+            val e = match.range.last + 1
+            if (result.any { mentionIntervalsOverlap(it.startOffset, it.endOffset, s, e) }) continue
+            result.add(
+                MentionData(
+                    userId = ChatController.ID_MENTION_HERE,
+                    display = "@here",
+                    startOffset = s,
+                    endOffset = e
+                )
+            )
+        }
+        return result
+    }
+
+    private fun mentionIntervalsOverlap(a0: Int, a1: Int, b0: Int, b1: Int): Boolean =
+        a0 < b1 && b0 < a1
 
     private fun onMentionSelected(item: MentionSuggestionItem) {
         val editable = inputField.text ?: return

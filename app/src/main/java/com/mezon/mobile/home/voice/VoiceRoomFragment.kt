@@ -18,6 +18,7 @@ import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.GridLayoutManager
 import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.MainActivity
+import com.mezon.mobile.R
 import com.mezon.mobile.core.AlertDialog
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BaseFragment
@@ -205,6 +206,29 @@ class VoiceRoomFragment : BaseFragment() {
         if (!::headerView.isInitialized) return
         headerView.setAgentActive(voiceController.isAiAgentEnabled(clanId, channelId))
     }
+
+    private fun getAgentToggleFallbackRoomNames(): List<String> {
+        val result = linkedSetOf<String>()
+        val infoRoom = voiceController.currentVoiceInfo?.roomName
+        if (!infoRoom.isNullOrBlank()) {
+            result.add(infoRoom)
+        }
+        val activeRoom = room
+        if (activeRoom != null) {
+            runCatching {
+                val value = activeRoom.javaClass.getMethod("getName").invoke(activeRoom) as? String
+                if (!value.isNullOrBlank()) result.add(value)
+            }
+            runCatching {
+                val roomInfo = activeRoom.javaClass.getMethod("getRoomInfo").invoke(activeRoom)
+                val sid = roomInfo?.javaClass?.getMethod("getSid")?.invoke(roomInfo) as? String
+                if (!sid.isNullOrBlank()) result.add(sid)
+            }
+        }
+        result.add(channelId.toString())
+        return result.toList()
+    }
+
     private fun minimizeToOverlay() {
         getMainActivity()?.minimizeVoiceRoom()
     }
@@ -293,11 +317,17 @@ class VoiceRoomFragment : BaseFragment() {
 
 
         observe(NotificationCenter.voiceAiAgentStateChanged) { _, _, args ->
-            if (fragmentView == null || isPaused) return@observe
+            if (fragmentView == null) return@observe
             val evClan = args.getOrNull(0) as? Long ?: return@observe
             val evCh = args.getOrNull(1) as? Long ?: return@observe
-            if (evClan != clanId || evCh != channelId) return@observe
+            if (evCh != channelId) return@observe
+            if (evClan != clanId) {
+                Log.w(TAG, "voiceAiAgentStateChanged clan mismatch evClan=$evClan localClan=$clanId channelId=$channelId")
+                return@observe
+            }
             if (!::headerView.isInitialized) return@observe
+            val evEnabled = args.getOrNull(2) as? Boolean
+            Log.d(TAG, "voiceAiAgentStateChanged applyUi enabled=$evEnabled clan=$evClan ch=$evCh")
             applyAgentHeaderUi()
         }
 
@@ -319,6 +349,11 @@ class VoiceRoomFragment : BaseFragment() {
         }
 
         return true
+    }
+
+    override fun onResume() {
+        super.onResume()
+        applyAgentHeaderUi()
     }
 
     override fun createView(context: Context): View {
@@ -356,16 +391,30 @@ class VoiceRoomFragment : BaseFragment() {
                 val info = voiceController.currentVoiceInfo
                 if (info == null || info.channelId != channelId) return@agentClick
                 scope.launch {
+                    val before = voiceController.isAiAgentEnabled(clanId, channelId)
+                    val roomCandidates = getAgentToggleFallbackRoomNames()
+                    Log.d(TAG, "agentToggle start enabledBefore=$before clan=$clanId ch=$channelId room=${info.roomName} candidates=$roomCandidates")
                     headerView.setAgentLoading(true)
                     try {
-                        if (voiceController.isAiAgentEnabled(clanId, channelId)) {
-                            voiceController.disconnectAiAgent(channelId, info.roomName)
+                        if (before) {
+                            voiceController.disconnectAiAgent(clanId, channelId, info.roomName, roomCandidates)
                         } else {
-                            voiceController.addAiAgentToChannel(channelId, info.roomName)
+                            voiceController.addAiAgentToChannel(clanId, channelId, info.roomName, roomCandidates)
                         }
                     } catch (e: Exception) {
-                        Log.e(TAG, "Agent toggle failed", e)
-                        Toast.makeText(ctx, "Agent request failed", Toast.LENGTH_SHORT).show()
+                        val serverSide = e is RuntimeException &&
+                            e.message?.contains("failed (5") == true
+                        Log.e(
+                            TAG,
+                            "Agent toggle failed enabledBefore=$before clan=$clanId ch=$channelId serverSide=$serverSide",
+                            e
+                        )
+                        val msg = if (serverSide) {
+                            getString(R.string.voice_room_agent_server_error)
+                        } else {
+                            getString(R.string.voice_room_agent_request_failed)
+                        }
+                        Toast.makeText(ctx, msg, Toast.LENGTH_SHORT).show()
                     } finally {
                         headerView.setAgentLoading(false)
                         applyAgentHeaderUi()
@@ -685,8 +734,14 @@ class VoiceRoomFragment : BaseFragment() {
                     Log.d(TAG, "Event: TrackUnpublished source=${event.publication.source} participant=${event.participant.identity?.value}")
                     scheduleUpdateParticipantList()
                 }
-                is RoomEvent.TrackMuted -> updateMuteState()
-                is RoomEvent.TrackUnmuted -> updateMuteState()
+                is RoomEvent.TrackMuted -> {
+                    updateMuteState()
+                    scheduleUpdateParticipantList()
+                }
+                is RoomEvent.TrackUnmuted -> {
+                    updateMuteState()
+                    scheduleUpdateParticipantList()
+                }
                 is RoomEvent.ActiveSpeakersChanged -> updateSpeakingState(event.speakers)
                 else -> {}
             }
@@ -744,7 +799,7 @@ class VoiceRoomFragment : BaseFragment() {
 
         val screenPub = participant.getTrackPublication(Track.Source.SCREEN_SHARE)
         val screenTrack = screenPub?.track as? VideoTrack
-        if (screenTrack != null) {
+        if (screenTrack != null && !isTrackPublicationMuted(screenPub)) {
             val screenAspectRatio = resolveScreenShareAspectRatio(screenPub, screenTrack)
             target.add(ParticipantInfo(
                 identity = identity,
@@ -761,7 +816,11 @@ class VoiceRoomFragment : BaseFragment() {
         }
 
         val cameraPub = participant.getTrackPublication(Track.Source.CAMERA)
-        val cameraTrack = if (participant.isCameraEnabled) cameraPub?.track as? VideoTrack else null
+        val cameraTrack = if (participant.isCameraEnabled && !isTrackPublicationMuted(cameraPub)) {
+            cameraPub?.track as? VideoTrack
+        } else {
+            null
+        }
         target.add(ParticipantInfo(
             identity = identity,
             name = displayName,
@@ -802,6 +861,16 @@ class VoiceRoomFragment : BaseFragment() {
         }.getOrNull() ?: 0f
         if (width <= 0f || height <= 0f) return 0f
         return width / height
+    }
+
+    private fun isTrackPublicationMuted(publication: Any?): Boolean {
+        if (publication == null) return false
+        return runCatching {
+            val mutedMethod = publication.javaClass.methods.firstOrNull {
+                (it.name == "isMuted" || it.name == "getMuted") && it.parameterCount == 0
+            } ?: return@runCatching false
+            mutedMethod.invoke(publication) as? Boolean ?: false
+        }.getOrDefault(false)
     }
 
     private fun scheduleUpdateParticipantList() {

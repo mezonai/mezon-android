@@ -314,32 +314,88 @@ class VoiceController @Inject constructor(
 
     private fun aiAgentKey(clanId: Long, channelId: Long) = "$clanId:$channelId"
 
-    private fun onAiAgentEnabled(event: AIAgentEnabledEvent) {
-        val c = event.clanId
-        val ch = event.channelId
+    private fun applyAiAgentEnabledState(clanId: Long, channelId: Long, enabled: Boolean, reason: String) {
         synchronized(this) {
-            aiAgentEnabled[aiAgentKey(c, ch)] = event.enabled
+            aiAgentEnabled[aiAgentKey(clanId, channelId)] = enabled
         }
+        Log.d(TAG, "aiAgent enabled=$enabled clanId=$clanId channelId=$channelId $reason")
         notificationCenter.postNotificationOnMainThread(
             NotificationCenter.voiceAiAgentStateChanged,
-            c, ch, event.enabled
+            clanId, channelId, enabled
         )
     }
 
-    suspend fun addAiAgentToChannel(channelId: Long, roomName: String) {
-        sessionManager.withAutoRefresh { session ->
-            withContext(ioDispatcher) {
-                api.addAgentToChannel(session.apiUrl, session.token, channelId, roomName)
-            }
-        }
+    private fun onAiAgentEnabled(event: AIAgentEnabledEvent) {
+        applyAiAgentEnabledState(
+            event.clanId, event.channelId, event.enabled,
+            "socket room=${event.roomName}"
+        )
     }
 
-    suspend fun disconnectAiAgent(channelId: Long, roomName: String) {
-        sessionManager.withAutoRefresh { session ->
-            withContext(ioDispatcher) {
-                api.disconnectAgent(session.apiUrl, session.token, channelId, roomName)
+    suspend fun addAiAgentToChannel(clanId: Long, channelId: Long, roomName: String, fallbackRoomNames: List<String> = emptyList()) {
+        updateAiAgentWithFallback(
+            clanId = clanId,
+            channelId = channelId,
+            primaryRoomName = roomName,
+            fallbackRoomNames = fallbackRoomNames,
+            targetEnabled = true
+        )
+    }
+
+    suspend fun disconnectAiAgent(clanId: Long, channelId: Long, roomName: String, fallbackRoomNames: List<String> = emptyList()) {
+        updateAiAgentWithFallback(
+            clanId = clanId,
+            channelId = channelId,
+            primaryRoomName = roomName,
+            fallbackRoomNames = fallbackRoomNames,
+            targetEnabled = false
+        )
+    }
+
+    private suspend fun updateAiAgentWithFallback(
+        clanId: Long,
+        channelId: Long,
+        primaryRoomName: String,
+        fallbackRoomNames: List<String>,
+        targetEnabled: Boolean
+    ) {
+        val candidates = linkedSetOf<String>()
+        if (primaryRoomName.isNotBlank()) candidates.add(primaryRoomName)
+        for (name in fallbackRoomNames) {
+            if (name.isNotBlank()) candidates.add(name)
+        }
+        candidates.add(channelId.toString())
+        if (candidates.isEmpty()) candidates.add(primaryRoomName)
+
+        var lastError: Throwable? = null
+        for ((index, candidate) in candidates.withIndex()) {
+            try {
+                Log.d(
+                    TAG,
+                    "updateAiAgent try=${index + 1}/${candidates.size} enabled=$targetEnabled clanId=$clanId channelId=$channelId room=$candidate"
+                )
+                sessionManager.withAutoRefresh { session ->
+                    withContext(ioDispatcher) {
+                        if (targetEnabled) {
+                            api.addAgentToChannel(session.apiUrl, session.token, channelId, candidate)
+                        } else {
+                            api.disconnectAgent(session.apiUrl, session.token, channelId, candidate)
+                        }
+                    }
+                }
+                val reason = if (targetEnabled) "rpcAddAgent room=$candidate" else "rpcDisconnectAgent room=$candidate"
+                applyAiAgentEnabledState(clanId, channelId, targetEnabled, reason)
+                return
+            } catch (e: Throwable) {
+                lastError = e
+                Log.w(
+                    TAG,
+                    "updateAiAgent failed enabled=$targetEnabled clanId=$clanId channelId=$channelId room=$candidate",
+                    e
+                )
             }
         }
+        throw RuntimeException("updateAiAgent failed for all room candidates", lastError)
     }
 
     private fun onVoiceReaction(event: VoiceReactionSend) {

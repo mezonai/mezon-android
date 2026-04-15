@@ -474,4 +474,7 @@
     <string name="buzz_dialog_title">Enter your message Buzz!!</string>
     <string name="buzz_dialog_send">Send</string>
     <string name="buzz_default_text">Buzz!!</string>
+
+    <string name="voice_room_agent_request_failed">Could not update the voice assistant.</string>
+    <string name="voice_room_agent_server_error">Server error while updating the voice assistant. Please try again later.</string>
 </resources>
