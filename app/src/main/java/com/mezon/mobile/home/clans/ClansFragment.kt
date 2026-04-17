@@ -147,7 +147,10 @@ class ClansFragment : BaseFragment() {
             if (fragmentView == null || !clansController.clansLoaded) return@observe
             val clanId = args.firstOrNull() as? Long ?: 0L
             updateServerRail()
-            if (clanId != 0L) updateChannelList()
+            if (clanId != 0L) {
+                userClanController.loadClanMembers(clanId)
+                updateChannelList()
+            }
         }
         return true
     }
@@ -603,7 +606,6 @@ class ClansFragment : BaseFragment() {
         }
 
         updateChannelList()
-        userClanController.loadClanMembers(clan.clanId)
     }
 
     private fun onChannelSelected(channel: ClanChannelEntity) {
