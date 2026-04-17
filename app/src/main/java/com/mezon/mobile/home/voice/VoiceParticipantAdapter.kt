@@ -10,6 +10,7 @@ import io.livekit.android.room.track.VideoTrack
 data class ParticipantInfo(
     val identity: String,
     val name: String,
+    val username: String = "",
     val avatarUrl: String? = null,
     val isMuted: Boolean,
     val isSpeaking: Boolean,
@@ -25,6 +26,7 @@ class VoiceParticipantAdapter(
     private val getParticipants: () -> List<ParticipantInfo>,
     private val getRoom: () -> Room?,
     private val onScreenShareClick: (ParticipantInfo) -> Unit,
+    private val onParticipantLongPress: (ParticipantInfo) -> Unit,
     private val itemKeyProvider: (ParticipantInfo) -> String,
     private val isCompactMode: () -> Boolean
 ) : RecyclerView.Adapter<VoiceParticipantAdapter.ParticipantVH>() {
@@ -72,6 +74,13 @@ class VoiceParticipantAdapter(
             if (participant.isScreenShare && participant.videoTrack != null) {
                 onScreenShareClick(participant)
             }
+        }
+        holder.cell.setOnLongClickListener {
+            if (participant.isScreenShare) {
+                return@setOnLongClickListener false
+            }
+            onParticipantLongPress(participant)
+            true
         }
     }
 

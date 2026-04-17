@@ -26,9 +26,13 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.di.FragmentEntryPoint
+import com.mezon.mobile.home.MemberResolver
 import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.chat.EmojiController
+import com.mezon.mobile.home.chat.UserProfileBottomSheet
 import com.mezon.mobile.home.clans.CHANNEL_TYPE_VOICE
+import com.mezon.mobile.home.clans.ChannelController
+import com.mezon.mobile.home.clans.ClansController
 import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.ui.cells.MezonIcon
 import io.livekit.android.LiveKit
@@ -46,6 +50,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private const val TAG = "VoiceRoomFragment"
 private const val ARG_CHANNEL_ID = "channel_id"
@@ -79,6 +84,9 @@ class VoiceRoomFragment : BaseFragment() {
 
     private lateinit var voiceController: VoiceController
     private lateinit var userClanController: UserClanController
+    private lateinit var clansController: ClansController
+    private lateinit var channelController: ChannelController
+    private lateinit var memberResolver: MemberResolver
     private lateinit var emojiController: EmojiController
     private lateinit var userController: UserController
     private var channelId: Long = 0L
@@ -100,6 +108,7 @@ class VoiceRoomFragment : BaseFragment() {
     private lateinit var morePopup: VoiceMorePopup
     private lateinit var reactionHandler: VoiceReactionHandler
     private var audioManager: VoiceAudioManager? = null
+    private var participantModerationSheet: UserProfileBottomSheet? = null
 
     private val participants = ArrayList<ParticipantInfo>()
     private val reactionStates = HashMap<String, ParticipantCell.ReactionBadgeType>()
@@ -118,7 +127,8 @@ class VoiceRoomFragment : BaseFragment() {
 
     fun enterPipMode() {
         isInPipMode = true
-        clearFocusedShare()
+        Log.d(TAG, "enterPipMode participants=${participants.size}")
+        if (::focusedShareView.isInitialized) focusedShareView.setPipMode(true)
         if (::headerView.isInitialized) headerView.visibility = View.GONE
         if (::controlBar.isInitialized) controlBar.visibility = View.GONE
         if (::morePopup.isInitialized) morePopup.dismiss()
@@ -126,12 +136,18 @@ class VoiceRoomFragment : BaseFragment() {
         reactionOverlay?.visibility = View.GONE
         raiseHandOverlay?.visibility = View.GONE
         if (::participantAdapter.isInitialized) participantAdapter.notifyDataSetChanged()
+        syncFocusedShareForPip()
         applyVoiceLayoutForMode()
     }
 
     fun exitPipMode() {
         isInPipMode = false
-        if (::headerView.isInitialized) headerView.visibility = View.VISIBLE
+        Log.d(TAG, "exitPipMode focusedVisible=${::focusedShareView.isInitialized && focusedShareView.visibility == View.VISIBLE}")
+        if (::focusedShareView.isInitialized) focusedShareView.setPipMode(false)
+        if (::headerView.isInitialized) {
+            val focusedVisible = ::focusedShareView.isInitialized && focusedShareView.visibility == View.VISIBLE
+            headerView.visibility = if (focusedVisible) View.GONE else View.VISIBLE
+        }
         if (::controlBar.isInitialized) controlBar.visibility = View.VISIBLE
         statusBarSpacer?.visibility = View.VISIBLE
         reactionOverlay?.visibility = View.VISIBLE
@@ -160,7 +176,7 @@ class VoiceRoomFragment : BaseFragment() {
                     val id = p.identity?.value ?: ""
                     val resolved = resolveMember(id, p.name?.toString() ?: id)
                     val avatar = effectiveAvatarUrl(resolved, p)
-                    return FocusedContent(track, resolved.displayName, avatar, !p.isMicrophoneEnabled, true, id.toLongOrNull() ?: 0L)
+                    return FocusedContent(track, resolved.displayName, avatar, isParticipantMicMuted(p), true, id.toLongOrNull() ?: 0L)
                 }
             }
         }
@@ -170,7 +186,7 @@ class VoiceRoomFragment : BaseFragment() {
             if (track != null) {
                 val resolved = resolveMember(localId, r.localParticipant.name?.toString() ?: "You")
                 val avatar = effectiveAvatarUrl(resolved, r.localParticipant)
-                return FocusedContent(track, resolved.displayName, avatar, !r.localParticipant.isMicrophoneEnabled, true, localId.toLongOrNull() ?: 0L)
+                return FocusedContent(track, resolved.displayName, avatar, isParticipantMicMuted(r.localParticipant), true, localId.toLongOrNull() ?: 0L)
             }
         }
 
@@ -181,7 +197,7 @@ class VoiceRoomFragment : BaseFragment() {
                     val id = p.identity?.value ?: ""
                     val resolved = resolveMember(id, p.name?.toString() ?: id)
                     val avatar = effectiveAvatarUrl(resolved, p)
-                    return FocusedContent(track, resolved.displayName, avatar, !p.isMicrophoneEnabled, false, id.toLongOrNull() ?: 0L)
+                    return FocusedContent(track, resolved.displayName, avatar, isParticipantMicMuted(p), false, id.toLongOrNull() ?: 0L)
                 }
             }
         }
@@ -191,7 +207,7 @@ class VoiceRoomFragment : BaseFragment() {
             if (track != null) {
                 val resolved = resolveMember(localId, r.localParticipant.name?.toString() ?: "You")
                 val avatar = effectiveAvatarUrl(resolved, r.localParticipant)
-                return FocusedContent(track, resolved.displayName, avatar, !r.localParticipant.isMicrophoneEnabled, false, localId.toLongOrNull() ?: 0L)
+                return FocusedContent(track, resolved.displayName, avatar, isParticipantMicMuted(r.localParticipant), false, localId.toLongOrNull() ?: 0L)
             }
         }
 
@@ -255,6 +271,9 @@ class VoiceRoomFragment : BaseFragment() {
     override fun onInject(entryPoint: FragmentEntryPoint) {
         voiceController = entryPoint.voiceController()
         userClanController = entryPoint.userClanController()
+        clansController = entryPoint.clansController()
+        channelController = entryPoint.channelController()
+        memberResolver = entryPoint.memberResolver()
         emojiController = entryPoint.emojiController()
         userController = entryPoint.userController()
     }
@@ -443,7 +462,7 @@ class VoiceRoomFragment : BaseFragment() {
             val gridManager = GridLayoutManager(context, 2)
             gridManager.spanSizeLookup = object : GridLayoutManager.SpanSizeLookup() {
                 override fun getSpanSize(position: Int): Int {
-                    val total = participants.size
+                    val total = getGridParticipants().size
                     if (total == 1) return 2
                     if (total % 2 != 0 && position == total - 1) return 2
                     return 1
@@ -455,9 +474,10 @@ class VoiceRoomFragment : BaseFragment() {
         }
         participantAdapter = VoiceParticipantAdapter(
             themeColors = themeColors,
-            getParticipants = { participants },
+            getParticipants = { getGridParticipants() },
             getRoom = { room },
             onScreenShareClick = { showFocusedShare(it) },
+            onParticipantLongPress = { openParticipantModerationSheet(it) },
             itemKeyProvider = { participantKey(it) },
             isCompactMode = { isInPipMode }
         )
@@ -495,7 +515,14 @@ class VoiceRoomFragment : BaseFragment() {
 
         focusedShareView = VoiceFocusedShareView(context, themeColors).apply {
             onEmojiClick = { reactionHandler.showEmojiReactionPicker() }
-            onMinimizeClick = { clearFocusedShare() }
+            onMinimizeClick = {
+                if (isInPipMode) {
+                    minimizeToOverlay()
+                } else {
+                    clearFocusedShare()
+                }
+            }
+            setPipMode(isInPipMode)
         }
         root.addView(focusedShareView, LayoutHelper.createFrame(
             LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT,
@@ -748,7 +775,11 @@ class VoiceRoomFragment : BaseFragment() {
         }
     }
 
-    private data class ResolvedMember(val displayName: String, val avatarUrl: String?)
+    private data class ResolvedMember(
+        val displayName: String,
+        val username: String,
+        val avatarUrl: String?
+    )
 
     private fun effectiveAvatarUrl(resolved: ResolvedMember, participant: Participant): String? {
         if (participant.kind == Participant.Kind.AGENT) return VOICE_AGENT_DEFAULT_AVATAR
@@ -768,7 +799,7 @@ class VoiceRoomFragment : BaseFragment() {
                     member.avatarUrl.ifEmpty { null }
                 }
                 Log.d(TAG, "resolveMember: identity=$identity -> clanMember name=$name avatar=${avatar?.take(40)}")
-                return ResolvedMember(name, avatar)
+                return ResolvedMember(name, member.username, avatar)
             }
 
             val user = userClanController.getUserById(userId)
@@ -776,14 +807,14 @@ class VoiceRoomFragment : BaseFragment() {
                 val name = user.displayName.ifBlank { user.username.ifBlank { livekitName } }
                 val avatar = user.avatarUrl.ifEmpty { null }
                 Log.d(TAG, "resolveMember: identity=$identity -> clanUser name=$name avatar=${avatar?.take(40)}")
-                return ResolvedMember(name, avatar)
+                return ResolvedMember(name, user.username, avatar)
             }
         }
 
         Log.d(TAG, "resolveMember: identity=$identity -> NO MATCH, livekit name=$livekitName, " +
             "clanMembers(${clanId})=${userClanController.getClanMembers(clanId).size}, " +
             "users=${userClanController.getUserCount()}")
-        return ResolvedMember(livekitName, null)
+        return ResolvedMember(livekitName, livekitName, null)
     }
 
     private fun addParticipantEntries(
@@ -795,6 +826,7 @@ class VoiceRoomFragment : BaseFragment() {
         val resolved = resolveMember(identity, livekitName)
         val avatarUrl = effectiveAvatarUrl(resolved, participant)
         val displayName = resolved.displayName
+        val username = resolved.username
         val badge = reactionStates[identity] ?: ParticipantCell.ReactionBadgeType.NONE
 
         val screenPub = participant.getTrackPublication(Track.Source.SCREEN_SHARE)
@@ -804,8 +836,9 @@ class VoiceRoomFragment : BaseFragment() {
             target.add(ParticipantInfo(
                 identity = identity,
                 name = "$displayName Share Screen",
+                username = username,
                 avatarUrl = avatarUrl,
-                isMuted = !participant.isMicrophoneEnabled,
+                isMuted = isParticipantMicMuted(participant),
                 isSpeaking = participant.isSpeaking,
                 hasVideo = true,
                 videoTrack = screenTrack,
@@ -824,8 +857,9 @@ class VoiceRoomFragment : BaseFragment() {
         target.add(ParticipantInfo(
             identity = identity,
             name = displayName,
+            username = username,
             avatarUrl = avatarUrl,
-            isMuted = !participant.isMicrophoneEnabled,
+            isMuted = isParticipantMicMuted(participant),
             isSpeaking = participant.isSpeaking,
             hasVideo = cameraTrack != null,
             videoTrack = cameraTrack,
@@ -873,6 +907,12 @@ class VoiceRoomFragment : BaseFragment() {
         }.getOrDefault(false)
     }
 
+    private fun isParticipantMicMuted(participant: Participant): Boolean {
+        if (!participant.isMicrophoneEnabled) return true
+        val micPub = participant.getTrackPublication(Track.Source.MICROPHONE) ?: return false
+        return isTrackPublicationMuted(micPub)
+    }
+
     private fun scheduleUpdateParticipantList() {
         pendingUpdateJob?.cancel()
         pendingUpdateJob = roomScope?.launch {
@@ -885,7 +925,23 @@ class VoiceRoomFragment : BaseFragment() {
         return "${item.identity}_${item.isScreenShare}"
     }
 
+    private fun getGridParticipants(): List<ParticipantInfo> {
+        if (!isInPipMode) return participants
+        val single = resolvePipGridParticipant() ?: return emptyList()
+        return listOf(single)
+    }
+
+    private fun resolvePipGridParticipant(): ParticipantInfo? {
+        return participants.firstOrNull { !it.isScreenShare && it.hasVideo } ?: participants.firstOrNull { !it.isScreenShare }
+    }
+
     private fun updateParticipants(next: List<ParticipantInfo>) {
+        if (isInPipMode) {
+            participants.clear()
+            participants.addAll(next)
+            participantAdapter.notifyDataSetChanged()
+            return
+        }
         val previous = ArrayList(participants)
         val diff = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
             override fun getOldListSize(): Int = previous.size
@@ -919,6 +975,7 @@ class VoiceRoomFragment : BaseFragment() {
 
         updateParticipants(nextParticipants)
         Log.d(TAG, "doUpdateParticipantList: ${participants.size} participants")
+        syncFocusedShareForPip()
         updateMiniOverlayIfNeeded()
     }
 
@@ -933,19 +990,25 @@ class VoiceRoomFragment : BaseFragment() {
         for (i in participants.indices) {
             val p = participants[i]
             val participant = allParticipants[p.identity] ?: continue
-            val muted = !participant.isMicrophoneEnabled
+            val muted = isParticipantMicMuted(participant)
             if (p.isMuted != muted) {
                 participants[i] = p.copy(isMuted = muted)
                 changed = true
             }
         }
         if (!changed) return
+        if (isInPipMode) {
+            participantAdapter.notifyDataSetChanged()
+            updateMiniOverlayIfNeeded()
+            return
+        }
+        val gridParticipants = getGridParticipants()
         val count = participantGrid.childCount
         for (i in 0 until count) {
             val child = participantGrid.getChildAt(i) as? ParticipantCell ?: continue
             val pos = participantGrid.getChildAdapterPosition(child)
-            if (pos in participants.indices) {
-                val pi = participants[pos]
+            if (pos in gridParticipants.indices) {
+                val pi = gridParticipants[pos]
                 child.updateMuted(pi.isMuted)
             }
         }
@@ -961,12 +1024,18 @@ class VoiceRoomFragment : BaseFragment() {
                 participants[i] = p.copy(isSpeaking = speaking)
             }
         }
+        if (isInPipMode) {
+            participantAdapter.notifyDataSetChanged()
+            updateMiniOverlayIfNeeded()
+            return
+        }
+        val gridParticipants = getGridParticipants()
         val count = participantGrid.childCount
         for (i in 0 until count) {
             val child = participantGrid.getChildAt(i) as? ParticipantCell ?: continue
             val pos = participantGrid.getChildAdapterPosition(child)
-            if (pos in participants.indices) {
-                child.updateSpeaking(participants[pos].isSpeaking)
+            if (pos in gridParticipants.indices) {
+                child.updateSpeaking(gridParticipants[pos].isSpeaking)
             }
         }
         updateMiniOverlayIfNeeded()
@@ -1067,9 +1136,228 @@ class VoiceRoomFragment : BaseFragment() {
         }
         focusedShareView.clear()
         participantGrid.visibility = View.VISIBLE
-        headerView.visibility = View.VISIBLE
+        headerView.visibility = if (isInPipMode) View.GONE else View.VISIBLE
         applyVoiceLayoutForMode()
     }
+
+    private fun syncFocusedShareForPip() {
+        if (!isInPipMode || !::focusedShareView.isInitialized || !::participantGrid.isInitialized || !::headerView.isInitialized) {
+            return
+        }
+        val shareParticipant = resolvePipShareParticipant()
+        if (shareParticipant != null) {
+            Log.d(
+                TAG,
+                "syncFocusedShareForPip focus identity=${shareParticipant.identity} name=${shareParticipant.name}"
+            )
+            showFocusedShare(shareParticipant)
+        } else {
+            Log.d(TAG, "syncFocusedShareForPip fallback_grid")
+            clearFocusedShare()
+        }
+    }
+
+    private fun resolvePipShareParticipant(): ParticipantInfo? {
+        val availableShares = participants.filter { it.isScreenShare && it.videoTrack != null }
+        if (availableShares.isEmpty()) return null
+        val localIdentity = room?.localParticipant?.identity?.value
+        return availableShares.firstOrNull { it.identity != localIdentity } ?: availableShares.first()
+    }
+
+    private fun openParticipantModerationSheet(participant: ParticipantInfo) {
+        val context = fragmentView?.context ?: getParentActivity() ?: return
+        val activity = getParentActivity() ?: return
+        val identity = participant.identity
+        val userId = identity.toLongOrNull() ?: 0L
+        val canManageVoiceUser = canManageVoiceUser(userId)
+        val liveParticipant = sequenceOf(room?.localParticipant).filterNotNull()
+            .plus(room?.remoteParticipants?.values ?: emptyList())
+            .firstOrNull { it.identity?.value == identity }
+        val mutedNow = liveParticipant?.let { isParticipantMicMuted(it) } ?: participant.isMuted
+        val showMuteAction = mutedNow.not()
+        val fallbackName = participant.name.removeSuffix(" Share Screen")
+        val member = if (userId != 0L) {
+            memberResolver.resolveMember(userId, clanId, channelId, CHANNEL_TYPE_VOICE)
+        } else {
+            null
+        }
+        val displayNameRaw = when {
+            member != null -> {
+                val nick = member.clanNick.trim()
+                when {
+                    nick.isNotEmpty() -> nick
+                    member.displayName.isNotBlank() -> member.displayName
+                    else -> member.username.ifBlank { fallbackName }
+                }
+            }
+            else -> fallbackName
+        }
+        val sublineRaw = when {
+            member != null -> {
+                val u = member.username.trim()
+                when {
+                    u.isNotEmpty() -> u
+                    member.displayName.isNotBlank() -> member.displayName
+                    else -> participant.username
+                }
+            }
+            else -> participant.username
+        }
+        val displayName = displayNameRaw.trim()
+            .ifBlank { sublineRaw.trim() }
+            .ifBlank { identity }
+        val sublineTrim = sublineRaw.trim()
+        val participantSubline = if (sublineTrim.isEmpty() || sublineTrim.equals(displayName, ignoreCase = true)) {
+            ""
+        } else {
+            sublineTrim
+        }
+        val avatarForUi = when {
+            member != null -> {
+                val ca = member.clanAvatar.trim()
+                if (ca.isNotEmpty()) ca else member.avatarUrl.ifBlank { participant.avatarUrl }
+            }
+            else -> participant.avatarUrl
+        }
+        val voiceStatus = if (!isGroupCall && userId != 0L) {
+            voiceController.getUserVoiceStatus(userId)
+        } else {
+            null
+        }
+        val voiceChannelLabelSync = voiceStatus?.let { vs ->
+            val ch = channelController.findChannelById(vs.channelId)
+            if (ch != null && ch.clanId == vs.clanId) {
+                ch.channelLabel
+            } else {
+                channelController.getChannels(vs.clanId).firstOrNull { it.channelId == vs.channelId }?.channelLabel
+            }
+        }.orEmpty()
+
+        fun presentSheet(voiceChannelLabel: String) {
+            val showVoicePresence = voiceStatus != null && voiceChannelLabel.isNotBlank()
+            val showHeaderActions = userId != 0L && userId != userController.userId && clanId != 0L && !isGroupCall
+            val voiceChEntity = voiceStatus?.let { channelController.findChannelById(it.channelId) }
+            participantModerationSheet?.dismiss()
+            val sheet = UserProfileBottomSheet(
+                context = context,
+                userId = userId,
+                displayName = displayName,
+                username = participantSubline.ifBlank { displayName },
+                avatarUrl = avatarForUi,
+                aboutMe = null,
+                memberSince = null,
+                isOwnProfile = false,
+                isDM = false,
+                listener = null,
+                voiceParticipantExtras = UserProfileBottomSheet.VoiceParticipantExtras(
+                    showHeaderActions = showHeaderActions,
+                    onFriendClick = {
+                        Toast.makeText(activity, R.string.feature_coming_soon, Toast.LENGTH_SHORT).show()
+                    },
+                    onTransferClick = {
+                        Toast.makeText(activity, R.string.feature_coming_soon, Toast.LENGTH_SHORT).show()
+                    },
+                    canManageVoiceUser = canManageVoiceUser,
+                    showMuteAction = showMuteAction,
+                    onMuteAction = { showMuteParticipantConfirm(identity, displayName) },
+                    onKickAction = { showKickParticipantConfirm(identity, displayName) },
+                    showVoicePresence = showVoicePresence,
+                    voiceChannelLabel = voiceChannelLabel,
+                    onJoinVoiceChannel = joinVoiceAction@{
+                        val vs = voiceStatus ?: return@joinVoiceAction
+                        (activity as? MainActivity)?.showVoiceRoom(vs.channelId, vs.clanId, voiceChannelLabel)
+                    },
+                    voiceChannelType = voiceChEntity?.type ?: CHANNEL_TYPE_VOICE,
+                    voiceChannelPrivate = voiceChEntity?.isPrivate ?: false
+                )
+            )
+            participantModerationSheet = sheet
+            sheet.setDrawNavigationBar(true)
+            sheet.show()
+        }
+
+        if (voiceStatus != null && voiceChannelLabelSync.isBlank()) {
+            val scope = roomScope
+            if (scope != null) {
+                scope.launch {
+                    val fetched = channelController.findOrFetchChannelLabel(voiceStatus.channelId, voiceStatus.clanId)
+                    presentSheet(fetched)
+                }
+                return
+            }
+        }
+        presentSheet(voiceChannelLabelSync)
+    }
+
+    private fun canManageVoiceUser(targetUserId: Long): Boolean {
+        if (isInPipMode || isGroupCall) return false
+        if (clanId == 0L) return false
+        if (targetUserId == 0L || targetUserId == userController.userId) return false
+        val selectedClanId = clansController.selectedClanId.value
+        return selectedClanId == clanId
+    }
+
+    private fun showMuteParticipantConfirm(identity: String, displayName: String) {
+        val activity = getParentActivity() ?: return
+        android.app.AlertDialog.Builder(activity)
+            .setTitle(getString(R.string.voice_room_mute_modal_title))
+            .setMessage(getString(R.string.voice_room_mute_modal_content, displayName))
+            .setPositiveButton(getString(R.string.voice_room_mute_modal_action)) { _, _ ->
+                executeModerationAction(identity = identity, action = VoiceModerationAction.MUTE)
+            }
+            .setNegativeButton(getString(R.string.common_cancel), null)
+            .show()
+    }
+
+    private fun showKickParticipantConfirm(identity: String, displayName: String) {
+        val activity = getParentActivity() ?: return
+        android.app.AlertDialog.Builder(activity)
+            .setTitle(getString(R.string.voice_room_kick_modal_title))
+            .setMessage(getString(R.string.voice_room_kick_modal_content, displayName))
+            .setPositiveButton(getString(R.string.voice_room_kick_modal_action)) { _, _ ->
+                executeModerationAction(identity = identity, action = VoiceModerationAction.KICK)
+            }
+            .setNegativeButton(getString(R.string.common_cancel), null)
+            .show()
+    }
+
+    private fun executeModerationAction(identity: String, action: VoiceModerationAction) {
+        val liveKitRoomName = room?.name?.takeIf { it.isNotBlank() }
+        val roomName = liveKitRoomName
+            ?: voiceController.currentVoiceInfo?.roomName?.takeIf { it.isNotBlank() }
+            ?: channelId.toString()
+        if (liveKitRoomName == null) {
+            Log.w(
+                TAG,
+                "executeModerationAction: LiveKit room name empty, using fallback roomName=$roomName " +
+                    "(matches RN useRoomContext().name when set)"
+            )
+        }
+        fragmentScope.launch {
+            runCatching {
+                if (action == VoiceModerationAction.MUTE) {
+                    voiceController.muteParticipant(clanId, channelId, roomName, identity)
+                } else {
+                    voiceController.kickParticipant(clanId, channelId, roomName, identity)
+                }
+            }.onSuccess {
+                Log.d(TAG, "voice moderation ok action=$action roomName=$roomName targetIdentity=$identity")
+            }.onFailure { e ->
+                Log.e(TAG, "voice moderation failed action=$action roomName=$roomName targetIdentity=$identity", e)
+                val activity = getParentActivity() ?: return@onFailure
+                val message = if (action == VoiceModerationAction.MUTE) {
+                    getString(R.string.voice_room_moderation_mute_failed)
+                } else {
+                    getString(R.string.voice_room_moderation_kick_failed)
+                }
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(activity, message, Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    private enum class VoiceModerationAction { MUTE, KICK }
 
     override fun onFragmentDestroy() {
         pendingUpdateJob?.cancel()
@@ -1098,6 +1386,8 @@ class VoiceRoomFragment : BaseFragment() {
         if (::morePopup.isInitialized) {
             morePopup.dismiss()
         }
+        participantModerationSheet?.dismiss()
+        participantModerationSheet = null
         audioManager?.stop()
         audioManager = null
         roomScope?.cancel()

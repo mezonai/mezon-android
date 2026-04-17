@@ -118,6 +118,8 @@ class AccountController @Inject constructor(
     }
 
     private val cacheKey = apiCacheKey("getAccount")
+    private val friendsCacheKey = apiCacheKey("listFriends", 0)
+    private val blockedCacheKey = apiCacheKey("listFriends", 3)
 
     private suspend fun loadAccountInternal(noCache: Boolean = false) {
         try {
@@ -165,12 +167,16 @@ class AccountController @Inject constructor(
         appScope.launch { loadAccountInternal(noCache) }
     }
 
-    fun loadBlockedUsers() {
+    fun loadBlockedUsers(noCache: Boolean = false) {
         appScope.launch {
+            if (cacheTracker.shouldCall(blockedCacheKey, noCache = noCache) == ApiCacheTracker.ShouldCall.SKIP) {
+                return@launch
+            }
             try {
                 sessionManager.withAutoRefresh { session ->
                     val friendList = withContext(ioDispatcher) { api.listFriends(session.apiUrl, session.token, state = 3) }
                     _blockedUsers.value = friendList.friendsList
+                    cacheTracker.markCalled(blockedCacheKey)
                     notificationCenter.postNotificationOnMainThread(NotificationCenter.blockedUsersLoaded)
                 }
             } catch (e: Exception) {
@@ -178,12 +184,16 @@ class AccountController @Inject constructor(
         }
     }
 
-    fun loadFriends() {
+    fun loadFriends(noCache: Boolean = false) {
         appScope.launch {
+            if (cacheTracker.shouldCall(friendsCacheKey, noCache = noCache) == ApiCacheTracker.ShouldCall.SKIP) {
+                return@launch
+            }
             try {
                 sessionManager.withAutoRefresh { session ->
                     val friendList = withContext(ioDispatcher) { api.listFriends(session.apiUrl, session.token, state = 0) }
                     _friends.value = friendList.friendsList
+                    cacheTracker.markCalled(friendsCacheKey)
                     notificationCenter.postNotificationOnMainThread(NotificationCenter.friendsLoaded)
                 }
             } catch (e: Exception) {

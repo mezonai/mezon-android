@@ -2720,29 +2720,61 @@ class ChatFragment : BaseFragment() {
         if (activity.isFinishing || activity.isDestroyed) return
         val currentUserId = chatController.getCurrentUserId()
         val isOwnProfile = msg.senderId == currentUserId
+        val member = if (msg.senderId != 0L) {
+            memberResolver.resolveMember(msg.senderId, clanId, channelId, channelType)
+        } else {
+            null
+        }
+        val fallbackName = msg.senderName.ifBlank { "Unknown" }
+        val displayName = when {
+            member != null -> {
+                val nick = member.clanNick.trim()
+                when {
+                    nick.isNotEmpty() -> nick
+                    member.displayName.isNotBlank() -> member.displayName
+                    else -> member.username.ifBlank { fallbackName }
+                }
+            }
+            else -> fallbackName
+        }
+        val usernameLine = when {
+            member != null -> {
+                val u = member.username.trim()
+                when {
+                    u.isNotEmpty() -> u
+                    member.displayName.isNotBlank() -> member.displayName
+                    else -> msg.senderName
+                }
+            }
+            else -> msg.senderName
+        }
+        val avatarForUi = when {
+            member != null -> {
+                val ca = member.clanAvatar.trim()
+                if (ca.isNotEmpty()) ca else member.avatarUrl.ifBlank { msg.senderAvatar }
+            }
+            else -> msg.senderAvatar
+        }
 
         val sheet = UserProfileBottomSheet(
             context = ctx,
             userId = msg.senderId,
-            displayName = msg.senderName ?: "Unknown",
-            username = msg.senderName ?: "unknown",
-            avatarUrl = msg.senderAvatar,
-            aboutMe = null,  // TODO: fetch from user profile API
-            memberSince = null, // TODO: fetch from user profile API
+            displayName = displayName,
+            username = usernameLine,
+            avatarUrl = avatarForUi,
+            aboutMe = null,
+            memberSince = null,
             isOwnProfile = isOwnProfile,
             isDM = clanId == 0L,
             listener = object : UserProfileBottomSheet.UserProfileListener {
                 override fun onSendMessage(userId: Long) {
-                    // TODO: open DM with this user
-                    Log.d(TAG, "UserProfile: Send message to $userId")
+                    android.widget.Toast.makeText(ctx, R.string.feature_coming_soon, android.widget.Toast.LENGTH_SHORT).show()
                 }
                 override fun onVoiceCall(userId: Long) {
-                    // TODO: initiate voice call with this user
-                    Log.d(TAG, "UserProfile: Voice call to $userId")
+                    android.widget.Toast.makeText(ctx, R.string.feature_coming_soon, android.widget.Toast.LENGTH_SHORT).show()
                 }
                 override fun onAddFriend(userId: Long) {
-                    // TODO: send friend request to this user
-                    Log.d(TAG, "UserProfile: Add friend $userId")
+                    android.widget.Toast.makeText(ctx, R.string.feature_coming_soon, android.widget.Toast.LENGTH_SHORT).show()
                 }
             }
         )
@@ -2765,8 +2797,8 @@ class ChatFragment : BaseFragment() {
                 android.widget.Toast.makeText(ctx, R.string.message_toast_copy_text, android.widget.Toast.LENGTH_SHORT).show()
             }
             MessageActionBottomSheet.ActionType.ForwardMessage -> {
-                // TODO: open forward screen
-                Log.d(TAG, "Action: Forward message ${msg.id}")
+                val c = getContext() ?: return
+                android.widget.Toast.makeText(c, R.string.feature_coming_soon, android.widget.Toast.LENGTH_SHORT).show()
             }
             MessageActionBottomSheet.ActionType.PinMessage -> {
                 showPinConfirmation(msg, isUnpin = false)
@@ -2778,16 +2810,16 @@ class ChatFragment : BaseFragment() {
                 showDeleteConfirmation(msg)
             }
             MessageActionBottomSheet.ActionType.CreateThread -> {
-                // TODO: open create thread
-                Log.d(TAG, "Action: Create thread from message ${msg.id}")
+                val c = getContext() ?: return
+                android.widget.Toast.makeText(c, R.string.feature_coming_soon, android.widget.Toast.LENGTH_SHORT).show()
             }
             MessageActionBottomSheet.ActionType.MarkUnRead -> {
-                // TODO: call mark unread API
-                Log.d(TAG, "Action: Mark unread from message ${msg.id}")
+                val c = getContext() ?: return
+                android.widget.Toast.makeText(c, R.string.feature_coming_soon, android.widget.Toast.LENGTH_SHORT).show()
             }
             MessageActionBottomSheet.ActionType.SaveMedia -> {
-                // TODO: download media
-                Log.d(TAG, "Action: Save media for message ${msg.id}")
+                val c = getContext() ?: return
+                android.widget.Toast.makeText(c, R.string.feature_coming_soon, android.widget.Toast.LENGTH_SHORT).show()
             }
             MessageActionBottomSheet.ActionType.CopyMediaLink -> {
                 val url = msg.attachmentUrl
@@ -2800,12 +2832,12 @@ class ChatFragment : BaseFragment() {
             }
             MessageActionBottomSheet.ActionType.CopyImage,
             MessageActionBottomSheet.ActionType.ShareImage -> {
-                // TODO: implement image copy/share
-                Log.d(TAG, "Action: ${action.name} for message ${msg.id}")
+                val c = getContext() ?: return
+                android.widget.Toast.makeText(c, R.string.feature_coming_soon, android.widget.Toast.LENGTH_SHORT).show()
             }
             MessageActionBottomSheet.ActionType.Report -> {
-                // TODO: open report dialog
-                Log.d(TAG, "Action: Report message ${msg.id}")
+                val c = getContext() ?: return
+                android.widget.Toast.makeText(c, R.string.feature_coming_soon, android.widget.Toast.LENGTH_SHORT).show()
             }
         }
     }
