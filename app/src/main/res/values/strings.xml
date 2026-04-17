@@ -477,4 +477,17 @@
 
     <string name="voice_room_agent_request_failed">Could not update the voice assistant.</string>
     <string name="voice_room_agent_server_error">Server error while updating the voice assistant. Please try again later.</string>
+    <string name="voice_room_settings_title">Channel voice settings</string>
+    <string name="voice_room_mute_voice">Mute</string>
+    <string name="voice_room_kick_voice">Kick</string>
+    <string name="voice_profile_in_voice">In voice</string>
+    <string name="voice_profile_join_voice">Join Voice</string>
+    <string name="voice_room_mute_modal_title">Mute member</string>
+    <string name="voice_room_mute_modal_content">Please confirm if you would like to mute \"%1$s\"?</string>
+    <string name="voice_room_mute_modal_action">Mute</string>
+    <string name="voice_room_kick_modal_title">Kick member</string>
+    <string name="voice_room_kick_modal_content">Please confirm if you would like to kick \"%1$s\"?</string>
+    <string name="voice_room_kick_modal_action">Kick</string>
+    <string name="voice_room_moderation_mute_failed">Could not mute this member.</string>
+    <string name="voice_room_moderation_kick_failed">Could not kick this member.</string>
 </resources>

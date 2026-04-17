@@ -449,6 +449,13 @@ class ThemeColors @Inject constructor() {
         else -> 0xFFDADADA.toInt()
     }
 
+    val tabIconActivePrimary: Int get() = when (resolvedMode) {
+        ThemeMode.LIGHT -> 0xFF5A62F4.toInt()
+        ThemeMode.DARK -> 0xFF5A62F4.toInt()
+        ThemeMode.ABYSS -> 0xFF5A48FB.toInt()
+        else -> 0xFF5A62F4.toInt()
+    }
+
     // Tab label active color = textStrong
     val tabLabelActive: Int get() = when (resolvedMode) {
         ThemeMode.LIGHT -> 0xFF070709.toInt()    // light.textStrong
@@ -478,6 +485,15 @@ class ThemeColors @Inject constructor() {
         ThemeMode.ABYSS -> 0xFF060933.toInt()    // abyssDark.primary
         else -> 0xFF121218.toInt()
     }
+
+    val profileSheetAvatarRingColor: Int get() = when (resolvedMode) {
+        ThemeMode.LIGHT -> 0xFFF4F4F8.toInt()
+        ThemeMode.DARK -> 0xFF121218.toInt()
+        ThemeMode.ABYSS -> 0xFF110B33.toInt()
+        else -> 0xFF121218.toInt()
+    }
+
+    val profileSheetBackdropFallback: Int get() = 0xFF808080.toInt()
 
     val tertiary: Int get() = when (resolvedMode) {
         ThemeMode.LIGHT -> 0xFFF2F3F6.toInt()

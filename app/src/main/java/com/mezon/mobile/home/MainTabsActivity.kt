@@ -46,6 +46,7 @@ class MainTabsActivity : ViewPagerActivity() {
     private lateinit var contentRoot: FrameLayout
     private lateinit var bottomTabBar: BottomTabBar
     private var currentTab = TAB_CLANS
+    private var prewarmedProfile = false
 
     override fun getStartPosition(): Int = currentTab
     override fun getFragmentsCount(): Int = 4
@@ -241,6 +242,32 @@ class MainTabsActivity : ViewPagerActivity() {
     override fun onBecomeFullyVisible() {
         super.onBecomeFullyVisible()
         connectionController.handleAppForeground()
+        schedulePrewarmProfile()
+    }
+
+    private fun schedulePrewarmProfile() {
+        if (prewarmedProfile || !::contentRoot.isInitialized) return
+        contentRoot.postDelayed({
+            if (prewarmedProfile) return@postDelayed
+            prewarmedProfile = true
+            prewarmFragmentAt(TAB_PROFILE)
+        }, 600L)
+    }
+
+    private fun prewarmFragmentAt(position: Int) {
+        val state = getOrCreateFragmentState(position)
+        val fragment = state.fragment
+        if (!state.onCreateCalled) {
+            fragment.themeColors = themeColors
+            fragment.notificationCenter = notificationCenter
+            fragment.parentLayout = parentLayout
+            fragment.inject(contentRoot.context)
+            fragment.onFragmentCreate()
+            state.onCreateCalled = true
+        }
+        if (fragment.fragmentView == null) {
+            fragment.fragmentView = fragment.createView(contentRoot.context)
+        }
     }
 
     override fun onBecomeFullyHidden() {

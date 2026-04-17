@@ -1,6 +1,8 @@
 package com.mezon.mobile.home.chat
 
-import android.graphics.Paint
+import android.graphics.Color
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
@@ -11,12 +13,19 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import com.mezon.mobile.R
+import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.BottomSheet
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.home.clans.CHANNEL_TYPE_VOICE
+import com.mezon.mobile.home.clans.ChannelItemCell
+import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.theme.ThemeMode
+import com.mezon.mobile.util.ColorUtilities
+import com.mezon.mobile.util.createImgproxyUrl
 
 
 class UserProfileBottomSheet(
@@ -29,7 +38,8 @@ class UserProfileBottomSheet(
     private val memberSince: String? = null,
     private val isOwnProfile: Boolean = false,
     private val isDM: Boolean = false,
-    private val listener: UserProfileListener? = null
+    private val listener: UserProfileListener? = null,
+    private val voiceParticipantExtras: VoiceParticipantExtras? = null
 ) : BottomSheet(context) {
 
     interface UserProfileListener {
@@ -38,7 +48,39 @@ class UserProfileBottomSheet(
         fun onAddFriend(userId: Long) {}
     }
 
+    data class VoiceParticipantExtras(
+        val showHeaderActions: Boolean,
+        val onFriendClick: () -> Unit,
+        val onTransferClick: () -> Unit,
+        val canManageVoiceUser: Boolean,
+        val showMuteAction: Boolean,
+        val onMuteAction: () -> Unit,
+        val onKickAction: () -> Unit,
+        val showVoicePresence: Boolean,
+        val voiceChannelLabel: String,
+        val onJoinVoiceChannel: () -> Unit,
+        val voiceChannelType: Int = CHANNEL_TYPE_VOICE,
+        val voiceChannelPrivate: Boolean = false
+    )
+
+    companion object {
+        private val rnRedStrong = 0xFFC61E1B.toInt()
+        private val rnBgSuccess = 0xFF16A34A.toInt()
+    }
+
     private val theme: ThemeColors = ThemeColors.instance
+
+    private val rnProfileSectionTitleColor: Int
+        get() = when (theme.resolvedMode) {
+            ThemeMode.LIGHT -> 0xFF000000.toInt()
+            else -> 0xFFFFFFFF.toInt()
+        }
+
+    init {
+        if (voiceParticipantExtras != null) {
+            containerHeight = (AndroidUtilities.displaySize.y * 0.6f).toInt()
+        }
+    }
 
     // RN color mappings
     private val primaryColor: Int
@@ -47,13 +89,6 @@ class UserProfileBottomSheet(
             ThemeMode.DARK -> 0xFF121218.toInt()
             ThemeMode.ABYSS -> 0xFF110B33.toInt()
             else -> 0xFF121218.toInt()
-        }
-    private val secondaryColor: Int
-        get() = when (theme.resolvedMode) {
-            ThemeMode.LIGHT -> 0xFFFFFFFF.toInt()
-            ThemeMode.DARK -> 0xFF1C1D23.toInt()
-            ThemeMode.ABYSS -> 0xFF19153C.toInt()
-            else -> 0xFF1C1D23.toInt()
         }
     private val textStrongColor: Int
         get() = when (theme.resolvedMode) {
@@ -70,6 +105,11 @@ class UserProfileBottomSheet(
             else -> 0xFFCCCCCC.toInt()
         }
 
+    private var backdropColorView: View? = null
+    private var profileAvatarView: ImageView? = null
+    private val profileAvatarDrawable = AvatarDrawable()
+    private var avatarLoadDisposable: MezonImageLoader.Cancellable? = null
+
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         val scrollView = ScrollView(context).apply {
             isVerticalScrollBarEnabled = false
@@ -84,24 +124,49 @@ class UserProfileBottomSheet(
             clipToPadding = false
         }
 
-        // 1. Colored backdrop with avatar
         rootLayout.addView(buildBackdropWithAvatar())
 
-        // 2. User info card (name + username + action buttons)
+        val voiceEx = voiceParticipantExtras
+        if (voiceEx != null && voiceEx.canManageVoiceUser) {
+            rootLayout.addView(buildVoiceManageCard(voiceEx), LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                leftMargin = LayoutHelper.dp(14)
+                rightMargin = LayoutHelper.dp(14)
+                topMargin = LayoutHelper.dp(30)
+                bottomMargin = LayoutHelper.dp(12)
+            })
+        }
+
         rootLayout.addView(buildUserInfoCard(), LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
         ).apply {
             leftMargin = LayoutHelper.dp(14)
             rightMargin = LayoutHelper.dp(14)
-            topMargin = LayoutHelper.dp(30)  // Space for avatar overflow
+            topMargin = when {
+                voiceEx == null -> LayoutHelper.dp(30)
+                voiceEx.canManageVoiceUser -> 0
+                else -> LayoutHelper.dp(30)
+            }
             bottomMargin = LayoutHelper.dp(12)
         })
 
-        // 3. Details card (member since, about me)
         val detailsCard = buildDetailsCard()
         if (detailsCard != null) {
             rootLayout.addView(detailsCard, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                leftMargin = LayoutHelper.dp(14)
+                rightMargin = LayoutHelper.dp(14)
+                bottomMargin = LayoutHelper.dp(20)
+            })
+        }
+
+        if (voiceEx != null && voiceEx.showVoicePresence && voiceEx.voiceChannelLabel.isNotBlank()) {
+            rootLayout.addView(buildVoicePresenceCard(voiceEx), LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
@@ -123,52 +188,136 @@ class UserProfileBottomSheet(
         contentLayout?.clipToPadding = false
         containerView?.clipChildren = false
         containerView?.clipToPadding = false
+
+        loadProfileAvatarAndBackdropTint()
     }
 
-    // ─── Backdrop + Avatar ────────────────────────────────────────────
+    override fun dismiss() {
+        avatarLoadDisposable?.cancel()
+        avatarLoadDisposable = null
+        super.dismiss()
+    }
 
     private fun buildBackdropWithAvatar(): FrameLayout {
-        val container = FrameLayout(context)
-
-        // Colored backdrop — RN: height: 120, backgroundColor: color from image
-        val backdrop = View(context).apply {
-            setBackgroundColor(0xFF808080.toInt())  // Gray fallback — could extract from avatar
+        val container = FrameLayout(context).apply {
+            clipChildren = false
         }
+
+        val backdrop = View(context).apply {
+            setBackgroundColor(theme.profileSheetBackdropFallback)
+        }
+        backdropColorView = backdrop
         container.addView(backdrop, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, LayoutHelper.dp(120)
         ))
 
-        // Avatar — RN: 80×80, positioned at bottom: -25%, paddingLeft: 14
-        val avatarSize = LayoutHelper.dp(80)
-        val avatarDrawable = AvatarDrawable().apply {
-            setInfo(displayName)
+        voiceParticipantExtras?.takeIf { it.showHeaderActions }?.let { ex ->
+            val headerIconTint = textColor
+            val friendBtn = ImageView(context).apply {
+                scaleType = ImageView.ScaleType.CENTER_INSIDE
+                setImageDrawable(MezonIcon.userPlusIcon.getDrawable(context).apply {
+                    colorFilter = PorterDuffColorFilter(headerIconTint, PorterDuff.Mode.SRC_IN)
+                })
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(theme.serverRailBg)
+                }
+                setPadding(LayoutHelper.dp(6), LayoutHelper.dp(6), LayoutHelper.dp(6), LayoutHelper.dp(6))
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    dismiss()
+                    ex.onFriendClick()
+                }
+            }
+            val transferBtn = ImageView(context).apply {
+                scaleType = ImageView.ScaleType.CENTER_INSIDE
+                setImageDrawable(MezonIcon.transactionIcon.getDrawable(context).apply {
+                    colorFilter = PorterDuffColorFilter(headerIconTint, PorterDuff.Mode.SRC_IN)
+                })
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(theme.serverRailBg)
+                }
+                setPadding(LayoutHelper.dp(6), LayoutHelper.dp(6), LayoutHelper.dp(6), LayoutHelper.dp(6))
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    dismiss()
+                    ex.onTransferClick()
+                }
+            }
+            container.addView(
+                transferBtn,
+                FrameLayout.LayoutParams(LayoutHelper.dp(32), LayoutHelper.dp(32), Gravity.TOP or Gravity.END).apply {
+                    topMargin = LayoutHelper.dp(10)
+                    marginEnd = LayoutHelper.dp(50)
+                }
+            )
+            container.addView(
+                friendBtn,
+                FrameLayout.LayoutParams(LayoutHelper.dp(32), LayoutHelper.dp(32), Gravity.TOP or Gravity.END).apply {
+                    topMargin = LayoutHelper.dp(10)
+                    marginEnd = LayoutHelper.dp(10)
+                }
+            )
         }
-        val avatarView = ImageView(context).apply {
-            setImageDrawable(avatarDrawable)
-            scaleType = ImageView.ScaleType.FIT_CENTER
 
-            // White circular border
+        val avatarSize = LayoutHelper.dp(80)
+        profileAvatarDrawable.setInfo(displayName)
+        val avatarView = ImageView(context).apply {
+            setImageDrawable(profileAvatarDrawable)
+            scaleType = ImageView.ScaleType.FIT_CENTER
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(primaryColor)
-                setStroke(LayoutHelper.dp(4), primaryColor)
+                setColor(theme.profileSheetAvatarRingColor)
+                setStroke(LayoutHelper.dp(4), theme.profileSheetAvatarRingColor)
             }
             setPadding(LayoutHelper.dp(3), LayoutHelper.dp(3), LayoutHelper.dp(3), LayoutHelper.dp(3))
         }
+        profileAvatarView = avatarView
         container.addView(avatarView, FrameLayout.LayoutParams(
             avatarSize, avatarSize, Gravity.START or Gravity.BOTTOM
         ).apply {
             leftMargin = LayoutHelper.dp(14)
-            bottomMargin = -LayoutHelper.dp(30)  // Overflow below backdrop
+            bottomMargin = -LayoutHelper.dp(30)
         })
 
         container.layoutParams = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
-            LayoutHelper.dp(120) + LayoutHelper.dp(0)  // Just backdrop height
+            LayoutHelper.dp(120)
         )
-        container.clipChildren = false
 
         return container
+    }
+
+    private fun loadProfileAvatarAndBackdropTint() {
+        val url = avatarUrl?.trim().orEmpty()
+        if (url.isEmpty()) return
+        val img = profileAvatarView ?: return
+        val size = LayoutHelper.dp(80)
+        val proxyUrl = createImgproxyUrl(url, size * 2, size * 2, "fill")
+        val loader = MezonImageLoader.getInstance(context)
+        loader.getBitmapFromMemory(proxyUrl, size, size)?.let { bmp ->
+            profileAvatarDrawable.setPhoto(bmp)
+            img.setImageDrawable(profileAvatarDrawable)
+            backdropColorView?.setBackgroundColor(ColorUtilities.getDominantColor(bmp))
+            return
+        }
+        avatarLoadDisposable = loader.load(
+            proxyUrl,
+            size,
+            size,
+            onSuccess = { bmp ->
+                avatarLoadDisposable = null
+                profileAvatarDrawable.setPhoto(bmp)
+                profileAvatarView?.setImageDrawable(profileAvatarDrawable)
+                backdropColorView?.setBackgroundColor(ColorUtilities.getDominantColor(bmp))
+            },
+            onError = {
+                avatarLoadDisposable = null
+            }
+        )
     }
 
     // ─── User Info Card ───────────────────────────────────────────────
@@ -177,7 +326,7 @@ class UserProfileBottomSheet(
         val card = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             background = GradientDrawable().apply {
-                setColor(secondaryColor)
+                setColor(theme.channelPanelBg)
                 cornerRadius = LayoutHelper.dp(8).toFloat()
             }
             setPadding(LayoutHelper.dp(16), LayoutHelper.dp(16),
@@ -196,18 +345,19 @@ class UserProfileBottomSheet(
             LinearLayout.LayoutParams.WRAP_CONTENT
         ).apply { bottomMargin = LayoutHelper.dp(2) })
 
-        // Username — RN: text color, medium=14sp
-        val usernameView = TextView(context).apply {
-            text = "@$username"
-            setTextColor(textColor)
-            setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14f)
+        if (username.isNotBlank() && !username.equals(displayName, ignoreCase = true)) {
+            val usernameView = TextView(context).apply {
+                text = "@$username"
+                setTextColor(textColor)
+                setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14f)
+            }
+            card.addView(usernameView, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ))
         }
-        card.addView(usernameView, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT
-        ))
 
-        if (!isOwnProfile) {
+        if (!isOwnProfile && voiceParticipantExtras == null) {
             val actionsRow = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
             }
@@ -218,7 +368,9 @@ class UserProfileBottomSheet(
                 textColor
             ) {
                 dismiss()
-                listener?.onSendMessage(userId)
+                val l = listener
+                if (l != null) l.onSendMessage(userId)
+                else Toast.makeText(context, R.string.feature_coming_soon, Toast.LENGTH_SHORT).show()
             }, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -231,7 +383,9 @@ class UserProfileBottomSheet(
                 textColor
             ) {
                 dismiss()
-                listener?.onVoiceCall(userId)
+                val l = listener
+                if (l != null) l.onVoiceCall(userId)
+                else Toast.makeText(context, R.string.feature_coming_soon, Toast.LENGTH_SHORT).show()
             }, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -244,7 +398,9 @@ class UserProfileBottomSheet(
                 0xFF42A869.toInt()  // baseColor.green
             ) {
                 dismiss()
-                listener?.onAddFriend(userId)
+                val l = listener
+                if (l != null) l.onAddFriend(userId)
+                else Toast.makeText(context, R.string.feature_coming_soon, Toast.LENGTH_SHORT).show()
             })
 
             card.addView(actionsRow, LinearLayout.LayoutParams(
@@ -318,7 +474,7 @@ class UserProfileBottomSheet(
         val card = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             background = GradientDrawable().apply {
-                setColor(secondaryColor)
+                setColor(theme.channelPanelBg)
                 cornerRadius = LayoutHelper.dp(8).toFloat()
             }
             setPadding(LayoutHelper.dp(20), LayoutHelper.dp(20),
@@ -370,5 +526,155 @@ class UserProfileBottomSheet(
         }
 
         return card
+    }
+
+    private fun buildVoiceManageCard(ex: VoiceParticipantExtras): LinearLayout {
+        val card = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                setColor(theme.channelPanelBg)
+                cornerRadius = LayoutHelper.dp(8).toFloat()
+            }
+            setPadding(LayoutHelper.dp(16), LayoutHelper.dp(16), LayoutHelper.dp(16), LayoutHelper.dp(16))
+        }
+        card.addView(TextView(context).apply {
+            text = context.getString(R.string.voice_room_settings_title)
+            setTextColor(rnProfileSectionTitleColor)
+            setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14f)
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            bottomMargin = LayoutHelper.dp(10)
+        })
+        val actionsRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.START
+        }
+        if (ex.showMuteAction) {
+            actionsRow.addView(
+                buildVoiceModerationActionItem(
+                    icon = MezonIcon.microphoneSlashIcon,
+                    title = context.getString(R.string.voice_room_mute_voice),
+                    labelColor = rnRedStrong
+                ) {
+                    dismiss()
+                    ex.onMuteAction()
+                },
+                LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                    marginEnd = LayoutHelper.dp(14)
+                }
+            )
+        }
+        actionsRow.addView(
+            buildVoiceModerationActionItem(
+                icon = MezonIcon.removeFriend,
+                title = context.getString(R.string.voice_room_kick_voice),
+                labelColor = rnRedStrong
+            ) {
+                dismiss()
+                ex.onKickAction()
+            }
+        )
+        card.addView(actionsRow)
+        return card
+    }
+
+    private fun buildVoicePresenceCard(ex: VoiceParticipantExtras): LinearLayout {
+        val card = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                setColor(theme.channelPanelBg)
+                cornerRadius = LayoutHelper.dp(8).toFloat()
+            }
+            setPadding(LayoutHelper.dp(16), LayoutHelper.dp(16), LayoutHelper.dp(16), LayoutHelper.dp(16))
+        }
+        card.addView(TextView(context).apply {
+            text = context.getString(R.string.voice_profile_in_voice)
+            setTextColor(textColor)
+            setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14f)
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            bottomMargin = LayoutHelper.dp(10)
+        })
+        val voiceRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        voiceRow.addView(
+            ImageView(context).apply {
+                val d = ChannelItemCell.resolveChannelIcon(ex.voiceChannelType, ex.voiceChannelPrivate)
+                    .getDrawable(context)
+                    .mutate()
+                d.colorFilter = PorterDuffColorFilter(textColor, PorterDuff.Mode.SRC_IN)
+                setImageDrawable(d)
+            },
+            LinearLayout.LayoutParams(LayoutHelper.dp(20), LayoutHelper.dp(20)).apply {
+                marginEnd = LayoutHelper.dp(12)
+            }
+        )
+        voiceRow.addView(TextView(context).apply {
+            text = ex.voiceChannelLabel
+            setTextColor(textColor)
+            setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14f)
+            maxLines = 1
+        }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        card.addView(
+            voiceRow,
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = LayoutHelper.dp(16)
+            }
+        )
+        card.addView(TextView(context).apply {
+            text = context.getString(R.string.voice_profile_join_voice)
+            gravity = Gravity.CENTER
+            setPadding(0, LayoutHelper.dp(8), 0, LayoutHelper.dp(8))
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14f)
+            background = GradientDrawable().apply {
+                cornerRadius = LayoutHelper.dp(50).toFloat()
+                setColor(rnBgSuccess)
+            }
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                dismiss()
+                ex.onJoinVoiceChannel()
+            }
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        return card
+    }
+
+    private fun buildVoiceModerationActionItem(
+        icon: MezonIcon,
+        title: String,
+        labelColor: Int,
+        onClick: () -> Unit
+    ): LinearLayout {
+        val row = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(LayoutHelper.dp(10), LayoutHelper.dp(10), LayoutHelper.dp(10), LayoutHelper.dp(10))
+            minimumWidth = LayoutHelper.dp(80)
+            background = GradientDrawable().apply {
+                cornerRadius = LayoutHelper.dp(8).toFloat()
+                setColor(theme.serverRailBg)
+            }
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { onClick() }
+        }
+        row.addView(ImageView(context).apply {
+            setImageDrawable(icon.getDrawable(context).apply {
+                colorFilter = PorterDuffColorFilter(labelColor, PorterDuff.Mode.SRC_IN)
+            })
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+        }, LinearLayout.LayoutParams(LayoutHelper.dp(18), LayoutHelper.dp(18)).apply {
+            marginEnd = LayoutHelper.dp(6)
+        })
+        row.addView(TextView(context).apply {
+            this.text = title
+            setTextColor(labelColor)
+            setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14f)
+            maxLines = 1
+        })
+        return row
     }
 }

@@ -206,26 +206,32 @@ class VoiceController @Inject constructor(
     }
 
     suspend fun kickParticipant(clanId: Long, channelId: Long, roomName: String, username: String) {
-        try {
+        withContext(ioDispatcher) {
             sessionManager.withAutoRefresh { session ->
-                withContext(ioDispatcher) {
-                    api.removeMeetParticipant(session.apiUrl, session.token, clanId, channelId, roomName, username)
-                }
+                api.removeMeetParticipant(
+                    session.apiUrl,
+                    session.token,
+                    clanId,
+                    channelId,
+                    roomName,
+                    username
+                )
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "kickParticipant failed", e)
         }
     }
 
     suspend fun muteParticipant(clanId: Long, channelId: Long, roomName: String, username: String) {
-        try {
+        withContext(ioDispatcher) {
             sessionManager.withAutoRefresh { session ->
-                withContext(ioDispatcher) {
-                    api.muteMeetParticipant(session.apiUrl, session.token, clanId, channelId, roomName, username)
-                }
+                api.muteMeetParticipant(
+                    session.apiUrl,
+                    session.token,
+                    clanId,
+                    channelId,
+                    roomName,
+                    username
+                )
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "muteParticipant failed", e)
         }
     }
 

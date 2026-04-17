@@ -39,6 +39,9 @@ class VoiceFocusedShareView(
     private val zoomCenterHost: FrameLayout
     private val zoomContent: FrameLayout
     private val actionRow: LinearLayout
+    private val emojiButton: FrameLayout
+    private val fullScreenButton: FrameLayout
+    private val minimizeButton: FrameLayout
     private var rendererInitialized = false
     private var currentVideoTrack: VideoTrack? = null
     private var contentAspectRatio = 16f / 9f
@@ -48,6 +51,7 @@ class VoiceFocusedShareView(
 
     var onEmojiClick: (() -> Unit)? = null
     var onMinimizeClick: (() -> Unit)? = null
+    var onFullScreenClick: (() -> Unit)? = null
 
     init {
         visibility = View.INVISIBLE
@@ -107,14 +111,20 @@ class VoiceFocusedShareView(
             gravity = Gravity.END
         }
 
-        val emojiButton = createFocusActionButton(context, MezonIcon.faceIcon) {
+        emojiButton = createFocusActionButton(context, MezonIcon.faceIcon) {
             onEmojiClick?.invoke()
         }
-        val minimizeButton = createFocusActionButton(context, MezonIcon.minimizeIcon) {
+        fullScreenButton = createFocusActionButton(context, MezonIcon.expandIcon) {
+            onFullScreenClick?.invoke()
+        }.apply {
+            visibility = View.GONE
+        }
+        minimizeButton = createFocusActionButton(context, MezonIcon.minimizeIcon) {
             onMinimizeClick?.invoke()
         }
 
         actionRow.addView(emojiButton, LinearLayout.LayoutParams(LayoutHelper.dp(36), LayoutHelper.dp(36)))
+        actionRow.addView(fullScreenButton, LinearLayout.LayoutParams(LayoutHelper.dp(36), LayoutHelper.dp(36)))
         actionRow.addView(minimizeButton, LinearLayout.LayoutParams(LayoutHelper.dp(36), LayoutHelper.dp(36)).apply {
             marginStart = LayoutHelper.dp(10)
         })
@@ -127,6 +137,12 @@ class VoiceFocusedShareView(
             topMargin = LayoutHelper.dp(20)
             marginEnd = LayoutHelper.dp(12)
         })
+    }
+
+    fun setPipMode(enabled: Boolean) {
+        actionRow.visibility = if (enabled) View.GONE else View.VISIBLE
+        emojiButton.visibility = View.VISIBLE
+        fullScreenButton.visibility = View.GONE
     }
 
     fun showShare(participant: ParticipantInfo, room: Room): Boolean {

@@ -174,7 +174,8 @@ class MezonApi @Inject constructor(
         method: String,
         body: ByteArray
     ): ByteArray {
-        val url = "$apiUrl/mezon.api.Mezon/$method"
+        val base = apiUrl.trimEnd('/')
+        val url = "$base/mezon.api.Mezon/$method"
         val response = httpClient.post(url) {
             header(HttpHeaders.Authorization, "Bearer $token")
             header(HttpHeaders.Accept, CONTENT_TYPE_PROTO.toString())
@@ -206,7 +207,8 @@ class MezonApi @Inject constructor(
             "$SERVER_KEY:".toByteArray(),
             Base64.NO_WRAP
         )
-        val url = "$apiUrl/mezon.api.Mezon/SessionRefresh"
+        val base = apiUrl.trimEnd('/')
+        val url = "$base/mezon.api.Mezon/SessionRefresh"
         val response = httpClient.post(url) {
             header(HttpHeaders.Authorization, "Basic $basicCreds")
             header(HttpHeaders.Accept, CONTENT_TYPE_PROTO.toString())
@@ -787,7 +789,7 @@ class MezonApi @Inject constructor(
             this.roomName = roomName
             this.username = username
         }
-        return rpc(apiUrl, token, "RemoveMezonMeetParticipant", request.toByteArray())
+        return rpc(apiUrl, token, "RemoveParticipantMezonMeet", request.toByteArray())
     }
 
     suspend fun muteMeetParticipant(
@@ -804,7 +806,7 @@ class MezonApi @Inject constructor(
             this.roomName = roomName
             this.username = username
         }
- return rpc(apiUrl, token, "MuteMezonMeetParticipant", request.toByteArray())
+        return rpc(apiUrl, token, "MuteParticipantMezonMeet", request.toByteArray())
     }
 
     suspend fun addAgentToChannel(
