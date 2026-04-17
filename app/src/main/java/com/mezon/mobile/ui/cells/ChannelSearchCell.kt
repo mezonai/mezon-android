@@ -208,10 +208,10 @@ class ChannelSearchCell(context: Context, private val theme: ThemeColors) : Base
 
     companion object {
         private val CELL_HEIGHT_MIN = LayoutHelper.dp(52f)
-        private val ICON_SIZE = LayoutHelper.dp(24f)
+        private val ICON_SIZE = LayoutHelper.dp(16f)
         private val ICON_LEFT = LayoutHelper.dp(16f)
-        private val ICON_TEXT_GAP = LayoutHelper.dp(10f)
-        private val PAD_RIGHT = LayoutHelper.dp(16f)
+        private val ICON_TEXT_GAP = LayoutHelper.dp(11f)
+        private val PAD_RIGHT = LayoutHelper.dp(24f)
         private val PAD_TOP = LayoutHelper.dp(8f)
         private val PAD_BOTTOM = LayoutHelper.dp(8f)
         private val NAME_CLAN_GAP_INT = LayoutHelper.dp(2f)
@@ -219,6 +219,6 @@ class ChannelSearchCell(context: Context, private val theme: ThemeColors) : Base
         private val ROW_MARGIN_BOTTOM = LayoutHelper.dp(12f)
         private val JOIN_HIT_PAD_H = LayoutHelper.dp(8f)
         private val JOIN_HIT_PAD_V = LayoutHelper.dp(6f)
-        private val JOIN_GAP_FROM_TEXT = LayoutHelper.dp(10f)
+        private val JOIN_GAP_FROM_TEXT = LayoutHelper.dp(14f)
     }
 }

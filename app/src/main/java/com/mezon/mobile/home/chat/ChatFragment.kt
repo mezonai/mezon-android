@@ -1034,7 +1034,7 @@ class ChatFragment : BaseFragment() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.BOTTOM
             setBackgroundColor(themeColors.surface)
-            setPadding(LayoutHelper.dp(6f), LayoutHelper.dp(10f), LayoutHelper.dp(2f), LayoutHelper.dp(10f))
+            setPadding(LayoutHelper.dp(8f), LayoutHelper.dp(10f), LayoutHelper.dp(8f), LayoutHelper.dp(10f))
             clipChildren = false
             clipToPadding = false
         }
@@ -1067,13 +1067,13 @@ class ChatFragment : BaseFragment() {
             }
             setOnClickListener { showAdvancedFunctionMenu() }
         }
-        inputBar.addView(advancedFunctionButton, LayoutHelper.createLinear(40, 40, gravity = Gravity.BOTTOM, leftMargin = 6f))
+        inputBar.addView(advancedFunctionButton, LayoutHelper.createLinear(40, 40, gravity = Gravity.BOTTOM, leftMargin = 8f))
 
         inputWrapper = FrameLayout(context).apply {
             clipChildren = false
             clipToPadding = false
         }
-        inputBar.addView(inputWrapper, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.BOTTOM, 6f, 0f, 6f, 0f))
+        inputBar.addView(inputWrapper, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.BOTTOM, 8f, 0f, 8f, 0f))
 
         inputField = EditText(context).apply {
             hint = getString(R.string.message_input_placeholder)
@@ -1131,12 +1131,13 @@ class ChatFragment : BaseFragment() {
             topMargin = -LayoutHelper.dp(10f)
         })
 
+        val sendBtnPad = LayoutHelper.dp(11f)
         sendButton = ImageButton(context).apply {
             val drawable = MezonIcon.sendMessageIcon.getDrawable(context)
             drawable.colorFilter = PorterDuffColorFilter(android.graphics.Color.WHITE, PorterDuff.Mode.SRC_IN)
             setImageDrawable(drawable)
             scaleType = ImageView.ScaleType.FIT_CENTER
-            setPadding(btnPad, btnPad, btnPad, btnPad)
+            setPadding(sendBtnPad, sendBtnPad, sendBtnPad, sendBtnPad)
             background = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.OVAL
                 setColor(blurple)
@@ -2792,8 +2793,9 @@ class ChatFragment : BaseFragment() {
             }
             MessageActionBottomSheet.ActionType.CopyText -> {
                 val ctx = getContext() ?: return
+                val plainText = parseContentText(msg.content).ifBlank { msg.content }
                 val clipboard = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("message", msg.content))
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("message", plainText))
                 android.widget.Toast.makeText(ctx, R.string.message_toast_copy_text, android.widget.Toast.LENGTH_SHORT).show()
             }
             MessageActionBottomSheet.ActionType.ForwardMessage -> {
