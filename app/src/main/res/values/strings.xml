@@ -1,4 +1,7 @@
 <resources>
+    <string name="friend_requests_placeholder">No friend requests yet</string>
+    <string name="sent_friend_requests_placeholder">No sent friend requests yet</string>
+    <string name="sent_friend_requests_title">Sent Requests</string>
     <string name="app_name">Mezon</string>
 
     <!-- common -->
@@ -474,4 +477,49 @@
     <string name="buzz_dialog_title">Enter your message Buzz!!</string>
     <string name="buzz_dialog_send">Send</string>
     <string name="buzz_default_text">Buzz!!</string>
+
+    <!-- Add missing string resources for friend requests empty state and actions -->
+    <string name="no_incoming_friend_requests">No incoming friend requests</string>
+    <string name="no_outgoing_friend_requests">No outgoing friend requests</string>
+    <string name="incoming_friend_requests_desc">Here you\'ll see all the friend requests people send to you.</string>
+    <string name="outgoing_friend_requests_desc">Here you\'ll see all the friend requests you\'ve sent to others.</string>
+    <string name="received">Received</string>
+    <string name="sent">Sent</string>
+    <string name="delete">Delete</string>
+    <string name="approve">Approve</string>
+    <string name="cancel_request">Cancel</string>
+
+    <!-- QR Code -->
+    <string name="qr_title">Scan QR Code</string>
+    <string name="qr_scan">Scan QR</string>
+    <string name="qr_my_code">My QR Code</string>
+    <string name="qr_show_my_code">Show My QR</string>
+    <string name="qr_scan_from_gallery">Scan from Gallery</string>
+    <string name="qr_scanning">Scanning...</string>
+    <string name="qr_camera_permission_denied">Camera permission denied. Please enable camera access in settings.</string>
+    <string name="qr_invalid_code">Invalid QR code</string>
+    <string name="qr_confirm_login_title">Confirm Login</string>
+    <string name="qr_confirm_login_message">Do you want to log in to this device?</string>
+    <string name="qr_confirm_transfer_title">Confirm Transfer</string>
+    <string name="qr_confirm_transfer_message">Do you want to transfer to this account?</string>
+    <string name="qr_confirm">Confirm</string>
+    <string name="qr_cancel">Cancel</string>
+    <string name="qr_copy">Copy</string>
+    <string name="qr_copied">Copied</string>
+    <string name="qr_error">QR error</string>
+    <string name="qr_open_settings">Open Settings</string>
+    <string name="qr_select_photo_with_qr">Select a photo with a QR code</string>
+    <string name="qr_success_login">Login confirmed</string>
+    <string name="qr_log_in_on_new_device">Log in on new device</string>
+    <string name="qr_never_scan_login_from_another_user">Never scan a login QR code from another user</string>
+    <string name="qr_log_in">Log in</string>
+    <string name="qr_start_talking">Start talking</string>
+    <string name="qr_you_are_logged_in">You are logged in on desktop</string>
+    <string name="qr_downloaded">Saved to gallery</string>
+    <string name="qr_transfer_not_supported">Transfer from QR is not available yet</string>
+    <string name="profile_user_not_found">User not found</string>
+    <string name="profile_user_not_found_message">We could not find this user.</string>
+    <string name="profile_go_back">Go Back</string>
+    <string name="profile_no_thanks">No, thanks</string>
+    <string name="profile_add_friend_sent">Friend request sent</string>
 </resources>

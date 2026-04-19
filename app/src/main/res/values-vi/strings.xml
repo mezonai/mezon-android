@@ -1,4 +1,7 @@
 <resources>
+    <string name="friend_requests_placeholder">Chưa có lời mời kết bạn nào</string>
+    <string name="sent_friend_requests_placeholder">Chưa có lời mời đã gửi nào</string>
+    <string name="sent_friend_requests_title">Đã gửi</string>
     <string name="app_name">Mezon</string>
 
     <!-- common -->
@@ -196,6 +199,7 @@
     <string name="profile_message">Tin nhắn</string>
     <string name="profile_call">Gọi</string>
     <string name="profile_add_friend">Thêm bạn</string>
+    <string name="profile_add_friend_sent">Đã gửi lời mời kết bạn</string>
     <string name="profile_copy_user_id">Sao chép ID người dùng</string>
     <string name="profile_copy_success">Đã sao chép ID người dùng</string>
     <string name="profile_sign_out">Đăng xuất</string>
@@ -205,6 +209,8 @@
     <string name="profile_history_transaction">Lịch sử giao dịch</string>
     <string name="profile_add_status">Thêm trạng thái</string>
     <string name="profile_update_failed">Cập nhật hồ sơ thất bại.</string>
+    <string name="profile_no_thanks">Không, cảm ơn</string>
+    <string name="feature_coming_soon">Tính năng sắp có</string>
 
     <!-- friends -->
     <string name="friends_title">Bạn bè</string>
@@ -369,4 +375,35 @@
     <string name="search_section_voice_channels">Kênh thoại</string>
     <string name="search_section_streaming_channels">Kênh phát trực tuyến</string>
     <string name="search_join_channel">Tham gia</string>
+
+    <!-- Friend Requests -->
+    <string name="no_incoming_friend_requests">Chưa có lời mời kết bạn nào</string>
+    <string name="no_outgoing_friend_requests">Chưa có lời mời đã gửi nào</string>
+    <string name="incoming_friend_requests_desc">Tất cả lời mời kết bạn người khác gửi cho bạn sẽ hiển thị ở đây.</string>
+    <string name="outgoing_friend_requests_desc">Tất cả lời mời kết bạn bạn đã gửi sẽ hiển thị ở đây.</string>
+    <string name="received">Đã nhận</string>
+    <string name="sent">Đã gửi</string>
+    <string name="delete">Xóa</string>
+    <string name="approve">Chấp nhận</string>
+    <string name="cancel_request">Hủy</string>
+
+    <!-- QR Code -->
+    <string name="qr_title">Quét mã QR</string>
+    <string name="qr_scan">Quét QR</string>
+    <string name="qr_my_code">Mã QR của tôi</string>
+    <string name="qr_show_my_code">Hiện mã QR của tôi</string>
+    <string name="qr_scan_from_gallery">Quét từ thư viện</string>
+    <string name="qr_scanning">Đang quét...</string>
+    <string name="qr_camera_permission_denied">Không có quyền truy cập camera. Vui lòng bật quyền trong cài đặt.</string>
+    <string name="qr_invalid_code">Mã QR không hợp lệ</string>
+    <string name="qr_confirm_login_title">Xác nhận đăng nhập</string>
+    <string name="qr_confirm_login_message">Bạn có muốn đăng nhập thiết bị này không?</string>
+    <string name="qr_confirm_transfer_title">Xác nhận chuyển tiền</string>
+    <string name="qr_confirm_transfer_message">Bạn có muốn chuyển tiền đến tài khoản này không?</string>
+    <string name="qr_confirm">Xác nhận</string>
+    <string name="qr_cancel">Hủy</string>
+    <string name="qr_copy">Sao chép</string>
+    <string name="qr_copied">Đã sao chép</string>
+    <string name="qr_error">Lỗi QR</string>
+    <string name="qr_open_settings">Mở cài đặt</string>
 </resources>

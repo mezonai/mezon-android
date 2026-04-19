@@ -35,7 +35,12 @@ import kotlinx.coroutines.launch
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.Typeface
+
 class SettingsFragment : BaseFragment() {
+
+    fun openFriendRequests() {
+        presentFragment(FriendRequestsFragment())
+    }
 
     companion object {
         private const val DEBOUNCE_MS = 300L
@@ -168,7 +173,7 @@ class SettingsFragment : BaseFragment() {
                 null,
                 true,
                 false,
-                null
+                { openFriendRequests() }
             ),
             MenuItem(
                 getString(R.string.setting_scan_qr),
@@ -176,7 +181,7 @@ class SettingsFragment : BaseFragment() {
                 null,
                 true,
                 false,
-                null
+                { openQrScanner() }
             ),
             MenuItem(
                 getString(R.string.setting_devices),
@@ -462,5 +467,11 @@ class SettingsFragment : BaseFragment() {
                 onLogout?.invoke()
             }
         }.show()
+    }
+
+    // Present the QR Scanner fragment (to be implemented)
+    private fun openQrScanner() {
+        val activity = getParentActivity() ?: return
+        activity.startActivity(android.content.Intent(activity, com.mezon.mobile.qr.QrScannerActivity::class.java))
     }
 }

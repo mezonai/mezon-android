@@ -5,6 +5,10 @@ object NavRoutes {
     const val HOME = "home"
     const val CHAT = "chat/{channelId}/{channelName}/{clanId}/{channelType}"
     const val COMPONENT_PREVIEW = "component_preview"
+    const val QR_SCANNER = "qr_scanner"
+    const val MY_QR = "my_qr"
+    const val CONFIRM_LOGIN = "confirm_login"
+    const val CONFIRM_TRANSFER = "confirm_transfer"
 
     fun chatRoute(
         channelId: Long,

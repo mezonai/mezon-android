@@ -31,6 +31,7 @@ import com.mezon.mezon.api.Session
 import com.mezon.mezon.api.UploadAttachment
 import com.mezon.mezon.api.uploadAttachmentRequest
 import com.mezon.mezon.api.accountEmail
+import com.mezon.mezon.api.confirmLoginRequest
 import com.mezon.mezon.api.blockFriendsRequest
 import com.mezon.mezon.api.deleteNotificationsRequest
 import com.mezon.mezon.api.filterParam
@@ -220,6 +221,20 @@ class MezonApi @Inject constructor(
 
         val session = Session.parseFrom(response.readBytes())
         return session
+    }
+
+    suspend fun confirmLoginRequest(
+        apiUrl: String,
+        token: String,
+        loginId: Long,
+        isRemember: Boolean = false
+    ): Session {
+        val request = confirmLoginRequest {
+            this.loginId = loginId
+            this.isRemember = isRemember
+        }
+        val bytes = rpc(apiUrl, token, "ConfirmLogin", request.toByteArray())
+        return Session.parseFrom(bytes)
     }
 
     suspend fun listChannelDescs(
@@ -792,6 +807,19 @@ class MezonApi @Inject constructor(
         if (!response.status.isSuccess()) {
             throw RuntimeException("File upload failed (${response.status.value})")
         }
+    }
+
+    suspend fun addFriends(
+        apiUrl: String,
+        token: String,
+        ids: List<Long>,
+        usernames: List<String>
+    ): ByteArray {
+        val request = com.mezon.mezon.api.AddFriendsRequest.newBuilder()
+            .addAllIds(ids)
+            .addAllUsernames(usernames)
+            .build()
+        return rpc(apiUrl, token, "AddFriends", request.toByteArray())
     }
 
 }
