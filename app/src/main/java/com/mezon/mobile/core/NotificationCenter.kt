@@ -119,6 +119,12 @@ class NotificationCenter(val currentAccount: Int) {
         val pinMessageRemoved = nextId()
         val jumpToMessage = nextId()
 
+        val voiceChannelMembersChanged = nextId()
+        val voiceLeftRoom = nextId()
+        val voiceRoomDisconnected = nextId()
+        val voiceReactionReceived = nextId()
+        val voiceAiAgentStateChanged = nextId()
+
         const val UPDATE_MASK_NAME = 1
         const val UPDATE_MASK_AVATAR = 2
         const val UPDATE_MASK_STATUS = 4

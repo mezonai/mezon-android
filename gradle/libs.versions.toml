@@ -29,6 +29,7 @@ fragmentKtx = "1.6.2"
 swiperefreshlayout = "1.1.0"
 firebaseBom = "33.1.0"
 googleServices = "4.4.2"
+livekit = "2.24.0"
 
 [libraries]
 androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
@@ -76,6 +77,7 @@ firebase-messaging = { group = "com.google.firebase", name = "firebase-messaging
 androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
 androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
+livekit-android = { group = "io.livekit", name = "livekit-android", version.ref = "livekit" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

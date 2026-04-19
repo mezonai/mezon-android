@@ -1,11 +1,14 @@
 package com.mezon.mobile
 
 import android.Manifest
+import android.app.PictureInPictureParams
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.util.Rational
 import android.view.ActionMode
 import android.view.Menu
 import android.view.ViewGroup
@@ -30,6 +33,8 @@ import com.mezon.mobile.home.ConnectionController
 import com.mezon.mobile.home.MainTabsActivity
 import com.mezon.mobile.home.chat.ChatFragment
 import com.mezon.mobile.home.sharing.SharingFragment
+import com.mezon.mobile.home.voice.VoiceOverlayManager
+import com.mezon.mobile.home.voice.VoiceRoomFragment
 import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.notification.FcmRepository
@@ -82,6 +87,10 @@ class MainActivity : BasePermissionsActivity(),
     lateinit var drawerLayoutContainer: DrawerLayoutContainer
         private set
 
+    var voiceOverlayManager: VoiceOverlayManager? = null
+        private set
+    private var voiceRoomFragment: VoiceRoomFragment? = null
+
     private var currentConnectionState = 0
     lateinit var autoNightConfig: AutoNightConfig
         private set
@@ -133,6 +142,11 @@ class MainActivity : BasePermissionsActivity(),
             actionBarLayout,
             ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         )
+
+        voiceOverlayManager = VoiceOverlayManager(drawerLayoutContainer, themeColors).also { manager ->
+            manager.onExpandRequest = { expandVoiceRoom() }
+        }
+
         setContentView(drawerLayoutContainer)
 
         @Suppress("DEPRECATION")
@@ -180,8 +194,11 @@ class MainActivity : BasePermissionsActivity(),
     override fun onPause() {
         super.onPause()
         isResumed = false
-        applicationPaused = true
-        actionBarLayout.onPause()
+        val inPip = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isInPictureInPictureMode
+        if (!inPip) {
+            applicationPaused = true
+            actionBarLayout.onPause()
+        }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -191,6 +208,7 @@ class MainActivity : BasePermissionsActivity(),
 
     override fun onDestroy() {
         super.onDestroy()
+        dismissVoiceRoom()
         actionBarLayout.unregisterBackCallback()
         AndroidUtilities.cancelRunOnUIThread(dismissSplashRunnable)
         splashContentObserver?.let {
@@ -219,7 +237,39 @@ class MainActivity : BasePermissionsActivity(),
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
+        if (tryEnterPiP()) return
         actionBarLayout.onUserLeaveHint()
+    }
+
+    private fun tryEnterPiP(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
+        if (voiceRoomFragment == null) return false
+        val manager = voiceOverlayManager ?: return false
+        if (!manager.isVisible()) return false
+        if (manager.isMinimized()) {
+            manager.expand()
+        }
+        try {
+            val params = PictureInPictureParams.Builder()
+                .setAspectRatio(Rational(9, 16))
+                .build()
+            return enterPictureInPictureMode(params)
+        } catch (_: Exception) {
+            return false
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: Configuration
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        val fragment = voiceRoomFragment ?: return
+        if (isInPictureInPictureMode) {
+            fragment.enterPipMode()
+        } else {
+            fragment.exitPipMode()
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -230,6 +280,11 @@ class MainActivity : BasePermissionsActivity(),
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
+        val manager = voiceOverlayManager
+        if (manager != null && manager.isExpanded()) {
+            minimizeVoiceRoom()
+            return
+        }
         if (!actionBarLayout.onBackPressedInternal()) {
             super.onBackPressed()
         }
@@ -260,6 +315,9 @@ class MainActivity : BasePermissionsActivity(),
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (!checkPermissionsResult(requestCode, permissions, grantResults)) return
+        if (voiceOverlayManager?.isVisible() == true) {
+            voiceRoomFragment?.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        }
         actionBarLayout.onRequestPermissionsResult(requestCode, permissions, grantResults)
     }
 
@@ -384,6 +442,11 @@ class MainActivity : BasePermissionsActivity(),
     }
 
     private fun switchToLogin() {
+        dismissVoiceRoom()
+        val entryPoint = EntryPointAccessors.fromApplication(
+            applicationContext, FragmentEntryPoint::class.java
+        )
+        entryPoint.voiceController().cleanup()
         actionBarLayout.removeAllFragments()
         actionBarLayout.containerView.removeAllViews()
         actionBarLayout.containerViewBack.removeAllViews()
@@ -399,6 +462,60 @@ class MainActivity : BasePermissionsActivity(),
         }
         showHome()
     }
+
+    fun showVoiceRoom(channelId: Long, clanId: Long, channelLabel: String) {
+        val manager = voiceOverlayManager ?: return
+        val existing = voiceRoomFragment
+        if (existing != null) {
+            val sameRoom = existing.getChannelId() == channelId && existing.getClanId() == clanId
+            if (sameRoom && manager.isVisible()) {
+                manager.expand()
+                return
+            }
+            dismissVoiceRoom()
+        }
+        val fragment = VoiceRoomFragment.create(channelId, clanId, channelLabel)
+        fragment.themeColors = themeColors
+        fragment.notificationCenter = notificationCenter
+        fragment.parentLayout = actionBarLayout
+        fragment.inject(this)
+        fragment.onFragmentCreate()
+        val contentView = fragment.createView(this)
+        voiceRoomFragment = fragment
+        fragment.onResume()
+        fragment.onBecomeFullyVisible()
+        manager.showExpanded(contentView)
+    }
+
+    fun minimizeVoiceRoom() {
+        val manager = voiceOverlayManager ?: return
+        val fragment = voiceRoomFragment ?: return
+        val focused = fragment.getFocusedContent()
+        if (focused != null) {
+            manager.minimize(
+                fragment.getRoom(), focused.videoTrack,
+                focused.name, focused.avatarUrl, focused.isMuted, focused.userId
+            )
+        } else {
+            manager.minimize(null, null, fragment.getChannelLabel(), null, false, 0L)
+        }
+    }
+
+    fun expandVoiceRoom() {
+        val manager = voiceOverlayManager ?: return
+        manager.expand()
+    }
+
+    fun dismissVoiceRoom() {
+        val manager = voiceOverlayManager ?: return
+        manager.dismiss()
+        voiceRoomFragment?.onPause()
+        voiceRoomFragment?.onFragmentDestroy()
+        voiceRoomFragment = null
+    }
+
+    fun isVoiceOverlayVisible(): Boolean = voiceOverlayManager?.isVisible() == true
+    fun isVoiceOverlayExpanded(): Boolean = voiceOverlayManager?.isExpanded() == true
 
     fun openChat(
         channelId: Long,

@@ -41,6 +41,7 @@
     <string name="common_detail">Chi tiết</string>
     <string name="common_forwarded">Đã chuyển tiếp</string>
     <string name="common_send_message">Nhắn tin</string>
+    <string name="feature_coming_soon">Sắp có</string>
     <string name="common_just_now">Vừa xong</string>
     <string name="common_today">Hôm nay</string>
     <string name="common_today_at">Hôm nay lúc</string>
@@ -406,4 +407,19 @@
     <string name="qr_copied">Đã sao chép</string>
     <string name="qr_error">Lỗi QR</string>
     <string name="qr_open_settings">Mở cài đặt</string>
+    <string name="voice_room_agent_request_failed">Không cập nhật được trợ lý thoại.</string>
+    <string name="voice_room_agent_server_error">Lỗi máy chủ khi cập nhật trợ lý thoại. Vui lòng thử lại sau.</string>
+    <string name="voice_room_settings_title">Cài đặt kênh thoại</string>
+    <string name="voice_room_mute_voice">Tắt tiếng</string>
+    <string name="voice_room_kick_voice">Xóa khỏi kênh thoại</string>
+    <string name="voice_profile_in_voice">Đang trong thoại</string>
+    <string name="voice_profile_join_voice">Tham gia thoại</string>
+    <string name="voice_room_mute_modal_title">Tắt tiếng thành viên</string>
+    <string name="voice_room_mute_modal_content">Xác nhận tắt tiếng \"%1$s\"?</string>
+    <string name="voice_room_mute_modal_action">Tắt tiếng</string>
+    <string name="voice_room_kick_modal_title">Đuổi thành viên</string>
+    <string name="voice_room_kick_modal_content">Xác nhận đuổi \"%1$s\" khỏi voice?</string>
+    <string name="voice_room_kick_modal_action">Đuổi</string>
+    <string name="voice_room_moderation_mute_failed">Không thể tắt tiếng thành viên này.</string>
+    <string name="voice_room_moderation_kick_failed">Không thể đuổi thành viên này.</string>
 </resources>

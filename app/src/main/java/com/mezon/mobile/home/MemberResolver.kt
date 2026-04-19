@@ -3,6 +3,9 @@ package com.mezon.mobile.home
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.messages.DmParticipant
 import com.mezon.mobile.home.profile.UserController
+import com.mezon.mobile.network.STREAM_MODE_CHANNEL
+import com.mezon.mobile.network.STREAM_MODE_THREAD
+import com.mezon.mobile.network.channelTypeToStreamMode
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -22,7 +25,9 @@ class MemberResolver @Inject constructor(
     ): ClanMember? {
         if (userId == 0L) return null
 
-        if (userId == userController.userId) return buildSelfMember()
+        if (userId == userController.userId) {
+            return buildSelfMemberInContext(clanId, channelId, channelType)
+        }
 
         if (clanId != 0L) {
             val member = findClanOrChannelMember(userId, clanId, channelId)
@@ -46,7 +51,7 @@ class MemberResolver @Inject constructor(
 
         val selfId = userController.userId
         if (selfId != 0L && selfId in userIds) {
-            result[selfId] = buildSelfMember()
+            result[selfId] = buildSelfMemberInContext(clanId, channelId, channelType)
         }
 
         if (clanId != 0L) {
@@ -80,17 +85,27 @@ class MemberResolver @Inject constructor(
         return participants.map { it.toClanMember() }
     }
 
-    private fun buildSelfMember(): ClanMember = ClanMember(
-        userId = userController.userId,
-        username = userController.username,
-        displayName = userController.displayName,
-        avatarUrl = userController.avatarUrl,
-        isOnline = true,
-        clanNick = "",
-        clanAvatar = "",
-        clanId = 0L,
-        roleIds = emptyList()
-    )
+    private fun buildSelfMemberInContext(clanId: Long, channelId: Long, channelType: Int): ClanMember {
+        val uc = userController
+        val selfId = uc.userId
+        val globalFallback = ClanMember(
+            userId = selfId,
+            username = uc.username,
+            displayName = uc.displayName,
+            avatarUrl = uc.avatarUrl,
+            isOnline = true,
+            clanNick = "",
+            clanAvatar = "",
+            clanId = if (clanId != 0L) clanId else 0L,
+            roleIds = emptyList()
+        )
+        if (clanId == 0L) return globalFallback
+        val mode = channelTypeToStreamMode(channelType)
+        val useClanPersona = mode == STREAM_MODE_CHANNEL || mode == STREAM_MODE_THREAD
+        if (!useClanPersona) return globalFallback
+        val member = resolveChannelMemberList(clanId, channelId).firstOrNull { it.userId == selfId }
+        return member ?: globalFallback
+    }
 
     private fun resolveChannelMemberList(clanId: Long, channelId: Long): List<ClanMember> {
         val ch = channelController.findChannelById(channelId)

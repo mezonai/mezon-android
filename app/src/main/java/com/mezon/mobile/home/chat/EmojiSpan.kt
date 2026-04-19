@@ -68,7 +68,6 @@ class EmojiSpan(
             canvas.drawBitmap(cached, null, tmpRect, null)
             return
         }
-
         drawPlaceholder(canvas, x, top, bottom)
         loadStarted = true
         cancellable = loader.load(

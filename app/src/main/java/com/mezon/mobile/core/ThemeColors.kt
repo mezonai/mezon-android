@@ -449,6 +449,13 @@ class ThemeColors @Inject constructor() {
         else -> 0xFFDADADA.toInt()
     }
 
+    val tabIconActivePrimary: Int get() = when (resolvedMode) {
+        ThemeMode.LIGHT -> 0xFF5A62F4.toInt()
+        ThemeMode.DARK -> 0xFF5A62F4.toInt()
+        ThemeMode.ABYSS -> 0xFF5A48FB.toInt()
+        else -> 0xFF5A62F4.toInt()
+    }
+
     // Tab label active color = textStrong
     val tabLabelActive: Int get() = when (resolvedMode) {
         ThemeMode.LIGHT -> 0xFF070709.toInt()    // light.textStrong
@@ -479,6 +486,15 @@ class ThemeColors @Inject constructor() {
         else -> 0xFF121218.toInt()
     }
 
+    val profileSheetAvatarRingColor: Int get() = when (resolvedMode) {
+        ThemeMode.LIGHT -> 0xFFF4F4F8.toInt()
+        ThemeMode.DARK -> 0xFF121218.toInt()
+        ThemeMode.ABYSS -> 0xFF110B33.toInt()
+        else -> 0xFF121218.toInt()
+    }
+
+    val profileSheetBackdropFallback: Int get() = 0xFF808080.toInt()
+
     val tertiary: Int get() = when (resolvedMode) {
         ThemeMode.LIGHT -> 0xFFF2F3F6.toInt()
         ThemeMode.DARK -> 0xFF383A43.toInt()
@@ -491,6 +507,27 @@ class ThemeColors @Inject constructor() {
         ThemeMode.DARK -> 0xFF6B6B6B.toInt()
         ThemeMode.ABYSS -> 0xFF5A5A6E.toInt()
         else -> 0xFF6B6B6B.toInt()
+    }
+
+    val borderDim: Int get() = when (resolvedMode) {
+        ThemeMode.LIGHT -> 0xFFDFDFDF.toInt()
+        ThemeMode.DARK -> 0xFF2F2F37.toInt()
+        ThemeMode.ABYSS -> 0xFF16206A.toInt()
+        else -> 0xFF2F2F37.toInt()
+    }
+
+    val border: Int get() = when (resolvedMode) {
+        ThemeMode.LIGHT -> 0xFFEDEDF1.toInt()
+        ThemeMode.DARK -> 0xFF2A2D31.toInt()
+        ThemeMode.ABYSS -> 0xFF16206A.toInt()
+        else -> 0xFF2A2D31.toInt()
+    }
+
+    val colorText: Int get() = when (resolvedMode) {
+        ThemeMode.LIGHT -> 0xFF29292B.toInt()
+        ThemeMode.DARK -> 0xFFCCCCCC.toInt()
+        ThemeMode.ABYSS -> 0xFFD6D0EB.toInt()
+        else -> 0xFFCCCCCC.toInt()
     }
 
     val colorAvatarDefault: Int get() = when (resolvedMode) {

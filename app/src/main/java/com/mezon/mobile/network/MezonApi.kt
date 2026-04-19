@@ -53,6 +53,11 @@ import com.mezon.mezon.api.listFriendsRequest
 import com.mezon.mezon.api.listNotificationsRequest
 import com.mezon.mezon.api.searchMessageRequest
 import com.mezon.mezon.api.sessionRefreshRequest
+import com.mezon.mezon.api.GenerateMeetTokenResponse
+import com.mezon.mezon.api.VoiceChannelUserList
+import com.mezon.mezon.api.generateMeetTokenRequest
+import com.mezon.mezon.api.meetParticipantRequest
+import com.mezon.mezon.api.updateAIAgentRequest
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -170,7 +175,8 @@ class MezonApi @Inject constructor(
         method: String,
         body: ByteArray
     ): ByteArray {
-        val url = "$apiUrl/mezon.api.Mezon/$method"
+        val base = apiUrl.trimEnd('/')
+        val url = "$base/mezon.api.Mezon/$method"
         val response = httpClient.post(url) {
             header(HttpHeaders.Authorization, "Bearer $token")
             header(HttpHeaders.Accept, CONTENT_TYPE_PROTO.toString())
@@ -202,7 +208,8 @@ class MezonApi @Inject constructor(
             "$SERVER_KEY:".toByteArray(),
             Base64.NO_WRAP
         )
-        val url = "$apiUrl/mezon.api.Mezon/SessionRefresh"
+        val base = apiUrl.trimEnd('/')
+        val url = "$base/mezon.api.Mezon/SessionRefresh"
         val response = httpClient.post(url) {
             header(HttpHeaders.Authorization, "Basic $basicCreds")
             header(HttpHeaders.Accept, CONTENT_TYPE_PROTO.toString())
@@ -283,7 +290,6 @@ class MezonApi @Inject constructor(
     ): ListChannelBadgeCountResponse {
         val request = listChannelBadgeCountRequest {
             this.clanId = clanId
-            this.isMobile = true
         }
         val bytes = rpc(apiUrl, token, "ListChannelBadgeCount", request.toByteArray())
         return ListChannelBadgeCountResponse.parseFrom(bytes)
@@ -754,6 +760,94 @@ class MezonApi @Inject constructor(
     ): StickerListedResponse {
         val bytes = rpc(apiUrl, token, "GetListStickersByUserId", ByteArray(0))
         return StickerListedResponse.parseFrom(bytes)
+    }
+
+    suspend fun generateMeetToken(
+        apiUrl: String,
+        token: String,
+        channelId: Long,
+        roomName: String
+    ): GenerateMeetTokenResponse {
+        val request = generateMeetTokenRequest {
+            this.channelId = channelId
+            this.roomName = roomName
+        }
+        val bytes = rpc(apiUrl, token, "GenerateMeetToken", request.toByteArray())
+        return GenerateMeetTokenResponse.parseFrom(bytes)
+    }
+
+    suspend fun listChannelVoiceUsers(
+        apiUrl: String,
+        token: String,
+        clanId: Long
+    ): VoiceChannelUserList {
+        val request = listChannelUsersRequest {
+            this.clanId = clanId
+            this.limit = 100
+            this.state = 1
+        }
+        val bytes = rpc(apiUrl, token, "ListChannelVoiceUsers", request.toByteArray())
+        return VoiceChannelUserList.parseFrom(bytes)
+    }
+
+    suspend fun removeMeetParticipant(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        channelId: Long,
+        roomName: String,
+        username: String
+    ): ByteArray {
+        val request = meetParticipantRequest {
+            this.clanId = clanId
+            this.channelId = channelId
+            this.roomName = roomName
+            this.username = username
+        }
+        return rpc(apiUrl, token, "RemoveParticipantMezonMeet", request.toByteArray())
+    }
+
+    suspend fun muteMeetParticipant(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        channelId: Long,
+        roomName: String,
+        username: String
+    ): ByteArray {
+        val request = meetParticipantRequest {
+            this.clanId = clanId
+            this.channelId = channelId
+            this.roomName = roomName
+            this.username = username
+        }
+        return rpc(apiUrl, token, "MuteParticipantMezonMeet", request.toByteArray())
+    }
+
+    suspend fun addAgentToChannel(
+        apiUrl: String,
+        token: String,
+        channelId: Long,
+        roomName: String
+    ): ByteArray {
+        val request = updateAIAgentRequest {
+            this.channelId = channelId
+            this.roomName = roomName
+        }
+        return rpc(apiUrl, token, "AddAgentToChannel", request.toByteArray())
+    }
+
+    suspend fun disconnectAgent(
+        apiUrl: String,
+        token: String,
+        channelId: Long,
+        roomName: String
+    ): ByteArray {
+        val request = updateAIAgentRequest {
+            this.channelId = channelId
+            this.roomName = roomName
+        }
+        return rpc(apiUrl, token, "DisconnectAgent", request.toByteArray())
     }
 
     suspend fun listFavoriteChannels(

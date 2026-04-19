@@ -2,6 +2,102 @@
 
 Kotlin chat app porting from React Native. Targets scroll performance using custom Canvas-drawn Views, a controller-based state layer, and `NotificationCenter` for decoupled UI updates.
 
+---
+
+## Setup
+
+### Prerequisites
+
+| Tool | Version |
+|------|---------|
+| Android Studio | Hedgehog (2023.1.1) or newer |
+| JDK | 17+ (bundled with Android Studio) |
+| Android SDK | compileSdk 35, minSdk 24 |
+| Kotlin | 1.9.0 |
+
+### 1. Clone repositories
+
+```bash
+# App chính
+git clone <mezon-android-repo> ~/AndroidStudioProjects/mezon
+
+# Proto definitions — clone ở bất kỳ đâu, ghi nhớ đường dẫn tuyệt đối
+git clone https://github.com/mezonai/mezon-protocol.git ~/dev/company/mezon-protocol
+
+# (Tùy chọn) React Native reference — dùng để hiểu UI/UX khi porting feature
+git clone <mezon-reactnative-repo> ~/AndroidStudioProjects/mezon-reactnative
+```
+
+### 2. Tạo symlink proto
+
+Module `:core-proto` dùng symlink **absolute path** trỏ vào `mezon-protocol/` để Gradle protobuf plugin tự sinh Java + Kotlin Lite classes khi build.
+
+```bash
+cd ~/AndroidStudioProjects/mezon
+
+mkdir -p core-proto/src/main/proto
+
+# Thay /absolute/path/to/mezon-protocol bằng đường dẫn thực tế trên máy bạn
+PROTO_DIR="/absolute/path/to/mezon-protocol"
+
+ln -sf "$PROTO_DIR/api"   core-proto/src/main/proto/api
+ln -sf "$PROTO_DIR/rtapi" core-proto/src/main/proto/rtapi
+```
+
+Ví dụ với đường dẫn thực tế hiện tại:
+
+```bash
+ln -sf /Users/huy/dev/company/mezon-protocol/api   core-proto/src/main/proto/api
+ln -sf /Users/huy/dev/company/mezon-protocol/rtapi core-proto/src/main/proto/rtapi
+```
+
+Kiểm tra:
+
+```bash
+ls -la core-proto/src/main/proto/
+# api   -> /absolute/path/to/mezon-protocol/api
+# rtapi -> /absolute/path/to/mezon-protocol/rtapi
+```
+
+> Symlink phải dùng **absolute path** (không dùng relative `../../../`). Gradle protobuf plugin follow symlink theo absolute path khi resolve import trong `.proto` files.
+
+### 3. Thêm google-services.json
+
+File `app/google-services.json` không được commit vào git. Lấy file từ Firebase Console (project `mezon-772fa`) hoặc từ teammate, đặt vào:
+
+```
+mezon/app/google-services.json
+```
+
+### 4. Sync và build
+
+Mở project `mezon/` bằng Android Studio, chờ Gradle sync, sau đó:
+
+```bash
+cd mezon
+
+# Sinh proto classes + build debug APK
+./gradlew assembleDebug
+
+# Cài thẳng lên device/emulator
+./gradlew installDebug
+```
+
+### 5. Cập nhật proto (khi mezon-protocol có bản mới)
+
+```bash
+cd mezon-protocol
+git pull origin main
+
+cd ../mezon
+./gradlew :core-proto:generateDebugProto
+
+# Kiểm tra compile không lỗi
+./gradlew app:compileDebugKotlin 2>&1 | grep "^e:"
+```
+
+---
+
 ## Build
 
 ```bash
@@ -93,7 +189,7 @@ app/src/main/java/com/mezon/mobile/
 │   │   ├── ChatAdapter.kt    # RecyclerView adapter, VIEW_TYPE_MESSAGE / LOADING
 │   │   ├── ChatMessageCell.kt  # Canvas-drawn bubble (local Paint per instance)
 │   │   ├── MessageEntity.kt
-│   │   └── ImageReceiver.kt  # Coil async image into custom View
+│   │   └── ImageReceiver.kt  # MezonImageLoader async image into custom View
 │   ├── clans/
 │   │   ├── ClansController.kt  # clan list StateFlow + Room dual-write
 │   │   ├── ChannelController.kt  # per-clan channel cache, findChannelById
@@ -195,7 +291,7 @@ app/src/main/java/com/mezon/mobile/
 | REST | Ktor 2.3.12 + OkHttp 4.12.0 engine |
 | WebSocket | OkHttp 4.12.0 + Protobuf binary (`Envelope` oneof) |
 | Database | Room 2.6.1, WAL mode, `@Upsert` |
-| Images | Coil 2.6.0 (loaded into custom Views via `ImageReceiver`) |
+| Images | `MezonImageLoader` (custom OkHttp + LruCache + disk cache singleton, loaded into custom Views via `ImageReceiver`) |
 | Session | DataStore Preferences 1.1.1 |
 | Push | Firebase Cloud Messaging (BOM 33.1.0) |
 | Proto | Protobuf Lite 4.28.2 (`:core-proto` module, auto-generated) |

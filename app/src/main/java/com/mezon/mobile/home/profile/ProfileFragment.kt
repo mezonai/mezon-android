@@ -24,22 +24,14 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
-import android.widget.Toast
 import com.mezon.mobile.R
-import com.mezon.mobile.auth.AuthRepository
-import com.mezon.mobile.core.AlertsCreator
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.ui.cells.AvatarView
 import com.mezon.mobile.ui.cells.MezonIcon
-import com.mezon.mobile.ui.cells.SelectPopup
 import com.mezon.mobile.ui.cells.ToastOverlay
-import com.mezon.mobile.ui.theme.ThemeMode
-import com.mezon.mobile.session.LocaleManager
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -56,11 +48,14 @@ class ProfileFragment : BaseFragment() {
         private val VI_LOCALE = Locale("vi", "VN")
         private const val PROFILE_AVATAR_SIZE_DP = 96
         private const val PROFILE_AVATAR_CORNER_RADIUS_DP = 22f
+        private const val MAX_FRIENDS_DISPLAY = 5
     }
 
     private var cachedDateFormat: SimpleDateFormat? = null
     private var cachedLocale: Locale? = null
-    
+
+    private var selectableItemBgResId: Int = 0
+
     private fun getDateFormat(): SimpleDateFormat {
         val currentLocale = Locale.getDefault()
         if (cachedDateFormat == null || cachedLocale != currentLocale) {
@@ -70,9 +65,17 @@ class ProfileFragment : BaseFragment() {
         return cachedDateFormat!!
     }
 
+    private fun selectableItemBgResId(context: Context): Int {
+        if (selectableItemBgResId == 0) {
+            val outValue = TypedValue()
+            context.theme.resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)
+            selectableItemBgResId = outValue.resourceId
+        }
+        return selectableItemBgResId
+    }
+
     private lateinit var userController: UserController
     private lateinit var accountController: AccountController
-    private lateinit var authRepository: AuthRepository
 
     var onLogout: (() -> Unit)? = null
 
@@ -94,7 +97,6 @@ class ProfileFragment : BaseFragment() {
     override fun onInject(entryPoint: FragmentEntryPoint) {
         userController = entryPoint.userController()
         accountController = entryPoint.accountController()
-        authRepository = entryPoint.authRepository()
     }
 
     override fun onFragmentCreate(): Boolean {
@@ -446,7 +448,36 @@ class ProfileFragment : BaseFragment() {
         friendsCard.addView(friendsLabel, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
 
         friendsAvatarsContainer = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
-        friendsCard.addView(friendsAvatarsContainer, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { rightMargin = LayoutHelper.dp(8) })
+        friendsCard.addView(
+            friendsAvatarsContainer,
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LayoutHelper.dp(32))
+                .apply { rightMargin = LayoutHelper.dp(8) }
+        )
+
+        val friendAvatarBgColor = themeColors.surfaceVariant
+        val friendSlotSize = LayoutHelper.dp(32)
+        val friendAvatarSize = LayoutHelper.dp(28)
+        val friendSlotOverlap = -LayoutHelper.dp(10)
+        for (i in 0 until MAX_FRIENDS_DISPLAY) {
+            val slot = FrameLayout(context).apply {
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(friendAvatarBgColor)
+                }
+                visibility = View.INVISIBLE
+            }
+            val slotAvatar = AvatarView(context).apply {
+                setSizeDp(28)
+                setRoundRadius(14f)
+            }
+            slot.addView(slotAvatar, FrameLayout.LayoutParams(friendAvatarSize, friendAvatarSize, Gravity.CENTER))
+            friendsAvatarsContainer.addView(
+                slot,
+                LinearLayout.LayoutParams(friendSlotSize, friendSlotSize).apply {
+                    if (i > 0) leftMargin = friendSlotOverlap
+                }
+            )
+        }
 
         val friendsChevron = ImageView(context).apply {
             setImageResource(MezonIcon.chevronSmallRightIcon.resId)
@@ -479,51 +510,6 @@ class ProfileFragment : BaseFragment() {
 
         updateUI()
         return root
-    }
-
-    private fun createSettingsSection(context: Context): LinearLayout {
-        val section = createCardSection(context)
-        section.addView(createSettingsRow(context, getString(R.string.setting_theme_title), MezonIcon.paintPaletteIcon) { showThemeSelector(it) })
-        section.addView(createSettingsRow(context, getString(R.string.setting_app_language), MezonIcon.languageIcon) { showLanguageSelector(it) }.apply { (layoutParams as? LinearLayout.LayoutParams)?.topMargin = LayoutHelper.dp(8) })
-        section.addView(createSettingsRow(context, getString(R.string.profile_account_settings), MezonIcon.settingIcon) { openAccountSetting() }.apply { (layoutParams as? LinearLayout.LayoutParams)?.topMargin = LayoutHelper.dp(8) })
-        section.addView(createSettingsRow(context, "Component Preview", MezonIcon.settingIcon) { presentFragment(ComponentPreviewFragment()) }.apply { (layoutParams as? LinearLayout.LayoutParams)?.topMargin = LayoutHelper.dp(8) })
-        val logoutRow = createSettingsRow(context, getString(R.string.profile_sign_out), MezonIcon.doorExitIcon) { confirmLogout() }
-        (logoutRow.getChildAt(1) as? TextView)?.setTextColor(themeColors.error)
-        logoutRow.layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = LayoutHelper.dp(16) }
-        section.addView(logoutRow)
-        return section
-    }
-
-    private fun createSettingsRow(context: Context, title: String, icon: MezonIcon, onClick: (View) -> Unit): LinearLayout {
-        val row = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            val pad = LayoutHelper.dp(6)
-            setPadding(0, pad, 0, pad)
-            isClickable = true; isFocusable = true
-            val outValue = TypedValue()
-            context.theme.resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)
-            foreground = androidx.core.content.ContextCompat.getDrawable(context, outValue.resourceId)
-            setOnClickListener { onClick(it) }
-        }
-        val iconView = ImageView(context).apply {
-            setImageResource(icon.resId)
-            colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
-            scaleType = ImageView.ScaleType.CENTER_INSIDE
-        }
-        row.addView(iconView, LinearLayout.LayoutParams(LayoutHelper.dp(24), LayoutHelper.dp(24)))
-        val label = TextView(context).apply {
-            text = title; setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f); setTextColor(themeColors.onSurface)
-            setPadding(LayoutHelper.dp(14), 0, 0, 0)
-        }
-        row.addView(label, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        val chevron = ImageView(context).apply {
-            setImageResource(MezonIcon.chevronSmallRightIcon.resId)
-            colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
-            scaleType = ImageView.ScaleType.CENTER_INSIDE
-        }
-        row.addView(chevron, LinearLayout.LayoutParams(LayoutHelper.dp(18), LayoutHelper.dp(18)))
-        return row
     }
 
     private fun createCircleIconButton(context: Context, icon: MezonIcon, onClick: () -> Unit): FrameLayout {
@@ -564,9 +550,7 @@ class ProfileFragment : BaseFragment() {
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
             isClickable = true; isFocusable = true
-            val outValue = TypedValue()
-            context.theme.resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)
-            foreground = androidx.core.content.ContextCompat.getDrawable(context, outValue.resourceId)
+            foreground = androidx.core.content.ContextCompat.getDrawable(context, selectableItemBgResId(context))
         }
         val iconView = ImageView(context).apply {
             setImageResource(icon.resId); scaleType = ImageView.ScaleType.CENTER_INSIDE
@@ -605,7 +589,6 @@ class ProfileFragment : BaseFragment() {
     private fun updateUI() {
         if (!::avatarView.isInitialized) return
         val info = accountController.accountInfo.value
-        android.util.Log.d("ProfileFragment", "updateUI: info.userStatus='${info.userStatus}', userController.userStatus='${userController.userStatus}'")
 
         val name = info.displayName.ifEmpty { info.username.ifEmpty { userController.displayName.ifEmpty { userController.username } } }
         val user = info.username.ifEmpty { userController.username }
@@ -673,40 +656,19 @@ class ProfileFragment : BaseFragment() {
         }
 
         val friendsList = accountController.friends.value
-        val displayFriends = friendsList.take(5)
-        if (displayFriends.isNotEmpty()) {
-            friendsAvatarsContainer.visibility = View.VISIBLE
-            if (friendsAvatarsContainer.tag != "friends" || friendsAvatarsContainer.childCount != displayFriends.size) {
-                friendsAvatarsContainer.removeAllViews()
-                friendsAvatarsContainer.tag = "friends"
-                for (i in displayFriends.indices) {
-                    val fAvatarContainer = FrameLayout(requireContext()).apply {
-                        val bg = GradientDrawable().apply {
-                            shape = GradientDrawable.OVAL
-                            setColor(themeColors.surfaceVariant)
-                        }
-                        background = bg
-                    }
-                    val fAvatar = AvatarView(requireContext()).apply {
-                        setSizeDp(28)
-                        setRoundRadius(14f)
-                    }
-                    fAvatarContainer.addView(fAvatar, FrameLayout.LayoutParams(LayoutHelper.dp(28), LayoutHelper.dp(28), Gravity.CENTER))
-                    friendsAvatarsContainer.addView(fAvatarContainer, LinearLayout.LayoutParams(LayoutHelper.dp(32), LayoutHelper.dp(32)).apply { if (i > 0) leftMargin = -LayoutHelper.dp(10) })
-                }
+        val displayCount = friendsList.size.coerceAtMost(MAX_FRIENDS_DISPLAY)
+        val slotCount = friendsAvatarsContainer.childCount
+        for (i in 0 until slotCount) {
+            val slot = friendsAvatarsContainer.getChildAt(i) as FrameLayout
+            if (i < displayCount) {
+                val friendUser = friendsList[i].user
+                val slotAvatar = slot.getChildAt(0) as AvatarView
+                slotAvatar.setInfo(friendUser.id, friendUser.displayName.ifEmpty { friendUser.username })
+                if (friendUser.avatarUrl.isNotEmpty()) slotAvatar.setImageUrl(friendUser.avatarUrl)
+                if (slot.visibility != View.VISIBLE) slot.visibility = View.VISIBLE
+            } else {
+                if (slot.visibility != View.INVISIBLE) slot.visibility = View.INVISIBLE
             }
-            
-            for (i in displayFriends.indices) {
-                val friendUser = displayFriends[i].user
-                val fAvatarContainer = friendsAvatarsContainer.getChildAt(i) as FrameLayout
-                val fAvatar = fAvatarContainer.getChildAt(0) as AvatarView
-                fAvatar.setInfo(friendUser.id, friendUser.displayName.ifEmpty { friendUser.username })
-                if (friendUser.avatarUrl.isNotEmpty()) fAvatar.setImageUrl(friendUser.avatarUrl)
-            }
-        } else {
-            friendsAvatarsContainer.visibility = View.GONE
-            friendsAvatarsContainer.removeAllViews()
-            friendsAvatarsContainer.tag = "empty"
         }
     }
 
@@ -729,40 +691,5 @@ class ProfileFragment : BaseFragment() {
         )
     }
 
-    private fun openAccountSetting() {
-        presentFragment(AccountSettingFragment().apply {
-            onNavigateUpdateEmail = { presentFragment(UpdateEmailFragment.newInstance(it)) }
-            onNavigateUpdatePhone = { presentFragment(UpdatePhoneFragment.newInstance(it)) }
-            onNavigateBlockedUsers = { presentFragment(BlockedUsersFragment()) }
-        })
-    }
-
     private fun navigateToProfileSetting() = presentFragment(EditProfileFragment())
-    private fun showThemeSelector(anchor: View) {
-        val popup = SelectPopup(anchor.context, themeColors)
-        val entries = ThemeMode.entries; val items = entries.map { getThemeDisplayName(it) }
-        popup.setItems(items, entries.indexOf(userController.themeMode))
-        popup.setOnItemSelectedListener { userController.applyTheme(entries[it]) }
-        popup.show(anchor)
-    }
-    private fun showLanguageSelector(anchor: View) {
-        val popup = SelectPopup(anchor.context, themeColors)
-        val items = listOf(getString(R.string.setting_language_english), getString(R.string.setting_language_vietnamese))
-        val tags = listOf(LocaleManager.ENGLISH, LocaleManager.VIETNAMESE)
-        popup.setItems(items, tags.indexOf(userController.languageTag).let { if (it < 0) 0 else it })
-        popup.setOnItemSelectedListener { userController.applyLanguage(tags[it]) }
-        popup.show(anchor)
-    }
-    private fun confirmLogout() {
-        AlertsCreator.createConfirmDialog(requireContext(), getString(R.string.setting_log_out), getString(R.string.setting_log_out_description), confirmText = getString(R.string.setting_log_out_yes), cancelText = getString(R.string.setting_log_out_no), destructive = true) {
-            fragmentScope.launch(Dispatchers.Main) { authRepository.logout(); onLogout?.invoke() }
-        }.show()
-    }
-    private fun getThemeDisplayName(mode: ThemeMode): String = when (mode) {
-        ThemeMode.LIGHT -> getString(R.string.setting_theme_light)
-        ThemeMode.DARK -> getString(R.string.setting_theme_dark)
-        ThemeMode.ABYSS -> getString(R.string.setting_theme_abyss)
-        ThemeMode.SYSTEM -> getString(R.string.setting_theme_system)
-    }
-
 }

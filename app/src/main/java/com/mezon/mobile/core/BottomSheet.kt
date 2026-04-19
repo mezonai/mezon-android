@@ -39,19 +39,7 @@ import androidx.core.view.NestedScrollingParent3
 import androidx.core.view.NestedScrollingParentHelper
 import androidx.core.view.ViewCompat
 
-/**
- * BottomSheet — ported from Telegram's BottomSheet.java
- * Full-featured bottom sheet dialog with:
- * - Swipe-to-dismiss gesture
- * - Nested scroll support (NestedScrollingParent3)
- * - Proper WindowInsets / navigation bar handling
- * - Smooth open/close animations with configurable interpolator
- * - Touch-outside dismiss
- * - Custom view / items list support
- * - Light status bar / nav bar control
- * - Dim behind control
- * - Keyboard awareness
- */
+
 open class BottomSheet(
     context: Context,
     private val needFocusable: Boolean = false
@@ -206,6 +194,8 @@ open class BottomSheet(
     private val dismissRunnable = Runnable { dismiss() }
     protected var isPortrait = true
     private var overlayDrawNavBarColor = 0
+    private val globalNotificationCenter = NotificationCenter.getGlobalInstance()
+    private var heavyOperationsAnimationPointer = 0
 
     // Swipe-to-back (horizontal) — not commonly used for message menu
     private var transitionFromRight = false
@@ -525,6 +515,7 @@ open class BottomSheet(
         containerView?.visibility = View.VISIBLE
 
         if (!onCustomOpenAnimation()) {
+            beginHeavyOperationsAnimation()
             if (useHardwareLayer) {
                 container.setLayerType(View.LAYER_TYPE_HARDWARE, null)
             }
@@ -575,6 +566,7 @@ open class BottomSheet(
                         if (currentSheetAnimation?.equals(animation) == true) {
                             currentSheetAnimation = null
                             currentSheetAnimationType = 0
+                            finishHeavyOperationsAnimation()
                             onOpenAnimationEnd()
                             delegate?.onOpenAnimationEnd()
                             if (useHardwareLayer) {
@@ -587,6 +579,7 @@ open class BottomSheet(
                         if (currentSheetAnimation?.equals(animation) == true) {
                             currentSheetAnimation = null
                             currentSheetAnimationType = 0
+                            finishHeavyOperationsAnimation()
                         }
                     }
                 })
@@ -606,6 +599,7 @@ open class BottomSheet(
         currentSheetAnimation?.cancel()
         currentSheetAnimation = null
         currentSheetAnimationType = 0
+        finishHeavyOperationsAnimation()
     }
 
     override fun dismiss() {
@@ -620,6 +614,7 @@ open class BottomSheet(
             AndroidUtilities.runOnUIThread { dismissInternal() }
         } else if (!allowCustomAnimation || !onCustomCloseAnimation()) {
             AndroidUtilities.hideKeyboard(container)
+            beginHeavyOperationsAnimation()
             currentSheetAnimationType = 2
             navigationBarAnimation?.cancel()
             navigationBarAnimation = ValueAnimator.ofFloat(navigationBarAlpha, 0f).apply {
@@ -663,6 +658,7 @@ open class BottomSheet(
                         if (currentSheetAnimation?.equals(animation) == true) {
                             currentSheetAnimation = null
                             currentSheetAnimationType = 0
+                            finishHeavyOperationsAnimation()
                             AndroidUtilities.runOnUIThread { dismissInternal() }
                         }
                     }
@@ -671,12 +667,18 @@ open class BottomSheet(
                         if (currentSheetAnimation?.equals(animation) == true) {
                             currentSheetAnimation = null
                             currentSheetAnimationType = 0
+                            finishHeavyOperationsAnimation()
                         }
                     }
                 })
                 start()
             }
         }
+    }
+
+    fun dismissWithoutAnimation() {
+        skipDismissAnimation = true
+        dismiss()
     }
 
     protected open fun onDismissAnimationStart() {}
@@ -687,6 +689,7 @@ open class BottomSheet(
         cancelSheetAnimation()
         currentSheetAnimationType = 2
 
+        beginHeavyOperationsAnimation()
         currentSheetAnimation = AnimatorSet().apply {
             val cv = containerView ?: return
             val translationYAnim = ObjectAnimator.ofFloat(cv, View.TRANSLATION_Y,
@@ -707,6 +710,7 @@ open class BottomSheet(
                     if (currentSheetAnimation?.equals(animation) == true) {
                         currentSheetAnimation = null
                         currentSheetAnimationType = 0
+                        finishHeavyOperationsAnimation()
                         itemClickListener?.onClick(this@BottomSheet, which)
                         AndroidUtilities.runOnUIThread {
                             onHideListener?.onDismiss(this@BottomSheet)
@@ -719,6 +723,7 @@ open class BottomSheet(
                     if (currentSheetAnimation?.equals(animation) == true) {
                         currentSheetAnimation = null
                         currentSheetAnimationType = 0
+                        finishHeavyOperationsAnimation()
                     }
                 }
             })
@@ -727,9 +732,24 @@ open class BottomSheet(
     }
 
     fun dismissInternal() {
+        finishHeavyOperationsAnimation()
         try {
             super.dismiss()
         } catch (_: Exception) {}
+    }
+
+    private fun beginHeavyOperationsAnimation() {
+        heavyOperationsAnimationPointer = globalNotificationCenter.setAnimationInProgress(
+            heavyOperationsAnimationPointer,
+            null
+        )
+    }
+
+    private fun finishHeavyOperationsAnimation() {
+        if (heavyOperationsAnimationPointer != 0) {
+            globalNotificationCenter.onAnimationFinish(heavyOperationsAnimationPointer)
+            heavyOperationsAnimationPointer = 0
+        }
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
@@ -892,6 +912,7 @@ open class BottomSheet(
                 allowCustomAnimation = allowOld
             } else {
                 maybeStartTracking = false
+                beginHeavyOperationsAnimation()
                 currentAnimation = AnimatorSet().apply {
                     val invalidator = ValueAnimator.ofFloat(0f, 1f).apply {
                         addUpdateListener {
@@ -909,6 +930,14 @@ open class BottomSheet(
                         override fun onAnimationEnd(animation: Animator) {
                             if (currentAnimation?.equals(animation) == true) {
                                 currentAnimation = null
+                                finishHeavyOperationsAnimation()
+                            }
+                        }
+
+                        override fun onAnimationCancel(animation: Animator) {
+                            if (currentAnimation?.equals(animation) == true) {
+                                currentAnimation = null
+                                finishHeavyOperationsAnimation()
                             }
                         }
                     })

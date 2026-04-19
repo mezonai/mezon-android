@@ -3,6 +3,8 @@ package com.mezon.mobile.home.clans
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffColorFilter
 import android.graphics.RectF
 import android.graphics.drawable.Drawable
 import android.text.TextPaint
@@ -40,6 +42,8 @@ class ChannelItemCell(
             strokeJoin = Paint.Join.ROUND
         }
 
+        private const val VOICE_ACTIVE_GREEN = 0xFF16A34A.toInt()
+
         fun resolveChannelIcon(type: Int, isPrivate: Boolean): MezonIcon = when (type) {
             CHANNEL_TYPE_VOICE -> MezonIcon.channelVoice
             CHANNEL_TYPE_STREAMING -> MezonIcon.channelStream
@@ -54,6 +58,7 @@ class ChannelItemCell(
     var channel: ClanChannelEntity? = null
         private set
     private var isActive = false
+    private var voiceActive = false
     private var truncatedName: CharSequence = ""
     private var currentIconDrawable: Drawable? = null
     private var currentIconType: Int = -1
@@ -68,9 +73,10 @@ class ChannelItemCell(
 
 
 
-    fun bind(channel: ClanChannelEntity, active: Boolean) {
+    fun bind(channel: ClanChannelEntity, active: Boolean, voiceActive: Boolean = false) {
         this.channel = channel
         this.isActive = active
+        this.voiceActive = voiceActive
         truncatedName = ""
         invalidate()
     }
@@ -143,6 +149,12 @@ class ChannelItemCell(
         }
 
         val icon = resolveIconDrawable(ch.type, ch.isPrivate)
+        val isVoiceType = ch.type == CHANNEL_TYPE_VOICE || ch.type == CHANNEL_TYPE_STREAMING || ch.type == CHANNEL_TYPE_APP
+        if (isVoiceType && voiceActive) {
+            icon.colorFilter = PorterDuffColorFilter(VOICE_ACTIVE_GREEN, PorterDuff.Mode.SRC_IN)
+        } else {
+            icon.colorFilter = PorterDuffColorFilter(textColor, PorterDuff.Mode.SRC_IN)
+        }
         val iconLeft = paddingHPx
         val iconTop = ((height - iconSizePx) / 2f).toInt()
         icon.setBounds(iconLeft, iconTop, iconLeft + iconSizePx, iconTop + iconSizePx)

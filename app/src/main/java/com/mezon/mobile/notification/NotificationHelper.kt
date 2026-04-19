@@ -65,47 +65,47 @@ class NotificationHelper @Inject constructor(
     }
 
     private fun createNotificationChannels() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        // if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
 
-        val group = NotificationChannelGroup(
-            GROUP_MESSAGES,
-            context.getString(R.string.app_name)
-        )
-        notificationManager.createNotificationChannelGroup(group)
+        // val group = NotificationChannelGroup(
+        //     GROUP_MESSAGES,
+        //     context.getString(R.string.app_name)
+        // )
+        // notificationManager.createNotificationChannelGroup(group)
 
-        val messageChannel = NotificationChannel(
-            CHANNEL_MESSAGES,
-            context.getString(R.string.notification_channel_messages),
-            NotificationManager.IMPORTANCE_HIGH
-        ).apply {
-            description = context.getString(R.string.notification_channel_messages_desc)
-            setGroup(GROUP_MESSAGES)
-            enableVibration(true)
-            vibrationPattern = longArrayOf(300, 500, 300, 500)
-        }
+        // val messageChannel = NotificationChannel(
+        //     CHANNEL_MESSAGES,
+        //     context.getString(R.string.notification_channel_messages),
+        //     NotificationManager.IMPORTANCE_HIGH
+        // ).apply {
+        //     description = context.getString(R.string.notification_channel_messages_desc)
+        //     setGroup(GROUP_MESSAGES)
+        //     enableVibration(true)
+        //     vibrationPattern = longArrayOf(300, 500, 300, 500)
+        // }
 
-        val dmChannel = NotificationChannel(
-            CHANNEL_DM,
-            context.getString(R.string.notification_channel_dm),
-            NotificationManager.IMPORTANCE_HIGH
-        ).apply {
-            description = context.getString(R.string.notification_channel_dm_desc)
-            setGroup(GROUP_MESSAGES)
-            enableVibration(true)
-            vibrationPattern = longArrayOf(300, 500, 300, 500)
-        }
+        // val dmChannel = NotificationChannel(
+        //     CHANNEL_DM,
+        //     context.getString(R.string.notification_channel_dm),
+        //     NotificationManager.IMPORTANCE_HIGH
+        // ).apply {
+        //     description = context.getString(R.string.notification_channel_dm_desc)
+        //     setGroup(GROUP_MESSAGES)
+        //     enableVibration(true)
+        //     vibrationPattern = longArrayOf(300, 500, 300, 500)
+        // }
 
-        val systemChannel = NotificationChannel(
-            CHANNEL_SYSTEM,
-            context.getString(R.string.notification_channel_system),
-            NotificationManager.IMPORTANCE_DEFAULT
-        ).apply {
-            description = context.getString(R.string.notification_channel_system_desc)
-        }
+        // val systemChannel = NotificationChannel(
+        //     CHANNEL_SYSTEM,
+        //     context.getString(R.string.notification_channel_system),
+        //     NotificationManager.IMPORTANCE_DEFAULT
+        // ).apply {
+        //     description = context.getString(R.string.notification_channel_system_desc)
+        // }
 
-        notificationManager.createNotificationChannels(
-            listOf(messageChannel, dmChannel, systemChannel)
-        )
+        // notificationManager.createNotificationChannels(
+        //     listOf(messageChannel, dmChannel, systemChannel)
+        // )
     }
 
     fun showMessageNotification(

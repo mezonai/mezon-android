@@ -34,7 +34,7 @@ class MezonFirebaseService : FirebaseMessagingService() {
             return
         }
 
-        handleDataPayload(data)
+        // handleDataPayload(data)
     }
 
     private fun handleNotificationPayload(message: RemoteMessage) {
@@ -42,11 +42,11 @@ class MezonFirebaseService : FirebaseMessagingService() {
         val title = notification.title ?: getString(com.mezon.mobile.R.string.app_name)
         val body = notification.body ?: ""
 
-        if (isAppInForeground()) {
-            notificationHelper.showInAppToast(title, body)
-        } else {
-            notificationHelper.showMessageNotification(title, body)
-        }
+        // if (isAppInForeground()) {
+        //     notificationHelper.showInAppToast(title, body)
+        // } else {
+        //     notificationHelper.showMessageNotification(title, body)
+        // }
     }
 
 

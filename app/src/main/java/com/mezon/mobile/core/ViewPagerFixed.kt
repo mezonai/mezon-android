@@ -77,7 +77,7 @@ class ViewPagerFixed(context: Context) : FrameLayout(context) {
 
     init {
         val vc = ViewConfiguration.get(context)
-        touchSlop = AndroidUtilities.getPixelsInCM(0.3f, true)
+        touchSlop = AndroidUtilities.getPixelsInCM(0.3f, true).toFloat()
         maximumVelocity = vc.scaledMaximumFlingVelocity
         clipChildren = true
     }
@@ -448,6 +448,10 @@ class ViewPagerFixed(context: Context) : FrameLayout(context) {
         }
 
         if (ev != null && ev.action == MotionEvent.ACTION_DOWN && !startedTracking && !maybeStartTracking) {
+            if (findClickableChild(this, ev.x, ev.y) != null) {
+                maybeStartTracking = false
+                return false
+            }
             startedTrackingPointerId = ev.getPointerId(0)
             maybeStartTracking = true
             startedTrackingX = ev.x.toInt()
@@ -864,6 +868,22 @@ class ViewPagerFixed(context: Context) : FrameLayout(context) {
             var value = f - 0.5f
             value *= 0.47123894f
             return Math.sin(value.toDouble()).toFloat()
+        }
+
+        fun findClickableChild(parent: ViewGroup, x: Float, y: Float): View? {
+            for (i in parent.childCount - 1 downTo 0) {
+                val child = parent.getChildAt(i)
+                if (child.visibility != VISIBLE) continue
+                child.getHitRect(hitRect)
+                if (!hitRect.contains(x.toInt(), y.toInt())) continue
+                if (child.isClickable && child !is ViewGroup) return child
+                if (child is ViewGroup) {
+                    val found = findClickableChild(child, x - hitRect.left, y - hitRect.top)
+                    if (found != null) return found
+                    if (child.isClickable) return child
+                }
+            }
+            return null
         }
 
         fun findHorizontallyScrollableChild(parent: ViewGroup, x: Float, y: Float): View? {
