@@ -11,6 +11,7 @@
     <string name="common_save">Save</string>
     <string name="common_confirm">Confirm</string>
     <string name="common_close">Close</string>
+    <string name="common_open_settings">Open Settings</string>
     <string name="common_retry">Retry</string>
     <string name="common_refresh">Refresh</string>
     <string name="common_go_back">Go Back</string>
@@ -46,6 +47,39 @@
     <string name="common_is_typing"> is typing…</string>
     <string name="common_several_people_typing">Several people are typing…</string>
     <string name="common_poor_connection">You are currently offline.</string>
+
+    <!-- qr -->
+    <string name="qr_my_code">My QR Code</string>
+    <string name="qr_profile">My QR Profile</string>
+    <string name="qr_transfer">Transfer QR</string>
+    <string name="qr_share_with_others">Share with others</string>
+    <string name="qr_transfer_hint">Scan this QR code to transfer funds</string>
+    <string name="qr_profile_hint">Scan this QR to chat with me or view my profile</string>
+    <string name="qr_brand_title">Mezon</string>
+    <string name="qr_token_balance">Balance: %1$s</string>
+    <string name="qr_download_success">QR saved to gallery</string>
+    <string name="qr_download_failed">Failed to save QR</string>
+    <string name="qr_share_message">Scan QR code to chat with me on Mezon</string>
+    <string name="qr_code_not_valid">QR code is not valid</string>
+    <string name="qr_select_photo_with_qr">Please select a photo with QR code</string>
+    <string name="qr_login_title">Log in on new device</string>
+    <string name="qr_login_message">Confirm login using this QR code?</string>
+    <string name="qr_login_confirm">Log in</string>
+    <string name="qr_login_success">Login confirmed</string>
+    <string name="qr_login_failed">Failed to confirm login</string>
+    <string name="qr_camera_denied_title">Camera permission denied</string>
+    <string name="qr_camera_denied_message">Please allow camera access in Settings to scan QR codes.</string>
+    <string name="qr_scan_title_hint">Scan QR Code</string>
+    <string name="qr_gallery_label">Gallery</string>
+    <string name="qr_download_btn">Download</string>
+    <string name="qr_profile_section_title">USER PROFILE</string>
+    <string name="qr_dismiss_btn">No, thank you</string>
+
+    <!-- qr profile sheet -->
+    <string name="qr_profile_sheet_title">HỒ SƠ NGƯỜI DÙNG</string>
+    <string name="qr_profile_add_friend">Thêm bạn</string>
+    <string name="qr_profile_message">Tin nhắn</string>
+    <string name="qr_profile_decline">Không, cảm ơn</string>
 
     <!-- common.login -->
     <string name="common_login_welcome_to_mezon">Welcome to Mezon</string>

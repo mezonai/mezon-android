@@ -91,4 +91,14 @@ class AuthRepository @Inject constructor(
     suspend fun logout(): Result<Unit> = withContext(ioDispatcher) {
         runCatching { sessionManager.clearSession() }
     }
+
+    suspend fun confirmLoginByQr(loginId: Long): Result<com.mezon.mezon.api.Session> =
+        withContext(ioDispatcher) {
+            runCatching {
+                api.confirmLoginRequest(
+                    gatewayUrl = BuildConfig.MEZON_GATEWAY_URL,
+                    loginId = loginId
+                )
+            }
+        }
 }

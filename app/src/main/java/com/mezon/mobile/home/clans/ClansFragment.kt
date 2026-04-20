@@ -45,6 +45,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import com.mezon.mobile.search.GlobalSearchFragment
 import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.home.qr.QrScanFragment
 
 class ClansFragment : BaseFragment() {
 
@@ -394,7 +395,7 @@ class ClansFragment : BaseFragment() {
             isClickable = true
             isFocusable = true
             setOnClickListener {
-                Toast.makeText(context, getString(R.string.feature_coming_soon), Toast.LENGTH_SHORT).show()
+                presentFragment(QrScanFragment())
             }
         }
         navBar.addView(qrButton, LinearLayout.LayoutParams(
