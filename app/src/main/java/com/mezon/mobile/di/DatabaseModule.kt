@@ -1,5 +1,6 @@
 package com.mezon.mobile.di
 
+import com.mezon.mobile.data.db.ChannelAppDao
 import com.mezon.mobile.data.db.ClanChannelDao
 import com.mezon.mobile.data.db.ClanDao
 import com.mezon.mobile.data.db.DirectMessageDao
@@ -52,4 +53,8 @@ object DatabaseModule {
     @Provides
     @Singleton
     fun provideFavoriteChannelDao(db: MezonDatabase): FavoriteChannelDao = db.favoriteChannelDao()
+
+    @Provides
+    @Singleton
+    fun provideChannelAppDao(db: MezonDatabase): ChannelAppDao = db.channelAppDao()
 }

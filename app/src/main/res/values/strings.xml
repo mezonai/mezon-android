@@ -286,6 +286,12 @@
     <string name="channel_list_public">Public Channels</string>
     <string name="channel_list_events">Events</string>
     <string name="channel_list_members">Members</string>
+    <string name="channel_list_channel_apps">Channel Apps</string>
+    <string name="channel_list_view_all">View all</string>
+    <string name="channel_app_loading">Loading app…</string>
+    <string name="channel_apps_title_mezon">Mezon</string>
+    <string name="channel_apps_title_subtitle"> Channel apps</string>
+    <string name="channel_apps_empty">No channel apps available</string>
 
     <!-- Profile -->
     <string name="profile_account_settings">Account Settings</string>

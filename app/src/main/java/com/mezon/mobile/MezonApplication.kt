@@ -1,6 +1,9 @@
 package com.mezon.mobile
 
 import android.app.Application
+import android.os.Handler
+import android.os.Looper
+import android.webkit.WebView
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -39,5 +42,20 @@ class MezonApplication : Application() {
         if (StartupCache.hasSession) {
             appStartScope.launch { database.openHelper.writableDatabase }
         }
+
+       // warmupWebView()
+    }
+
+    private fun warmupWebView() {
+        Handler(Looper.getMainLooper()).postDelayed({
+            runCatching {
+                val wv = WebView(applicationContext)
+                wv.destroy()
+            }
+        }, WEBVIEW_WARMUP_DELAY_MS)
+    }
+
+    companion object {
+        private const val WEBVIEW_WARMUP_DELAY_MS = 3000L
     }
 }

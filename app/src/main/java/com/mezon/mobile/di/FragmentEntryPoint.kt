@@ -15,6 +15,7 @@ import com.mezon.mobile.home.MessagesController
 import com.mezon.mobile.home.clans.ChannelCategoryExpandStore
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.ClansController
+import com.mezon.mobile.home.clans.channelapp.ChannelAppController
 import com.mezon.mobile.home.notifications.NotificationStore
 import com.mezon.mobile.home.profile.AccountController
 import com.mezon.mobile.home.profile.UserController
@@ -35,6 +36,7 @@ interface FragmentEntryPoint {
     fun chatController(): ChatController
     fun clansController(): ClansController
     fun channelController(): ChannelController
+    fun channelAppController(): ChannelAppController
     fun channelCategoryExpandStore(): ChannelCategoryExpandStore
     fun connectionController(): ConnectionController
     fun dialogsController(): DialogsController
