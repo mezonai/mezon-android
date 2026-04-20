@@ -386,4 +386,9 @@
     <string name="voice_room_kick_modal_action">Đuổi</string>
     <string name="voice_room_moderation_mute_failed">Không thể tắt tiếng thành viên này.</string>
     <string name="voice_room_moderation_kick_failed">Không thể đuổi thành viên này.</string>
+    <string name="qr_login_success">Bạn đã đăng nhập trên máy tính!</string>
+    <string name="qr_login_confirming">Đang xác nhận đăng nhập…</string>
+    <string name="qr_login_start_talking">Bắt đầu trò chuyện</string>
+    <string name="qr_gallery_permission_denied">Vui lòng cho phép truy cập ảnh để quét QR từ thư viện.</string>
+    <string name="qr_no_thanks">Không, cảm ơn</string>
 </resources>

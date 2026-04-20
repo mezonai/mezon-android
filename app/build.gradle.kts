@@ -156,8 +156,32 @@ android {
     }
 }
 
+// Force CameraX to 1.3.3 — zxing-cpp pulls in newer CameraX transitively
+// which requires AGP 8.6.0, but this project uses AGP 8.5.2
+configurations.all {
+    resolutionStrategy {
+        force("androidx.camera:camera-core:1.3.3")
+        force("androidx.camera:camera-camera2:1.3.3")
+        force("androidx.camera:camera-lifecycle:1.3.3")
+        force("androidx.camera:camera-view:1.3.3")
+        force("androidx.camera:camera-video:1.3.3")
+    }
+}
+
 dependencies {
     implementation(project(":core-proto"))
+
+    // CameraX (pin explicit versions to avoid version-catalog accessor issues)
+    implementation("androidx.camera:camera-core:1.3.3")
+    implementation("androidx.camera:camera-camera2:1.3.3")
+    implementation("androidx.camera:camera-lifecycle:1.3.3")
+    implementation("androidx.camera:camera-view:1.0.0-alpha39")
+
+    // ZXing core — QR generation (QRCodeWriter)
+    implementation("com.google.zxing:core:3.5.3")
+
+    // zxing-cpp Android local AAR (path: app/libs/zxingcpp-release.aar)
+    implementation(files("libs/zxingcpp-release.aar"))
 
     // Hilt
     implementation(libs.hilt.android)

@@ -176,7 +176,7 @@ class SettingsFragment : BaseFragment() {
                 null,
                 true,
                 false,
-                null
+                { presentFragment(com.mezon.mobile.qr.QrScannerFragment()) }
             ),
             MenuItem(
                 getString(R.string.setting_devices),

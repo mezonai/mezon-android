@@ -1,7 +1,7 @@
 [versions]
 agp = "8.5.2"
-kotlin = "1.9.0"
-ksp = "1.9.0-1.0.13"
+kotlin = "2.0.21"
+ksp = "2.0.21-1.0.27"
 appcompat = "1.7.0"
 coreKtx = "1.10.1"
 junit = "4.13.2"
@@ -30,6 +30,9 @@ swiperefreshlayout = "1.1.0"
 firebaseBom = "33.1.0"
 googleServices = "4.4.2"
 livekit = "2.24.0"
+camerax = "1.3.3"
+cameraxView = "1.0.0-alpha39"
+mlkitBarcode = "17.2.0"
 
 [libraries]
 androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
@@ -78,6 +81,13 @@ androidx-room-runtime = { group = "androidx.room", name = "room-runtime", versio
 androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
 livekit-android = { group = "io.livekit", name = "livekit-android", version.ref = "livekit" }
+camerax-core = { group = "androidx.camera", name = "camera-core", version.ref = "camerax" }
+camerax-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "camerax" }
+camerax-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camerax" }
+camerax-view = { group = "androidx.camera", name = "camera-view", version.ref = "cameraxView" }
+mlkit-barcode-scanning = { group = "com.google.mlkit", name = "barcode-scanning", version.ref = "mlkitBarcode" }
+zxing-core = { group = "com.google.zxing", name = "core", version = "3.5.3" }
+zxing-android-embedded = { group = "com.journeyapps", name = "zxing-android-embedded", version = "4.3.0" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
@@ -88,4 +98,3 @@ kotlin-ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 hilt-android = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
 protobuf = { id = "com.google.protobuf", version.ref = "protobufPlugin" }
 google-services = { id = "com.google.gms.google-services", version.ref = "googleServices" }
-

@@ -1,3 +1,5 @@
+import com.google.protobuf.gradle.proto
+
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.jetbrains.kotlin.android)
@@ -20,12 +22,32 @@ android {
     kotlinOptions {
         jvmTarget = "1.8"
     }
+
+    sourceSets {
+        getByName("main") {
+            // Use the protobuf DSL accessor to set proto source roots.
+            proto {
+                srcDirs(
+                    "$rootDir/mezon-protocol",
+                    "$rootDir/mezon-protocol/api",
+                    "$rootDir/mezon-protocol/rtapi",
+                    "$rootDir/mezon-protocol/proto"
+                )
+            }
+        }
+        getByName("debug") {
+            java.srcDir("$buildDir/generated/source/proto/debug/java")
+            kotlin.srcDir("$buildDir/generated/source/proto/debug/kotlin")
+        }
+        getByName("release") {
+            java.srcDir("$buildDir/generated/source/proto/release/java")
+            kotlin.srcDir("$buildDir/generated/source/proto/release/kotlin")
+        }
+    }
 }
 
-// Proto sources are symlinked from mezon-protocol into src/main/proto/:
-//   src/main/proto/api/   -> $mezonProtocolPath/api/
-//   src/main/proto/rtapi/ -> $mezonProtocolPath/rtapi/
-// This preserves the import path "api/api.proto" used by realtime.proto.
+// Proto sources are read directly from mezon-protocol so imports like "api/api.proto" resolve
+// even on Windows where symlinks are not available.
 
 protobuf {
     protoc {

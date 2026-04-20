@@ -490,4 +490,35 @@
     <string name="voice_room_kick_modal_action">Kick</string>
     <string name="voice_room_moderation_mute_failed">Could not mute this member.</string>
     <string name="voice_room_moderation_kick_failed">Could not kick this member.</string>
+
+    <!-- QR Scanner + My QR -->
+    <string name="qr_my_qr_code">My QR Code</string>
+    <string name="qr_tab_profile">Profile</string>
+    <string name="qr_tab_transfer">Transfer</string>
+    <string name="qr_share_with_others">Share with others to add me on Mezon</string>
+    <string name="qr_transfer_subtitle">Balance: %1$s token</string>
+    <string name="qr_download">Download</string>
+    <string name="qr_share">Share</string>
+    <string name="qr_download_success">QR code saved to gallery</string>
+    <string name="qr_download_failed">Could not save QR code</string>
+    <string name="qr_share_failed">Could not share QR code</string>
+    <string name="qr_generating">Generating QR code…</string>
+    <string name="qr_share_message">Scan QR code to chat with me on Mezon</string>
+    <string name="qr_camera_permission_denied">Camera permission is required to scan QR codes.\nPlease allow camera access.</string>
+    <string name="qr_open_settings">Open Settings</string>
+    <string name="qr_code_not_valid">QR code is not valid</string>
+    <string name="qr_no_qr_in_image">No QR code found in this image</string>
+    <string name="qr_login_title">Log in on new device</string>
+    <string name="qr_login_description">Never scan a login QR code from another user</string>
+    <string name="qr_login_confirm">Log In</string>
+    <string name="qr_login_error">An error occurred. Please try again.</string>
+    <string name="qr_login_success">You are logged in on desktop!</string>
+    <string name="qr_login_confirming">Confirming login…</string>
+    <string name="qr_login_start_talking">Start talking</string>
+    <string name="qr_gallery_permission_denied">Please allow photo access to scan QR from gallery.</string>
+    <string name="qr_invite_code">Invite code: %1$s</string>
+    <string name="qr_transfer_detected">Transfer QR detected</string>
+    <string name="qr_user_not_found">User not found</string>
+    <string name="qr_no_thanks">No, thanks</string>
+    <string name="qr_scan_hint">Align QR code within the frame to scan</string>
 </resources>

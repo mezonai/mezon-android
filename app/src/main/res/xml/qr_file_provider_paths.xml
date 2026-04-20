@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <cache-path
+        name="qr_cache"
+        path="qr/" />
+    <files-path
+        name="qr_files"
+        path="qr/" />
+</paths>
+
