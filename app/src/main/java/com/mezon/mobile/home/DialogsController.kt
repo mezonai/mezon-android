@@ -81,7 +81,6 @@ class DialogsController @Inject constructor(
 
     init {
         appScope.launch { loadDialogsFromDb() }
-        appScope.launch { observePresenceChanges() }
         appScope.launch { observeMarkAsRead() }
         appScope.launch { observeLastSeenMessages() }
     }
@@ -524,40 +523,6 @@ class DialogsController @Inject constructor(
             notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
         } else {
             Log.d(TAG, "loadDialogsFromDb: empty cache, no notification")
-        }
-    }
-
-    private suspend fun observePresenceChanges() {
-        socketEventDispatcher.statusPresenceEvents.collect { event ->
-            val onlineUserIds = event.joinsList.map { it.userId }.toSet()
-            val offlineUserIds = event.leavesList.map { it.userId }.toSet()
-            if (onlineUserIds.isEmpty() && offlineUserIds.isEmpty()) return@collect
-
-            val changedDms = mutableListOf<DirectMessage>()
-            synchronized(this) {
-                for (i in dialogs.indices) {
-                    val dm = dialogs[i]
-                    val updated = when {
-                        dm.type == CHANNEL_TYPE_DM && dm.otherUserId in onlineUserIds && !dm.isOnline ->
-                            dm.copy(isOnline = true)
-                        dm.type == CHANNEL_TYPE_DM && dm.otherUserId in offlineUserIds && dm.isOnline ->
-                            dm.copy(isOnline = false)
-                        else -> null
-                    }
-                    if (updated != null) {
-                        dialogs[i] = updated
-                        dialogsDict.put(updated.channelId, updated)
-                        changedDms.add(updated)
-                    }
-                }
-            }
-            if (changedDms.isNotEmpty()) {
-                appScope.launch { changedDms.forEach { directMessageDao.updateOnlineStatus(it.channelId, it.isOnline) } }
-                notificationCenter.postNotificationOnMainThread(NotificationCenter.onlineStatusChanged)
-                notificationCenter.postNotificationOnMainThread(
-                    NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_STATUS
-                )
-            }
         }
     }
 

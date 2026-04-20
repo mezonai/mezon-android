@@ -1,6 +1,7 @@
 package com.mezon.mobile.home.chat
 
 import android.animation.ObjectAnimator
+import android.annotation.SuppressLint
 import android.app.Dialog
 import android.app.DownloadManager
 import android.content.ClipData
@@ -26,10 +27,21 @@ import android.widget.LinearLayout
 import android.widget.Toast
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.util.createImgproxyUrl
+import com.otaliastudios.zoom.Alignment
+import com.otaliastudios.zoom.ZoomApi
+import com.otaliastudios.zoom.ZoomLayout
 
 class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Black_NoTitleBar_Fullscreen) {
 
+    companion object {
+        private const val MIN_ZOOM = 1f
+        private const val MAX_ZOOM = 4f
+        private const val GALLERY_FLING_ZOOM_THRESHOLD = 1.02f
+    }
+
     private val imageView: ImageView
+    private val zoomLayout: ZoomLayout
+    private lateinit var gestureDetector: GestureDetector
     private val backgroundDrawable = ColorDrawable(Color.BLACK)
     private val closeButton: ImageView
 
@@ -44,10 +56,52 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
         imageView = ImageView(context).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
-        root.addView(imageView, FrameLayout.LayoutParams(
+        zoomLayout = object : ZoomLayout(context) {
+            @SuppressLint("ClickableViewAccessibility")
+            override fun onTouchEvent(ev: MotionEvent): Boolean {
+                gestureDetector.onTouchEvent(ev)
+                return super.onTouchEvent(ev)
+            }
+        }.apply {
+            setTransformation(ZoomApi.TRANSFORMATION_CENTER_INSIDE, ZoomApi.TRANSFORMATION_GRAVITY_AUTO)
+            setAlignment(Alignment.CENTER)
+            setMinZoom(MIN_ZOOM, ZoomApi.TYPE_ZOOM)
+            setMaxZoom(MAX_ZOOM, ZoomApi.TYPE_ZOOM)
+            setOverPinchable(false)
+            setHorizontalPanEnabled(true)
+            setVerticalPanEnabled(true)
+            setFlingEnabled(true)
+        }
+        zoomLayout.addView(imageView, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.MATCH_PARENT
         ))
+        root.addView(zoomLayout, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT
+        ))
+
+        gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                dismissWithAnimation()
+                return true
+            }
+
+            override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
+                if (zoomLayout.zoom > GALLERY_FLING_ZOOM_THRESHOLD) return false
+                if (urls.size <= 1) return false
+                if (kotlin.math.abs(velocityX) > kotlin.math.abs(velocityY) && kotlin.math.abs(velocityX) > 800) {
+                    if (velocityX < 0 && currentIndex < urls.size - 1) {
+                        navigateTo(currentIndex + 1)
+                        return true
+                    } else if (velocityX > 0 && currentIndex > 0) {
+                        navigateTo(currentIndex - 1)
+                        return true
+                    }
+                }
+                return false
+            }
+        })
 
         closeButton = ImageView(context).apply {
             setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
@@ -86,7 +140,6 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
         })
 
         setContentView(root)
-        setupTouchHandling(imageView)
     }
 
     private var currentUrl = ""
@@ -146,6 +199,7 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
         currentIndex = if (index in urls.indices) index else 0
         currentUrl = urls[currentIndex]
         isAnimated = animated
+        zoomLayout.moveToCenter(MIN_ZOOM, false)
 
         if (thumbBitmap != null && !animated) {
             imageView.setImageDrawable(BitmapDrawable(context.resources, thumbBitmap))
@@ -191,6 +245,7 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
         if (index !in urls.indices) return
         currentIndex = index
         currentUrl = urls[currentIndex]
+        zoomLayout.moveToCenter(MIN_ZOOM, false)
         imageView.animate().alpha(0f).setDuration(100).withEndAction {
             loadCurrentImage()
             imageView.animate().alpha(1f).setDuration(150).start()
@@ -236,33 +291,5 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
 
     override fun onBackPressed() {
         dismissWithAnimation()
-    }
-
-    private fun setupTouchHandling(view: ImageView) {
-        val gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
-            override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-                dismissWithAnimation()
-                return true
-            }
-
-            override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
-                if (urls.size <= 1) return false
-                if (kotlin.math.abs(velocityX) > kotlin.math.abs(velocityY) && kotlin.math.abs(velocityX) > 800) {
-                    if (velocityX < 0 && currentIndex < urls.size - 1) {
-                        navigateTo(currentIndex + 1)
-                        return true
-                    } else if (velocityX > 0 && currentIndex > 0) {
-                        navigateTo(currentIndex - 1)
-                        return true
-                    }
-                }
-                return false
-            }
-        })
-
-        view.setOnTouchListener { _, event ->
-            gestureDetector.onTouchEvent(event)
-            true
-        }
     }
 }

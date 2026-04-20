@@ -66,14 +66,27 @@ data class ContentElement(
 )
 
 private val HEADING_REGEX = Regex("^(#{1,6})\\s+(.+)$")
+private val HEADING_LINE_ANYWHERE = Regex("(?m)^#{1,6}\\s+\\S")
+
+fun hasHeadingLine(text: String): Boolean {
+    if (text.isEmpty() || !text.contains('#')) return false
+    return HEADING_LINE_ANYWHERE.containsMatchIn(text)
+}
+
+fun buildPlainTextWithHeadings(text: String, theme: ThemeColors): CharSequence {
+    if (!hasHeadingLine(text)) return text
+    val sb = SpannableStringBuilder()
+    applyPlainTextWithHeadings(sb, text, theme)
+    return sb
+}
 
 fun applyHeadingSpans(sb: SpannableStringBuilder, start: Int, end: Int, level: Int) {
     val sizeFactor = when (level) {
-        1 -> 1.8f
-        2 -> 1.5f
-        3 -> 1.3f
-        4 -> 1.15f
-        5 -> 1.05f
+        1 -> 2.14f
+        2 -> 1.86f
+        3 -> 1.57f
+        4 -> 1.29f
+        5 -> 1.14f
         else -> 1.0f
     }
     sb.setSpan(StyleSpan(Typeface.BOLD), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
