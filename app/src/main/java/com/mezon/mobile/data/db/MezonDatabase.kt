@@ -3,6 +3,7 @@ package com.mezon.mobile.data.db
 import com.mezon.mobile.home.chat.MessageEntity
 import com.mezon.mobile.home.clans.ClanChannelEntity
 import com.mezon.mobile.home.clans.ClanEntity
+import com.mezon.mobile.home.clans.channelapp.ChannelAppEntity
 import com.mezon.mobile.home.messages.DirectMessage
 import com.mezon.mobile.home.notifications.NotificationEntity
 import androidx.room.Database
@@ -15,9 +16,10 @@ import androidx.room.RoomDatabase
         ClanEntity::class,
         ClanChannelEntity::class,
         NotificationEntity::class,
-        FavoriteChannelEntity::class
+        FavoriteChannelEntity::class,
+        ChannelAppEntity::class
     ],
-    version = 23,
+    version = 24,
     exportSchema = false
 )
 abstract class MezonDatabase : RoomDatabase() {
@@ -27,4 +29,5 @@ abstract class MezonDatabase : RoomDatabase() {
     abstract fun clanChannelDao(): ClanChannelDao
     abstract fun notificationDao(): NotificationDao
     abstract fun favoriteChannelDao(): FavoriteChannelDao
+    abstract fun channelAppDao(): ChannelAppDao
 }

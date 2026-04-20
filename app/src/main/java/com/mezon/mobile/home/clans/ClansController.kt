@@ -17,6 +17,7 @@ import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.util.createImgproxyUrl
 import com.mezon.mobile.home.BadgeCoordinator
+import com.mezon.mobile.home.clans.channelapp.ChannelAppController
 import dagger.Lazy
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
@@ -43,6 +44,7 @@ class ClansController @Inject constructor(
     private val notificationCenter: NotificationCenter,
     private val cacheTracker: ApiCacheTracker,
     private val channelController: ChannelController,
+    private val channelAppController: ChannelAppController,
     private val mezonSocket: MezonSocket,
     private val badgeCoordinator: Lazy<BadgeCoordinator>,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
@@ -85,6 +87,7 @@ class ClansController @Inject constructor(
         if (_selectedClanId.value == clanId) return
         _selectedClanId.value = clanId
         channelController.loadChannelsForClan(clanId)
+        channelAppController.loadAppsForClan(clanId)
         appScope.launch {
             sessionManager.saveLastClanId(clanId)
             try {
@@ -110,6 +113,7 @@ class ClansController @Inject constructor(
                         if (selectedId != 0L) {
                             notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, selectedId)
                             channelController.loadChannelsForClanNow(selectedId, force)
+                            channelAppController.loadAppsForClan(selectedId, force)
                         }
                         fetchClanBadgeCountsIfNeeded(force)
                         badgeCoordinator.get().processDeferredQueue()
@@ -150,6 +154,7 @@ class ClansController @Inject constructor(
                 val sel = _selectedClanId.value
                 if (sel != 0L) {
                     channelController.loadChannelsForClanNow(sel, force)
+                    channelAppController.loadAppsForClan(sel, force)
                     if (previousSelected == 0L && sorted.isNotEmpty()) {
                         notificationCenter.postNotificationOnMainThread(NotificationCenter.selectedClanChanged, sel)
                         appScope.launch {

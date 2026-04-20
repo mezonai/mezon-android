@@ -38,6 +38,10 @@ import com.mezon.mezon.api.linkAccountConfirmRequest
 import com.mezon.mezon.api.listClanDescRequest
 import com.mezon.mezon.api.listChannelUsersRequest
 import com.mezon.mezon.api.listClanUsersRequest
+import com.mezon.mezon.api.ListChannelAppsResponse
+import com.mezon.mezon.api.GenerateHashChannelAppsResponse
+import com.mezon.mezon.api.listChannelAppsRequest
+import com.mezon.mezon.api.generateHashChannelAppsRequest
 import com.mezon.mezon.api.ListChannelBadgeCountResponse
 import com.mezon.mezon.api.listChannelBadgeCountRequest
 import com.mezon.mezon.api.listChannelDescsRequest
@@ -872,6 +876,30 @@ class MezonApi @Inject constructor(
             this.channelId = channelId
         }
         rpc(apiUrl, token, "RemoveChannelFavorite", request.toByteArray())
+    }
+
+    suspend fun listChannelApps(
+        apiUrl: String,
+        token: String,
+        clanId: Long
+    ): ListChannelAppsResponse {
+        val request = listChannelAppsRequest {
+            this.clanId = clanId
+        }
+        val bytes = rpc(apiUrl, token, "ListChannelApps", request.toByteArray())
+        return ListChannelAppsResponse.parseFrom(bytes)
+    }
+
+    suspend fun generateHashChannelApps(
+        apiUrl: String,
+        token: String,
+        appId: Long
+    ): GenerateHashChannelAppsResponse {
+        val request = generateHashChannelAppsRequest {
+            this.appId = appId
+        }
+        val bytes = rpc(apiUrl, token, "GenerateHashChannelApps", request.toByteArray())
+        return GenerateHashChannelAppsResponse.parseFrom(bytes)
     }
 
     suspend fun putFileToPresignedUrl(

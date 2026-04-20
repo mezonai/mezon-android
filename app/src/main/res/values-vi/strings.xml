@@ -260,6 +260,12 @@
     <string name="channel_list_public">Kênh công khai</string>
     <string name="channel_list_events">Sự kiện</string>
     <string name="channel_list_members">Thành viên</string>
+    <string name="channel_list_channel_apps">Ứng dụng kênh</string>
+    <string name="channel_list_view_all">Xem tất cả</string>
+    <string name="channel_app_loading">Đang tải ứng dụng…</string>
+    <string name="channel_apps_title_mezon">Mezon</string>
+    <string name="channel_apps_title_subtitle"> Ứng dụng kênh</string>
+    <string name="channel_apps_empty">Không có ứng dụng kênh nào</string>
     <!-- Edit Profile -->
     <string name="edit_profile_title">Cài đặt hồ sơ</string>
     <string name="edit_profile_tab_personal">Cá nhân</string>

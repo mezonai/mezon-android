@@ -34,6 +34,10 @@ import com.mezon.mobile.home.ChatController
 import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.chat.MezonImageLoader
+import com.mezon.mobile.home.clans.channelapp.ChannelAppController
+import com.mezon.mobile.home.clans.channelapp.ChannelAppFragment
+import com.mezon.mobile.home.clans.channelapp.ChannelAppShowAllFragment
+import com.mezon.mobile.home.clans.channelapp.ChannelAppUiModel
 import com.mezon.mobile.home.messages.DirectMessage
 import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.profile.AccountController
@@ -50,6 +54,7 @@ class ClansFragment : BaseFragment() {
 
     private lateinit var clansController: ClansController
     private lateinit var channelController: ChannelController
+    private lateinit var channelAppController: ChannelAppController
     private lateinit var chatController: ChatController
     private lateinit var dialogsController: DialogsController
     private lateinit var accountController: AccountController
@@ -79,6 +84,7 @@ class ClansFragment : BaseFragment() {
     override fun onInject(entryPoint: FragmentEntryPoint) {
         clansController = entryPoint.clansController()
         channelController = entryPoint.channelController()
+        channelAppController = entryPoint.channelAppController()
         chatController = entryPoint.chatController()
         dialogsController = entryPoint.dialogsController()
         accountController = entryPoint.accountController()
@@ -99,6 +105,13 @@ class ClansFragment : BaseFragment() {
             val clanId = args.firstOrNull() as? Long ?: return@observe
             if (clanId == clansController.selectedClanId.value) {
                 updateChannelList()
+            }
+        }
+        observe(NotificationCenter.channelAppsDidLoad) { _, _, args ->
+            if (fragmentView == null || listFrozen) return@observe
+            val clanId = args.firstOrNull() as? Long ?: return@observe
+            if (clanId == clansController.selectedClanId.value) {
+                updateChannelAppsStrip(clanId)
             }
         }
         observe(NotificationCenter.clanInfoUpdated) { _, _, _ ->
@@ -557,6 +570,34 @@ class ClansFragment : BaseFragment() {
         channelListView.bind(clanId, sections)
         voiceController.fetchVoiceChannelMembers(clanId)
         updateVoiceMembers(clanId)
+        updateChannelAppsStrip(clanId)
+    }
+
+    private fun updateChannelAppsStrip(clanId: Long) {
+        if (clanId == 0L) {
+            channelListView.setChannelApps(emptyList(), ::onChannelAppClicked, ::onChannelAppViewAllClicked)
+            return
+        }
+        val apps = channelAppController.getApps(clanId)
+        channelListView.setChannelApps(apps, ::onChannelAppClicked, ::onChannelAppViewAllClicked)
+    }
+
+    private fun onChannelAppClicked(app: ChannelAppUiModel) {
+        presentFragment(
+            ChannelAppFragment.newInstance(
+                channelId = app.channelId,
+                clanId = if (app.clanId != 0L) app.clanId else clansController.selectedClanId.value,
+                appId = app.appId,
+                appUrl = app.appUrl,
+                appName = app.appName
+            )
+        )
+    }
+
+    private fun onChannelAppViewAllClicked() {
+        val clanId = clansController.selectedClanId.value
+        if (clanId == 0L) return
+        presentFragment(ChannelAppShowAllFragment.newInstance(clanId))
     }
 
     private fun updateVoiceMembers(clanId: Long) {
