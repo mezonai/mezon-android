@@ -1,9 +1,9 @@
+
 package com.mezon.mobile.network
 
 import com.mezon.mobile.BuildConfig
 import android.util.Base64
 import com.mezon.mezon.api.Account
-import com.mezon.mezon.api.AccountEmail
 import com.mezon.mezon.api.AllUsersAddChannelResponse
 import com.mezon.mezon.api.AllUserClans
 import com.mezon.mezon.api.allUsersAddChannelRequest
@@ -11,7 +11,6 @@ import com.mezon.mezon.api.CategoryDesc
 import com.mezon.mezon.api.ClanDesc
 import com.mezon.mezon.api.EmojiListedResponse
 import com.mezon.mezon.api.StickerListedResponse
-import com.mezon.mezon.api.BlockFriendsRequest
 import com.mezon.mezon.api.ChannelDescList
 import com.mezon.mezon.api.ChannelDescription
 import com.mezon.mezon.api.ChannelMessageList
@@ -22,11 +21,7 @@ import com.mezon.mezon.api.pinMessageRequest
 import com.mezon.mezon.api.deletePinMessage
 import com.mezon.mezon.api.ChannelUserList
 import com.mezon.mezon.api.ClanUserList
-import com.mezon.mezon.api.DeleteNotificationsRequest
 import com.mezon.mezon.api.FriendList
-import com.mezon.mezon.api.LinkAccountConfirmRequest
-import com.mezon.mezon.api.ListFriendsRequest
-import com.mezon.mezon.api.ListNotificationsRequest
 import com.mezon.mezon.api.NotificationList
 import com.mezon.mezon.api.SearchMessageResponse
 import com.mezon.mezon.api.UploadAttachment
@@ -73,7 +68,6 @@ import com.mezon.mezon.api.clanDiscover as clanDiscoverProto
 import com.mezon.mezon.api.listClanDiscover
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
-import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.put
@@ -200,7 +194,7 @@ class MezonApi @Inject constructor(
         val response = httpClient.post("$gatewayUrl/v2/account/authenticate/email") {
             header(HttpHeaders.Authorization, "Basic $basicCreds")
             contentType(ContentType.Application.Json)
-            setBody(AuthEmailBody(account = AccountEmailBody(email, password)))
+            setBody(AuthEmailBody(account = AccountEmailBody(email = email, password = password)))
         }
 
         if (!response.status.isSuccess()) {
@@ -208,8 +202,7 @@ class MezonApi @Inject constructor(
             throw RuntimeException("Auth failed (${response.status.value}): $errorBody")
         }
 
-        val session: AuthSessionResponse = response.body()
-        return session
+        return response.body()
     }
 
     suspend fun rpc(
@@ -607,6 +600,18 @@ class MezonApi @Inject constructor(
         return rpc(apiUrl, token, "LinkEmail", request.toByteArray())
     }
 
+    suspend fun linkSms(apiUrl: String, token: String, requestBytes: ByteArray): ByteArray {
+        return try {
+            rpc(apiUrl, token, "LinkSMS", requestBytes)
+        } catch (e: RuntimeException) {
+            if (e.message?.contains("(404)") == true) {
+                rpc(apiUrl, token, "LinkSms", requestBytes)
+            } else {
+                throw e
+            }
+        }
+    }
+
     suspend fun confirmLinkOTP(apiUrl: String, token: String, reqId: String, otpCode: String): ByteArray {
         val request = linkAccountConfirmRequest {
             this.reqId = reqId
@@ -627,8 +632,7 @@ class MezonApi @Inject constructor(
             val errorBody = response.bodyAsText()
             throw RuntimeException("AuthenticateEmailOTP failed (${response.status.value}): $errorBody")
         }
-        val result: OtpRequestResponse = response.body()
-        return result
+        return response.body()
     }
 
     suspend fun authenticateSmsOTP(gatewayUrl: String, phone: String, vars: Map<String, String> = emptyMap()): OtpRequestResponse {
@@ -643,8 +647,7 @@ class MezonApi @Inject constructor(
             val errorBody = response.bodyAsText()
             throw RuntimeException("AuthenticateSmsOTP failed (${response.status.value}): $errorBody")
         }
-        val result: OtpRequestResponse = response.body()
-        return result
+        return response.body()
     }
 
     suspend fun confirmAuthenticateOTP(gatewayUrl: String, reqId: String, otpCode: String): AuthSessionResponse {
@@ -659,8 +662,7 @@ class MezonApi @Inject constructor(
             val errorBody = response.bodyAsText()
             throw RuntimeException("ConfirmAuthenticateOTP failed (${response.status.value}): $errorBody")
         }
-        val session: AuthSessionResponse = response.body()
-        return session
+        return response.body()
     }
 
     suspend fun deleteAccount(apiUrl: String, token: String): ByteArray {
@@ -1107,6 +1109,7 @@ class MezonApi @Inject constructor(
     }
 
 }
+
 
 const val CHANNEL_TYPE_CHANNEL = 1
 const val CHANNEL_TYPE_GROUP = 2
