@@ -24,10 +24,12 @@ class ColoredImageSpan : ReplacementSpan {
     var translateY = 0f
     var scaleX = 1f
     var scaleY = 1f
+    var backgroundColor = 0
     private var alpha = 1f
     private var drawableColor = 0
     private var size = 0
     private var sizeWidth = 0
+    private val backgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
     private val verticalAlignment: Int
 
@@ -103,6 +105,17 @@ class ColoredImageSpan : ReplacementSpan {
         paint: Paint
     ) {
         val d = drawable ?: return
+
+        if (backgroundColor != 0) {
+            val width = if (sizeWidth != 0) {
+                (kotlin.math.abs(scaleX) * sizeWidth)
+            } else {
+                val baseW = if (size != 0) size else (d.intrinsicWidth)
+                (kotlin.math.abs(scaleX) * baseW)
+            }
+            backgroundPaint.color = backgroundColor
+            canvas.drawRect(x, top.toFloat(), x + width, bottom.toFloat(), backgroundPaint)
+        }
 
         if (overrideColor != 0) {
             if (drawableColor != overrideColor) {

@@ -186,6 +186,24 @@
     <string name="clan_leave">Rời khỏi Clan</string>
     <string name="clan_name_placeholder">Nhập vào tên clan</string>
     <string name="clan_name_error">Vui lòng nhập tên clan hợp lệ (tối đa 64 ký tự, chỉ từ, số, _ hoặc -).</string>
+    <string name="clan_duplicate_name_error">Tên clan đã tồn tại. Vui lòng nhập tên khác.</string>
+    <string name="clan_create_limit_reached_title">Đã đạt giới hạn clan</string>
+    <string name="clan_create_limit_reached_message">Bạn chỉ có thể tham gia tối đa 50 clan.</string>
+    <string name="clan_template_title">Tạo clan của bạn</string>
+    <string name="clan_template_description">Clan là nơi cộng đồng và bạn bè trò chuyện, kết nối với nhau.</string>
+    <string name="clan_template_create_my_own">Tự tạo clan</string>
+    <string name="clan_template_start_from_template">Bắt đầu từ mẫu</string>
+    <string name="clan_template_gaming">Gaming</string>
+    <string name="clan_template_friends">Bạn bè</string>
+    <string name="clan_template_study_group">Nhóm học tập</string>
+    <string name="clan_template_school_club">Câu lạc bộ trường học</string>
+    <string name="clan_template_local_community">Cộng đồng địa phương</string>
+    <string name="clan_template_artists_creators">Nghệ sĩ &amp; Nhà sáng tạo</string>
+    <string name="clan_upload_label">Tải lên</string>
+    <string name="clan_create_community_guide_prefix">Khi tạo clan, bạn đồng ý với </string>
+    <string name="clan_create_community_guide_link">Nguyên tắc cộng đồng của Mezon.</string>
+    <string name="clan_image_too_large">Dung lượng ảnh phải nhỏ hơn %1$dMB</string>
+    <string name="clan_create_failed">Không thể tạo clan. Vui lòng thử lại.</string>
 
     <!-- profile -->
     <string name="profile_title">Hồ sơ</string>
@@ -392,4 +410,24 @@
     <string name="voice_room_kick_modal_action">Đuổi</string>
     <string name="voice_room_moderation_mute_failed">Không thể tắt tiếng thành viên này.</string>
     <string name="voice_room_moderation_kick_failed">Không thể đuổi thành viên này.</string>
+
+    <string name="discover_title">Khám phá</string>
+    <string name="discover_community_on_mezon">Cộng đồng trên Mezon</string>
+    <string name="discover_explore_communities">Khám phá cộng đồng</string>
+    <string name="discover_members">Thành viên</string>
+    <string name="discover_verified">Đã xác minh</string>
+    <string name="discover_join_clan">Tham gia clan</string>
+    <string name="discover_join_failed">Không thể tham gia clan này.</string>
+    <string name="discover_how_chatty">Năng động thế nào?</string>
+    <string name="discover_des_how_chatty">Như một quán cà phê đông đúc</string>
+    <string name="discover_clan_created">Clan được tạo</string>
+    <string name="discover_feature">Tính năng</string>
+    <string name="discover_des_feature">Dùng thử các tính năng chính thức của clan này!</string>
+    <string name="discover_community">Cộng đồng</string>
+    <string name="discover_des_community">Sự kiện và cập nhật hàng tuần.</string>
+    <string name="discover_about">Giới thiệu</string>
+    <string name="discover_tag_science">Khoa học &amp; Công nghệ</string>
+    <string name="discover_tag_entertainment">Giải trí</string>
+    <string name="discover_list_load_error">Không tải được danh sách cộng đồng. Kéo xuống để thử lại.</string>
+    <string name="discover_list_empty_search">Không có cộng đồng phù hợp.</string>
 </resources>

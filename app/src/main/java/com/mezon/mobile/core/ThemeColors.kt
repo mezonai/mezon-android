@@ -351,6 +351,18 @@ class ThemeColors @Inject constructor() {
 
     val onPrimary: Int get() = Color.WHITE
 
+    val primaryGradiant: Int get() = primaryContainer
+
+    val textStrong: Int get() = tabLabelActive
+
+    val secondaryInputBackground: Int get() = channelPanelBg
+
+    val createClanDiscordBlurple: Int get() = 0xFF5865F2.toInt()
+
+    val createClanCameraGray: Int get() = 0xFF676B73.toInt()
+
+    val communityGuidelineLinkBlue: Int get() = textLink
+
     val onSurface: Int get() = when (resolvedMode) {
         ThemeMode.LIGHT -> 0xFF1C1B1F.toInt()
         ThemeMode.DARK -> 0xFFE6E1E5.toInt()
