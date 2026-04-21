@@ -204,14 +204,32 @@
 
     <!-- clan -->
     <string name="clan_title">Clans</string>
-    <string name="clan_customize_title">Customize Your Clan</string>
-    <string name="clan_customize_subtitle">Give your new clan a personality with a name and an icon. You can always change it later.</string>
     <string name="clan_name_label">Clan Name</string>
     <string name="clan_create">Create Clan</string>
     <string name="clan_add">Add Clan</string>
     <string name="clan_leave">Leave Clan</string>
     <string name="clan_name_placeholder">Enter the clan name</string>
     <string name="clan_name_error">Please enter a valid clan name (max 64 characters, only words, numbers, _ or -).</string>
+    <string name="clan_duplicate_name_error">The clan name already exists. Please enter another name.</string>
+    <string name="clan_create_limit_reached_title">Clan limit reached</string>
+    <string name="clan_create_limit_reached_message">You can only join up to 50 clans.</string>
+    <string name="clan_template_title">Create Your Clan</string>
+    <string name="clan_template_description">Your clan is where your community and friends gather to chat and spend time together.</string>
+    <string name="clan_template_create_my_own">Create My Own</string>
+    <string name="clan_template_start_from_template">Start from a template</string>
+    <string name="clan_template_gaming">Gaming</string>
+    <string name="clan_template_friends">Friends</string>
+    <string name="clan_template_study_group">Study Group</string>
+    <string name="clan_template_school_club">School Club</string>
+    <string name="clan_template_local_community">Local Community</string>
+    <string name="clan_template_artists_creators">Artists &amp; Creators</string>
+    <string name="clan_customize_title">Customize Your Clan</string>
+    <string name="clan_customize_subtitle">Give your new clan a personality with a name and an icon. You can always change it later.</string>
+    <string name="clan_upload_label">Upload</string>
+    <string name="clan_create_community_guide_prefix">By creating a clan, you agree to Mezon\'s </string>
+    <string name="clan_create_community_guide_link">Community Guidelines.</string>
+    <string name="clan_image_too_large">Image size must be less than %1$dMB</string>
+    <string name="clan_create_failed">Unable to create clan. Please try again.</string>
 
     <!-- profile -->
     <string name="profile_title">Profile</string>
@@ -496,4 +514,24 @@
     <string name="voice_room_kick_modal_action">Kick</string>
     <string name="voice_room_moderation_mute_failed">Could not mute this member.</string>
     <string name="voice_room_moderation_kick_failed">Could not kick this member.</string>
+
+    <string name="discover_title">Discover</string>
+    <string name="discover_community_on_mezon">Community on Mezon</string>
+    <string name="discover_explore_communities">Explore communities</string>
+    <string name="discover_members">Members</string>
+    <string name="discover_verified">Verified</string>
+    <string name="discover_join_clan">Join Clan</string>
+    <string name="discover_join_failed">Could not join this clan.</string>
+    <string name="discover_how_chatty">How chatty?</string>
+    <string name="discover_des_how_chatty">Like a busy coffee shop</string>
+    <string name="discover_clan_created">Clan created</string>
+    <string name="discover_feature">Feature</string>
+    <string name="discover_des_feature">Try out the official features of this clan!</string>
+    <string name="discover_community">Community</string>
+    <string name="discover_des_community">Weekly events and updates.</string>
+    <string name="discover_about">About</string>
+    <string name="discover_tag_science">Science &amp; Tech</string>
+    <string name="discover_tag_entertainment">Entertainment</string>
+    <string name="discover_list_load_error">Could not load communities. Pull down to try again.</string>
+    <string name="discover_list_empty_search">No matching communities.</string>
 </resources>

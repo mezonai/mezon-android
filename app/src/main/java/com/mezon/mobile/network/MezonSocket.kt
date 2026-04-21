@@ -74,6 +74,12 @@ class MezonSocket @Inject constructor(
         private const val JITTER_RANGE_MS = 1_000L
         private const val MAX_RECONNECT_FAILS = 6
         private const val SEND_TIMEOUT_MS = 10_000L
+
+        const val TYPE_CHECK_CLAN = 0
+        const val TYPE_CHECK_CATEGORY = 1
+        const val TYPE_CHECK_CHANNEL = 2
+        const val TYPE_CHECK_THREAD = 3
+        const val TYPE_CHECK_NICKNAME = 4
     }
 
     private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
@@ -526,6 +532,15 @@ class MezonSocket @Inject constructor(
             this.type = type
             this.clanId = clanId
         }
+    }
+
+    suspend fun checkDuplicateClanName(name: String): Boolean {
+        val env = checkDuplicateName(name = name, conditionId = 0L, type = TYPE_CHECK_CLAN, clanId = 0L)
+        if (env.messageCase != Envelope.MessageCase.CHECK_NAME_EXISTED_EVENT) {
+            return false
+        }
+        val result = env.checkNameExistedEvent
+        return result.type == TYPE_CHECK_CLAN && result.exist
     }
 
     private fun doConnect(wsUrl: String, token: String) {

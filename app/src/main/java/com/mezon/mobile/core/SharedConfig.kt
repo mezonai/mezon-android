@@ -251,6 +251,7 @@ object SharedConfig {
             it.widthPixels > it.heightPixels
         }
         val saved = if (isLandscape) keyboardHeightLand else keyboardHeight
-        return if (saved > 0) saved else com.mezon.mobile.core.LayoutHelper.dp(200f)
+        val fallback = com.mezon.mobile.core.LayoutHelper.dp(if (isLandscape) 200f else 300f)
+        return if (saved > 0) saved.coerceAtLeast(fallback) else fallback
     }
 }

@@ -7,6 +7,8 @@ import com.mezon.mezon.api.AccountEmail
 import com.mezon.mezon.api.AllUsersAddChannelResponse
 import com.mezon.mezon.api.AllUserClans
 import com.mezon.mezon.api.allUsersAddChannelRequest
+import com.mezon.mezon.api.CategoryDesc
+import com.mezon.mezon.api.ClanDesc
 import com.mezon.mezon.api.EmojiListedResponse
 import com.mezon.mezon.api.StickerListedResponse
 import com.mezon.mezon.api.BlockFriendsRequest
@@ -32,6 +34,8 @@ import com.mezon.mezon.api.UploadAttachment
 import com.mezon.mezon.api.uploadAttachmentRequest
 import com.mezon.mezon.api.accountEmail
 import com.mezon.mezon.api.blockFriendsRequest
+import com.mezon.mezon.api.createCategoryDescRequest
+import com.mezon.mezon.api.createClanDescRequest
 import com.mezon.mezon.api.deleteNotificationsRequest
 import com.mezon.mezon.api.filterParam
 import com.mezon.mezon.api.linkAccountConfirmRequest
@@ -61,6 +65,11 @@ import com.mezon.mezon.api.VoiceChannelUserList
 import com.mezon.mezon.api.generateMeetTokenRequest
 import com.mezon.mezon.api.meetParticipantRequest
 import com.mezon.mezon.api.updateAIAgentRequest
+import com.mezon.mezon.api.ListClanDiscover
+import com.mezon.mezon.api.InviteUserRes
+import com.mezon.mezon.api.inviteUserRequest
+import com.mezon.mezon.api.clanDiscover as clanDiscoverProto
+import com.mezon.mezon.api.listClanDiscover
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -140,12 +149,42 @@ data class OtpRequestResponse(
 
 private val CONTENT_TYPE_PROTO = ContentType("application", "proto")
 
+@Serializable
+private data class ClanDiscoverGatewayRequest(
+    @SerialName("page_number") val page_number: Int,
+    @SerialName("item_per_page") val item_per_page: Int
+)
+
+@Serializable
+private data class ClanDiscoverGatewayResponse(
+    @SerialName("clan_discover") val clan_discover: List<ClanDiscoverJson> = emptyList(),
+    @SerialName("page_number") val page_number: Int = 0,
+    @SerialName("page_count") val page_count: Int = 1
+)
+
+@Serializable
+private data class ClanDiscoverJson(
+    @SerialName("clan_id") val clan_id: Long = 0L,
+    @SerialName("clan_name") val clan_name: String = "",
+    @SerialName("invite_id") val invite_id: Long = 0L,
+    @SerialName("clan_logo") val clan_logo: String = "",
+    @SerialName("online_members") val online_members: Int = 0,
+    @SerialName("total_members") val total_members: Int = 0,
+    @SerialName("verified") val verified: Boolean = false,
+    @SerialName("description") val description: String = "",
+    @SerialName("banner") val banner: String = "",
+    @SerialName("about") val about: String = "",
+    @SerialName("short_url") val short_url: String = "",
+    @SerialName("create_time_seconds") val create_time_seconds: Int = 0
+)
+
 @Singleton
 class MezonApi @Inject constructor(
     private val httpClient: HttpClient
 ) {
     companion object {
         private val SERVER_KEY = BuildConfig.MEZON_API_KEY
+        private const val DISCOVER_ITEMS_PER_PAGE = 6
     }
 
     suspend fun authenticateEmail(
@@ -260,16 +299,54 @@ class MezonApi @Inject constructor(
         type: Int,
         userIds: List<Long>,
         clanId: Long = 0L,
-        channelPrivate: Int = 1
+        channelPrivate: Int = 1,
+        channelLabel: String = "",
+        categoryId: Long = 0L,
+        parentId: Long = 0L,
+        appId: Long = 0L
     ): ChannelDescription {
         val request = createChannelDescRequest {
             this.type = type
             this.clanId = clanId
             this.channelPrivate = channelPrivate
             this.userIds.addAll(userIds)
+            this.channelLabel = channelLabel
+            this.categoryId = categoryId
+            this.parentId = parentId
+            this.appId = appId
         }
         val bytes = rpc(apiUrl, token, "CreateChannelDesc", request.toByteArray())
         return ChannelDescription.parseFrom(bytes)
+    }
+
+    suspend fun createClanDesc(
+        apiUrl: String,
+        token: String,
+        clanName: String,
+        logo: String = "",
+        banner: String = ""
+    ): ClanDesc {
+        val request = createClanDescRequest {
+            this.clanName = clanName
+            this.logo = logo
+            this.banner = banner
+        }
+        val bytes = rpc(apiUrl, token, "CreateClanDesc", request.toByteArray())
+        return ClanDesc.parseFrom(bytes)
+    }
+
+    suspend fun createCategoryDesc(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        categoryName: String
+    ): CategoryDesc {
+        val request = createCategoryDescRequest {
+            this.clanId = clanId
+            this.categoryName = categoryName
+        }
+        val bytes = rpc(apiUrl, token, "CreateCategoryDesc", request.toByteArray())
+        return CategoryDesc.parseFrom(bytes)
     }
 
     suspend fun listChannelBadgeCount(
@@ -335,6 +412,66 @@ class MezonApi @Inject constructor(
         }
         val bytes = rpc(apiUrl, token, "ListThreadDescs", request.toByteArray())
         return ChannelDescList.parseFrom(bytes)
+    }
+
+    suspend fun listClanDiscover(
+        page: Int = 1,
+        itemPerPage: Int = DISCOVER_ITEMS_PER_PAGE
+    ): ListClanDiscover {
+        val gatewayUrl = BuildConfig.MEZON_GATEWAY_URL.trimEnd('/')
+        val url = "$gatewayUrl/v2/clan/discover"
+        val basicCreds = Base64.encodeToString(
+            "$SERVER_KEY:".toByteArray(),
+            Base64.NO_WRAP
+        )
+        val response = httpClient.post(url) {
+            header(HttpHeaders.Authorization, "Basic $basicCreds")
+            header(HttpHeaders.Accept, ContentType.Application.Json.toString())
+            contentType(ContentType.Application.Json)
+            setBody(
+                ClanDiscoverGatewayRequest(
+                    page_number = page,
+                    item_per_page = itemPerPage
+                )
+            )
+        }
+        if (!response.status.isSuccess()) {
+            val errorBody = response.bodyAsText()
+            throw RuntimeException("Clan discover failed (${response.status.value}): $errorBody")
+        }
+        val dto = response.body<ClanDiscoverGatewayResponse>()
+        return listClanDiscover {
+            pageNumber = dto.page_number
+            pageCount = dto.page_count.coerceAtLeast(1)
+            for (c in dto.clan_discover) {
+                clanDiscover += clanDiscoverProto {
+                    clanId = c.clan_id
+                    clanName = c.clan_name
+                    inviteId = c.invite_id
+                    clanLogo = c.clan_logo
+                    onlineMembers = c.online_members
+                    totalMembers = c.total_members
+                    verified = c.verified
+                    description = c.description
+                    banner = c.banner
+                    about = c.about
+                    shortUrl = c.short_url
+                    createTimeSeconds = c.create_time_seconds
+                }
+            }
+        }
+    }
+
+    suspend fun inviteUserByInviteId(
+        apiUrl: String,
+        token: String,
+        inviteId: Long
+    ): InviteUserRes {
+        val request = inviteUserRequest {
+            this.inviteId = inviteId
+        }
+        val bytes = rpc(apiUrl, token, "InviteUser", request.toByteArray())
+        return InviteUserRes.parseFrom(bytes)
     }
 
     suspend fun registFcmDeviceToken(
@@ -664,6 +801,24 @@ class MezonApi @Inject constructor(
         }
         val bytes = rpc(apiUrl, token, "ListClanUsers", request.toByteArray())
         return ClanUserList.parseFrom(bytes)
+    }
+
+    suspend fun listRoles(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        limit: Int = 500,
+        state: Int = 1,
+        cursor: String = ""
+    ): com.mezon.mezon.api.RoleListEventResponse {
+        val request = com.mezon.mezon.api.roleListEventRequest {
+            this.clanId = clanId
+            this.limit = limit
+            this.state = state
+            this.cursor = cursor
+        }
+        val bytes = rpc(apiUrl, token, "ListRoles", request.toByteArray())
+        return com.mezon.mezon.api.RoleListEventResponse.parseFrom(bytes)
     }
 
     suspend fun listChannelUsers(
