@@ -1,4 +1,3 @@
-@file:OptIn(kotlinx.serialization.InternalSerializationApi::class)
 
 package com.mezon.mobile.network
 
@@ -229,6 +228,7 @@ class MezonApi @Inject constructor(
             this.page = page
             this.clanId = 0L
             this.channelType = channelType
+            this.isMobile = true
         }
 
         val bytes = rpc(apiUrl, token, "ListChannelDescs", request.toByteArray())
@@ -261,6 +261,7 @@ class MezonApi @Inject constructor(
     ): ListChannelBadgeCountResponse {
         val request = listChannelBadgeCountRequest {
             this.clanId = clanId
+            this.isMobile = true
         }
         val bytes = rpc(apiUrl, token, "ListChannelBadgeCount", request.toByteArray())
         return ListChannelBadgeCountResponse.parseFrom(bytes)
@@ -293,6 +294,7 @@ class MezonApi @Inject constructor(
             this.state = 1
             this.page = 0
             this.channelType = CHANNEL_TYPE_CHANNEL
+            this.isMobile = true
         }
         val bytes = rpc(apiUrl, token, "ListChannelDescs", request.toByteArray())
         val result = ChannelDescList.parseFrom(bytes)
