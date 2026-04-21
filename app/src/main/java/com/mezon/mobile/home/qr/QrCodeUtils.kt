@@ -14,7 +14,6 @@ import com.google.zxing.common.HybridBinarizer
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 import com.google.zxing.RGBLuminanceSource
 import com.google.zxing.PlanarYUVLuminanceSource
-import java.nio.ByteBuffer
 
 object QrCodeUtils {
 
@@ -46,9 +45,7 @@ object QrCodeUtils {
         return decode(binary)
     }
 
-    fun decodeFromYPlane(yPlane: ByteBuffer, width: Int, height: Int): String? {
-        val data = ByteArray(yPlane.remaining())
-        yPlane.get(data)
+    fun decodeFromYPlane(data: ByteArray, width: Int, height: Int): String? {
         val source = PlanarYUVLuminanceSource(
             data,
             width,

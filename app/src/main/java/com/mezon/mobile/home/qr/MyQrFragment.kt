@@ -1,11 +1,11 @@
 package com.mezon.mobile.home.qr
 
+import android.Manifest
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
@@ -20,6 +20,8 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.R
 import com.mezon.mobile.core.BaseFragment
@@ -35,8 +37,14 @@ import java.io.File
 import java.io.FileOutputStream
 import java.net.URLEncoder
 import java.util.Locale
+import org.json.JSONObject
+import android.content.pm.PackageManager
 
 class MyQrFragment : BaseFragment() {
+
+    private companion object {
+        private const val REQUEST_WRITE_STORAGE = 4101
+    }
 
     private enum class Tab { PROFILE, TRANSFER }
 
@@ -57,6 +65,7 @@ class MyQrFragment : BaseFragment() {
     private var activeTab = Tab.PROFILE
     private var profileQr: Bitmap? = null
     private var transferQr: Bitmap? = null
+    private var pendingDownload = false
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
         userController = entryPoint.userController()
@@ -65,13 +74,16 @@ class MyQrFragment : BaseFragment() {
 
     override fun onFragmentCreate(): Boolean {
         super.onFragmentCreate()
-        observe(NotificationCenter.accountInfoLoaded) { _, _, _ -> refreshUi() }
+        observe(NotificationCenter.accountInfoLoaded) { _, _, _ ->
+            profileQr = null
+            transferQr = null
+            refreshUi()
+        }
         return true
     }
 
     override fun createView(context: Context): View {
-        // Page background: light gray (like image)
-        val pageBg = 0xFFF2F2F7.toInt()
+        val pageBg = themeColors.background
 
         root = ScrollView(context).apply {
             overScrollMode = ScrollView.OVER_SCROLL_NEVER
@@ -87,25 +99,22 @@ class MyQrFragment : BaseFragment() {
             FrameLayout.LayoutParams.WRAP_CONTENT
         ))
 
-        // 1. Tab pill switcher
         contentLayout.addView(buildTabs(context), LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
         ))
 
-        // 2. User info card (white rounded card)
         contentLayout.addView(buildUserCard(context), LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
         ).apply { topMargin = LayoutHelper.dp(16) })
 
-        // 3. QR card
         qrCard = QrInviteCardCell(context, themeColors)
         val qrCardWrapper = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             val bg = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(16f).toFloat()
-                setColor(Color.WHITE)
+                setColor(themeColors.surface)
             }
             background = bg
             setPadding(0, 0, 0, LayoutHelper.dp(20))
@@ -119,17 +128,15 @@ class MyQrFragment : BaseFragment() {
             LinearLayout.LayoutParams.WRAP_CONTENT
         ).apply { topMargin = LayoutHelper.dp(16) })
 
-        // 4. Action buttons (icon-only, two equal columns)
         actionRow = buildActionRow(context)
         contentLayout.addView(actionRow, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
         ).apply { topMargin = LayoutHelper.dp(16) })
 
-        // 5. Hint text below buttons
         hintText = TextView(context).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-            setTextColor(0xFF888888.toInt())
+            setTextColor(themeColors.onSurfaceVariant)
             gravity = Gravity.CENTER
             setPadding(LayoutHelper.dp(16), 0, LayoutHelper.dp(16), 0)
         }
@@ -142,11 +149,10 @@ class MyQrFragment : BaseFragment() {
 
         return wrapWithActionBar(getString(R.string.qr_my_code), root).also {
             it.setBackgroundColor(pageBg)
+            actionBar?.setCenterTitle(true)
         }
     }
 
-    // ── Pill tab switcher ──────────────────────────────────────────────────────
-    // Matching image: gray container pill, active tab = white pill, inactive = transparent
 
     private fun buildTabs(context: Context): View {
         val container = LinearLayout(context).apply {
@@ -154,7 +160,7 @@ class MyQrFragment : BaseFragment() {
             gravity = Gravity.CENTER
             val bg = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(24f).toFloat()
-                setColor(0xFFE0E0E0.toInt())   // light gray container
+                setColor(themeColors.surfaceVariant)
             }
             background = bg
             setPadding(LayoutHelper.dp(4), LayoutHelper.dp(4), LayoutHelper.dp(4), LayoutHelper.dp(4))
@@ -177,8 +183,6 @@ class MyQrFragment : BaseFragment() {
         }
     }
 
-    // ── User info card ─────────────────────────────────────────────────────────
-    // White rounded card, avatar (square-rounded 8dp) + username bold + subtitle
 
     private fun buildUserCard(context: Context): LinearLayout {
         val card = LinearLayout(context).apply {
@@ -186,7 +190,7 @@ class MyQrFragment : BaseFragment() {
             gravity = Gravity.CENTER_VERTICAL
             val bg = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(14f).toFloat()
-                setColor(Color.WHITE)
+                setColor(themeColors.surface)
             }
             background = bg
             setPadding(LayoutHelper.dp(14), LayoutHelper.dp(14), LayoutHelper.dp(14), LayoutHelper.dp(14))
@@ -194,7 +198,7 @@ class MyQrFragment : BaseFragment() {
 
         headerAvatar = AvatarView(context).apply {
             setSizeDp(48)
-            setRoundRadius(8f)   // slightly rounded square, matching image
+            setRoundRadius(8f)  
         }
         card.addView(headerAvatar, LinearLayout.LayoutParams(LayoutHelper.dp(48), LayoutHelper.dp(48)))
 
@@ -203,12 +207,12 @@ class MyQrFragment : BaseFragment() {
         }
         headerTitle = TextView(context).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-            setTextColor(Color.BLACK)
+            setTextColor(themeColors.onSurface)
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
         headerSubtitle = TextView(context).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-            setTextColor(0xFF666666.toInt())
+            setTextColor(themeColors.onSurfaceVariant)
         }
         textCol.addView(headerTitle)
         textCol.addView(headerSubtitle, LinearLayout.LayoutParams(
@@ -222,9 +226,6 @@ class MyQrFragment : BaseFragment() {
 
         return card
     }
-
-    // ── Action row: two icon-only buttons in light gray boxes ─────────────────
-    // Matching image: each button is a gray rounded square with just an icon (no label)
 
     private fun buildActionRow(context: Context): LinearLayout {
         val row = LinearLayout(context).apply {
@@ -251,7 +252,6 @@ class MyQrFragment : BaseFragment() {
             }
             background = bg
             setImageDrawable(icon.getDrawable(context, themeColors))
-            // tint icon to match onSurface so it's always readable
             setColorFilter(themeColors.onSurface)
             val pad = LayoutHelper.dp(16)
             setPadding(pad, pad, pad, pad)
@@ -259,7 +259,6 @@ class MyQrFragment : BaseFragment() {
         }
     }
 
-    // ── Tab switching ─────────────────────────────────────────────────────────
 
     private fun switchTab(tab: Tab) {
         if (activeTab == tab) return
@@ -267,7 +266,6 @@ class MyQrFragment : BaseFragment() {
         refreshUi()
     }
 
-    // ── UI refresh ────────────────────────────────────────────────────────────
 
     private fun refreshUi() {
         val info = accountController.accountInfo.value
@@ -284,21 +282,18 @@ class MyQrFragment : BaseFragment() {
 
         val isProfile = activeTab == Tab.PROFILE
 
-        // Tab style: active = white pill with shadow, inactive = transparent
         updateTabStyle(tabProfile, isProfile)
         updateTabStyle(tabTransfer, !isProfile)
 
-        // Header card texts
         headerTitle.text = username.ifEmpty { name }
         headerSubtitle.text = if (isProfile) {
-            getString(R.string.qr_share_with_others)   // "Chia sẻ với người khác"
+            getString(R.string.qr_share_with_others)    
         } else {
             val balance = info.balance.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO
             val formatted = String.format(Locale.getDefault(), "%,.0f", balance)
-            getString(R.string.qr_token_balance, formatted)  // "Số dư: x đồng"
+            getString(R.string.qr_token_balance, formatted)     
         }
 
-        // QR bitmap
         val qrBitmap = if (isProfile) getProfileQr(username, info.userId, avatarUrl, name)
         else getTransferQr(username, info.userId)
 
@@ -311,10 +306,8 @@ class MyQrFragment : BaseFragment() {
             avatarName = name
         ))
 
-        // Download/Share buttons — only show for profile tab
         actionRow.visibility = if (isProfile) View.VISIBLE else View.GONE
 
-        // Hint text below buttons
         hintText.text = if (isProfile) getString(R.string.qr_profile_hint)
                         else getString(R.string.qr_transfer_hint)
         hintText.visibility = View.VISIBLE
@@ -324,24 +317,27 @@ class MyQrFragment : BaseFragment() {
         if (active) {
             val bg = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(20f).toFloat()
-                setColor(Color.WHITE)
+                setColor(themeColors.surface)
             }
             tab.background = bg
-            tab.setTextColor(Color.BLACK)
+            tab.setTextColor(themeColors.onSurface)
             tab.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         } else {
             tab.background = null
-            tab.setTextColor(0xFF888888.toInt())
+            tab.setTextColor(themeColors.onSurfaceVariant)
             tab.typeface = Typeface.DEFAULT
         }
     }
 
-    // ── QR generation ─────────────────────────────────────────────────────────
 
     private fun getProfileQr(username: String, userId: Long, avatar: String, name: String): Bitmap {
         val existing = profileQr
         if (existing != null) return existing
-        val json = "{\"id\":$userId,\"avatar\":\"$avatar\",\"name\":\"$name\"}"
+        val json = JSONObject()
+            .put("id", userId)
+            .put("avatar", avatar)
+            .put("name", name)
+            .toString()
         val encoded = android.util.Base64.encodeToString(
             URLEncoder.encode(json, "UTF-8").toByteArray(),
             android.util.Base64.NO_WRAP
@@ -353,13 +349,20 @@ class MyQrFragment : BaseFragment() {
     private fun getTransferQr(username: String, userId: Long): Bitmap {
         val existing = transferQr
         if (existing != null) return existing
-        val json = "{\"receiver_name\":\"$username\",\"receiver_id\":$userId}"
+        val json = JSONObject()
+            .put("receiver_name", username)
+            .put("receiver_id", userId)
+            .toString()
         return QrCodeUtils.generateQr(json, 220).also { transferQr = it }
     }
 
-    // ── Download / Share ──────────────────────────────────────────────────────
 
     private fun downloadQr() {
+        if (!ensureLegacyWritePermission()) {
+            pendingDownload = true
+            return
+        }
+        pendingDownload = false
         val bmp = captureQrBitmap() ?: return
         val ctx = requireContext()
         val fname = "mezon_qr_${System.currentTimeMillis()}"
@@ -412,6 +415,40 @@ class MyQrFragment : BaseFragment() {
         val canvas = Canvas(bmp)
         qrCard.draw(canvas)
         return bmp
+    }
+
+    private fun ensureLegacyWritePermission(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) return true
+        val ctx = getContext() ?: return false
+        val granted = ContextCompat.checkSelfPermission(
+            ctx,
+            Manifest.permission.WRITE_EXTERNAL_STORAGE
+        ) == PackageManager.PERMISSION_GRANTED
+        if (granted) return true
+        val activity = getParentActivity() ?: return false
+        ActivityCompat.requestPermissions(
+            activity,
+            arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE),
+            REQUEST_WRITE_STORAGE
+        )
+        return false
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        if (requestCode == REQUEST_WRITE_STORAGE) {
+            val granted = grantResults.isNotEmpty() &&
+                grantResults[0] == PackageManager.PERMISSION_GRANTED
+            if (granted && pendingDownload) {
+                pendingDownload = false
+                downloadQr()
+            } else {
+                pendingDownload = false
+            }
+        }
     }
 
     private fun showToast(msg: String, type: ToastOverlay.ToastType) {

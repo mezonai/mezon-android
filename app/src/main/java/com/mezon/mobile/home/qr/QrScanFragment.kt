@@ -25,6 +25,7 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.R
+import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.AlertsCreator
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
@@ -41,6 +42,42 @@ class QrScanFragment : BaseFragment() {
         private const val REQUEST_CAMERA = 7001
         private const val REQUEST_GALLERY = 7002
         private const val SCAN_THROTTLE_MS = 5000L
+
+        private fun extractLuminance(image: ImageProxy): ByteArray? {
+            val plane = image.planes.firstOrNull() ?: return null
+            val buffer = plane.buffer
+            val width = image.width
+            val height = image.height
+            val rowStride = plane.rowStride
+            val pixelStride = plane.pixelStride
+
+            if (rowStride < width * pixelStride) return null
+
+            val data = ByteArray(width * height)
+            buffer.rewind()
+
+            if (pixelStride == 1 && rowStride == width) {
+                if (buffer.remaining() < data.size) return null
+                buffer.get(data, 0, data.size)
+                return data
+            }
+
+            val row = ByteArray(rowStride)
+            var offset = 0
+            for (rowIndex in 0 until height) {
+                if (buffer.remaining() < rowStride) return null
+                buffer.get(row, 0, rowStride)
+                var col = 0
+                var idx = 0
+                while (col < width) {
+                    data[offset++] = row[idx]
+                    idx += pixelStride
+                    col++
+                }
+            }
+
+            return data
+        }
     }
 
     private lateinit var previewView: PreviewView
@@ -61,7 +98,6 @@ class QrScanFragment : BaseFragment() {
         root = FrameLayout(context)
         root.setBackgroundColor(Color.BLACK)
 
-        // Camera preview fills entire screen
         previewView = PreviewView(context).apply {
             scaleType = PreviewView.ScaleType.FILL_CENTER
         }
@@ -76,17 +112,14 @@ class QrScanFragment : BaseFragment() {
             FrameLayout.LayoutParams.MATCH_PARENT
         ))
 
-        // Top-left: [X]  [My QR Code pill]
         root.addView(buildTopBar(context), FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.WRAP_CONTENT
         ).apply {
-            gravity = Gravity.TOP or Gravity.START
+            gravity = Gravity.TOP
             topMargin = LayoutHelper.dp(48)
-            leftMargin = LayoutHelper.dp(16)
         })
 
-        // Bottom-left: gallery icon button
         root.addView(buildGalleryButton(context), FrameLayout.LayoutParams(
             LayoutHelper.dp(52),
             LayoutHelper.dp(52)
@@ -99,15 +132,12 @@ class QrScanFragment : BaseFragment() {
         return root
     }
 
-    // ── Top bar ───────────────────────────────────────────────────────────────
 
     private fun buildTopBar(context: android.content.Context): View {
-        val bar = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+        val bar = FrameLayout(context).apply {
+            setPadding(LayoutHelper.dp(16), 0, LayoutHelper.dp(16), 0)
         }
 
-        // X close button — dark rounded square
         val closeBtn = ImageView(context).apply {
             val bg = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(10f).toFloat()
@@ -115,19 +145,22 @@ class QrScanFragment : BaseFragment() {
             }
             background = bg
             setImageDrawable(MezonIcon.closeIcon.getDrawable(context, themeColors))
-            setColorFilter(Color.WHITE)   // white icon
+            setColorFilter(Color.WHITE)
             val pad = LayoutHelper.dp(10)
             setPadding(pad, pad, pad, pad)
             setOnClickListener { finishFragment() }
         }
-        bar.addView(closeBtn, LinearLayout.LayoutParams(LayoutHelper.dp(44), LayoutHelper.dp(44)))
+        bar.addView(closeBtn, FrameLayout.LayoutParams(LayoutHelper.dp(44), LayoutHelper.dp(44)).apply {
+            gravity = Gravity.START or Gravity.CENTER_VERTICAL
+        })
 
-        // "My QR Code" pill — dark rounded pill with icon + text
         val myQrPill = buildMyQrPill(context)
-        bar.addView(myQrPill, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT,
+        bar.addView(myQrPill, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
             LayoutHelper.dp(44)
-        ).apply { leftMargin = LayoutHelper.dp(10) })
+        ).apply {
+            gravity = Gravity.CENTER_HORIZONTAL or Gravity.CENTER_VERTICAL
+        })
 
         return bar
     }
@@ -163,7 +196,6 @@ class QrScanFragment : BaseFragment() {
         return pill
     }
 
-    // ── Gallery button ────────────────────────────────────────────────────────
 
     private fun buildGalleryButton(context: android.content.Context): View {
         return ImageView(context).apply {
@@ -173,14 +205,13 @@ class QrScanFragment : BaseFragment() {
             }
             background = bg
             setImageDrawable(MezonIcon.imageIcon.getDrawable(context, themeColors))
-            setColorFilter(Color.WHITE)   // white icon
+            setColorFilter(Color.WHITE)   
             val pad = LayoutHelper.dp(14)
             setPadding(pad, pad, pad, pad)
             setOnClickListener { openGallery() }
         }
     }
 
-    // ── Camera lifecycle ──────────────────────────────────────────────────────
 
     override fun onResume() {
         super.onResume()
@@ -196,7 +227,7 @@ class QrScanFragment : BaseFragment() {
 
     override fun onFragmentDestroy() {
         super.onFragmentDestroy()
-        analyzerExecutor.shutdown()
+        analyzerExecutor.shutdownNow()
     }
 
     private fun startCameraIfPermitted() {
@@ -221,7 +252,9 @@ class QrScanFragment : BaseFragment() {
             val analyzer = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
-            analyzer.setAnalyzer(analyzerExecutor, QrAnalyzer { onQrScanned(it) })
+            analyzer.setAnalyzer(analyzerExecutor, QrAnalyzer { value ->
+                AndroidUtilities.runOnUIThread { onQrScanned(value) }
+            })
 
             val selector = CameraSelector.DEFAULT_BACK_CAMERA
             cameraProvider?.unbindAll()
@@ -229,7 +262,6 @@ class QrScanFragment : BaseFragment() {
         }, ContextCompat.getMainExecutor(activity))
     }
 
-    // ── QR result handling ─────────────────────────────────────────────────────
 
     private fun onQrScanned(value: String) {
         val now = System.currentTimeMillis()
@@ -295,7 +327,6 @@ class QrScanFragment : BaseFragment() {
         ToastOverlay(requireContext(), themeColors).show(parent, type, msg)
     }
 
-    // ── Gallery ────────────────────────────────────────────────────────────────
 
     private fun openGallery() {
         val activity = getParentActivity() ?: return
@@ -327,7 +358,6 @@ class QrScanFragment : BaseFragment() {
         }
     }
 
-    // ── Permission ─────────────────────────────────────────────────────────────
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         if (requestCode == REQUEST_CAMERA) {
@@ -352,20 +382,17 @@ class QrScanFragment : BaseFragment() {
         }
     }
 
-    // ── Inner Analyzer ─────────────────────────────────────────────────────────
 
     private class QrAnalyzer(
         private val onQr: (String) -> Unit
     ) : ImageAnalysis.Analyzer {
         override fun analyze(image: ImageProxy) {
-            val buffer = image.planes.firstOrNull()?.buffer
-            if (buffer != null) {
-                val value = QrCodeUtils.decodeFromYPlane(buffer, image.width, image.height)
-                if (!value.isNullOrBlank()) {
-                    onQr(value)
-                }
+            val value = extractLuminance(image)?.let {
+                QrCodeUtils.decodeFromYPlane(it, image.width, image.height)
             }
+            if (!value.isNullOrBlank()) onQr(value)
             image.close()
         }
     }
+
 }
