@@ -6,17 +6,21 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.view.View
 import com.mezon.mobile.core.LayoutHelper
+import com.mezon.mobile.core.ThemeColors
 
 /**
  * Simple scan overlay: semi-transparent dim on 4 sides around a white-border rectangle.
  * No animation, no corner brackets — matching design exactly.
  */
-class QrScanOverlayView(context: Context) : View(context) {
+class QrScanOverlayView(
+    context: Context,
+    private val theme: ThemeColors
+) : View(context) {
 
-    private val dimPaint = Paint().apply { color = 0x66000000 }
+    private val dimPaint = Paint().apply { color = theme.qrOverlayDim }
 
     private val framePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFFFFFFFF.toInt()
+        color = theme.qrOverlayFrame
         style = Paint.Style.STROKE
         strokeWidth = LayoutHelper.dp(2f).toFloat()
     }

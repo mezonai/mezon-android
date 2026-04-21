@@ -433,6 +433,13 @@ class ThemeColors @Inject constructor() {
     }
     val reactionBorderColor: Int get() = 0xFF2563EB.toInt()
 
+    val qrOverlayDim: Int get() = 0x66000000
+    val qrOverlayFrame: Int get() = Color.WHITE
+    val qrPillBackground: Int get() = (surface and 0x00FFFFFF) or 0xCC000000.toInt()
+    val qrPillContent: Int get() = onSurface
+    val qrBrandAccent: Int get() = 0xFFE91E8C.toInt()
+    val qrAvatarBackground: Int get() = Color.WHITE
+
     // primary prop (outer shape) = iconSecondary || textNormal
     val tabIconPrimary: Int get() = when (resolvedMode) {
         ThemeMode.LIGHT -> 0xFFE0E1E3.toInt()  // light.textNormal

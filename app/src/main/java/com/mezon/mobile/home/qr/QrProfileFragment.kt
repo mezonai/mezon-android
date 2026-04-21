@@ -1,6 +1,5 @@
 package com.mezon.mobile.home.qr
 
-import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
@@ -47,7 +46,7 @@ class QrProfileFragment : BaseFragment() {
     }
 
     override fun createView(context: android.content.Context): View {
-        val pageBg = 0xFFF2F2F7.toInt()
+        val pageBg = themeColors.background
         val root = FrameLayout(context).apply {
             setBackgroundColor(pageBg)
         }
@@ -57,7 +56,7 @@ class QrProfileFragment : BaseFragment() {
             gravity = Gravity.CENTER_HORIZONTAL
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(16f).toFloat()
-                setColor(Color.WHITE)
+                setColor(themeColors.surface)
             }
             setPadding(
                 LayoutHelper.dp(20),
@@ -75,7 +74,7 @@ class QrProfileFragment : BaseFragment() {
         val title = TextView(context).apply {
             text = getString(R.string.qr_profile_sheet_title)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-            setTextColor(0xFF888888.toInt())
+            setTextColor(themeColors.onSurfaceVariant)
             letterSpacing = 0.05f
         }
         card.addView(title)
@@ -97,7 +96,7 @@ class QrProfileFragment : BaseFragment() {
         val nameView = TextView(context).apply {
             text = username.ifEmpty { displayName }
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-            setTextColor(0xFF1F1F1F.toInt())
+            setTextColor(themeColors.onSurface)
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
         card.addView(nameView, LinearLayout.LayoutParams(
@@ -137,12 +136,13 @@ class QrProfileFragment : BaseFragment() {
     }
 
     private fun buildPrimaryButton(text: String, secondary: Boolean = false, onClick: () -> Unit): View {
-        val color = if (secondary) 0xFF5E68F0.toInt() else 0xFF4F46E5.toInt()
+        val color = if (secondary) themeColors.primaryContainer else themeColors.primary
+        val textColor = if (secondary) themeColors.onPrimaryContainer else themeColors.onPrimary
         return TextView(requireContext()).apply {
             this.text = text
             gravity = Gravity.CENTER
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-            setTextColor(Color.WHITE)
+            setTextColor(textColor)
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(12f).toFloat()
@@ -159,10 +159,10 @@ class QrProfileFragment : BaseFragment() {
             this.text = text
             gravity = Gravity.CENTER
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-            setTextColor(0xFF6B7280.toInt())
+            setTextColor(themeColors.onSurfaceVariant)
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(12f).toFloat()
-                setColor(0xFFE5E7EB.toInt())
+                setColor(themeColors.surfaceVariant)
             }
             isClickable = true
             isFocusable = true
@@ -175,4 +175,3 @@ class QrProfileFragment : BaseFragment() {
         ToastOverlay(requireContext(), themeColors).show(parent, ToastOverlay.ToastType.INFO, msg)
     }
 }
-

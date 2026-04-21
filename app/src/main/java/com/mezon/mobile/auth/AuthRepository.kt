@@ -95,10 +95,13 @@ class AuthRepository @Inject constructor(
     suspend fun confirmLoginByQr(loginId: Long): Result<com.mezon.mezon.api.Session> =
         withContext(ioDispatcher) {
             runCatching {
-                api.confirmLoginRequest(
+                val currentSession = sessionManager.requireValidSession()
+                val session = api.confirmLoginRequest(
                     gatewayUrl = BuildConfig.MEZON_GATEWAY_URL,
+                    token = currentSession.token,
                     loginId = loginId
                 )
+                session
             }
         }
 }

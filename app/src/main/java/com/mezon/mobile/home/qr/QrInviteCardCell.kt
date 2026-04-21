@@ -3,7 +3,6 @@ package com.mezon.mobile.home.qr
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
@@ -33,7 +32,7 @@ class QrInviteCardCell(
     private val logoCirPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = LayoutHelper.dp(2.5f).toFloat()
-        color = 0xFFE91E8C.toInt()  
+        color = theme.qrBrandAccent
     }
 
     private val logoTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -53,7 +52,7 @@ class QrInviteCardCell(
         textAlign = Paint.Align.CENTER
     }
 
-    private val avatarBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+    private val avatarBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = theme.qrAvatarBackground }
 
     private val avatarView = AvatarView(context).apply {
         setSizeDp(40)
@@ -69,8 +68,10 @@ class QrInviteCardCell(
         this.model = model
         cardPaint.color = theme.surface
         logoTextPaint.color = theme.onSurface
+        logoCirPaint.color = theme.qrBrandAccent
         dividerPaint.color = theme.outlineVariant
         footerPaint.color = theme.onSurfaceVariant
+        avatarBgPaint.color = theme.qrAvatarBackground
         avatarView.setInfo(model.avatarName.hashCode().toLong(), model.avatarName)
         if (model.avatarUrl.isNotEmpty()) avatarView.setImageUrl(model.avatarUrl)
         requestLayout()

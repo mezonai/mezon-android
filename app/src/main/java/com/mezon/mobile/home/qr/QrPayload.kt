@@ -45,6 +45,14 @@ object QrPayloadParser {
                 val username = path.substringAfter("/chat/").substringBefore("/")
                 if (username.isNotBlank()) return QrAction.Profile(username, uri.getQueryParameter("data"))
             }
+            val loginParam = uri.getQueryParameter("login_id") ?: uri.getQueryParameter("loginId")
+            val loginFromParam = parseLoginId(loginParam)
+            if (loginFromParam != null) return QrAction.Login(loginFromParam)
+            if (path.contains("/login/")) {
+                val loginFromPath = path.substringAfter("/login/").substringBefore("/")
+                val loginId = parseLoginId(loginFromPath)
+                if (loginId != null) return QrAction.Login(loginId)
+            }
         }
 
         val json = runCatching { JSONObject(trimmed) }.getOrNull()
@@ -73,10 +81,11 @@ object QrPayloadParser {
         }.getOrNull()
     }
 
-    private fun parseLoginId(raw: String): Long? {
-        if (raw.length !in 10..22) return null
-        if (!raw.all { it.isDigit() }) return null
-        return runCatching { raw.toLong() }.getOrNull()
+    private fun parseLoginId(raw: String?): Long? {
+        val value = raw?.trim().orEmpty()
+        if (value.isEmpty()) return null
+        if (value.length !in 10..22) return null
+        if (!value.all { it.isDigit() }) return null
+        return runCatching { value.toLong() }.getOrNull()
     }
 }
-

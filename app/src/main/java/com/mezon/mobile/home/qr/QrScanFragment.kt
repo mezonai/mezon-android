@@ -4,7 +4,6 @@ import android.Manifest
 import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.provider.Settings
@@ -30,6 +29,7 @@ import com.mezon.mobile.core.AlertsCreator
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.di.FragmentEntryPoint
+import com.mezon.mobile.session.SessionExpiredException
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.ToastOverlay
 import kotlinx.coroutines.Dispatchers
@@ -96,12 +96,12 @@ class QrScanFragment : BaseFragment() {
 
     override fun createView(context: android.content.Context): View {
         root = FrameLayout(context)
-        root.setBackgroundColor(Color.BLACK)
+        root.setBackgroundColor(themeColors.background)
 
         previewView = PreviewView(context).apply {
             scaleType = PreviewView.ScaleType.FILL_CENTER
         }
-        overlayView = QrScanOverlayView(context)
+        overlayView = QrScanOverlayView(context, themeColors)
 
         root.addView(previewView, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
@@ -141,11 +141,11 @@ class QrScanFragment : BaseFragment() {
         val closeBtn = ImageView(context).apply {
             val bg = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(10f).toFloat()
-                setColor(0xCC1A1A1A.toInt())
+                setColor(themeColors.qrPillBackground)
             }
             background = bg
             setImageDrawable(MezonIcon.closeIcon.getDrawable(context, themeColors))
-            setColorFilter(Color.WHITE)
+            setColorFilter(themeColors.qrPillContent)
             val pad = LayoutHelper.dp(10)
             setPadding(pad, pad, pad, pad)
             setOnClickListener { finishFragment() }
@@ -171,7 +171,7 @@ class QrScanFragment : BaseFragment() {
             gravity = Gravity.CENTER_VERTICAL
             val bg = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(22f).toFloat()
-                setColor(0xCC1A1A1A.toInt())
+                setColor(themeColors.qrPillBackground)
             }
             background = bg
             val padH = LayoutHelper.dp(14)
@@ -182,14 +182,14 @@ class QrScanFragment : BaseFragment() {
         }
         val icon = ImageView(context).apply {
             setImageDrawable(MezonIcon.myQRcodeIcon.getDrawable(context, themeColors))
-            setColorFilter(Color.WHITE)
+            setColorFilter(themeColors.qrPillContent)
         }
         pill.addView(icon, LinearLayout.LayoutParams(LayoutHelper.dp(18), LayoutHelper.dp(18)))
 
         val label = TextView(context).apply {
             text = getString(R.string.qr_my_code)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-            setTextColor(Color.WHITE)
+            setTextColor(themeColors.qrPillContent)
             setPadding(LayoutHelper.dp(7), 0, 0, 0)
         }
         pill.addView(label)
@@ -201,11 +201,11 @@ class QrScanFragment : BaseFragment() {
         return ImageView(context).apply {
             val bg = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(12f).toFloat()
-                setColor(0xCC1A1A1A.toInt())
+                setColor(themeColors.qrPillBackground)
             }
             background = bg
             setImageDrawable(MezonIcon.imageIcon.getDrawable(context, themeColors))
-            setColorFilter(Color.WHITE)   
+            setColorFilter(themeColors.qrPillContent)
             val pad = LayoutHelper.dp(14)
             setPadding(pad, pad, pad, pad)
             setOnClickListener { openGallery() }
@@ -302,6 +302,7 @@ class QrScanFragment : BaseFragment() {
 
     private fun showConfirmLogin(loginId: Long) {
         val ctx = requireContext()
+        var isConfirming = false
         val dialog = AlertsCreator.createConfirmDialog(
             ctx,
             getString(R.string.qr_login_title),
@@ -309,13 +310,25 @@ class QrScanFragment : BaseFragment() {
             confirmText = getString(R.string.qr_login_confirm),
             cancelText = getString(R.string.common_cancel)
         ) {
+            isConfirming = true
             fragmentScope.launch(Dispatchers.Main) {
                 val result = entryPoint().authRepository().confirmLoginByQr(loginId)
                 if (result.isSuccess) {
                     showToast(getString(R.string.qr_login_success), ToastOverlay.ToastType.SUCCESS)
                 } else {
-                    showToast(getString(R.string.qr_login_failed), ToastOverlay.ToastType.ERROR)
+                    val exception = result.exceptionOrNull()
+                    val messageRes = if (exception is SessionExpiredException) {
+                        R.string.qr_login_require_mobile_session
+                    } else {
+                        R.string.qr_login_failed
+                    }
+                    showToast(getString(messageRes), ToastOverlay.ToastType.ERROR)
                 }
+                resumeScanLater()
+            }
+        }
+        dialog.setOnDismissListener {
+            if (!isConfirming) {
                 resumeScanLater()
             }
         }

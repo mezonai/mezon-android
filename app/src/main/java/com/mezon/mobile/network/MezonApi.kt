@@ -218,13 +218,14 @@ class MezonApi @Inject constructor(
 
     suspend fun confirmLoginRequest(
         gatewayUrl: String,
+        token: String,
         loginId: Long
     ): Session {
         val request = confirmLoginRequest {
             this.loginId = loginId
             this.isRemember = true
         }
-        val bytes = rpcNoAuth(gatewayUrl, "ConfirmLogin", request.toByteArray())
+        val bytes = rpc(gatewayUrl, token, "ConfirmLogin", request.toByteArray())
         return Session.parseFrom(bytes)
     }
 
