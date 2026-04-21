@@ -100,11 +100,12 @@ class ChatAttachAlert(
 
         val layoutManager = GridLayoutManager(context, ITEMS_PER_ROW)
         val gap = LayoutHelper.dp(GRID_GAP.toFloat())
+        val navBarInset = AndroidUtilities.navigationBarHeight
         gridView = RecyclerView(context).apply {
             this.layoutManager = layoutManager
             this.adapter = this@ChatAttachAlert.adapter
             clipToPadding = false
-            setPadding(0, headerHeight, 0, LayoutHelper.dp(56f))
+            setPadding(0, headerHeight, 0, LayoutHelper.dp(56f) + navBarInset)
             clipChildren = false
             addItemDecoration(object : RecyclerView.ItemDecoration() {
                 override fun getItemOffsets(outRect: Rect, view: View, parent: RecyclerView, state: RecyclerView.State) {
@@ -145,7 +146,7 @@ class ChatAttachAlert(
                 LayoutHelper.MATCH_PARENT, LayoutHelper.dp(48f),
                 Gravity.BOTTOM
             ).apply {
-                bottomMargin = LayoutHelper.dp(4f)
+                bottomMargin = LayoutHelper.dp(4f) + navBarInset
                 leftMargin = LayoutHelper.dp(12f)
                 rightMargin = LayoutHelper.dp(12f)
             }

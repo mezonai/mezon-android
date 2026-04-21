@@ -26,6 +26,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
+import java.util.Locale
 
 class MezonImageLoader private constructor(context: Context) {
 
@@ -281,6 +282,7 @@ class MezonImageLoader private constructor(context: Context) {
                 val opts = BitmapFactory.Options()
                 opts.inJustDecodeBounds = true
                 BitmapFactory.decodeFile(file.absolutePath, opts)
+                val mimeType = opts.outMimeType?.lowercase(Locale.US).orEmpty()
                 opts.inSampleSize = calculateInSampleSize(opts, reqWidth, reqHeight)
                 opts.inJustDecodeBounds = false
                 val isSmallThumb = reqWidth <= SMALL_IMAGE_THRESHOLD && reqHeight <= SMALL_IMAGE_THRESHOLD
@@ -288,7 +290,7 @@ class MezonImageLoader private constructor(context: Context) {
                 var bmp = BitmapFactory.decodeFile(file.absolutePath, opts)
                 if (bmp != null) {
                     bmp = clampBitmap(bmp, reqWidth, reqHeight)
-                    bmp = applyExifRotation(file, bmp)
+                    bmp = applyExifRotation(file, bmp, mimeType)
                     putToMemory(cacheKey, bmp, reqWidth, reqHeight)
                     dispatchSuccess(cacheKey, bmp)
                 } else {
@@ -427,13 +429,14 @@ class MezonImageLoader private constructor(context: Context) {
                 val opts = BitmapFactory.Options()
                 opts.inJustDecodeBounds = true
                 BitmapFactory.decodeFile(tmpFile.absolutePath, opts)
+                val mimeType = opts.outMimeType?.lowercase(Locale.US).orEmpty()
                 opts.inSampleSize = calculateInSampleSize(opts, reqWidth, reqHeight)
                 opts.inJustDecodeBounds = false
                 opts.inPreferredConfig = Bitmap.Config.ARGB_8888
                 var bmp = BitmapFactory.decodeFile(tmpFile.absolutePath, opts)
                 if (bmp != null) {
                     bmp = clampBitmap(bmp, reqWidth, reqHeight)
-                    bmp = applyExifRotation(tmpFile, bmp)
+                    bmp = applyExifRotation(tmpFile, bmp, mimeType)
                     putToMemory(cacheKey, bmp, reqWidth, reqHeight)
                     dispatchSuccess(cacheKey, bmp)
                 } else {
@@ -490,7 +493,10 @@ class MezonImageLoader private constructor(context: Context) {
             return url.startsWith("http://") || url.startsWith("https://")
         }
 
-        private fun applyExifRotation(file: File, bmp: Bitmap): Bitmap {
+        private fun applyExifRotation(file: File, bmp: Bitmap, mimeType: String = ""): Bitmap {
+            if (mimeType == "image/webp") {
+                return bmp
+            }
             try {
                 val exif = ExifInterface(file.absolutePath)
                 val orient = exif.getAttributeInt(
@@ -517,7 +523,7 @@ class MezonImageLoader private constructor(context: Context) {
                 val rotated = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, matrix, true)
                 if (rotated !== bmp) bmp.recycle()
                 return rotated
-            } catch (_: Exception) {
+            } catch (_: Throwable) {
                 return bmp
             }
         }

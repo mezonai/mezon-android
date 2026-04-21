@@ -53,6 +53,11 @@ class ChannelController @Inject constructor(
     private val _channelsByClan = MutableStateFlow<Map<Long, List<ClanChannelEntity>>>(emptyMap())
     val channelsByClan: StateFlow<Map<Long, List<ClanChannelEntity>>> = _channelsByClan.asStateFlow()
 
+    @Volatile
+    private var _channelByIdSnapshot: Map<Long, List<ClanChannelEntity>>? = null
+    @Volatile
+    private var _channelByIdIndex: Map<Long, ClanChannelEntity> = emptyMap()
+
     private val channelListLoading = ConcurrentHashMap<Long, Boolean>()
     private val favoritesByClan = ConcurrentHashMap<Long, MutableSet<Long>>()
 
@@ -149,8 +154,33 @@ class ChannelController @Inject constructor(
     fun getChannels(clanId: Long): List<ClanChannelEntity> =
         _channelsByClan.value[clanId] ?: emptyList()
 
-    fun findChannelById(channelId: Long): ClanChannelEntity? =
-        _channelsByClan.value.values.flatten().firstOrNull { it.channelId == channelId }
+    fun findChannelById(channelId: Long): ClanChannelEntity? {
+        val current = _channelsByClan.value
+        if (_channelByIdSnapshot !== current) {
+            synchronized(this) {
+                if (_channelByIdSnapshot !== current) {
+                    val totalSize = current.values.sumOf { it.size }
+                    val idx = HashMap<Long, ClanChannelEntity>(totalSize)
+                    for (list in current.values) {
+                        for (ch in list) idx[ch.channelId] = ch
+                    }
+                    _channelByIdIndex = idx
+                    _channelByIdSnapshot = current
+                }
+            }
+        }
+        return _channelByIdIndex[channelId]
+    }
+
+    fun findChannelById(channelId: Long, clanId: Long): ClanChannelEntity? {
+        if (clanId != 0L) {
+            val list = _channelsByClan.value[clanId]
+            if (list != null) {
+                for (ch in list) if (ch.channelId == channelId) return ch
+            }
+        }
+        return findChannelById(channelId)
+    }
 
     suspend fun findOrFetchChannelLabel(channelId: Long, clanId: Long = 0L): String {
         findChannelById(channelId)?.let { return it.channelLabel }
