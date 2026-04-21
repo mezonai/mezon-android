@@ -72,8 +72,14 @@
     <string name="qr_scan_title_hint">Quét mã QR</string>
     <string name="qr_gallery_label">Thư viện</string>
     <string name="qr_download_btn">Tải xuống</string>
-    <string name="qr_profile_section_title">HỔ SƠ NGƯỜI DÙNG</string>
+    <string name="qr_profile_section_title">HỒ SƠ NGƯỜI DÙNG</string>
     <string name="qr_dismiss_btn">Không, cảm ơn</string>
+
+    <!-- qr profile sheet -->
+    <string name="qr_profile_sheet_title">HỒ SƠ NGƯỜI DÙNG</string>
+    <string name="qr_profile_add_friend">Thêm bạn</string>
+    <string name="qr_profile_message">Tin nhắn</string>
+    <string name="qr_profile_decline">Không, cảm ơn</string>
 
     <!-- common.login -->
     <string name="common_login_welcome_to_mezon">Chào mừng đến với Mezon</string>

@@ -76,10 +76,10 @@
     <string name="qr_dismiss_btn">No, thank you</string>
 
     <!-- qr profile sheet -->
-    <string name="qr_profile_sheet_title">HỒ SƠ NGƯỜI DÙNG</string>
-    <string name="qr_profile_add_friend">Thêm bạn</string>
-    <string name="qr_profile_message">Tin nhắn</string>
-    <string name="qr_profile_decline">Không, cảm ơn</string>
+    <string name="qr_profile_sheet_title">USER PROFILE</string>
+    <string name="qr_profile_add_friend">Add friend</string>
+    <string name="qr_profile_message">Message</string>
+    <string name="qr_profile_decline">No, thank you</string>
 
     <!-- common.login -->
     <string name="common_login_welcome_to_mezon">Welcome to Mezon</string>
