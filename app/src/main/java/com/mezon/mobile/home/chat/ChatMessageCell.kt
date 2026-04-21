@@ -29,6 +29,7 @@ import com.mezon.mobile.util.MentionColors
 import com.mezon.mobile.util.EmbedData
 import com.mezon.mobile.util.OgpData
 import com.mezon.mobile.util.formatRelativeTime
+import com.mezon.mobile.util.buildPlainTextWithHeadings
 import com.mezon.mobile.util.isRawMessage
 import com.mezon.mobile.util.parseEmbedData
 import com.mezon.mobile.util.parseContentPreview
@@ -605,7 +606,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 theme.darkMossGreen
             )
             val charSeq: CharSequence = if (isRawMessage(content)) {
-                parsedContent
+                buildPlainTextWithHeadings(parsedContent, theme)
             } else {
                 parseContentToSpannable(content, linkColor, this, mentionColors, theme)
             }

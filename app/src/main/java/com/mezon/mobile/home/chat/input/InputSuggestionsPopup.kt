@@ -1,4 +1,4 @@
-package com.mezon.mobile.home.chat
+package com.mezon.mobile.home.chat.input
 
 import android.animation.ValueAnimator
 import android.content.Context
@@ -13,7 +13,7 @@ import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 
-class MentionsPopupView(
+class InputSuggestionsPopup(
     context: Context,
     private val theme: ThemeColors
 ) : FrameLayout(context) {
@@ -22,7 +22,7 @@ class MentionsPopupView(
     private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val bgRect = RectF()
     private val cornerRadius = LayoutHelper.dp(8f).toFloat()
-    private val maxHeight = minOf(LayoutHelper.dp(160f), (AndroidUtilities.displaySize.y * 0.22f).toInt())
+    private val maxHeight = minOf(LayoutHelper.dp(220f), (AndroidUtilities.displaySize.y * 0.30f).toInt())
     private var showAnimator: ValueAnimator? = null
 
     init {

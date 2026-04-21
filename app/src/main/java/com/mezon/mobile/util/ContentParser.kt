@@ -160,6 +160,13 @@ data class EmojiMarker(val emojiId: String, val startIndex: Int, val endIndex: I
 
 data class MarkdownMarker(val type: String, val s: Int, val e: Int)
 
+data class HashtagData(
+    val channelId: String,
+    val startOffset: Int,
+    val endOffset: Int,
+    val clanId: String = ""
+)
+
 class MarkdownParseResult(
     val cleanedText: String,
     val markers: List<MarkdownMarker>,
@@ -323,7 +330,8 @@ fun buildTextContentWithEmojis(
     text: String,
     mentions: List<MentionData>?,
     emojis: List<EmojiMarker>?,
-    markdowns: List<MarkdownMarker>? = null
+    markdowns: List<MarkdownMarker>? = null,
+    hashtags: List<HashtagData>? = null
 ): String {
     val escaped = text
         .replace("\\", "\\\\")
@@ -356,6 +364,15 @@ fun buildTextContentWithEmojis(
             "{\"type\":\"${it.type}\",\"s\":${it.s},\"e\":${it.e}}"
         }
         parts.add("\"mk\":[$mkJson]")
+    }
+    if (!hashtags.isNullOrEmpty()) {
+        val hgJson = hashtags.joinToString(",") {
+            val sb = StringBuilder("{\"s\":${it.startOffset},\"e\":${it.endOffset},\"channelId\":\"${it.channelId}\"")
+            if (it.clanId.isNotBlank() && it.clanId != "0") sb.append(",\"clanId\":\"${it.clanId}\"")
+            sb.append("}")
+            sb.toString()
+        }
+        parts.add("\"hg\":[$hgJson]")
     }
     return "{${parts.joinToString(",")}}"
 }

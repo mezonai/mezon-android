@@ -67,6 +67,7 @@ class SearchController @Inject constructor(
 
     private val allMembers = ArrayList<SearchMember>()
     private val allChannels = ArrayList<ClanChannelEntity>()
+    private val channelById = HashMap<Long, ClanChannelEntity>()
     private val searchMessages = ArrayList<SearchMessageDocument>()
     var searchMessagesTotal = 0
         private set
@@ -79,6 +80,12 @@ class SearchController @Inject constructor(
 
     @Synchronized
     fun getChannels(): List<ClanChannelEntity> = ArrayList(allChannels)
+
+    @Synchronized
+    fun hasChannels(): Boolean = allChannels.isNotEmpty()
+
+    @Synchronized
+    fun findChannelById(channelId: Long): ClanChannelEntity? = channelById[channelId]
 
     @Synchronized
     fun getMessages(): List<SearchMessageDocument> = ArrayList(searchMessages)
@@ -152,6 +159,8 @@ class SearchController @Inject constructor(
                     synchronized(this@SearchController) {
                         allChannels.clear()
                         allChannels.addAll(channels)
+                        channelById.clear()
+                        for (c in channels) channelById[c.channelId] = c
                         channelsLoaded = true
                         cachedChannelsQuery = null
                         cachedChannelsResult.clear()

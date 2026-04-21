@@ -443,13 +443,14 @@ class ChatController @Inject constructor(
         references: List<com.mezon.mezon.api.MessageRef>? = null,
         mentions: List<MentionData>? = null,
         emojiMarkers: List<EmojiMarker>? = null,
-        markdownMarkers: List<MarkdownMarker>? = null
+        markdownMarkers: List<MarkdownMarker>? = null,
+        hashtags: List<com.mezon.mobile.util.HashtagData>? = null
     ) {
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
-        val hasContentExtras = !emojiMarkers.isNullOrEmpty() || !markdownMarkers.isNullOrEmpty()
+        val hasContentExtras = !emojiMarkers.isNullOrEmpty() || !markdownMarkers.isNullOrEmpty() || !hashtags.isNullOrEmpty()
         val content = if (!hasContentExtras) buildTextContent(text)
-            else buildTextContentWithEmojis(text, null, emojiMarkers, markdownMarkers)
+            else buildTextContentWithEmojis(text, null, emojiMarkers, markdownMarkers, hashtags)
         val mentionEveryone = mentions?.any { it.userId == ID_MENTION_HERE } == true
         val protoMentions = mentions?.map { m ->
             messageMention {
@@ -773,11 +774,18 @@ class ChatController @Inject constructor(
         attachments: List<AttachmentPickerItem>,
         contentResolver: android.content.ContentResolver,
         references: List<com.mezon.mezon.api.MessageRef>? = null,
-        mentions: List<MentionData>? = null
+        mentions: List<MentionData>? = null,
+        hashtags: List<com.mezon.mobile.util.HashtagData>? = null,
+        emojiMarkers: List<EmojiMarker>? = null
     ) {
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
-        val wireBase = if (text.isNotBlank()) buildTextContent(text) else "{\"t\":\"\"}"
+        val hasContentExtras = !hashtags.isNullOrEmpty() || !emojiMarkers.isNullOrEmpty()
+        val wireBase = when {
+            text.isBlank() -> "{\"t\":\"\"}"
+            hasContentExtras -> buildTextContentWithEmojis(text, null, emojiMarkers, null, hashtags)
+            else -> buildTextContent(text)
+        }
         val optimisticContent = mergePendingMentionsIntoContent(
             mergeRefsIntoOptimisticContent(wireBase, references),
             mentions
@@ -920,11 +928,16 @@ class ChatController @Inject constructor(
         isChannelPrivate: Boolean,
         text: String,
         attachments: List<AttachmentPickerItem>,
-        contentResolver: android.content.ContentResolver
+        contentResolver: android.content.ContentResolver,
+        markdownMarkers: List<MarkdownMarker>? = null
     ) {
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
-        val baseContent = if (text.isNotBlank()) buildTextContent(text) else "{\"t\":\"\"}"
+        val baseContent = when {
+            text.isBlank() -> "{\"t\":\"\"}"
+            !markdownMarkers.isNullOrEmpty() -> buildTextContentWithEmojis(text, null, null, markdownMarkers)
+            else -> buildTextContent(text)
+        }
 
         val tempId = generateTempId()
         val uc = userController.get()
@@ -974,13 +987,11 @@ class ChatController @Inject constructor(
 
         appScope.launch(ioDispatcher) {
             try {
-                if (clanId != 0L) {
-                    runCatching {
-                        sessionManager.sessionFlow.first() ?: return@launch
-                        if (mezonSocket.awaitConnected()) {
-                            mezonSocket.joinClanChat(clanId)
-                            mezonSocket.joinChat(clanId, channelId, channelType, isPublic)
-                        }
+                runCatching {
+                    sessionManager.sessionFlow.first() ?: return@launch
+                    if (mezonSocket.awaitConnected()) {
+                        if (clanId != 0L) mezonSocket.joinClanChat(clanId)
+                        mezonSocket.joinChat(clanId, channelId, channelType, isPublic)
                     }
                 }
 

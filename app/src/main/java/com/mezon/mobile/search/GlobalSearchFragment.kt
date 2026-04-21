@@ -24,10 +24,16 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.di.FragmentEntryPoint
+import com.mezon.mobile.MainActivity
 import com.mezon.mobile.home.ChatController
+import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.MemberResolver
+import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.clans.ClanChannelEntity
+import com.mezon.mobile.home.clans.VoiceMemberDisplay
+import com.mezon.mobile.home.voice.JoinVoiceBottomSheet
+import com.mezon.mobile.home.voice.VoiceController
 import com.mezon.mobile.ui.cells.ChannelSearchCell
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.PopupMenu
@@ -81,6 +87,8 @@ class GlobalSearchFragment : BaseFragment() {
     private var memberResolver: MemberResolver? = null
     private lateinit var dialogsController: DialogsController
     private lateinit var chatController: ChatController
+    private lateinit var voiceController: VoiceController
+    private lateinit var userClanController: UserClanController
 
     private lateinit var searchCell: SearchCell
     private lateinit var tabHeader: SearchTabHeader
@@ -123,6 +131,8 @@ class GlobalSearchFragment : BaseFragment() {
         memberResolver = entryPoint.memberResolver()
         dialogsController = entryPoint.dialogsController()
         chatController = entryPoint.chatController()
+        voiceController = entryPoint.voiceController()
+        userClanController = entryPoint.userClanController()
     }
 
     override fun onFragmentCreate(): Boolean {
@@ -374,7 +384,7 @@ class GlobalSearchFragment : BaseFragment() {
 
         adapter = GlobalSearchAdapter(themeColors)
         adapter.onChannelJoinClick = { d ->
-            onOpenChat?.invoke(d.channel.channelId, d.channel.channelLabel, d.channel.clanId, d.channel.type)
+            showJoinVoiceBottomSheet(d.channel)
         }
         recyclerView.adapter = adapter
 
@@ -745,6 +755,39 @@ class GlobalSearchFragment : BaseFragment() {
                 updateMessagesList()
             }
         }
+    }
+
+    private fun showJoinVoiceBottomSheet(channel: ClanChannelEntity) {
+        val activity = getParentActivity() ?: return
+        val targetClanId = channel.clanId
+        val memberIds = voiceController.getVoiceMembersForChannel(channel.channelId, targetClanId)
+        val clanMembers = userClanController.getClanMembers(targetClanId)
+        val memberMap = HashMap<Long, ClanMember>(clanMembers.size)
+        for (m in clanMembers) memberMap[m.userId] = m
+        val displays = memberIds.map { uid ->
+            val m = memberMap[uid]
+            val name = m?.clanNick?.ifEmpty { null } ?: m?.displayName?.ifEmpty { null } ?: m?.username ?: "User"
+            val avatar = m?.clanAvatar?.ifEmpty { null } ?: m?.avatarUrl
+            VoiceMemberDisplay(uid, name, avatar)
+        }
+        val sheet = JoinVoiceBottomSheet(
+            activity,
+            themeColors,
+            channel.channelLabel,
+            channel.channelId,
+            targetClanId,
+            displays,
+            channel.unreadCount
+        )
+        sheet.onJoinVoice = {
+            (activity as? MainActivity)?.showVoiceRoom(
+                channel.channelId, targetClanId, channel.channelLabel
+            )
+        }
+        sheet.onOpenChat = {
+            onOpenChat?.invoke(channel.channelId, channel.channelLabel, targetClanId, channel.type)
+        }
+        sheet.show()
     }
 
     private fun navigateToDm(member: SearchMember) {
