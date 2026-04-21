@@ -29,7 +29,6 @@ import com.mezon.mezon.api.ListFriendsRequest
 import com.mezon.mezon.api.ListNotificationsRequest
 import com.mezon.mezon.api.NotificationList
 import com.mezon.mezon.api.SearchMessageResponse
-import com.mezon.mezon.api.Session
 import com.mezon.mezon.api.UploadAttachment
 import com.mezon.mezon.api.uploadAttachmentRequest
 import com.mezon.mezon.api.accountEmail
@@ -60,6 +59,8 @@ import com.mezon.mezon.api.listFriendsRequest
 import com.mezon.mezon.api.listNotificationsRequest
 import com.mezon.mezon.api.searchMessageRequest
 import com.mezon.mezon.api.sessionRefreshRequest
+import com.mezon.mezon.api.Session
+import com.mezon.mezon.api.confirmLoginRequest
 import com.mezon.mezon.api.GenerateMeetTokenResponse
 import com.mezon.mezon.api.VoiceChannelUserList
 import com.mezon.mezon.api.generateMeetTokenRequest
@@ -235,6 +236,40 @@ class MezonApi @Inject constructor(
         }
 
         return response.readBytes()
+    }
+
+    private suspend fun rpcNoAuth(
+        apiUrl: String,
+        method: String,
+        body: ByteArray
+    ): ByteArray {
+        val base = apiUrl.trimEnd('/')
+        val url = "$base/mezon.api.Mezon/$method"
+        val response = httpClient.post(url) {
+            header(HttpHeaders.Accept, CONTENT_TYPE_PROTO.toString())
+            contentType(CONTENT_TYPE_PROTO)
+            setBody(body)
+        }
+
+        if (!response.status.isSuccess()) {
+            val errorBody = response.bodyAsText()
+            throw RuntimeException("RPC $method failed (${response.status.value}): $errorBody")
+        }
+
+        return response.readBytes()
+    }
+
+    suspend fun confirmLoginRequest(
+        gatewayUrl: String,
+        token: String,
+        loginId: Long
+    ): Session {
+        val request = confirmLoginRequest {
+            this.loginId = loginId
+            this.isRemember = true
+        }
+        val bytes = rpc(gatewayUrl, token, "ConfirmLogin", request.toByteArray())
+        return Session.parseFrom(bytes)
     }
 
     suspend fun sessionRefresh(
