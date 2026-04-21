@@ -44,6 +44,8 @@ class MyQrFragment : BaseFragment() {
 
     private companion object {
         private const val REQUEST_WRITE_STORAGE = 4101
+        private const val DEFAULT_PROFILE_QR_SIZE = 400
+        private const val DEFAULT_TRANSFER_QR_SIZE = 220
     }
 
     private enum class Tab { PROFILE, TRANSFER }
@@ -66,6 +68,7 @@ class MyQrFragment : BaseFragment() {
     private var profileQr: Bitmap? = null
     private var transferQr: Bitmap? = null
     private var pendingDownload = false
+    private var lastQrSizePx = 0
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
         userController = entryPoint.userController()
@@ -110,6 +113,17 @@ class MyQrFragment : BaseFragment() {
         ).apply { topMargin = LayoutHelper.dp(16) })
 
         qrCard = QrInviteCardCell(context, themeColors)
+        qrCard.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+            val width = right - left
+            if (width <= 0 || (right == oldRight && left == oldLeft)) return@addOnLayoutChangeListener
+            val newSize = width - LayoutHelper.dp(48)
+            if (newSize > 0 && newSize != lastQrSizePx) {
+                lastQrSizePx = newSize
+                profileQr = null
+                transferQr = null
+                refreshUi()
+            }
+        }
         val qrCardWrapper = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             val bg = GradientDrawable().apply {
@@ -294,8 +308,8 @@ class MyQrFragment : BaseFragment() {
             getString(R.string.qr_token_balance, formatted)     
         }
 
-        val qrBitmap = if (isProfile) getProfileQr(username, info.userId, avatarUrl, name)
-        else getTransferQr(username, info.userId)
+        val qrBitmap = if (isProfile) getProfileQr(username, info.userId, avatarUrl, name, lastQrSizePx)
+        else getTransferQr(username, info.userId, lastQrSizePx)
 
         qrCard.bind(QrInviteCardCell.Model(
             title    = username.ifEmpty { name },
@@ -330,9 +344,9 @@ class MyQrFragment : BaseFragment() {
     }
 
 
-    private fun getProfileQr(username: String, userId: Long, avatar: String, name: String): Bitmap {
+    private fun getProfileQr(username: String, userId: Long, avatar: String, name: String, qrSizePx: Int): Bitmap {
         val existing = profileQr
-        if (existing != null) return existing
+        if (existing != null && qrSizePx <= 0) return existing
         val json = JSONObject()
             .put("id", userId)
             .put("avatar", avatar)
@@ -343,17 +357,19 @@ class MyQrFragment : BaseFragment() {
             android.util.Base64.NO_WRAP
         )
         val url = "${BuildConfig.MEZON_REDIRECT_URI}/chat/$username?data=$encoded"
-        return QrCodeUtils.generateQr(url, 400).also { profileQr = it }
+        val size = if (qrSizePx > 0) qrSizePx else DEFAULT_PROFILE_QR_SIZE
+        return QrCodeUtils.generateQr(url, size).also { profileQr = it }
     }
 
-    private fun getTransferQr(username: String, userId: Long): Bitmap {
+    private fun getTransferQr(username: String, userId: Long, qrSizePx: Int): Bitmap {
         val existing = transferQr
-        if (existing != null) return existing
+        if (existing != null && qrSizePx <= 0) return existing
         val json = JSONObject()
             .put("receiver_name", username)
             .put("receiver_id", userId)
             .toString()
-        return QrCodeUtils.generateQr(json, 220).also { transferQr = it }
+        val size = if (qrSizePx > 0) qrSizePx else DEFAULT_TRANSFER_QR_SIZE
+        return QrCodeUtils.generateQr(json, size).also { transferQr = it }
     }
 
 
