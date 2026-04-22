@@ -11,7 +11,7 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.home.messages.DirectMessage
-import com.mezon.mobile.util.createImgproxyUrl
+import com.mezon.mobile.util.avatarImgproxyUrl
 import android.view.View
 
 class UnreadDmCell(
@@ -56,7 +56,7 @@ class UnreadDmCell(
             avatarCancellable = null
             return
         }
-        val imgUrl = createImgproxyUrl(url, avatarSizePx * 2, avatarSizePx * 2, "fill")
+        val imgUrl = avatarImgproxyUrl(url, avatarSizePx)
         if (imgUrl == currentAvatarUrl && avatar.hasPhoto()) return
         currentAvatarUrl = imgUrl
 

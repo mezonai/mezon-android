@@ -135,6 +135,9 @@ data class MessageEntity(
     val isFileAttachment: Boolean
         get() = messageType == TYPE_FILE && attachmentUrl.isNotEmpty()
 
+    val isAudioAttachment: Boolean
+        get() = attachmentUrl.isNotEmpty() && attachmentFiletype.startsWith("audio", ignoreCase = true)
+
     val hasReactions: Boolean
         get() = reactionsJson.isNotEmpty() && reactionsJson != "[]"
 

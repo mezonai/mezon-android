@@ -119,7 +119,7 @@ class ChannelListView(
     fun bind(clanId: Long, sections: List<ChannelSection>) {
         if (clanId != boundClanId) {
             boundClanId = clanId
-            applyExpandState(expandStore.load(clanId), sections)
+            applyExpandState(expandStore.load(clanId))
         }
         val prevCategoryIds = currentSections.mapNotNull { if (it.categoryId != FAVORITE_CATEGORY_ID) it.categoryId else null }.toSet()
         val newCategoryIds = sections.mapNotNull { if (it.categoryId != FAVORITE_CATEGORY_ID) it.categoryId else null }.toSet()
@@ -149,12 +149,11 @@ class ChannelListView(
         persistExpansion()
     }
 
-    private fun applyExpandState(state: CategoryExpandState, sections: List<ChannelSection>) {
-        val valid = sections.map { it.categoryId }.toSet()
+    private fun applyExpandState(state: CategoryExpandState) {
         allExpanded = state.allExpanded
         expandedCategories.clear()
         if (!allExpanded) {
-            expandedCategories.addAll(state.expandedCategoryIds.filter { it in valid })
+            expandedCategories.addAll(state.expandedCategoryIds)
         }
     }
 

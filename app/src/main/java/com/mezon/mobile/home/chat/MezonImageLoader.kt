@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.LruCache
+import okhttp3.Cache
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.OkHttpClient
@@ -32,7 +33,11 @@ class MezonImageLoader private constructor(context: Context) {
 
     private val appContext = context.applicationContext
 
+    private val httpCacheDir: File = File(context.cacheDir, "http_cache").also { it.mkdirs() }
+    private val httpCache = Cache(httpCacheDir, HTTP_CACHE_BYTES)
+
     private val client = OkHttpClient.Builder()
+        .cache(httpCache)
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
@@ -56,14 +61,25 @@ class MezonImageLoader private constructor(context: Context) {
     }
 
     private val diskCacheDir: File = File(context.cacheDir, "img_cache").also { it.mkdirs() }
-    private val maxDiskCacheBytes = 50L * 1024 * 1024
+    private val maxDiskCacheBytes = 512L * 1024 * 1024
 
-    private val inflightCalls = ConcurrentHashMap<String, Call>()
+    private val avatarCacheDir: File = File(context.filesDir, "avatar_cache").also { it.mkdirs() }
+    private val maxAvatarDiskBytes = 256L * 1024 * 1024
+
+    private val inflightUrlCalls = ConcurrentHashMap<String, Call>()
+    private val pendingDecodes = ConcurrentHashMap<String, MutableList<PendingDecode>>()
     private val pendingCallbacks = ConcurrentHashMap<String, MutableList<LoadCallback>>()
 
     private data class LoadCallback(
         val onSuccess: (Any) -> Unit,
         val onError: ((Exception) -> Unit)?
+    )
+
+    private data class PendingDecode(
+        val memKey: String,
+        val reqWidth: Int,
+        val reqHeight: Int,
+        val animated: Boolean
     )
 
     init {
@@ -121,33 +137,9 @@ class MezonImageLoader private constructor(context: Context) {
         onSuccess: (Bitmap) -> Unit,
         onError: ((Exception) -> Unit)? = null
     ): Cancellable {
-        if (url.isEmpty() || !isValidHttpUrl(url)) {
-            onError?.invoke(IllegalArgumentException("Invalid URL: $url"))
-            return Cancellable.EMPTY
-        }
-
-        val cacheKey = cacheKey(url, reqWidth, reqHeight)
-
-        getFromMemory(cacheKey)?.let { cached ->
-            runOnMain { onSuccess(cached) }
-            return Cancellable.EMPTY
-        }
-
         @Suppress("UNCHECKED_CAST")
-        val cb = LoadCallback(onSuccess as (Any) -> Unit, onError)
-
-        if (addCallback(cacheKey, cb)) {
-            return Cancellable { removePendingCallback(cacheKey, cb) }
-        }
-
-        val diskFile = diskFile(cacheKey)
-        if (diskFile.exists()) {
-            decodeInBackground(diskFile, cacheKey, reqWidth, reqHeight)
-            return Cancellable { removePendingCallback(cacheKey, cb) }
-        }
-
-        fetchFromNetwork(url, cacheKey, reqWidth, reqHeight)
-        return Cancellable { removePendingCallback(cacheKey, cb) }
+        return loadInternal(url, reqWidth, reqHeight, animated = false,
+            onSuccess = onSuccess as (Any) -> Unit, onError = onError)
     }
 
     fun loadDrawable(
@@ -157,64 +149,133 @@ class MezonImageLoader private constructor(context: Context) {
         onSuccess: (Drawable) -> Unit,
         onError: ((Exception) -> Unit)? = null
     ): Cancellable {
+        @Suppress("UNCHECKED_CAST")
+        return loadInternal(url, reqWidth, reqHeight, animated = true,
+            onSuccess = onSuccess as (Any) -> Unit, onError = onError)
+    }
+
+    private fun loadInternal(
+        url: String,
+        reqWidth: Int,
+        reqHeight: Int,
+        animated: Boolean,
+        onSuccess: (Any) -> Unit,
+        onError: ((Exception) -> Unit)?
+    ): Cancellable {
         if (url.isEmpty() || !isValidHttpUrl(url)) {
             onError?.invoke(IllegalArgumentException("Invalid URL: $url"))
             return Cancellable.EMPTY
         }
 
-        val cacheKey = cacheKey(url, reqWidth, reqHeight)
+        val memKey = cacheKey(url, reqWidth, reqHeight)
 
-        @Suppress("UNCHECKED_CAST")
-        val cb = LoadCallback(onSuccess as (Any) -> Unit, onError)
-
-        if (addCallback(cacheKey, cb)) {
-            return Cancellable { removePendingCallback(cacheKey, cb) }
+        if (!animated) {
+            getFromMemory(memKey)?.let { cached ->
+                runOnMain { onSuccess(cached) }
+                return Cancellable.EMPTY
+            }
         }
 
-        val diskFile = diskFile(cacheKey)
-        if (diskFile.exists()) {
-            decodeAnimatedInBackground(diskFile, cacheKey, reqWidth, reqHeight)
-            return Cancellable { removePendingCallback(cacheKey, cb) }
+        val cb = LoadCallback(onSuccess, onError)
+
+        if (addCallback(memKey, cb)) {
+            return Cancellable { removePendingCallback(url, memKey, cb) }
         }
 
+        val urlFile = diskFileForUrl(url)
+        if (urlFile.exists() && urlFile.length() > 0L) {
+            touchFile(urlFile)
+            if (animated) decodeAnimatedInBackground(urlFile, memKey, reqWidth, reqHeight)
+            else decodeInBackground(urlFile, memKey, reqWidth, reqHeight)
+            return Cancellable { removePendingCallback(url, memKey, cb) }
+        }
+
+        enqueueDecodeAfterDownload(url, memKey, reqWidth, reqHeight, animated)
+        ensureNetworkFetch(url)
+        return Cancellable { removePendingCallback(url, memKey, cb) }
+    }
+
+    private fun enqueueDecodeAfterDownload(
+        url: String,
+        memKey: String,
+        reqWidth: Int,
+        reqHeight: Int,
+        animated: Boolean
+    ) {
+        val task = PendingDecode(memKey, reqWidth, reqHeight, animated)
+        val list = pendingDecodes.getOrPut(url) { mutableListOf() }
+        synchronized(list) { list.add(task) }
+    }
+
+    private fun ensureNetworkFetch(url: String) {
+        if (inflightUrlCalls.containsKey(url)) return
         val request = Request.Builder().url(url).build()
         val call = client.newCall(request)
-        inflightCalls[cacheKey] = call
+        val prev = inflightUrlCalls.putIfAbsent(url, call)
+        if (prev != null) return
 
         call.enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                inflightCalls.remove(cacheKey)
-                if (!call.isCanceled()) dispatchError(cacheKey, e)
+                inflightUrlCalls.remove(url)
+                if (!call.isCanceled()) dispatchAllDecodeError(url, e)
             }
 
             override fun onResponse(call: Call, response: Response) {
-                inflightCalls.remove(cacheKey)
+                inflightUrlCalls.remove(url)
                 if (!response.isSuccessful) {
-                    dispatchError(cacheKey, IOException("HTTP ${response.code}"))
+                    dispatchAllDecodeError(url, IOException("HTTP ${response.code}"))
                     response.close()
                     return
                 }
                 try {
+                    val urlFile = diskFileForUrl(url)
                     response.body?.byteStream()?.use { input ->
-                        FileOutputStream(diskFile).use { output -> input.copyTo(output) }
+                        FileOutputStream(urlFile).use { output -> input.copyTo(output) }
                     } ?: throw IOException("Empty body")
                     response.close()
                     trimDiskCache()
-                    decodeAnimatedInBackground(diskFile, cacheKey, reqWidth, reqHeight)
+                    dispatchAllDecodeSuccess(url, urlFile)
                 } catch (e: Exception) {
-                    dispatchError(cacheKey, e as? Exception ?: Exception(e))
+                    dispatchAllDecodeError(url, e as? Exception ?: Exception(e))
                 }
             }
         })
-        return Cancellable { removePendingCallback(cacheKey, cb) }
     }
 
-    private fun removePendingCallback(cacheKey: String, cb: LoadCallback) {
-        val list = pendingCallbacks[cacheKey] ?: return
+    private fun dispatchAllDecodeSuccess(url: String, file: File) {
+        val list = pendingDecodes.remove(url) ?: return
+        val copy: List<PendingDecode>
+        synchronized(list) { copy = ArrayList(list) }
+        for (task in copy) {
+            if (task.animated) decodeAnimatedInBackground(file, task.memKey, task.reqWidth, task.reqHeight)
+            else decodeInBackground(file, task.memKey, task.reqWidth, task.reqHeight)
+        }
+    }
+
+    private fun dispatchAllDecodeError(url: String, error: Exception) {
+        val list = pendingDecodes.remove(url) ?: return
+        val copy: List<PendingDecode>
+        synchronized(list) { copy = ArrayList(list) }
+        for (task in copy) dispatchError(task.memKey, error)
+    }
+
+    private fun removePendingCallback(url: String, memKey: String, cb: LoadCallback) {
+        val list = pendingCallbacks[memKey] ?: return
         synchronized(list) { list.remove(cb) }
         if (list.isEmpty()) {
-            pendingCallbacks.remove(cacheKey)
-            inflightCalls.remove(cacheKey)?.cancel()
+            pendingCallbacks.remove(memKey)
+            val decodeList = pendingDecodes[url]
+            if (decodeList != null) {
+                synchronized(decodeList) {
+                    decodeList.removeAll { it.memKey == memKey }
+                }
+                if (decodeList.isEmpty()) {
+                    pendingDecodes.remove(url)
+                    if (pendingDecodes[url] == null) {
+                        inflightUrlCalls.remove(url)?.cancel()
+                    }
+                }
+            }
         }
     }
 
@@ -236,46 +297,6 @@ class MezonImageLoader private constructor(context: Context) {
         }
     }
 
-    private fun fetchFromNetwork(
-        url: String,
-        cacheKey: String,
-        reqWidth: Int,
-        reqHeight: Int
-    ) {
-        val request = Request.Builder().url(url).build()
-        val call = client.newCall(request)
-        inflightCalls[cacheKey] = call
-
-        call.enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                inflightCalls.remove(cacheKey)
-                if (!call.isCanceled()) dispatchError(cacheKey, e)
-            }
-
-            override fun onResponse(call: Call, response: Response) {
-                inflightCalls.remove(cacheKey)
-                if (!response.isSuccessful) {
-                    dispatchError(cacheKey, IOException("HTTP ${response.code}"))
-                    response.close()
-                    return
-                }
-
-                try {
-                    val diskFile = diskFile(cacheKey)
-                    response.body?.byteStream()?.use { input ->
-                        FileOutputStream(diskFile).use { output -> input.copyTo(output) }
-                    } ?: throw IOException("Empty body")
-                    response.close()
-                    trimDiskCache()
-
-                    decodeInBackground(diskFile, cacheKey, reqWidth, reqHeight)
-                } catch (e: Exception) {
-                    dispatchError(cacheKey, e as? Exception ?: Exception(e))
-                }
-            }
-        })
-    }
-
     private fun decodeInBackground(file: File, cacheKey: String, reqWidth: Int, reqHeight: Int) {
         DECODE_EXECUTOR.execute {
             try {
@@ -294,7 +315,7 @@ class MezonImageLoader private constructor(context: Context) {
                     putToMemory(cacheKey, bmp, reqWidth, reqHeight)
                     dispatchSuccess(cacheKey, bmp)
                 } else {
-                    file.delete()
+                    try { file.delete() } catch (_: Throwable) {}
                     dispatchError(cacheKey, IOException("Decode failed"))
                 }
             } catch (e: Exception) {
@@ -350,8 +371,9 @@ class MezonImageLoader private constructor(context: Context) {
     }
 
     fun cancelAll() {
-        inflightCalls.values.forEach { it.cancel() }
-        inflightCalls.clear()
+        inflightUrlCalls.values.forEach { it.cancel() }
+        inflightUrlCalls.clear()
+        pendingDecodes.clear()
         pendingCallbacks.clear()
     }
 
@@ -381,22 +403,56 @@ class MezonImageLoader private constructor(context: Context) {
         return sb.toString()
     }
 
-    private fun diskFile(cacheKey: String): File = File(diskCacheDir, cacheKey)
+    private fun diskFileForUrl(url: String): File {
+        val dir = if (isAvatarUrl(url)) avatarCacheDir else diskCacheDir
+        return File(dir, hashString(url))
+    }
+
+    private fun isAvatarUrl(url: String): Boolean {
+        for (bucket in AVATAR_BUCKET_MARKERS) {
+            if (url.contains(bucket)) return true
+        }
+        return false
+    }
+
+    private fun touchFile(file: File) {
+        try { file.setLastModified(System.currentTimeMillis()) } catch (_: Throwable) {}
+    }
+
+    private fun hashString(value: String): String {
+        val md = MD5_THREAD_LOCAL.get()!!
+        md.reset()
+        md.update(value.toByteArray())
+        val digest = md.digest()
+        val sb = HEX_SB_THREAD_LOCAL.get()!!
+        sb.setLength(0)
+        for (b in digest) {
+            val i = b.toInt() and 0xFF
+            sb.append(HEX_CHARS[i ushr 4])
+            sb.append(HEX_CHARS[i and 0x0F])
+        }
+        return sb.toString()
+    }
 
     private fun trimDiskCache() {
         DECODE_EXECUTOR.execute {
-            try {
-                val files = diskCacheDir.listFiles() ?: return@execute
-                var totalSize = files.sumOf { it.length() }
-                if (totalSize <= maxDiskCacheBytes) return@execute
-                val sorted = files.sortedBy { it.lastModified() }
-                for (f in sorted) {
-                    if (totalSize <= maxDiskCacheBytes * 0.8) break
-                    totalSize -= f.length()
-                    f.delete()
-                }
-            } catch (_: Exception) {}
+            trimDir(diskCacheDir, maxDiskCacheBytes)
+            trimDir(avatarCacheDir, maxAvatarDiskBytes)
         }
+    }
+
+    private fun trimDir(dir: File, maxBytes: Long) {
+        try {
+            val files = dir.listFiles() ?: return
+            var totalSize = files.sumOf { it.length() }
+            if (totalSize <= maxBytes) return
+            val sorted = files.sortedBy { it.lastModified() }
+            for (f in sorted) {
+                if (totalSize <= maxBytes * 0.8) break
+                totalSize -= f.length()
+                try { f.delete() } catch (_: Throwable) {}
+            }
+        } catch (_: Exception) {}
     }
 
     fun loadFromUri(
@@ -416,12 +472,12 @@ class MezonImageLoader private constructor(context: Context) {
         @Suppress("UNCHECKED_CAST")
         val cb = LoadCallback(onSuccess as (Any) -> Unit, onError)
         if (addCallback(cacheKey, cb)) {
-            return Cancellable { removePendingCallback(cacheKey, cb) }
+            return Cancellable { removePendingCallback("", cacheKey, cb) }
         }
 
         DECODE_EXECUTOR.execute {
             try {
-                val tmpFile = diskFile(cacheKey)
+                val tmpFile = File(diskCacheDir, "uri_" + cacheKey)
                 appContext.contentResolver.openInputStream(uri)?.use { input ->
                     FileOutputStream(tmpFile).use { output -> input.copyTo(output) }
                 } ?: throw IOException("Cannot open URI: $uri")
@@ -446,7 +502,7 @@ class MezonImageLoader private constructor(context: Context) {
                 dispatchError(cacheKey, e)
             }
         }
-        return Cancellable { removePendingCallback(cacheKey, cb) }
+        return Cancellable { removePendingCallback("", cacheKey, cb) }
     }
 
     fun interface Cancellable {
@@ -462,6 +518,15 @@ class MezonImageLoader private constructor(context: Context) {
 
         private const val SMALL_IMAGE_THRESHOLD = 100
         private const val MAX_DECODE_QUEUE = 64
+        private const val HTTP_CACHE_BYTES = 100L * 1024 * 1024
+
+        private val AVATAR_BUCKET_MARKERS = arrayOf(
+            "/rs:fill:64:64:1/",
+            "/rs:fill:96:96:1/",
+            "/rs:fill:144:144:1/",
+            "/rs:fill:192:192:1/",
+            "/rs:fill:256:256:1/"
+        )
 
         private val HEX_CHARS = "0123456789abcdef".toCharArray()
 
