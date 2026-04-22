@@ -375,7 +375,7 @@ class MainActivity : BasePermissionsActivity(),
 
     override fun needCloseLastFragment(layout: INavigationLayout): Boolean {
         if (layout.getFragmentStack().size <= 1) {
-            finish()
+            finishAndRemoveTask()
             return false
         }
         return true
