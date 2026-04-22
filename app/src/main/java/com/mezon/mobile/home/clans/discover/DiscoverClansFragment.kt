@@ -28,6 +28,7 @@ import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.di.FragmentEntryPoint
+import com.mezon.mobile.home.qr.QrScanFragment
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.ui.cells.MezonIcon
@@ -50,6 +51,7 @@ class DiscoverClansFragment : BaseFragment() {
     private lateinit var listAdapter: DiscoverAdapter
 
     private val allItems = ArrayList<DiscoverClanItem>()
+    private val displayItems = ArrayList<DiscoverClanItem>()
     private var currentPage = 1
     private var serverPageCount = 1
     private var loading = false
@@ -113,7 +115,10 @@ class DiscoverClansFragment : BaseFragment() {
         }
 
         recyclerView = RecyclerListView(context).apply {
-            layoutManager = LinearLayoutManager(context)
+            layoutManager = LinearLayoutManager(context).apply {
+                isItemPrefetchEnabled = false
+                initialPrefetchItemCount = 0
+            }
             itemAnimator = null
             isVerticalScrollBarEnabled = false
             setPadding(LayoutHelper.dp(12), LayoutHelper.dp(12), LayoutHelper.dp(12), LayoutHelper.dp(100))
@@ -137,9 +142,8 @@ class DiscoverClansFragment : BaseFragment() {
         recyclerView.setOnItemClickListener(object : RecyclerListView.OnItemClickListener {
             override fun onItemClick(view: View, position: Int) {
                 if (view !is DiscoverClanCell) return
-                val list = listAdapter.filteredList()
-                if (position in list.indices) {
-                    presentFragment(DiscoverClanDetailFragment.newInstance(list[position]))
+                if (position in displayItems.indices) {
+                    presentFragment(DiscoverClanDetailFragment.newInstance(displayItems[position]))
                 }
             }
         })
@@ -167,9 +171,9 @@ class DiscoverClansFragment : BaseFragment() {
             orientation = LinearLayout.VERTICAL
             setPadding(
                 LayoutHelper.dp(12),
-                LayoutHelper.dp(10),
+                LayoutHelper.dp(8),
                 LayoutHelper.dp(12),
-                LayoutHelper.dp(14)
+                LayoutHelper.dp(10)
             )
         }
         val navBar = LinearLayout(context).apply {
@@ -179,19 +183,21 @@ class DiscoverClansFragment : BaseFragment() {
         val searchWrap = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            val innerPad = LayoutHelper.dp(10)
+            val innerPad = LayoutHelper.dp(12)
             setPadding(innerPad, 0, innerPad, 0)
             background = GradientDrawable().apply {
                 setColor(themeColors.secondaryLight)
-                cornerRadius = LayoutHelper.dp(10f).toFloat()
+                cornerRadius = LayoutHelper.dp(12f).toFloat()
                 setStroke(LayoutHelper.dp(1), themeColors.outlineVariant)
             }
-            layoutParams = LinearLayout.LayoutParams(0, LayoutHelper.dp(36), 1f)
+            layoutParams = LinearLayout.LayoutParams(0, LayoutHelper.dp(40), 1f)
         }
         searchWrap.addView(ImageView(context).apply {
             setImageDrawable(MezonIcon.magnifyingIcon.getDrawable(context, themeColors.onSurface))
-            val p = LayoutHelper.dp(18)
-            layoutParams = LinearLayout.LayoutParams(p, p)
+            val iconSize = LayoutHelper.dp(18)
+            layoutParams = LinearLayout.LayoutParams(iconSize, iconSize).apply {
+                rightMargin = LayoutHelper.dp(8)
+            }
         })
         val edit = EditText(context).apply {
             hint = context.getString(R.string.discover_explore_communities)
@@ -200,14 +206,16 @@ class DiscoverClansFragment : BaseFragment() {
             textSize = 14f
             gravity = Gravity.CENTER_VERTICAL
             includeFontPadding = false
-            setPadding(0, 0, LayoutHelper.dp(10), 0)
+            setPadding(0, 0, 0, 0)
             setLineSpacing(0f, 1f)
+            isSingleLine = true
             setBackgroundColor(android.graphics.Color.TRANSPARENT)
             layoutParams = LinearLayout.LayoutParams(0, LayoutHelper.MATCH_PARENT, 1f)
             setText(DiscoverFilterHolder.searchQuery)
         }
         searchDebounceRunnable = Runnable {
             DiscoverFilterHolder.searchQuery = edit.text?.toString().orEmpty()
+            rebuildDisplayItems()
             listAdapter.notifyDataSetChanged()
             updateEmptyState()
         }
@@ -226,29 +234,29 @@ class DiscoverClansFragment : BaseFragment() {
         fun iconButton(icon: MezonIcon): ImageView {
             return ImageView(context).apply {
                 val circleBg = GradientDrawable().apply {
-                    cornerRadius = LayoutHelper.dp(10f).toFloat()
-                    setColor(themeColors.secondaryLight)
+                    shape = GradientDrawable.OVAL
+                    setColor(themeColors.tertiary)
                 }
                 background = RippleDrawable(
                     ColorStateList.valueOf(themeColors.onSurface and 0x1AFFFFFF),
                     circleBg,
                     GradientDrawable().apply {
+                        shape = GradientDrawable.OVAL
                         setColor(0xFFFFFFFF.toInt())
-                        cornerRadius = LayoutHelper.dp(10f).toFloat()
                     }
                 )
                 setImageDrawable(icon.getDrawable(context, themeColors.onSurface))
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
                 val p = LayoutHelper.dp(8)
                 setPadding(p, p, p, p)
-                layoutParams = LinearLayout.LayoutParams(LayoutHelper.dp(36), LayoutHelper.dp(36)).apply {
+                layoutParams = LinearLayout.LayoutParams(LayoutHelper.dp(32), LayoutHelper.dp(32)).apply {
                     leftMargin = LayoutHelper.dp(8)
                 }
             }
         }
         val qrBtn = iconButton(MezonIcon.scanQR)
         qrBtn.setOnClickListener {
-            Toast.makeText(context, context.getString(R.string.feature_coming_soon), Toast.LENGTH_SHORT).show()
+            presentFragment(QrScanFragment())
         }
         navBar.addView(qrBtn)
         val addFriendBtn = iconButton(MezonIcon.userPlusIcon)
@@ -263,6 +271,7 @@ class DiscoverClansFragment : BaseFragment() {
 
     override fun onBecomeFullyVisible() {
         super.onBecomeFullyVisible()
+        rebuildDisplayItems()
         updateEmptyState()
         listAdapter.notifyDataSetChanged()
     }
@@ -274,6 +283,8 @@ class DiscoverClansFragment : BaseFragment() {
         }
         currentPage = 1
         allItems.clear()
+        rebuildDisplayItems()
+        listAdapter.notifyDataSetChanged()
         fragmentScope.launch { loadPage(1, isRefresh = true) }
     }
 
@@ -340,6 +351,7 @@ class DiscoverClansFragment : BaseFragment() {
         loadingMore = false
         initialLoadFinished = true
         withContext(Dispatchers.Main) {
+            rebuildDisplayItems()
             swipeRefresh.isRefreshing = false
             updateEmptyState()
             listAdapter.notifyDataSetChanged()
@@ -357,24 +369,28 @@ class DiscoverClansFragment : BaseFragment() {
     }
 
     private fun updateEmptyState() {
-        val filtered = filteredItems()
         val q = DiscoverFilterHolder.searchQuery.trim()
         when {
             loadError != null -> {
                 emptyStateView.visibility = View.VISIBLE
                 emptyStateView.text = loadError
             }
-            q.isNotEmpty() && filtered.isEmpty() && !loading -> {
+            q.isNotEmpty() && displayItems.isEmpty() && !loading -> {
                 emptyStateView.visibility = View.VISIBLE
                 emptyStateView.setText(R.string.discover_list_empty_search)
             }
-            filtered.isEmpty() && !loading && initialLoadFinished -> {
+            displayItems.isEmpty() && !loading && initialLoadFinished -> {
                 emptyStateView.visibility = View.GONE
             }
             else -> {
                 emptyStateView.visibility = View.GONE
             }
         }
+    }
+
+    private fun rebuildDisplayItems() {
+        displayItems.clear()
+        displayItems.addAll(filteredItems())
     }
 
     private fun filteredItems(): List<DiscoverClanItem> {
@@ -387,16 +403,24 @@ class DiscoverClansFragment : BaseFragment() {
 
     private inner class DiscoverAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
-        fun filteredList(): List<DiscoverClanItem> = filteredItems()
+        init {
+            setHasStableIds(true)
+        }
 
         override fun getItemViewType(position: Int): Int {
-            val rows = filteredItems().size
+            val rows = displayItems.size
             if (loadingMore && position == rows) return FOOTER_TYPE
             return ROW_TYPE
         }
 
+        override fun getItemId(position: Int): Long {
+            val rows = displayItems.size
+            if (loadingMore && position == rows) return Long.MIN_VALUE
+            return displayItems.getOrNull(position)?.clanId ?: RecyclerView.NO_ID
+        }
+
         override fun getItemCount(): Int {
-            val rows = filteredItems().size
+            val rows = displayItems.size
             return rows + if (loadingMore) 1 else 0
         }
 
@@ -419,9 +443,8 @@ class DiscoverClansFragment : BaseFragment() {
 
         override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
             if (holder.itemView is DiscoverClanCell) {
-                val list = filteredItems()
-                if (position in list.indices) {
-                    holder.itemView.setData(list[position])
+                if (position in displayItems.indices) {
+                    holder.itemView.setData(displayItems[position])
                 }
             }
         }

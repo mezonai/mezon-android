@@ -16,6 +16,8 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.util.avatarImgproxyUrl
+import com.mezon.mobile.util.createImgproxyUrl
 import kotlin.math.max
 
 class DiscoverClanCell(
@@ -42,17 +44,19 @@ class DiscoverClanCell(
     private val memberDotPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val verifiedBgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val bannerPlaceholderPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val bannerDrawPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private val bannerDrawPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+        isDither = true
+    }
     private val verifyIconDrawable = MezonIcon.verifyIcon.getDrawable(context).apply {
         setTint(0xFFFFFFFF.toInt())
     }
 
     private val namePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = LayoutHelper.sp(12f)
+        textSize = LayoutHelper.sp(13f)
         typeface = Typeface.DEFAULT_BOLD
     }
     private val descPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = LayoutHelper.sp(10f)
+        textSize = LayoutHelper.sp(11f)
     }
     private val memberPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = LayoutHelper.sp(10f)
@@ -68,7 +72,7 @@ class DiscoverClanCell(
     private var memberLabel: String = ""
     private var lastBannerLoadWidthPx = -1
 
-    private val bannerH = LayoutHelper.dp(80)
+    private val bannerH = LayoutHelper.dp(124)
     private val cardRadius = LayoutHelper.dp(12f).toFloat()
     private val marginBottom = LayoutHelper.dp(16)
     private val contentPad = LayoutHelper.dp(10)
@@ -115,12 +119,13 @@ class DiscoverClanCell(
         bannerBmp = null
         avatarBmp = null
         val wPx = width.takeIf { it > 0 } ?: LayoutHelper.dp(360)
-        val reqBannerW = max(wPx * 3, LayoutHelper.dp(720))
-        val reqBannerH = max(bannerH * 3, LayoutHelper.dp(240))
+        val reqBannerW = max(wPx * 4, LayoutHelper.dp(1280))
+        val reqBannerH = max(bannerH * 4, LayoutHelper.dp(512))
         val loader = MezonImageLoader.getInstance(context)
         if (data.banner.isNotEmpty()) {
+            val bannerUrl = createImgproxyUrl(data.banner, reqBannerW, reqBannerH, "fit")
             bannerCancellable = loader.load(
-                data.banner, reqBannerW, reqBannerH,
+                bannerUrl, reqBannerW, reqBannerH,
                 onSuccess = { bmp ->
                     bannerBmp = bmp
                     invalidate()
@@ -129,8 +134,9 @@ class DiscoverClanCell(
         }
         val av = LayoutHelper.dp(60)
         if (data.clanLogo.isNotEmpty()) {
+            val logoUrl = avatarImgproxyUrl(data.clanLogo, av)
             avatarCancellable = loader.load(
-                data.clanLogo, av, av,
+                logoUrl, av, av,
                 onSuccess = { bmp ->
                     avatarBmp = bmp
                     invalidate()
@@ -219,12 +225,13 @@ class DiscoverClanCell(
         val contentTop = top + bannerH + contentPad
         val ax = left + contentPad
         val av = avatarBmp
-        val avatarR = avatarSize / 2f
+        val avatarRx = LayoutHelper.dp(12f).toFloat()
+        val avatarRy = LayoutHelper.dp(12f).toFloat()
         if (av != null && !av.isRecycled) {
             clipPath.reset()
             clipPath.addRoundRect(
                 ax, contentTop, ax + avatarSize, contentTop + avatarSize,
-                avatarR, avatarR,
+                avatarRx, avatarRy,
                 Path.Direction.CW
             )
             canvas.save()
@@ -252,15 +259,20 @@ class DiscoverClanCell(
         }
 
         val footerY = descY + (dl?.height ?: 0) + descGapBottom
-        val dotCx = left + contentPad + LayoutHelper.dp(4)
-        val dotCy = footerY + LayoutHelper.dp(4)
+        val dotRadius = LayoutHelper.dp(4).toFloat()
+        val rowCenterY = footerY + LayoutHelper.dp(9)
+        val dotCx = left + contentPad + dotRadius
+        val dotCy = rowCenterY
         memberDotPaint.color = themeColors.connectedColor
-        canvas.drawCircle(dotCx, dotCy, LayoutHelper.dp(4).toFloat(), memberDotPaint)
+        canvas.drawCircle(dotCx, dotCy, dotRadius, memberDotPaint)
+
+        val memberFm = memberPaint.fontMetrics
+        val memberBaseline = rowCenterY - (memberFm.ascent + memberFm.descent) / 2f
 
         canvas.drawText(
             memberLabel,
             left + contentPad + LayoutHelper.dp(4) + footerGap + LayoutHelper.dp(4),
-            footerY + LayoutHelper.dp(11),
+            memberBaseline,
             memberPaint
         )
 

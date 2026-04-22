@@ -15,6 +15,7 @@ class DiscoverRailCell(
 ) : View(context) {
 
     private val iconSizePx = LayoutHelper.dp(42)
+    private val iconDrawableSizePx = LayoutHelper.dp(28)
     private val joinDrawable: Drawable = MezonIcon.joinClanIcon.getDrawable(context)
     private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
@@ -37,6 +38,6 @@ class DiscoverRailCell(
             LayoutHelper.dp(8).toFloat(),
             bgPaint
         )
-        MezonIcon.drawIcon(canvas, joinDrawable, cx.toInt(), cy.toInt(), LayoutHelper.dp(15))
+        MezonIcon.drawIcon(canvas, joinDrawable, cx.toInt(), cy.toInt(), iconDrawableSizePx)
     }
 }
