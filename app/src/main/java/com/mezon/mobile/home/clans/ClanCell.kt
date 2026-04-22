@@ -14,7 +14,7 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.chat.MezonImageLoader
-import com.mezon.mobile.util.createImgproxyUrl
+import com.mezon.mobile.util.avatarImgproxyUrl
 
 class ClanCell(
     context: Context,
@@ -124,7 +124,7 @@ class ClanCell(
     private fun loadLogoIfNeeded(clan: ClanEntity) {
         if (clan.logo.isEmpty()) return
         val avatar = cachedAvatars.get(clan.clanId) ?: return
-        val url = createImgproxyUrl(clan.logo, iconSizePx * 2, iconSizePx * 2, "fill")
+        val url = avatarImgproxyUrl(clan.logo, iconSizePx)
         if (url == currentLogoUrl && avatar.hasPhoto()) return
         currentLogoUrl = url
 

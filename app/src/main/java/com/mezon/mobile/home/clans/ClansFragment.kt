@@ -12,7 +12,11 @@ import android.graphics.drawable.RippleDrawable
 import android.os.Handler
 import android.os.Looper
 import android.text.Editable
+import android.text.SpannableStringBuilder
 import android.text.TextWatcher
+import android.text.style.ForegroundColorSpan
+import android.text.style.ReplacementSpan
+import androidx.annotation.ColorInt
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -87,8 +91,6 @@ class ClansFragment : BaseFragment() {
     private lateinit var clanNameText: TextView
     private var verifiedIcon: ImageView? = null
     private lateinit var memberCountText: TextView
-    private var communityDot: View? = null
-    private var communityLabel: TextView? = null
     private var viewJustCreated = false
 
     private var headerSwitch: FrameLayout? = null
@@ -96,6 +98,12 @@ class ClansFragment : BaseFragment() {
     private var emptyClanHeaderRoot: LinearLayout? = null
     private val searchDebounceHandler = Handler(Looper.getMainLooper())
     private var searchDebounceRunnable: Runnable? = null
+
+    private var renderedClanId = 0L
+    private var renderedClanName: String? = null
+    private var renderedIsCommunity: Boolean? = null
+    private var renderedBannerUrl: String? = null
+    private var renderedSubtitleKey: String? = null
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
         clansController = entryPoint.clansController()
@@ -326,43 +334,16 @@ class ClansFragment : BaseFragment() {
         ).apply { leftMargin = LayoutHelper.dp(8) }) // RN: gap = Metrics.size.s = 8
         content.addView(nameRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
-        // Row 2: Member count + dot + Community (RN: subtitle 12sp, dot 4dp margin 8dp)
-        val subtitleRow = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
+        // Row 2: Member count + dot + Community — single TextView with spans (atomic render, no sibling shift)
         memberCountText = TextView(context).apply {
             setTextColor(themeColors.textDisabled)
             textSize = 13f
             text = ""
+            visibility = View.INVISIBLE
         }
-        subtitleRow.addView(memberCountText, LayoutHelper.createLinear(
+        content.addView(memberCountText, LayoutHelper.createLinear(
             LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT
         ))
-        communityDot = View(context).apply {
-            val dotBg = android.graphics.drawable.GradientDrawable().apply {
-                shape = android.graphics.drawable.GradientDrawable.OVAL
-                setColor(themeColors.blurple) // RN: baseColor.violetBlue
-            }
-            background = dotBg
-            visibility = View.GONE
-        }
-        subtitleRow.addView(communityDot, LinearLayout.LayoutParams(
-            LayoutHelper.dp(4), LayoutHelper.dp(4) // RN: s_4
-        ).apply {
-            leftMargin = LayoutHelper.dp(8) // RN: marginHorizontal s_8
-            rightMargin = LayoutHelper.dp(8)
-        })
-        communityLabel = TextView(context).apply {
-            setTextColor(themeColors.onSurface)
-            textSize = 13f
-            text = "Community"
-            visibility = View.GONE
-        }
-        subtitleRow.addView(communityLabel, LayoutHelper.createLinear(
-            LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT
-        ))
-        content.addView(subtitleRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         // Row 3: Navigation bar (RN: marginTop s_10, gap s_8)
         val navBar = LinearLayout(context).apply {
@@ -683,35 +664,101 @@ class ClansFragment : BaseFragment() {
     }
 
     private fun updateClanHeader(clan: ClanEntity) {
-        clanNameText.text = clan.clanName
+        val clanChanged = renderedClanId != clan.clanId
+        renderedClanId = clan.clanId
 
-        // Verified badge
-        verifiedIcon?.visibility = if (clan.isCommunity) View.VISIBLE else View.GONE
-
-        // Community subtitle
-        communityDot?.visibility = if (clan.isCommunity) View.VISIBLE else View.GONE
-        communityLabel?.visibility = if (clan.isCommunity) View.VISIBLE else View.GONE
-
-        // Banner
-        if (clan.banner.isNotEmpty()) {
-            bannerImage?.visibility = View.VISIBLE
-            bannerCancellable?.cancel()
-            val context = bannerImage?.context ?: return
-            val loader = MezonImageLoader.getInstance(context)
-            bannerCancellable = loader.load(clan.banner, 800, LayoutHelper.dp(140), onSuccess = { bitmap ->
-                bannerImage?.setImageBitmap(bitmap)
-            })
-        } else {
-            bannerImage?.visibility = View.GONE
+        if (clanChanged || renderedClanName != clan.clanName) {
+            renderedClanName = clan.clanName
+            clanNameText.text = clan.clanName
         }
 
+        if (clanChanged || renderedIsCommunity != clan.isCommunity) {
+            renderedIsCommunity = clan.isCommunity
+            verifiedIcon?.visibility = if (clan.isCommunity) View.VISIBLE else View.GONE
+            renderedSubtitleKey = null
+        }
+
+        if (clanChanged || renderedBannerUrl != clan.banner) {
+            renderedBannerUrl = clan.banner
+            bannerCancellable?.cancel()
+            bannerCancellable = null
+            if (clan.banner.isNotEmpty()) {
+                bannerImage?.visibility = View.VISIBLE
+                val context = bannerImage?.context
+                if (context != null) {
+                    val loader = MezonImageLoader.getInstance(context)
+                    bannerCancellable = loader.load(clan.banner, 800, LayoutHelper.dp(140), onSuccess = { bitmap ->
+                        bannerImage?.setImageBitmap(bitmap)
+                    })
+                }
+            } else {
+                bannerImage?.setImageBitmap(null)
+                bannerImage?.visibility = View.GONE
+            }
+        }
+
+        if (clanChanged) {
+            renderedSubtitleKey = null
+            memberCountText.animate().cancel()
+            val cachedCount = userClanController.getClanMemberCount(clan.clanId)
+            if (cachedCount > 0) {
+                memberCountText.alpha = 1f
+                memberCountText.visibility = View.VISIBLE
+            } else {
+                memberCountText.alpha = 0f
+                memberCountText.visibility = View.INVISIBLE
+            }
+        }
         updateMemberCount()
     }
 
     private fun updateMemberCount() {
         val clanId = clansController.selectedClanId.value
         val count = userClanController.getClanMemberCount(clanId)
-        memberCountText.text = if (count > 0) "$count Members" else ""
+        if (count <= 0) return
+        val isCommunity = renderedIsCommunity == true
+        val key = "$count|$isCommunity"
+        val alreadyShown = memberCountText.visibility == View.VISIBLE && memberCountText.alpha >= 1f
+        if (renderedSubtitleKey == key && alreadyShown) return
+        val wasHidden = !alreadyShown
+        renderedSubtitleKey = key
+        memberCountText.text = buildSubtitleText(count, isCommunity)
+        memberCountText.visibility = View.VISIBLE
+        if (wasHidden) {
+            memberCountText.animate().cancel()
+            memberCountText.alpha = 0f
+            memberCountText.animate()
+                .alpha(1f)
+                .setDuration(180)
+                .start()
+        }
+    }
+
+    private fun buildSubtitleText(count: Int, isCommunity: Boolean): CharSequence {
+        val base = "$count Members"
+        if (!isCommunity) return base
+        val builder = SpannableStringBuilder(base)
+        val dotStart = builder.length
+        builder.append(" ")
+        builder.setSpan(
+            CenteredDotSpan(
+                themeColors.blurple,
+                LayoutHelper.dp(4),
+                LayoutHelper.dp(8)
+            ),
+            dotStart,
+            builder.length,
+            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
+        val labelStart = builder.length
+        builder.append("Community")
+        builder.setSpan(
+            ForegroundColorSpan(themeColors.onSurface),
+            labelStart,
+            builder.length,
+            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
+        return builder
     }
 
     private fun openSearch() {
@@ -886,7 +933,7 @@ class ClansFragment : BaseFragment() {
         private var logoUrl = ""
 
         private val dmHeaderCount = 1
-        private val discoverRailCellEnabled = false
+        private val discoverRailCellEnabled = true
         private val hasSeparator: Boolean
             get() = clans.isNotEmpty()
 
@@ -1039,6 +1086,39 @@ class ClansFragment : BaseFragment() {
             val margin = LayoutHelper.dp(12f).toFloat()
             paint.color = theme.outlineVariant
             canvas.drawLine(margin, y, width - margin, y, paint)
+        }
+    }
+
+    private class CenteredDotSpan(
+        @ColorInt private val color: Int,
+        private val diameterPx: Int,
+        private val marginPx: Int
+    ) : ReplacementSpan() {
+        private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+        override fun getSize(
+            paint: Paint,
+            text: CharSequence?,
+            start: Int,
+            end: Int,
+            fm: Paint.FontMetricsInt?
+        ): Int = diameterPx + marginPx * 2
+
+        override fun draw(
+            canvas: Canvas,
+            text: CharSequence?,
+            start: Int,
+            end: Int,
+            x: Float,
+            top: Int,
+            y: Int,
+            bottom: Int,
+            paint: Paint
+        ) {
+            dotPaint.color = color
+            val cx = x + marginPx + diameterPx / 2f
+            val cy = (top + bottom) / 2f
+            canvas.drawCircle(cx, cy, diameterPx / 2f, dotPaint)
         }
     }
 }

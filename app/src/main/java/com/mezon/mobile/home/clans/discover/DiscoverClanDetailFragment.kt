@@ -1,13 +1,17 @@
 package com.mezon.mobile.home.clans.discover
 
 import android.content.Context
+import android.content.res.ColorStateList
 import android.os.Handler
 import android.os.Looper
+import android.graphics.Outline
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
+import android.view.ViewOutlineProvider
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -18,10 +22,13 @@ import android.widget.Toast
 import com.mezon.mobile.R
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
+import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.home.clans.ClansController
 import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.util.avatarImgproxyUrl
+import com.mezon.mobile.util.createImgproxyUrl
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.session.SessionManager
 import kotlinx.coroutines.Dispatchers
@@ -30,10 +37,12 @@ import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.max
 
 class DiscoverClanDetailFragment : BaseFragment() {
 
     companion object {
+        private const val HERO_BANNER_SCREEN_FRACTION = 0.25f
         private const val ARG_INVITE_ID = "inviteId"
         private const val ARG_CLAN_NAME = "clanName"
         private const val ARG_CLAN_LOGO = "clanLogo"
@@ -66,6 +75,12 @@ class DiscoverClanDetailFragment : BaseFragment() {
     private var inviteId = 0L
     private var joinButton: TextView? = null
     private var joinProgress: ProgressBar? = null
+    private var joinOriginalText: CharSequence = ""
+    private var pendingJoinClanId = 0L
+    private var pendingJoinTimeout: Runnable? = null
+    private var clansLoadedObserver: NotificationCenter.NotificationCenterDelegate? = null
+    private var heroBannerLoad: MezonImageLoader.Cancellable? = null
+    private var logoLoad: MezonImageLoader.Cancellable? = null
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
         api = entryPoint.mezonApi()
@@ -97,49 +112,126 @@ class DiscoverClanDetailFragment : BaseFragment() {
         val scroll = ScrollView(context).apply {
             isFillViewport = true
             overScrollMode = View.OVER_SCROLL_NEVER
+            clipChildren = false
         }
 
-        val content = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
+        val content = FrameLayout(context).apply {
+            clipChildren = false
         }
 
+        val bannerH = heroBannerHeightPx(context)
+        val sheetOverlap = LayoutHelper.dp(40)
+        val logoSize = LayoutHelper.dp(80)
+        val logoHalf = logoSize / 2
+
+        val heroShell = FrameLayout(context).apply {
+            clipChildren = false
+        }
         val bannerIv = ImageView(context).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
         }
-        content.addView(bannerIv, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.dp(200)))
+        heroShell.addView(
+            bannerIv,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        )
+        content.addView(
+            heroShell,
+            FrameLayout.LayoutParams(LayoutHelper.MATCH_PARENT, bannerH)
+        )
 
         if (banner.isNotEmpty()) {
-            MezonImageLoader.getInstance(context).load(banner, 1200, LayoutHelper.dp(400), onSuccess = { bmp ->
-                bannerIv.setImageBitmap(bmp)
-            })
+            val wPx = context.resources.displayMetrics.widthPixels
+            val reqBannerW = max(wPx * 4, LayoutHelper.dp(1280))
+            val reqBannerH = max(bannerH * 4, LayoutHelper.dp(512))
+            val bannerUrl = createImgproxyUrl(banner, reqBannerW, reqBannerH, "fit")
+            heroBannerLoad = MezonImageLoader.getInstance(context).load(
+                bannerUrl, reqBannerW, reqBannerH,
+                onSuccess = { bmp -> bannerIv.setImageBitmap(bmp) }
+            )
         } else {
             bannerIv.setBackgroundColor(themeColors.surfaceVariant)
         }
 
         val padH = LayoutHelper.dp(16)
+        val sheetTopRadius = LayoutHelper.dp(20f).toFloat()
+        val avatarCenterY = bannerH - sheetOverlap
+        val innerTopPad = logoHalf + LayoutHelper.dp(16)
         val inner = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(padH, LayoutHelper.dp(16), padH, LayoutHelper.dp(24))
+            setPadding(padH, innerTopPad, padH, LayoutHelper.dp(24))
+            background = sheetBackground(themeColors.chatBackground, sheetTopRadius)
         }
+        content.addView(
+            inner,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = bannerH - sheetOverlap
+            }
+        )
 
+        val logoFramePad = LayoutHelper.dp(4)
+        val logoFrameCorner = LayoutHelper.dp(16f).toFloat()
+        val logoInnerCorner = (LayoutHelper.dp(16f) - logoFramePad).toFloat().coerceAtLeast(0f)
+        val logoFrame = FrameLayout(context).apply {
+            clipChildren = true
+            setPadding(logoFramePad, logoFramePad, logoFramePad, logoFramePad)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = logoFrameCorner
+                setColor(themeColors.chatBackground)
+                setStroke(LayoutHelper.dp(4), themeColors.chatBackground)
+            }
+            clipToOutline = true
+            outlineProvider = object : ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: Outline) {
+                    outline.setRoundRect(0, 0, view.width, view.height, logoFrameCorner)
+                }
+            }
+            elevation = LayoutHelper.dpf(4f)
+        }
         val logoIv = ImageView(context).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
-            layoutParams = LinearLayout.LayoutParams(LayoutHelper.dp(80), LayoutHelper.dp(80)).apply {
-                gravity = Gravity.CENTER_HORIZONTAL
-                bottomMargin = LayoutHelper.dp(16)
+            clipToOutline = true
+            outlineProvider = object : ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: Outline) {
+                    outline.setRoundRect(0, 0, view.width, view.height, logoInnerCorner)
+                }
             }
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
         }
         if (clanLogo.isNotEmpty()) {
-            MezonImageLoader.getInstance(context).load(clanLogo, 160, 160, onSuccess = { bmp ->
-                logoIv.setImageBitmap(bmp)
-            })
+            val logoPx = max(LayoutHelper.dp(80) * 2, 160)
+            val logoUrl = avatarImgproxyUrl(clanLogo, logoPx)
+            logoLoad = MezonImageLoader.getInstance(context).load(
+                logoUrl, logoPx, logoPx,
+                onSuccess = { bmp -> logoIv.setImageBitmap(bmp) }
+            )
+        } else {
+            logoIv.setBackgroundColor(themeColors.surfaceVariant)
         }
-        inner.addView(logoIv)
+        logoFrame.addView(logoIv)
+        content.addView(
+            logoFrame,
+            FrameLayout.LayoutParams(logoSize, logoSize).apply {
+                gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+                topMargin = avatarCenterY - logoHalf
+            }
+        )
 
         inner.addView(label(context, clanName, 24f, true, themeColors.onSurface))
 
         inner.addView(label(context, description, 14f, false, themeColors.onSurfaceVariant).apply {
             gravity = Gravity.CENTER_HORIZONTAL
+            maxLines = 3
+            ellipsize = android.text.TextUtils.TruncateAt.END
             setPadding(0, 0, 0, LayoutHelper.dp(16))
         })
 
@@ -170,18 +262,18 @@ class DiscoverClanDetailFragment : BaseFragment() {
             textSize = 16f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
-            background = GradientDrawable().apply {
-                setColor(themeColors.blurple)
-                cornerRadius = LayoutHelper.dp(12f).toFloat()
-            }
+            background = joinButtonBackground()
+            isClickable = true
+            isFocusable = true
             setPadding(LayoutHelper.dp(16), LayoutHelper.dp(12), LayoutHelper.dp(16), LayoutHelper.dp(12))
             setOnClickListener { onJoinClicked() }
         }
         joinWrap.addView(joinButton, FrameLayout.LayoutParams(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
         joinProgress = ProgressBar(context).apply {
             visibility = View.GONE
+            indeterminateTintList = ColorStateList.valueOf(themeColors.onPrimary)
         }
-        joinWrap.addView(joinProgress, FrameLayout.LayoutParams(LayoutHelper.dp(32), LayoutHelper.dp(32)).apply {
+        joinWrap.addView(joinProgress, FrameLayout.LayoutParams(LayoutHelper.dp(24), LayoutHelper.dp(24)).apply {
             gravity = Gravity.CENTER
         })
         inner.addView(joinWrap, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
@@ -223,12 +315,29 @@ class DiscoverClanDetailFragment : BaseFragment() {
         }
         inner.addView(tagsRow)
 
-        content.addView(inner)
         scroll.addView(content)
         root.addView(scroll, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
 
         fragmentView = root
         return root
+    }
+
+    private fun heroBannerHeightPx(context: Context): Int {
+        val screenH = context.resources.displayMetrics.heightPixels
+        return (screenH * HERO_BANNER_SCREEN_FRACTION).toInt()
+    }
+
+    private fun sheetBackground(fillColor: Int, topRadiusPx: Float): GradientDrawable {
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor(fillColor)
+            cornerRadii = floatArrayOf(
+                topRadiusPx, topRadiusPx,
+                topRadiusPx, topRadiusPx,
+                0f, 0f,
+                0f, 0f
+            )
+        }
     }
 
     private fun label(
@@ -290,14 +399,43 @@ class DiscoverClanDetailFragment : BaseFragment() {
         }
     }
 
+    private fun joinButtonBackground(): RippleDrawable {
+        val fill = GradientDrawable().apply {
+            setColor(themeColors.blurple)
+            cornerRadius = LayoutHelper.dp(12f).toFloat()
+        }
+        val mask = GradientDrawable().apply {
+            setColor(0xFFFFFFFF.toInt())
+            cornerRadius = LayoutHelper.dp(12f).toFloat()
+        }
+        val rippleColor = (themeColors.onPrimary and 0x00FFFFFF) or 0x40000000
+        return RippleDrawable(ColorStateList.valueOf(rippleColor), fill, mask)
+    }
+
+    private fun setJoinLoading(loading: Boolean) {
+        val button = joinButton ?: return
+        val progress = joinProgress
+        if (loading) {
+            if (joinOriginalText.isEmpty()) joinOriginalText = button.text
+            button.text = ""
+            button.isClickable = false
+            button.isEnabled = false
+            progress?.visibility = View.VISIBLE
+        } else {
+            if (joinOriginalText.isNotEmpty()) button.text = joinOriginalText
+            button.isClickable = true
+            button.isEnabled = true
+            progress?.visibility = View.GONE
+        }
+    }
+
     private fun onJoinClicked() {
         val ctx = getContext() ?: return
         if (inviteId == 0L) {
             Toast.makeText(ctx, R.string.discover_join_failed, Toast.LENGTH_SHORT).show()
             return
         }
-        joinButton?.isEnabled = false
-        joinProgress?.visibility = View.VISIBLE
+        setJoinLoading(true)
         fragmentScope.launch {
             val res = runCatching {
                 sessionManager.withAutoRefresh { session ->
@@ -307,24 +445,89 @@ class DiscoverClanDetailFragment : BaseFragment() {
                 }
             }
             withContext(Dispatchers.Main) {
-                joinProgress?.visibility = View.GONE
-                joinButton?.isEnabled = true
                 res.onSuccess { r ->
                     val cid = r.clanId
                     if (cid != 0L) {
-                        clansController.loadClans(force = true)
-                        Handler(Looper.getMainLooper()).postDelayed({
-                            clansController.selectClan(cid)
-                            finishFragment()
-                        }, 600L)
+                        navigateToJoinedClan(cid)
                     } else {
+                        setJoinLoading(false)
                         Toast.makeText(ctx, R.string.discover_join_failed, Toast.LENGTH_SHORT).show()
                     }
                 }.onFailure {
+                    setJoinLoading(false)
                     Toast.makeText(ctx, R.string.discover_join_failed, Toast.LENGTH_SHORT).show()
                 }
             }
         }
+    }
+
+    private fun navigateToJoinedClan(clanId: Long) {
+        if (pendingJoinClanId != 0L) return
+        pendingJoinClanId = clanId
+
+        val handler = Handler(Looper.getMainLooper())
+        val observer = object : NotificationCenter.NotificationCenterDelegate {
+            override fun didReceivedNotification(id: Int, account: Int, vararg args: Any?) {
+                finalizeJoin(clanId)
+            }
+        }
+        clansLoadedObserver = observer
+        notificationCenter.addObserver(observer, NotificationCenter.clansDidLoad)
+
+        pendingJoinTimeout = Runnable { finalizeJoin(clanId) }
+        handler.postDelayed(pendingJoinTimeout!!, 2500L)
+
+        clansController.loadClans(force = true)
+    }
+
+    private fun finalizeJoin(clanId: Long) {
+        if (pendingJoinClanId != clanId) return
+        pendingJoinClanId = 0L
+
+        clansLoadedObserver?.let {
+            notificationCenter.removeObserver(it, NotificationCenter.clansDidLoad)
+        }
+        clansLoadedObserver = null
+        pendingJoinTimeout?.let { Handler(Looper.getMainLooper()).removeCallbacks(it) }
+        pendingJoinTimeout = null
+
+        clansController.selectClan(clanId, force = true)
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.navigateToClansTab)
+        popToClansFragment()
+    }
+
+    private fun popToClansFragment() {
+        val layout = parentLayout
+        if (layout == null) {
+            finishFragment()
+            return
+        }
+        val stack = ArrayList(layout.getFragmentStack())
+        for (i in stack.size - 2 downTo 0) {
+            val f = stack[i]
+            if (f is com.mezon.mobile.home.clans.ClansFragment) {
+                for (j in stack.size - 2 downTo i + 1) {
+                    layout.removeFragmentFromStack(stack[j])
+                }
+                finishFragment()
+                return
+            }
+        }
+        finishFragment()
+    }
+
+    override fun onFragmentDestroy() {
+        heroBannerLoad?.cancel()
+        heroBannerLoad = null
+        logoLoad?.cancel()
+        logoLoad = null
+        clansLoadedObserver?.let {
+            notificationCenter.removeObserver(it, NotificationCenter.clansDidLoad)
+        }
+        clansLoadedObserver = null
+        pendingJoinTimeout?.let { Handler(Looper.getMainLooper()).removeCallbacks(it) }
+        pendingJoinTimeout = null
+        super.onFragmentDestroy()
     }
 
     override fun onFragmentCreate(): Boolean {
