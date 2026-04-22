@@ -8,6 +8,8 @@ import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.RectF
 import android.os.SystemClock
+import android.text.TextPaint
+import android.text.TextUtils
 import android.view.View
 import android.view.animation.LinearInterpolator
 import android.view.animation.PathInterpolator
@@ -24,10 +26,18 @@ class ReactionOverlayView(context: Context) : View(context) {
         private val emojiPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             textAlign = Paint.Align.CENTER
         }
+        private val namePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            textAlign = Paint.Align.CENTER
+            color = 0xFFFFFFFF.toInt()
+            textSize = LayoutHelper.sp(12f).toFloat()
+            setShadowLayer(LayoutHelper.dp(2f).toFloat(), 0f, LayoutHelper.dp(1f).toFloat(), 0xB3000000.toInt())
+        }
         private val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG)
         private const val ANIMATION_DURATION_MS = 4000L
         private val EMOJI_BITMAP_SIZE = LayoutHelper.dp(36)
         private val BASE_EMOJI_TEXT_SIZE = LayoutHelper.sp(32f)
+        private val NAME_GAP = LayoutHelper.dp(6).toFloat()
+        private val NAME_MAX_WIDTH = LayoutHelper.dp(120).toFloat()
         private val START_Y_OFFSET = LayoutHelper.dp(120).toFloat()
         private val MAX_HORIZONTAL_OFFSET = LayoutHelper.dp(150).toFloat()
         private val MAX_VERTICAL_OFFSET = LayoutHelper.dp(30).toFloat()
@@ -49,6 +59,8 @@ class ReactionOverlayView(context: Context) : View(context) {
 
     class FloatingEmoji(
         val emoji: String,
+        val senderName: String?,
+        val isServerEmojiId: Boolean,
         val startX: Float,
         val startY: Float,
         val horizontalOffset: Float,
@@ -58,27 +70,35 @@ class ReactionOverlayView(context: Context) : View(context) {
         var currentY: Float,
         var alpha: Float,
         var scale: Float,
-        var bitmap: Bitmap? = null
+        var bitmap: Bitmap? = null,
+        var displayName: String? = null
     )
 
+    private data class PendingEmoji(val emoji: String, val senderName: String?)
+
     private val activeEmojis = ArrayList<FloatingEmoji>(MAX_ACTIVE_EMOJIS)
-    private val pendingEmojis = ArrayList<String>()
+    private val pendingEmojis = ArrayList<PendingEmoji>()
     private val tmpDstRect = RectF()
     private val tmpMatrix = Matrix()
     private var ticker: ValueAnimator? = null
 
     fun showEmojis(emojis: List<String>) {
+        showEmojis(emojis, null)
+    }
+
+    fun showEmojis(emojis: List<String>, senderName: String?) {
         val w = width.toFloat()
         val h = height.toFloat()
         if (w <= 0 || h <= 0) {
             val space = MAX_PENDING_EMOJIS - pendingEmojis.size
             if (space > 0) {
-                pendingEmojis.addAll(if (emojis.size <= space) emojis else emojis.take(space))
+                val items = emojis.map { PendingEmoji(it, senderName) }
+                pendingEmojis.addAll(if (items.size <= space) items else items.take(space))
             }
             post { launchPending() }
             return
         }
-        launchEmojis(emojis, w, h)
+        launchEmojis(emojis, senderName, w, h)
     }
 
     private fun launchPending() {
@@ -88,11 +108,14 @@ class ReactionOverlayView(context: Context) : View(context) {
         if (w <= 0 || h <= 0) return
         val copy = ArrayList(pendingEmojis)
         pendingEmojis.clear()
-        launchEmojis(copy, w, h)
+        for (item in copy) {
+            launchEmojis(listOf(item.emoji), item.senderName, w, h)
+        }
     }
 
-    private fun launchEmojis(emojis: List<String>, w: Float, h: Float) {
+    private fun launchEmojis(emojis: List<String>, senderName: String?, w: Float, h: Float) {
         val now = SystemClock.elapsedRealtime()
+        val trimmedName = senderName?.trim()?.takeIf { it.isNotEmpty() }
         for (emoji in emojis) {
             if (activeEmojis.size >= MAX_ACTIVE_EMOJIS) {
                 activeEmojis.removeAt(0)
@@ -102,8 +125,11 @@ class ReactionOverlayView(context: Context) : View(context) {
             val startX = w / 2f + horizontalOffset * 0.2f
             val startY = (h - START_Y_OFFSET - verticalOffset).coerceAtLeast(EMOJI_BITMAP_SIZE.toFloat())
             val flightDistance = h * FLIGHT_HEIGHT_RATIO + (Math.random().toFloat() * h * FLIGHT_HEIGHT_VARIANCE)
+            val isServerEmojiId = emoji.isNotEmpty() && emoji.all { it.isDigit() }
             val fe = FloatingEmoji(
                 emoji = emoji,
+                senderName = trimmedName,
+                isServerEmojiId = isServerEmojiId,
                 startX = startX,
                 startY = startY,
                 horizontalOffset = horizontalOffset,
@@ -114,6 +140,9 @@ class ReactionOverlayView(context: Context) : View(context) {
                 alpha = 0f,
                 scale = 0f
             )
+            if (trimmedName != null) {
+                fe.displayName = TextUtils.ellipsize(trimmedName, namePaint, NAME_MAX_WIDTH, TextUtils.TruncateAt.END).toString()
+            }
             loadEmojiBitmapIfNeeded(fe)
             activeEmojis.add(fe)
         }
@@ -205,9 +234,10 @@ class ReactionOverlayView(context: Context) : View(context) {
             if (fe.alpha <= 0f) continue
             val alphaInt = (fe.alpha * 255f).toInt().coerceIn(0, 255)
             val bitmap = fe.bitmap
+            val scaledHalf = EMOJI_BITMAP_SIZE * fe.scale * 0.5f
+            var emojiDrawn = false
             if (bitmap != null) {
                 bitmapPaint.alpha = alphaInt
-                val scaledHalf = EMOJI_BITMAP_SIZE * fe.scale * 0.5f
                 tmpDstRect.set(
                     fe.x - scaledHalf,
                     fe.currentY - scaledHalf,
@@ -215,10 +245,18 @@ class ReactionOverlayView(context: Context) : View(context) {
                     fe.currentY + scaledHalf
                 )
                 canvas.drawBitmap(bitmap, null, tmpDstRect, bitmapPaint)
-            } else {
+                emojiDrawn = true
+            } else if (!fe.isServerEmojiId) {
                 emojiPaint.alpha = alphaInt
                 emojiPaint.textSize = BASE_EMOJI_TEXT_SIZE * fe.scale
                 canvas.drawText(fe.emoji, fe.x, fe.currentY, emojiPaint)
+                emojiDrawn = true
+            }
+            val name = fe.displayName
+            if (emojiDrawn && !name.isNullOrEmpty()) {
+                namePaint.alpha = alphaInt
+                val nameY = fe.currentY + scaledHalf + NAME_GAP - namePaint.fontMetrics.ascent
+                canvas.drawText(name, fe.x, nameY, namePaint)
             }
         }
     }
@@ -236,7 +274,7 @@ class ReactionOverlayView(context: Context) : View(context) {
     }
 
     private fun loadEmojiBitmapIfNeeded(fe: FloatingEmoji) {
-        if (!fe.emoji.all { it.isDigit() }) return
+        if (!fe.isServerEmojiId) return
         val url = getEmojiUrl(fe.emoji) ?: return
         val loader = MezonImageLoader.getInstance(context)
         val cached = loader.getBitmapFromMemory(url, EMOJI_BITMAP_SIZE, EMOJI_BITMAP_SIZE)
@@ -250,6 +288,7 @@ class ReactionOverlayView(context: Context) : View(context) {
             EMOJI_BITMAP_SIZE,
             onSuccess = { bmp ->
                 fe.bitmap = bmp
+                invalidate()
             }
         )
     }

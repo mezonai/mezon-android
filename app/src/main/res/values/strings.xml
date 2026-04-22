@@ -490,6 +490,13 @@
     <string name="feature_coming_soon">Coming soon</string>
     <string name="file_too_large">File exceeds the %s limit</string>
 
+    <!-- Voice recording -->
+    <string name="voice_record_hint">Press &amp; hold to record.</string>
+    <string name="voice_record_slide_to_cancel">Slide to cancel</string>
+    <string name="voice_record_cancelled">Recording cancelled</string>
+    <string name="voice_record_too_short">Hold longer to record</string>
+    <string name="voice_record_failed">Failed to record voice message</string>
+
     <!-- sharing -->
     <string name="sharing_title">Share to…</string>
     <string name="sharing_search_placeholder">Search conversations</string>
@@ -549,6 +556,11 @@
     <string name="voice_room_kick_modal_action">Kick</string>
     <string name="voice_room_moderation_mute_failed">Could not mute this member.</string>
     <string name="voice_room_moderation_kick_failed">Could not kick this member.</string>
+    <string name="voice_room_mic_permission_title">Microphone permission required</string>
+    <string name="voice_room_mic_permission_message">Mezon needs microphone access to let you speak in this voice channel. Please enable it in Settings.</string>
+    <string name="voice_room_camera_permission_title">Camera permission required</string>
+    <string name="voice_room_camera_permission_message">Mezon needs camera access to share your video. Please enable it in Settings.</string>
+    <string name="voice_room_listen_only_hint">Joined in listen-only mode. Tap the microphone to enable voice.</string>
 
     <string name="discover_title">Discover</string>
     <string name="discover_community_on_mezon">Community on Mezon</string>

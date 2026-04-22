@@ -17,7 +17,7 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.ui.cells.MezonIcon
-import com.mezon.mobile.util.createImgproxyUrl
+import com.mezon.mobile.util.avatarImgproxyUrl
 
 class VoiceRaiseHandOverlayView(
     context: Context,
@@ -165,7 +165,7 @@ class VoiceRaiseHandOverlayView(
 
         if (avatarUrl.isNullOrBlank()) return
         val loader = MezonImageLoader.getInstance(context)
-        val url = createImgproxyUrl(avatarUrl, AVATAR_SIZE * 2, AVATAR_SIZE * 2, "fill")
+        val url = avatarImgproxyUrl(avatarUrl, AVATAR_SIZE)
         val cached = loader.getBitmapFromMemory(url, AVATAR_SIZE, AVATAR_SIZE)
         if (cached != null) {
             item.avatarDrawable.setPhoto(cached)

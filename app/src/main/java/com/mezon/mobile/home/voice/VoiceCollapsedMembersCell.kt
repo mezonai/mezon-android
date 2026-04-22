@@ -11,7 +11,7 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.home.clans.VoiceMemberDisplay
-import com.mezon.mobile.util.createImgproxyUrl
+import com.mezon.mobile.util.avatarImgproxyUrl
 
 class VoiceCollapsedMembersCell(
     context: Context,
@@ -71,7 +71,7 @@ class VoiceCollapsedMembersCell(
         cancelAvatarLoad(index)
 
         if (url.isNullOrEmpty()) return
-        val proxyUrl = createImgproxyUrl(url, AVATAR_SIZE * 2, AVATAR_SIZE * 2, "fill")
+        val proxyUrl = avatarImgproxyUrl(url, AVATAR_SIZE)
         avatarCancellables[index] = MezonImageLoader.getInstance(context).load(
             proxyUrl, AVATAR_SIZE, AVATAR_SIZE,
             onSuccess = { bmp ->

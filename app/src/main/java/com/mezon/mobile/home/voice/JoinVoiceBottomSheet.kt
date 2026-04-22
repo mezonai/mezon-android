@@ -21,7 +21,7 @@ import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.home.clans.VoiceMemberDisplay
 import com.mezon.mobile.ui.cells.MezonIcon
-import com.mezon.mobile.util.createImgproxyUrl
+import com.mezon.mobile.util.avatarImgproxyUrl
 
 class JoinVoiceBottomSheet(
     context: Context,
@@ -288,7 +288,7 @@ class JoinVoiceBottomSheet(
         holder.avatarView.setImageDrawable(holder.avatarDrawable)
 
         if (url.isNullOrEmpty()) return
-        val proxyUrl = createImgproxyUrl(url, avatarSizePx * 2, avatarSizePx * 2, "fill")
+        val proxyUrl = avatarImgproxyUrl(url, avatarSizePx)
         val loader = MezonImageLoader.getInstance(context)
         val cached = loader.getBitmapFromMemory(proxyUrl, avatarSizePx, avatarSizePx)
         if (cached != null) {
