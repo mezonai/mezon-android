@@ -23,7 +23,7 @@ import com.mezon.mobile.home.clans.ChannelItemCell
 import com.mezon.mobile.home.clans.ClanChannelEntity
 import com.mezon.mobile.home.clans.ClanRole
 import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
-import com.mezon.mobile.util.createImgproxyUrl
+import com.mezon.mobile.util.avatarImgproxyUrl
 import com.mezon.mobile.util.getEmojiUrl
 
 class InputSuggestionCell(
@@ -290,7 +290,7 @@ class InputSuggestionCell(
     private fun loadMemberPhoto(url: String) {
         if (url.isBlank()) return
         val size = SLOT
-        val proxy = createImgproxyUrl(url, size * 2, size * 2, "fill")
+        val proxy = avatarImgproxyUrl(url, size)
         currentImageUrl = proxy
         val loader = MezonImageLoader.getInstance(context)
         val cached = loader.getBitmapFromMemory(proxy, size, size)

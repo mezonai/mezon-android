@@ -23,6 +23,7 @@ import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.util.FileUtils
+import com.mezon.mobile.util.avatarImgproxyUrl
 import com.mezon.mobile.util.createImgproxyUrl
 import com.mezon.mobile.util.getEmojiUrl
 import com.mezon.mobile.util.MentionColors
@@ -81,6 +82,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var timeText: String = ""
     private var drawPhotoImage = false
     private var drawFileAttachment = false
+    private var drawAudioAttachment = false
     private var drawForwardHeader = false
     private var drawEdited = false
     private var drawEphemeral = false
@@ -89,6 +91,22 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var fileIconDrawable: Drawable? = null
     private val fileRoundRect = RectF()
     private var fileRowWidth = 0
+
+    private var audioTimeLayout: StaticLayout? = null
+    private var audioDurationSec: Int = 0
+    private var audioPillWidth: Int = 0
+    private var audioBlockLeft = 0f
+    private var audioBlockTop = 0f
+    private var audioBlockRight = 0f
+    private var audioBlockBottom = 0f
+    private val audioRoundRect = RectF()
+    private var audioIsPlaying = false
+    private var audioIsLoading = false
+    private var audioPositionMs: Long = 0
+    private var audioDurationMs: Long = 0
+    private var audioWaveTimeMs: Long = 0
+    private var audioLastFrameTimeMs: Long = 0
+    private val audioWavePath = Path()
 
     private val photoImage = ImageReceiver(this)
     private val extraPhotoImages = arrayOf(ImageReceiver(this), ImageReceiver(this), ImageReceiver(this))
@@ -288,7 +306,15 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             parsedContent = parseContentText(msg.content)
             timeText = formatRelativeTime(msg.timestampSeconds)
             drawPhotoImage = msg.hasMedia
-            drawFileAttachment = msg.isFileAttachment && !msg.hasMedia
+            val isAudioAtt = msg.isAudioAttachment && !msg.hasMedia
+            drawAudioAttachment = isAudioAtt
+            drawFileAttachment = msg.isFileAttachment && !msg.hasMedia && !isAudioAtt
+            audioIsPlaying = false
+            audioIsLoading = false
+            audioPositionMs = 0L
+            audioDurationMs = (msg.attachmentDuration * 1000L).coerceAtLeast(0L)
+            audioWaveTimeMs = 0L
+            audioLastFrameTimeMs = 0L
             drawForwardHeader = msg.isForwarded
             drawEdited = msg.isEdited && !msg.hideEditted
             drawEphemeral = msg.isEphemeral
@@ -373,7 +399,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             val m = messageEntity ?: return false
             timeText = formatRelativeTime(m.timestampSeconds)
             drawPhotoImage = m.hasMedia
-            drawFileAttachment = m.isFileAttachment && !m.hasMedia
+            val isAudioAtt = m.isAudioAttachment && !m.hasMedia
+            drawAudioAttachment = isAudioAtt
+            drawFileAttachment = m.isFileAttachment && !m.hasMedia && !isAudioAtt
             drawForwardHeader = m.isForwarded
             drawEdited = m.isEdited && !m.hideEditted
             drawEphemeral = m.isEphemeral
@@ -484,7 +512,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val gap = LayoutHelper.dp(2)
         mediaGridTotalH = when (mediaGridCount) {
             1 -> photoHeight
-            2 -> photoHeight / 2
+            2 -> photoHeight
             3, 4 -> {
                 val halfH = photoHeight / 2
                 halfH + gap + halfH
@@ -637,6 +665,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
         buildReplyLayouts(textWidth)
         buildFileLayouts(msg, textWidth)
+        buildAudioLayouts(msg)
         buildEphemeralLayout(msg, textWidth)
         buildErrorLayout(msg, textWidth)
 
@@ -702,13 +731,14 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val replyW = if (hasReply) cachedReplyNameW + cachedReplyTextW + REPLY_AVATAR_SIZE + REPLY_H_GAP * 2 else 0f
         val ogpW = if (ogpData != null) maxOf(cachedOgpTitleW, cachedOgpDescW, ogpImageW.toFloat()) else 0f
         val fileW = if (drawFileAttachment) fileRowWidth.toFloat() else 0f
+        val audioW = if (drawAudioAttachment) audioPillWidth.toFloat() else 0f
         val embedW = if (embedData != null) (bubbleMaxW).toFloat() else 0f
         cachedInnerWidth = if (drawPhotoImage) {
             photoWidth
         } else if (hasCodeFence) {
             bubbleMaxW
         } else {
-            val allW = maxOf(cachedSenderW, cachedContentW, cachedTimeW, replyW, ogpW, cachedForwardW, fileW, cachedEphW, embedW)
+            val allW = maxOf(cachedSenderW, cachedContentW, cachedTimeW, replyW, ogpW, cachedForwardW, fileW, audioW, cachedEphW, embedW)
             allW.toInt().coerceAtMost(bubbleMaxW)
         }
 
@@ -736,6 +766,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             val textH = (fileNameLayout?.height ?: 0) + (fileSizeLayout?.height ?: 0)
             val innerH = maxOf(FILE_ICON_SIZE, textH)
             h += FILE_ROW_V_PAD * 2 + maxOf(innerH, FILE_ROW_MIN_HEIGHT - FILE_ROW_V_PAD * 2) + GAP_V_INNER
+        }
+
+        if (drawAudioAttachment) {
+            h += AUDIO_PILL_HEIGHT + GAP_V_INNER
         }
 
         contentLayout?.let { h += it.height + GAP_V_INNER }
@@ -790,6 +824,76 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         fileRowWidth = cardInnerW
 
         fileIconDrawable = MezonIcon.fileIconNew.getDrawable(context)
+    }
+
+    private fun buildAudioLayouts(msg: MessageEntity) {
+        if (!drawAudioAttachment) {
+            audioTimeLayout = null
+            audioDurationSec = 0
+            audioPillWidth = 0
+            return
+        }
+        audioDurationSec = msg.attachmentDuration
+        val displayText = audioDisplayTime()
+        audioTimeLayout = StaticLayout.Builder
+            .obtain(displayText, 0, displayText.length, AUDIO_TIME_PAINT, LayoutHelper.dp(80))
+            .setMaxLines(1)
+            .build()
+        audioPillWidth = AUDIO_PLAY_BTN_SIZE +
+            AUDIO_CONTENT_H_PAD * 2 +
+            AUDIO_WAVE_WIDTH +
+            AUDIO_TIME_GAP +
+            LayoutHelper.dp(38)
+    }
+
+    private fun audioDisplayTime(): String {
+        val remainingMs = when {
+            audioIsPlaying && audioDurationMs > 0 -> (audioDurationMs - audioPositionMs).coerceAtLeast(0L)
+            audioPositionMs in 1 until audioDurationMs -> (audioDurationMs - audioPositionMs).coerceAtLeast(0L)
+            audioDurationMs > 0 -> audioDurationMs
+            audioDurationSec > 0 -> audioDurationSec * 1000L
+            else -> 0L
+        }
+        if (remainingMs <= 0L && audioDurationSec <= 0) return "--:--"
+        val totalSeconds = (remainingMs / 1000).toInt()
+        val minutes = totalSeconds / 60
+        val seconds = totalSeconds % 60
+        return "%d:%02d".format(minutes, seconds)
+    }
+
+    fun applyAudioPlayback(
+        messageId: Long,
+        isPlaying: Boolean,
+        isLoading: Boolean,
+        positionMs: Long,
+        durationMs: Long
+    ) {
+        val msg = messageEntity ?: return
+        if (msg.id != messageId) {
+            if (audioIsPlaying || audioIsLoading) {
+                audioIsPlaying = false
+                audioIsLoading = false
+                audioPositionMs = 0L
+                rebuildAudioTimeLayout()
+                invalidate()
+            }
+            return
+        }
+        audioIsPlaying = isPlaying
+        audioIsLoading = isLoading
+        audioPositionMs = positionMs
+        if (durationMs > 0) audioDurationMs = durationMs
+        rebuildAudioTimeLayout()
+        invalidate()
+    }
+
+    private fun rebuildAudioTimeLayout() {
+        if (!drawAudioAttachment) return
+        val displayText = audioDisplayTime()
+        audioTimeLayout = StaticLayout.Builder
+            .obtain(displayText, 0, displayText.length, AUDIO_TIME_PAINT, LayoutHelper.dp(80))
+            .setMaxLines(1)
+            .build()
     }
 
     private fun buildEphemeralLayout(msg: MessageEntity, textWidth: Int) {
@@ -1059,7 +1163,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         avatarCancellable = null
 
         if (url.isNotEmpty()) {
-            val proxyUrl = createImgproxyUrl(url, AVATAR_SIZE * 2, AVATAR_SIZE * 2, "fill")
+            val proxyUrl = avatarImgproxyUrl(url, AVATAR_SIZE)
             val loader = MezonImageLoader.getInstance(context)
             val cached = loader.getBitmapFromMemory(proxyUrl, AVATAR_SIZE, AVATAR_SIZE)
             if (cached != null) {
@@ -1129,7 +1233,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             replyAvatarDrawable.setDrawableByInfo(true)
             return
         }
-        val proxyUrl = createImgproxyUrl(url, REPLY_AVATAR_SIZE * 2, REPLY_AVATAR_SIZE * 2, "fill")
+        val proxyUrl = avatarImgproxyUrl(url, REPLY_AVATAR_SIZE)
         val loader = MezonImageLoader.getInstance(context)
         val cached = loader.getBitmapFromMemory(proxyUrl, REPLY_AVATAR_SIZE, REPLY_AVATAR_SIZE)
         if (cached != null) {
@@ -1173,6 +1277,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     interface ChatMessageCellDelegate {
         fun didClickMedia(cell: ChatMessageCell, msg: MessageEntity, attachmentIndex: Int) {}
         fun didClickFile(cell: ChatMessageCell, msg: MessageEntity) {}
+        fun didTapAudio(cell: ChatMessageCell, msg: MessageEntity) {}
         fun didClickMention(cell: ChatMessageCell, userId: String?, roleId: String?) {}
         fun didClickHashtag(cell: ChatMessageCell, channelId: String?) {}
         fun didLongPress(cell: ChatMessageCell, msg: MessageEntity) {}
@@ -1188,6 +1293,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var pressedMediaIndex = 0
     private var pressedOnOgp = false
     private var pressedOnFile = false
+    private var pressedOnAudio = false
     private var pressedOnAvatar = false
     private var pressedOnReply = false
     private var pressedReactionIndex = -1
@@ -1223,6 +1329,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         pressedOnMedia = false
         pressedOnOgp = false
         pressedOnFile = false
+        pressedOnAudio = false
         pressedOnAvatar = false
         pressedOnReply = false
     }
@@ -1238,6 +1345,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 pressedOnOgp = false
                 pressedOnEmbed = false
                 pressedOnFile = false
+                pressedOnAudio = false
                 pressedOnAvatar = false
                 pressedOnReply = false
                 pressedReactionIndex = -1
@@ -1271,6 +1379,11 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
                 if (drawFileAttachment && x >= fileBlockLeft && x <= fileBlockRight && y >= fileBlockTop && y <= fileBlockBottom) {
                     pressedOnFile = true
+                    scheduleLongPress()
+                    return true
+                }
+                if (drawAudioAttachment && x >= audioBlockLeft && x <= audioBlockRight && y >= audioBlockTop && y <= audioBlockBottom) {
+                    pressedOnAudio = true
                     scheduleLongPress()
                     return true
                 }
@@ -1321,6 +1434,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                         reacBaseY += imgH + GAP_V_INNER
                     }
                     if (drawFileAttachment) reacBaseY += FILE_ICON_SIZE + GAP_V_INNER
+                    if (drawAudioAttachment) reacBaseY += AUDIO_PILL_HEIGHT + GAP_V_INNER
                     contentLayout?.let { reacBaseY += it.height + GAP_V_INNER }
                     if (ogpData != null) {
                         reacBaseY += GAP_V_INNER
@@ -1393,6 +1507,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     pressedOnOgp = false
                     pressedOnEmbed = false
                     pressedOnFile = false
+                    pressedOnAudio = false
                     pressedOnAvatar = false
                     pressedOnReply = false
                     pressedReactionIndex = -1
@@ -1430,6 +1545,12 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     if (msg != null) delegate?.didClickFile(this, msg)
                     return true
                 }
+                if (pressedOnAudio) {
+                    pressedOnAudio = false
+                    val msg = messageEntity
+                    if (msg != null) delegate?.didTapAudio(this, msg)
+                    return true
+                }
                 if (pressedOnMedia) {
                     pressedOnMedia = false
                     val msg = messageEntity
@@ -1460,6 +1581,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 pressedOnOgp = false
                 pressedOnEmbed = false
                 pressedOnFile = false
+                pressedOnAudio = false
                 pressedOnAvatar = false
                 pressedOnReply = false
             }
@@ -1705,6 +1827,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             yOff = drawFileBlock(canvas, contentLeft.toFloat(), yOff)
         }
 
+        if (drawAudioAttachment) {
+            yOff = drawAudioBlock(canvas, contentLeft.toFloat(), yOff, msg)
+        }
+
         contentLayout?.let {
             contentLayoutLeft = contentLeft
             contentLayoutTop = yOff.toInt()
@@ -1795,6 +1921,116 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             canvas.restore()
         }
         return y + cardH + GAP_V_INNER
+    }
+
+    private fun drawAudioBlock(canvas: Canvas, x: Float, y: Float, msg: MessageEntity): Float {
+        val pillW = audioPillWidth.toFloat()
+        val pillH = AUDIO_PILL_HEIGHT.toFloat()
+        val pillAlpha = if (msg.isSending) 0.6f else 1f
+
+        audioBlockLeft = x
+        audioBlockTop = y
+        audioBlockRight = x + pillW
+        audioBlockBottom = y + pillH
+
+        AUDIO_BG_PAINT.color = AUDIO_BG_COLOR
+        AUDIO_BG_PAINT.alpha = (255 * pillAlpha).toInt()
+        audioRoundRect.set(x, y, x + pillW, y + pillH)
+        canvas.drawRoundRect(audioRoundRect, pillH / 2f, pillH / 2f, AUDIO_BG_PAINT)
+
+        val pad = AUDIO_PILL_PAD.toFloat()
+        val btnSize = AUDIO_PLAY_BTN_SIZE.toFloat()
+        val btnCx = x + pad + btnSize / 2f
+        val btnCy = y + pillH / 2f
+        AUDIO_PLAY_BG_PAINT.color = AUDIO_PLAY_BTN_COLOR
+        AUDIO_PLAY_BG_PAINT.alpha = (255 * pillAlpha).toInt()
+        canvas.drawCircle(btnCx, btnCy, btnSize / 2f, AUDIO_PLAY_BG_PAINT)
+
+        AUDIO_PLAY_ICON_PAINT.alpha = (255 * pillAlpha).toInt()
+        when {
+            audioIsLoading -> drawAudioSpinner(canvas, btnCx, btnCy)
+            audioIsPlaying -> drawAudioPauseIcon(canvas, btnCx, btnCy)
+            else -> drawAudioPlayIcon(canvas, btnCx, btnCy)
+        }
+
+        val waveStart = x + pad + btnSize + AUDIO_CONTENT_H_PAD
+        val waveCenterY = y + pillH / 2f
+        if (audioIsPlaying) {
+            val now = System.currentTimeMillis()
+            if (audioLastFrameTimeMs == 0L) audioLastFrameTimeMs = now
+            audioWaveTimeMs += (now - audioLastFrameTimeMs)
+            audioLastFrameTimeMs = now
+        } else {
+            audioLastFrameTimeMs = 0L
+        }
+        drawAudioWave(canvas, waveStart, waveCenterY, pillAlpha)
+
+        val timeLayout = audioTimeLayout
+        if (timeLayout != null) {
+            val timeX = waveStart + AUDIO_WAVE_WIDTH + AUDIO_TIME_GAP
+            val timeY = y + (pillH - timeLayout.height) / 2f
+            AUDIO_TIME_PAINT.alpha = (255 * pillAlpha).toInt()
+            canvas.save()
+            canvas.translate(timeX, timeY)
+            timeLayout.draw(canvas)
+            canvas.restore()
+        }
+
+        if (audioIsPlaying) invalidate()
+        return y + pillH + GAP_V_INNER
+    }
+
+    private fun drawAudioPlayIcon(canvas: Canvas, cx: Float, cy: Float) {
+        val size = AUDIO_PLAY_ICON_SIZE.toFloat()
+        audioWavePath.reset()
+        audioWavePath.moveTo(cx - size * 0.3f, cy - size * 0.4f)
+        audioWavePath.lineTo(cx + size * 0.45f, cy)
+        audioWavePath.lineTo(cx - size * 0.3f, cy + size * 0.4f)
+        audioWavePath.close()
+        canvas.drawPath(audioWavePath, AUDIO_PLAY_ICON_PAINT)
+    }
+
+    private fun drawAudioPauseIcon(canvas: Canvas, cx: Float, cy: Float) {
+        val size = AUDIO_PLAY_ICON_SIZE.toFloat()
+        val barW = size * 0.2f
+        val barH = size * 0.8f
+        canvas.drawRect(cx - size * 0.3f, cy - barH / 2, cx - size * 0.3f + barW, cy + barH / 2, AUDIO_PLAY_ICON_PAINT)
+        canvas.drawRect(cx + size * 0.1f, cy - barH / 2, cx + size * 0.1f + barW, cy + barH / 2, AUDIO_PLAY_ICON_PAINT)
+    }
+
+    private fun drawAudioSpinner(canvas: Canvas, cx: Float, cy: Float) {
+        val radius = AUDIO_PLAY_ICON_SIZE * 0.45f
+        val sweep = 270f
+        val angle = ((System.currentTimeMillis() / 3L) % 360L).toFloat()
+        AUDIO_SPINNER_PAINT.alpha = AUDIO_PLAY_ICON_PAINT.alpha
+        audioRoundRect.set(cx - radius, cy - radius, cx + radius, cy + radius)
+        canvas.drawArc(audioRoundRect, angle, sweep, false, AUDIO_SPINNER_PAINT)
+        invalidate()
+    }
+
+    private fun drawAudioWave(canvas: Canvas, left: Float, centerY: Float, alpha: Float) {
+        val barCount = AUDIO_WAVE_BAR_COUNT
+        val barW = AUDIO_WAVE_BAR_WIDTH.toFloat()
+        val gap = AUDIO_WAVE_BAR_GAP.toFloat()
+        val minH = AUDIO_WAVE_MIN_HEIGHT.toFloat()
+        val maxH = AUDIO_WAVE_MAX_HEIGHT.toFloat()
+        AUDIO_WAVE_PAINT.alpha = (255 * alpha).toInt()
+        val t = audioWaveTimeMs / 180.0
+        var cursorX = left
+        for (i in 0 until barCount) {
+            val phase = i * 0.55 + t
+            val amp = if (audioIsPlaying) {
+                (Math.sin(phase) * 0.5 + 0.5).toFloat()
+            } else {
+                AUDIO_WAVE_STATIC_AMP[i % AUDIO_WAVE_STATIC_AMP.size]
+            }
+            val h = minH + (maxH - minH) * amp
+            val top = centerY - h / 2f
+            val bottom = centerY + h / 2f
+            audioRoundRect.set(cursorX, top, cursorX + barW, bottom)
+            canvas.drawRoundRect(audioRoundRect, barW / 2f, barW / 2f, AUDIO_WAVE_PAINT)
+            cursorX += barW + gap
+        }
     }
 
     private fun drawEphemeralIndicator(canvas: Canvas, x: Float, y: Float): Float {
@@ -2352,6 +2588,57 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         private val FILE_ROW_V_PAD = LayoutHelper.dp(6)
         private val FILE_ROW_RADIUS = LayoutHelper.dpf(6f)
         private val FILE_ROW_MIN_HEIGHT = LayoutHelper.dp(50)
+
+        private val AUDIO_PILL_HEIGHT = LayoutHelper.dp(42)
+        private val AUDIO_PILL_PAD = LayoutHelper.dp(6)
+        private val AUDIO_PLAY_BTN_SIZE = LayoutHelper.dp(30)
+        private val AUDIO_PLAY_ICON_SIZE = LayoutHelper.dp(14)
+        private val AUDIO_CONTENT_H_PAD = LayoutHelper.dp(10)
+        private val AUDIO_TIME_GAP = LayoutHelper.dp(8)
+        private val AUDIO_WAVE_BAR_COUNT = 18
+        private val AUDIO_WAVE_BAR_WIDTH = LayoutHelper.dp(2)
+        private val AUDIO_WAVE_BAR_GAP = LayoutHelper.dp(3)
+        private val AUDIO_WAVE_MIN_HEIGHT = LayoutHelper.dp(4)
+        private val AUDIO_WAVE_MAX_HEIGHT = LayoutHelper.dp(18)
+        private val AUDIO_WAVE_WIDTH = AUDIO_WAVE_BAR_COUNT * AUDIO_WAVE_BAR_WIDTH +
+            (AUDIO_WAVE_BAR_COUNT - 1) * AUDIO_WAVE_BAR_GAP
+        private val AUDIO_WAVE_STATIC_AMP = floatArrayOf(
+            0.2f, 0.45f, 0.8f, 0.55f, 0.3f, 0.7f, 0.95f, 0.55f,
+            0.35f, 0.6f, 0.85f, 0.5f, 0.3f, 0.65f, 0.9f, 0.5f, 0.3f, 0.5f
+        )
+        private val AUDIO_BG_COLOR = 0xCC4E5057.toInt()
+        private val AUDIO_PLAY_BTN_COLOR = 0xFF7C5CFA.toInt()
+
+        private val AUDIO_BG_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+        }
+
+        private val AUDIO_PLAY_BG_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+        }
+
+        private val AUDIO_PLAY_ICON_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFFFFFFFF.toInt()
+            style = Paint.Style.FILL
+        }
+
+        private val AUDIO_SPINNER_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFFFFFFFF.toInt()
+            style = Paint.Style.STROKE
+            strokeWidth = LayoutHelper.dpf(2f)
+            strokeCap = Paint.Cap.ROUND
+        }
+
+        private val AUDIO_WAVE_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFFE0E0E0.toInt()
+            style = Paint.Style.FILL
+        }
+
+        private val AUDIO_TIME_PAINT = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFFFFFFFF.toInt()
+            textSize = LayoutHelper.dpf(13f)
+            isFakeBoldText = true
+        }
         private val FORWARD_ICON_SIZE = LayoutHelper.dp(14)
         private val FORWARD_ICON_GAP = LayoutHelper.dp(4).toFloat()
         private val EPHEMERAL_ICON_SIZE = LayoutHelper.dp(12)

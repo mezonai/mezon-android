@@ -25,7 +25,7 @@ import com.mezon.mobile.home.clans.ChannelItemCell
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.theme.ThemeMode
 import com.mezon.mobile.util.ColorUtilities
-import com.mezon.mobile.util.createImgproxyUrl
+import com.mezon.mobile.util.avatarImgproxyUrl
 
 
 class UserProfileBottomSheet(
@@ -296,7 +296,7 @@ class UserProfileBottomSheet(
         if (url.isEmpty()) return
         val img = profileAvatarView ?: return
         val size = LayoutHelper.dp(80)
-        val proxyUrl = createImgproxyUrl(url, size * 2, size * 2, "fill")
+        val proxyUrl = avatarImgproxyUrl(url, size)
         val loader = MezonImageLoader.getInstance(context)
         loader.getBitmapFromMemory(proxyUrl, size, size)?.let { bmp ->
             profileAvatarDrawable.setPhoto(bmp)

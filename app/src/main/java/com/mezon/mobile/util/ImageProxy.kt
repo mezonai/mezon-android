@@ -24,3 +24,11 @@ fun createImgproxyUrl(
     val options = "rs:$resizeType:$w:$h:1/mb:$MAX_BYTES"
     return "$IMGPROXY_BASE_URL/$IMGPROXY_KEY/$options/plain/$sourceUrl@webp"
 }
+
+private val AVATAR_BUCKETS_PX = intArrayOf(64, 96, 144, 192, 256)
+
+fun avatarImgproxyUrl(sourceUrl: String, sizePx: Int): String {
+    if (sourceUrl.isEmpty()) return sourceUrl
+    val bucket = AVATAR_BUCKETS_PX.firstOrNull { it >= sizePx } ?: AVATAR_BUCKETS_PX.last()
+    return createImgproxyUrl(sourceUrl, bucket, bucket, "fill")
+}

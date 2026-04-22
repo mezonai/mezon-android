@@ -6,7 +6,7 @@ import android.view.View
 import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.home.chat.MezonImageLoader
-import com.mezon.mobile.util.createImgproxyUrl
+import com.mezon.mobile.util.avatarImgproxyUrl
 
 class AvatarView(context: Context) : View(context) {
 
@@ -48,7 +48,7 @@ class AvatarView(context: Context) : View(context) {
 
     private fun loadImage(url: String) {
         val sizePx = LayoutHelper.dp(sizeDp)
-        val proxyUrl = createImgproxyUrl(url, sizePx * 2, sizePx * 2, "fill")
+        val proxyUrl = avatarImgproxyUrl(url, sizePx)
         cancellable = MezonImageLoader.getInstance(context).load(
             proxyUrl, sizePx, sizePx,
             onSuccess = { bmp ->

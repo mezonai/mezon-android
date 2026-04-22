@@ -115,6 +115,11 @@ class UserClanController @Inject constructor(
         return membersByClan[clanId]?.size ?: 0
     }
 
+    @Synchronized
+    fun hasClanMembersCache(clanId: Long): Boolean {
+        return membersByClan.indexOfKey(clanId) >= 0
+    }
+
     fun loadClanMembers(clanId: Long, noCache: Boolean = false) {
         if (clanId == 0L) return
         appScope.launch(ioDispatcher) {
@@ -149,6 +154,14 @@ class UserClanController @Inject constructor(
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "loadClanMembers failed for clan $clanId", e)
+                synchronized(this@UserClanController) {
+                    if (membersByClan[clanId] == null) {
+                        membersByClan.put(clanId, ArrayList())
+                    }
+                }
+                notificationCenter.postNotificationOnMainThread(
+                    NotificationCenter.clanMembersDidLoad, clanId
+                )
             }
         }
     }

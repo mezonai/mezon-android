@@ -15,7 +15,7 @@ import com.mezon.mobile.network.MezonSocket
 import com.mezon.mobile.network.SocketEventDispatcher
 import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.session.SessionManager
-import com.mezon.mobile.util.createImgproxyUrl
+import com.mezon.mobile.util.avatarImgproxyUrl
 import com.mezon.mobile.home.BadgeCoordinator
 import com.mezon.mobile.home.clans.channelapp.ChannelAppController
 import dagger.Lazy
@@ -85,8 +85,8 @@ class ClansController @Inject constructor(
         clansLoaded = false
     }
 
-    fun selectClan(clanId: Long) {
-        if (_selectedClanId.value == clanId) return
+    fun selectClan(clanId: Long, force: Boolean = false) {
+        if (!force && _selectedClanId.value == clanId) return
         _selectedClanId.value = clanId
         channelController.loadChannelsForClan(clanId)
         channelAppController.loadAppsForClan(clanId)
@@ -358,7 +358,7 @@ class ClansController @Inject constructor(
         val sizePx = CLAN_ICON_SIZE_PX
         for (clan in clans) {
             if (clan.logo.isEmpty()) continue
-            val url = createImgproxyUrl(clan.logo, sizePx * 2, sizePx * 2, "fill")
+            val url = avatarImgproxyUrl(clan.logo, sizePx)
             loader.load(url, sizePx, sizePx, onSuccess = {})
         }
     }

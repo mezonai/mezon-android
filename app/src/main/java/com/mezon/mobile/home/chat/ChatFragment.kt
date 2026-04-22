@@ -55,6 +55,8 @@ import com.mezon.mobile.home.chat.input.InputSuggestionItem
 import com.mezon.mobile.home.chat.input.InputSuggestionsAdapter
 import com.mezon.mobile.home.chat.input.InputSuggestionsController
 import com.mezon.mobile.home.chat.input.InputSuggestionsPopup
+import com.mezon.mobile.home.chat.input.VoiceRecorder
+import com.mezon.mobile.home.chat.input.VoiceRecordingOverlay
 import com.mezon.mobile.home.clans.ChannelItemCell
 import com.mezon.mobile.home.clans.CHANNEL_TYPE_APP
 import com.mezon.mobile.home.clans.CHANNEL_TYPE_STREAMING
@@ -98,7 +100,10 @@ class ChatFragment : BaseFragment() {
         private const val PAGE_DOWN_SCROLL_THRESHOLD = 2
         private const val REQUEST_CODE_LOCATION_PERMISSION = 1002
         private const val REQUEST_CODE_PICK_FILE = 1001
+        private const val REQUEST_CODE_RECORD_AUDIO = 1003
         private const val MAX_LENGTH_MESSAGE_BUZZ = 160
+        private const val VOICE_LONG_PRESS_DELAY_MS = 400L
+        private const val VOICE_CANCEL_SLIDE_DP = 100f
         private val ANONYMOUS_USER_ID = BuildConfig.MEZON_ANONYMOUS_USER_ID.toLongOrNull() ?: 0L
 
         fun newInstance(
@@ -124,6 +129,7 @@ class ChatFragment : BaseFragment() {
     private lateinit var dialogsController: DialogsController
     private lateinit var channelController: ChannelController
     private lateinit var mediaController: MediaController
+    private lateinit var audioPlayerController: AudioPlayerController
     private lateinit var pinMessageController: com.mezon.mobile.home.PinMessageController
 
     private lateinit var recyclerView: RecyclerListView
@@ -159,6 +165,14 @@ class ChatFragment : BaseFragment() {
     private val pendingAttachmentThumbTasks = ArrayList<Runnable?>()
     private var buzzMediaPlayer: android.media.MediaPlayer? = null
 
+    private var voiceRecorder: VoiceRecorder? = null
+    private var voiceOverlay: VoiceRecordingOverlay? = null
+    private var voiceTouchDownX = 0f
+    private var voiceIsRecording = false
+    private var voiceCancelled = false
+    private var voiceLongPressFired = false
+    private val voiceLongPressRunnable = Runnable { onVoiceLongPressFired() }
+
     private var channelId = 0L
     private var channelName = ""
     private var clanId = 0L
@@ -193,8 +207,7 @@ class ChatFragment : BaseFragment() {
         }
     }
 
-    private val waitingForSocketIds = ArrayList<Long>()
-    private val socketRealIds = ArrayList<Long>()
+    private val sentByApiRealIds = HashSet<Long>()
 
     private var replyingToMessage: MessageEntity? = null
     private var replyBar: LinearLayout? = null
@@ -576,14 +589,20 @@ class ChatFragment : BaseFragment() {
                 }
                 return@observe
             }
-            if (entity.isMe) {
-                val pendingTempId = waitingForSocketIds.removeFirstOrNull()
-                if (pendingTempId != null) {
-                    applyRealId(pendingTempId, entity.id)
-                } else {
-                    socketRealIds.add(entity.id)
-                }
+            if (messagesDict.get(entity.id) != null) {
+                sentByApiRealIds.remove(entity.id)
                 return@observe
+            }
+
+            if (entity.isMe) {
+                val pendingIdx = messages.indexOfFirst {
+                    it.isSending && it.isMe && it.senderId == entity.senderId
+                }
+                if (pendingIdx >= 0) {
+                    val pending = messages[pendingIdx]
+                    applyRealId(pending.id, entity.id)
+                    return@observe
+                }
             }
 
             if (entity.senderId == ANONYMOUS_USER_ID) {
@@ -632,15 +651,11 @@ class ChatFragment : BaseFragment() {
             val tempId = args[1] as? Long ?: return@observe
             val apiRealId = args[2] as? Long ?: return@observe
             Log.d(TAG, "pendingMessageSent tempId=$tempId apiRealId=$apiRealId")
-            val resolvedRealId = when {
-                apiRealId != 0L -> apiRealId
-                else -> socketRealIds.removeFirstOrNull() ?: 0L
-            }
-            if (resolvedRealId != 0L) {
-                applyRealId(tempId, resolvedRealId)
+            if (apiRealId != 0L) {
+                sentByApiRealIds.add(apiRealId)
+                applyRealId(tempId, apiRealId)
             } else {
                 markMessageSent(tempId)
-                waitingForSocketIds.add(tempId)
             }
         }
 
@@ -703,6 +718,19 @@ class ChatFragment : BaseFragment() {
             if (fragmentView == null) return@observe
             val mask = args.firstOrNull() as? Int ?: 0
             updateVisibleRows(mask)
+        }
+
+        observe(NotificationCenter.audioPlaybackStateChanged) { _, _, args ->
+            if (fragmentView == null) return@observe
+            val messageId = args.getOrNull(0) as? Long ?: return@observe
+            val isPlaying = args.getOrNull(1) as? Boolean ?: false
+            val isLoading = args.getOrNull(2) as? Boolean ?: false
+            val positionMs = args.getOrNull(3) as? Long ?: 0L
+            val durationMs = args.getOrNull(4) as? Long ?: 0L
+            for (i in 0 until recyclerView.childCount) {
+                val child = recyclerView.getChildAt(i) as? ChatMessageCell ?: continue
+                child.applyAudioPlayback(messageId, isPlaying, isLoading, positionMs, durationMs)
+            }
         }
 
         observe(NotificationCenter.reactionDidUpdate) { _, _, args ->
@@ -844,6 +872,7 @@ class ChatFragment : BaseFragment() {
         dialogsController = entryPoint.dialogsController()
         channelController = entryPoint.channelController()
         mediaController = entryPoint.mediaController()
+        audioPlayerController = entryPoint.audioPlayerController()
         userClanController = entryPoint.userClanController()
         userController = entryPoint.userController()
         memberResolver = entryPoint.memberResolver()
@@ -1167,6 +1196,14 @@ class ChatFragment : BaseFragment() {
             topMargin = -LayoutHelper.dp(10f)
         })
 
+        voiceOverlay = VoiceRecordingOverlay(context, themeColors).apply {
+            setSlideToCancelText(getString(R.string.voice_record_slide_to_cancel))
+        }
+        inputWrapper.addView(voiceOverlay, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT
+        ))
+
         val sendBtnPad = LayoutHelper.dp(11f)
         sendButton = ImageButton(context).apply {
             val drawable = MezonIcon.sendMessageIcon.getDrawable(context)
@@ -1193,6 +1230,7 @@ class ChatFragment : BaseFragment() {
                 shape = android.graphics.drawable.GradientDrawable.OVAL
                 setColor(themeColors.tertiary)
             }
+            setOnTouchListener { v, event -> handleMicTouchEvent(v, event) }
         }
         inputBar.addView(micButton, LayoutHelper.createLinear(40, 40, gravity = Gravity.BOTTOM))
 
@@ -1287,6 +1325,12 @@ class ChatFragment : BaseFragment() {
             }
             override fun didClickHashtag(cell: ChatMessageCell, channelId: String?) {
                 navigateToChannelFromHashtag(channelId)
+            }
+            override fun didTapAudio(cell: ChatMessageCell, msg: MessageEntity) {
+                val url = msg.attachmentUrl
+                if (url.isBlank()) return
+                if (msg.isSending) return
+                audioPlayerController.toggle(msg.id, url, msg.attachmentDuration)
             }
         })
         adapter.channelType = channelType
@@ -1483,6 +1527,13 @@ class ChatFragment : BaseFragment() {
         if (::recyclerView.isInitialized) recyclerView.stopScroll()
         if (emojiViewVisible) {
             dismissEmojiSilently()
+        }
+        if (voiceIsRecording) {
+            mainHandler.removeCallbacks(voiceLongPressRunnable)
+            cancelVoiceRecording(showToast = false)
+        }
+        if (::audioPlayerController.isInitialized) {
+            audioPlayerController.stop()
         }
     }
 
@@ -1746,6 +1797,7 @@ class ChatFragment : BaseFragment() {
         if (clanId != 0L) channelController.clearCurrentChannel()
         messages.clear()
         messagesDict.clear()
+        sentByApiRealIds.clear()
         for (t in pendingAttachmentThumbTasks) ThumbnailCache.cancel(t)
         pendingAttachmentThumbTasks.clear()
         pendingAttachments.clear()
@@ -1762,6 +1814,10 @@ class ChatFragment : BaseFragment() {
         emojiObjPicked.clear()
         buzzMediaPlayer?.release()
         buzzMediaPlayer = null
+        mainHandler.removeCallbacks(voiceLongPressRunnable)
+        voiceRecorder?.cancel()
+        voiceRecorder = null
+        voiceOverlay = null
         super.onFragmentDestroy()
     }
 
@@ -2579,7 +2635,216 @@ class ChatFragment : BaseFragment() {
         val hasAttachments = pendingAttachments.isNotEmpty()
         val showSend = hasText || hasAttachments
         sendButton.visibility = if (showSend) View.VISIBLE else View.GONE
-        micButton.visibility = if (showSend) View.GONE else View.VISIBLE
+        if (voiceIsRecording) {
+            micButton.visibility = View.VISIBLE
+        } else {
+            micButton.visibility = if (showSend) View.GONE else View.VISIBLE
+        }
+    }
+
+    @SuppressWarnings("ClickableViewAccessibility")
+    private fun handleMicTouchEvent(v: View, event: MotionEvent): Boolean {
+        when (event.action) {
+            MotionEvent.ACTION_DOWN -> {
+                voiceTouchDownX = event.rawX
+                voiceLongPressFired = false
+                voiceCancelled = false
+                mainHandler.removeCallbacks(voiceLongPressRunnable)
+                mainHandler.postDelayed(voiceLongPressRunnable, VOICE_LONG_PRESS_DELAY_MS)
+                v.parent?.requestDisallowInterceptTouchEvent(true)
+                return true
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (!voiceLongPressFired) return true
+                if (voiceCancelled) return true
+                val dx = event.rawX - voiceTouchDownX
+                updateVoiceButtonTranslation(dx)
+                val cancelThreshold = -LayoutHelper.dp(VOICE_CANCEL_SLIDE_DP).toFloat()
+                val progress = (-dx / LayoutHelper.dp(VOICE_CANCEL_SLIDE_DP).toFloat()).coerceAtLeast(0f)
+                voiceOverlay?.setSlideProgress(progress)
+                if (dx <= cancelThreshold) {
+                    cancelVoiceRecording(showToast = true)
+                }
+                return true
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                mainHandler.removeCallbacks(voiceLongPressRunnable)
+                v.parent?.requestDisallowInterceptTouchEvent(false)
+                resetMicButtonTransform()
+                if (!voiceLongPressFired) {
+                    showHoldToRecordHint()
+                } else if (!voiceCancelled) {
+                    finishVoiceRecording()
+                }
+                voiceLongPressFired = false
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun updateVoiceButtonTranslation(dx: Float) {
+        val clampedDx = dx.coerceAtMost(0f)
+        micButton.translationX = clampedDx
+    }
+
+    private fun resetMicButtonTransform() {
+        micButton.animate()
+            .translationX(0f)
+            .scaleX(1f)
+            .scaleY(1f)
+            .setDuration(150)
+            .withEndAction { applyRecordingMicStyle(false) }
+            .start()
+    }
+
+    private fun applyRecordingMicStyle(recording: Boolean) {
+        val bg = micButton.background as? android.graphics.drawable.GradientDrawable ?: return
+        if (recording) {
+            bg.setColor(themeColors.blurple)
+            val d = MezonIcon.microphoneIcon.getDrawable(micButton.context)
+            d.colorFilter = PorterDuffColorFilter(android.graphics.Color.WHITE, PorterDuff.Mode.SRC_IN)
+            micButton.setImageDrawable(d)
+        } else {
+            bg.setColor(themeColors.tertiary)
+            val d = MezonIcon.microphoneIcon.getDrawable(micButton.context)
+            d.colorFilter = PorterDuffColorFilter(
+                themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary),
+                PorterDuff.Mode.SRC_IN
+            )
+            micButton.setImageDrawable(d)
+        }
+    }
+
+    private fun onVoiceLongPressFired() {
+        voiceLongPressFired = true
+        val ctx = getContext() ?: return
+        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            voiceLongPressFired = false
+            requestRecordAudioPermission()
+            return
+        }
+        startVoiceRecording()
+    }
+
+    private fun requestRecordAudioPermission() {
+        val activity = getParentActivity() ?: return
+        activity.requestPermissions(
+            arrayOf(Manifest.permission.RECORD_AUDIO),
+            REQUEST_CODE_RECORD_AUDIO
+        )
+    }
+
+    private fun startVoiceRecording() {
+        val ctx = getContext() ?: return
+        val recorder = VoiceRecorder(ctx)
+        if (!recorder.start()) {
+            android.widget.Toast.makeText(ctx, R.string.voice_record_failed, android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        voiceRecorder = recorder
+        voiceIsRecording = true
+        voiceCancelled = false
+        applyRecordingMicStyle(true)
+        micButton.animate().scaleX(1.3f).scaleY(1.3f).setDuration(150).start()
+        inputField.visibility = View.INVISIBLE
+        emojiButton.visibility = View.INVISIBLE
+        anonymousIndicator?.visibility = View.INVISIBLE
+        voiceOverlay?.show()
+        try { micButton.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS) } catch (_: Exception) {}
+    }
+
+    private fun finishVoiceRecording() {
+        val recorder = voiceRecorder
+        val ctx = getContext()
+        voiceRecorder = null
+        if (!voiceIsRecording || recorder == null || ctx == null) {
+            teardownVoiceUi()
+            return
+        }
+        val elapsed = recorder.elapsedMs()
+        if (elapsed < VoiceRecorder.MIN_RECORD_MS) {
+            mainHandler.postDelayed({
+                completeVoiceRecording(recorder, ctx)
+            }, VoiceRecorder.MIN_RECORD_MS - elapsed)
+        } else {
+            completeVoiceRecording(recorder, ctx)
+        }
+    }
+
+    private fun completeVoiceRecording(recorder: VoiceRecorder, ctx: Context) {
+        val result = recorder.stop()
+        teardownVoiceUi()
+        if (result == null) {
+            android.widget.Toast.makeText(ctx, R.string.voice_record_failed, android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (result.durationMs < VoiceRecorder.MIN_RECORD_MS) {
+            try { result.file.delete() } catch (_: Exception) {}
+            android.widget.Toast.makeText(ctx, R.string.voice_record_too_short, android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        sendVoiceRecording(result.file, result.durationMs)
+    }
+
+    private fun cancelVoiceRecording(showToast: Boolean) {
+        val ctx = getContext()
+        voiceRecorder?.cancel()
+        voiceRecorder = null
+        voiceCancelled = true
+        teardownVoiceUi()
+        if (showToast && ctx != null) {
+            android.widget.Toast.makeText(ctx, R.string.voice_record_cancelled, android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun teardownVoiceUi() {
+        voiceIsRecording = false
+        voiceOverlay?.hide()
+        inputField.visibility = View.VISIBLE
+        emojiButton.visibility = View.VISIBLE
+        if (anonymousController.isAnonymous(clanId)) {
+            anonymousIndicator?.visibility = View.VISIBLE
+        }
+        micButton.animate().scaleX(1f).scaleY(1f).translationX(0f).setDuration(150)
+            .withEndAction { applyRecordingMicStyle(false) }
+            .start()
+        updateSendButtonState()
+    }
+
+    private fun sendVoiceRecording(file: java.io.File, durationMs: Long) {
+        val ctx = getContext() ?: return
+        val durationSec = (durationMs / 1000).toInt().coerceAtLeast(1)
+        val item = AttachmentPickerItem(
+            id = file.absolutePath.hashCode().toLong(),
+            uri = android.net.Uri.fromFile(file),
+            path = file.absolutePath,
+            filename = file.name,
+            mimeType = VoiceRecorder.MIME_TYPE,
+            width = 0,
+            height = 0,
+            size = file.length(),
+            duration = durationSec,
+            isVideo = false
+        )
+        chatController.sendMessageWithAttachments(
+            channelId, clanId, channelType, resolveChannelPrivate(),
+            "",
+            arrayListOf(item),
+            ctx.contentResolver,
+            buildReplyReferences(),
+            null,
+            null,
+            null
+        )
+        clearReplyState()
+    }
+
+    private fun showHoldToRecordHint() {
+        val ctx = getContext() ?: return
+        android.widget.Toast.makeText(ctx, R.string.voice_record_hint, android.widget.Toast.LENGTH_SHORT).show()
     }
 
     private fun updateAttachmentPreview() {
@@ -2739,6 +3004,38 @@ class ChatFragment : BaseFragment() {
                 }
             }
         }
+        if (requestCode == REQUEST_CODE_RECORD_AUDIO) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                showHoldToRecordHint()
+            } else {
+                val activity = getParentActivity() ?: return
+                val permanentlyDenied = !activity.shouldShowRequestPermissionRationale(
+                    Manifest.permission.RECORD_AUDIO
+                )
+                if (permanentlyDenied) {
+                    showOpenAudioSettingsDialog()
+                }
+            }
+        }
+    }
+
+    private fun showOpenAudioSettingsDialog() {
+        val activity = getParentActivity() ?: return
+        com.mezon.mobile.core.AlertDialog.Builder(activity)
+            .setTitle(getString(R.string.common_settings))
+            .setMessage(getString(R.string.permission_no_audio))
+            .setPositiveButton(getString(R.string.permission_open_settings)) { _, _ ->
+                try {
+                    val intent = android.content.Intent(
+                        android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        android.net.Uri.fromParts("package", activity.packageName, null)
+                    )
+                    activity.startActivity(intent)
+                } catch (_: Exception) {}
+            }
+            .setNegativeButton(getString(R.string.permission_not_now), null)
+            .create()
+            .show()
     }
 
     private fun setupSwipeInterceptor() {
@@ -3094,11 +3391,21 @@ class ChatFragment : BaseFragment() {
     }
 
     private fun applyRealId(tempId: Long, realId: Long) {
+        if (tempId == realId) return
         val idx = messages.indexOfFirst { it.id == tempId }
         if (idx < 0) {
             Log.d(TAG, "applyRealId tempId=$tempId not found")
             return
         }
+
+        if (messagesDict.get(realId) != null) {
+            Log.d(TAG, "applyRealId tempId=$tempId realId=$realId already present, dropping optimistic")
+            messagesDict.delete(tempId)
+            messages.removeAt(idx)
+            if (fragmentView != null) adapter.notifyMessagesUpdated()
+            return
+        }
+
         val old = messages[idx]
         messagesDict.delete(tempId)
         val updated = old.copy(id = realId, sendState = MessageEntity.SEND_STATE_SENT)
