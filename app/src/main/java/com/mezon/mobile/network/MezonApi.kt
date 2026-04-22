@@ -27,9 +27,12 @@ import com.mezon.mezon.api.SearchMessageResponse
 import com.mezon.mezon.api.UploadAttachment
 import com.mezon.mezon.api.uploadAttachmentRequest
 import com.mezon.mezon.api.accountEmail
+import com.mezon.mezon.api.AddFriendsResponse
+import com.mezon.mezon.api.addFriendsRequest
 import com.mezon.mezon.api.blockFriendsRequest
 import com.mezon.mezon.api.createCategoryDescRequest
 import com.mezon.mezon.api.createClanDescRequest
+import com.mezon.mezon.api.deleteFriendsRequest
 import com.mezon.mezon.api.deleteNotificationsRequest
 import com.mezon.mezon.api.filterParam
 import com.mezon.mezon.api.linkAccountConfirmRequest
@@ -55,7 +58,6 @@ import com.mezon.mezon.api.listNotificationsRequest
 import com.mezon.mezon.api.searchMessageRequest
 import com.mezon.mezon.api.sessionRefreshRequest
 import com.mezon.mezon.api.Session
-import com.mezon.mezon.api.confirmLoginRequest
 import com.mezon.mezon.api.GenerateMeetTokenResponse
 import com.mezon.mezon.api.VoiceChannelUserList
 import com.mezon.mezon.api.generateMeetTokenRequest
@@ -139,6 +141,12 @@ data class OtpRequestResponse(
     @SerialName("req_id") val reqId: String = "",
     @SerialName("otp_code") val otpCode: String = "",
     val status: Int = 0
+)
+
+@Serializable
+private data class ConfirmLoginGatewayBody(
+    @SerialName("login_id") val loginId: String,
+    @SerialName("is_remember") val isRemember: Boolean = true
 )
 
 
@@ -256,13 +264,25 @@ class MezonApi @Inject constructor(
         gatewayUrl: String,
         token: String,
         loginId: Long
-    ): Session {
-        val request = confirmLoginRequest {
-            this.loginId = loginId
-            this.isRemember = true
+    ): AuthSessionResponse {
+        val base = gatewayUrl.trimEnd('/')
+        val url = "$base/v2/account/authenticate/confirmlogin"
+        val response = httpClient.post(url) {
+            header(HttpHeaders.Authorization, "Bearer $token")
+            contentType(ContentType.Application.Json)
+            setBody(ConfirmLoginGatewayBody(loginId = loginId.toString(), isRemember = true))
         }
-        val bytes = rpc(gatewayUrl, token, "ConfirmLogin", request.toByteArray())
-        return Session.parseFrom(bytes)
+        if (!response.status.isSuccess()) {
+            val errorBody = response.bodyAsText()
+            if (response.status == HttpStatusCode.Unauthorized) {
+                throw UnauthorizedException("ConfirmLogin: 401 $errorBody")
+            }
+            throw RuntimeException("ConfirmLogin failed (${response.status.value}): $errorBody")
+        }
+        if (response.status == HttpStatusCode.NoContent) {
+            return AuthSessionResponse()
+        }
+        return response.body()
     }
 
     suspend fun sessionRefresh(
@@ -686,12 +706,25 @@ class MezonApi @Inject constructor(
         return rpc(apiUrl, token, "BlockFriends", request.toByteArray())
     }
 
-    suspend fun unblockFriends(apiUrl: String, token: String, ids: List<Long>, usernames: List<String>): ByteArray {
-        val request = blockFriendsRequest {
+    suspend fun addFriends(apiUrl: String, token: String, ids: List<Long>, usernames: List<String>): AddFriendsResponse {
+        val request = addFriendsRequest {
+            this.ids.addAll(ids)
+            this.usernames.addAll(usernames)
+        }
+        val bytes = rpc(apiUrl, token, "AddFriends", request.toByteArray())
+        return AddFriendsResponse.parseFrom(bytes)
+    }
+
+    suspend fun deleteFriends(apiUrl: String, token: String, ids: List<Long>, usernames: List<String>): ByteArray {
+        val request = deleteFriendsRequest {
             this.ids.addAll(ids)
             this.usernames.addAll(usernames)
         }
         return rpc(apiUrl, token, "DeleteFriends", request.toByteArray())
+    }
+
+    suspend fun unblockFriends(apiUrl: String, token: String, ids: List<Long>, usernames: List<String>): ByteArray {
+        return deleteFriends(apiUrl, token, ids, usernames)
     }
 
     suspend fun sendChannelMessage(

@@ -30,7 +30,7 @@ swiperefreshlayout = "1.1.0"
 firebaseBom = "33.1.0"
 googleServices = "4.4.2"
 livekit = "2.24.0"
-cameraX = "1.4.2"
+cameraX = "1.4.1" 
 zxing = "3.5.3"
 
 [libraries]
