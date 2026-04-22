@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.provider.Settings
+import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -22,7 +23,6 @@ import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
-import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.AlertsCreator
@@ -39,6 +39,7 @@ import java.util.concurrent.Executors
 class QrScanFragment : BaseFragment() {
 
     companion object {
+        private const val TAG = "QrScanFragment"
         private const val REQUEST_CAMERA = 7001
         private const val REQUEST_GALLERY = 7002
         private const val SCAN_THROTTLE_MS = 5000L
@@ -85,7 +86,13 @@ class QrScanFragment : BaseFragment() {
     private lateinit var root: FrameLayout
     private var cameraProvider: ProcessCameraProvider? = null
     private var scanningEnabled = true
+    private var scanningStopped = false
     private var lastScanAt = 0L
+    private val resumeScanRunnable = Runnable {
+        if (!scanningStopped) {
+            scanningEnabled = true
+        }
+    }
 
     private val analyzerExecutor = Executors.newSingleThreadExecutor()
 
@@ -225,11 +232,6 @@ class QrScanFragment : BaseFragment() {
         cameraProvider?.unbindAll()
     }
 
-    override fun onFragmentDestroy() {
-        super.onFragmentDestroy()
-        analyzerExecutor.shutdownNow()
-    }
-
     private fun startCameraIfPermitted() {
         val activity = getParentActivity() ?: return
         val granted = ContextCompat.checkSelfPermission(activity, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
@@ -265,7 +267,7 @@ class QrScanFragment : BaseFragment() {
 
     private fun onQrScanned(value: String) {
         val now = System.currentTimeMillis()
-        if (!scanningEnabled || now - lastScanAt < SCAN_THROTTLE_MS) return
+        if (scanningStopped || !scanningEnabled || now - lastScanAt < SCAN_THROTTLE_MS) return
         lastScanAt = now
         scanningEnabled = false
 
@@ -297,7 +299,16 @@ class QrScanFragment : BaseFragment() {
     }
 
     private fun resumeScanLater() {
-        root.postDelayed({ scanningEnabled = true }, SCAN_THROTTLE_MS)
+        if (scanningStopped) return
+        root.removeCallbacks(resumeScanRunnable)
+        root.postDelayed(resumeScanRunnable, SCAN_THROTTLE_MS)
+    }
+
+    private fun stopScanning() {
+        scanningStopped = true
+        scanningEnabled = false
+        root.removeCallbacks(resumeScanRunnable)
+        cameraProvider?.unbindAll()
     }
 
     private fun showConfirmLogin(loginId: Long) {
@@ -314,17 +325,26 @@ class QrScanFragment : BaseFragment() {
             fragmentScope.launch(Dispatchers.Main) {
                 val result = entryPoint().authRepository().confirmLoginByQr(loginId)
                 if (result.isSuccess) {
+                    stopScanning()
                     showToast(getString(R.string.qr_login_success), ToastOverlay.ToastType.SUCCESS)
+                    root.post { finishFragment() }
                 } else {
                     val exception = result.exceptionOrNull()
+                    Log.e(
+                        TAG,
+                        "QR confirm login failed loginId=$loginId kind=${
+                            if (exception is SessionExpiredException) "session_expired" else "other"
+                        }",
+                        exception
+                    )
                     val messageRes = if (exception is SessionExpiredException) {
                         R.string.qr_login_require_mobile_session
                     } else {
                         R.string.qr_login_failed
                     }
                     showToast(getString(messageRes), ToastOverlay.ToastType.ERROR)
+                    resumeScanLater()
                 }
-                resumeScanLater()
             }
         }
         dialog.setOnDismissListener {
@@ -393,6 +413,12 @@ class QrScanFragment : BaseFragment() {
                 }.show()
             }
         }
+    }
+
+    override fun onFragmentDestroy() {
+        stopScanning()
+        analyzerExecutor.shutdownNow()
+        super.onFragmentDestroy()
     }
 
 
