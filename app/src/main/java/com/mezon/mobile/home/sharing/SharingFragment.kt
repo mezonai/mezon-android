@@ -46,6 +46,7 @@ import com.mezon.mobile.ui.cells.AvatarView
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.PopupMenu
 import com.mezon.mobile.ui.cells.ToastOverlay
+import com.mezon.mobile.util.parseMarkdownAndStrip
 
 class SharingFragment(
     private val sharedUris: List<Uri>,
@@ -491,10 +492,15 @@ class SharingFragment(
         val clans = clansController.clans.value
         val clanMap = clans.associateBy { it.clanId }
         val channels = searchController.getChannels()
+        val channelLabelById = HashMap<Long, String>(channels.size)
+        for (ch in channels) {
+            channelLabelById[ch.channelId] = ch.channelLabel
+        }
         for (ch in channels) {
             if (ch.type == CHANNEL_TYPE_VOICE) continue
             val clan = clanMap[ch.clanId]
-            allTargets.add(ch.toSharingTarget(clan?.clanName ?: "", clan?.logo ?: ""))
+            val parentLabel = if (ch.parentId != 0L) channelLabelById[ch.parentId].orEmpty() else ""
+            allTargets.add(ch.toSharingTarget(clan?.clanName ?: "", clan?.logo ?: "", parentLabel))
         }
 
         allTargets.sortByDescending { it.lastActivityTs }
@@ -552,6 +558,9 @@ class SharingFragment(
         }
 
         val caption = captionInput.text?.toString()?.trim() ?: sharedText ?: ""
+        val mdResult = parseMarkdownAndStrip(caption)
+        val cleanedText = mdResult.cleanedText
+        val mdMarkers = mdResult.markers.ifEmpty { null }
 
         if (sharedUris.isNotEmpty()) {
             setSendingState(true)
@@ -561,11 +570,12 @@ class SharingFragment(
                 clanId = target.clanId,
                 channelType = target.channelType,
                 isChannelPrivate = target.isPrivate,
-                text = caption,
+                text = cleanedText,
                 attachments = attachments,
-                contentResolver = contentResolver
+                contentResolver = contentResolver,
+                markdownMarkers = mdMarkers
             )
-        } else if (caption.isNotBlank()) {
+        } else if (cleanedText.isNotBlank()) {
             if (target.isClanChannel) {
                 chatController.openChannel(target.channelId, target.clanId, target.channelType, target.isPrivate)
             }
@@ -574,7 +584,8 @@ class SharingFragment(
                 clanId = target.clanId,
                 channelType = target.channelType,
                 isChannelPrivate = target.isPrivate,
-                text = caption
+                text = cleanedText,
+                markdownMarkers = mdMarkers
             )
             finishFragment()
         }
