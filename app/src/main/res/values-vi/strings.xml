@@ -40,6 +40,11 @@
     <string name="common_forwarded">Đã chuyển tiếp</string>
     <string name="common_send_message">Nhắn tin</string>
     <string name="feature_coming_soon">Sắp có</string>
+    <string name="voice_record_hint">Ấn giữ để ghi âm.</string>
+    <string name="voice_record_slide_to_cancel">Vuốt để hủy</string>
+    <string name="voice_record_cancelled">Đã hủy ghi âm</string>
+    <string name="voice_record_too_short">Giữ lâu hơn để ghi âm</string>
+    <string name="voice_record_failed">Không thể ghi âm giọng nói</string>
     <string name="common_just_now">Vừa xong</string>
     <string name="common_today">Hôm nay</string>
     <string name="common_today_at">Hôm nay lúc</string>
@@ -445,6 +450,11 @@
     <string name="voice_room_kick_modal_action">Đuổi</string>
     <string name="voice_room_moderation_mute_failed">Không thể tắt tiếng thành viên này.</string>
     <string name="voice_room_moderation_kick_failed">Không thể đuổi thành viên này.</string>
+    <string name="voice_room_mic_permission_title">Cần quyền micro</string>
+    <string name="voice_room_mic_permission_message">Mezon cần quyền truy cập micro để bạn có thể nói trong kênh thoại. Vui lòng bật quyền này trong Cài đặt.</string>
+    <string name="voice_room_camera_permission_title">Cần quyền camera</string>
+    <string name="voice_room_camera_permission_message">Mezon cần quyền truy cập camera để chia sẻ video. Vui lòng bật quyền này trong Cài đặt.</string>
+    <string name="voice_room_listen_only_hint">Đã vào ở chế độ chỉ nghe. Bấm vào micro để bật tiếng.</string>
 
     <string name="discover_title">Khám phá</string>
     <string name="discover_community_on_mezon">Cộng đồng trên Mezon</string>

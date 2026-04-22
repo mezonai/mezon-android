@@ -25,14 +25,34 @@ class VoiceReactionHandler(
     private val getParticipantGrid: () -> RecyclerListView?,
     private val participants: MutableList<ParticipantInfo>,
     private val reactionStates: MutableMap<String, ParticipantCell.ReactionBadgeType>,
-    private val getRoomScope: () -> CoroutineScope?
+    private val getRoomScope: () -> CoroutineScope?,
+    private val getLocalSenderMeta: () -> SenderMeta = { SenderMeta("", null) }
 ) {
+    data class SenderMeta(val name: String, val avatarUrl: String?)
+
     companion object {
         private const val TAG = "VoiceReactionHandler"
         private const val RAISE_UP_PREFIX = "raising-up:"
         private const val RAISE_DOWN_PREFIX = "raising-down:"
+        private const val SENDER_NAME_PREFIX = "sender-name:"
+        private const val SENDER_AVATAR_PREFIX = "sender-avatar:"
         private const val DEFAULT_BADGE_DURATION_MS = 3000L
     }
+
+    private fun buildPayload(primary: String): List<String> {
+        val meta = getLocalSenderMeta()
+        val list = ArrayList<String>(3)
+        list.add(primary)
+        if (meta.name.isNotBlank()) {
+            list.add("$SENDER_NAME_PREFIX${meta.name}")
+        }
+        val avatar = meta.avatarUrl?.trim().orEmpty()
+        if (avatar.isNotEmpty()) {
+            list.add("$SENDER_AVATAR_PREFIX$avatar")
+        }
+        return list
+    }
+
     fun showEmojiReactionPicker() {
         val activity = getActivity() ?: return
         if (activity.isFinishing || activity.isDestroyed) return
@@ -43,7 +63,7 @@ class VoiceReactionHandler(
             notificationCenter = notificationCenter,
             autoDismiss = false
         ) { emojiId, _ ->
-            voiceController.sendVoiceReaction(listOf(emojiId.toString()), channelId)
+            voiceController.sendVoiceReaction(buildPayload(emojiId.toString()), channelId)
         }
         sheet.show()
     }
@@ -55,13 +75,13 @@ class VoiceReactionHandler(
             emojiController = emojiController,
             notificationCenter = notificationCenter
         ) { value ->
-            voiceController.sendVoiceReaction(listOf(value), channelId)
+            voiceController.sendVoiceReaction(buildPayload(value), channelId)
         }
         sheet.show()
     }
 
-    fun showReactionOverlay(emojis: List<String>) {
-        getReactionOverlay()?.showEmojis(emojis)
+    fun showReactionOverlay(emojis: List<String>, senderName: String? = null) {
+        getReactionOverlay()?.showEmojis(emojis, senderName)
     }
 
     fun playSoundReaction(soundValue: String) {

@@ -131,6 +131,18 @@ class VoiceControlBar(
         raiseHandButton.visibility = visibility
     }
 
+    fun setMicEnabled(enabled: Boolean) {
+        if (micEnabled == enabled) return
+        micEnabled = enabled
+        micButton.updateIcon(if (enabled) MezonIcon.microphoneIcon else MezonIcon.microphoneSlashIcon)
+    }
+
+    fun setCameraEnabled(enabled: Boolean) {
+        if (cameraEnabled == enabled) return
+        cameraEnabled = enabled
+        cameraButton.updateIcon(if (enabled) MezonIcon.videoIcon else MezonIcon.videoSlashIcon)
+    }
+
     fun setRaiseHandActive(active: Boolean) {
         if (active) {
             raiseHandButton.updateBgColor(themeColors.tertiary)
