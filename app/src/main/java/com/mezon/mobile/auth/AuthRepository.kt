@@ -6,6 +6,7 @@ import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.session.StoredSession
+import com.mezon.mobile.wallet.WalletCacheStore
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -16,6 +17,7 @@ import javax.inject.Singleton
 class AuthRepository @Inject constructor(
     private val api: MezonApi,
     private val sessionManager: SessionManager,
+    private val walletCacheStore: WalletCacheStore,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) {
     companion object {
@@ -40,6 +42,7 @@ class AuthRepository @Inject constructor(
                     userId = response.userId,
                     idToken = response.idToken
                 )
+                walletCacheStore.clear()
                 sessionManager.saveSession(stored)
                 stored
             }
@@ -85,6 +88,7 @@ class AuthRepository @Inject constructor(
                     userId = session.userId,
                     idToken = session.idToken
                 )
+                walletCacheStore.clear()
                 sessionManager.saveSession(stored)
                 stored
             }
@@ -103,11 +107,22 @@ class AuthRepository @Inject constructor(
         withContext(ioDispatcher) {
             runCatching {
                 val currentSession = sessionManager.requireValidSession()
-                api.confirmLoginRequest(
+                val response = api.confirmLoginRequest(
                     gatewayUrl = BuildConfig.MEZON_GATEWAY_URL,
                     token = currentSession.token,
                     loginId = loginId
                 )
+                val merged = StoredSession(
+                    token = response.token.ifBlank { currentSession.token },
+                    refreshToken = response.refreshToken.ifBlank { currentSession.refreshToken },
+                    apiUrl = response.apiUrl.ifBlank { currentSession.apiUrl },
+                    wsUrl = response.wsUrl.ifBlank { currentSession.wsUrl },
+                    userId = response.userId.ifBlank { currentSession.userId },
+                    idToken = response.idToken.ifBlank { currentSession.idToken },
+                    isRemember = currentSession.isRemember
+                )
+                walletCacheStore.clear()
+                sessionManager.saveSession(merged)
                 Unit
             }.onFailure { e ->
                 Log.e(

@@ -22,6 +22,7 @@ import com.mezon.mobile.core.AlertDialog
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
+import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.profile.AccountController
 import com.mezon.mobile.ui.cells.ToastOverlay
@@ -74,6 +75,7 @@ class SendTokenFragment : BaseFragment() {
     private var noteField: EditText? = null
     private var sendButton: TextView? = null
     private var noteCounter: TextView? = null
+    private var walletBalanceText: TextView? = null
     private var amountFormatSuppress: Boolean = false
 
     override fun onInject(
@@ -87,6 +89,9 @@ class SendTokenFragment : BaseFragment() {
         super.onFragmentCreate()
         formValue = arguments?.getString(ARG_FORM_VALUE)
         parseForm(formValue)
+        observe(NotificationCenter.accountInfoLoaded) { _, _, _ ->
+            refreshWalletBalance()
+        }
         return true
     }
 
@@ -471,6 +476,7 @@ class SendTokenFragment : BaseFragment() {
             gravity = Gravity.END
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
+        walletBalanceText = amountTv
         row.addView(labelTv)
         row.addView(amountTv)
         parent.addView(
@@ -480,6 +486,14 @@ class SendTokenFragment : BaseFragment() {
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = LayoutHelper.dp(14f) }
         )
+    }
+
+    private fun refreshWalletBalance() {
+        val raw = runCatching { accountController.accountInfo.value.balance.toBigInteger() }.getOrNull()
+            ?: return
+        val human = formatBigIntegerHumanVi(raw / CHAIN_UNITS_PER_TOKEN)
+        val symbol = getString(R.string.send_token_currency_symbol)
+        walletBalanceText?.text = getString(R.string.send_token_balance_line, human, symbol)
     }
 
     private fun addRecipientBlock(
@@ -867,6 +881,7 @@ class SendTokenFragment : BaseFragment() {
                 result.fold(
                     onSuccess = { r ->
                         if (r.ok) {
+                            accountController.reduceBalanceLocally(amountInChainUnits)
                             accountController.loadAccount(true)
                             val timeStr = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
                                 .format(Date())
