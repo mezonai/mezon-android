@@ -49,6 +49,7 @@ import com.mezon.mobile.home.clans.channelapp.ChannelAppShowAllFragment
 import com.mezon.mobile.home.clans.channelapp.ChannelAppUiModel
 import com.mezon.mobile.home.messages.DirectMessage
 import com.mezon.mobile.home.ClanMember
+import com.mezon.mobile.home.friends.FriendController
 import com.mezon.mobile.home.profile.AccountController
 import com.mezon.mobile.MainActivity
 import com.mezon.mobile.home.voice.JoinVoiceBottomSheet
@@ -72,6 +73,7 @@ class ClansFragment : BaseFragment() {
     private lateinit var chatController: ChatController
     private lateinit var dialogsController: DialogsController
     private lateinit var accountController: AccountController
+    private lateinit var friendController: FriendController
     private lateinit var userClanController: UserClanController
     private lateinit var voiceController: VoiceController
     private lateinit var channelCategoryExpandStore: ChannelCategoryExpandStore
@@ -112,6 +114,7 @@ class ClansFragment : BaseFragment() {
         chatController = entryPoint.chatController()
         dialogsController = entryPoint.dialogsController()
         accountController = entryPoint.accountController()
+        friendController = entryPoint.friendController()
         userClanController = entryPoint.userClanController()
         voiceController = entryPoint.voiceController()
         channelCategoryExpandStore = entryPoint.channelCategoryExpandStore()
@@ -151,6 +154,10 @@ class ClansFragment : BaseFragment() {
             if (fragmentView == null || isPaused || listFrozen) return@observe
             updateServerRail()
         }
+        observe(NotificationCenter.friendsLoaded) { _, _, _ ->
+            if (fragmentView == null || isPaused || listFrozen) return@observe
+            updateServerRail()
+        }
         observe(NotificationCenter.updateInterfaces) { _, _, args ->
             if (fragmentView == null || isPaused || listFrozen) return@observe
             val mask = args.firstOrNull() as? Int ?: 0
@@ -173,6 +180,7 @@ class ClansFragment : BaseFragment() {
         }
 
         clansController.loadClans()
+        friendController.loadFriendRelations()
         observe(NotificationCenter.favoriteChannelsChanged) { _, _, args ->
             if (fragmentView == null || isPaused || listFrozen) return@observe
             val clanId = args.firstOrNull() as? Long ?: return@observe
@@ -557,7 +565,7 @@ class ClansFragment : BaseFragment() {
         navBar.addView(qrBtn)
         val addFriendBtn = iconButton(MezonIcon.addFriendImage)
         addFriendBtn.setOnClickListener {
-            Toast.makeText(context, getString(R.string.feature_coming_soon), Toast.LENGTH_SHORT).show()
+            showAddFriendBottomSheet()
         }
         navBar.addView(addFriendBtn)
 
@@ -601,6 +609,17 @@ class ClansFragment : BaseFragment() {
         if (clansController.clansLoaded) {
             updateVisibleRows(0)
         }
+    }
+
+    override fun clearViews() {
+        bannerCancellable?.cancel()
+        bannerCancellable = null
+        renderedClanId = 0L
+        renderedClanName = null
+        renderedIsCommunity = null
+        renderedBannerUrl = null
+        renderedSubtitleKey = null
+        super.clearViews()
     }
 
     fun setListFrozen(frozen: Boolean) {
@@ -655,7 +674,13 @@ class ClansFragment : BaseFragment() {
         val clans = clansController.clans.value
         val selectedId = clansController.selectedClanId.value
         val logoUrl = accountController.accountInfo.value.logo
-        serverAdapter.submitData(unreadDms, clans, selectedId, newLogoUrl = logoUrl)
+        serverAdapter.submitData(
+            unreadDms,
+            clans,
+            selectedId,
+            newLogoUrl = logoUrl,
+            newPendingFriendCount = friendController.pendingReceivedCount.value
+        )
 
         updateClanPanelHeaderMode()
 
@@ -667,14 +692,12 @@ class ClansFragment : BaseFragment() {
         val clanChanged = renderedClanId != clan.clanId
         renderedClanId = clan.clanId
 
-        if (clanChanged || renderedClanName != clan.clanName) {
-            renderedClanName = clan.clanName
-            clanNameText.text = clan.clanName
-        }
+        clanNameText.text = clan.clanName
+        renderedClanName = clan.clanName
 
-        if (clanChanged || renderedIsCommunity != clan.isCommunity) {
+        verifiedIcon?.visibility = if (clan.isCommunity) View.VISIBLE else View.GONE
+        if (renderedIsCommunity != clan.isCommunity) {
             renderedIsCommunity = clan.isCommunity
-            verifiedIcon?.visibility = if (clan.isCommunity) View.VISIBLE else View.GONE
             renderedSubtitleKey = null
         }
 

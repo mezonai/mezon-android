@@ -12,7 +12,7 @@ import com.mezon.mobile.R
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.di.FragmentEntryPoint
-import com.mezon.mobile.home.profile.AccountController
+import com.mezon.mobile.home.friends.FriendController
 import com.mezon.mobile.ui.cells.AvatarView
 import com.mezon.mobile.ui.cells.ToastOverlay
 
@@ -37,10 +37,10 @@ class QrProfileFragment : BaseFragment() {
     private var displayName: String = ""
     private var username: String = ""
     private var avatarUrl: String? = null
-    private lateinit var accountController: AccountController
+    private lateinit var friendController: FriendController
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
-        accountController = entryPoint.accountController()
+        friendController = entryPoint.friendController()
     }
 
     override fun onFragmentCreate(): Boolean {
@@ -114,7 +114,7 @@ class QrProfileFragment : BaseFragment() {
         card.addView(buildPrimaryButton(
             getString(R.string.qr_profile_add_friend)
         ) {
-            accountController.sendFriendRequest(username = username) { success ->
+            friendController.sendFriendRequest(username = username) { success ->
                 val res = if (success) R.string.friends_toast_send_success else R.string.friends_toast_send_fail
                 showToast(getString(res))
             }

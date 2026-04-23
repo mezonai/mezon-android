@@ -1431,7 +1431,7 @@ class VoiceRoomFragment : BaseFragment() {
                 voiceParticipantExtras = UserProfileBottomSheet.VoiceParticipantExtras(
                     showHeaderActions = showHeaderActions,
                     onFriendClick = {
-                        Toast.makeText(activity, R.string.feature_coming_soon, Toast.LENGTH_SHORT).show()
+                        showAddFriendBottomSheet()
                     },
                     onTransferClick = {
                         Toast.makeText(activity, R.string.feature_coming_soon, Toast.LENGTH_SHORT).show()

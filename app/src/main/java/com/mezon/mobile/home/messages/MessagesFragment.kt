@@ -13,7 +13,6 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
-import android.widget.Toast
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.R
@@ -23,6 +22,8 @@ import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.DialogsController
+import com.mezon.mobile.home.friends.AddFriendFragment
+import com.mezon.mobile.home.friends.FriendController
 import com.mezon.mobile.search.GlobalSearchFragment
 import com.mezon.mobile.ui.cells.MezonIcon
 
@@ -31,8 +32,10 @@ private const val TAG = "MessagesFragment"
 class MessagesFragment : BaseFragment() {
 
     private lateinit var controller: DialogsController
+    private lateinit var friendController: FriendController
 
     private lateinit var headerTitle: TextView
+    private lateinit var addFriendBadgeText: TextView
     private lateinit var recyclerView: RecyclerListView
     private lateinit var loadingView: ProgressBar
     private lateinit var emptyView: TextView
@@ -47,6 +50,7 @@ class MessagesFragment : BaseFragment() {
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
         controller = entryPoint.dialogsController()
+        friendController = entryPoint.friendController()
     }
 
     override fun onFragmentCreate(): Boolean {
@@ -80,6 +84,10 @@ class MessagesFragment : BaseFragment() {
             if (controller.getDialogs().isEmpty()) {
                 showError(args.firstOrNull() as? String ?: "Failed to load")
             }
+        }
+        observe(NotificationCenter.friendsLoaded) { _, _, _ ->
+            if (fragmentView == null) return@observe
+            updateAddFriendBadge()
         }
 
         controller.loadDialogs()
@@ -249,7 +257,8 @@ class MessagesFragment : BaseFragment() {
     private fun buildAddFriendPill(context: Context): View {
         val pill = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
+            isBaselineAligned = false
+            gravity = Gravity.CENTER_VERTICAL
             val bg = android.graphics.drawable.GradientDrawable().apply {
                 setColor(themeColors.tertiary)
                 cornerRadius = LayoutHelper.dp(20).toFloat()
@@ -266,29 +275,73 @@ class MessagesFragment : BaseFragment() {
             setOnClickListener { onAddFriendClicked() }
         }
 
+        val buttonContent = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            isBaselineAligned = false
+            gravity = Gravity.CENTER
+        }
+        pill.addView(buttonContent, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+
         val icon = ImageView(context).apply {
             setImageDrawable(MezonIcon.userPlusIcon.getDrawable(context))
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
-        pill.addView(icon, LinearLayout.LayoutParams(
-            LayoutHelper.dp(14), LayoutHelper.dp(14)
-        ).apply { gravity = Gravity.CENTER_VERTICAL })
+        val iconWrap = FrameLayout(context)
+        iconWrap.addView(icon, LayoutHelper.createFrame(14, 14, Gravity.CENTER))
+
+        addFriendBadgeText = TextView(context).apply {
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 10f)
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            minWidth = LayoutHelper.dp(16)
+            setPadding(LayoutHelper.dp(4), 0, LayoutHelper.dp(4), 0)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadius = LayoutHelper.dp(8f).toFloat()
+                setColor(themeColors.error)
+            }
+            visibility = View.GONE
+        }
+        buttonContent.addView(iconWrap, LinearLayout.LayoutParams(
+            LayoutHelper.dp(18), LayoutHelper.dp(18)
+        ).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            rightMargin = LayoutHelper.dp(4)
+        })
 
         val label = TextView(context).apply {
             text = getString(R.string.dm_add_friend)
             setTextColor(themeColors.onSurface)
             textSize = 15f
-            setPadding(LayoutHelper.dp(4), 0, 0, 0)
         }
-        pill.addView(label, LinearLayout.LayoutParams(
+        buttonContent.addView(label, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { gravity = Gravity.CENTER_VERTICAL })
+        ).apply {
+            gravity = Gravity.CENTER_VERTICAL
+        })
 
+        pill.addView(addFriendBadgeText, LinearLayout.LayoutParams(LayoutHelper.WRAP_CONTENT, LayoutHelper.dp(16)).apply {
+            gravity = Gravity.CENTER_VERTICAL
+        })
+
+        updateAddFriendBadge()
         return pill
     }
 
+    private fun updateAddFriendBadge() {
+        if (!::addFriendBadgeText.isInitialized) return
+        val pending = friendController.pendingReceivedCount.value
+        if (pending > 0) {
+            addFriendBadgeText.text = pending.toString()
+            addFriendBadgeText.visibility = View.VISIBLE
+        } else {
+            addFriendBadgeText.visibility = View.GONE
+        }
+    }
+
     private fun onAddFriendClicked() {
-        Toast.makeText(requireContext(), getString(R.string.feature_coming_soon), Toast.LENGTH_SHORT).show()
+        presentFragment(AddFriendFragment())
     }
 
     private fun openSearch() {

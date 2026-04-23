@@ -12,6 +12,7 @@ import android.view.ViewGroup
 import android.widget.LinearLayout
 import com.mezon.mobile.MainActivity
 import com.mezon.mobile.di.FragmentEntryPoint
+import com.mezon.mobile.home.friends.AddFriendBottomSheet
 import com.mezon.mobile.ui.cells.ActionBarView
 import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.CoroutineScope
@@ -507,6 +508,18 @@ abstract class BaseFragment {
             override fun didReceivedNotification(id: Int, account: Int, vararg args: Any?) =
                 block(id, account, args)
         })
+    }
+
+    protected fun showAddFriendBottomSheet() {
+        val activity = getParentActivity() ?: return
+        AddFriendBottomSheet(
+            context = activity,
+            friendController = entryPoint().friendController(),
+            notificationCenter = notificationCenter
+        ).apply {
+            setDrawNavigationBar(true)
+            show()
+        }
     }
 
     // ── ActionBar wrapper helper ────────────────────────────────────────────
