@@ -2,7 +2,7 @@ package com.mezon.mobile.home.profile
 
 import android.content.ContentResolver
 import android.net.Uri
-import com.mezon.mezon.api.Friend
+import android.util.Log
 import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.ApplicationScope
@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.math.BigInteger
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -43,6 +44,8 @@ data class AccountInfo(
     val address: String = ""
 )
 
+private const val ACCOUNT_LOG = "AccountController"
+
 @Singleton
 class AccountController @Inject constructor(
     private val api: MezonApi,
@@ -58,12 +61,6 @@ class AccountController @Inject constructor(
 ) {
     private val _accountInfo = MutableStateFlow(AccountInfo())
     val accountInfo: StateFlow<AccountInfo> = _accountInfo.asStateFlow()
-
-    private val _blockedUsers = MutableStateFlow<List<Friend>>(emptyList())
-    val blockedUsers: StateFlow<List<Friend>> = _blockedUsers.asStateFlow()
-
-    private val _friends = MutableStateFlow<List<Friend>>(emptyList())
-    val friends: StateFlow<List<Friend>> = _friends.asStateFlow()
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
@@ -118,8 +115,6 @@ class AccountController @Inject constructor(
     }
 
     private val cacheKey = apiCacheKey("getAccount")
-    private val friendsCacheKey = apiCacheKey("listFriends", 0)
-    private val blockedCacheKey = apiCacheKey("listFriends", 3)
 
     private suspend fun loadAccountInternal(noCache: Boolean = false) {
         try {
@@ -160,6 +155,7 @@ class AccountController @Inject constructor(
                 }
             }
         } catch (e: Exception) {
+            Log.e(ACCOUNT_LOG, "loadAccountInternal failed (profile API or session)", e)
         }
     }
 
@@ -167,38 +163,15 @@ class AccountController @Inject constructor(
         appScope.launch { loadAccountInternal(noCache) }
     }
 
-    fun loadBlockedUsers(noCache: Boolean = false) {
-        appScope.launch {
-            if (cacheTracker.shouldCall(blockedCacheKey, noCache = noCache) == ApiCacheTracker.ShouldCall.SKIP) {
-                return@launch
-            }
-            try {
-                sessionManager.withAutoRefresh { session ->
-                    val friendList = withContext(ioDispatcher) { api.listFriends(session.apiUrl, session.token, state = 3) }
-                    _blockedUsers.value = friendList.friendsList
-                    cacheTracker.markCalled(blockedCacheKey)
-                    notificationCenter.postNotificationOnMainThread(NotificationCenter.blockedUsersLoaded)
-                }
-            } catch (e: Exception) {
-            }
-        }
-    }
-
-    fun loadFriends(noCache: Boolean = false) {
-        appScope.launch {
-            if (cacheTracker.shouldCall(friendsCacheKey, noCache = noCache) == ApiCacheTracker.ShouldCall.SKIP) {
-                return@launch
-            }
-            try {
-                sessionManager.withAutoRefresh { session ->
-                    val friendList = withContext(ioDispatcher) { api.listFriends(session.apiUrl, session.token, state = 0) }
-                    _friends.value = friendList.friendsList
-                    cacheTracker.markCalled(friendsCacheKey)
-                    notificationCenter.postNotificationOnMainThread(NotificationCenter.friendsLoaded)
-                }
-            } catch (e: Exception) {
-            }
-        }
+    fun reduceBalanceLocally(deltaRaw: BigInteger) {
+        if (deltaRaw <= BigInteger.ZERO) return
+        val current = _accountInfo.value
+        val currentRaw = runCatching { current.balance.toBigInteger() }.getOrNull() ?: return
+        val nextRaw = (currentRaw - deltaRaw).coerceAtLeast(BigInteger.ZERO)
+        val updated = current.copy(balance = nextRaw.toString())
+        _accountInfo.value = updated
+        userController.updateFromAccount(updated)
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.accountInfoLoaded)
     }
 
     fun linkEmail(email: String, onResult: (success: Boolean, reqId: String, errorMsg: String) -> Unit) {
@@ -360,23 +333,6 @@ class AccountController @Inject constructor(
                 withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(false, e.message ?: "") }
             } finally {
                 _isLoading.value = false
-            }
-        }
-    }
-
-    fun unblockUser(userId: Long, username: String, onResult: (success: Boolean) -> Unit) {
-        appScope.launch {
-            try {
-                sessionManager.withAutoRefresh { session ->
-                    withContext(ioDispatcher) {
-                        api.unblockFriends(session.apiUrl, session.token, listOf(userId), listOf(username))
-                    }
-                }
-                _blockedUsers.value = _blockedUsers.value.filter { it.user.id != userId }
-                notificationCenter.postNotificationOnMainThread(NotificationCenter.blockedUsersLoaded)
-                withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(true) }
-            } catch (e: Exception) {
-                withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(false) }
             }
         }
     }

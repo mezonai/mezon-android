@@ -133,7 +133,7 @@ class SessionManager @Inject constructor(
                 apiUrl = protoSession.apiUrl.ifEmpty { current.apiUrl },
                 wsUrl = protoSession.wsUrl.ifEmpty { current.wsUrl },
                 userId = current.userId,
-                idToken = current.idToken,
+                idToken = protoSession.idToken.ifEmpty { current.idToken },
                 isRemember = current.isRemember
             )
 

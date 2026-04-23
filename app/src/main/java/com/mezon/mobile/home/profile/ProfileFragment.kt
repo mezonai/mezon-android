@@ -29,6 +29,7 @@ import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.FragmentEntryPoint
+import com.mezon.mobile.home.friends.FriendController
 import com.mezon.mobile.home.friends.FriendsHomeFragment
 import com.mezon.mobile.home.wallet.SendTokenFragment
 import com.mezon.mobile.ui.cells.AvatarView
@@ -78,6 +79,7 @@ class ProfileFragment : BaseFragment() {
 
     private lateinit var userController: UserController
     private lateinit var accountController: AccountController
+    private lateinit var friendController: FriendController
 
     var onLogout: (() -> Unit)? = null
 
@@ -99,6 +101,7 @@ class ProfileFragment : BaseFragment() {
     override fun onInject(entryPoint: FragmentEntryPoint) {
         userController = entryPoint.userController()
         accountController = entryPoint.accountController()
+        friendController = entryPoint.friendController()
     }
 
     override fun onFragmentCreate(): Boolean {
@@ -134,7 +137,7 @@ class ProfileFragment : BaseFragment() {
     override fun onBecomeFullyVisible() {
         super.onBecomeFullyVisible()
         accountController.loadAccount(noCache = false)
-        accountController.loadFriends()
+        friendController.loadFriends()
         updateUI()
     }
 
@@ -659,7 +662,7 @@ class ProfileFragment : BaseFragment() {
             memberSinceText.text = ""
         }
 
-        val friendsList = accountController.friends.value
+        val friendsList = friendController.friends.value
         val displayCount = friendsList.size.coerceAtMost(MAX_FRIENDS_DISPLAY)
         val slotCount = friendsAvatarsContainer.childCount
         for (i in 0 until slotCount) {

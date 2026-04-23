@@ -167,6 +167,125 @@ data class HashtagData(
     val clanId: String = ""
 )
 
+data class RestoredInputContent(
+    val rawText: String,
+    val mentions: List<MentionData>,
+    val hashtags: List<HashtagData>,
+    val emojis: Map<String, String>
+)
+
+fun restoreInputFromContent(content: String): RestoredInputContent {
+    val cleanText = parseContentText(content)
+    if (content.isBlank() || cleanText.isBlank()) {
+        return RestoredInputContent(cleanText, emptyList(), emptyList(), emptyMap())
+    }
+    val obj = try { JSONObject(content) } catch (_: Exception) {
+        return RestoredInputContent(cleanText, emptyList(), emptyList(), emptyMap())
+    }
+
+    val inserts = HashMap<Int, StringBuilder>()
+    obj.optJSONArray("mk")?.let { arr ->
+        for (i in 0 until arr.length()) {
+            val j = arr.optJSONObject(i) ?: continue
+            val s = j.optInt("s", -1)
+            val e = j.optInt("e", -1)
+            if (s < 0 || e < s || e > cleanText.length) continue
+            val type = j.optString("type", "")
+            val (open, close) = when (type) {
+                "c" -> "`" to "`"
+                "b" -> "**" to "**"
+                "pre", "t" -> "```" to "```"
+                else -> continue
+            }
+            inserts.getOrPut(s) { StringBuilder() }.append(open)
+            inserts.getOrPut(e) { StringBuilder() }.append(close)
+        }
+    }
+
+    val rawStart = IntArray(cleanText.length + 1)
+    val sb = StringBuilder()
+    var rawPos = 0
+    for (cleanPos in 0..cleanText.length) {
+        inserts[cleanPos]?.let {
+            sb.append(it)
+            rawPos += it.length
+        }
+        rawStart[cleanPos] = rawPos
+        if (cleanPos < cleanText.length) {
+            sb.append(cleanText[cleanPos])
+            rawPos++
+        }
+    }
+
+    fun rangeToRaw(s: Int, e: Int): Pair<Int, Int> {
+        val cs = s.coerceIn(0, cleanText.length)
+        val ce = e.coerceIn(cs, cleanText.length)
+        val rawS = rawStart[cs]
+        val rawE = if (ce > 0) rawStart[ce - 1] + 1 else rawS
+        return rawS to rawE
+    }
+
+    val mentions = mutableListOf<MentionData>()
+    obj.optJSONArray("mentions")?.let { arr ->
+        for (i in 0 until arr.length()) {
+            val j = arr.optJSONObject(i) ?: continue
+            val s = j.optInt("s", -1)
+            val e = j.optInt("e", -1)
+            if (s < 0 || e <= s || e > cleanText.length) continue
+            val userId = j.optString("user_id", "")
+            val roleId = j.optString("role_id", "")
+            val display = cleanText.substring(s, e)
+            val (rs, re) = rangeToRaw(s, e)
+            mentions.add(
+                MentionData(
+                    userId = userId,
+                    roleId = roleId,
+                    display = display,
+                    startOffset = rs,
+                    endOffset = re
+                )
+            )
+        }
+    }
+
+    val hashtags = mutableListOf<HashtagData>()
+    obj.optJSONArray("hg")?.let { arr ->
+        for (i in 0 until arr.length()) {
+            val j = arr.optJSONObject(i) ?: continue
+            val s = j.optInt("s", -1)
+            val e = j.optInt("e", -1)
+            if (s < 0 || e <= s || e > cleanText.length) continue
+            val channelId = j.optString("channelId", "")
+            val clanId = j.optString("clanId", "")
+            val (rs, re) = rangeToRaw(s, e)
+            hashtags.add(
+                HashtagData(
+                    channelId = channelId,
+                    startOffset = rs,
+                    endOffset = re,
+                    clanId = clanId
+                )
+            )
+        }
+    }
+
+    val emojis = HashMap<String, String>()
+    obj.optJSONArray("ej")?.let { arr ->
+        for (i in 0 until arr.length()) {
+            val j = arr.optJSONObject(i) ?: continue
+            val s = j.optInt("s", -1)
+            val e = j.optInt("e", -1)
+            if (s < 0 || e <= s || e > cleanText.length) continue
+            val emojiId = j.optString("emojiid", "")
+            if (emojiId.isEmpty()) continue
+            val shortname = cleanText.substring(s, e)
+            emojis[shortname] = emojiId
+        }
+    }
+
+    return RestoredInputContent(sb.toString(), mentions, hashtags, emojis)
+}
+
 class MarkdownParseResult(
     val cleanedText: String,
     val markers: List<MarkdownMarker>,

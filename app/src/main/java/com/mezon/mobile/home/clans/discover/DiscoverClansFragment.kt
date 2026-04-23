@@ -261,7 +261,7 @@ class DiscoverClansFragment : BaseFragment() {
         navBar.addView(qrBtn)
         val addFriendBtn = iconButton(MezonIcon.userPlusIcon)
         addFriendBtn.setOnClickListener {
-            Toast.makeText(context, context.getString(R.string.feature_coming_soon), Toast.LENGTH_SHORT).show()
+            showAddFriendBottomSheet()
         }
         navBar.addView(addFriendBtn)
 
