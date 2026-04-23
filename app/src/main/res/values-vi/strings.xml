@@ -202,6 +202,10 @@
     <string name="message_forwarded">Đã chuyển tiếp</string>
     <string name="message_reply_deleted">Tin nhắn gốc đã bị xóa</string>
     <string name="message_slide_to_cancel">Vuốt để hủy</string>
+    <string name="message_voice_record_failed">Không thể bắt đầu ghi âm.</string>
+    <string name="message_voice_record_too_short">Bản ghi quá ngắn.</string>
+    <string name="message_voice_record_cancelled">Đã hủy ghi âm.</string>
+    <string name="message_voice_record_hint">Nhấn giữ để ghi âm</string>
 
     <!-- notification -->
     <string name="notif_tab_mentions">Nhắc đến</string>
@@ -274,6 +278,23 @@
     <string name="friends_add_title">Tìm bạn bè</string>
     <string name="friends_add_placeholder">Nhập tên người dùng hoặc số điện thoại</string>
     <string name="friends_add_send_request">Gửi yêu cầu kết bạn</string>
+    <string name="friends_add_by_username">Thêm bằng tên người dùng</string>
+    <string name="friends_add_screen_title">Thêm bạn bè</string>
+    <string name="friends_add_action_title">Thêm bạn</string>
+    <string name="friends_add_who_you_want">Bạn muốn thêm ai?</string>
+    <string name="friends_add_placeholder_username_only">Nhập tên người dùng</string>
+    <string name="friends_add_by_the_way">Nhân tiện, tên người dùng của bạn là %1$s</string>
+    <string name="friends_add_incoming_friend_request">Yêu cầu kết bạn đến</string>
+    <string name="friends_request_counts">%1$d Đã nhận • %2$d Đã gửi</string>
+    <string name="friends_empty_received_title">Chưa có yêu cầu kết bạn nào</string>
+    <string name="friends_empty_received_description">Khi có người gửi lời mời, chúng sẽ xuất hiện tại đây.</string>
+    <string name="friends_empty_sent_title">Chưa gửi yêu cầu kết bạn nào</string>
+    <string name="friends_empty_sent_description">Các yêu cầu bạn gửi sẽ xuất hiện tại đây.</string>
+    <string name="friends_toast_send_success">Đã gửi yêu cầu kết bạn.</string>
+    <string name="friends_toast_send_fail">Không thể gửi yêu cầu kết bạn.</string>
+    <string name="friends_toast_already_friend">Hai bạn đã là bạn bè.</string>
+    <string name="friends_toast_wait_accept">Bạn đã gửi yêu cầu rồi. Vui lòng chờ chấp nhận.</string>
+    <string name="friends_toast_blocked_user">Bạn không thể gửi yêu cầu tới người đã chặn.</string>
 
     <!-- setting -->
     <string name="setting_account_title">Cài đặt tài khoản</string>
@@ -475,4 +496,35 @@
     <string name="discover_tag_entertainment">Giải trí</string>
     <string name="discover_list_load_error">Không tải được danh sách cộng đồng. Kéo xuống để thử lại.</string>
     <string name="discover_list_empty_search">Không có cộng đồng phù hợp.</string>
+
+    <string name="send_token_title">Chuyển khoản</string>
+    <string name="send_token_heading">Chuyển khoản</string>
+    <string name="send_token_debit_account">Tài khoản nguồn</string>
+    <string name="send_token_balance_label">Số dư</string>
+    <string name="send_token_currency_symbol">₫</string>
+    <string name="send_token_balance_line">%1$s %2$s</string>
+    <string name="send_token_recipient_to">Chuyển khoản đến?</string>
+    <string name="send_token_recipient_to_address">Chuyển khoản đến địa chỉ</string>
+    <string name="send_token_note_char_count">%1$d/512</string>
+    <string name="send_token_copy">Sao chép</string>
+    <string name="send_token_address_copied">Đã sao chép địa chỉ</string>
+    <string name="send_token_submit">Chuyển khoản</string>
+    <string name="send_token_zk_relogin">Ví cần đăng nhập hợp lệ. Hãy đăng nhập lại (OpenID) để tải ID token và bằng chứng ZK, rồi thử lại.</string>
+    <string name="send_token_success_dialog_title">Đã gửi chuyển khoản</string>
+    <string name="send_token_success_dialog_message">Số tiền: %1$s %2$s\n\nGhi chú: %3$s\n\n%4$s</string>
+    <string name="send_token_wallet_not_available">Ví chưa sẵn sàng. Đăng nhập lại (OpenID) hoặc kiểm tra mạng để tải bằng chứng ZK, rồi thử lại.</string>
+    <string name="send_token_send_error">Gửi thất bại: %1$s</string>
+    <string name="send_token_send_success">Đã gửi chuyển khoản</string>
+    <string name="send_token_sending">Đang gửi…</string>
+    <string name="send_token_to_address">Địa chỉ</string>
+    <string name="send_token_amount">Số tiền</string>
+    <string name="send_token_note">Ghi chú</string>
+    <string name="send_token_note_hint">Tùy chọn</string>
+    <string name="send_token_recipient">Người nhận</string>
+    <string name="send_token_qr_invalid">Không đọc được người nhận từ mã QR này</string>
+    <string name="send_token_scan_qr_or_use_profile">Quét mã QR chuyển khoản (Hồ sơ → Mã QR của tôi → Chuyển khoản)</string>
+    <string name="send_token_error_no_recipient">Chọn người nhận hoặc quét mã QR chuyển khoản</string>
+    <string name="send_token_error_amount">Nhập số tiền lớn hơn 0</string>
+    <string name="send_token_error_exceeds_balance">Số tiền vượt quá số dư</string>
+    <string name="send_token_error_balance_parse">Không đọc được số dư ví</string>
 </resources>

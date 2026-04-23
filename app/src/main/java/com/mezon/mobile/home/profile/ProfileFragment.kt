@@ -29,6 +29,8 @@ import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.FragmentEntryPoint
+import com.mezon.mobile.home.friends.FriendsHomeFragment
+import com.mezon.mobile.home.wallet.SendTokenFragment
 import com.mezon.mobile.ui.cells.AvatarView
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.ToastOverlay
@@ -377,6 +379,7 @@ class ProfileFragment : BaseFragment() {
         walletSection.addView(balanceRow)
 
         walletSection.addView(createIconTextRow(context, MezonIcon.transferIcon, getString(R.string.profile_transfer), null) {
+            presentFragment(SendTokenFragment.newInstance())
         }.apply { (layoutParams as? LinearLayout.LayoutParams)?.topMargin = 0 })
 
         walletSection.addView(createIconTextRow(context, MezonIcon.historyTransactionIcon, getString(R.string.profile_history_transaction), null) {
@@ -436,6 +439,7 @@ class ProfileFragment : BaseFragment() {
         val friendsCard = createCardSection(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+            setOnClickListener { presentFragment(FriendsHomeFragment()) }
         }
         contentColumn.addView(friendsCard, createCardMarginParams())
 

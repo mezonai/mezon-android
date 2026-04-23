@@ -11,6 +11,8 @@ import android.widget.TextView
 import com.mezon.mobile.R
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
+import com.mezon.mobile.di.FragmentEntryPoint
+import com.mezon.mobile.home.profile.AccountController
 import com.mezon.mobile.ui.cells.AvatarView
 import com.mezon.mobile.ui.cells.ToastOverlay
 
@@ -35,6 +37,11 @@ class QrProfileFragment : BaseFragment() {
     private var displayName: String = ""
     private var username: String = ""
     private var avatarUrl: String? = null
+    private lateinit var accountController: AccountController
+
+    override fun onInject(entryPoint: FragmentEntryPoint) {
+        accountController = entryPoint.accountController()
+    }
 
     override fun onFragmentCreate(): Boolean {
         super.onFragmentCreate()
@@ -107,7 +114,10 @@ class QrProfileFragment : BaseFragment() {
         card.addView(buildPrimaryButton(
             getString(R.string.qr_profile_add_friend)
         ) {
-            showToast(getString(R.string.feature_coming_soon))
+            accountController.sendFriendRequest(username = username) { success ->
+                val res = if (success) R.string.friends_toast_send_success else R.string.friends_toast_send_fail
+                showToast(getString(res))
+            }
         }, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             LayoutHelper.dp(44)

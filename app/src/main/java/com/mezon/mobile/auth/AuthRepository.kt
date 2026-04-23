@@ -37,7 +37,8 @@ class AuthRepository @Inject constructor(
                     refreshToken = response.refreshToken,
                     apiUrl = response.apiUrl,
                     wsUrl = response.wsUrl,
-                    userId = response.userId
+                    userId = response.userId,
+                    idToken = response.idToken
                 )
                 sessionManager.saveSession(stored)
                 stored
@@ -81,7 +82,8 @@ class AuthRepository @Inject constructor(
                     refreshToken = session.refreshToken,
                     apiUrl = session.apiUrl,
                     wsUrl = session.wsUrl,
-                    userId = session.userId
+                    userId = session.userId,
+                    idToken = session.idToken
                 )
                 sessionManager.saveSession(stored)
                 stored
