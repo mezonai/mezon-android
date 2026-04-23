@@ -45,10 +45,16 @@ class NotificationHelper @Inject constructor(
 
     companion object {
         private const val MAX_NOTI_DELAY: Long = 3000L
+        private const val MAX_BODY_LEN = 120
         const val GROUP_MESSAGES = "mezon_messages"
         const val CHANNEL_MESSAGES = "mezon_channel_messages"
         const val CHANNEL_DM = "mezon_dm"
         const val CHANNEL_SYSTEM = "mezon_system"
+
+        private fun truncateBody(text: String): String {
+            val single = text.replace('\n', ' ').replace('\r', ' ').trim()
+            return if (single.length > MAX_BODY_LEN) single.substring(0, MAX_BODY_LEN) + "…" else single
+        }
 
         const val ACTION_OPEN_CHAT = "com.mezon.openchat"
 
@@ -116,6 +122,7 @@ class NotificationHelper @Inject constructor(
         channelName: String = "",
         channelType: Int? = null
     ) {
+        val body = truncateBody(body)
         appScope.launch {
             val computedChannelName = channelName.ifEmpty {
                 if (channelId != null && clanId != null) {
@@ -163,6 +170,7 @@ class NotificationHelper @Inject constructor(
         body: String,
         dmChannelId: Long
     ) {
+        val body = truncateBody(body)
         appScope.launch {
             val dmName = dialogsController.get().getDialog(dmChannelId)?.let { dm ->
                 dm.displayName.ifEmpty { dm.label }
@@ -212,6 +220,7 @@ class NotificationHelper @Inject constructor(
         clanId: Long = 0L,
         dmId: Long = 0L
     ) {
+        val body = truncateBody(body)
         appScope.launch {
             val channelName = when {
                 dmId != 0L -> dialogsController.get().getDialog(dmId)?.let { dm ->

@@ -245,14 +245,56 @@ class ChannelListView(
                 }
                 }
             } else {
+                val threadsByParent = HashMap<Long, MutableList<ClanChannelEntity>>()
                 for (ch in section.channels) {
-                    if (!ch.isThread && isVoiceType(ch.type)) {
-                        val members = voiceMembersByChannel[ch.channelId]
-                        if (members != null && members.isNotEmpty()) {
-                            rows.add(ChannelRow.Channel(ch, ch.channelId == activeChannelId, voiceActive = true))
-                            rows.add(ChannelRow.VoiceCollapsedMembers(ch.channelId, members))
+                    if (ch.isThread) {
+                        threadsByParent.getOrPut(ch.parentId) { mutableListOf() }.add(ch)
+                    }
+                }
+                val visibleThreads = mutableListOf<Triple<ClanChannelEntity, Boolean, Boolean>>()
+                var lastParentId = 0L
+                for (ch in section.channels) {
+                    if (ch.isThread) {
+                        val isActive = ch.channelId == activeChannelId
+                        if (isActive || ch.hasUnread) {
+                            val isFirst = ch.parentId != lastParentId
+                            lastParentId = ch.parentId
+                            visibleThreads.add(Triple(ch, isFirst, isActive))
+                        }
+                    } else {
+                        if (visibleThreads.isNotEmpty()) {
+                            for ((idx, t) in visibleThreads.withIndex()) {
+                                val isLast = idx == visibleThreads.size - 1 ||
+                                    visibleThreads.getOrNull(idx + 1)?.first?.parentId != t.first.parentId
+                                rows.add(ChannelRow.Thread(t.first, t.second, isLast, t.third))
+                            }
+                            visibleThreads.clear()
+                        }
+                        lastParentId = 0L
+                        val isActive = ch.channelId == activeChannelId
+                        val voiceActive = isVoiceType(ch.type) &&
+                            voiceMembersByChannel[ch.channelId]?.isNotEmpty() == true
+                        val children = threadsByParent[ch.channelId]
+                        val hasActiveChild = children?.any { it.channelId == activeChannelId } == true
+                        val hasUnreadChild = children?.any { it.hasUnread } == true
+                        val shouldShow = isActive || ch.hasUnread || voiceActive || hasActiveChild || hasUnreadChild
+                        if (shouldShow) {
+                            rows.add(ChannelRow.Channel(ch, isActive, voiceActive = voiceActive))
+                            if (isVoiceType(ch.type) && voiceActive) {
+                                voiceMembersByChannel[ch.channelId]?.let { members ->
+                                    rows.add(ChannelRow.VoiceCollapsedMembers(ch.channelId, members))
+                                }
+                            }
                         }
                     }
+                }
+                if (visibleThreads.isNotEmpty()) {
+                    for ((idx, t) in visibleThreads.withIndex()) {
+                        val isLast = idx == visibleThreads.size - 1 ||
+                            visibleThreads.getOrNull(idx + 1)?.first?.parentId != t.first.parentId
+                        rows.add(ChannelRow.Thread(t.first, t.second, isLast, t.third))
+                    }
+                    visibleThreads.clear()
                 }
             }
         }

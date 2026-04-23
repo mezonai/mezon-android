@@ -757,6 +757,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         forwardLayout?.let { h += it.height + GAP_V_INNER }
         senderLayout?.let { h += it.height + GAP_V_INNER }
 
+        contentLayout?.let { h += it.height + GAP_V_INNER }
+
         if (drawPhotoImage) {
             val imgH = if (mediaGridCount > 1) mediaGridTotalH else photoHeight
             h += imgH + GAP_V_INNER
@@ -771,8 +773,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         if (drawAudioAttachment) {
             h += AUDIO_PILL_HEIGHT + GAP_V_INNER
         }
-
-        contentLayout?.let { h += it.height + GAP_V_INNER }
 
         if (ogpData != null) {
             h += GAP_V_INNER
@@ -1429,13 +1429,13 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     if (hasReply) reacBaseY += REPLY_ROW_HEIGHT + REPLY_V_GAP
                     forwardLayout?.let { reacBaseY += it.height + GAP_V_INNER }
                     senderLayout?.let { reacBaseY += it.height + GAP_V_INNER }
+                    contentLayout?.let { reacBaseY += it.height + GAP_V_INNER }
                     if (drawPhotoImage) {
                         val imgH = if (mediaGridCount > 1) mediaGridTotalH else photoHeight
                         reacBaseY += imgH + GAP_V_INNER
                     }
                     if (drawFileAttachment) reacBaseY += FILE_ICON_SIZE + GAP_V_INNER
                     if (drawAudioAttachment) reacBaseY += AUDIO_PILL_HEIGHT + GAP_V_INNER
-                    contentLayout?.let { reacBaseY += it.height + GAP_V_INNER }
                     if (ogpData != null) {
                         reacBaseY += GAP_V_INNER
                         ogpTitleLayout?.let { reacBaseY += it.height + GAP_V_INNER }
@@ -1810,6 +1810,16 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             yOff += it.height + GAP_V_INNER
         }
 
+        contentLayout?.let {
+            contentLayoutLeft = contentLeft
+            contentLayoutTop = yOff.toInt()
+            canvas.save()
+            canvas.translate(contentLeft.toFloat(), yOff)
+            it.draw(canvas)
+            canvas.restore()
+            yOff += it.height + GAP_V_INNER
+        }
+
         if (drawPhotoImage) {
             val imgX = contentLeft.toFloat()
             if (mediaGridCount <= 1) {
@@ -1829,16 +1839,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
         if (drawAudioAttachment) {
             yOff = drawAudioBlock(canvas, contentLeft.toFloat(), yOff, msg)
-        }
-
-        contentLayout?.let {
-            contentLayoutLeft = contentLeft
-            contentLayoutTop = yOff.toInt()
-            canvas.save()
-            canvas.translate(contentLeft.toFloat(), yOff)
-            it.draw(canvas)
-            canvas.restore()
-            yOff += it.height + GAP_V_INNER
         }
 
         ogpData?.let { yOff = drawOgpBlock(canvas, contentLeft.toFloat(), yOff) + GAP_V_INNER }
