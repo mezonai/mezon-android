@@ -13,4 +13,5 @@ object SessionKeys {
     val ID_TOKEN = stringPreferencesKey("session_id_token")
     val IS_REMEMBER = booleanPreferencesKey("session_is_remember")
     val LAST_CLAN_ID = longPreferencesKey("last_clan_id")
+    val WALLET_CACHE_V1 = stringPreferencesKey("wallet_cache_v1")
 }

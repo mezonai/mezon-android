@@ -10,6 +10,7 @@ import com.mezon.mmn.SendTransactionRequest
 import com.mezon.mmn.AddTxResponse
 import com.mezon.mmn.IEphemeralKeyPair
 import com.mezon.mmn.IZkProof
+import com.mezon.mmn.WalletDetail
 import com.mezon.mmn.createMmnClient
 import com.mezon.mmn.createZkClient
 import com.mezon.mobile.BuildConfig
@@ -37,6 +38,7 @@ class WalletController @Inject constructor(
     @ApplicationScope private val appScope: CoroutineScope,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     private val sessionManager: SessionManager,
+    private val walletCacheStore: WalletCacheStore,
     private val httpClient: HttpClient
 ) {
     private val mmn: MmnClient by lazy {
@@ -68,6 +70,15 @@ class WalletController @Inject constructor(
     private val _isWalletReady = MutableStateFlow(false)
     val isWalletReady: StateFlow<Boolean> = _isWalletReady.asStateFlow()
 
+    private val _zkProofs = MutableStateFlow<IZkProof?>(null)
+    val zkProofs: StateFlow<IZkProof?> = _zkProofs.asStateFlow()
+
+    private val _ephemeralKeyPair = MutableStateFlow<IEphemeralKeyPair?>(null)
+    val ephemeralKeyPair: StateFlow<IEphemeralKeyPair?> = _ephemeralKeyPair.asStateFlow()
+
+    private val _walletDetail = MutableStateFlow<WalletDetail?>(null)
+    val walletDetail: StateFlow<WalletDetail?> = _walletDetail.asStateFlow()
+
     init {
         appScope.launch {
             sessionManager.sessionFlow.collectLatest { s ->
@@ -83,15 +94,44 @@ class WalletController @Inject constructor(
     private fun clearInternal() {
         signing = null
         _isWalletReady.value = false
+        _zkProofs.value = null
+        _ephemeralKeyPair.value = null
+        _walletDetail.value = null
+        appScope.launch(ioDispatcher) { walletCacheStore.clear() }
     }
 
     private suspend fun refreshSigning(
         session: StoredSession
     ) = withContext(ioDispatcher) {
-        if (session.idToken.isEmpty()) {
-            Log.w(TAG, "refreshSigning: no id_token — ZK wallet cannot init (re-login to store OIDC id_token)")
+        if (session.userId.isEmpty() || session.token.isEmpty()) {
             signing = null
             _isWalletReady.value = false
+            _zkProofs.value = null
+            _ephemeralKeyPair.value = null
+            _walletDetail.value = null
+            walletCacheStore.clear()
+            return@withContext
+        }
+        val cached = runCatching { walletCacheStore.loadIfValid(session) }.getOrNull()
+        if (cached != null) {
+            val addressMmn = mmn.getAddressFromUserId(session.userId)
+            signing = Signing(cached.ephemeral, cached.zkProof, addressMmn)
+            _zkProofs.value = cached.zkProof
+            _ephemeralKeyPair.value = cached.ephemeral
+            _walletDetail.value = cached.walletDetail
+            _isWalletReady.value = true
+            return@withContext
+        }
+        if (session.idToken.isEmpty()) {
+            Log.w(
+                TAG,
+                "refreshSigning: no id_token and no wallet cache — cannot fetch ZK (OIDC id_token needed for new proofs)"
+            )
+            signing = null
+            _isWalletReady.value = false
+            _zkProofs.value = null
+            _ephemeralKeyPair.value = null
+            _walletDetail.value = null
             return@withContext
         }
         runCatching {
@@ -104,11 +144,30 @@ class WalletController @Inject constructor(
                 address = addressMmn
             )
             signing = Signing(ephemeral, zkProof, addressMmn)
+            _zkProofs.value = zkProof
+            _ephemeralKeyPair.value = ephemeral
             _isWalletReady.value = true
+            var walletDetail: WalletDetail? = null
+            runCatching {
+                val acc = mmn.getAccountByUserId(session.userId)
+                walletDetail = WalletDetail(
+                    address = acc.address,
+                    balance = acc.balance,
+                    accountNonce = acc.nonce.coerceIn(0, Int.MAX_VALUE.toLong()).toInt(),
+                    lastBalanceUpdate = 0
+                )
+                _walletDetail.value = walletDetail
+            }.onFailure { e ->
+                Log.w(TAG, "getAccountByUserId after ZK (RN fetchWalletDetail)", e)
+            }
+            walletCacheStore.save(session, zkProof, ephemeral, walletDetail)
         }.onFailure { e ->
             Log.e(TAG, "refreshSigning failed (MMN+ZK like RN fetchZkProofs)", e)
             signing = null
             _isWalletReady.value = false
+            _zkProofs.value = null
+            _ephemeralKeyPair.value = null
+            _walletDetail.value = null
         }
     }
 

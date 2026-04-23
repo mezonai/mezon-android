@@ -264,7 +264,8 @@ class UserProfileBottomSheet(
         }
 
         val avatarSize = LayoutHelper.dp(80)
-        profileAvatarDrawable.setInfo(displayName)
+        val fallbackName = displayName.ifBlank { username }
+        profileAvatarDrawable.setInfo(userId, fallbackName)
         val avatarView = ImageView(context).apply {
             setImageDrawable(profileAvatarDrawable)
             scaleType = ImageView.ScaleType.FIT_CENTER
