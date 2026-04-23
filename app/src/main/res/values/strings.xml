@@ -329,11 +329,11 @@
     <string name="friends_add_title">Find your friends</string>
     <string name="friends_add_placeholder">Enter a username or phone number</string>
     <string name="friends_add_send_request">Send Friend Request</string>
-    <string name="friends_add_by_username">Add by username</string>
+    <string name="friends_add_by_username">Add by username or phone number</string>
     <string name="friends_add_screen_title">Add Friends</string>
     <string name="friends_add_action_title">Add Friends</string>
-    <string name="friends_add_who_you_want">Who would you like to add?</string>
-    <string name="friends_add_placeholder_username_only">Enter a username</string>
+    <string name="friends_add_who_you_want">Who would you like to add as a friend?</string>
+    <string name="friends_add_placeholder_username_only">Enter a username or phone number</string>
     <string name="friends_add_by_the_way">By the way, your username is %1$s</string>
     <string name="friends_add_incoming_friend_request">Incoming friend request</string>
     <string name="friends_request_counts">%1$d Received • %2$d Sent</string>

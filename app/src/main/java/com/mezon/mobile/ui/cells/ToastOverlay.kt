@@ -11,6 +11,7 @@ import android.os.Looper
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -103,8 +104,11 @@ class ToastOverlay(context: Context, private val theme: ThemeColors) : FrameLayo
         private val theme: ThemeColors,
         private val type: ToastType,
         private val title: String,
-        private val description: String?
+        description: String?
     ) : View(context) {
+
+        private val description: String? = description?.replace('\n', ' ')?.replace('\r', ' ')
+        private var lastBuildWidth = 0
 
         private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
         private val titlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -134,20 +138,23 @@ class ToastOverlay(context: Context, private val theme: ThemeColors) : FrameLayo
             val w = MeasureSpec.getSize(widthMeasureSpec)
             val textWidth = w - padH * 2
 
-            if (textWidth > 0) {
+            if (textWidth > 0 && textWidth != lastBuildWidth) {
+                lastBuildWidth = textWidth
                 titleLayout = StaticLayout.Builder
                     .obtain(title, 0, title.length, titlePaint, textWidth)
                     .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                    .setMaxLines(2)
+                    .setMaxLines(1)
+                    .setEllipsize(TextUtils.TruncateAt.END)
                     .build()
 
-                descLayout = if (description != null) {
+                descLayout = description?.let { d ->
                     StaticLayout.Builder
-                        .obtain(description, 0, description.length, descPaint, textWidth)
+                        .obtain(d, 0, d.length, descPaint, textWidth)
                         .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                        .setMaxLines(3)
+                        .setMaxLines(2)
+                        .setEllipsize(TextUtils.TruncateAt.END)
                         .build()
-                } else null
+                }
             }
 
             var h = padV

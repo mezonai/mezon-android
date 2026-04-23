@@ -80,6 +80,7 @@ import com.mezon.mobile.util.HashtagData
 import com.mezon.mobile.util.MentionData
 import com.mezon.mobile.util.parseContentText
 import com.mezon.mobile.util.parseMarkdownAndStrip
+import com.mezon.mobile.util.restoreInputFromContent
 import com.mezon.mobile.util.resolveStickerSourceUrl
 import com.mezon.mobile.core.SharedConfig
 import com.mezon.mobile.core.SizeNotifierFrameLayout
@@ -1197,7 +1198,7 @@ class ChatFragment : BaseFragment() {
         })
 
         voiceOverlay = VoiceRecordingOverlay(context, themeColors).apply {
-            setSlideToCancelText(getString(R.string.voice_record_slide_to_cancel))
+            setSlideToCancelText(getString(R.string.message_slide_to_cancel))
         }
         inputWrapper.addView(voiceOverlay, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
@@ -2290,15 +2291,8 @@ class ChatFragment : BaseFragment() {
     private fun sendMessage() {
         val rawInput = inputField.text?.toString() ?: ""
         val text = rawInput.trim()
-        if (text.isBlank() && pendingAttachments.isEmpty()) return
-
         val editMsg = editingMessage
-        if (editMsg != null) {
-            val isPrivate = resolveChannelPrivate()
-            chatController.editMessage(channelId, clanId, channelType, isPrivate, editMsg.id, text)
-            clearEditState()
-            return
-        }
+        if (text.isBlank() && pendingAttachments.isEmpty() && editMsg == null) return
 
         val isPrivate = resolveChannelPrivate()
         val references = buildReplyReferences()
@@ -2338,6 +2332,16 @@ class ChatFragment : BaseFragment() {
             )
         }
         val hashtags = hashtagsFromTrackers.ifEmpty { null }
+
+        if (editMsg != null) {
+            val emojiMarkers = buildEmojiMarkers(cleanedText)
+            chatController.editMessage(
+                channelId, clanId, channelType, isPrivate, editMsg.id,
+                cleanedText, mentions, emojiMarkers, mdMarkers, hashtags
+            )
+            clearEditState()
+            return
+        }
 
         Log.d(TAG, "sendMessage channelId=$channelId clanId=$clanId channelType=$channelType isPrivate=$isPrivate textLen=${cleanedText.length} attachments=${pendingAttachments.size} hasReply=${references != null} mdMarkers=${mdMarkers?.size ?: 0} hashtags=${hashtags?.size ?: 0}")
 
@@ -2741,7 +2745,7 @@ class ChatFragment : BaseFragment() {
         val ctx = getContext() ?: return
         val recorder = VoiceRecorder(ctx)
         if (!recorder.start()) {
-            android.widget.Toast.makeText(ctx, R.string.voice_record_failed, android.widget.Toast.LENGTH_SHORT).show()
+            android.widget.Toast.makeText(ctx, R.string.message_voice_record_failed, android.widget.Toast.LENGTH_SHORT).show()
             return
         }
         voiceRecorder = recorder
@@ -2778,12 +2782,12 @@ class ChatFragment : BaseFragment() {
         val result = recorder.stop()
         teardownVoiceUi()
         if (result == null) {
-            android.widget.Toast.makeText(ctx, R.string.voice_record_failed, android.widget.Toast.LENGTH_SHORT).show()
+            android.widget.Toast.makeText(ctx, R.string.message_voice_record_failed, android.widget.Toast.LENGTH_SHORT).show()
             return
         }
         if (result.durationMs < VoiceRecorder.MIN_RECORD_MS) {
             try { result.file.delete() } catch (_: Exception) {}
-            android.widget.Toast.makeText(ctx, R.string.voice_record_too_short, android.widget.Toast.LENGTH_SHORT).show()
+            android.widget.Toast.makeText(ctx, R.string.message_voice_record_too_short, android.widget.Toast.LENGTH_SHORT).show()
             return
         }
         sendVoiceRecording(result.file, result.durationMs)
@@ -2796,7 +2800,7 @@ class ChatFragment : BaseFragment() {
         voiceCancelled = true
         teardownVoiceUi()
         if (showToast && ctx != null) {
-            android.widget.Toast.makeText(ctx, R.string.voice_record_cancelled, android.widget.Toast.LENGTH_SHORT).show()
+            android.widget.Toast.makeText(ctx, R.string.message_voice_record_cancelled, android.widget.Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -2844,7 +2848,7 @@ class ChatFragment : BaseFragment() {
 
     private fun showHoldToRecordHint() {
         val ctx = getContext() ?: return
-        android.widget.Toast.makeText(ctx, R.string.voice_record_hint, android.widget.Toast.LENGTH_SHORT).show()
+        android.widget.Toast.makeText(ctx, R.string.message_voice_record_hint, android.widget.Toast.LENGTH_SHORT).show()
     }
 
     private fun updateAttachmentPreview() {
@@ -3233,7 +3237,7 @@ class ChatFragment : BaseFragment() {
                     android.widget.Toast.makeText(ctx, R.string.feature_coming_soon, android.widget.Toast.LENGTH_SHORT).show()
                 }
                 override fun onAddFriend(userId: Long) {
-                    android.widget.Toast.makeText(ctx, R.string.feature_coming_soon, android.widget.Toast.LENGTH_SHORT).show()
+                    showAddFriendBottomSheet()
                 }
             }
         )
@@ -3371,14 +3375,75 @@ class ChatFragment : BaseFragment() {
         clearReplyState()
         mentionTrackers.clear()
         hashtagTrackers.clear()
+        emojiObjPicked.clear()
         editingMessage = msg
         editNameView?.text = getString(R.string.message_chatbox_editing)
         editBar?.visibility = View.VISIBLE
-        val text = parseContentText(msg.content)
-        inputField.setText(text)
-        inputField.setSelection(text.length)
+        val restored = restoreInputFromContent(msg.content)
+        inputField.setText(restored.rawText)
+        mentionTrackers.addAll(restored.mentions)
+        hashtagTrackers.addAll(restored.hashtags)
+        emojiObjPicked.putAll(restored.emojis)
+        applyEditHighlightSpans(restored)
+        inputField.setSelection(inputField.text?.length ?: 0)
         inputField.requestFocus()
         AndroidUtilities.showKeyboard(inputField)
+    }
+
+    private fun applyEditHighlightSpans(restored: com.mezon.mobile.util.RestoredInputContent) {
+        val editable = inputField.text ?: return
+        val len = editable.length
+        for (m in restored.mentions) {
+            if (m.startOffset < 0 || m.endOffset > len || m.startOffset >= m.endOffset) continue
+            val color = if (m.roleId.isNotBlank()) themeColors.textRoleLink else themeColors.textLink
+            editable.setSpan(
+                android.text.style.ForegroundColorSpan(color),
+                m.startOffset, m.endOffset,
+                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+            editable.setSpan(
+                android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
+                m.startOffset, m.endOffset,
+                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+        }
+        for (h in restored.hashtags) {
+            if (h.startOffset < 0 || h.endOffset > len || h.startOffset >= h.endOffset) continue
+            editable.setSpan(
+                HashtagSpan(h.channelId, themeColors.textLink),
+                h.startOffset, h.endOffset,
+                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+            editable.setSpan(
+                android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
+                h.startOffset, h.endOffset,
+                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+        }
+        for ((shortname, _) in restored.emojis) {
+            var searchFrom = 0
+            while (searchFrom < editable.length) {
+                val idx = editable.indexOf(shortname, searchFrom)
+                if (idx < 0) break
+                val end = idx + shortname.length
+                editable.setSpan(
+                    EmojiTokenSpan(),
+                    idx, end,
+                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+                editable.setSpan(
+                    android.text.style.ForegroundColorSpan(0xFF5A62F4.toInt()),
+                    idx, end,
+                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+                editable.setSpan(
+                    android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
+                    idx, end,
+                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+                searchFrom = end
+            }
+        }
     }
 
     private fun clearEditState() {
@@ -3387,6 +3452,7 @@ class ChatFragment : BaseFragment() {
         editNameView?.text = ""
         mentionTrackers.clear()
         hashtagTrackers.clear()
+        emojiObjPicked.clear()
         inputField.text?.clear()
     }
 
