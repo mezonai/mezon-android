@@ -27,6 +27,7 @@ import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.session.LocaleManager
 import com.mezon.mobile.home.qr.QrScanFragment
+import com.mezon.mobile.home.friends.FriendRequestsFragment
 import com.mezon.mobile.ui.cells.HeaderCell
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.SelectPopup
@@ -169,7 +170,7 @@ class SettingsFragment : BaseFragment() {
                 null,
                 true,
                 false,
-                null
+                { presentFragment(FriendRequestsFragment()) }
             ),
             MenuItem(
                 getString(R.string.setting_scan_qr),

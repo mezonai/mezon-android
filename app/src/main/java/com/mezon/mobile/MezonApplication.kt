@@ -35,7 +35,7 @@ class MezonApplication : Application() {
 
         StartupCache.seed(
             hasSession = prefs[SessionKeys.TOKEN] != null,
-            themeMode = prefs[stringPreferencesKey("app_theme")] ?: "system",
+            themeMode = prefs[stringPreferencesKey("app_theme")] ?: "dark",
             locale = prefs[stringPreferencesKey("app_language")] ?: "en"
         )
 

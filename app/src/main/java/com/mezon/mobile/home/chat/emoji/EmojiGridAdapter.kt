@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -28,8 +29,8 @@ class EmojiGridAdapter(
         data class Header(val title: String, val expanded: Boolean) : ListItem() {
             override val stableId: Long get() = title.hashCode().toLong() or (1L shl 62)
         }
-        data class Emoji(val item: EmojiItem) : ListItem() {
-            override val stableId: Long get() = item.id.hashCode().toLong()
+        data class Emoji(val item: EmojiItem, private val uniqueKey: String) : ListItem() {
+            override val stableId: Long get() = uniqueKey.hashCode().toLong()
         }
     }
 
@@ -40,6 +41,7 @@ class EmojiGridAdapter(
     private val collapsedSections = HashSet<String>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var diffJob: Job? = null
+    private var listVersion = 0L
 
     init {
         setHasStableIds(true)
@@ -60,9 +62,13 @@ class EmojiGridAdapter(
 
     fun setSearchResults(emojis: List<EmojiItem>) {
         categories.clear()
+        val duplicateIndex = HashMap<String, Int>()
         val newItems = ArrayList<ListItem>(emojis.size)
         for (emoji in emojis) {
-            newItems.add(ListItem.Emoji(emoji))
+            val baseKey = buildEmojiBaseKey(emoji)
+            val index = duplicateIndex[baseKey] ?: 0
+            duplicateIndex[baseKey] = index + 1
+            newItems.add(ListItem.Emoji(emoji, "$baseKey#$index"))
         }
         applyNewItems(newItems)
     }
@@ -77,13 +83,17 @@ class EmojiGridAdapter(
     }
 
     private fun rebuildItems() {
+        val duplicateIndex = HashMap<String, Int>()
         val newItems = ArrayList<ListItem>()
         for (cat in categories) {
             val expanded = !collapsedSections.contains(cat.name)
             newItems.add(ListItem.Header(cat.name, expanded))
             if (expanded) {
                 for (emoji in cat.emojis) {
-                    newItems.add(ListItem.Emoji(emoji))
+                    val baseKey = "${cat.name}|${buildEmojiBaseKey(emoji)}"
+                    val index = duplicateIndex[baseKey] ?: 0
+                    duplicateIndex[baseKey] = index + 1
+                    newItems.add(ListItem.Emoji(emoji, "$baseKey#$index"))
                 }
             }
         }
@@ -92,8 +102,11 @@ class EmojiGridAdapter(
 
     private fun applyNewItems(newItems: ArrayList<ListItem>) {
         diffJob?.cancel()
+        val targetVersion = ++listVersion
         if (newItems.size < 50 && items.size < 50) {
-            val result = DiffUtil.calculateDiff(ItemDiffCallback(items, newItems))
+            val oldList = ArrayList(items)
+            val result = DiffUtil.calculateDiff(ItemDiffCallback(oldList, newItems))
+            if (targetVersion != listVersion) return
             items.clear(); items.addAll(newItems)
             result.dispatchUpdatesTo(this)
         } else {
@@ -102,10 +115,15 @@ class EmojiGridAdapter(
                 val result = withContext(Dispatchers.Default) {
                     DiffUtil.calculateDiff(ItemDiffCallback(oldList, newItems))
                 }
+                if (!isActive || targetVersion != listVersion) return@launch
                 items.clear(); items.addAll(newItems)
                 result.dispatchUpdatesTo(this@EmojiGridAdapter)
             }
         }
+    }
+
+    private fun buildEmojiBaseKey(emoji: EmojiItem): String {
+        return "${emoji.id}|${emoji.shortname}|${emoji.src}|${emoji.category}|${emoji.clanId}|${emoji.clanName}"
     }
 
     fun isHeader(position: Int): Boolean = items.getOrNull(position) is ListItem.Header

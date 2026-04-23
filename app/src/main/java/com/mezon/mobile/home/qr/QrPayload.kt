@@ -35,7 +35,7 @@ object QrPayloadParser {
         if (trimmed.contains("channel-app")) return QrAction.DeepLink(trimmed)
 
         val uri = runCatching { Uri.parse(trimmed) }.getOrNull()
-        if (uri != null) {
+        if (uri != null && uri.isHierarchical) {
             val path = uri.path.orEmpty()
             if (path.contains("/invite/")) {
                 val invite = path.substringAfter("/invite/").substringBefore("/")

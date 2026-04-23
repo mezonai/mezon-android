@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "ai.mezon.proto"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         minSdk = 24

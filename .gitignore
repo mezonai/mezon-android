@@ -56,6 +56,7 @@ signing.properties
 # Protobuf generated (regenerated from proto source)
 core-proto/build/
 core-proto/src/main/java/
+core-proto/*
 
 # Crash / profiling
 *.hprof
@@ -69,3 +70,8 @@ secrets/
 credentials/
 
 .gitnexus
+
+
+build/reports/configuration-cache
+mmn-client-kotlin/build/kotlin/compileDebugKotlin
+mmn-client-kotlin/build

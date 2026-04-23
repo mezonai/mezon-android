@@ -27,7 +27,8 @@ class ThemeManager @Inject constructor(
             "light" -> ThemeMode.LIGHT
             "dark" -> ThemeMode.DARK
             "abyss" -> ThemeMode.ABYSS
-            else -> ThemeMode.SYSTEM
+            "system" -> ThemeMode.SYSTEM
+            else -> ThemeMode.DARK
         }
     }
 

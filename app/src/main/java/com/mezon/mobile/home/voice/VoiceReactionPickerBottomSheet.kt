@@ -21,6 +21,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.LinearLayout
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -165,10 +166,10 @@ class VoiceReactionPickerBottomSheet(
         }
 
         val body = FrameLayout(context)
-        val vertical = androidx.appcompat.widget.LinearLayoutCompat(context).apply {
-            orientation = androidx.appcompat.widget.LinearLayoutCompat.VERTICAL
-            addView(categoryList, androidx.appcompat.widget.LinearLayoutCompat.LayoutParams(LayoutHelper.MATCH_PARENT, CATEGORY_CELL_SIZE + LayoutHelper.dp(18f)))
-            addView(soundList, androidx.appcompat.widget.LinearLayoutCompat.LayoutParams(LayoutHelper.MATCH_PARENT, 0, 1f))
+        val vertical = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(categoryList, LinearLayout.LayoutParams(LayoutHelper.MATCH_PARENT, CATEGORY_CELL_SIZE + LayoutHelper.dp(18f)))
+            addView(soundList, LinearLayout.LayoutParams(LayoutHelper.MATCH_PARENT, 0, 1f))
         }
 
         body.addView(vertical, FrameLayout.LayoutParams(LayoutHelper.MATCH_PARENT, panelHeight))

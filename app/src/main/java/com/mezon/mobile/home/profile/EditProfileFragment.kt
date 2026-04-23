@@ -1,6 +1,7 @@
 package com.mezon.mobile.home.profile
 
 import android.app.Activity
+import android.app.Dialog
 import android.content.Context
 import android.content.Intent
 import android.graphics.BitmapFactory
@@ -644,7 +645,7 @@ class EditProfileFragment : BaseFragment() {
         val clans = clansController.clans.value
         if (clans.isEmpty()) return
 
-        var dialog: com.google.android.material.bottomsheet.BottomSheetDialog? = null
+        var dialog: Dialog? = null
         dialog = MezonBottomSheetDialog.create(
             context, themeColors,
             title = getString(R.string.edit_profile_select_clan),
@@ -790,7 +791,7 @@ class EditProfileFragment : BaseFragment() {
 
     private fun showAvatarBottomSheet() {
         val context = getContext() ?: return
-        var dialog: com.google.android.material.bottomsheet.BottomSheetDialog? = null
+        var dialog: Dialog? = null
         dialog = MezonBottomSheetDialog.create(
             context, themeColors, title = null, scrollable = false
         ) { container ->

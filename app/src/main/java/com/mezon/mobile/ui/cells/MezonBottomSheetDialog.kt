@@ -5,11 +5,12 @@ import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.app.Dialog
+import android.graphics.drawable.ColorDrawable
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.widget.NestedScrollView
-import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 
@@ -21,8 +22,8 @@ object MezonBottomSheetDialog {
         title: String? = null,
         scrollable: Boolean = true,
         contentBuilder: (LinearLayout) -> Unit
-    ): BottomSheetDialog {
-        val dialog = BottomSheetDialog(context)
+    ): Dialog {
+        val dialog = Dialog(context)
 
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -75,6 +76,10 @@ object MezonBottomSheetDialog {
         }
 
         dialog.setContentView(root)
+        dialog.window?.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
+        dialog.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        dialog.window?.setGravity(Gravity.BOTTOM)
+        dialog.setCanceledOnTouchOutside(true)
         return dialog
     }
 }

@@ -10,6 +10,7 @@ object SessionKeys {
     val API_URL = stringPreferencesKey("session_api_url")
     val WS_URL = stringPreferencesKey("session_ws_url")
     val USER_ID = stringPreferencesKey("session_user_id")
+    val ID_TOKEN = stringPreferencesKey("session_id_token")
     val IS_REMEMBER = booleanPreferencesKey("session_is_remember")
     val LAST_CLAN_ID = longPreferencesKey("last_clan_id")
 }
