@@ -23,3 +23,4 @@ dependencyResolutionManagement {
 rootProject.name = "Mezon"
 include(":app")
 include(":core-proto")
+include(":mmn-client-kotlin")

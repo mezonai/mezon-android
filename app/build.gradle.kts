@@ -29,8 +29,8 @@ android {
         applicationId = "com.mezon.mobile"
         minSdk = 24
         targetSdk = 35
-        versionCode = 986
-        versionName = "1.1.174"
+        versionCode = 2_000_000
+        versionName = "1.1.175"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -104,6 +104,7 @@ android {
         buildConfigField("String", "MEZON_ANONYMOUS_USER_ID", "\"1767478432163172999\"")
         buildConfigField("int", "MEZON_MAX_LENGTH_NAME_ALLOWED", "64")
         buildConfigField("String", "MEZON_MMN_API_URL", "\"https://dong.mezon.ai/mmn-api/\"")
+        buildConfigField("String", "MEZON_ZK_API_URL", "\"https://dong.mezon.ai/zk-api/\"")
     }
 
     signingConfigs {
@@ -158,6 +159,7 @@ android {
 
 dependencies {
     implementation(project(":core-proto"))
+    implementation(project(":mmn-client-kotlin"))
 
     // Hilt
     implementation(libs.hilt.android)
@@ -181,7 +183,6 @@ dependencies {
     implementation(libs.kotlinx.coroutines.play.services)
 
     // Core
-    // implementation(libs.androidx.appcompat)
     implementation(libs.androidx.core.ktx)
 
     // Splash Screen
@@ -193,8 +194,8 @@ dependencies {
     ksp(libs.androidx.room.compiler)
 
     implementation(libs.androidx.recyclerview)
+    implementation(libs.androidx.viewpager2)
     implementation(libs.androidx.swiperefreshlayout)
-    implementation(libs.google.material)
     implementation(libs.androidx.fragment.ktx)
 
 

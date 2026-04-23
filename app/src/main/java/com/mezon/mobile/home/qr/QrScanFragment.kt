@@ -31,6 +31,7 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.session.SessionExpiredException
 import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.home.wallet.SendTokenFragment
 import com.mezon.mobile.ui.cells.ToastOverlay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -290,6 +291,10 @@ class QrScanFragment : BaseFragment() {
             }
             is QrAction.Login -> {
                 showConfirmLogin(action.loginId)
+            }
+            is QrAction.Transfer -> {
+                stopScanning()
+                presentFragment(SendTokenFragment.newInstance(action.rawJson))
             }
             else -> {
                 showToast(getString(R.string.qr_code_not_valid))

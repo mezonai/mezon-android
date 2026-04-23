@@ -223,6 +223,10 @@
     <string name="action_copy_image">Copy Image</string>
     <string name="action_share_image">Share Image</string>
     <string name="message_slide_to_cancel">Slide to cancel</string>
+    <string name="message_voice_record_failed">Could not start voice recording.</string>
+    <string name="message_voice_record_too_short">Recording is too short.</string>
+    <string name="message_voice_record_cancelled">Recording cancelled.</string>
+    <string name="message_voice_record_hint">Hold to record</string>
 
     <!-- notification -->
     <string name="notification_header">Notifications</string>
@@ -282,6 +286,36 @@
     <string name="profile_enable_wallet">Enable Wallet</string>
     <string name="profile_balance">Balance: %1$s đồng</string>
     <string name="profile_transfer">Transfer Funds</string>
+    <string name="send_token_title">Transfer Funds</string>
+    <string name="send_token_heading">Transfer Funds</string>
+    <string name="send_token_debit_account">Debit account</string>
+    <string name="send_token_balance_label">Balance</string>
+    <string name="send_token_currency_symbol">₫</string>
+    <string name="send_token_balance_line">%1$s %2$s</string>
+    <string name="send_token_recipient">Recipient</string>
+    <string name="send_token_recipient_to">Transfer to?</string>
+    <string name="send_token_recipient_to_address">Transfer to address</string>
+    <string name="send_token_to_address">Address</string>
+    <string name="send_token_amount">Amount</string>
+    <string name="send_token_note">Note</string>
+    <string name="send_token_note_hint">Optional</string>
+    <string name="send_token_note_char_count">%1$d/512</string>
+    <string name="send_token_copy">Copy</string>
+    <string name="send_token_address_copied">Address copied</string>
+    <string name="send_token_submit">Transfer Funds</string>
+    <string name="send_token_zk_relogin">Wallet needs a valid sign-in. Sign in again (OpenID) so your ID token and ZK proof can be loaded, then try again.</string>
+    <string name="send_token_success_dialog_title">Transfer sent</string>
+    <string name="send_token_success_dialog_message">Amount: %1$s %2$s\n\nNote: %3$s\n\n%4$s</string>
+    <string name="send_token_qr_invalid">Could not read recipient from this QR</string>
+    <string name="send_token_scan_qr_or_use_profile">Scan a transfer QR code (Profile → My QR → Transfer)</string>
+    <string name="send_token_error_no_recipient">Select a recipient or scan a transfer QR</string>
+    <string name="send_token_error_amount">Enter an amount greater than zero</string>
+    <string name="send_token_error_exceeds_balance">Amount exceeds your balance</string>
+    <string name="send_token_error_balance_parse">Could not read wallet balance</string>
+    <string name="send_token_wallet_not_available">Wallet is not available. Sign in again (with OpenID) or check network so ZK proof can be loaded, then retry.</string>
+    <string name="send_token_send_error">Send failed: %1$s</string>
+    <string name="send_token_send_success">Transfer sent</string>
+    <string name="send_token_sending">Sending…</string>
     <string name="profile_history_transaction">Transaction History</string>
     <string name="profile_add_status">Add Status</string>
     <string name="profile_update_failed">Update profile failed.</string>
@@ -295,6 +329,23 @@
     <string name="friends_add_title">Find your friends</string>
     <string name="friends_add_placeholder">Enter a username or phone number</string>
     <string name="friends_add_send_request">Send Friend Request</string>
+    <string name="friends_add_by_username">Add by username</string>
+    <string name="friends_add_screen_title">Add Friends</string>
+    <string name="friends_add_action_title">Add Friends</string>
+    <string name="friends_add_who_you_want">Who would you like to add?</string>
+    <string name="friends_add_placeholder_username_only">Enter a username</string>
+    <string name="friends_add_by_the_way">By the way, your username is %1$s</string>
+    <string name="friends_add_incoming_friend_request">Incoming friend request</string>
+    <string name="friends_request_counts">%1$d Received • %2$d Sent</string>
+    <string name="friends_empty_received_title">No incoming friend requests</string>
+    <string name="friends_empty_received_description">When someone sends you a request, it appears here.</string>
+    <string name="friends_empty_sent_title">No sent friend requests</string>
+    <string name="friends_empty_sent_description">Requests you send will appear here.</string>
+    <string name="friends_toast_send_success">Friend request sent.</string>
+    <string name="friends_toast_send_fail">Could not send friend request.</string>
+    <string name="friends_toast_already_friend">You are already friends.</string>
+    <string name="friends_toast_wait_accept">Friend request already sent. Please wait for acceptance.</string>
+    <string name="friends_toast_blocked_user">You cannot send a request to a blocked user.</string>
 
     <!-- setting -->
     <string name="setting_account_title">Account Settings</string>
