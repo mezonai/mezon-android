@@ -10,6 +10,7 @@ import androidx.core.content.ContextCompat
 import com.mezon.mobile.R
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.ui.theme.ThemeMode
+import java.util.concurrent.ConcurrentHashMap
 
 enum class MezonIcon(@DrawableRes val resId: Int) {
     channelText(R.drawable.ic_channel_open),
@@ -246,7 +247,7 @@ enum class MezonIcon(@DrawableRes val resId: Int) {
     pollIconGray(R.drawable.ic_poll_icon_gray);
 
     fun getDrawable(context: Context): Drawable =
-        ContextCompat.getDrawable(context, resId)!!.mutate()
+        loadDrawable(context, resId)
 
     fun getDrawable(context: Context, themeColors: ThemeColors): Drawable =
         when (this) {
@@ -256,7 +257,7 @@ enum class MezonIcon(@DrawableRes val resId: Int) {
                 } else {
                     R.drawable.ic_threadlockicon
                 }
-                ContextCompat.getDrawable(context, resId)!!.mutate()
+                loadDrawable(context, resId)
             }
             scanQR -> {
                 val resId = if (themeColors.resolvedMode == ThemeMode.LIGHT) {
@@ -264,7 +265,7 @@ enum class MezonIcon(@DrawableRes val resId: Int) {
                 } else {
                     R.drawable.ic_qr_scan
                 }
-                ContextCompat.getDrawable(context, resId)!!.mutate()
+                loadDrawable(context, resId)
             }
             else -> getDrawable(context)
         }
@@ -276,8 +277,15 @@ enum class MezonIcon(@DrawableRes val resId: Int) {
 
     companion object {
 
-        fun loadDrawable(context: Context, @DrawableRes resId: Int): Drawable =
-            ContextCompat.getDrawable(context, resId)!!.mutate()
+        private val constantStateCache = ConcurrentHashMap<Int, Drawable.ConstantState>()
+
+        fun loadDrawable(context: Context, @DrawableRes resId: Int): Drawable {
+            val cached = constantStateCache[resId]
+            if (cached != null) return cached.newDrawable(context.resources).mutate()
+            val d = ContextCompat.getDrawable(context, resId)!!
+            d.constantState?.let { constantStateCache[resId] = it }
+            return d.mutate()
+        }
 
         fun loadDrawable(context: Context, @DrawableRes resId: Int, tintColor: Int): Drawable =
             loadDrawable(context, resId).apply {

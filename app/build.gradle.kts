@@ -192,8 +192,8 @@ dependencies {
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
 
-    // View-based UI (Telegram-style)
     implementation(libs.androidx.recyclerview)
+    implementation(libs.androidx.swiperefreshlayout)
     implementation(libs.google.material)
     implementation(libs.androidx.fragment.ktx)
 
@@ -201,6 +201,13 @@ dependencies {
     // Media playback
     implementation("androidx.media3:media3-exoplayer:1.3.1")
     implementation("androidx.media3:media3-ui:1.3.1")
+
+    // CameraX + ZXing (QR)
+    implementation(libs.androidx.camera.core)
+    implementation(libs.androidx.camera.camera2)
+    implementation(libs.androidx.camera.lifecycle)
+    implementation(libs.androidx.camera.view)
+    implementation(libs.zxing.core)
 
     // Lottie for animated stickers (TGS)
     implementation("com.airbnb.android:lottie:6.4.0")

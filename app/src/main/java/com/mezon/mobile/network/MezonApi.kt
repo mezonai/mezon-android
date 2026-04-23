@@ -1,15 +1,16 @@
+
 package com.mezon.mobile.network
 
 import com.mezon.mobile.BuildConfig
 import android.util.Base64
 import com.mezon.mezon.api.Account
-import com.mezon.mezon.api.AccountEmail
 import com.mezon.mezon.api.AllUsersAddChannelResponse
 import com.mezon.mezon.api.AllUserClans
 import com.mezon.mezon.api.allUsersAddChannelRequest
+import com.mezon.mezon.api.CategoryDesc
+import com.mezon.mezon.api.ClanDesc
 import com.mezon.mezon.api.EmojiListedResponse
 import com.mezon.mezon.api.StickerListedResponse
-import com.mezon.mezon.api.BlockFriendsRequest
 import com.mezon.mezon.api.ChannelDescList
 import com.mezon.mezon.api.ChannelDescription
 import com.mezon.mezon.api.ChannelMessageList
@@ -20,24 +21,28 @@ import com.mezon.mezon.api.pinMessageRequest
 import com.mezon.mezon.api.deletePinMessage
 import com.mezon.mezon.api.ChannelUserList
 import com.mezon.mezon.api.ClanUserList
-import com.mezon.mezon.api.DeleteNotificationsRequest
 import com.mezon.mezon.api.FriendList
-import com.mezon.mezon.api.LinkAccountConfirmRequest
-import com.mezon.mezon.api.ListFriendsRequest
-import com.mezon.mezon.api.ListNotificationsRequest
 import com.mezon.mezon.api.NotificationList
 import com.mezon.mezon.api.SearchMessageResponse
-import com.mezon.mezon.api.Session
 import com.mezon.mezon.api.UploadAttachment
 import com.mezon.mezon.api.uploadAttachmentRequest
 import com.mezon.mezon.api.accountEmail
+import com.mezon.mezon.api.AddFriendsResponse
+import com.mezon.mezon.api.addFriendsRequest
 import com.mezon.mezon.api.blockFriendsRequest
+import com.mezon.mezon.api.createCategoryDescRequest
+import com.mezon.mezon.api.createClanDescRequest
+import com.mezon.mezon.api.deleteFriendsRequest
 import com.mezon.mezon.api.deleteNotificationsRequest
 import com.mezon.mezon.api.filterParam
 import com.mezon.mezon.api.linkAccountConfirmRequest
 import com.mezon.mezon.api.listClanDescRequest
 import com.mezon.mezon.api.listChannelUsersRequest
 import com.mezon.mezon.api.listClanUsersRequest
+import com.mezon.mezon.api.ListChannelAppsResponse
+import com.mezon.mezon.api.GenerateHashChannelAppsResponse
+import com.mezon.mezon.api.listChannelAppsRequest
+import com.mezon.mezon.api.generateHashChannelAppsRequest
 import com.mezon.mezon.api.ListChannelBadgeCountResponse
 import com.mezon.mezon.api.listChannelBadgeCountRequest
 import com.mezon.mezon.api.listChannelDescsRequest
@@ -52,14 +57,19 @@ import com.mezon.mezon.api.listFriendsRequest
 import com.mezon.mezon.api.listNotificationsRequest
 import com.mezon.mezon.api.searchMessageRequest
 import com.mezon.mezon.api.sessionRefreshRequest
+import com.mezon.mezon.api.Session
 import com.mezon.mezon.api.GenerateMeetTokenResponse
 import com.mezon.mezon.api.VoiceChannelUserList
 import com.mezon.mezon.api.generateMeetTokenRequest
 import com.mezon.mezon.api.meetParticipantRequest
 import com.mezon.mezon.api.updateAIAgentRequest
+import com.mezon.mezon.api.ListClanDiscover
+import com.mezon.mezon.api.InviteUserRes
+import com.mezon.mezon.api.inviteUserRequest
+import com.mezon.mezon.api.clanDiscover as clanDiscoverProto
+import com.mezon.mezon.api.listClanDiscover
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
-import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.put
@@ -133,8 +143,43 @@ data class OtpRequestResponse(
     val status: Int = 0
 )
 
+@Serializable
+private data class ConfirmLoginGatewayBody(
+    @SerialName("login_id") val loginId: String,
+    @SerialName("is_remember") val isRemember: Boolean = true
+)
+
 
 private val CONTENT_TYPE_PROTO = ContentType("application", "proto")
+
+@Serializable
+private data class ClanDiscoverGatewayRequest(
+    @SerialName("page_number") val page_number: Int,
+    @SerialName("item_per_page") val item_per_page: Int
+)
+
+@Serializable
+private data class ClanDiscoverGatewayResponse(
+    @SerialName("clan_discover") val clan_discover: List<ClanDiscoverJson> = emptyList(),
+    @SerialName("page_number") val page_number: Int = 0,
+    @SerialName("page_count") val page_count: Int = 1
+)
+
+@Serializable
+private data class ClanDiscoverJson(
+    @SerialName("clan_id") val clan_id: Long = 0L,
+    @SerialName("clan_name") val clan_name: String = "",
+    @SerialName("invite_id") val invite_id: Long = 0L,
+    @SerialName("clan_logo") val clan_logo: String = "",
+    @SerialName("online_members") val online_members: Int = 0,
+    @SerialName("total_members") val total_members: Int = 0,
+    @SerialName("verified") val verified: Boolean = false,
+    @SerialName("description") val description: String = "",
+    @SerialName("banner") val banner: String = "",
+    @SerialName("about") val about: String = "",
+    @SerialName("short_url") val short_url: String = "",
+    @SerialName("create_time_seconds") val create_time_seconds: Int = 0
+)
 
 @Singleton
 class MezonApi @Inject constructor(
@@ -142,6 +187,7 @@ class MezonApi @Inject constructor(
 ) {
     companion object {
         private val SERVER_KEY = BuildConfig.MEZON_API_KEY
+        private const val DISCOVER_ITEMS_PER_PAGE = 6
     }
 
     suspend fun authenticateEmail(
@@ -156,7 +202,7 @@ class MezonApi @Inject constructor(
         val response = httpClient.post("$gatewayUrl/v2/account/authenticate/email") {
             header(HttpHeaders.Authorization, "Basic $basicCreds")
             contentType(ContentType.Application.Json)
-            setBody(AuthEmailBody(account = AccountEmailBody(email, password)))
+            setBody(AuthEmailBody(account = AccountEmailBody(email = email, password = password)))
         }
 
         if (!response.status.isSuccess()) {
@@ -164,8 +210,7 @@ class MezonApi @Inject constructor(
             throw RuntimeException("Auth failed (${response.status.value}): $errorBody")
         }
 
-        val session: AuthSessionResponse = response.body()
-        return session
+        return response.body()
     }
 
     suspend fun rpc(
@@ -192,6 +237,52 @@ class MezonApi @Inject constructor(
         }
 
         return response.readBytes()
+    }
+
+    private suspend fun rpcNoAuth(
+        apiUrl: String,
+        method: String,
+        body: ByteArray
+    ): ByteArray {
+        val base = apiUrl.trimEnd('/')
+        val url = "$base/mezon.api.Mezon/$method"
+        val response = httpClient.post(url) {
+            header(HttpHeaders.Accept, CONTENT_TYPE_PROTO.toString())
+            contentType(CONTENT_TYPE_PROTO)
+            setBody(body)
+        }
+
+        if (!response.status.isSuccess()) {
+            val errorBody = response.bodyAsText()
+            throw RuntimeException("RPC $method failed (${response.status.value}): $errorBody")
+        }
+
+        return response.readBytes()
+    }
+
+    suspend fun confirmLoginRequest(
+        gatewayUrl: String,
+        token: String,
+        loginId: Long
+    ): AuthSessionResponse {
+        val base = gatewayUrl.trimEnd('/')
+        val url = "$base/v2/account/authenticate/confirmlogin"
+        val response = httpClient.post(url) {
+            header(HttpHeaders.Authorization, "Bearer $token")
+            contentType(ContentType.Application.Json)
+            setBody(ConfirmLoginGatewayBody(loginId = loginId.toString(), isRemember = true))
+        }
+        if (!response.status.isSuccess()) {
+            val errorBody = response.bodyAsText()
+            if (response.status == HttpStatusCode.Unauthorized) {
+                throw UnauthorizedException("ConfirmLogin: 401 $errorBody")
+            }
+            throw RuntimeException("ConfirmLogin failed (${response.status.value}): $errorBody")
+        }
+        if (response.status == HttpStatusCode.NoContent) {
+            return AuthSessionResponse()
+        }
+        return response.body()
     }
 
     suspend fun sessionRefresh(
@@ -256,16 +347,54 @@ class MezonApi @Inject constructor(
         type: Int,
         userIds: List<Long>,
         clanId: Long = 0L,
-        channelPrivate: Int = 1
+        channelPrivate: Int = 1,
+        channelLabel: String = "",
+        categoryId: Long = 0L,
+        parentId: Long = 0L,
+        appId: Long = 0L
     ): ChannelDescription {
         val request = createChannelDescRequest {
             this.type = type
             this.clanId = clanId
             this.channelPrivate = channelPrivate
             this.userIds.addAll(userIds)
+            this.channelLabel = channelLabel
+            this.categoryId = categoryId
+            this.parentId = parentId
+            this.appId = appId
         }
         val bytes = rpc(apiUrl, token, "CreateChannelDesc", request.toByteArray())
         return ChannelDescription.parseFrom(bytes)
+    }
+
+    suspend fun createClanDesc(
+        apiUrl: String,
+        token: String,
+        clanName: String,
+        logo: String = "",
+        banner: String = ""
+    ): ClanDesc {
+        val request = createClanDescRequest {
+            this.clanName = clanName
+            this.logo = logo
+            this.banner = banner
+        }
+        val bytes = rpc(apiUrl, token, "CreateClanDesc", request.toByteArray())
+        return ClanDesc.parseFrom(bytes)
+    }
+
+    suspend fun createCategoryDesc(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        categoryName: String
+    ): CategoryDesc {
+        val request = createCategoryDescRequest {
+            this.clanId = clanId
+            this.categoryName = categoryName
+        }
+        val bytes = rpc(apiUrl, token, "CreateCategoryDesc", request.toByteArray())
+        return CategoryDesc.parseFrom(bytes)
     }
 
     suspend fun listChannelBadgeCount(
@@ -331,6 +460,66 @@ class MezonApi @Inject constructor(
         }
         val bytes = rpc(apiUrl, token, "ListThreadDescs", request.toByteArray())
         return ChannelDescList.parseFrom(bytes)
+    }
+
+    suspend fun listClanDiscover(
+        page: Int = 1,
+        itemPerPage: Int = DISCOVER_ITEMS_PER_PAGE
+    ): ListClanDiscover {
+        val gatewayUrl = BuildConfig.MEZON_GATEWAY_URL.trimEnd('/')
+        val url = "$gatewayUrl/v2/clan/discover"
+        val basicCreds = Base64.encodeToString(
+            "$SERVER_KEY:".toByteArray(),
+            Base64.NO_WRAP
+        )
+        val response = httpClient.post(url) {
+            header(HttpHeaders.Authorization, "Basic $basicCreds")
+            header(HttpHeaders.Accept, ContentType.Application.Json.toString())
+            contentType(ContentType.Application.Json)
+            setBody(
+                ClanDiscoverGatewayRequest(
+                    page_number = page,
+                    item_per_page = itemPerPage
+                )
+            )
+        }
+        if (!response.status.isSuccess()) {
+            val errorBody = response.bodyAsText()
+            throw RuntimeException("Clan discover failed (${response.status.value}): $errorBody")
+        }
+        val dto = response.body<ClanDiscoverGatewayResponse>()
+        return listClanDiscover {
+            pageNumber = dto.page_number
+            pageCount = dto.page_count.coerceAtLeast(1)
+            for (c in dto.clan_discover) {
+                clanDiscover += clanDiscoverProto {
+                    clanId = c.clan_id
+                    clanName = c.clan_name
+                    inviteId = c.invite_id
+                    clanLogo = c.clan_logo
+                    onlineMembers = c.online_members
+                    totalMembers = c.total_members
+                    verified = c.verified
+                    description = c.description
+                    banner = c.banner
+                    about = c.about
+                    shortUrl = c.short_url
+                    createTimeSeconds = c.create_time_seconds
+                }
+            }
+        }
+    }
+
+    suspend fun inviteUserByInviteId(
+        apiUrl: String,
+        token: String,
+        inviteId: Long
+    ): InviteUserRes {
+        val request = inviteUserRequest {
+            this.inviteId = inviteId
+        }
+        val bytes = rpc(apiUrl, token, "InviteUser", request.toByteArray())
+        return InviteUserRes.parseFrom(bytes)
     }
 
     suspend fun registFcmDeviceToken(
@@ -431,6 +620,18 @@ class MezonApi @Inject constructor(
         return rpc(apiUrl, token, "LinkEmail", request.toByteArray())
     }
 
+    suspend fun linkSms(apiUrl: String, token: String, requestBytes: ByteArray): ByteArray {
+        return try {
+            rpc(apiUrl, token, "LinkSMS", requestBytes)
+        } catch (e: RuntimeException) {
+            if (e.message?.contains("(404)") == true) {
+                rpc(apiUrl, token, "LinkSms", requestBytes)
+            } else {
+                throw e
+            }
+        }
+    }
+
     suspend fun confirmLinkOTP(apiUrl: String, token: String, reqId: String, otpCode: String): ByteArray {
         val request = linkAccountConfirmRequest {
             this.reqId = reqId
@@ -451,8 +652,7 @@ class MezonApi @Inject constructor(
             val errorBody = response.bodyAsText()
             throw RuntimeException("AuthenticateEmailOTP failed (${response.status.value}): $errorBody")
         }
-        val result: OtpRequestResponse = response.body()
-        return result
+        return response.body()
     }
 
     suspend fun authenticateSmsOTP(gatewayUrl: String, phone: String, vars: Map<String, String> = emptyMap()): OtpRequestResponse {
@@ -467,8 +667,7 @@ class MezonApi @Inject constructor(
             val errorBody = response.bodyAsText()
             throw RuntimeException("AuthenticateSmsOTP failed (${response.status.value}): $errorBody")
         }
-        val result: OtpRequestResponse = response.body()
-        return result
+        return response.body()
     }
 
     suspend fun confirmAuthenticateOTP(gatewayUrl: String, reqId: String, otpCode: String): AuthSessionResponse {
@@ -483,8 +682,7 @@ class MezonApi @Inject constructor(
             val errorBody = response.bodyAsText()
             throw RuntimeException("ConfirmAuthenticateOTP failed (${response.status.value}): $errorBody")
         }
-        val session: AuthSessionResponse = response.body()
-        return session
+        return response.body()
     }
 
     suspend fun deleteAccount(apiUrl: String, token: String): ByteArray {
@@ -521,6 +719,25 @@ class MezonApi @Inject constructor(
 
     suspend fun unblockFriends(apiUrl: String, token: String, ids: List<Long>, usernames: List<String>): ByteArray {
         return rpc(apiUrl, token, "DeleteFriends", buildFriendMutationRequest(ids, usernames))
+    suspend fun addFriends(apiUrl: String, token: String, ids: List<Long>, usernames: List<String>): AddFriendsResponse {
+        val request = addFriendsRequest {
+            this.ids.addAll(ids)
+            this.usernames.addAll(usernames)
+        }
+        val bytes = rpc(apiUrl, token, "AddFriends", request.toByteArray())
+        return AddFriendsResponse.parseFrom(bytes)
+    }
+
+    suspend fun deleteFriends(apiUrl: String, token: String, ids: List<Long>, usernames: List<String>): ByteArray {
+        val request = deleteFriendsRequest {
+            this.ids.addAll(ids)
+            this.usernames.addAll(usernames)
+        }
+        return rpc(apiUrl, token, "DeleteFriends", request.toByteArray())
+    }
+
+    suspend fun unblockFriends(apiUrl: String, token: String, ids: List<Long>, usernames: List<String>): ByteArray {
+        return deleteFriends(apiUrl, token, ids, usernames)
     }
 
     suspend fun sendChannelMessage(
@@ -667,6 +884,24 @@ class MezonApi @Inject constructor(
         }
         val bytes = rpc(apiUrl, token, "ListClanUsers", request.toByteArray())
         return ClanUserList.parseFrom(bytes)
+    }
+
+    suspend fun listRoles(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        limit: Int = 500,
+        state: Int = 1,
+        cursor: String = ""
+    ): com.mezon.mezon.api.RoleListEventResponse {
+        val request = com.mezon.mezon.api.roleListEventRequest {
+            this.clanId = clanId
+            this.limit = limit
+            this.state = state
+            this.cursor = cursor
+        }
+        val bytes = rpc(apiUrl, token, "ListRoles", request.toByteArray())
+        return com.mezon.mezon.api.RoleListEventResponse.parseFrom(bytes)
     }
 
     suspend fun listChannelUsers(
@@ -881,6 +1116,30 @@ class MezonApi @Inject constructor(
         rpc(apiUrl, token, "RemoveChannelFavorite", request.toByteArray())
     }
 
+    suspend fun listChannelApps(
+        apiUrl: String,
+        token: String,
+        clanId: Long
+    ): ListChannelAppsResponse {
+        val request = listChannelAppsRequest {
+            this.clanId = clanId
+        }
+        val bytes = rpc(apiUrl, token, "ListChannelApps", request.toByteArray())
+        return ListChannelAppsResponse.parseFrom(bytes)
+    }
+
+    suspend fun generateHashChannelApps(
+        apiUrl: String,
+        token: String,
+        appId: Long
+    ): GenerateHashChannelAppsResponse {
+        val request = generateHashChannelAppsRequest {
+            this.appId = appId
+        }
+        val bytes = rpc(apiUrl, token, "GenerateHashChannelApps", request.toByteArray())
+        return GenerateHashChannelAppsResponse.parseFrom(bytes)
+    }
+
     suspend fun putFileToPresignedUrl(
         presignedUrl: String,
         fileBytes: ByteArray,
@@ -896,6 +1155,7 @@ class MezonApi @Inject constructor(
     }
 
 }
+
 
 const val CHANNEL_TYPE_CHANNEL = 1
 const val CHANNEL_TYPE_GROUP = 2

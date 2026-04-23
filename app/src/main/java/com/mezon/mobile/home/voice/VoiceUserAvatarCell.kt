@@ -12,7 +12,7 @@ import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.chat.MezonImageLoader
-import com.mezon.mobile.util.createImgproxyUrl
+import com.mezon.mobile.util.avatarImgproxyUrl
 
 class VoiceUserAvatarCell(
     context: Context,
@@ -75,7 +75,7 @@ class VoiceUserAvatarCell(
         cancelAvatarLoad()
 
         if (url.isNullOrEmpty()) return
-        val proxyUrl = createImgproxyUrl(url, AVATAR_SIZE * 2, AVATAR_SIZE * 2, "fill")
+        val proxyUrl = avatarImgproxyUrl(url, AVATAR_SIZE)
         avatarCancellable = MezonImageLoader.getInstance(context).load(
             proxyUrl, AVATAR_SIZE, AVATAR_SIZE,
             onSuccess = { bmp ->

@@ -9,6 +9,8 @@ import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.home.clans.channelapp.ChannelAppUiModel
+import com.mezon.mobile.home.clans.channelapp.ChannelAppsStripView
 import com.mezon.mobile.home.voice.VoiceCollapsedMembersCell
 import com.mezon.mobile.home.voice.VoiceUserAvatarCell
 import kotlinx.coroutines.CoroutineScope
@@ -24,6 +26,7 @@ private const val ROW_CHANNEL = 1
 private const val ROW_THREAD = 2
 private const val ROW_VOICE_MEMBER = 3
 private const val ROW_VOICE_COLLAPSED = 4
+private const val ROW_CHANNEL_APPS = 5
 private const val DIFF_BG_THRESHOLD = 50
 
 class ChannelListView(
@@ -43,6 +46,9 @@ class ChannelListView(
     private var allExpanded = true
     private var boundClanId: Long = 0L
     private var currentSections: List<ChannelSection> = emptyList()
+    private var currentChannelApps: List<ChannelAppUiModel> = emptyList()
+    private var onChannelAppClick: ((ChannelAppUiModel) -> Unit)? = null
+    private var onChannelAppViewAllClick: (() -> Unit)? = null
 
     private var voiceMembersByChannel = HashMap<Long, List<VoiceMemberDisplay>>()
 
@@ -54,7 +60,11 @@ class ChannelListView(
 
     init {
         orientation = VERTICAL
-        recyclerView = RecyclerListView(context).apply {
+        recyclerView = object : RecyclerListView(context) {
+            override fun canHighlightChildAt(child: android.view.View, x: Float, y: Float): Boolean {
+                return child !is ChannelAppsStripView
+            }
+        }.apply {
             layoutManager = LinearLayoutManager(context)
             overScrollMode = OVER_SCROLL_NEVER
             isVerticalScrollBarEnabled = false
@@ -89,13 +99,27 @@ class ChannelListView(
                 else -> false
             }
         })
-        addView(recyclerView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        addView(recyclerView, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
+    }
+
+    fun setChannelApps(
+        apps: List<ChannelAppUiModel>,
+        onAppClick: (ChannelAppUiModel) -> Unit,
+        onViewAllClick: () -> Unit
+    ) {
+        onChannelAppClick = onAppClick
+        onChannelAppViewAllClick = onViewAllClick
+        if (currentChannelApps == apps) return
+        currentChannelApps = apps.toList()
+        val newRows = buildRows(currentSections)
+        if (adapter.rowsEqual(newRows)) return
+        adapter.submitRows(newRows)
     }
 
     fun bind(clanId: Long, sections: List<ChannelSection>) {
         if (clanId != boundClanId) {
             boundClanId = clanId
-            applyExpandState(expandStore.load(clanId), sections)
+            applyExpandState(expandStore.load(clanId))
         }
         val prevCategoryIds = currentSections.mapNotNull { if (it.categoryId != FAVORITE_CATEGORY_ID) it.categoryId else null }.toSet()
         val newCategoryIds = sections.mapNotNull { if (it.categoryId != FAVORITE_CATEGORY_ID) it.categoryId else null }.toSet()
@@ -112,6 +136,7 @@ class ChannelListView(
 
     fun clear() {
         currentSections = emptyList()
+        currentChannelApps = emptyList()
         boundClanId = 0L
         allExpanded = true
         expandedCategories.clear()
@@ -124,12 +149,11 @@ class ChannelListView(
         persistExpansion()
     }
 
-    private fun applyExpandState(state: CategoryExpandState, sections: List<ChannelSection>) {
-        val valid = sections.map { it.categoryId }.toSet()
+    private fun applyExpandState(state: CategoryExpandState) {
         allExpanded = state.allExpanded
         expandedCategories.clear()
         if (!allExpanded) {
-            expandedCategories.addAll(state.expandedCategoryIds.filter { it in valid })
+            expandedCategories.addAll(state.expandedCategoryIds)
         }
     }
 
@@ -169,6 +193,9 @@ class ChannelListView(
 
     private fun buildRows(sections: List<ChannelSection>): List<ChannelRow> {
         val rows = mutableListOf<ChannelRow>()
+        if (currentChannelApps.isNotEmpty()) {
+            rows.add(ChannelRow.ChannelApps(currentChannelApps))
+        }
         for (section in sections) {
             val isFav = section.categoryId == FAVORITE_CATEGORY_ID
             val expanded = allExpanded || section.categoryId in expandedCategories
@@ -260,6 +287,7 @@ class ChannelListView(
         fun updateRowData(lookup: Map<Long, ClanChannelEntity>) {
             for (i in rows.indices) {
                 when (val row = rows[i]) {
+                    is ChannelRow.ChannelApps -> {}
                     is ChannelRow.Channel -> {
                         val fresh = lookup[row.channel.channelId]
                         if (fresh != null && fresh != row.channel) {
@@ -319,6 +347,7 @@ class ChannelListView(
         }
 
         override fun getItemId(pos: Int): Long = when (val row = rows[pos]) {
+            is ChannelRow.ChannelApps -> Long.MIN_VALUE + 1L
             is ChannelRow.Section -> -row.categoryId
             is ChannelRow.Channel -> if (row.isFavorite) row.channel.channelId.inv() else row.channel.channelId
             is ChannelRow.Thread -> row.thread.channelId
@@ -327,6 +356,7 @@ class ChannelListView(
         }
 
         override fun getItemViewType(pos: Int) = when (rows[pos]) {
+            is ChannelRow.ChannelApps -> ROW_CHANNEL_APPS
             is ChannelRow.Section -> ROW_SECTION
             is ChannelRow.Channel -> ROW_CHANNEL
             is ChannelRow.Thread -> ROW_THREAD
@@ -338,6 +368,18 @@ class ChannelListView(
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder =
             when (viewType) {
+                ROW_CHANNEL_APPS -> ChannelAppsVH(
+                    ChannelAppsStripView(parent.context, themeColors).apply {
+                        layoutParams = RecyclerView.LayoutParams(
+                            RecyclerView.LayoutParams.MATCH_PARENT,
+                            RecyclerView.LayoutParams.WRAP_CONTENT
+                        ).apply {
+                            leftMargin = LayoutHelper.dp(8)
+                            rightMargin = LayoutHelper.dp(8)
+                            topMargin = LayoutHelper.dp(4)
+                        }
+                    }
+                )
                 ROW_SECTION -> SectionVH(ChannelSectionCell(parent.context, themeColors))
                 ROW_THREAD -> ThreadVH(ChannelThreadCell(parent.context, themeColors))
                 ROW_VOICE_MEMBER -> VoiceMemberVH(VoiceUserAvatarCell(parent.context, themeColors))
@@ -347,6 +389,13 @@ class ChannelListView(
 
         override fun onBindViewHolder(holder: RecyclerView.ViewHolder, pos: Int) {
             when (val row = rows[pos]) {
+                is ChannelRow.ChannelApps -> {
+                    (holder as ChannelAppsVH).cell.apply {
+                        onAppClick = this@ChannelListView.onChannelAppClick
+                        onViewAllClick = this@ChannelListView.onChannelAppViewAllClick
+                        setApps(row.apps)
+                    }
+                }
                 is ChannelRow.Section -> {
                     (holder as SectionVH).cell.bind(row.categoryName, row.isExpanded, row.isFavorite)
                 }
@@ -367,6 +416,7 @@ class ChannelListView(
             }
         }
 
+        inner class ChannelAppsVH(val cell: ChannelAppsStripView) : RecyclerView.ViewHolder(cell)
         inner class SectionVH(val cell: ChannelSectionCell) : RecyclerView.ViewHolder(cell)
         inner class ChannelVH(val cell: ChannelItemCell) : RecyclerView.ViewHolder(cell)
         inner class ThreadVH(val cell: ChannelThreadCell) : RecyclerView.ViewHolder(cell)
@@ -387,6 +437,7 @@ private class RowDiffCallback(
     override fun getNewListSize() = new.size
     override fun areItemsTheSame(o: Int, n: Int): Boolean {
         val a = old[o]; val b = new[n]
+        if (a is ChannelRow.ChannelApps && b is ChannelRow.ChannelApps) return true
         if (a is ChannelRow.Section && b is ChannelRow.Section) return a.categoryId == b.categoryId
         if (a is ChannelRow.Channel && b is ChannelRow.Channel) return a.channel.channelId == b.channel.channelId && a.isFavorite == b.isFavorite
         if (a is ChannelRow.Thread && b is ChannelRow.Thread) return a.thread.channelId == b.thread.channelId
@@ -404,6 +455,7 @@ data class VoiceMemberDisplay(
 )
 
 sealed class ChannelRow {
+    data class ChannelApps(val apps: List<ChannelAppUiModel>) : ChannelRow()
     data class Section(
         val categoryId: Long,
         val categoryName: String,

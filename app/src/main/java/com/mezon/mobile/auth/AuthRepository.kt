@@ -1,5 +1,6 @@
 package com.mezon.mobile.auth
 
+import android.util.Log
 import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.network.MezonApi
@@ -17,6 +18,10 @@ class AuthRepository @Inject constructor(
     private val sessionManager: SessionManager,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) {
+    companion object {
+        private const val TAG = "AuthRepository"
+    }
+
     val sessionFlow: Flow<StoredSession?> = sessionManager.sessionFlow
 
     suspend fun loginWithEmail(email: String, password: String): Result<StoredSession> =
@@ -91,4 +96,23 @@ class AuthRepository @Inject constructor(
     suspend fun logout(): Result<Unit> = withContext(ioDispatcher) {
         runCatching { sessionManager.clearSession() }
     }
+
+    suspend fun confirmLoginByQr(loginId: Long): Result<Unit> =
+        withContext(ioDispatcher) {
+            runCatching {
+                val currentSession = sessionManager.requireValidSession()
+                api.confirmLoginRequest(
+                    gatewayUrl = BuildConfig.MEZON_GATEWAY_URL,
+                    token = currentSession.token,
+                    loginId = loginId
+                )
+                Unit
+            }.onFailure { e ->
+                Log.e(
+                    TAG,
+                    "confirmLoginByQr failed loginId=$loginId gatewayUrl=${BuildConfig.MEZON_GATEWAY_URL}",
+                    e
+                )
+            }
+        }
 }

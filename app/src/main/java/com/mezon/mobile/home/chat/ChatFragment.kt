@@ -48,9 +48,27 @@ import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.MemberResolver
 import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.clans.ChannelController
+import com.mezon.mobile.home.clans.ClanChannelEntity
+import com.mezon.mobile.home.clans.ClanRole
+import com.mezon.mobile.home.clans.RoleController
+import com.mezon.mobile.home.chat.input.InputSuggestionItem
+import com.mezon.mobile.home.chat.input.InputSuggestionsAdapter
+import com.mezon.mobile.home.chat.input.InputSuggestionsController
+import com.mezon.mobile.home.chat.input.InputSuggestionsPopup
+import com.mezon.mobile.home.chat.input.VoiceRecorder
+import com.mezon.mobile.home.chat.input.VoiceRecordingOverlay
+import com.mezon.mobile.home.clans.ChannelItemCell
 import com.mezon.mobile.home.clans.CHANNEL_TYPE_APP
 import com.mezon.mobile.home.clans.CHANNEL_TYPE_STREAMING
 import com.mezon.mobile.home.profile.AddFriendFragment
+import com.mezon.mobile.home.clans.CHANNEL_TYPE_VOICE
+import com.mezon.mobile.home.clans.VoiceMemberDisplay
+import com.mezon.mobile.home.clans.channelapp.ChannelAppController
+import com.mezon.mobile.home.clans.channelapp.ChannelAppFragment
+import com.mezon.mobile.home.voice.JoinVoiceBottomSheet
+import com.mezon.mobile.home.voice.VoiceController
+import com.mezon.mobile.MainActivity
+import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.ui.cells.ActionBarView
@@ -59,6 +77,7 @@ import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.PageDownButton
 import com.mezon.mobile.util.FileUtils
 import com.mezon.mobile.util.EmojiMarker
+import com.mezon.mobile.util.HashtagData
 import com.mezon.mobile.util.MentionData
 import com.mezon.mobile.util.parseContentText
 import com.mezon.mobile.util.parseMarkdownAndStrip
@@ -82,7 +101,10 @@ class ChatFragment : BaseFragment() {
         private const val PAGE_DOWN_SCROLL_THRESHOLD = 2
         private const val REQUEST_CODE_LOCATION_PERMISSION = 1002
         private const val REQUEST_CODE_PICK_FILE = 1001
+        private const val REQUEST_CODE_RECORD_AUDIO = 1003
         private const val MAX_LENGTH_MESSAGE_BUZZ = 160
+        private const val VOICE_LONG_PRESS_DELAY_MS = 400L
+        private const val VOICE_CANCEL_SLIDE_DP = 100f
         private val ANONYMOUS_USER_ID = BuildConfig.MEZON_ANONYMOUS_USER_ID.toLongOrNull() ?: 0L
 
         fun newInstance(
@@ -108,6 +130,7 @@ class ChatFragment : BaseFragment() {
     private lateinit var dialogsController: DialogsController
     private lateinit var channelController: ChannelController
     private lateinit var mediaController: MediaController
+    private lateinit var audioPlayerController: AudioPlayerController
     private lateinit var pinMessageController: com.mezon.mobile.home.PinMessageController
 
     private lateinit var recyclerView: RecyclerListView
@@ -143,6 +166,14 @@ class ChatFragment : BaseFragment() {
     private val pendingAttachmentThumbTasks = ArrayList<Runnable?>()
     private var buzzMediaPlayer: android.media.MediaPlayer? = null
 
+    private var voiceRecorder: VoiceRecorder? = null
+    private var voiceOverlay: VoiceRecordingOverlay? = null
+    private var voiceTouchDownX = 0f
+    private var voiceIsRecording = false
+    private var voiceCancelled = false
+    private var voiceLongPressFired = false
+    private val voiceLongPressRunnable = Runnable { onVoiceLongPressFired() }
+
     private var channelId = 0L
     private var channelName = ""
     private var clanId = 0L
@@ -177,8 +208,7 @@ class ChatFragment : BaseFragment() {
         }
     }
 
-    private val waitingForSocketIds = ArrayList<Long>()
-    private val socketRealIds = ArrayList<Long>()
+    private val sentByApiRealIds = HashSet<Long>()
 
     private var replyingToMessage: MessageEntity? = null
     private var replyBar: LinearLayout? = null
@@ -193,11 +223,15 @@ class ChatFragment : BaseFragment() {
     private lateinit var userClanController: UserClanController
     private lateinit var userController: com.mezon.mobile.home.profile.UserController
     private lateinit var memberResolver: MemberResolver
-    private var mentionsPopup: MentionsPopupView? = null
-    private var mentionsAdapter: MentionSuggestionsAdapter? = null
+    private lateinit var roleController: RoleController
+    private lateinit var searchController: com.mezon.mobile.search.SearchController
+    private lateinit var voiceController: VoiceController
+    private lateinit var channelAppController: ChannelAppController
+    private var suggestionsPopup: InputSuggestionsPopup? = null
+    private var suggestionsAdapter: InputSuggestionsAdapter? = null
     private val mentionTrackers = mutableListOf<MentionData>()
-    private var mentionAtPosition = -1
-    private var mentionQueryLength = 0
+    private val hashtagTrackers = mutableListOf<HashtagData>()
+    private var currentTrigger: InputSuggestionsController.TriggerState = InputSuggestionsController.TriggerState.NONE
 
     private var slidingView: ChatMessageCell? = null
     private var maybeStartTrackingSlidingView = false
@@ -556,14 +590,20 @@ class ChatFragment : BaseFragment() {
                 }
                 return@observe
             }
-            if (entity.isMe) {
-                val pendingTempId = waitingForSocketIds.removeFirstOrNull()
-                if (pendingTempId != null) {
-                    applyRealId(pendingTempId, entity.id)
-                } else {
-                    socketRealIds.add(entity.id)
-                }
+            if (messagesDict.get(entity.id) != null) {
+                sentByApiRealIds.remove(entity.id)
                 return@observe
+            }
+
+            if (entity.isMe) {
+                val pendingIdx = messages.indexOfFirst {
+                    it.isSending && it.isMe && it.senderId == entity.senderId
+                }
+                if (pendingIdx >= 0) {
+                    val pending = messages[pendingIdx]
+                    applyRealId(pending.id, entity.id)
+                    return@observe
+                }
             }
 
             if (entity.senderId == ANONYMOUS_USER_ID) {
@@ -612,15 +652,11 @@ class ChatFragment : BaseFragment() {
             val tempId = args[1] as? Long ?: return@observe
             val apiRealId = args[2] as? Long ?: return@observe
             Log.d(TAG, "pendingMessageSent tempId=$tempId apiRealId=$apiRealId")
-            val resolvedRealId = when {
-                apiRealId != 0L -> apiRealId
-                else -> socketRealIds.removeFirstOrNull() ?: 0L
-            }
-            if (resolvedRealId != 0L) {
-                applyRealId(tempId, resolvedRealId)
+            if (apiRealId != 0L) {
+                sentByApiRealIds.add(apiRealId)
+                applyRealId(tempId, apiRealId)
             } else {
                 markMessageSent(tempId)
-                waitingForSocketIds.add(tempId)
             }
         }
 
@@ -685,6 +721,19 @@ class ChatFragment : BaseFragment() {
             updateVisibleRows(mask)
         }
 
+        observe(NotificationCenter.audioPlaybackStateChanged) { _, _, args ->
+            if (fragmentView == null) return@observe
+            val messageId = args.getOrNull(0) as? Long ?: return@observe
+            val isPlaying = args.getOrNull(1) as? Boolean ?: false
+            val isLoading = args.getOrNull(2) as? Boolean ?: false
+            val positionMs = args.getOrNull(3) as? Long ?: 0L
+            val durationMs = args.getOrNull(4) as? Long ?: 0L
+            for (i in 0 until recyclerView.childCount) {
+                val child = recyclerView.getChildAt(i) as? ChatMessageCell ?: continue
+                child.applyAudioPlayback(messageId, isPlaying, isLoading, positionMs, durationMs)
+            }
+        }
+
         observe(NotificationCenter.reactionDidUpdate) { _, _, args ->
             if (isPaused || fragmentView == null) return@observe
             if (args.size < 7) return@observe
@@ -730,7 +779,7 @@ class ChatFragment : BaseFragment() {
             }
             editBar?.setBackgroundColor(themeColors.surface)
             editNameView?.setTextColor(themeColors.onSurface)
-            mentionsPopup?.applyColors()
+            suggestionsPopup?.applyColors()
             editCloseButton?.let { btn ->
                 val d = MezonIcon.closeSmallBold.getDrawable(btn.context)
                 d.colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
@@ -785,7 +834,18 @@ class ChatFragment : BaseFragment() {
             val ch = channelController.findChannelById(channelId)
             val targetChannelId = if (ch?.parentId != 0L && ch?.parentId != null) ch.parentId else channelId
             if (loadedChannelId == targetChannelId) {
-                checkMentionTrigger()
+                checkSuggestionTrigger()
+            }
+        }
+
+        observe(NotificationCenter.searchChannelsDidLoad) { _, _, _ ->
+            if (isPaused) return@observe
+            if (currentTrigger.mode == InputSuggestionsController.Mode.HASHTAG) {
+                checkSuggestionTrigger()
+            }
+            val isDmLike = channelType == CHANNEL_TYPE_DM || channelType == CHANNEL_TYPE_GROUP
+            if (isDmLike || clanId == 0L) {
+                adapter.notifyDataSetChanged()
             }
         }
 
@@ -813,12 +873,17 @@ class ChatFragment : BaseFragment() {
         dialogsController = entryPoint.dialogsController()
         channelController = entryPoint.channelController()
         mediaController = entryPoint.mediaController()
+        audioPlayerController = entryPoint.audioPlayerController()
         userClanController = entryPoint.userClanController()
         userController = entryPoint.userController()
         memberResolver = entryPoint.memberResolver()
+        roleController = entryPoint.roleController()
+        searchController = entryPoint.searchController()
         emojiController = entryPoint.emojiController()
         anonymousController = entryPoint.anonymousController()
         pinMessageController = entryPoint.pinMessageController()
+        voiceController = entryPoint.voiceController()
+        channelAppController = entryPoint.channelAppController()
     }
 
     override fun createView(context: Context): View {
@@ -919,12 +984,12 @@ class ChatFragment : BaseFragment() {
             }
         )
 
-        mentionsAdapter = MentionSuggestionsAdapter(themeColors) { item -> onMentionSelected(item) }
-        mentionsPopup = MentionsPopupView(context, themeColors).apply {
-            recyclerView.adapter = mentionsAdapter
+        suggestionsAdapter = InputSuggestionsAdapter(themeColors) { item -> onSuggestionSelected(item) }
+        suggestionsPopup = InputSuggestionsPopup(context, themeColors).apply {
+            recyclerView.adapter = suggestionsAdapter
         }
         contentFrame.addView(
-            mentionsPopup,
+            suggestionsPopup,
             FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM).apply {
                 leftMargin = LayoutHelper.dp(8f)
                 rightMargin = LayoutHelper.dp(8f)
@@ -1132,6 +1197,14 @@ class ChatFragment : BaseFragment() {
             topMargin = -LayoutHelper.dp(10f)
         })
 
+        voiceOverlay = VoiceRecordingOverlay(context, themeColors).apply {
+            setSlideToCancelText(getString(R.string.voice_record_slide_to_cancel))
+        }
+        inputWrapper.addView(voiceOverlay, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT
+        ))
+
         val sendBtnPad = LayoutHelper.dp(11f)
         sendButton = ImageButton(context).apply {
             val drawable = MezonIcon.sendMessageIcon.getDrawable(context)
@@ -1158,15 +1231,21 @@ class ChatFragment : BaseFragment() {
                 shape = android.graphics.drawable.GradientDrawable.OVAL
                 setColor(themeColors.tertiary)
             }
+            setOnTouchListener { v, event -> handleMicTouchEvent(v, event) }
         }
         inputBar.addView(micButton, LayoutHelper.createLinear(40, 40, gravity = Gravity.BOTTOM))
 
         inputField.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {
+                adjustMentionTrackersForChange(start, count, after)
+                adjustHashtagTrackersForChange(start, count, after)
+            }
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
             override fun afterTextChanged(s: Editable?) {
+                pruneMentionTrackersAgainstText()
+                pruneHashtagTrackersAgainstText()
                 updateSendButtonState()
-                checkMentionTrigger()
+                checkSuggestionTrigger()
             }
         })
 
@@ -1230,6 +1309,7 @@ class ChatFragment : BaseFragment() {
                 showMessageActionSheet(msg)
             }
             override fun didClickAvatar(cell: ChatMessageCell, msg: MessageEntity) {
+                if (msg.senderId == ANONYMOUS_USER_ID) return
                 showUserProfile(msg)
             }
             override fun didPressReply(cell: ChatMessageCell, replyMessageId: Long) {
@@ -1243,6 +1323,15 @@ class ChatFragment : BaseFragment() {
             }
             override fun didTapAddReaction(cell: ChatMessageCell, msg: MessageEntity) {
                 showReactionEmojiPicker(msg)
+            }
+            override fun didClickHashtag(cell: ChatMessageCell, channelId: String?) {
+                navigateToChannelFromHashtag(channelId)
+            }
+            override fun didTapAudio(cell: ChatMessageCell, msg: MessageEntity) {
+                val url = msg.attachmentUrl
+                if (url.isBlank()) return
+                if (msg.isSending) return
+                audioPlayerController.toggle(msg.id, url, msg.attachmentDuration)
             }
         })
         adapter.channelType = channelType
@@ -1439,6 +1528,13 @@ class ChatFragment : BaseFragment() {
         if (::recyclerView.isInitialized) recyclerView.stopScroll()
         if (emojiViewVisible) {
             dismissEmojiSilently()
+        }
+        if (voiceIsRecording) {
+            mainHandler.removeCallbacks(voiceLongPressRunnable)
+            cancelVoiceRecording(showToast = false)
+        }
+        if (::audioPlayerController.isInitialized) {
+            audioPlayerController.stop()
         }
     }
 
@@ -1702,14 +1798,16 @@ class ChatFragment : BaseFragment() {
         if (clanId != 0L) channelController.clearCurrentChannel()
         messages.clear()
         messagesDict.clear()
+        sentByApiRealIds.clear()
         for (t in pendingAttachmentThumbTasks) ThumbnailCache.cancel(t)
         pendingAttachmentThumbTasks.clear()
         pendingAttachments.clear()
         replyingToMessage = null
         editingMessage = null
         mentionTrackers.clear()
-        mentionsPopup = null
-        mentionsAdapter = null
+        hashtagTrackers.clear()
+        suggestionsPopup = null
+        suggestionsAdapter = null
         pendingHighlightMessageId = 0L
         chatAdjustPanHelper?.onDetach()
         chatAdjustPanHelper = null
@@ -1717,6 +1815,10 @@ class ChatFragment : BaseFragment() {
         emojiObjPicked.clear()
         buzzMediaPlayer?.release()
         buzzMediaPlayer = null
+        mainHandler.removeCallbacks(voiceLongPressRunnable)
+        voiceRecorder?.cancel()
+        voiceRecorder = null
+        voiceOverlay = null
         super.onFragmentDestroy()
     }
 
@@ -2097,8 +2199,98 @@ class ChatFragment : BaseFragment() {
         return memberResolver.resolveChannelMembers(clanId, channelId, channelType)
     }
 
+    private fun adjustMentionTrackersForChange(editStart: Int, removedLen: Int, addedLen: Int) {
+        if (mentionTrackers.isEmpty()) return
+        val delta = addedLen - removedLen
+        val updated = mentionTrackers.mapNotNull { m ->
+            val s = m.startOffset
+            val e = m.endOffset
+            when {
+                editStart + removedLen <= s -> m.copy(startOffset = s + delta, endOffset = e + delta)
+                editStart >= e -> m
+                else -> null
+            }
+        }
+        mentionTrackers.clear()
+        mentionTrackers.addAll(updated)
+    }
+
+    private fun pruneMentionTrackersAgainstText() {
+        val ed = inputField.text ?: return
+        val it = mentionTrackers.iterator()
+        while (it.hasNext()) {
+            val m = it.next()
+            val s = m.startOffset
+            val e = m.endOffset
+            if (s < 0 || e > ed.length || s >= e) {
+                it.remove()
+                continue
+            }
+            if (ed.subSequence(s, e).toString() != m.display) {
+                it.remove()
+            }
+        }
+    }
+
+    private fun adjustHashtagTrackersForChange(editStart: Int, removedLen: Int, addedLen: Int) {
+        if (hashtagTrackers.isEmpty()) return
+        val delta = addedLen - removedLen
+        val updated = hashtagTrackers.mapNotNull { h ->
+            val s = h.startOffset
+            val e = h.endOffset
+            when {
+                editStart + removedLen <= s -> h.copy(startOffset = s + delta, endOffset = e + delta)
+                editStart >= e -> h
+                else -> null
+            }
+        }
+        hashtagTrackers.clear()
+        hashtagTrackers.addAll(updated)
+    }
+
+    private fun pruneHashtagTrackersAgainstText() {
+        val ed = inputField.text ?: return
+        val it = hashtagTrackers.iterator()
+        while (it.hasNext()) {
+            val h = it.next()
+            val s = h.startOffset
+            val e = h.endOffset
+            if (s < 0 || e > ed.length || s >= e) {
+                it.remove()
+                continue
+            }
+            if (s >= ed.length || ed[s] != '#') {
+                it.remove()
+            }
+        }
+    }
+
+    private fun hashtagOffsetsForTrimmed(raw: String, h: HashtagData): HashtagData? {
+        val leading = raw.indexOfFirst { !it.isWhitespace() }
+        if (leading < 0) return null
+        val lastNonWs = raw.indexOfLast { !it.isWhitespace() }
+        val endExclusive = lastNonWs + 1
+        val s = h.startOffset
+        val e = h.endOffset
+        if (s < leading || e > endExclusive || s >= e) return null
+        return h.copy(startOffset = s - leading, endOffset = e - leading)
+    }
+
+    private fun mentionOffsetsForTrimmed(raw: String, trimmed: String, m: MentionData): MentionData? {
+        if (trimmed.isEmpty()) return null
+        val leading = raw.indexOfFirst { !it.isWhitespace() }
+        if (leading < 0) return null
+        val lastNonWs = raw.indexOfLast { !it.isWhitespace() }
+        val endExclusive = lastNonWs + 1
+        val s = m.startOffset
+        val e = m.endOffset
+        if (s < leading || e > endExclusive || s >= e) return null
+        return m.copy(startOffset = s - leading, endOffset = e - leading)
+    }
+
     private fun sendMessage() {
-        val text = inputField.text?.toString()?.trim() ?: ""
+        val rawInput = inputField.text?.toString() ?: ""
+        val text = rawInput.trim()
         if (text.isBlank() && pendingAttachments.isEmpty()) return
 
         val editMsg = editingMessage
@@ -2116,36 +2308,61 @@ class ChatFragment : BaseFragment() {
         val cleanedText = mdResult.cleanedText
         val mdMarkers = mdResult.markers.ifEmpty { null }
 
-        val fromTrackers = mentionTrackers.map { m ->
+        val fromTrackers = mentionTrackers.mapNotNull { m ->
+            val inTrimmed = mentionOffsetsForTrimmed(rawInput, text, m) ?: return@mapNotNull null
+            val s = mdResult.adjustOffset(inTrimmed.startOffset)
+            val e = mdResult.adjustOffset(inTrimmed.endOffset)
+            if (s < 0 || e > cleanedText.length || s >= e) return@mapNotNull null
+            if (cleanedText.substring(s, e) != inTrimmed.display) return@mapNotNull null
             MentionData(
-                userId = m.userId,
-                roleId = m.roleId,
-                display = m.display,
-                startOffset = mdResult.adjustOffset(m.startOffset),
-                endOffset = mdResult.adjustOffset(m.endOffset)
+                userId = inTrimmed.userId,
+                roleId = inTrimmed.roleId,
+                display = inTrimmed.display,
+                startOffset = s,
+                endOffset = e
             )
         }
         val mergedMentions = mergeAtHereMentionsFromText(cleanedText, fromTrackers)
         val mentions = mergedMentions.ifEmpty { null }
-        Log.d(TAG, "sendMessage channelId=$channelId clanId=$clanId channelType=$channelType isPrivate=$isPrivate textLen=${cleanedText.length} attachments=${pendingAttachments.size} hasReply=${references != null} mdMarkers=${mdMarkers?.size ?: 0}")
+
+        val hashtagsFromTrackers = hashtagTrackers.mapNotNull { h ->
+            val inTrimmed = hashtagOffsetsForTrimmed(rawInput, h) ?: return@mapNotNull null
+            val s = mdResult.adjustOffset(inTrimmed.startOffset)
+            val e = mdResult.adjustOffset(inTrimmed.endOffset)
+            if (s < 0 || e > cleanedText.length || s >= e) return@mapNotNull null
+            if (s >= cleanedText.length || cleanedText[s] != '#') return@mapNotNull null
+            HashtagData(
+                channelId = inTrimmed.channelId,
+                startOffset = s,
+                endOffset = e,
+                clanId = inTrimmed.clanId
+            )
+        }
+        val hashtags = hashtagsFromTrackers.ifEmpty { null }
+
+        Log.d(TAG, "sendMessage channelId=$channelId clanId=$clanId channelType=$channelType isPrivate=$isPrivate textLen=${cleanedText.length} attachments=${pendingAttachments.size} hasReply=${references != null} mdMarkers=${mdMarkers?.size ?: 0} hashtags=${hashtags?.size ?: 0}")
 
         if (pendingAttachments.isNotEmpty()) {
             val ctx = getContext() ?: return
+            val emojiMarkers = buildEmojiMarkers(cleanedText)
             chatController.sendMessageWithAttachments(
                 channelId, clanId, channelType, isPrivate, cleanedText,
                 ArrayList(pendingAttachments),
                 ctx.contentResolver,
                 references,
-                mentions
+                mentions,
+                hashtags,
+                emojiMarkers
             )
             clearPendingAttachments()
         } else {
             val emojiMarkers = buildEmojiMarkers(cleanedText)
-            chatController.sendMessage(channelId, clanId, channelType, isPrivate, cleanedText, references, mentions, emojiMarkers, mdMarkers)
+            chatController.sendMessage(channelId, clanId, channelType, isPrivate, cleanedText, references, mentions, emojiMarkers, mdMarkers, hashtags)
         }
         inputField.text?.clear()
         emojiObjPicked.clear()
         mentionTrackers.clear()
+        hashtagTrackers.clear()
         clearReplyState()
     }
 
@@ -2419,7 +2636,216 @@ class ChatFragment : BaseFragment() {
         val hasAttachments = pendingAttachments.isNotEmpty()
         val showSend = hasText || hasAttachments
         sendButton.visibility = if (showSend) View.VISIBLE else View.GONE
-        micButton.visibility = if (showSend) View.GONE else View.VISIBLE
+        if (voiceIsRecording) {
+            micButton.visibility = View.VISIBLE
+        } else {
+            micButton.visibility = if (showSend) View.GONE else View.VISIBLE
+        }
+    }
+
+    @SuppressWarnings("ClickableViewAccessibility")
+    private fun handleMicTouchEvent(v: View, event: MotionEvent): Boolean {
+        when (event.action) {
+            MotionEvent.ACTION_DOWN -> {
+                voiceTouchDownX = event.rawX
+                voiceLongPressFired = false
+                voiceCancelled = false
+                mainHandler.removeCallbacks(voiceLongPressRunnable)
+                mainHandler.postDelayed(voiceLongPressRunnable, VOICE_LONG_PRESS_DELAY_MS)
+                v.parent?.requestDisallowInterceptTouchEvent(true)
+                return true
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (!voiceLongPressFired) return true
+                if (voiceCancelled) return true
+                val dx = event.rawX - voiceTouchDownX
+                updateVoiceButtonTranslation(dx)
+                val cancelThreshold = -LayoutHelper.dp(VOICE_CANCEL_SLIDE_DP).toFloat()
+                val progress = (-dx / LayoutHelper.dp(VOICE_CANCEL_SLIDE_DP).toFloat()).coerceAtLeast(0f)
+                voiceOverlay?.setSlideProgress(progress)
+                if (dx <= cancelThreshold) {
+                    cancelVoiceRecording(showToast = true)
+                }
+                return true
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                mainHandler.removeCallbacks(voiceLongPressRunnable)
+                v.parent?.requestDisallowInterceptTouchEvent(false)
+                resetMicButtonTransform()
+                if (!voiceLongPressFired) {
+                    showHoldToRecordHint()
+                } else if (!voiceCancelled) {
+                    finishVoiceRecording()
+                }
+                voiceLongPressFired = false
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun updateVoiceButtonTranslation(dx: Float) {
+        val clampedDx = dx.coerceAtMost(0f)
+        micButton.translationX = clampedDx
+    }
+
+    private fun resetMicButtonTransform() {
+        micButton.animate()
+            .translationX(0f)
+            .scaleX(1f)
+            .scaleY(1f)
+            .setDuration(150)
+            .withEndAction { applyRecordingMicStyle(false) }
+            .start()
+    }
+
+    private fun applyRecordingMicStyle(recording: Boolean) {
+        val bg = micButton.background as? android.graphics.drawable.GradientDrawable ?: return
+        if (recording) {
+            bg.setColor(themeColors.blurple)
+            val d = MezonIcon.microphoneIcon.getDrawable(micButton.context)
+            d.colorFilter = PorterDuffColorFilter(android.graphics.Color.WHITE, PorterDuff.Mode.SRC_IN)
+            micButton.setImageDrawable(d)
+        } else {
+            bg.setColor(themeColors.tertiary)
+            val d = MezonIcon.microphoneIcon.getDrawable(micButton.context)
+            d.colorFilter = PorterDuffColorFilter(
+                themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary),
+                PorterDuff.Mode.SRC_IN
+            )
+            micButton.setImageDrawable(d)
+        }
+    }
+
+    private fun onVoiceLongPressFired() {
+        voiceLongPressFired = true
+        val ctx = getContext() ?: return
+        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            voiceLongPressFired = false
+            requestRecordAudioPermission()
+            return
+        }
+        startVoiceRecording()
+    }
+
+    private fun requestRecordAudioPermission() {
+        val activity = getParentActivity() ?: return
+        activity.requestPermissions(
+            arrayOf(Manifest.permission.RECORD_AUDIO),
+            REQUEST_CODE_RECORD_AUDIO
+        )
+    }
+
+    private fun startVoiceRecording() {
+        val ctx = getContext() ?: return
+        val recorder = VoiceRecorder(ctx)
+        if (!recorder.start()) {
+            android.widget.Toast.makeText(ctx, R.string.voice_record_failed, android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        voiceRecorder = recorder
+        voiceIsRecording = true
+        voiceCancelled = false
+        applyRecordingMicStyle(true)
+        micButton.animate().scaleX(1.3f).scaleY(1.3f).setDuration(150).start()
+        inputField.visibility = View.INVISIBLE
+        emojiButton.visibility = View.INVISIBLE
+        anonymousIndicator?.visibility = View.INVISIBLE
+        voiceOverlay?.show()
+        try { micButton.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS) } catch (_: Exception) {}
+    }
+
+    private fun finishVoiceRecording() {
+        val recorder = voiceRecorder
+        val ctx = getContext()
+        voiceRecorder = null
+        if (!voiceIsRecording || recorder == null || ctx == null) {
+            teardownVoiceUi()
+            return
+        }
+        val elapsed = recorder.elapsedMs()
+        if (elapsed < VoiceRecorder.MIN_RECORD_MS) {
+            mainHandler.postDelayed({
+                completeVoiceRecording(recorder, ctx)
+            }, VoiceRecorder.MIN_RECORD_MS - elapsed)
+        } else {
+            completeVoiceRecording(recorder, ctx)
+        }
+    }
+
+    private fun completeVoiceRecording(recorder: VoiceRecorder, ctx: Context) {
+        val result = recorder.stop()
+        teardownVoiceUi()
+        if (result == null) {
+            android.widget.Toast.makeText(ctx, R.string.voice_record_failed, android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (result.durationMs < VoiceRecorder.MIN_RECORD_MS) {
+            try { result.file.delete() } catch (_: Exception) {}
+            android.widget.Toast.makeText(ctx, R.string.voice_record_too_short, android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        sendVoiceRecording(result.file, result.durationMs)
+    }
+
+    private fun cancelVoiceRecording(showToast: Boolean) {
+        val ctx = getContext()
+        voiceRecorder?.cancel()
+        voiceRecorder = null
+        voiceCancelled = true
+        teardownVoiceUi()
+        if (showToast && ctx != null) {
+            android.widget.Toast.makeText(ctx, R.string.voice_record_cancelled, android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun teardownVoiceUi() {
+        voiceIsRecording = false
+        voiceOverlay?.hide()
+        inputField.visibility = View.VISIBLE
+        emojiButton.visibility = View.VISIBLE
+        if (anonymousController.isAnonymous(clanId)) {
+            anonymousIndicator?.visibility = View.VISIBLE
+        }
+        micButton.animate().scaleX(1f).scaleY(1f).translationX(0f).setDuration(150)
+            .withEndAction { applyRecordingMicStyle(false) }
+            .start()
+        updateSendButtonState()
+    }
+
+    private fun sendVoiceRecording(file: java.io.File, durationMs: Long) {
+        val ctx = getContext() ?: return
+        val durationSec = (durationMs / 1000).toInt().coerceAtLeast(1)
+        val item = AttachmentPickerItem(
+            id = file.absolutePath.hashCode().toLong(),
+            uri = android.net.Uri.fromFile(file),
+            path = file.absolutePath,
+            filename = file.name,
+            mimeType = VoiceRecorder.MIME_TYPE,
+            width = 0,
+            height = 0,
+            size = file.length(),
+            duration = durationSec,
+            isVideo = false
+        )
+        chatController.sendMessageWithAttachments(
+            channelId, clanId, channelType, resolveChannelPrivate(),
+            "",
+            arrayListOf(item),
+            ctx.contentResolver,
+            buildReplyReferences(),
+            null,
+            null,
+            null
+        )
+        clearReplyState()
+    }
+
+    private fun showHoldToRecordHint() {
+        val ctx = getContext() ?: return
+        android.widget.Toast.makeText(ctx, R.string.voice_record_hint, android.widget.Toast.LENGTH_SHORT).show()
     }
 
     private fun updateAttachmentPreview() {
@@ -2579,6 +3005,38 @@ class ChatFragment : BaseFragment() {
                 }
             }
         }
+        if (requestCode == REQUEST_CODE_RECORD_AUDIO) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                showHoldToRecordHint()
+            } else {
+                val activity = getParentActivity() ?: return
+                val permanentlyDenied = !activity.shouldShowRequestPermissionRationale(
+                    Manifest.permission.RECORD_AUDIO
+                )
+                if (permanentlyDenied) {
+                    showOpenAudioSettingsDialog()
+                }
+            }
+        }
+    }
+
+    private fun showOpenAudioSettingsDialog() {
+        val activity = getParentActivity() ?: return
+        com.mezon.mobile.core.AlertDialog.Builder(activity)
+            .setTitle(getString(R.string.common_settings))
+            .setMessage(getString(R.string.permission_no_audio))
+            .setPositiveButton(getString(R.string.permission_open_settings)) { _, _ ->
+                try {
+                    val intent = android.content.Intent(
+                        android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        android.net.Uri.fromParts("package", activity.packageName, null)
+                    )
+                    activity.startActivity(intent)
+                } catch (_: Exception) {}
+            }
+            .setNegativeButton(getString(R.string.permission_not_now), null)
+            .create()
+            .show()
     }
 
     private fun setupSwipeInterceptor() {
@@ -2912,6 +3370,8 @@ class ChatFragment : BaseFragment() {
 
     private fun setEditState(msg: MessageEntity) {
         clearReplyState()
+        mentionTrackers.clear()
+        hashtagTrackers.clear()
         editingMessage = msg
         editNameView?.text = getString(R.string.message_chatbox_editing)
         editBar?.visibility = View.VISIBLE
@@ -2926,15 +3386,27 @@ class ChatFragment : BaseFragment() {
         editingMessage = null
         editBar?.visibility = View.GONE
         editNameView?.text = ""
+        mentionTrackers.clear()
+        hashtagTrackers.clear()
         inputField.text?.clear()
     }
 
     private fun applyRealId(tempId: Long, realId: Long) {
+        if (tempId == realId) return
         val idx = messages.indexOfFirst { it.id == tempId }
         if (idx < 0) {
             Log.d(TAG, "applyRealId tempId=$tempId not found")
             return
         }
+
+        if (messagesDict.get(realId) != null) {
+            Log.d(TAG, "applyRealId tempId=$tempId realId=$realId already present, dropping optimistic")
+            messagesDict.delete(tempId)
+            messages.removeAt(idx)
+            if (fragmentView != null) adapter.notifyMessagesUpdated()
+            return
+        }
+
         val old = messages[idx]
         messagesDict.delete(tempId)
         val updated = old.copy(id = realId, sendState = MessageEntity.SEND_STATE_SENT)
@@ -3026,48 +3498,76 @@ class ChatFragment : BaseFragment() {
         }
     }
 
-    private fun checkMentionTrigger() {
+    private fun checkSuggestionTrigger() {
         val text = inputField.text?.toString() ?: ""
         val cursor = inputField.selectionStart
         if (cursor <= 0 || text.isEmpty()) {
-            hideMentionsPopup()
+            hideSuggestionsPopup()
             return
         }
 
-        var query: String? = null
-        var atPos = -1
-        for (a in (cursor - 1) downTo 0) {
-            if (a >= text.length) continue
-            val ch = text[a]
-            if (ch == '@') {
-                if (a == 0 || text[a - 1] == ' ' || text[a - 1] == '\n') {
-                    atPos = a
-                    query = text.substring(a + 1, cursor)
-                    break
-                }
-            }
-            if (ch == ' ' || ch == '\n') break
+        val trigger = InputSuggestionsController.detect(text, cursor)
+        if (trigger.mode == InputSuggestionsController.Mode.NONE) {
+            hideSuggestionsPopup()
+            return
         }
 
-        if (query != null && atPos >= 0) {
-            mentionAtPosition = atPos
-            mentionQueryLength = query.length + 1
-            val members = resolveMentionMembers()
-            mentionsAdapter?.search(query, members)
-            if ((mentionsAdapter?.itemCount ?: 0) > 0) {
-                mentionsPopup?.updateVisibility(true)
-            } else {
-                hideMentionsPopup()
-            }
-        } else {
-            hideMentionsPopup()
+        val items: List<InputSuggestionItem> = when (trigger.mode) {
+            InputSuggestionsController.Mode.MENTION -> buildMentionSuggestions(trigger.keyword)
+            InputSuggestionsController.Mode.HASHTAG -> buildHashtagSuggestions(trigger.keyword)
+            InputSuggestionsController.Mode.EMOJI -> buildEmojiSuggestions(trigger.keyword)
+            else -> emptyList()
         }
+
+        if (items.isEmpty()) {
+            hideSuggestionsPopup()
+            return
+        }
+
+        currentTrigger = trigger
+        suggestionsAdapter?.submit(items)
+        suggestionsPopup?.updateVisibility(true)
     }
 
-    private fun hideMentionsPopup() {
-        mentionsPopup?.updateVisibility(false)
-        mentionAtPosition = -1
-        mentionQueryLength = 0
+    private fun hideSuggestionsPopup() {
+        suggestionsPopup?.updateVisibility(false)
+        suggestionsAdapter?.clear()
+        currentTrigger = InputSuggestionsController.TriggerState.NONE
+    }
+
+    private fun buildMentionSuggestions(keyword: String): List<InputSuggestionItem> {
+        val members = resolveMentionMembers()
+        val isChannelOrThread = channelType != CHANNEL_TYPE_DM && channelType != CHANNEL_TYPE_GROUP
+        val roles = if (isChannelOrThread && clanId != 0L) {
+            roleController.getRoles(clanId).also {
+                if (it.isEmpty()) roleController.loadRolesForClan(clanId)
+            }
+        } else emptyList()
+        val includeHere = channelType != CHANNEL_TYPE_DM
+        val ctx = InputSuggestionsController.MentionContext(
+            members = members,
+            roles = roles,
+            includeHere = includeHere,
+            includeRoles = isChannelOrThread
+        )
+        return InputSuggestionsController.buildMentionItems(keyword, ctx)
+    }
+
+    private fun buildHashtagSuggestions(keyword: String): List<InputSuggestionItem> {
+        val isDmLike = channelType == CHANNEL_TYPE_DM || channelType == CHANNEL_TYPE_GROUP
+        val channels = if (isDmLike || clanId == 0L) {
+            val cached = searchController.getChannels()
+            if (cached.isEmpty()) searchController.loadChannels()
+            cached
+        } else {
+            channelController.getChannels(clanId)
+        }
+        return InputSuggestionsController.buildChannelItems(keyword, channels)
+    }
+
+    private fun buildEmojiSuggestions(keyword: String): List<InputSuggestionItem> {
+        val snapshot = synchronized(emojiController) { emojiController.emojis.toList() }
+        return InputSuggestionsController.buildEmojiItems(keyword, snapshot)
     }
 
     private fun mergeAtHereMentionsFromText(cleanedText: String, existing: List<MentionData>): List<MentionData> {
@@ -3093,54 +3593,134 @@ class ChatFragment : BaseFragment() {
     private fun mentionIntervalsOverlap(a0: Int, a1: Int, b0: Int, b1: Int): Boolean =
         a0 < b1 && b0 < a1
 
-    private fun onMentionSelected(item: MentionSuggestionItem) {
+    private fun onSuggestionSelected(item: InputSuggestionItem) {
         val editable = inputField.text ?: return
-        val atPos = mentionAtPosition
-        if (atPos < 0) return
+        val trigger = currentTrigger
+        if (trigger.mode == InputSuggestionsController.Mode.NONE || trigger.triggerPos < 0) return
 
-        val replaceEnd = minOf(atPos + mentionQueryLength, editable.length)
+        val triggerPos = trigger.triggerPos
+        val replaceEnd = minOf(triggerPos + trigger.queryLen, editable.length)
 
         when (item) {
-            is MentionSuggestionItem.Here -> {
-                val mentionText = "@here "
-                editable.replace(atPos, replaceEnd, mentionText)
-                val spanStart = atPos
-                val spanEnd = atPos + mentionText.trimEnd().length
-                editable.setSpan(
-                    android.text.style.ForegroundColorSpan(0xFF5865F2.toInt()),
-                    spanStart, spanEnd,
-                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-                )
-                inputField.setSelection(atPos + mentionText.length)
-                mentionTrackers.add(MentionData(
-                    userId = ChatController.ID_MENTION_HERE,
-                    display = "@here",
-                    startOffset = spanStart,
-                    endOffset = spanEnd
-                ))
+            is InputSuggestionItem.Here -> {
+                insertMentionToken(editable, triggerPos, replaceEnd, "@here", ChatController.ID_MENTION_HERE, "", themeColors.textLink)
             }
-            is MentionSuggestionItem.Member -> {
+            is InputSuggestionItem.Member -> {
                 val member = item.member
                 val displayName = member.clanNick.ifBlank { member.displayName.ifBlank { member.username } }
-                val mentionText = "@$displayName "
-                editable.replace(atPos, replaceEnd, mentionText)
-                val spanStart = atPos
-                val spanEnd = atPos + mentionText.trimEnd().length
-                editable.setSpan(
-                    android.text.style.ForegroundColorSpan(0xFF5865F2.toInt()),
-                    spanStart, spanEnd,
-                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-                )
-                inputField.setSelection(atPos + mentionText.length)
-                mentionTrackers.add(MentionData(
-                    userId = member.userId.toString(),
-                    display = "@$displayName",
-                    startOffset = spanStart,
-                    endOffset = spanEnd
-                ))
+                insertMentionToken(editable, triggerPos, replaceEnd, "@$displayName", member.userId.toString(), "", themeColors.textLink)
+            }
+            is InputSuggestionItem.Role -> {
+                val role = item.role
+                val color = if (role.color != 0) role.color else themeColors.textRoleLink
+                insertMentionToken(editable, triggerPos, replaceEnd, "@${role.title}", "", role.roleId.toString(), color)
+            }
+            is InputSuggestionItem.Channel -> {
+                insertHashtagToken(editable, triggerPos, replaceEnd, item.entity)
+            }
+            is InputSuggestionItem.Emoji -> {
+                insertEmojiToken(editable, triggerPos, replaceEnd, item.item)
             }
         }
-        hideMentionsPopup()
+        hideSuggestionsPopup()
+    }
+
+    private fun insertMentionToken(
+        editable: android.text.Editable,
+        start: Int,
+        end: Int,
+        tokenText: String,
+        userId: String,
+        roleId: String,
+        color: Int
+    ) {
+        val insertText = "$tokenText "
+        editable.replace(start, end, insertText)
+        val spanStart = start
+        val spanEnd = start + tokenText.length
+        editable.setSpan(
+            android.text.style.ForegroundColorSpan(color),
+            spanStart, spanEnd,
+            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
+        editable.setSpan(
+            android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
+            spanStart, spanEnd,
+            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
+        inputField.setSelection(start + insertText.length)
+        mentionTrackers.add(
+            MentionData(
+                userId = userId,
+                roleId = roleId,
+                display = tokenText,
+                startOffset = spanStart,
+                endOffset = spanEnd
+            )
+        )
+    }
+
+    private fun insertHashtagToken(
+        editable: android.text.Editable,
+        start: Int,
+        end: Int,
+        entity: ClanChannelEntity
+    ) {
+        val tokenText = "#${entity.channelLabel}"
+        val insertText = "$tokenText "
+        editable.replace(start, end, insertText)
+        val spanStart = start
+        val spanEnd = start + tokenText.length
+        editable.setSpan(
+            HashtagSpan(entity.channelId.toString(), themeColors.textLink),
+            spanStart, spanEnd,
+            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
+        editable.setSpan(
+            android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
+            spanStart, spanEnd,
+            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
+        inputField.setSelection(start + insertText.length)
+        hashtagTrackers.add(
+            HashtagData(
+                channelId = entity.channelId.toString(),
+                startOffset = spanStart,
+                endOffset = spanEnd,
+                clanId = entity.clanId.toString()
+            )
+        )
+    }
+
+    private fun insertEmojiToken(
+        editable: android.text.Editable,
+        start: Int,
+        end: Int,
+        emoji: EmojiItem
+    ) {
+        val cleanName = emoji.shortname.replace(":", "")
+        val token = ":$cleanName:"
+        val insertText = "$token "
+        editable.replace(start, end, insertText)
+        emojiObjPicked[token] = emoji.id
+        val spanStart = start
+        val spanEnd = start + token.length
+        editable.setSpan(
+            EmojiTokenSpan(),
+            spanStart, spanEnd,
+            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
+        editable.setSpan(
+            android.text.style.ForegroundColorSpan(0xFF5A62F4.toInt()),
+            spanStart, spanEnd,
+            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
+        editable.setSpan(
+            android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
+            spanStart, spanEnd,
+            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
+        inputField.setSelection(start + insertText.length)
     }
 
     private fun channelTitleIconSizePx(): Int = LayoutHelper.dp(20)
@@ -3169,14 +3749,91 @@ class ChatFragment : BaseFragment() {
 
     private fun resolveChannelIcon(entity: com.mezon.mobile.home.clans.ClanChannelEntity?): MezonIcon {
         if (entity == null) return MezonIcon.channelText
+        val type = if (entity.isThread) CHANNEL_TYPE_THREAD else entity.type
+        return ChannelItemCell.resolveChannelIcon(type, entity.isPrivate)
+    }
 
-        if (entity.isPrivate && entity.isThread) return MezonIcon.threadLockIcon
-        if (entity.isThread) return MezonIcon.threadIcon
-        if (entity.isPrivate && entity.type != CHANNEL_TYPE_APP) return MezonIcon.channelTextLock
-        if (entity.type == CHANNEL_TYPE_STREAMING) return MezonIcon.channelStream
-        if (entity.type == CHANNEL_TYPE_APP) return MezonIcon.channelApp
+    private fun navigateToChannelFromHashtag(channelIdStr: String?) {
+        val cid = channelIdStr?.toLongOrNull() ?: return
+        if (cid == 0L) return
+        val entity = channelController.findChannelById(cid, 0L)
+            ?: searchController.findChannelById(cid)
+        if (entity == null) {
+            if (!searchController.hasChannels()) searchController.loadChannels()
+            return
+        }
+        openChannelEntity(entity)
+    }
 
-        return MezonIcon.channelText
+    private fun openChannelEntity(entity: ClanChannelEntity) {
+        val targetClanId = if (entity.clanId != 0L) entity.clanId else clanId
+        when (entity.type) {
+            CHANNEL_TYPE_VOICE, CHANNEL_TYPE_STREAMING -> {
+                showJoinVoiceBottomSheet(entity, targetClanId)
+            }
+            CHANNEL_TYPE_APP -> {
+                val app = channelAppController.findByChannelId(entity.channelId)
+                if (app != null) {
+                    presentFragment(
+                        ChannelAppFragment.newInstance(
+                            channelId = app.channelId,
+                            clanId = if (app.clanId != 0L) app.clanId else targetClanId,
+                            appId = app.appId,
+                            appUrl = app.appUrl,
+                            appName = app.appName
+                        )
+                    )
+                } else {
+                    channelAppController.loadAppsForClan(targetClanId)
+                }
+            }
+            else -> {
+                val resolvedType = if (entity.isThread) CHANNEL_TYPE_THREAD else entity.type
+                (getParentActivity() as? MainActivity)?.openChat(
+                    entity.channelId,
+                    entity.channelLabel,
+                    targetClanId,
+                    resolvedType
+                )
+            }
+        }
+    }
+
+    private fun showJoinVoiceBottomSheet(channel: ClanChannelEntity, targetClanId: Long) {
+        val activity = getParentActivity() ?: return
+        val memberIds = voiceController.getVoiceMembersForChannel(channel.channelId, targetClanId)
+        val clanMembers = userClanController.getClanMembers(targetClanId)
+        val memberMap = HashMap<Long, ClanMember>(clanMembers.size)
+        for (m in clanMembers) memberMap[m.userId] = m
+        val displays = memberIds.map { uid ->
+            val m = memberMap[uid]
+            val name = m?.clanNick?.ifEmpty { null } ?: m?.displayName?.ifEmpty { null } ?: m?.username ?: "User"
+            val avatar = m?.clanAvatar?.ifEmpty { null } ?: m?.avatarUrl
+            VoiceMemberDisplay(uid, name, avatar)
+        }
+        val sheet = JoinVoiceBottomSheet(
+            activity,
+            themeColors,
+            channel.channelLabel,
+            channel.channelId,
+            targetClanId,
+            displays,
+            channel.unreadCount
+        )
+        sheet.onJoinVoice = {
+            (activity as? MainActivity)?.showVoiceRoom(
+                channel.channelId, targetClanId, channel.channelLabel
+            )
+        }
+        sheet.onOpenChat = {
+            (activity as? MainActivity)?.openChat(
+                channel.channelId,
+                channel.channelLabel,
+                targetClanId,
+                channel.type
+            )
+        }
+        sheet.show()
     }
 }
 

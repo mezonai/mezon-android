@@ -1,6 +1,8 @@
 package com.mezon.mobile.util
 
+import android.content.Context
 import android.graphics.Typeface
+import android.graphics.drawable.Drawable
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.BackgroundColorSpan
@@ -10,12 +12,20 @@ import android.text.style.StrikethroughSpan
 import android.text.style.StyleSpan
 import android.text.style.TypefaceSpan
 import android.view.View
+import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.chat.CodeFenceSpan
 import com.mezon.mobile.home.chat.EmojiSpan
 import com.mezon.mobile.home.chat.HashtagSpan
 import com.mezon.mobile.home.chat.LinkSpan
 import com.mezon.mobile.home.chat.MentionSpan
+import com.mezon.mobile.home.clans.ChannelItemCell
+import com.mezon.mobile.home.clans.ClanChannelEntity
+import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
+import com.mezon.mobile.ui.cells.ColoredImageSpan
+import com.mezon.mobile.ui.cells.MezonIcon
+import dagger.hilt.android.EntryPointAccessors
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -58,6 +68,7 @@ data class ContentElement(
     val role_id: String? = null,
     val emojiid: String? = null,
     val channelId: String? = null,
+    val clanId: String? = null,
     val type: String? = null,
     val title: String? = null,
     val description: String? = null,
@@ -66,14 +77,27 @@ data class ContentElement(
 )
 
 private val HEADING_REGEX = Regex("^(#{1,6})\\s+(.+)$")
+private val HEADING_LINE_ANYWHERE = Regex("(?m)^#{1,6}\\s+\\S")
+
+fun hasHeadingLine(text: String): Boolean {
+    if (text.isEmpty() || !text.contains('#')) return false
+    return HEADING_LINE_ANYWHERE.containsMatchIn(text)
+}
+
+fun buildPlainTextWithHeadings(text: String, theme: ThemeColors): CharSequence {
+    if (!hasHeadingLine(text)) return text
+    val sb = SpannableStringBuilder()
+    applyPlainTextWithHeadings(sb, text, theme)
+    return sb
+}
 
 fun applyHeadingSpans(sb: SpannableStringBuilder, start: Int, end: Int, level: Int) {
     val sizeFactor = when (level) {
-        1 -> 1.8f
-        2 -> 1.5f
-        3 -> 1.3f
-        4 -> 1.15f
-        5 -> 1.05f
+        1 -> 2.14f
+        2 -> 1.86f
+        3 -> 1.57f
+        4 -> 1.29f
+        5 -> 1.14f
         else -> 1.0f
     }
     sb.setSpan(StyleSpan(Typeface.BOLD), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
@@ -113,8 +137,15 @@ fun parseContentToSpannable(
         val obj = JSONObject(content)
         parseArray(obj, "mentions") { j -> ContentElement("m", j.optInt("s"), j.optInt("e"), j.optString("user_id").takeIf { it.isNotEmpty() }, j.optString("role_id").takeIf { it.isNotEmpty() }) }
             .let { elements.addAll(it) }
-        parseArray(obj, "hg") { j -> ContentElement("h", j.optInt("s"), j.optInt("e"), channelId = j.optString("channelId").takeIf { it.isNotEmpty() }) }
-            .let { elements.addAll(it) }
+        parseArray(obj, "hg") { j ->
+            ContentElement(
+                "h",
+                j.optInt("s"),
+                j.optInt("e"),
+                channelId = j.optString("channelId").takeIf { it.isNotEmpty() },
+                clanId = j.optString("clanId").takeIf { it.isNotEmpty() }
+            )
+        }.let { elements.addAll(it) }
         parseArray(obj, "ej") { j -> ContentElement("e", j.optInt("s"), j.optInt("e"), emojiid = j.optString("emojiid").takeIf { it.isNotEmpty() }) }
             .let { elements.addAll(it) }
         parseArray(obj, "mk") { j ->
@@ -160,10 +191,19 @@ fun parseContentToSpannable(
                 sb.setSpan(StyleSpan(Typeface.BOLD), spanStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             }
             "h" -> {
-                sb.append(segText)
-                sb.setSpan(HashtagSpan(el.channelId, linkColor), spanStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                sb.setSpan(StyleSpan(Typeface.BOLD), spanStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                sb.setSpan(BackgroundColorSpan(theme.midnightBlue), spanStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                appendHashtagPill(
+                    sb,
+                    spanStart,
+                    segText = segText,
+                    channelId = el.channelId,
+                    clanId = el.clanId,
+                    view = view,
+                    linkColor = linkColor,
+                    mentionColors = mentionColors,
+                    theme = theme,
+                    labelOverride = null,
+                    preResolvedEntity = null
+                )
             }
             "e" -> {
                 if (viewRef != null && el.emojiid != null) {
@@ -215,8 +255,31 @@ fun parseContentToSpannable(
                     )
                 }
                 "lk", "vk", "lk_yt", "lk_fb", "lk_tt" -> {
-                    sb.append(segText)
-                    sb.setSpan(LinkSpan(segText, linkColor), spanStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    val channelLink = parseMezonChannelLink(segText)
+                    val resolved = channelLink?.let { link ->
+                        view?.context?.let { ctx ->
+                            resolveChannelEntity(ctx, link.channelId, link.clanId)
+                        }
+                    }
+                    if (resolved != null) {
+                        val label = resolved.channelLabel.ifBlank { "channel" }
+                        appendHashtagPill(
+                            sb,
+                            spanStart,
+                            segText = "#$label",
+                            channelId = resolved.channelId.toString(),
+                            clanId = resolved.clanId.toString(),
+                            view = view,
+                            linkColor = linkColor,
+                            mentionColors = mentionColors,
+                            theme = theme,
+                            labelOverride = label,
+                            preResolvedEntity = resolved
+                        )
+                    } else {
+                        sb.append(segText)
+                        sb.setSpan(LinkSpan(segText, linkColor), spanStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    }
                 }
                 "lk_ogp" -> {
                     val url = extractOgpUrl(text, el.index)
@@ -233,6 +296,101 @@ fun parseContentToSpannable(
         applyPlainTextWithHeadings(sb, text.substring(last), theme)
     }
     return sb
+}
+
+@Volatile
+private var cachedFragmentEntryPoint: FragmentEntryPoint? = null
+
+private fun obtainEntryPoint(context: Context): FragmentEntryPoint? {
+    cachedFragmentEntryPoint?.let { return it }
+    return try {
+        val ep = EntryPointAccessors.fromApplication(
+            context.applicationContext,
+            FragmentEntryPoint::class.java
+        )
+        cachedFragmentEntryPoint = ep
+        ep
+    } catch (_: Exception) {
+        null
+    }
+}
+
+private fun resolveChannelEntity(
+    context: Context,
+    channelIdStr: String?,
+    clanIdStr: String?
+): ClanChannelEntity? {
+    val cid = channelIdStr?.toLongOrNull() ?: return null
+    if (cid == 0L) return null
+    val clanId = clanIdStr?.toLongOrNull() ?: 0L
+    val entryPoint = obtainEntryPoint(context) ?: return null
+    val searchCtl = entryPoint.searchController()
+    val entity = entryPoint.channelController().findChannelById(cid, clanId)
+        ?: searchCtl.findChannelById(cid)
+    if (entity == null && !searchCtl.hasChannels()) {
+        searchCtl.loadChannels()
+    }
+    return entity
+}
+
+private fun resolveHashtagIcon(entity: ClanChannelEntity): MezonIcon {
+    val type = if (entity.isThread) CHANNEL_TYPE_THREAD else entity.type
+    return ChannelItemCell.resolveChannelIcon(type, entity.isPrivate)
+}
+
+data class MezonChannelLink(val clanId: String, val channelId: String)
+
+private val MEZON_CHANNEL_URL_REGEX =
+    Regex("""/chat/clans/(\d+)/channels/(\d+)(?!/canvas/)""")
+
+fun parseMezonChannelLink(url: String): MezonChannelLink? {
+    if (url.isBlank()) return null
+    if (!url.contains("/chat/clans/")) return null
+    if (url.contains("/canvas/")) return null
+    val match = MEZON_CHANNEL_URL_REGEX.find(url) ?: return null
+    val clanId = match.groupValues.getOrNull(1)?.takeIf { it.isNotBlank() } ?: return null
+    val channelId = match.groupValues.getOrNull(2)?.takeIf { it.isNotBlank() } ?: return null
+    return MezonChannelLink(clanId, channelId)
+}
+
+private fun appendHashtagPill(
+    sb: SpannableStringBuilder,
+    spanStart: Int,
+    segText: String,
+    channelId: String?,
+    clanId: String?,
+    view: View?,
+    linkColor: Int,
+    mentionColors: MentionColors?,
+    theme: ThemeColors,
+    labelOverride: String?,
+    preResolvedEntity: ClanChannelEntity?
+) {
+    val hashtagColor = mentionColors?.userText ?: linkColor
+    val hashtagBg = theme.midnightBlue
+    val ctx = view?.context
+    val entity = preResolvedEntity ?: ctx?.let { resolveChannelEntity(it, channelId, clanId) }
+    val iconDrawable = if (ctx != null && entity != null) {
+        resolveHashtagIcon(entity).getDrawable(ctx)
+    } else null
+    if (iconDrawable != null) {
+        val labelText = labelOverride
+            ?: if (segText.startsWith("#")) segText.substring(1) else segText
+        sb.append("\u200B")
+        val iconSpanEnd = sb.length
+        val span = ColoredImageSpan(iconDrawable, ColoredImageSpan.ALIGN_CENTER)
+        span.setSize(LayoutHelper.dp(14f))
+        span.overrideColor = hashtagColor
+        span.backgroundColor = hashtagBg
+        sb.setSpan(span, spanStart, iconSpanEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        sb.append(" ")
+        sb.append(labelText)
+    } else {
+        sb.append(labelOverride?.let { "#$it" } ?: segText)
+    }
+    sb.setSpan(HashtagSpan(channelId, hashtagColor), spanStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+    sb.setSpan(StyleSpan(Typeface.BOLD), spanStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+    sb.setSpan(BackgroundColorSpan(hashtagBg), spanStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
 }
 
 private fun extractOgpUrl(text: String, index: Int?): String? {

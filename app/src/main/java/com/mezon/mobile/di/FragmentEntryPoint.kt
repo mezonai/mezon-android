@@ -6,6 +6,7 @@ import com.mezon.mobile.home.ChatController
 import com.mezon.mobile.home.ConnectionController
 import com.mezon.mobile.home.MemberResolver
 import com.mezon.mobile.home.PinMessageController
+import com.mezon.mobile.home.chat.AudioPlayerController
 import com.mezon.mobile.home.chat.EmojiController
 import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.voice.VoiceController
@@ -15,6 +16,8 @@ import com.mezon.mobile.home.MessagesController
 import com.mezon.mobile.home.clans.ChannelCategoryExpandStore
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.ClansController
+import com.mezon.mobile.home.clans.channelapp.ChannelAppController
+import com.mezon.mobile.home.clans.RoleController
 import com.mezon.mobile.home.notifications.NotificationStore
 import com.mezon.mobile.home.profile.AccountController
 import com.mezon.mobile.home.profile.UserController
@@ -35,6 +38,7 @@ interface FragmentEntryPoint {
     fun chatController(): ChatController
     fun clansController(): ClansController
     fun channelController(): ChannelController
+    fun channelAppController(): ChannelAppController
     fun channelCategoryExpandStore(): ChannelCategoryExpandStore
     fun connectionController(): ConnectionController
     fun dialogsController(): DialogsController
@@ -48,9 +52,11 @@ interface FragmentEntryPoint {
     fun searchController(): SearchController
     fun userClanController(): UserClanController
     fun emojiController(): EmojiController
+    fun audioPlayerController(): AudioPlayerController
     fun voiceController(): VoiceController
     fun anonymousController(): AnonymousController
     fun memberResolver(): MemberResolver
+    fun roleController(): RoleController
     fun pinMessageController(): PinMessageController
     fun sessionManager(): SessionManager
 

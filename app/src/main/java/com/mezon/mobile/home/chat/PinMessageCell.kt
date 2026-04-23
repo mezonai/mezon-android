@@ -184,7 +184,7 @@ private class PinHeaderView(context: Context, private val theme: ThemeColors) : 
         avatarDisposable?.cancel()
         avatarDisposable = null
         if (url.isNotEmpty()) {
-            val proxyUrl = com.mezon.mobile.util.createImgproxyUrl(url, AVATAR_SIZE * 2, AVATAR_SIZE * 2, "fill")
+            val proxyUrl = com.mezon.mobile.util.avatarImgproxyUrl(url, AVATAR_SIZE)
             avatarDisposable = MezonImageLoader.getInstance(context).load(
                 proxyUrl, AVATAR_SIZE, AVATAR_SIZE,
                 onSuccess = { bmp ->

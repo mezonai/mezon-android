@@ -1,12 +1,16 @@
 package com.mezon.mobile.home.voice
 
 import android.Manifest
+import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.drawable.GradientDrawable
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
+import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
 import android.view.View
@@ -58,6 +62,8 @@ private const val ARG_CLAN_ID = "clan_id"
 private const val ARG_CHANNEL_LABEL = "channel_label"
 private const val ARG_IS_GROUP_CALL = "is_group_call"
 private const val REQUEST_VOICE_PERMISSIONS = 1401
+private const val REQUEST_MIC_TOGGLE = 1402
+private const val REQUEST_CAMERA_TOGGLE = 1403
 private const val SWITCH_CAMERA_THROTTLE_MS = 300L
 private const val RAISE_HAND_COOLDOWN_MS = 10_000L
 private const val RAISE_UP_PREFIX = "raising-up:"
@@ -118,6 +124,9 @@ class VoiceRoomFragment : BaseFragment() {
     private var isReconnecting = false
     private var isRaiseHandActive = false
     private var lastSwitchCameraElapsedMs = 0L
+    private var focusedShareIdentity: String? = null
+    private var wasMicPermissionRequestedBefore = false
+    private var wasCameraPermissionRequestedBefore = false
 
     fun getChannelLabel(): String = channelLabel
     fun getChannelId(): Long = channelId
@@ -309,8 +318,8 @@ class VoiceRoomFragment : BaseFragment() {
                     !it.startsWith(RAISE_DOWN_PREFIX) &&
                     !it.startsWith("sound:")
             }
-            val senderName = parseReactionMeta(emojis.getOrNull(1), SENDER_NAME_PREFIX)
-            val senderAvatar = parseReactionMeta(emojis.getOrNull(2), SENDER_AVATAR_PREFIX)
+            val senderName = findReactionMeta(emojis, SENDER_NAME_PREFIX)
+            val senderAvatar = findReactionMeta(emojis, SENDER_AVATAR_PREFIX)
             if (senderId != 0L && raiseUpReaction != null) {
                 val resolved = resolveRaiseHandDisplay(senderId, senderName, senderAvatar)
                 raiseHandOverlay?.showRaiseHand(senderId, resolved.first, resolved.second)
@@ -321,7 +330,8 @@ class VoiceRoomFragment : BaseFragment() {
                 reactionHandler.playSoundReaction(soundReaction.removePrefix("sound:"))
             }
             if (!primaryReaction.isNullOrBlank() && soundReaction == null) {
-                reactionHandler.showReactionOverlay(listOf(primaryReaction))
+                val overlayName = resolveReactionDisplayName(senderId, senderName)
+                reactionHandler.showReactionOverlay(listOf(primaryReaction), overlayName)
             }
             if (senderId == userController.userId) {
                 when {
@@ -493,7 +503,8 @@ class VoiceRoomFragment : BaseFragment() {
             getParticipantGrid = { participantGrid },
             participants = participants,
             reactionStates = reactionStates,
-            getRoomScope = { roomScope }
+            getRoomScope = { roomScope },
+            getLocalSenderMeta = { resolveLocalSenderMeta() }
         )
         participantGrid.adapter = participantAdapter
         val topOffset = (statusBarHeight / AndroidUtilities.density) + 56f
@@ -532,15 +543,23 @@ class VoiceRoomFragment : BaseFragment() {
         controlBar = VoiceControlBar(context, themeColors).apply {
             setGroupCallMode(isGroupCall)
             onCameraToggle = { enabled ->
-                roomScope?.launch {
-                    room?.localParticipant?.setCameraEnabled(enabled)
-                    headerView.setSwitchCameraVisible(enabled)
-                    doUpdateParticipantList()
+                if (enabled) {
+                    requestCameraToggle()
+                } else {
+                    roomScope?.launch {
+                        runCatching { room?.localParticipant?.setCameraEnabled(false) }
+                        headerView.setSwitchCameraVisible(false)
+                        doUpdateParticipantList()
+                    }
                 }
             }
             onMicToggle = { enabled ->
-                roomScope?.launch {
-                    room?.localParticipant?.setMicrophoneEnabled(enabled)
+                if (enabled) {
+                    requestMicToggle()
+                } else {
+                    roomScope?.launch {
+                        runCatching { room?.localParticipant?.setMicrophoneEnabled(false) }
+                    }
                 }
             }
             onChatClick = { openChatHistoryForCurrentChannel() }
@@ -612,10 +631,6 @@ class VoiceRoomFragment : BaseFragment() {
             != PackageManager.PERMISSION_GRANTED) {
             needed.add(Manifest.permission.RECORD_AUDIO)
         }
-        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.CAMERA)
-            != PackageManager.PERMISSION_GRANTED) {
-            needed.add(Manifest.permission.CAMERA)
-        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
             ContextCompat.checkSelfPermission(ctx, Manifest.permission.BLUETOOTH_CONNECT)
             != PackageManager.PERMISSION_GRANTED) {
@@ -623,6 +638,9 @@ class VoiceRoomFragment : BaseFragment() {
         }
 
         if (needed.isNotEmpty()) {
+            if (needed.contains(Manifest.permission.RECORD_AUDIO)) {
+                wasMicPermissionRequestedBefore = true
+            }
             getParentActivity()?.requestPermissions(needed.toTypedArray(), REQUEST_VOICE_PERMISSIONS)
         } else {
             connectToRoom()
@@ -634,26 +652,170 @@ class VoiceRoomFragment : BaseFragment() {
         permissions: Array<out String>,
         grantResults: IntArray
     ) {
-        if (requestCode == REQUEST_VOICE_PERMISSIONS) {
-            val audioGranted = grantResults.isNotEmpty() &&
-                permissions.indexOf(Manifest.permission.RECORD_AUDIO).let { idx ->
-                    idx < 0 || grantResults[idx] == PackageManager.PERMISSION_GRANTED
+        when (requestCode) {
+            REQUEST_VOICE_PERMISSIONS -> {
+                val ctx = fragmentView?.context ?: return
+                val audioGranted = ContextCompat.checkSelfPermission(
+                    ctx, Manifest.permission.RECORD_AUDIO
+                ) == PackageManager.PERMISSION_GRANTED
+                if (!audioGranted) {
+                    Toast.makeText(
+                        ctx,
+                        getString(R.string.voice_room_listen_only_hint),
+                        Toast.LENGTH_LONG
+                    ).show()
                 }
-            if (!audioGranted &&
-                ContextCompat.checkSelfPermission(
-                    fragmentView?.context ?: return,
-                    Manifest.permission.RECORD_AUDIO
-                ) != PackageManager.PERMISSION_GRANTED
-            ) {
-                val activity = getParentActivity() ?: return
-                AlertDialog.Builder(activity)
-                    .setTitle("Microphone Required")
-                    .setMessage("Microphone permission is required to join voice channels.")
-                    .setPositiveButton("OK") { _, _ -> dismissOverlay() }
-                    .show()
-                return
+                connectToRoom()
             }
-            connectToRoom()
+            REQUEST_MIC_TOGGLE -> handleMicTogglePermissionResult()
+            REQUEST_CAMERA_TOGGLE -> handleCameraTogglePermissionResult()
+        }
+    }
+
+    private fun handleMicTogglePermissionResult() {
+        val ctx = fragmentView?.context ?: return
+        val granted = ContextCompat.checkSelfPermission(
+            ctx, Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+        if (granted) {
+            enableMicrophone()
+        } else {
+            if (::controlBar.isInitialized) controlBar.setMicEnabled(false)
+            showPermissionDeniedDialog(
+                titleRes = R.string.voice_room_mic_permission_title,
+                messageRes = R.string.voice_room_mic_permission_message,
+                dismissOnCancel = false
+            )
+        }
+    }
+
+    private fun handleCameraTogglePermissionResult() {
+        val ctx = fragmentView?.context ?: return
+        val granted = ContextCompat.checkSelfPermission(
+            ctx, Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
+        if (granted) {
+            enableCamera()
+        } else {
+            if (::controlBar.isInitialized) controlBar.setCameraEnabled(false)
+            showPermissionDeniedDialog(
+                titleRes = R.string.voice_room_camera_permission_title,
+                messageRes = R.string.voice_room_camera_permission_message,
+                dismissOnCancel = false
+            )
+        }
+    }
+
+    private fun showPermissionDeniedDialog(
+        titleRes: Int,
+        messageRes: Int,
+        dismissOnCancel: Boolean
+    ) {
+        val activity = getParentActivity() ?: return
+        val builder = AlertDialog.Builder(activity)
+            .setTitle(getString(titleRes))
+            .setMessage(getString(messageRes))
+            .setPositiveButton(getString(R.string.common_open_settings)) { _, _ ->
+                openAppPermissionSettings()
+                if (dismissOnCancel) dismissOverlay()
+            }
+            .setNegativeButton(getString(R.string.common_cancel)) { _, _ ->
+                if (dismissOnCancel) dismissOverlay()
+            }
+        if (dismissOnCancel) {
+            builder.setOnCancelListener { dismissOverlay() }
+        }
+        builder.show()
+    }
+
+    private fun requestMicToggle() {
+        val ctx = fragmentView?.context ?: return
+        val activity = getParentActivity() ?: return
+        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO)
+            == PackageManager.PERMISSION_GRANTED) {
+            enableMicrophone()
+            return
+        }
+        if (!activity.shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO) &&
+            wasMicPermissionRequestedBefore) {
+            controlBar.setMicEnabled(false)
+            showPermissionDeniedDialog(
+                titleRes = R.string.voice_room_mic_permission_title,
+                messageRes = R.string.voice_room_mic_permission_message,
+                dismissOnCancel = false
+            )
+            return
+        }
+        wasMicPermissionRequestedBefore = true
+        activity.requestPermissions(
+            arrayOf(Manifest.permission.RECORD_AUDIO),
+            REQUEST_MIC_TOGGLE
+        )
+    }
+
+    private fun requestCameraToggle() {
+        val ctx = fragmentView?.context ?: return
+        val activity = getParentActivity() ?: return
+        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.CAMERA)
+            == PackageManager.PERMISSION_GRANTED) {
+            enableCamera()
+            return
+        }
+        if (!activity.shouldShowRequestPermissionRationale(Manifest.permission.CAMERA) &&
+            wasCameraPermissionRequestedBefore) {
+            controlBar.setCameraEnabled(false)
+            showPermissionDeniedDialog(
+                titleRes = R.string.voice_room_camera_permission_title,
+                messageRes = R.string.voice_room_camera_permission_message,
+                dismissOnCancel = false
+            )
+            return
+        }
+        wasCameraPermissionRequestedBefore = true
+        activity.requestPermissions(
+            arrayOf(Manifest.permission.CAMERA),
+            REQUEST_CAMERA_TOGGLE
+        )
+    }
+
+    private fun openAppPermissionSettings() {
+        val activity = getParentActivity() ?: return
+        try {
+            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.fromParts("package", activity.packageName, null)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            activity.startActivity(intent)
+        } catch (e: ActivityNotFoundException) {
+            Log.e(TAG, "Unable to open app permission settings", e)
+        }
+    }
+
+    private fun enableMicrophone() {
+        val scope = roomScope ?: return
+        val participant = room?.localParticipant ?: return
+        scope.launch {
+            runCatching { participant.setMicrophoneEnabled(true) }
+                .onFailure { e ->
+                    Log.e(TAG, "setMicrophoneEnabled(true) failed", e)
+                    if (::controlBar.isInitialized) controlBar.setMicEnabled(false)
+                }
+        }
+    }
+
+    private fun enableCamera() {
+        val scope = roomScope ?: return
+        val participant = room?.localParticipant ?: return
+        scope.launch {
+            runCatching { participant.setCameraEnabled(true) }
+                .onSuccess {
+                    if (::headerView.isInitialized) headerView.setSwitchCameraVisible(true)
+                    doUpdateParticipantList()
+                }
+                .onFailure { e ->
+                    Log.e(TAG, "setCameraEnabled(true) failed", e)
+                    if (::controlBar.isInitialized) controlBar.setCameraEnabled(false)
+                }
         }
     }
 
@@ -692,8 +854,10 @@ class VoiceRoomFragment : BaseFragment() {
                 voiceController.onRoomConnected(channelId)
                 Log.d(TAG, "Connected to room, disabling local mic/camera")
                 applyAgentHeaderUi()
-                room!!.localParticipant.setMicrophoneEnabled(false)
-                room!!.localParticipant.setCameraEnabled(false)
+                runCatching { room!!.localParticipant.setMicrophoneEnabled(false) }
+                    .onFailure { Log.w(TAG, "setMicrophoneEnabled(false) failed (likely no permission)", it) }
+                runCatching { room!!.localParticipant.setCameraEnabled(false) }
+                    .onFailure { Log.w(TAG, "setCameraEnabled(false) failed (likely no permission)", it) }
                 headerView.setSwitchCameraVisible(false)
 
                 Log.d(TAG, "Local participant: identity=${room!!.localParticipant.identity?.value} name=${room!!.localParticipant.name}")
@@ -975,6 +1139,7 @@ class VoiceRoomFragment : BaseFragment() {
 
         updateParticipants(nextParticipants)
         Log.d(TAG, "doUpdateParticipantList: ${participants.size} participants")
+        dismissFocusedShareIfStale()
         syncFocusedShareForPip()
         updateMiniOverlayIfNeeded()
     }
@@ -1125,6 +1290,7 @@ class VoiceRoomFragment : BaseFragment() {
         val r = room ?: return
         val shown = focusedShareView.showShare(participant, r)
         if (!shown) return
+        focusedShareIdentity = participant.identity
         participantGrid.visibility = View.GONE
         headerView.visibility = View.GONE
         applyVoiceLayoutForMode()
@@ -1135,9 +1301,22 @@ class VoiceRoomFragment : BaseFragment() {
             return
         }
         focusedShareView.clear()
+        focusedShareIdentity = null
         participantGrid.visibility = View.VISIBLE
         headerView.visibility = if (isInPipMode) View.GONE else View.VISIBLE
         applyVoiceLayoutForMode()
+    }
+
+    private fun dismissFocusedShareIfStale() {
+        if (isInPipMode) return
+        if (!::focusedShareView.isInitialized) return
+        if (focusedShareView.visibility != View.VISIBLE) return
+        val focusedId = focusedShareIdentity ?: return
+        val stillSharing = participants.any { it.identity == focusedId && it.isScreenShare && it.videoTrack != null }
+        if (!stillSharing) {
+            Log.d(TAG, "dismissFocusedShareIfStale: identity=$focusedId no longer sharing, clearing focus")
+            clearFocusedShare()
+        }
     }
 
     private fun syncFocusedShareForPip() {
@@ -1395,10 +1574,13 @@ class VoiceRoomFragment : BaseFragment() {
         super.onFragmentDestroy()
     }
 
-    private fun sendRaiseHandReaction() {
+    private fun resolveLocalSenderMeta(): VoiceReactionHandler.SenderMeta {
         val identity = userController.userId
-        if (identity == 0L) return
-        val localMember = userClanController.getClanMembers(clanId).firstOrNull { it.userId == identity }
+        val localMember = if (identity != 0L && clanId != 0L) {
+            userClanController.getClanMembers(clanId).firstOrNull { it.userId == identity }
+        } else {
+            null
+        }
         val displayName = if (localMember != null) {
             localMember.clanNick.ifBlank {
                 localMember.displayName.ifBlank {
@@ -1417,6 +1599,15 @@ class VoiceRoomFragment : BaseFragment() {
         } else {
             userController.avatarUrl
         }
+        return VoiceReactionHandler.SenderMeta(displayName, avatarUrl.ifBlank { null })
+    }
+
+    private fun sendRaiseHandReaction() {
+        val identity = userController.userId
+        if (identity == 0L) return
+        val meta = resolveLocalSenderMeta()
+        val displayName = meta.name
+        val avatarUrl = meta.avatarUrl.orEmpty()
         if (isRaiseHandActive) {
             voiceController.sendVoiceReaction(
                 listOf(
@@ -1462,9 +1653,32 @@ class VoiceRoomFragment : BaseFragment() {
         minimizeToOverlay()
     }
 
-    private fun parseReactionMeta(raw: String?, prefix: String): String {
-        if (raw.isNullOrBlank()) return ""
-        return if (raw.startsWith(prefix)) raw.removePrefix(prefix).trim() else raw.trim()
+    private fun findReactionMeta(list: List<String>, prefix: String): String {
+        val match = list.firstOrNull { it.startsWith(prefix) } ?: return ""
+        return match.removePrefix(prefix).trim()
+    }
+
+    private fun resolveReactionDisplayName(senderId: Long, senderName: String): String? {
+        val trimmed = senderName.trim()
+        if (trimmed.isNotEmpty()) return trimmed
+        if (senderId == 0L) return null
+        if (senderId == userController.userId) {
+            return userController.displayName.ifBlank { userController.username }.ifBlank { null }
+        }
+        val members = userClanController.getClanMembers(clanId)
+        val member = members.firstOrNull { it.userId == senderId }
+        if (member != null) {
+            val resolved = member.clanNick.ifBlank {
+                member.displayName.ifBlank { member.username }
+            }
+            if (resolved.isNotBlank()) return resolved
+        }
+        val user = userClanController.getUserById(senderId)
+        if (user != null) {
+            val resolved = user.displayName.ifBlank { user.username }
+            if (resolved.isNotBlank()) return resolved
+        }
+        return null
     }
 
     private fun resolveRaiseHandDisplay(senderId: Long, senderName: String, senderAvatar: String): Pair<String, String?> {

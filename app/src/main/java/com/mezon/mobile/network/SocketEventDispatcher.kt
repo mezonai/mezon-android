@@ -36,7 +36,6 @@ import com.mezon.mezon.rtapi.PermissionSetEvent
 import com.mezon.mezon.rtapi.RoleAssignedEvent
 import com.mezon.mezon.rtapi.RoleEvent
 import com.mezon.mezon.rtapi.SdTopicEvent
-import com.mezon.mezon.rtapi.StatusPresenceEvent
 import com.mezon.mezon.rtapi.StickerCreateEvent
 import com.mezon.mezon.rtapi.StickerDeleteEvent
 import com.mezon.mezon.rtapi.StickerUpdateEvent
@@ -104,9 +103,6 @@ class SocketEventDispatcher @Inject constructor(
 
     private val _channelPresenceEvents = MutableSharedFlow<ChannelPresenceEvent>(extraBufferCapacity = 16)
     val channelPresenceEvents: SharedFlow<ChannelPresenceEvent> = _channelPresenceEvents.asSharedFlow()
-
-    private val _statusPresenceEvents = MutableSharedFlow<StatusPresenceEvent>(extraBufferCapacity = 16)
-    val statusPresenceEvents: SharedFlow<StatusPresenceEvent> = _statusPresenceEvents.asSharedFlow()
 
     private val _customStatusEvents = MutableSharedFlow<CustomStatusEvent>(extraBufferCapacity = 8)
     val customStatusEvents: SharedFlow<CustomStatusEvent> = _customStatusEvents.asSharedFlow()
@@ -276,8 +272,6 @@ class SocketEventDispatcher @Inject constructor(
                 _markAsRead.emit(envelope.markAsRead)
             Envelope.MessageCase.CHANNEL_PRESENCE_EVENT ->
                 _channelPresenceEvents.emit(envelope.channelPresenceEvent)
-            Envelope.MessageCase.STATUS_PRESENCE_EVENT ->
-                _statusPresenceEvents.emit(envelope.statusPresenceEvent)
             Envelope.MessageCase.CUSTOM_STATUS_EVENT ->
                 _customStatusEvents.emit(envelope.customStatusEvent)
             Envelope.MessageCase.USER_STATUS_EVENT ->

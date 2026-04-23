@@ -22,7 +22,7 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.ui.cells.MezonIcon
-import com.mezon.mobile.util.createImgproxyUrl
+import com.mezon.mobile.util.avatarImgproxyUrl
 import io.livekit.android.renderer.SurfaceViewRenderer
 import io.livekit.android.room.Room
 import io.livekit.android.room.track.VideoTrack
@@ -205,7 +205,7 @@ class ParticipantCell(
             avatarView.setImageDrawable(avatarDrawable)
             return
         }
-        val proxyUrl = createImgproxyUrl(url, AVATAR_SIZE * 2, AVATAR_SIZE * 2, "fill")
+        val proxyUrl = avatarImgproxyUrl(url, AVATAR_SIZE)
         val loader = MezonImageLoader.getInstance(context)
         val cached = loader.getBitmapFromMemory(proxyUrl, AVATAR_SIZE, AVATAR_SIZE)
         if (cached != null) {
@@ -238,7 +238,7 @@ class ParticipantCell(
         attachedToWindow = true
         val url = currentAvatarUrl
         if (!url.isNullOrEmpty() && avatarDisposable == null && !avatarDrawable.hasPhoto()) {
-            val proxyUrl = createImgproxyUrl(url, AVATAR_SIZE * 2, AVATAR_SIZE * 2, "fill")
+            val proxyUrl = avatarImgproxyUrl(url, AVATAR_SIZE)
             startImageLoad(MezonImageLoader.getInstance(context), proxyUrl)
         }
     }

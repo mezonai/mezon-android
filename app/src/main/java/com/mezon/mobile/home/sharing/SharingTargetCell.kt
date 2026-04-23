@@ -10,7 +10,7 @@ import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.chat.MezonImageLoader
-import com.mezon.mobile.util.createImgproxyUrl
+import com.mezon.mobile.util.avatarImgproxyUrl
 
 class SharingTargetCell(context: Context, private val theme: ThemeColors) : View(context) {
 
@@ -21,6 +21,7 @@ class SharingTargetCell(context: Context, private val theme: ThemeColors) : View
         private set
 
     private var nameLayout: StaticLayout? = null
+    private var subtitleLayout: StaticLayout? = null
 
     fun setData(t: SharingTarget) {
         target = t
@@ -37,10 +38,9 @@ class SharingTargetCell(context: Context, private val theme: ThemeColors) : View
             avatarDrawable.setPhoto(null)
             return
         }
-        val sizePx = AVATAR_SIZE * 2
-        val proxyUrl = createImgproxyUrl(url, sizePx, sizePx, "fill")
+        val proxyUrl = avatarImgproxyUrl(url, AVATAR_SIZE)
         avatarCancellable = MezonImageLoader.getInstance(context).load(
-            proxyUrl, sizePx, sizePx,
+            proxyUrl, AVATAR_SIZE, AVATAR_SIZE,
             onSuccess = { bmp ->
                 avatarCancellable = null
                 avatarDrawable.setPhoto(bmp)
@@ -58,12 +58,27 @@ class SharingTargetCell(context: Context, private val theme: ThemeColors) : View
         val t = target ?: return
         val availableWidth = measuredWidth - LEFT_PAD - RIGHT_PAD
         if (availableWidth <= 0) return
+        val primaryText = if (t.isThread && t.parentChannelLabel.isNotEmpty()) {
+            "${t.channelLabel} (${t.parentChannelLabel})"
+        } else {
+            t.channelLabel
+        }
         nameLayout = StaticLayout.Builder
-            .obtain(t.channelLabel, 0, t.channelLabel.length, theme.dialogNamePaint, availableWidth)
+            .obtain(primaryText, 0, primaryText.length, theme.dialogNamePaint, availableWidth)
             .setMaxLines(1)
             .setEllipsize(TextUtils.TruncateAt.END)
             .setAlignment(Layout.Alignment.ALIGN_NORMAL)
             .build()
+        subtitleLayout = if (t.isClanChannel && t.clanName.isNotEmpty()) {
+            StaticLayout.Builder
+                .obtain(t.clanName, 0, t.clanName.length, theme.dialogMessagePaint, availableWidth)
+                .setMaxLines(1)
+                .setEllipsize(TextUtils.TruncateAt.END)
+                .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                .build()
+        } else {
+            null
+        }
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -84,11 +99,21 @@ class SharingTargetCell(context: Context, private val theme: ThemeColors) : View
         )
         avatarDrawable.draw(canvas)
 
-        val layout = nameLayout ?: return
+        val name = nameLayout ?: return
+        val sub = subtitleLayout
+        val totalH = name.height + if (sub != null) sub.height + SUBTITLE_GAP else 0
+        var top = (CELL_HEIGHT - totalH) / 2f
         canvas.save()
-        canvas.translate(LEFT_PAD.toFloat(), (CELL_HEIGHT - layout.height) / 2f)
-        layout.draw(canvas)
+        canvas.translate(LEFT_PAD.toFloat(), top)
+        name.draw(canvas)
         canvas.restore()
+        if (sub != null) {
+            top += name.height + SUBTITLE_GAP
+            canvas.save()
+            canvas.translate(LEFT_PAD.toFloat(), top)
+            sub.draw(canvas)
+            canvas.restore()
+        }
     }
 
     override fun onDetachedFromWindow() {
@@ -98,10 +123,11 @@ class SharingTargetCell(context: Context, private val theme: ThemeColors) : View
     }
 
     companion object {
-        private val CELL_HEIGHT = LayoutHelper.dp(52)
+        private val CELL_HEIGHT = LayoutHelper.dp(60)
         private val AVATAR_SIZE = LayoutHelper.dp(40)
         private val H_PAD = LayoutHelper.dp(16)
         private val LEFT_PAD = H_PAD + AVATAR_SIZE + LayoutHelper.dp(12)
         private val RIGHT_PAD = LayoutHelper.dp(16)
+        private val SUBTITLE_GAP = LayoutHelper.dp(2)
     }
 }

@@ -78,6 +78,7 @@ class NotificationCenter(val currentAccount: Int) {
         val userDataLoaded = nextId()
         val clansDidLoad = nextId()
         val channelsDidLoad = nextId()
+        val channelAppsDidLoad = nextId()
         val clanInfoUpdated = nextId()
         val accountInfoLoaded = nextId()
         val blockedUsersLoaded = nextId()
@@ -125,6 +126,7 @@ class NotificationCenter(val currentAccount: Int) {
         val voiceRoomDisconnected = nextId()
         val voiceReactionReceived = nextId()
         val voiceAiAgentStateChanged = nextId()
+        val audioPlaybackStateChanged = nextId()
 
         const val UPDATE_MASK_NAME = 1
         const val UPDATE_MASK_AVATAR = 2

@@ -12,7 +12,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import android.graphics.drawable.BitmapDrawable
 import com.mezon.mobile.home.chat.MezonImageLoader
-import com.mezon.mobile.util.createImgproxyUrl
+import com.mezon.mobile.util.avatarImgproxyUrl
 import com.mezon.mezon.api.Friend
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AlertsCreator
@@ -204,7 +204,7 @@ class BlockedUsersFragment : BaseFragment() {
 
             if (user.avatarUrl.isNotEmpty()) {
                 val sizePx = LayoutHelper.dp(40)
-                val proxyUrl = createImgproxyUrl(user.avatarUrl, sizePx * 2, sizePx * 2, "fill")
+                val proxyUrl = avatarImgproxyUrl(user.avatarUrl, sizePx)
                 if (proxyUrl == currentAvatarUrl) {
                     unblockBtn.setOnClickListener { onUnblockClicked(friend) }
                     setWillNotDraw(!divider)

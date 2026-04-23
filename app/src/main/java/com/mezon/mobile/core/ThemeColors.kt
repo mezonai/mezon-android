@@ -351,6 +351,18 @@ class ThemeColors @Inject constructor() {
 
     val onPrimary: Int get() = Color.WHITE
 
+    val primaryGradiant: Int get() = primaryContainer
+
+    val textStrong: Int get() = tabLabelActive
+
+    val secondaryInputBackground: Int get() = channelPanelBg
+
+    val createClanDiscordBlurple: Int get() = 0xFF5865F2.toInt()
+
+    val createClanCameraGray: Int get() = 0xFF676B73.toInt()
+
+    val communityGuidelineLinkBlue: Int get() = textLink
+
     val onSurface: Int get() = when (resolvedMode) {
         ThemeMode.LIGHT -> 0xFF1C1B1F.toInt()
         ThemeMode.DARK -> 0xFFE6E1E5.toInt()
@@ -432,6 +444,13 @@ class ThemeColors @Inject constructor() {
         else -> 0x80373A54.toInt()
     }
     val reactionBorderColor: Int get() = 0xFF2563EB.toInt()
+
+    val qrOverlayDim: Int get() = 0x66000000
+    val qrOverlayFrame: Int get() = Color.WHITE
+    val qrPillBackground: Int get() = (surface and 0x00FFFFFF) or 0xCC000000.toInt()
+    val qrPillContent: Int get() = onSurface
+    val qrBrandAccent: Int get() = 0xFFE91E8C.toInt()
+    val qrAvatarBackground: Int get() = Color.WHITE
 
     // primary prop (outer shape) = iconSecondary || textNormal
     val tabIconPrimary: Int get() = when (resolvedMode) {

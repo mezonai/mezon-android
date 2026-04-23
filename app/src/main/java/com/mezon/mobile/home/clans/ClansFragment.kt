@@ -9,11 +9,20 @@ import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
+import android.os.Handler
+import android.os.Looper
+import android.text.Editable
+import android.text.SpannableStringBuilder
+import android.text.TextWatcher
+import android.text.style.ForegroundColorSpan
+import android.text.style.ReplacementSpan
+import androidx.annotation.ColorInt
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -34,6 +43,10 @@ import com.mezon.mobile.home.ChatController
 import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.chat.MezonImageLoader
+import com.mezon.mobile.home.clans.channelapp.ChannelAppController
+import com.mezon.mobile.home.clans.channelapp.ChannelAppFragment
+import com.mezon.mobile.home.clans.channelapp.ChannelAppShowAllFragment
+import com.mezon.mobile.home.clans.channelapp.ChannelAppUiModel
 import com.mezon.mobile.home.messages.DirectMessage
 import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.profile.AccountController
@@ -43,13 +56,19 @@ import com.mezon.mobile.home.voice.VoiceController
 import com.mezon.mobile.home.voice.VoiceRoomFragment
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import com.mezon.mobile.home.clans.discover.DiscoverClansFragment
+import com.mezon.mobile.home.clans.discover.DiscoverFilterHolder
+import com.mezon.mobile.home.clans.discover.DiscoverRailCell
+import com.mezon.mobile.home.clans.CreateClanRnUiTokens
 import com.mezon.mobile.search.GlobalSearchFragment
 import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.home.qr.QrScanFragment
 
 class ClansFragment : BaseFragment() {
 
     private lateinit var clansController: ClansController
     private lateinit var channelController: ChannelController
+    private lateinit var channelAppController: ChannelAppController
     private lateinit var chatController: ChatController
     private lateinit var dialogsController: DialogsController
     private lateinit var accountController: AccountController
@@ -72,13 +91,24 @@ class ClansFragment : BaseFragment() {
     private lateinit var clanNameText: TextView
     private var verifiedIcon: ImageView? = null
     private lateinit var memberCountText: TextView
-    private var communityDot: View? = null
-    private var communityLabel: TextView? = null
     private var viewJustCreated = false
+
+    private var headerSwitch: FrameLayout? = null
+    private var normalClanHeaderRoot: View? = null
+    private var emptyClanHeaderRoot: LinearLayout? = null
+    private val searchDebounceHandler = Handler(Looper.getMainLooper())
+    private var searchDebounceRunnable: Runnable? = null
+
+    private var renderedClanId = 0L
+    private var renderedClanName: String? = null
+    private var renderedIsCommunity: Boolean? = null
+    private var renderedBannerUrl: String? = null
+    private var renderedSubtitleKey: String? = null
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
         clansController = entryPoint.clansController()
         channelController = entryPoint.channelController()
+        channelAppController = entryPoint.channelAppController()
         chatController = entryPoint.chatController()
         dialogsController = entryPoint.dialogsController()
         accountController = entryPoint.accountController()
@@ -99,6 +129,13 @@ class ClansFragment : BaseFragment() {
             val clanId = args.firstOrNull() as? Long ?: return@observe
             if (clanId == clansController.selectedClanId.value) {
                 updateChannelList()
+            }
+        }
+        observe(NotificationCenter.channelAppsDidLoad) { _, _, args ->
+            if (fragmentView == null || listFrozen) return@observe
+            val clanId = args.firstOrNull() as? Long ?: return@observe
+            if (clanId == clansController.selectedClanId.value) {
+                updateChannelAppsStrip(clanId)
             }
         }
         observe(NotificationCenter.clanInfoUpdated) { _, _, _ ->
@@ -183,6 +220,12 @@ class ClansFragment : BaseFragment() {
                     val dm = view.directMessage ?: return@OnItemClickListener
                     onOpenChat?.invoke(dm.channelId, dm.displayName.ifEmpty { dm.label }, 0L, dm.type)
                 }
+                is DiscoverRailCell -> {
+                    presentFragment(DiscoverClansFragment())
+                }
+                is AddClanCell -> {
+                    presentFragment(CreateClanTemplateFragment())
+                }
             }
         })
 
@@ -198,13 +241,25 @@ class ClansFragment : BaseFragment() {
             clipToOutline = true
         }
 
-        val clanHeader = buildClanHeader(context)
+        val clanHeader = buildClanHeader(context).also { normalClanHeaderRoot = it }
+        val emptyHeader = buildEmptyClanHomeHeader(context).also { emptyClanHeaderRoot = it }
+        headerSwitch = FrameLayout(context).apply {
+            addView(clanHeader, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            ))
+            addView(emptyHeader, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            ))
+            emptyHeader.visibility = View.GONE
+        }
 
         channelListView = ChannelListView(context, themeColors, channelCategoryExpandStore).apply {
             onChannelClick = { channel -> onChannelSelected(channel) }
         }
 
-        channelPanel.addView(clanHeader, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+        channelPanel.addView(headerSwitch, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
         channelPanel.addView(channelListView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
 
         root.addView(serverRail, LayoutHelper.createLinear(56, LayoutHelper.MATCH_PARENT))
@@ -279,43 +334,16 @@ class ClansFragment : BaseFragment() {
         ).apply { leftMargin = LayoutHelper.dp(8) }) // RN: gap = Metrics.size.s = 8
         content.addView(nameRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
-        // Row 2: Member count + dot + Community (RN: subtitle 12sp, dot 4dp margin 8dp)
-        val subtitleRow = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
+        // Row 2: Member count + dot + Community — single TextView with spans (atomic render, no sibling shift)
         memberCountText = TextView(context).apply {
             setTextColor(themeColors.textDisabled)
             textSize = 13f
             text = ""
+            visibility = View.INVISIBLE
         }
-        subtitleRow.addView(memberCountText, LayoutHelper.createLinear(
+        content.addView(memberCountText, LayoutHelper.createLinear(
             LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT
         ))
-        communityDot = View(context).apply {
-            val dotBg = android.graphics.drawable.GradientDrawable().apply {
-                shape = android.graphics.drawable.GradientDrawable.OVAL
-                setColor(themeColors.blurple) // RN: baseColor.violetBlue
-            }
-            background = dotBg
-            visibility = View.GONE
-        }
-        subtitleRow.addView(communityDot, LinearLayout.LayoutParams(
-            LayoutHelper.dp(4), LayoutHelper.dp(4) // RN: s_4
-        ).apply {
-            leftMargin = LayoutHelper.dp(8) // RN: marginHorizontal s_8
-            rightMargin = LayoutHelper.dp(8)
-        })
-        communityLabel = TextView(context).apply {
-            setTextColor(themeColors.onSurface)
-            textSize = 13f
-            text = "Community"
-            visibility = View.GONE
-        }
-        subtitleRow.addView(communityLabel, LayoutHelper.createLinear(
-            LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT
-        ))
-        content.addView(subtitleRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         // Row 3: Navigation bar (RN: marginTop s_10, gap s_8)
         val navBar = LinearLayout(context).apply {
@@ -394,7 +422,7 @@ class ClansFragment : BaseFragment() {
             isClickable = true
             isFocusable = true
             setOnClickListener {
-                Toast.makeText(context, getString(R.string.feature_coming_soon), Toast.LENGTH_SHORT).show()
+                presentFragment(QrScanFragment())
             }
         }
         navBar.addView(qrButton, LinearLayout.LayoutParams(
@@ -440,6 +468,127 @@ class ClansFragment : BaseFragment() {
         header.addView(divider, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 1))
 
         return header
+    }
+
+    private fun buildEmptyClanHomeHeader(context: Context): LinearLayout {
+        val root = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        val title = TextView(context).apply {
+            text = getString(R.string.discover_community_on_mezon)
+            setTextColor(themeColors.onSurface)
+            textSize = 16f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            setPadding(0, 0, 0, LayoutHelper.dp(6))
+        }
+        root.addView(title, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+
+        val navBar = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val searchWrap = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val innerPad = LayoutHelper.dp(10)
+            setPadding(innerPad, 0, innerPad, 0)
+            background = GradientDrawable().apply {
+                setColor(themeColors.secondaryLight)
+                cornerRadius = LayoutHelper.dp(10f).toFloat()
+                setStroke(LayoutHelper.dp(1), themeColors.outlineVariant)
+            }
+            layoutParams = LinearLayout.LayoutParams(0, LayoutHelper.dp(36), 1f)
+        }
+        searchWrap.addView(ImageView(context).apply {
+            setImageDrawable(MezonIcon.searchIcon.getDrawable(context, themeColors.onSurface))
+            val p = LayoutHelper.dp(18)
+            layoutParams = LinearLayout.LayoutParams(p, p)
+        })
+        val edit = EditText(context).apply {
+            hint = getString(R.string.discover_explore_communities)
+            setHintTextColor(themeColors.onSurfaceVariant)
+            setTextColor(themeColors.onSurface)
+            textSize = 14f
+            setBackgroundColor(android.graphics.Color.TRANSPARENT)
+            layoutParams = LinearLayout.LayoutParams(0, LayoutHelper.MATCH_PARENT, 1f)
+        }
+        searchDebounceRunnable = Runnable {
+            DiscoverFilterHolder.searchQuery = edit.text?.toString().orEmpty()
+        }
+        edit.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                val r = searchDebounceRunnable ?: return
+                searchDebounceHandler.removeCallbacks(r)
+                searchDebounceHandler.postDelayed(r, 300)
+            }
+        })
+        searchWrap.addView(edit)
+        navBar.addView(searchWrap)
+
+        fun iconButton(icon: MezonIcon): ImageView {
+            return ImageView(context).apply {
+                val circleBg = GradientDrawable().apply {
+                    cornerRadius = LayoutHelper.dp(10f).toFloat()
+                    setColor(themeColors.secondaryLight)
+                }
+                background = RippleDrawable(
+                    ColorStateList.valueOf(themeColors.onSurface and 0x1AFFFFFF),
+                    circleBg,
+                    GradientDrawable().apply {
+                        setColor(0xFFFFFFFF.toInt())
+                        cornerRadius = LayoutHelper.dp(10f).toFloat()
+                    }
+                )
+                setImageDrawable(icon.getDrawable(context, themeColors.onSurface))
+                scaleType = ImageView.ScaleType.CENTER_INSIDE
+                val p = LayoutHelper.dp(8)
+                setPadding(p, p, p, p)
+                layoutParams = LinearLayout.LayoutParams(LayoutHelper.dp(36), LayoutHelper.dp(36)).apply {
+                    leftMargin = LayoutHelper.dp(8)
+                }
+            }
+        }
+        val qrBtn = iconButton(MezonIcon.scanQR)
+        qrBtn.setOnClickListener {
+            Toast.makeText(context, getString(R.string.feature_coming_soon), Toast.LENGTH_SHORT).show()
+        }
+        navBar.addView(qrBtn)
+        val addFriendBtn = iconButton(MezonIcon.addFriendImage)
+        addFriendBtn.setOnClickListener {
+            Toast.makeText(context, getString(R.string.feature_coming_soon), Toast.LENGTH_SHORT).show()
+        }
+        navBar.addView(addFriendBtn)
+
+        root.addView(navBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
+            topMargin = LayoutHelper.dp(10)
+        })
+        root.addView(View(context).apply { setBackgroundColor(themeColors.outlineVariant) },
+            LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 1).apply {
+                topMargin = LayoutHelper.dp(14)
+            })
+        root.setPadding(LayoutHelper.dp(12), LayoutHelper.dp(14), LayoutHelper.dp(12), LayoutHelper.dp(14))
+        return root
+    }
+
+    private fun updateClanPanelHeaderMode() {
+        if (fragmentView == null) return
+        val empty = clansController.clansLoaded && clansController.clans.value.isEmpty()
+        normalClanHeaderRoot?.visibility = if (empty) View.GONE else View.VISIBLE
+        emptyClanHeaderRoot?.visibility = if (empty) View.VISIBLE else View.GONE
+        val r = LayoutHelper.dp(20).toFloat()
+        if (empty) {
+            channelPanel.background = GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                CreateClanRnUiTokens.screenGradientColors(themeColors)
+            ).apply {
+                cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
+            }
+            channelListView.clear()
+        } else {
+            channelPanel.applyChannelPanelBg()
+        }
     }
 
     override fun onBecomeFullyVisible() {
@@ -508,40 +657,108 @@ class ClansFragment : BaseFragment() {
         val logoUrl = accountController.accountInfo.value.logo
         serverAdapter.submitData(unreadDms, clans, selectedId, newLogoUrl = logoUrl)
 
+        updateClanPanelHeaderMode()
+
         val selected = clans.find { it.clanId == selectedId }
         if (selected != null) updateClanHeader(selected)
     }
 
     private fun updateClanHeader(clan: ClanEntity) {
-        clanNameText.text = clan.clanName
+        val clanChanged = renderedClanId != clan.clanId
+        renderedClanId = clan.clanId
 
-        // Verified badge
-        verifiedIcon?.visibility = if (clan.isCommunity) View.VISIBLE else View.GONE
-
-        // Community subtitle
-        communityDot?.visibility = if (clan.isCommunity) View.VISIBLE else View.GONE
-        communityLabel?.visibility = if (clan.isCommunity) View.VISIBLE else View.GONE
-
-        // Banner
-        if (clan.banner.isNotEmpty()) {
-            bannerImage?.visibility = View.VISIBLE
-            bannerCancellable?.cancel()
-            val context = bannerImage?.context ?: return
-            val loader = MezonImageLoader.getInstance(context)
-            bannerCancellable = loader.load(clan.banner, 800, LayoutHelper.dp(140), onSuccess = { bitmap ->
-                bannerImage?.setImageBitmap(bitmap)
-            })
-        } else {
-            bannerImage?.visibility = View.GONE
+        if (clanChanged || renderedClanName != clan.clanName) {
+            renderedClanName = clan.clanName
+            clanNameText.text = clan.clanName
         }
 
+        if (clanChanged || renderedIsCommunity != clan.isCommunity) {
+            renderedIsCommunity = clan.isCommunity
+            verifiedIcon?.visibility = if (clan.isCommunity) View.VISIBLE else View.GONE
+            renderedSubtitleKey = null
+        }
+
+        if (clanChanged || renderedBannerUrl != clan.banner) {
+            renderedBannerUrl = clan.banner
+            bannerCancellable?.cancel()
+            bannerCancellable = null
+            if (clan.banner.isNotEmpty()) {
+                bannerImage?.visibility = View.VISIBLE
+                val context = bannerImage?.context
+                if (context != null) {
+                    val loader = MezonImageLoader.getInstance(context)
+                    bannerCancellable = loader.load(clan.banner, 800, LayoutHelper.dp(140), onSuccess = { bitmap ->
+                        bannerImage?.setImageBitmap(bitmap)
+                    })
+                }
+            } else {
+                bannerImage?.setImageBitmap(null)
+                bannerImage?.visibility = View.GONE
+            }
+        }
+
+        if (clanChanged) {
+            renderedSubtitleKey = null
+            memberCountText.animate().cancel()
+            val cachedCount = userClanController.getClanMemberCount(clan.clanId)
+            if (cachedCount > 0) {
+                memberCountText.alpha = 1f
+                memberCountText.visibility = View.VISIBLE
+            } else {
+                memberCountText.alpha = 0f
+                memberCountText.visibility = View.INVISIBLE
+            }
+        }
         updateMemberCount()
     }
 
     private fun updateMemberCount() {
         val clanId = clansController.selectedClanId.value
         val count = userClanController.getClanMemberCount(clanId)
-        memberCountText.text = if (count > 0) "$count Members" else ""
+        if (count <= 0) return
+        val isCommunity = renderedIsCommunity == true
+        val key = "$count|$isCommunity"
+        val alreadyShown = memberCountText.visibility == View.VISIBLE && memberCountText.alpha >= 1f
+        if (renderedSubtitleKey == key && alreadyShown) return
+        val wasHidden = !alreadyShown
+        renderedSubtitleKey = key
+        memberCountText.text = buildSubtitleText(count, isCommunity)
+        memberCountText.visibility = View.VISIBLE
+        if (wasHidden) {
+            memberCountText.animate().cancel()
+            memberCountText.alpha = 0f
+            memberCountText.animate()
+                .alpha(1f)
+                .setDuration(180)
+                .start()
+        }
+    }
+
+    private fun buildSubtitleText(count: Int, isCommunity: Boolean): CharSequence {
+        val base = "$count Members"
+        if (!isCommunity) return base
+        val builder = SpannableStringBuilder(base)
+        val dotStart = builder.length
+        builder.append(" ")
+        builder.setSpan(
+            CenteredDotSpan(
+                themeColors.blurple,
+                LayoutHelper.dp(4),
+                LayoutHelper.dp(8)
+            ),
+            dotStart,
+            builder.length,
+            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
+        val labelStart = builder.length
+        builder.append("Community")
+        builder.setSpan(
+            ForegroundColorSpan(themeColors.onSurface),
+            labelStart,
+            builder.length,
+            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
+        return builder
     }
 
     private fun openSearch() {
@@ -557,6 +774,34 @@ class ClansFragment : BaseFragment() {
         channelListView.bind(clanId, sections)
         voiceController.fetchVoiceChannelMembers(clanId)
         updateVoiceMembers(clanId)
+        updateChannelAppsStrip(clanId)
+    }
+
+    private fun updateChannelAppsStrip(clanId: Long) {
+        if (clanId == 0L) {
+            channelListView.setChannelApps(emptyList(), ::onChannelAppClicked, ::onChannelAppViewAllClicked)
+            return
+        }
+        val apps = channelAppController.getApps(clanId)
+        channelListView.setChannelApps(apps, ::onChannelAppClicked, ::onChannelAppViewAllClicked)
+    }
+
+    private fun onChannelAppClicked(app: ChannelAppUiModel) {
+        presentFragment(
+            ChannelAppFragment.newInstance(
+                channelId = app.channelId,
+                clanId = if (app.clanId != 0L) app.clanId else clansController.selectedClanId.value,
+                appId = app.appId,
+                appUrl = app.appUrl,
+                appName = app.appName
+            )
+        )
+    }
+
+    private fun onChannelAppViewAllClicked() {
+        val clanId = clansController.selectedClanId.value
+        if (clanId == 0L) return
+        presentFragment(ChannelAppShowAllFragment.newInstance(clanId))
     }
 
     private fun updateVoiceMembers(clanId: Long) {
@@ -678,6 +923,8 @@ class ClansFragment : BaseFragment() {
         private val VIEW_TYPE_UNREAD_DM = 1
         private val VIEW_TYPE_SEPARATOR = 2
         private val VIEW_TYPE_CLAN = 3
+        private val VIEW_TYPE_DISCOVER = 5
+        private val VIEW_TYPE_ADD_CLAN = 4
 
         private val unreadDms = mutableListOf<DirectMessage>()
         private val clans = mutableListOf<ClanEntity>()
@@ -686,6 +933,7 @@ class ClansFragment : BaseFragment() {
         private var logoUrl = ""
 
         private val dmHeaderCount = 1
+        private val discoverRailCellEnabled = true
         private val hasSeparator: Boolean
             get() = clans.isNotEmpty()
 
@@ -765,7 +1013,8 @@ class ClansFragment : BaseFragment() {
 
         override fun getItemCount(): Int {
             val sep = if (hasSeparator) 1 else 0
-            return dmHeaderCount + unreadDms.size + sep + clans.size
+            val discoverSlots = if (discoverRailCellEnabled) 1 else 0
+            return dmHeaderCount + unreadDms.size + sep + clans.size + discoverSlots + 1
         }
 
         override fun getItemId(position: Int): Long {
@@ -773,8 +1022,10 @@ class ClansFragment : BaseFragment() {
             val afterHeader = position - dmHeaderCount
             if (afterHeader < unreadDms.size) return unreadDms[afterHeader].channelId
             if (hasSeparator && afterHeader == unreadDms.size) return Long.MIN_VALUE + 1
+            if (position == itemCount - 1) return Long.MIN_VALUE + 4
+            if (discoverRailCellEnabled && position == itemCount - 2) return Long.MIN_VALUE + 3
             val idx = clanIndex(position)
-            return if (idx in clans.indices) clans[idx].clanId else RecyclerView.NO_ID
+            return if (idx in clans.indices) clans[idx].clanId else Long.MIN_VALUE + 2
         }
 
         override fun getItemViewType(position: Int): Int {
@@ -782,6 +1033,8 @@ class ClansFragment : BaseFragment() {
             val afterHeader = position - dmHeaderCount
             if (afterHeader < unreadDms.size) return VIEW_TYPE_UNREAD_DM
             if (hasSeparator && afterHeader == unreadDms.size) return VIEW_TYPE_SEPARATOR
+            if (position == itemCount - 1) return VIEW_TYPE_ADD_CLAN
+            if (discoverRailCellEnabled && position == itemCount - 2) return VIEW_TYPE_DISCOVER
             return VIEW_TYPE_CLAN
         }
 
@@ -795,6 +1048,8 @@ class ClansFragment : BaseFragment() {
                 VIEW_TYPE_DM_HEADER -> DmLogoCell(parent.context, themeColors)
                 VIEW_TYPE_UNREAD_DM -> UnreadDmCell(parent.context, themeColors)
                 VIEW_TYPE_SEPARATOR -> SeparatorView(parent.context, themeColors)
+                VIEW_TYPE_DISCOVER -> DiscoverRailCell(parent.context, themeColors)
+                VIEW_TYPE_ADD_CLAN -> AddClanCell(parent.context, themeColors)
                 else -> ClanCell(parent.context, themeColors)
             }
             return object : RecyclerView.ViewHolder(view) {}
@@ -831,6 +1086,39 @@ class ClansFragment : BaseFragment() {
             val margin = LayoutHelper.dp(12f).toFloat()
             paint.color = theme.outlineVariant
             canvas.drawLine(margin, y, width - margin, y, paint)
+        }
+    }
+
+    private class CenteredDotSpan(
+        @ColorInt private val color: Int,
+        private val diameterPx: Int,
+        private val marginPx: Int
+    ) : ReplacementSpan() {
+        private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+        override fun getSize(
+            paint: Paint,
+            text: CharSequence?,
+            start: Int,
+            end: Int,
+            fm: Paint.FontMetricsInt?
+        ): Int = diameterPx + marginPx * 2
+
+        override fun draw(
+            canvas: Canvas,
+            text: CharSequence?,
+            start: Int,
+            end: Int,
+            x: Float,
+            top: Int,
+            y: Int,
+            bottom: Int,
+            paint: Paint
+        ) {
+            dotPaint.color = color
+            val cx = x + marginPx + diameterPx / 2f
+            val cy = (top + bottom) / 2f
+            canvas.drawCircle(cx, cy, diameterPx / 2f, dotPaint)
         }
     }
 }

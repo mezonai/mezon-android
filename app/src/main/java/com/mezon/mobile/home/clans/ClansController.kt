@@ -15,12 +15,14 @@ import com.mezon.mobile.network.MezonSocket
 import com.mezon.mobile.network.SocketEventDispatcher
 import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.session.SessionManager
-import com.mezon.mobile.util.createImgproxyUrl
+import com.mezon.mobile.util.avatarImgproxyUrl
 import com.mezon.mobile.home.BadgeCoordinator
+import com.mezon.mobile.home.clans.channelapp.ChannelAppController
 import dagger.Lazy
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,6 +34,7 @@ import javax.inject.Singleton
 
 private const val TAG = "ClansController"
 private val CLAN_ICON_SIZE_PX = LayoutHelper.dp(40)
+const val CLAN_CREATE_LIMIT = 50
 
 @Singleton
 class ClansController @Inject constructor(
@@ -43,6 +46,7 @@ class ClansController @Inject constructor(
     private val notificationCenter: NotificationCenter,
     private val cacheTracker: ApiCacheTracker,
     private val channelController: ChannelController,
+    private val channelAppController: ChannelAppController,
     private val mezonSocket: MezonSocket,
     private val badgeCoordinator: Lazy<BadgeCoordinator>,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
@@ -81,10 +85,11 @@ class ClansController @Inject constructor(
         clansLoaded = false
     }
 
-    fun selectClan(clanId: Long) {
-        if (_selectedClanId.value == clanId) return
+    fun selectClan(clanId: Long, force: Boolean = false) {
+        if (!force && _selectedClanId.value == clanId) return
         _selectedClanId.value = clanId
         channelController.loadChannelsForClan(clanId)
+        channelAppController.loadAppsForClan(clanId)
         appScope.launch {
             sessionManager.saveLastClanId(clanId)
             try {
@@ -96,6 +101,87 @@ class ClansController @Inject constructor(
             }
         }
         notificationCenter.postNotificationOnMainThread(NotificationCenter.selectedClanChanged, clanId)
+    }
+
+    fun getClanCount(): Int = _clans.value.size
+
+    suspend fun isDuplicateClanName(clanName: String): Boolean {
+        if (!mezonSocket.awaitConnected()) {
+            return false
+        }
+        return runCatching { mezonSocket.checkDuplicateClanName(clanName) }.getOrDefault(false)
+    }
+
+    suspend fun createClan(
+        clanName: String,
+        logo: String,
+        template: ClanTemplateSpec?
+    ): ClanEntity {
+        val createdClan = sessionManager.withAutoRefresh { session ->
+            withContext(ioDispatcher) {
+                api.createClanDesc(
+                    apiUrl = session.apiUrl,
+                    token = session.token,
+                    clanName = clanName,
+                    logo = logo
+                )
+            }
+        }.toClanEntity()
+        val old = _clans.value
+        val next = old + createdClan.copy(clanOrder = old.size)
+        _clans.value = next
+        withContext(ioDispatcher) {
+            clanDao.upsert(createdClan.copy(clanOrder = old.size))
+        }
+        clansLoaded = true
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.clansDidLoad)
+        selectClan(createdClan.clanId)
+        if (template != null) {
+            createTemplateStructure(createdClan.clanId, template)
+        }
+        channelController.loadChannelsForClanNow(createdClan.clanId, force = true)
+        return createdClan
+    }
+
+    private suspend fun createTemplateStructure(clanId: Long, template: ClanTemplateSpec) {
+        sessionManager.withAutoRefresh { session ->
+            val initialChannels = withContext(ioDispatcher) {
+                api.listChannelsByClan(session.apiUrl, session.token, clanId)
+            }
+            var defaultCategoryId = initialChannels.channeldescList.firstOrNull()?.categoryId ?: 0L
+            for (category in template.categories) {
+                val categoryId = if (category.name.isBlank()) {
+                    defaultCategoryId
+                } else {
+                    val createdCategory = withContext(ioDispatcher) {
+                        api.createCategoryDesc(session.apiUrl, session.token, clanId, category.name)
+                    }
+                    createdCategory.categoryId
+                }
+                if (categoryId == 0L) {
+                    continue
+                }
+                if (defaultCategoryId == 0L) {
+                    defaultCategoryId = categoryId
+                }
+                for (channel in category.channels) {
+                    withContext(ioDispatcher) {
+                        api.createChannelDesc(
+                            apiUrl = session.apiUrl,
+                            token = session.token,
+                            clanId = clanId,
+                            type = channel.type,
+                            channelPrivate = if (channel.isPrivate) 1 else 0,
+                            userIds = emptyList(),
+                            channelLabel = channel.name,
+                            categoryId = categoryId,
+                            parentId = 0L
+                        )
+                    }
+                    delay(400)
+                }
+            }
+        }
     }
 
     fun loadClans(force: Boolean = false) {
@@ -110,6 +196,7 @@ class ClansController @Inject constructor(
                         if (selectedId != 0L) {
                             notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, selectedId)
                             channelController.loadChannelsForClanNow(selectedId, force)
+                            channelAppController.loadAppsForClan(selectedId, force)
                         }
                         fetchClanBadgeCountsIfNeeded(force)
                         badgeCoordinator.get().processDeferredQueue()
@@ -150,6 +237,7 @@ class ClansController @Inject constructor(
                 val sel = _selectedClanId.value
                 if (sel != 0L) {
                     channelController.loadChannelsForClanNow(sel, force)
+                    channelAppController.loadAppsForClan(sel, force)
                     if (previousSelected == 0L && sorted.isNotEmpty()) {
                         notificationCenter.postNotificationOnMainThread(NotificationCenter.selectedClanChanged, sel)
                         appScope.launch {
@@ -270,7 +358,7 @@ class ClansController @Inject constructor(
         val sizePx = CLAN_ICON_SIZE_PX
         for (clan in clans) {
             if (clan.logo.isEmpty()) continue
-            val url = createImgproxyUrl(clan.logo, sizePx * 2, sizePx * 2, "fill")
+            val url = avatarImgproxyUrl(clan.logo, sizePx)
             loader.load(url, sizePx, sizePx, onSuccess = {})
         }
     }

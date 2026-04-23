@@ -11,7 +11,7 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.search.SearchMember
-import com.mezon.mobile.util.createImgproxyUrl
+import com.mezon.mobile.util.avatarImgproxyUrl
 
 class ProfileSearchCell(context: Context, private val theme: ThemeColors) : BaseCell(context) {
 
@@ -102,7 +102,7 @@ class ProfileSearchCell(context: Context, private val theme: ThemeColors) : Base
             return
         }
 
-        val proxyUrl = createImgproxyUrl(url, AVATAR_SIZE * 2, AVATAR_SIZE * 2, "fill")
+        val proxyUrl = avatarImgproxyUrl(url, AVATAR_SIZE)
         avatarDisposable = MezonImageLoader.getInstance(context).load(
             proxyUrl, AVATAR_SIZE, AVATAR_SIZE,
             onSuccess = { bmp ->

@@ -10,7 +10,7 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.chat.MezonImageLoader
-import com.mezon.mobile.util.createImgproxyUrl
+import com.mezon.mobile.util.avatarImgproxyUrl
 import com.mezon.mobile.util.convertTimestampToTimeAgo
 
 class NotificationCell(context: Context, private val theme: ThemeColors) : BaseCell(context) {
@@ -157,7 +157,7 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : BaseC
         avatarDisposable?.cancel()
         avatarDisposable = null
         if (url.isNotEmpty()) {
-            val proxyUrl = createImgproxyUrl(url, AVATAR_SIZE * 2, AVATAR_SIZE * 2, "fill")
+            val proxyUrl = avatarImgproxyUrl(url, AVATAR_SIZE)
             avatarDisposable = MezonImageLoader.getInstance(context).load(
                 proxyUrl, AVATAR_SIZE, AVATAR_SIZE,
                 onSuccess = { bmp ->
