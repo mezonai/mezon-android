@@ -689,11 +689,17 @@ class MezonApi @Inject constructor(
         return rpc(apiUrl, token, "DeleteAccount", ByteArray(0))
     }
 
-    suspend fun listFriends(apiUrl: String, token: String, state: Int = 3, limit: Int = 100): FriendList {
+    suspend fun listFriends(apiUrl: String, token: String, state: Int = 3, limit: Int = 1000): FriendList {
         val request = listFriendsRequest {
             this.state = state
             this.limit = limit
         }
+        val bytes = rpc(apiUrl, token, "ListFriends", request.toByteArray())
+        return FriendList.parseFrom(bytes)
+    }
+
+    suspend fun listFriendsAll(apiUrl: String, token: String): FriendList {
+        val request = listFriendsRequest {}
         val bytes = rpc(apiUrl, token, "ListFriends", request.toByteArray())
         return FriendList.parseFrom(bytes)
     }

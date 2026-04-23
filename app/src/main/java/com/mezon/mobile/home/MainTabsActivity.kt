@@ -18,7 +18,7 @@ import com.mezon.mobile.home.clans.ClansFragment
 import com.mezon.mobile.home.messages.MessagesFragment
 import com.mezon.mobile.home.notifications.NotificationStore
 import com.mezon.mobile.home.notifications.NotificationsFragment
-import com.mezon.mobile.home.profile.AccountController
+import com.mezon.mobile.home.friends.FriendController
 import com.mezon.mobile.home.profile.ProfileFragment
 import com.mezon.mobile.ui.cells.BottomTabBar
 
@@ -33,8 +33,7 @@ class MainTabsActivity : ViewPagerActivity() {
 
     private lateinit var connectionController: ConnectionController
     private lateinit var messagesController: MessagesController
-    @Suppress("unused")
-    private lateinit var accountController: AccountController
+    private lateinit var friendController: FriendController
     @Suppress("unused")
     private lateinit var voiceController: com.mezon.mobile.home.voice.VoiceController
     private lateinit var anonymousController: AnonymousController
@@ -85,7 +84,7 @@ class MainTabsActivity : ViewPagerActivity() {
     override fun onInject(entryPoint: FragmentEntryPoint) {
         connectionController = entryPoint.connectionController()
         messagesController = entryPoint.messagesController()
-        accountController = entryPoint.accountController()
+        friendController = entryPoint.friendController()
         voiceController = entryPoint.voiceController()
         anonymousController = entryPoint.anonymousController()
         pinMessageController = entryPoint.pinMessageController()
@@ -246,6 +245,9 @@ class MainTabsActivity : ViewPagerActivity() {
     override fun onResume() {
         super.onResume()
         showTabBar(animated = false)
+        if (::friendController.isInitialized) {
+            friendController.loadFriendRelationsOnForegroundThrottled()
+        }
     }
 
     override fun onBecomeFullyVisible() {

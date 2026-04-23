@@ -21,17 +21,18 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.di.FragmentEntryPoint
+import com.mezon.mobile.home.friends.FriendController
 
 class BlockedUsersFragment : BaseFragment() {
 
-    private lateinit var accountController: AccountController
+    private lateinit var friendController: FriendController
 
     private lateinit var recyclerView: RecyclerListView
     private lateinit var emptyView: TextView
     private lateinit var listAdapter: BlockedAdapter
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
-        accountController = entryPoint.accountController()
+        friendController = entryPoint.friendController()
     }
 
     override fun onFragmentCreate(): Boolean {
@@ -56,7 +57,7 @@ class BlockedUsersFragment : BaseFragment() {
             listAdapter.notifyDataSetChanged()
         }
 
-        accountController.loadBlockedUsers()
+        friendController.loadBlockedUsers()
         return true
     }
 
@@ -93,7 +94,7 @@ class BlockedUsersFragment : BaseFragment() {
     }
 
     private fun updateList() {
-        val users = accountController.blockedUsers.value
+        val users = friendController.blockedUsers.value
         listAdapter.submitList(users)
         recyclerView.visibility = if (users.isEmpty()) View.GONE else View.VISIBLE
         emptyView.visibility = if (users.isEmpty()) View.VISIBLE else View.GONE
@@ -107,7 +108,7 @@ class BlockedUsersFragment : BaseFragment() {
             confirmText = getString(R.string.blocked_unblock_confirm),
             cancelText = getString(R.string.common_cancel)
         ) {
-            accountController.unblockUser(friend.user.id, friend.user.username) { success ->
+            friendController.unblockUser(friend.user.id, friend.user.username) { success ->
                 if (!success) {
                     AlertsCreator.showSimpleAlert(
                         requireContext(),
