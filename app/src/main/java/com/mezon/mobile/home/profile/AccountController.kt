@@ -43,6 +43,14 @@ data class AccountInfo(
     val address: String = ""
 )
 
+data class FriendRequestEntry(
+    val id: Long,
+    val username: String,
+    val displayName: String,
+    val avatarUrl: String,
+    val state: Int
+)
+
 @Singleton
 class AccountController @Inject constructor(
     private val api: MezonApi,
@@ -64,6 +72,9 @@ class AccountController @Inject constructor(
 
     private val _friends = MutableStateFlow<List<Friend>>(emptyList())
     val friends: StateFlow<List<Friend>> = _friends.asStateFlow()
+
+    private val _friendRequests = MutableStateFlow<List<FriendRequestEntry>>(emptyList())
+    val friendRequests: StateFlow<List<FriendRequestEntry>> = _friendRequests.asStateFlow()
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
@@ -120,6 +131,28 @@ class AccountController @Inject constructor(
     private val cacheKey = apiCacheKey("getAccount")
     private val friendsCacheKey = apiCacheKey("listFriends", 0)
     private val blockedCacheKey = apiCacheKey("listFriends", 3)
+    private val friendRequestsCacheKey = apiCacheKey("listFriends", -1)
+
+    private fun mapFriendRequestEntry(friend: Friend): FriendRequestEntry {
+        val user = friend.user
+        return FriendRequestEntry(
+            id = user.id,
+            username = user.username,
+            displayName = user.displayName.ifEmpty { user.username },
+            avatarUrl = user.avatarUrl,
+            state = friend.state
+        )
+    }
+
+    private fun mergeFriendEntries(vararg buckets: List<FriendRequestEntry>): List<FriendRequestEntry> {
+        val merged = LinkedHashMap<Long, FriendRequestEntry>()
+        for (bucket in buckets) {
+            for (entry in bucket) {
+                merged[entry.id] = entry
+            }
+        }
+        return merged.values.toList()
+    }
 
     private suspend fun loadAccountInternal(noCache: Boolean = false) {
         try {
@@ -197,6 +230,98 @@ class AccountController @Inject constructor(
                     notificationCenter.postNotificationOnMainThread(NotificationCenter.friendsLoaded)
                 }
             } catch (e: Exception) {
+            }
+        }
+    }
+
+    fun loadFriendRequests(noCache: Boolean = false) {
+        appScope.launch {
+            if (cacheTracker.shouldCall(friendRequestsCacheKey, noCache = noCache) == ApiCacheTracker.ShouldCall.SKIP) {
+                return@launch
+            }
+            try {
+                sessionManager.withAutoRefresh { session ->
+                    val entries = withContext(ioDispatcher) {
+                        coroutineScope {
+                            val friendsDeferred = async { api.listFriends(session.apiUrl, session.token, state = 0).friendsList }
+                            val outgoingDeferred = async { api.listFriends(session.apiUrl, session.token, state = 1).friendsList }
+                            val incomingDeferred = async { api.listFriends(session.apiUrl, session.token, state = 2).friendsList }
+                            val blockedDeferred = async { api.listFriends(session.apiUrl, session.token, state = 3).friendsList }
+
+                            mergeFriendEntries(
+                                friendsDeferred.await().map(::mapFriendRequestEntry),
+                                outgoingDeferred.await().map(::mapFriendRequestEntry),
+                                incomingDeferred.await().map(::mapFriendRequestEntry),
+                                blockedDeferred.await().map(::mapFriendRequestEntry)
+                            )
+                        }
+                    }
+                    _friendRequests.value = entries
+                    cacheTracker.markCalled(friendRequestsCacheKey)
+                    notificationCenter.postNotificationOnMainThread(NotificationCenter.friendRequestsLoaded)
+                }
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    fun sendFriendRequest(username: String, onResult: (success: Boolean) -> Unit) {
+        appScope.launch {
+            val alreadyPending = _friendRequests.value.any {
+                it.state == 1 && it.username.equals(username, ignoreCase = true)
+            }
+            if (alreadyPending) {
+                withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(false) }
+                return@launch
+            }
+            try {
+                sessionManager.withAutoRefresh { session ->
+                    withContext(ioDispatcher) {
+                        api.addFriends(session.apiUrl, session.token, emptyList(), listOf(username))
+                    }
+                }
+                loadFriendRequests(noCache = true)
+                withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(true) }
+            } catch (_: Exception) {
+                withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(false) }
+            }
+        }
+    }
+
+    fun acceptFriendRequest(entry: FriendRequestEntry, onResult: (success: Boolean) -> Unit) {
+        appScope.launch {
+            try {
+                sessionManager.withAutoRefresh { session ->
+                    withContext(ioDispatcher) {
+                        api.addFriends(session.apiUrl, session.token, listOf(entry.id), listOf(entry.username))
+                    }
+                }
+                _friendRequests.value = _friendRequests.value.map {
+                    if (it.id == entry.id) it.copy(state = 0) else it
+                }
+                cacheTracker.invalidate(friendRequestsCacheKey)
+                notificationCenter.postNotificationOnMainThread(NotificationCenter.friendRequestsLoaded)
+                withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(true) }
+            } catch (_: Exception) {
+                withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(false) }
+            }
+        }
+    }
+
+    fun deleteFriendRelation(entry: FriendRequestEntry, onResult: (success: Boolean) -> Unit) {
+        appScope.launch {
+            try {
+                sessionManager.withAutoRefresh { session ->
+                    withContext(ioDispatcher) {
+                        api.deleteFriends(session.apiUrl, session.token, listOf(entry.id), listOf(entry.username))
+                    }
+                }
+                _friendRequests.value = _friendRequests.value.filterNot { it.id == entry.id }
+                cacheTracker.invalidate(friendRequestsCacheKey)
+                notificationCenter.postNotificationOnMainThread(NotificationCenter.friendRequestsLoaded)
+                withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(true) }
+            } catch (_: Exception) {
+                withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(false) }
             }
         }
     }

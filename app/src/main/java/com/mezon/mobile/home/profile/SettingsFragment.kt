@@ -168,7 +168,7 @@ class SettingsFragment : BaseFragment() {
                 null,
                 true,
                 false,
-                null
+                { presentFragment(FriendRequestsFragment()) }
             ),
             MenuItem(
                 getString(R.string.setting_scan_qr),

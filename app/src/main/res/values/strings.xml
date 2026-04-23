@@ -242,6 +242,16 @@
     <string name="friends_add_title">Find your friends</string>
     <string name="friends_add_placeholder">Enter a username or phone number</string>
     <string name="friends_add_send_request">Send Friend Request</string>
+    <string name="friends_add_by_username">Add by username or phone number</string>
+    <string name="friends_empty_received">No incoming friend requests</string>
+    <string name="friends_empty_received_sub">Here you\'ll see all the friend requests people send to you.</string>
+    <string name="friends_empty_sent">No outgoing friend requests</string>
+    <string name="friends_empty_sent_sub">Here you\'ll see all the friend requests you\'ve sent to others.</string>
+    <string name="friends_toast_send_success">Friend request sent</string>
+    <string name="friends_toast_send_fail">Could not send friend request</string>
+    <string name="friends_error_blocked">This user is blocked</string>
+    <string name="friends_error_already_friend">You are already friends</string>
+    <string name="friends_error_wait_accept">Please wait for this user to accept</string>
 
     <!-- setting -->
     <string name="setting_account_title">Account Settings</string>

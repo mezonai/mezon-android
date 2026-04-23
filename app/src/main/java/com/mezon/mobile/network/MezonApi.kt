@@ -500,20 +500,27 @@ class MezonApi @Inject constructor(
         return FriendList.parseFrom(bytes)
     }
 
+    private fun buildFriendMutationRequest(ids: List<Long>, usernames: List<String>): ByteArray {
+        val builder = BlockFriendsRequest.newBuilder()
+        ids.forEach { builder.addIds(it) }
+        usernames.forEach { builder.addUsernames(it) }
+        return builder.build().toByteArray()
+    }
+
+    suspend fun addFriends(apiUrl: String, token: String, ids: List<Long>, usernames: List<String>): ByteArray {
+        return rpc(apiUrl, token, "AddFriends", buildFriendMutationRequest(ids, usernames))
+    }
+
+    suspend fun deleteFriends(apiUrl: String, token: String, ids: List<Long>, usernames: List<String>): ByteArray {
+        return rpc(apiUrl, token, "DeleteFriends", buildFriendMutationRequest(ids, usernames))
+    }
+
     suspend fun blockFriends(apiUrl: String, token: String, ids: List<Long>, usernames: List<String>): ByteArray {
-        val request = blockFriendsRequest {
-            this.ids.addAll(ids)
-            this.usernames.addAll(usernames)
-        }
-        return rpc(apiUrl, token, "BlockFriends", request.toByteArray())
+        return rpc(apiUrl, token, "BlockFriends", buildFriendMutationRequest(ids, usernames))
     }
 
     suspend fun unblockFriends(apiUrl: String, token: String, ids: List<Long>, usernames: List<String>): ByteArray {
-        val request = blockFriendsRequest {
-            this.ids.addAll(ids)
-            this.usernames.addAll(usernames)
-        }
-        return rpc(apiUrl, token, "DeleteFriends", request.toByteArray())
+        return rpc(apiUrl, token, "DeleteFriends", buildFriendMutationRequest(ids, usernames))
     }
 
     suspend fun sendChannelMessage(

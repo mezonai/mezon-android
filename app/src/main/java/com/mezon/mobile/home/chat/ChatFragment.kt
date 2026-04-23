@@ -50,6 +50,7 @@ import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.CHANNEL_TYPE_APP
 import com.mezon.mobile.home.clans.CHANNEL_TYPE_STREAMING
+import com.mezon.mobile.home.profile.AddFriendFragment
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.ui.cells.ActionBarView
@@ -444,7 +445,7 @@ class ChatFragment : BaseFragment() {
                     val newestInList = messages.first().id
                     if (newestInList < lastSentMessageId) {
                         hasMoreBottom = true
-                    }
+                      }
                 }
             }
 
@@ -2775,7 +2776,7 @@ class ChatFragment : BaseFragment() {
                     android.widget.Toast.makeText(ctx, R.string.feature_coming_soon, android.widget.Toast.LENGTH_SHORT).show()
                 }
                 override fun onAddFriend(userId: Long) {
-                    android.widget.Toast.makeText(ctx, R.string.feature_coming_soon, android.widget.Toast.LENGTH_SHORT).show()
+                    presentFragment(AddFriendFragment())
                 }
             }
         )
@@ -3178,3 +3179,5 @@ class ChatFragment : BaseFragment() {
         return MezonIcon.channelText
     }
 }
+
+

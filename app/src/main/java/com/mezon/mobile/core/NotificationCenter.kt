@@ -82,6 +82,7 @@ class NotificationCenter(val currentAccount: Int) {
         val accountInfoLoaded = nextId()
         val blockedUsersLoaded = nextId()
         val friendsLoaded = nextId()
+        val friendRequestsLoaded = nextId()
         val notificationsDidLoad = nextId()
         val notificationsLoadError = nextId()
 

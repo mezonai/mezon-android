@@ -216,6 +216,16 @@
     <string name="friends_add_title">Tìm bạn bè</string>
     <string name="friends_add_placeholder">Nhập tên người dùng hoặc số điện thoại</string>
     <string name="friends_add_send_request">Gửi yêu cầu kết bạn</string>
+    <string name="friends_add_by_username">Thêm bằng tên người dùng hoặc số điện thoại</string>
+    <string name="friends_empty_received">Không có lời mời kết bạn nào</string>
+    <string name="friends_empty_received_sub">Tất cả lời mời kết bạn mọi người gửi cho bạn sẽ hiển thị ở đây.</string>
+    <string name="friends_empty_sent">Không có lời mời kết bạn nào đã gửi</string>
+    <string name="friends_empty_sent_sub">Tất cả lời mời kết bạn bạn đã gửi cho người khác sẽ hiển thị ở đây.</string>
+    <string name="friends_toast_send_success">Đã gửi lời mời kết bạn</string>
+    <string name="friends_toast_send_fail">Không thể gửi lời mời kết bạn</string>
+    <string name="friends_error_blocked">Người dùng này đã bị chặn</string>
+    <string name="friends_error_already_friend">Bạn đã là bạn bè rồi</string>
+    <string name="friends_error_wait_accept">Vui lòng chờ người dùng này chấp nhận</string>
 
     <!-- setting -->
     <string name="setting_account_title">Cài đặt tài khoản</string>
