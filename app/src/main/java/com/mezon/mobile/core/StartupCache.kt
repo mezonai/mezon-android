@@ -23,7 +23,8 @@ object StartupCache {
             "light" -> ThemeMode.LIGHT
             "dark" -> ThemeMode.DARK
             "abyss" -> ThemeMode.ABYSS
-            else -> ThemeMode.SYSTEM
+            "system" -> ThemeMode.SYSTEM
+            else -> ThemeMode.DARK
         }
         set(value) = prefs.edit().putString(KEY_THEME, when (value) {
             ThemeMode.LIGHT -> "light"

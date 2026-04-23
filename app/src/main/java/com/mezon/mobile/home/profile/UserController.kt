@@ -28,7 +28,7 @@ class UserController @Inject constructor(
         private set
     @Volatile var userIdStr: String = ""
         private set
-    @Volatile var themeMode: ThemeMode = ThemeMode.SYSTEM
+    @Volatile var themeMode: ThemeMode = ThemeMode.DARK
         private set
     @Volatile var languageTag: String = LocaleManager.ENGLISH
         private set

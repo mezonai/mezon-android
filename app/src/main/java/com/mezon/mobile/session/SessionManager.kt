@@ -9,6 +9,7 @@ import android.util.Base64
 import android.util.Log
 import java.io.IOException
 import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import kotlinx.coroutines.CoroutineScope
@@ -32,6 +33,7 @@ data class StoredSession(
     val apiUrl: String,
     val wsUrl: String,
     val userId: String,
+    val idToken: String = "",
     val isRemember: Boolean = false
 )
 
@@ -56,6 +58,7 @@ class SessionManager @Inject constructor(
             apiUrl = prefs[SessionKeys.API_URL] ?: "",
             wsUrl = prefs[SessionKeys.WS_URL] ?: "",
             userId = prefs[SessionKeys.USER_ID] ?: "",
+            idToken = prefs[SessionKeys.ID_TOKEN] ?: "",
             isRemember = prefs[SessionKeys.IS_REMEMBER] ?: false
         )
     }
@@ -130,6 +133,7 @@ class SessionManager @Inject constructor(
                 apiUrl = protoSession.apiUrl.ifEmpty { current.apiUrl },
                 wsUrl = protoSession.wsUrl.ifEmpty { current.wsUrl },
                 userId = current.userId,
+                idToken = current.idToken,
                 isRemember = current.isRemember
             )
 
@@ -180,6 +184,7 @@ class SessionManager @Inject constructor(
             prefs[SessionKeys.API_URL] = session.apiUrl
             prefs[SessionKeys.WS_URL] = session.wsUrl
             prefs[SessionKeys.USER_ID] = session.userId
+            prefs[SessionKeys.ID_TOKEN] = session.idToken
             prefs[SessionKeys.IS_REMEMBER] = session.isRemember
         }
     }
@@ -205,7 +210,20 @@ class SessionManager @Inject constructor(
 
     suspend fun clearSession() {
         StartupCache.hasSession = false
-        dataStore.edit { it.clear() }
+        StartupCache.userId = ""
+        lastRefreshToken = ""
+        failCount = 0
+        dataStore.edit { prefs -> prefs.removeAllSessionDataExceptIdToken() }
+    }
+
+    private fun MutablePreferences.removeAllSessionDataExceptIdToken() {
+        remove(SessionKeys.TOKEN)
+        remove(SessionKeys.REFRESH_TOKEN)
+        remove(SessionKeys.API_URL)
+        remove(SessionKeys.WS_URL)
+        remove(SessionKeys.USER_ID)
+        remove(SessionKeys.IS_REMEMBER)
+        remove(SessionKeys.LAST_CLAN_ID)
     }
 }
 
