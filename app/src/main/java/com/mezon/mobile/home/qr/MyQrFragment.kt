@@ -300,16 +300,16 @@ class MyQrFragment : BaseFragment() {
         updateTabStyle(tabTransfer, !isProfile)
 
         headerTitle.text = username.ifEmpty { name }
-        headerSubtitle.text = if (isProfile) {
-            getString(R.string.qr_share_with_others)    
+        if (isProfile) {
+            headerSubtitle.text = getString(R.string.qr_share_with_others)
+            headerSubtitle.visibility = View.VISIBLE
         } else {
-            val balance = info.balance.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO
-            val formatted = String.format(Locale.getDefault(), "%,.0f", balance)
-            getString(R.string.qr_token_balance, formatted)     
+            headerSubtitle.text = ""
+            headerSubtitle.visibility = View.GONE
         }
 
         val qrBitmap = if (isProfile) getProfileQr(username, info.userId, avatarUrl, name, lastQrSizePx)
-        else getTransferQr(username, info.userId, lastQrSizePx)
+        else getTransferQr(username, name, info.userId, lastQrSizePx)
 
         qrCard.bind(QrInviteCardCell.Model(
             title    = username.ifEmpty { name },
@@ -361,11 +361,13 @@ class MyQrFragment : BaseFragment() {
         return QrCodeUtils.generateQr(url, size).also { profileQr = it }
     }
 
-    private fun getTransferQr(username: String, userId: Long, qrSizePx: Int): Bitmap {
+    private fun getTransferQr(username: String, displayName: String, userId: Long, qrSizePx: Int): Bitmap {
         val existing = transferQr
         if (existing != null && qrSizePx <= 0) return existing
+        val receiverName = username.ifEmpty { displayName }
         val json = JSONObject()
-            .put("receiver_name", username)
+            .put("receiver_name", receiverName)
+            .put("receiver_display_name", displayName)
             .put("receiver_id", userId)
             .toString()
         val size = if (qrSizePx > 0) qrSizePx else DEFAULT_TRANSFER_QR_SIZE
