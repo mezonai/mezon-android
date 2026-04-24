@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.text.StaticLayout
@@ -33,6 +34,8 @@ class DiscoverClanCell(
 
     private val cardRect = RectF()
     private val bannerRect = RectF()
+    private val bannerSrcRect = Rect()
+    private val avatarDstRect = RectF()
     private val tmpPath = Path()
     private val clipPath = Path()
 
@@ -216,7 +219,22 @@ class DiscoverClanCell(
         bannerRect.set(left, top, right, top + bannerH)
         val b = bannerBmp
         if (b != null && !b.isRecycled) {
-            canvas.drawBitmap(b, null, bannerRect, bannerDrawPaint)
+            val bmpW = b.width
+            val bmpH = b.height
+            if (bmpW > 0 && bmpH > 0) {
+                val dstAspect = bannerRect.width() / bannerRect.height()
+                val bmpAspect = bmpW.toFloat() / bmpH.toFloat()
+                if (bmpAspect > dstAspect) {
+                    val srcW = (bmpH * dstAspect).toInt().coerceAtLeast(1)
+                    val srcL = (bmpW - srcW) / 2
+                    bannerSrcRect.set(srcL, 0, srcL + srcW, bmpH)
+                } else {
+                    val srcH = (bmpW / dstAspect).toInt().coerceAtLeast(1)
+                    val srcT = (bmpH - srcH) / 2
+                    bannerSrcRect.set(0, srcT, bmpW, srcT + srcH)
+                }
+                canvas.drawBitmap(b, bannerSrcRect, bannerRect, bannerDrawPaint)
+            }
         } else {
             bannerPlaceholderPaint.color = themeColors.surfaceVariant
             canvas.drawRect(bannerRect, bannerPlaceholderPaint)
@@ -228,15 +246,12 @@ class DiscoverClanCell(
         val avatarRx = LayoutHelper.dp(12f).toFloat()
         val avatarRy = LayoutHelper.dp(12f).toFloat()
         if (av != null && !av.isRecycled) {
+            avatarDstRect.set(ax, contentTop, ax + avatarSize, contentTop + avatarSize)
             clipPath.reset()
-            clipPath.addRoundRect(
-                ax, contentTop, ax + avatarSize, contentTop + avatarSize,
-                avatarRx, avatarRy,
-                Path.Direction.CW
-            )
+            clipPath.addRoundRect(avatarDstRect, avatarRx, avatarRy, Path.Direction.CW)
             canvas.save()
             canvas.clipPath(clipPath)
-            canvas.drawBitmap(av, null, RectF(ax, contentTop, ax + avatarSize, contentTop + avatarSize), bannerDrawPaint)
+            canvas.drawBitmap(av, null, avatarDstRect, bannerDrawPaint)
             canvas.restore()
         }
 
