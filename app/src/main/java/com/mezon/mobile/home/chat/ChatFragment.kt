@@ -2349,13 +2349,6 @@ class ChatFragment : BaseFragment() {
         if (text.isBlank() && pendingAttachments.isEmpty()) return
 
         val editMsg = editingMessage
-        if (editMsg != null) {
-            val isPrivate = resolveChannelPrivate()
-            chatController.editMessage(channelId, clanId, channelType, isPrivate, editMsg.id, text)
-            clearEditState()
-            return
-        }
-
         val isPrivate = resolveChannelPrivate()
         val references = buildReplyReferences()
 

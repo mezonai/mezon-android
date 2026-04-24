@@ -26,6 +26,8 @@ import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
 import com.mezon.mobile.home.clans.CHANNEL_TYPE_VOICE
+import com.mezon.mobile.home.chat.thread.THREAD_ARCHIVE_DURATION_SECONDS
+import com.mezon.mobile.home.chat.thread.ThreadStatus
 import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.BuildConfig
@@ -40,6 +42,7 @@ import com.mezon.mezon.api.MessageAttachment
 import com.mezon.mezon.api.messageAttachment
 import com.mezon.mezon.api.messageMention
 import com.mezon.mezon.rtapi.channelMessageSend
+import com.mezon.mezon.rtapi.channelMessageUpdate
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -489,6 +492,7 @@ class ChatController @Inject constructor(
         appScope.launch {
             try {
                 sessionManager.withAutoRefresh { session ->
+                    ensureActiveArchivedThreadIfNeeded(session.apiUrl, session.token, channelId, clanId, channelType)
                     ensureMentionedUsersInThread(
                         session.apiUrl,
                         session.token,
@@ -576,6 +580,7 @@ class ChatController @Inject constructor(
         appScope.launch {
             try {
                 sessionManager.withAutoRefresh { session ->
+                    ensureActiveArchivedThreadIfNeeded(session.apiUrl, session.token, channelId, clanId, channelType)
                     val request = channelMessageSend {
                         this.clanId = clanId
                         this.channelId = channelId
@@ -639,6 +644,7 @@ class ChatController @Inject constructor(
         appScope.launch {
             try {
                 sessionManager.withAutoRefresh { session ->
+                    ensureActiveArchivedThreadIfNeeded(session.apiUrl, session.token, channelId, clanId, channelType)
                     val request = channelMessageSend {
                         this.clanId = clanId
                         this.channelId = channelId
@@ -699,6 +705,7 @@ class ChatController @Inject constructor(
         appScope.launch {
             try {
                 sessionManager.withAutoRefresh { session ->
+                    ensureActiveArchivedThreadIfNeeded(session.apiUrl, session.token, channelId, clanId, channelType)
                     val request = channelMessageSend {
                         this.clanId = clanId
                         this.channelId = channelId
@@ -742,6 +749,33 @@ class ChatController @Inject constructor(
     private fun generateTempId(): Long {
         val ts = System.currentTimeMillis()
         return (ts shl 22) or (Thread.currentThread().id and 0x3FFFFF)
+    }
+
+    private suspend fun ensureActiveArchivedThreadIfNeeded(
+        apiUrl: String,
+        token: String,
+        channelId: Long,
+        clanId: Long,
+        channelType: Int
+    ) {
+        if (clanId == 0L) return
+        val ch = channelController.get().findChannelById(channelId, clanId)
+        val effectiveType = if (channelType != 0) channelType else ch?.type ?: 0
+        val parentId = ch?.parentId ?: 0L
+        val threadLike = effectiveType == CHANNEL_TYPE_THREAD || parentId != 0L
+        if (!threadLike) return
+        if (ch != null) {
+            val now = System.currentTimeMillis() / 1000L
+            val lastTs = ch.lastSentMessageTs
+            val archivedByAge = lastTs > 0L && (now - lastTs) > THREAD_ARCHIVE_DURATION_SECONDS
+            if (ch.active != 0 && !archivedByAge) return
+        }
+        withContext(ioDispatcher) {
+            api.activeArchivedThread(apiUrl, token, clanId, channelId)
+        }
+        if (ch != null) {
+            channelController.get().upsertChannel(ch.copy(active = ThreadStatus.JOINED))
+        }
     }
 
     private fun mergeRefsIntoOptimisticContent(
@@ -857,6 +891,7 @@ class ChatController @Inject constructor(
         appScope.launch(ioDispatcher) {
             try {
                 sessionManager.withAutoRefresh { session ->
+                    ensureActiveArchivedThreadIfNeeded(session.apiUrl, session.token, channelId, clanId, channelType)
                     ensureMentionedUsersInThread(
                         session.apiUrl,
                         session.token,
@@ -1012,6 +1047,7 @@ class ChatController @Inject constructor(
                 }
 
                 sessionManager.withAutoRefresh { session ->
+                    ensureActiveArchivedThreadIfNeeded(session.apiUrl, session.token, channelId, clanId, channelType)
                     val cdnBaseUrl = BuildConfig.MEZON_BASE_IMG_URL
                     val uploadedAttachments = ArrayList<MessageAttachment>()
 
@@ -1172,16 +1208,50 @@ class ChatController @Inject constructor(
                 e = m.endOffset
             }
         }
+        val request = channelMessageUpdate {
+            this.clanId = clanId
+            this.channelId = channelId
+            this.messageId = messageId
+            this.content = content
+            protoMentions?.let { this.mentions.addAll(it) }
+            this.mode = mode
+            this.isPublic = isPublic
+        }
         appScope.launch {
             try {
-                mezonSocket.updateChatMessage(
-                    clanId, channelId, mode, isPublic, messageId, content, protoMentions
-                )
+                sessionManager.withAutoRefresh { session ->
+                    api.updateChannelMessage(session.apiUrl, session.token, request)
+                }
+                applyLocalEdit(channelId, messageId, content)
                 Log.d(TAG, "Message edited: channelId=$channelId messageId=$messageId")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to edit message", e)
             }
         }
+    }
+
+    private suspend fun applyLocalEdit(channelId: Long, messageId: Long, content: String) {
+        val updateTime = System.currentTimeMillis() / 1000L
+        val existing = withContext(ioDispatcher) { messageDao.getById(channelId, messageId) }
+        val updated = existing?.copy(
+            content = content,
+            updateTimeSeconds = updateTime,
+            hideEditted = false,
+            code = CODE_CHAT_UPDATE
+        ) ?: return
+        appScope.launch {
+            messageDao.updateContent(channelId, messageId, content, updateTime, false, CODE_CHAT_UPDATE)
+        }
+        synchronized(this) {
+            val last = dialogMessage.get(channelId)
+            if (last != null && last.id == messageId) {
+                dialogMessage.put(channelId, updated)
+            }
+        }
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.messageDidUpdate, channelId, updated,
+            NotificationCenter.UPDATE_MASK_MESSAGE_TEXT
+        )
     }
 
     fun deleteMessage(channelId: Long, clanId: Long, channelType: Int, isChannelPrivate: Boolean, messageId: Long) {

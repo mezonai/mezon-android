@@ -70,6 +70,7 @@ import com.mezon.mezon.api.InviteUserRes
 import com.mezon.mezon.api.inviteUserRequest
 import com.mezon.mezon.api.clanDiscover as clanDiscoverProto
 import com.mezon.mezon.api.listClanDiscover
+import com.mezon.mezon.rtapi.ActiveArchivedThread
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.header
@@ -743,6 +744,26 @@ class MezonApi @Inject constructor(
         val body = request.toByteArray()
         val bytes = rpc(apiUrl, token, "SendChannelMessage", body)
         return com.mezon.mezon.rtapi.ChannelMessageAck.parseFrom(bytes)
+    }
+
+    suspend fun updateChannelMessage(
+        apiUrl: String,
+        token: String,
+        request: com.mezon.mezon.rtapi.ChannelMessageUpdate
+    ): ByteArray = rpc(apiUrl, token, "UpdateChannelMessage", request.toByteArray())
+
+    suspend fun activeArchivedThread(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        channelId: Long
+    ) {
+        val body = ActiveArchivedThread.newBuilder()
+            .setClanId(clanId)
+            .setChannelId(channelId)
+            .build()
+            .toByteArray()
+        rpc(apiUrl, token, "ActiveArchivedThread", body)
     }
 
     suspend fun listChannelMessages(
