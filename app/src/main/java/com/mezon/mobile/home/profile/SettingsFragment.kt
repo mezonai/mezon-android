@@ -434,13 +434,8 @@ class SettingsFragment : BaseFragment() {
         popup.show(anchor)
     }
 
-    private fun showLanguageSelector(anchor: View) {
-        val popup = SelectPopup(anchor.context, themeColors)
-        val items = listOf(getString(R.string.setting_language_english), getString(R.string.setting_language_vietnamese))
-        val tags = listOf(LocaleManager.ENGLISH, LocaleManager.VIETNAMESE)
-        popup.setItems(items, tags.indexOf(userController.languageTag).let { if (it < 0) 0 else it })
-        popup.setOnItemSelectedListener { userController.applyLanguage(tags[it]) }
-        popup.show(anchor)
+    private fun showLanguageSelector(@Suppress("UNUSED_PARAMETER") anchor: View) {
+        presentFragment(LanguageSettingFragment())
     }
 
     private fun getThemeDisplayName(mode: ThemeMode): String = when (mode) {
