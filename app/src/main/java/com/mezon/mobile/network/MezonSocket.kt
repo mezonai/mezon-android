@@ -3,6 +3,7 @@ package com.mezon.mobile.network
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.session.SessionManager
 import android.util.Log
+import com.google.protobuf.CodedInputStream
 import com.google.protobuf.StringValue
 import com.mezon.mezon.api.ListClanBadgeCountResponse
 import com.mezon.mezon.api.MessageAttachment
@@ -80,6 +81,43 @@ class MezonSocket @Inject constructor(
         const val TYPE_CHECK_CHANNEL = 2
         const val TYPE_CHECK_THREAD = 3
         const val TYPE_CHECK_NICKNAME = 4
+
+        private const val WIRETYPE_VARINT = 0
+        private const val WIRETYPE_LENGTH_DELIMITED = 2
+    }
+
+
+    private fun readCorrelationIdField1(raw: ByteArray): String? {
+        if (raw.isEmpty()) return null
+        return try {
+            val input = CodedInputStream.newInstance(raw)
+            while (true) {
+                val tag = input.readTag()
+                if (tag == 0) break
+                val fieldNumber = tag ushr 3
+                val wireType = tag and 0x7
+                if (fieldNumber == 1) {
+                    return when (wireType) {
+                        WIRETYPE_VARINT -> input.readInt64().toString()
+                        WIRETYPE_LENGTH_DELIMITED -> input.readStringRequireUtf8().trim().takeIf { it.isNotEmpty() }
+                        else -> {
+                            input.skipField(tag)
+                            null
+                        }
+                    }
+                }
+                input.skipField(tag)
+            }
+            null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun correlationKeyForPending(envelope: Envelope, raw: ByteArray): String? {
+        val fromParsed = envelope.cid
+        if (fromParsed.isNotEmpty()) return fromParsed
+        return readCorrelationIdField1(raw)
     }
 
     private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
@@ -158,7 +196,7 @@ class MezonSocket @Inject constructor(
     }
 
     suspend fun send(block: EnvelopeKt.Dsl.() -> Unit): Envelope {
-        val cid = "cid-${cidCounter.incrementAndGet()}"
+        val cid = cidCounter.incrementAndGet().toString()
         val env = envelope {
             this.cid = cid
             block()
@@ -577,9 +615,10 @@ class MezonSocket @Inject constructor(
         }
 
         override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+            val raw = bytes.toByteArray()
             try {
-                val envelope = Envelope.parseFrom(bytes.toByteArray())
-                handleEnvelope(envelope)
+                val envelope = Envelope.parseFrom(raw)
+                handleEnvelope(envelope, raw)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to parse Envelope", e)
             }
@@ -607,10 +646,10 @@ class MezonSocket @Inject constructor(
         }
     }
 
-    private fun handleEnvelope(envelope: Envelope) {
-        val cid = envelope.cid
+    private fun handleEnvelope(envelope: Envelope, raw: ByteArray) {
+        val cid = correlationKeyForPending(envelope, raw)
 
-        if (cid.isNotEmpty()) {
+        if (!cid.isNullOrEmpty()) {
             val deferred = pendingRequests.remove(cid)
             if (deferred != null) {
                 if (envelope.messageCase == Envelope.MessageCase.ERROR) {

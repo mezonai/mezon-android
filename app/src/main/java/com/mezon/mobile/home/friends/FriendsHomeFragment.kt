@@ -116,7 +116,10 @@ class FriendsHomeFragment : BaseFragment() {
         requestRow = buildRequestRow(context)
         root.addView(
             requestRow,
-            LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply { topMargin = LayoutHelper.dp(12) }
+            LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
+                topMargin = LayoutHelper.dp(12)
+                bottomMargin = LayoutHelper.dp(12)
+            }
         )
 
         val contentFrame = FrameLayout(context)
@@ -150,8 +153,9 @@ class FriendsHomeFragment : BaseFragment() {
         val wrapped = wrapWithActionBar(getString(R.string.friends_title), root)
         actionBar?.setMenuOnItemClick(object : com.mezon.mobile.ui.cells.ActionBarView.ActionBarMenuOnItemClick() {
             override fun onItemClick(id: Int) {
-                if (id == MENU_ADD_FRIEND) {
-                    presentFragment(AddFriendFragment())
+                when (id) {
+                    -1 -> finishFragment()
+                    MENU_ADD_FRIEND -> presentFragment(AddFriendFragment())
                 }
             }
         })
