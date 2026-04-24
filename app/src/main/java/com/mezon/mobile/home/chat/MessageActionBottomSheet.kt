@@ -299,20 +299,18 @@ class MessageActionBottomSheet(
             R.drawable.ic_copy_icon
         ))
 
-        if (!isDM) {
-            if (isPinned) {
-                actions.add(ActionItem(
-                    ActionType.UnPinMessage,
-                    context.getString(R.string.action_unpin),
-                    R.drawable.ic_pin_icon
-                ))
-            } else {
-                actions.add(ActionItem(
-                    ActionType.PinMessage,
-                    context.getString(R.string.action_pin),
-                    R.drawable.ic_pin_icon
-                ))
-            }
+        if (isPinned) {
+            actions.add(ActionItem(
+                ActionType.UnPinMessage,
+                context.getString(R.string.action_unpin),
+                R.drawable.ic_pin_icon
+            ))
+        } else {
+            actions.add(ActionItem(
+                ActionType.PinMessage,
+                context.getString(R.string.action_pin),
+                R.drawable.ic_pin_icon
+            ))
         }
 
         actions.add(ActionItem(

@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.chat.channelinfo
 
+import android.app.Activity
 import android.content.Context
 import android.util.TypedValue
 import android.view.Gravity
@@ -10,6 +11,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.mezon.mobile.R
+import com.mezon.mobile.core.AlertDialog
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
@@ -29,6 +31,7 @@ class PinsTabHelper(
     private val pinMessageController: PinMessageController,
     private val memberResolver: MemberResolver,
     private val notificationCenter: NotificationCenter,
+    private val hostActivity: Activity,
     private val onJumpToMessage: (Long) -> Unit,
     private val getString: (Int) -> String
 ) : TabHelper {
@@ -49,7 +52,17 @@ class PinsTabHelper(
                 onJumpToMessage(data.messageId)
             }
             override fun onUnpin(data: PinMessageData) {
-                pinMessageController.unpinMessage(channelId, clanId, data.messageId)
+                val act = hostActivity
+                if (act.isFinishing || act.isDestroyed) return
+                AlertDialog.Builder(act)
+                    .setTitle(getString(R.string.unpin_message_confirm_title))
+                    .setMessage(getString(R.string.unpin_message_confirm_description))
+                    .setPositiveButton(getString(R.string.common_yes)) { _, _ ->
+                        pinMessageController.unpinMessage(channelId, clanId, data.messageId)
+                    }
+                    .setNegativeButton(getString(R.string.common_cancel), null)
+                    .create()
+                    .show()
             }
         }
 
