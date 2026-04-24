@@ -15,6 +15,7 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.annotation.DrawableRes
 import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.R
@@ -186,7 +187,9 @@ class SettingsFragment : BaseFragment() {
                 null,
                 true,
                 false,
-                null
+                {
+                    Toast.makeText(requireContext(), getString(R.string.feature_coming_soon), Toast.LENGTH_SHORT).show()
+                }
             )
         )
         val appItems = listOf(
@@ -204,7 +207,7 @@ class SettingsFragment : BaseFragment() {
                 null,
                 true,
                 false,
-                { showThemeSelector(it) }
+                { presentFragment(AppearanceThemeFragment()) }
             ),
             MenuItem(
                 getString(R.string.setting_app_language),

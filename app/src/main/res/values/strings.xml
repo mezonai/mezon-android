@@ -371,6 +371,14 @@
     <string name="setting_theme_dark">Dark</string>
     <string name="setting_theme_abyss">Abyss</string>
     <string name="setting_theme_system">System</string>
+    <string name="setting_theme_system_short">System</string>
+    <string name="theme_screen_title">App theme</string>
+    <string name="theme_preview_conversations">Conversations</string>
+    <string name="theme_preview_hint">You can also change this later!</string>
+    <string name="theme_preview_message_1">Hey, are we still on for our call tonight?</string>
+    <string name="theme_preview_message_2">Don\'t forget to check the latest updates!</string>
+    <string name="theme_preview_message_3">Did you send those files from last week?</string>
+    <string name="theme_preview_message_4">I replied to your messages at lunch.</string>
 
     <!-- connection states -->
     <string name="connection_connected">Connected</string>
