@@ -4,6 +4,7 @@ import android.provider.Settings
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import com.mezon.mobile.MainActivity
+import com.mezon.mobile.core.StartupCache
 import dagger.hilt.android.AndroidEntryPoint
 
 import javax.inject.Inject
@@ -22,11 +23,13 @@ class MezonFirebaseService : FirebaseMessagingService() {
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
+        if (!StartupCache.hasSession) return
         val deviceId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
         fcmRepository.registerTokenAsync(token, deviceId)
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
+        if (!StartupCache.hasSession) return
         super.onMessageReceived(message)
         val data = message.data
         if (data.isEmpty()) {

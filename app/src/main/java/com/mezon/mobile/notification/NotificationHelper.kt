@@ -11,16 +11,12 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.mezon.mobile.MainActivity
 import com.mezon.mobile.R
-import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.ApplicationScope
-import com.mezon.mobile.home.ChatController
 import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.clans.ChannelController
-import com.mezon.mobile.home.clans.ClansController
 import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.ui.cells.ToastOverlay
-import dagger.Lazy
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -33,11 +29,8 @@ import javax.inject.Singleton
 @Singleton
 class NotificationHelper @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val notificationCenter: NotificationCenter,
     private val channelController: ChannelController,
-    private val clansController: ClansController,
-    private val dialogsController: Lazy<DialogsController>,
-    private val chatController: Lazy<ChatController>,
+    private val dialogsController: dagger.Lazy<DialogsController>,
     @ApplicationScope private val appScope: CoroutineScope
 ) {
     private val notificationManager =
@@ -172,9 +165,11 @@ class NotificationHelper @Inject constructor(
     ) {
         val body = truncateBody(body)
         appScope.launch {
-            val dmName = dialogsController.get().getDialog(dmChannelId)?.let { dm ->
+            val dmDialog = dialogsController.get().getDialog(dmChannelId)
+            val dmName = dmDialog?.let { dm ->
                 dm.displayName.ifEmpty { dm.label }
             } ?: title
+            val dmType = dmDialog?.type?.takeIf { it != 0 } ?: CHANNEL_TYPE_DM
             val intent = Intent(context, MainActivity::class.java).apply {
                 action = ACTION_OPEN_CHAT
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or
@@ -182,6 +177,7 @@ class NotificationHelper @Inject constructor(
                     Intent.FLAG_ACTIVITY_SINGLE_TOP
                 putExtra(EXTRA_DM_ID, dmChannelId)
                 if (dmName.isNotEmpty()) putExtra(EXTRA_CHANNEL_NAME, dmName)
+                putExtra(EXTRA_CHANNEL_TYPE, dmType)
             }
             val pendingIntent = PendingIntent.getActivity(
                 context,
@@ -222,8 +218,9 @@ class NotificationHelper @Inject constructor(
     ) {
         val body = truncateBody(body)
         appScope.launch {
+            val dmDialog = if (dmId != 0L) dialogsController.get().getDialog(dmId) else null
             val channelName = when {
-                dmId != 0L -> dialogsController.get().getDialog(dmId)?.let { dm ->
+                dmId != 0L -> dmDialog?.let { dm ->
                     dm.displayName.ifEmpty { dm.label }
                 } ?: title
                 clanId != 0L && channelId != 0L -> (withTimeoutOrNull(MAX_NOTI_DELAY) {
@@ -235,14 +232,11 @@ class NotificationHelper @Inject constructor(
                 val activity = MainActivity.instance ?: return@withContext
                 val onTap: (() -> Unit)? = when {
                     dmId != 0L -> { {
-                        activity.notificationCenter.postNotificationOnMainThread(NotificationCenter.navigateToMessagesTab)
-                        activity.openChat(dmId, channelName, 0L, CHANNEL_TYPE_DM, fromNotification = true)
+                        val dmType = dmDialog?.type?.takeIf { it != 0 } ?: CHANNEL_TYPE_DM
+                        activity.openChat(dmId, channelName, 0L, dmType, fromNotification = true)
                     } }
                     clanId != 0L && channelId != 0L -> {
                         {
-                            notificationCenter.postNotificationOnMainThread(NotificationCenter.navigateToClansTab)
-                            clansController.selectClan(clanId)
-                            chatController.get().openChannel(channelId, clanId, CHANNEL_TYPE_CHANNEL)
                             activity.openChat(channelId, channelName, clanId, CHANNEL_TYPE_CHANNEL, fromNotification = true)
                         }
                     }

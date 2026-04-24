@@ -14,8 +14,11 @@ import com.mezon.mobile.network.channelTypeToStreamMode
 import com.mezon.mobile.session.SessionManager
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -57,6 +60,8 @@ class PinMessageController @Inject constructor(
 ) {
 
     private val pinMessagesByChannel = HashMap<Long, ArrayList<PinMessageData>>()
+    private val clanHintByChannel = ConcurrentHashMap<Long, Long>()
+    private val pinListResyncJobs = ConcurrentHashMap<Long, Job>()
 
     init {
         appScope.launch { observePinEvents() }
@@ -88,6 +93,7 @@ class PinMessageController @Inject constructor(
             notificationCenter.postNotificationOnMainThread(
                 NotificationCenter.pinMessageAdded, channelId
             )
+            scheduleResyncPinListFromServer(channelId, event.clanId)
         }
     }
 
@@ -102,6 +108,8 @@ class PinMessageController @Inject constructor(
             notificationCenter.postNotificationOnMainThread(
                 NotificationCenter.pinMessageRemoved, channelId, messageId
             )
+            val clanId = clanHintByChannel[channelId] ?: 0L
+            scheduleResyncPinListFromServer(channelId, clanId)
         }
     }
 
@@ -118,6 +126,7 @@ class PinMessageController @Inject constructor(
     }
 
     fun loadPinMessages(channelId: Long, clanId: Long, noCache: Boolean = false) {
+        clanHintByChannel[channelId] = clanId
         val cacheKey = apiCacheKey("pinMessages", channelId)
         if (apiCacheTracker.shouldCall(cacheKey, noCache = noCache) == ApiCacheTracker.ShouldCall.SKIP) {
             notificationCenter.postNotificationOnMainThread(
@@ -185,6 +194,7 @@ class PinMessageController @Inject constructor(
                     messageCreatedTime = messageCreatedTime
                 )
                 Log.d(TAG, "Pinned message=$messageId in channel=$channelId")
+                scheduleResyncPinListFromServer(channelId, clanId)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to pin message=$messageId", e)
             }
@@ -199,17 +209,30 @@ class PinMessageController @Inject constructor(
                         api.deletePinMessage(session.apiUrl, session.token, messageId, channelId, clanId)
                     }
                 }
+                apiCacheTracker.invalidate(apiCacheKey("pinMessages", channelId))
                 synchronized(this@PinMessageController) {
                     pinMessagesByChannel[channelId]?.removeAll { it.messageId == messageId }
                 }
                 notificationCenter.postNotificationOnMainThread(
                     NotificationCenter.pinMessageRemoved, channelId, messageId
                 )
+                scheduleResyncPinListFromServer(channelId, clanId)
                 Log.d(TAG, "Unpinned message=$messageId from channel=$channelId")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to unpin message=$messageId", e)
             }
         }
+    }
+
+    private fun scheduleResyncPinListFromServer(channelId: Long, clanId: Long) {
+        clanHintByChannel[channelId] = clanId
+        pinListResyncJobs[channelId]?.cancel()
+        val job = appScope.launch {
+            delay(280)
+            loadPinMessages(channelId, clanId, noCache = true)
+        }
+        pinListResyncJobs[channelId] = job
+        job.invokeOnCompletion { pinListResyncJobs.remove(channelId, job) }
     }
 }
 
@@ -258,13 +281,14 @@ private fun parseAttachmentJson(jsonStr: String): List<PinAttachment> {
         }
         (0 until arr.length()).map { i ->
             val a = arr.getJSONObject(i)
+            val thumb = a.optString("thumbnail").ifBlank { a.optString("thumb") }
             PinAttachment(
                 url = a.optString("url"),
                 filename = a.optString("filename"),
                 filetype = a.optString("filetype"),
                 width = a.optInt("width"),
                 height = a.optInt("height"),
-                thumbnail = a.optString("thumbnail"),
+                thumbnail = thumb,
                 size = a.optInt("size"),
                 duration = a.optInt("duration")
             )

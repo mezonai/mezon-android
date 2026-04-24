@@ -62,15 +62,17 @@ class UnreadDividerDecoration(
 
     override fun onDrawOver(c: Canvas, parent: RecyclerView, state: RecyclerView.State) {
         if (firstUnreadAdapterPosition == RecyclerView.NO_POSITION) return
+        val lm = parent.layoutManager ?: return
 
         for (i in 0 until parent.childCount) {
             val child = parent.getChildAt(i)
             val pos = parent.getChildAdapterPosition(child)
             if (pos != firstUnreadAdapterPosition) continue
 
-            val childTop = child.top + child.translationY.toInt()
-            val decorTop = childTop - DIVIDER_HEIGHT
-            val centerY = (decorTop + childTop) / 2f
+            val ty = child.translationY
+            val innerTop = child.top + ty
+            val outerTop = lm.getDecoratedTop(child) + ty
+            val centerY = (outerTop + innerTop) / 2f
 
             val left = H_PADDING.toFloat()
             val right = parent.width - H_PADDING.toFloat()

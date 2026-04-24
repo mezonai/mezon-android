@@ -76,6 +76,7 @@
     <string name="qr_camera_denied_title">Không có quyền camera</string>
     <string name="qr_camera_denied_message">Vui lòng bật quyền camera trong Cài đặt để quét QR.</string>
     <string name="qr_scan_title_hint">Quét mã QR</string>
+    <string name="qr_scan_instructions">Hướng camera vào mã QR. Bạn cũng có thể chọn ảnh từ thư viện.</string>
     <string name="qr_gallery_label">Thư viện</string>
     <string name="qr_download_btn">Tải xuống</string>
     <string name="qr_profile_section_title">HỒ SƠ NGƯỜI DÙNG</string>
@@ -86,6 +87,7 @@
     <string name="qr_profile_add_friend">Thêm bạn</string>
     <string name="qr_profile_message">Tin nhắn</string>
     <string name="qr_profile_decline">Không, cảm ơn</string>
+    <string name="qr_dm_open_failed">Không thể mở cuộc trò chuyện. Vui lòng thử lại.</string>
 
     <!-- common.login -->
     <string name="common_login_welcome_to_mezon">Chào mừng đến với Mezon</string>
@@ -201,6 +203,21 @@
     <string name="message_toast_copy_text">Đã sao chép văn bản tin nhắn</string>
     <string name="message_forwarded">Đã chuyển tiếp</string>
     <string name="message_reply_deleted">Tin nhắn gốc đã bị xóa</string>
+    <string name="report_message_title">Báo cáo tin nhắn</string>
+    <string name="report_message_subtitle">Vui lòng chọn tùy chọn mô tả vấn đề tốt nhất.</string>
+    <string name="report_message_selected_message">Tin nhắn đã chọn</string>
+    <string name="report_message_spam">Thư rác</string>
+    <string name="report_message_harassment">Lạm dụng hoặc quấy rối</string>
+    <string name="report_message_violent_content">Nội dung bạo lực hoặc thông tin sai lệch</string>
+    <string name="report_message_private">Tiết lộ thông tin cá nhân riêng tư</string>
+    <string name="report_message_report_summary">Tóm tắt báo cáo</string>
+    <string name="report_message_review_before">Xem lại báo cáo của bạn trước khi gửi.</string>
+    <string name="report_message_category_label">Loại báo cáo</string>
+    <string name="report_message_submit_description">Khi gửi báo cáo này, bạn xác nhận thông tin là chính xác và được gửi với thiện ý. Vui lòng tuân thủ Quy định Cộng đồng và không gửi báo cáo sai sự thật hoặc trùng lặp.</string>
+    <string name="report_message_submit">Gửi báo cáo</string>
+    <string name="report_message_cancel">Hủy bỏ</string>
+    <string name="report_message_submitted">Đã gửi báo cáo</string>
+    <string name="report_message_toast_failed">Báo cáo tin nhắn thất bại</string>
     <string name="message_slide_to_cancel">Vuốt để hủy</string>
     <string name="message_voice_record_failed">Không thể bắt đầu ghi âm.</string>
     <string name="message_voice_record_too_short">Bản ghi quá ngắn.</string>
@@ -314,12 +331,27 @@
     <string name="setting_devices">Thiết bị</string>
     <string name="setting_app_version_label">Phiên bản ứng dụng</string>
 
+    <!-- update gate (matches RN updateGate) -->
+    <string name="update_gate_out_of_date">Phiên Bản Mới Đã Sẵn Sàng</string>
+    <string name="update_gate_update_experience">Cần cập nhật nhanh để tiếp tục sử dụng các tính năng gia đình mới nhất của chúng tôi.</string>
+    <string name="update_gate_update_now">Cập nhật ngay</string>
+    <string name="update_gate_version_info">PHIÊN BẢN</string>
+    <string name="debug_preview_update_gate">Xem trước bắt buộc cập nhật</string>
+
     <!-- theme -->
     <string name="setting_theme_title">Giao diện</string>
     <string name="setting_theme_light">Sáng</string>
     <string name="setting_theme_dark">Tối</string>
     <string name="setting_theme_abyss">Vực thẳm</string>
     <string name="setting_theme_system">Theo hệ thống</string>
+    <string name="setting_theme_system_short">Hệ thống</string>
+    <string name="theme_screen_title">Chủ đề ứng dụng</string>
+    <string name="theme_preview_conversations">Cuộc trò chuyện</string>
+    <string name="theme_preview_hint">Bạn vẫn có thể thay đổi điều này sau!</string>
+    <string name="theme_preview_message_1">Này, cuộc hẹn này mai của chúng ta vẫn diễn ra chứ?</string>
+    <string name="theme_preview_message_2">Đừng quên xem các cập nhật mới của dự án nhé!</string>
+    <string name="theme_preview_message_3">Bạn có thể gửi cho tôi các tập tin từ tuần trước không?</string>
+    <string name="theme_preview_message_4">Tuấn ơi chúng mình đi ăn trưa với nhau nhé.</string>
 
     <!-- connection states -->
     <string name="connection_connected">Đã kết nối</string>
@@ -498,7 +530,9 @@
     <string name="discover_list_empty_search">Không có cộng đồng phù hợp.</string>
 
     <string name="send_token_title">Chuyển khoản</string>
+    <string name="send_token_screen_wallet_title">Ví</string>
     <string name="send_token_heading">Chuyển khoản</string>
+    <string name="send_token_amount_quantity">Số lượng</string>
     <string name="send_token_debit_account">Tài khoản nguồn</string>
     <string name="send_token_balance_label">Số dư</string>
     <string name="send_token_currency_symbol">₫</string>
@@ -512,6 +546,14 @@
     <string name="send_token_zk_relogin">Ví cần đăng nhập hợp lệ. Hãy đăng nhập lại (OpenID) để tải ID token và bằng chứng ZK, rồi thử lại.</string>
     <string name="send_token_success_dialog_title">Đã gửi chuyển khoản</string>
     <string name="send_token_success_dialog_message">Số tiền: %1$s %2$s\n\nGhi chú: %3$s\n\n%4$s</string>
+    <string name="transfer_success_title">Gửi thành công!</string>
+    <string name="transfer_success_recipient_label">Người nhận</string>
+    <string name="transfer_success_note_label">Ghi chú</string>
+    <string name="transfer_success_time_label">Thời gian</string>
+    <string name="transfer_success_share">Chia sẻ</string>
+    <string name="transfer_success_save_image">Lưu ảnh</string>
+    <string name="transfer_success_new_transfer">Tạo giao dịch mới</string>
+    <string name="transfer_success_done">Hoàn thành</string>
     <string name="send_token_wallet_not_available">Ví chưa sẵn sàng. Đăng nhập lại (OpenID) hoặc kiểm tra mạng để tải bằng chứng ZK, rồi thử lại.</string>
     <string name="send_token_send_error">Gửi thất bại: %1$s</string>
     <string name="send_token_send_success">Đã gửi chuyển khoản</string>

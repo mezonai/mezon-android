@@ -71,6 +71,7 @@
     <string name="qr_camera_denied_title">Camera permission denied</string>
     <string name="qr_camera_denied_message">Please allow camera access in Settings to scan QR codes.</string>
     <string name="qr_scan_title_hint">Scan QR Code</string>
+    <string name="qr_scan_instructions">Point your camera at a QR code. You can also pick an image from your gallery.</string>
     <string name="qr_gallery_label">Gallery</string>
     <string name="qr_download_btn">Download</string>
     <string name="qr_profile_section_title">USER PROFILE</string>
@@ -81,6 +82,7 @@
     <string name="qr_profile_add_friend">Add friend</string>
     <string name="qr_profile_message">Message</string>
     <string name="qr_profile_decline">No, thank you</string>
+    <string name="qr_dm_open_failed">Could not open conversation. Please try again.</string>
 
     <!-- common.login -->
     <string name="common_login_welcome_to_mezon">Welcome to Mezon</string>
@@ -202,6 +204,23 @@
     <string name="message_forwarded">Forwarded</string>
     <string name="message_reply_deleted">Original message was deleted</string>
 
+    <!-- report message (parity with RN message.reportMessage) -->
+    <string name="report_message_title">Report message</string>
+    <string name="report_message_subtitle">Please select the option that best describes the problem.</string>
+    <string name="report_message_selected_message">Selected message</string>
+    <string name="report_message_spam">Spam</string>
+    <string name="report_message_harassment">Abuse or harassment</string>
+    <string name="report_message_violent_content">Harmful misinformation or glorifying violence</string>
+    <string name="report_message_private">Exposing private identifying information</string>
+    <string name="report_message_report_summary">Report summary</string>
+    <string name="report_message_review_before">Review your report before submitting.</string>
+    <string name="report_message_category_label">Report Category</string>
+    <string name="report_message_submit_description">By submitting this report you confirm that it is truthful and made in good faith. Please follow our Community Guidelines and do not submit false or duplicate reports.</string>
+    <string name="report_message_submit">Submit Report</string>
+    <string name="report_message_cancel">Cancel</string>
+    <string name="report_message_submitted">Report submitted</string>
+    <string name="report_message_toast_failed">Failed to report message</string>
+
     <!-- message action aliases (used by MessageActionBottomSheet) -->
     <string name="action_reply">Reply</string>
     <string name="action_forward">Forward</string>
@@ -287,7 +306,9 @@
     <string name="profile_balance">Balance: %1$s đồng</string>
     <string name="profile_transfer">Transfer Funds</string>
     <string name="send_token_title">Transfer Funds</string>
+    <string name="send_token_screen_wallet_title">Wallet</string>
     <string name="send_token_heading">Transfer Funds</string>
+    <string name="send_token_amount_quantity">Quantity</string>
     <string name="send_token_debit_account">Debit account</string>
     <string name="send_token_balance_label">Balance</string>
     <string name="send_token_currency_symbol">₫</string>
@@ -306,6 +327,14 @@
     <string name="send_token_zk_relogin">Wallet needs a valid sign-in. Sign in again (OpenID) so your ID token and ZK proof can be loaded, then try again.</string>
     <string name="send_token_success_dialog_title">Transfer sent</string>
     <string name="send_token_success_dialog_message">Amount: %1$s %2$s\n\nNote: %3$s\n\n%4$s</string>
+    <string name="transfer_success_title">Transfer successful!</string>
+    <string name="transfer_success_recipient_label">Recipient</string>
+    <string name="transfer_success_note_label">Note</string>
+    <string name="transfer_success_time_label">Time</string>
+    <string name="transfer_success_share">Share</string>
+    <string name="transfer_success_save_image">Save image</string>
+    <string name="transfer_success_new_transfer">New transfer</string>
+    <string name="transfer_success_done">Done</string>
     <string name="send_token_qr_invalid">Could not read recipient from this QR</string>
     <string name="send_token_scan_qr_or_use_profile">Scan a transfer QR code (Profile → My QR → Transfer)</string>
     <string name="send_token_error_no_recipient">Select a recipient or scan a transfer QR</string>
@@ -365,12 +394,27 @@
     <string name="setting_devices">Devices</string>
     <string name="setting_app_version_label">App Version</string>
 
+    <!-- update gate (matches RN updateGate) -->
+    <string name="update_gate_out_of_date">New Version Ready</string>
+    <string name="update_gate_update_experience">A quick update is needed to continue using our latest family features.</string>
+    <string name="update_gate_update_now">Update now</string>
+    <string name="update_gate_version_info">VERSION</string>
+    <string name="debug_preview_update_gate">Preview force update</string>
+
     <!-- theme -->
     <string name="setting_theme_title">Theme</string>
     <string name="setting_theme_light">Light</string>
     <string name="setting_theme_dark">Dark</string>
     <string name="setting_theme_abyss">Abyss</string>
     <string name="setting_theme_system">System</string>
+    <string name="setting_theme_system_short">System</string>
+    <string name="theme_screen_title">App theme</string>
+    <string name="theme_preview_conversations">Conversations</string>
+    <string name="theme_preview_hint">You can also change this later!</string>
+    <string name="theme_preview_message_1">Hey, are we still on for our call tonight?</string>
+    <string name="theme_preview_message_2">Don\'t forget to check the latest updates!</string>
+    <string name="theme_preview_message_3">Did you send those files from last week?</string>
+    <string name="theme_preview_message_4">I replied to your messages at lunch.</string>
 
     <!-- connection states -->
     <string name="connection_connected">Connected</string>

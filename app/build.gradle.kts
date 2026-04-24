@@ -46,6 +46,7 @@ android {
         buildConfigField("String", "MEZON_API_CLIENT_KEY_CUSTOM", "\"mezon.ai\"")
         buildConfigField("String", "MEZON_DOMAIN_URL", "\"https://mezon.ai\"")
         buildConfigField("String", "MEZON_REDIRECT_URI", "\"https://mezon.ai\"")
+        buildConfigField("String", "MEZON_GOOGLE_PLAY_URL", "\"https://play.google.com/store/apps/details?id=com.mezon.mobile\"")
 
         // OAuth2
         buildConfigField("String", "MEZON_OAUTH2_CLIENT_ID", "\"25f63a1f-16b8-488b-8b14-68520eeab77f\"")

@@ -25,6 +25,7 @@ import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.notification.ActiveChannelTracker
 import com.mezon.mobile.notification.NotificationHelper
 import com.mezon.mobile.session.SessionManager
+import com.mezon.mobile.session.StoredSession
 import com.mezon.mobile.util.parseContentPreview
 import dagger.Lazy
 import com.mezon.mezon.api.ChannelDescription
@@ -180,8 +181,20 @@ class DialogsController @Inject constructor(
                 synchronized(this@DialogsController) { hasCache = dialogs.isNotEmpty() }
                 Log.d(TAG, "loadDialogs: hasCache=$hasCache dialogsLoaded=$dialogsLoaded online=${networkMonitor.isOnline.value}")
 
-                if (!networkMonitor.isOnline.value && hasCache) { Log.d(TAG, "loadDialogs: offline+cache → skip"); return@launch }
-                if (hasCache && cacheTracker.shouldCall(cacheKey) == ApiCacheTracker.ShouldCall.SKIP) { Log.d(TAG, "loadDialogs: cache fresh → skip"); return@launch }
+                if (!networkMonitor.isOnline.value && hasCache) {
+                    Log.d(TAG, "loadDialogs: offline+cache → skip")
+                    if (!dialogsLoaded) dialogsLoaded = true
+                    badgeCoordinator.get().processDeferredQueue()
+                    return@launch
+                }
+                if (hasCache && cacheTracker.shouldCall(cacheKey) == ApiCacheTracker.ShouldCall.SKIP) {
+                    Log.d(TAG, "loadDialogs: cache fresh → skip list, sync DM badges")
+                    if (!dialogsLoaded) dialogsLoaded = true
+                    sessionManager.withAutoRefresh { session -> syncDmBadgesWithApi(session) }
+                    notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
+                    badgeCoordinator.get().processDeferredQueue()
+                    return@launch
+                }
 
                 Log.d(TAG, "loadDialogs: fetching from API…")
                 sessionManager.withAutoRefresh { session ->
@@ -220,16 +233,7 @@ class DialogsController @Inject constructor(
 
                     putDialogs(merged)
                     cacheTracker.markCalled(cacheKey)
-                    runCatching {
-                        val badge = api.listChannelBadgeCount(session.apiUrl, session.token, 0L)
-                            val badgeWithContent = badge.channeldescList.count { it.hasLastSentMessage() && it.lastSentMessage.content.isNotEmpty() }
-                        Log.d(TAG, "loadDialogs: badge returned ${badge.channeldescList.size} channels, withContent=$badgeWithContent")
-                        if (badge.channeldescList.isNotEmpty()) {
-                            val badgeSample = badge.channeldescList.firstOrNull { it.hasLastSentMessage() && it.lastSentMessage.content.isNotEmpty() }
-                            Log.d(TAG, "loadDialogs: badge sample content='${badgeSample?.lastSentMessage?.content?.take(80)}'")
-                        }
-                        applyDmReadStatePatchFromSocket(badge.channeldescList)
-                    }
+                    syncDmBadgesWithApi(session)
                 }
 
                 dialogsLoaded = true
@@ -505,6 +509,19 @@ class DialogsController @Inject constructor(
         )
     }
 
+    private suspend fun syncDmBadgesWithApi(session: StoredSession) {
+        runCatching {
+            val badge = api.listChannelBadgeCount(session.apiUrl, session.token, 0L)
+            val badgeWithContent = badge.channeldescList.count { it.hasLastSentMessage() && it.lastSentMessage.content.isNotEmpty() }
+            Log.d(TAG, "syncDmBadgesWithApi: badge returned ${badge.channeldescList.size} channels, withContent=$badgeWithContent")
+            if (badge.channeldescList.isNotEmpty()) {
+                val badgeSample = badge.channeldescList.firstOrNull { it.hasLastSentMessage() && it.lastSentMessage.content.isNotEmpty() }
+                Log.d(TAG, "syncDmBadgesWithApi: badge sample content='${badgeSample?.lastSentMessage?.content?.take(80)}'")
+            }
+            applyDmReadStatePatchFromSocket(badge.channeldescList)
+        }
+    }
+
     private suspend fun loadDialogsFromDb() {
         Log.d(TAG, "loadDialogsFromDb: start")
         val cached = withContext(ioDispatcher) { directMessageDao.getAll() }
@@ -519,6 +536,8 @@ class DialogsController @Inject constructor(
                     dialogsDict.put(dm.channelId, dm)
                 }
             }
+            cacheTracker.markCalled(apiCacheKey("listChannelDescs", 1))
+            dialogsLoaded = true
             Log.d(TAG, "loadDialogsFromDb: done, posting dialogsNeedReload")
             notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
         } else {

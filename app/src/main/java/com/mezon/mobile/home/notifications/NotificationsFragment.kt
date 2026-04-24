@@ -18,9 +18,12 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.di.FragmentEntryPoint
-import com.mezon.mobile.home.ChatController
+import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.ClansController
+import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
+import com.mezon.mobile.network.CHANNEL_TYPE_DM
+import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.ui.cells.MezonIcon
 
 private data class TabDef(val category: Int, val labelRes: Int, val icon: MezonIcon)
@@ -30,7 +33,7 @@ class NotificationsFragment : BaseFragment() {
     private lateinit var store: NotificationStore
     private lateinit var clansController: ClansController
     private lateinit var channelController: ChannelController
-    private lateinit var chatController: ChatController
+    private lateinit var dialogsController: DialogsController
 
     var onOpenChat: ((channelId: Long, channelName: String, clanId: Long, channelType: Int) -> Unit)? = null
 
@@ -62,7 +65,7 @@ class NotificationsFragment : BaseFragment() {
         store = entryPoint.notificationStore()
         clansController = entryPoint.clansController()
         channelController = entryPoint.channelController()
-        chatController = entryPoint.chatController()
+        dialogsController = entryPoint.dialogsController()
     }
 
     override fun onFragmentCreate(): Boolean {
@@ -223,23 +226,30 @@ class NotificationsFragment : BaseFragment() {
     }
 
     private fun handleNotificationPress(entity: NotificationEntity) {
-        Log.d("NotifNav", "press entity: id=${entity.id} channelId=${entity.channelId}")
         val channelId = entity.channelId
         if (channelId == 0L) { Log.w("NotifNav", "channelId == 0, skip"); return }
-        val channelName = if (entity.clanId == 0L) {
-            entity.senderName.ifEmpty { entity.channelLabel }
+        val rawClanId = entity.clanId
+        val dm = dialogsController.getDialog(channelId)
+        val isDmDialog = dm?.type == CHANNEL_TYPE_DM || dm?.type == CHANNEL_TYPE_GROUP
+        val clanId = if (isDmDialog) 0L else rawClanId
+        val channelName = if (clanId == 0L) {
+            dm?.displayName
+                ?.ifEmpty { dm.label }
+                .orEmpty()
+                .ifEmpty { entity.channelLabel }
+                .ifEmpty { entity.senderName }
         } else {
             entity.channelLabel
                 .ifEmpty { channelController.findChannelById(channelId)?.channelLabel ?: "" }
                 .ifEmpty { entity.subject.substringAfterLast("#").trimEnd(')').trim() }
                 .ifEmpty { entity.clanName }
         }
-        val clanId = entity.clanId
-        val channelType = entity.channelType.takeIf { it != 0 } ?: if (clanId == 0L) 3 else 1
-
-        if (clanId != 0L) {
-            clansController.selectClan(clanId)
-            chatController.openChannel(channelId, clanId, channelType)
+        val channelType = if (clanId == 0L) {
+            dm?.type?.takeIf { it != 0 }
+                ?: entity.channelType.takeIf { it == CHANNEL_TYPE_DM || it == CHANNEL_TYPE_GROUP }
+                ?: CHANNEL_TYPE_DM
+        } else {
+            entity.channelType.takeIf { it != 0 } ?: CHANNEL_TYPE_CHANNEL
         }
 
         onOpenChat?.invoke(channelId, channelName, clanId, channelType)

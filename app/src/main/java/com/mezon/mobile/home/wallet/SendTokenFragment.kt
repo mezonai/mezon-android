@@ -3,7 +3,10 @@ package com.mezon.mobile.home.wallet
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.text.Editable
 import android.text.InputFilter
 import android.text.InputType
@@ -27,6 +30,7 @@ import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.profile.AccountController
 import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.wallet.WalletController
+import androidx.core.view.ViewCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.json.JSONObject
@@ -78,6 +82,14 @@ class SendTokenFragment : BaseFragment() {
     private var walletBalanceText: TextView? = null
     private var amountFormatSuppress: Boolean = false
 
+    /** Set by TransferSuccessFragment callbacks to control navigation when this fragment resumes. */
+    private var shouldFinishOnResume = false
+    private var pendingNewTransfer = false
+
+    /** True when opened with QR / deep-link form payload (only [QrScanFragment] passes this today). */
+    private val isQrTransferFlow: Boolean
+        get() = !formValue.isNullOrBlank()
+
     override fun onInject(
         entryPoint: FragmentEntryPoint
     ) {
@@ -95,6 +107,26 @@ class SendTokenFragment : BaseFragment() {
         return true
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (shouldFinishOnResume) {
+            shouldFinishOnResume = false
+            val doNewTransfer = pendingNewTransfer.also { pendingNewTransfer = false }
+            val view = fragmentView
+            if (view != null) {
+                view.post {
+                    if (doNewTransfer) presentFragment(SendTokenFragment.newInstance())
+                    finishFragment()
+                }
+            } else {
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    if (doNewTransfer) presentFragment(SendTokenFragment.newInstance())
+                    finishFragment()
+                }
+            }
+        }
+    }
+
     private fun parseForm(
         raw: String?
     ) {
@@ -102,7 +134,9 @@ class SendTokenFragment : BaseFragment() {
             return
         }
         val j = runCatching { JSONObject(raw) }.getOrNull() ?: return
-        jsonReceiverName = if (j.isNull("receiver_name")) null else j.optString("receiver_name", "")
+        val rawName = if (j.isNull("receiver_name")) null else j.optString("receiver_name", "")
+        val rawDisplayName = if (j.isNull("receiver_display_name")) null else j.optString("receiver_display_name", "")
+        jsonReceiverName = rawName?.ifBlank { rawDisplayName?.ifBlank { null } } ?: rawDisplayName?.ifBlank { null }
         jsonWalletAddress = if (j.isNull("wallet_address")) null else j.optString("wallet_address", "")
         jsonReceiverId = readIdString(j, "receiver_id")
         isPaymentType = j.optString("type", "") == "payment"
@@ -171,51 +205,59 @@ class SendTokenFragment : BaseFragment() {
         val contentColumn = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
         }
-        val padH = LayoutHelper.dp(20f)
-        val contentPadB = LayoutHelper.dp(20f)
-        contentColumn.setPadding(padH, LayoutHelper.dp(20f), padH, contentPadB)
+        val qr = isQrTransferFlow
+        val padH = if (qr) LayoutHelper.dp(16f) else LayoutHelper.dp(20f)
+        val contentPadB = if (qr) LayoutHelper.dp(24f) else LayoutHelper.dp(20f)
+        contentColumn.setPadding(padH, if (qr) LayoutHelper.dp(12f) else LayoutHelper.dp(20f), padH, contentPadB)
 
         contentColumn.addView(
-            headingView(context, getString(R.string.send_token_heading))
+            if (qr) headingViewQr(context, getString(R.string.send_token_heading))
+            else headingView(context, getString(R.string.send_token_heading))
         )
         contentColumn.addView(
-            walletCardView(context, userDisplay, balance, symbol)
+            if (qr) walletCardViewQr(context, userDisplay, balance, symbol)
+            else walletCardView(context, userDisplay, balance, symbol)
         )
-        addRecipientBlock(context, contentColumn)
+        addRecipientBlock(context, contentColumn, qr)
 
         contentColumn.addView(
-            sectionLabel(
+            if (qr) qrFormSectionLabel(context, getString(R.string.send_token_amount_quantity))
+            else sectionLabel(
                 context,
                 getString(R.string.send_token_amount)
             )
         )
         val amount = EditText(context).apply {
             inputType = InputType.TYPE_CLASS_NUMBER
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, if (qr) 13f else 14f)
             setTextColor(themeColors.onSurface)
             setHintTextColor(themeColors.onSurfaceVariant)
             gravity = Gravity.CENTER_VERTICAL
             setPadding(
-                LayoutHelper.dp(10f),
+                LayoutHelper.dp(if (qr) 14f else 10f),
                 0,
-                LayoutHelper.dp(10f),
+                LayoutHelper.dp(if (qr) 14f else 10f),
                 0
             )
             hint = "0"
+            maxLines = 1
+            isSingleLine = true
             if (!jsonAmountDefault.isNullOrBlank()) {
                 setText(jsonAmountDefault)
             }
             isEnabled = isAmountFieldEditable()
+            if (qr) applyQrTransferPlainEditText(this, singleLine = true)
         }
         amountField = amount
         bindAmountTextWatcher(amount)
         contentColumn.addView(
-            wrapAmountField(context, amount),
-            LayoutHelper.createLinear(LinearLayout.LayoutParams.MATCH_PARENT, LayoutHelper.dp(40f))
+            wrapAmountField(context, amount, qr),
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LayoutHelper.dp(40f))
         )
 
         contentColumn.addView(
-            sectionLabel(
+            if (qr) qrFormSectionLabel(context, getString(R.string.send_token_note))
+            else sectionLabel(
                 context,
                 getString(R.string.send_token_note)
             )
@@ -228,7 +270,7 @@ class SendTokenFragment : BaseFragment() {
         val note = EditText(context).apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
             filters = arrayOf(InputFilter.LengthFilter(MAX_NOTE_LENGTH))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, if (qr) 13f else 12f)
             setTextColor(themeColors.onSurface)
             setHintTextColor(themeColors.onSurfaceVariant)
             hint = getString(R.string.send_token_note_hint)
@@ -237,22 +279,26 @@ class SendTokenFragment : BaseFragment() {
             maxLines = 5
             gravity = Gravity.TOP
             setPadding(
-                LayoutHelper.dp(10f),
-                LayoutHelper.dp(10f),
-                LayoutHelper.dp(10f),
-                LayoutHelper.dp(10f)
+                LayoutHelper.dp(if (qr) 14f else 10f),
+                LayoutHelper.dp(if (qr) 10f else 10f),
+                LayoutHelper.dp(if (qr) 14f else 10f),
+                LayoutHelper.dp(if (qr) 10f else 10f)
             )
+            if (!qr) {
+                background = null
+            }
             isEnabled = isNoteFieldEditable()
+            if (qr) applyQrTransferPlainEditText(this, singleLine = false)
         }
         noteField = note
         val counter = TextView(context).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-            setTextColor(themeColors.textDisabled)
+            setTextColor(if (qr) themeColors.onSurfaceVariant else themeColors.textDisabled)
             gravity = Gravity.END
         }
         noteCounter = counter
         updateNoteCounter(note.length())
-        val noteBox = wrapNoteFieldWithCounter(context, note, counter)
+        val noteBox = wrapNoteFieldWithCounter(context, note, counter, qr)
         contentColumn.addView(
             noteBox,
             LayoutHelper.createLinear(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
@@ -289,7 +335,7 @@ class SendTokenFragment : BaseFragment() {
 
         val sendBtn = TextView(context).apply {
             val bg = GradientDrawable().apply {
-                cornerRadius = LayoutHelper.dp(14f).toFloat()
+                cornerRadius = LayoutHelper.dp(if (qr) 16f else 14f).toFloat()
                 setColor(themeColors.blurple)
             }
             background = bg
@@ -300,7 +346,7 @@ class SendTokenFragment : BaseFragment() {
             setText(R.string.send_token_submit)
             isClickable = true
             setOnClickListener { onSendClick() }
-            minHeight = LayoutHelper.dp(50f)
+            minHeight = LayoutHelper.dp(if (qr) 52f else 50f)
         }
         sendButton = sendBtn
 
@@ -309,21 +355,29 @@ class SendTokenFragment : BaseFragment() {
                 (AndroidUtilities.displaySize.x * 0.05f).toInt()
             else -> LayoutHelper.dp(18f)
         }.coerceAtLeast(1)
-        val sendBtnLp = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            LayoutHelper.dp(50f)
-        ).apply {
-            marginStart = sideInset
-            marginEnd = sideInset
+        val sendBtnLp = if (qr) {
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                LayoutHelper.dp(52f)
+            )
+        } else {
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                LayoutHelper.dp(50f)
+            ).apply {
+                marginStart = sideInset
+                marginEnd = sideInset
+            }
         }
 
         val footer = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
+            val inset = if (qr) LayoutHelper.dp(16f) else LayoutHelper.dp(20f)
             setPadding(
-                LayoutHelper.dp(20f),
+                inset,
                 LayoutHelper.dp(10f),
-                LayoutHelper.dp(20f),
-                LayoutHelper.dp(30f)
+                inset,
+                if (qr) LayoutHelper.dp(20f) else LayoutHelper.dp(30f)
             )
             setBackgroundColor(themeColors.background)
         }
@@ -353,8 +407,13 @@ class SendTokenFragment : BaseFragment() {
         if (isAmountFieldEditable() && (jsonReceiverId != null || !jsonWalletAddress.isNullOrBlank())) {
             root.post { amount.requestFocus() }
         }
+        val actionBarTitle = if (qr) {
+            getString(R.string.send_token_screen_wallet_title)
+        } else {
+            getString(R.string.send_token_title)
+        }
         return wrapWithActionBar(
-            getString(R.string.send_token_title),
+            actionBarTitle,
             root
         )
     }
@@ -368,6 +427,63 @@ class SendTokenFragment : BaseFragment() {
         setTypeface(null, Typeface.BOLD)
         setTextColor(themeColors.textStrong)
         setPadding(0, 0, 0, LayoutHelper.dp(15f))
+    }
+
+    private fun headingViewQr(
+        context: android.content.Context,
+        title: String
+    ): TextView = TextView(context).apply {
+        text = title
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
+        setTypeface(null, Typeface.BOLD)
+        setTextColor(themeColors.onSurface)
+        setPadding(0, 0, 0, LayoutHelper.dp(18f))
+    }
+
+    private fun qrFormSectionLabel(
+        context: android.content.Context,
+        text: String
+    ): TextView = TextView(context).apply {
+        this.text = text
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+        setTextColor(themeColors.onSurfaceVariant)
+        setPadding(0, LayoutHelper.dp(14f), 0, LayoutHelper.dp(6f))
+    }
+
+    private fun createQrTransferInputBackground(): GradientDrawable = GradientDrawable().apply {
+        cornerRadius = LayoutHelper.dp(12f).toFloat()
+        setColor(themeColors.surface)
+        setStroke(LayoutHelper.dp(1f), themeColors.outlineVariant)
+    }
+
+    /**
+     * Themed [EditText] draws an accent underline when focused; the QR transfer layout uses only
+     * the outer rounded stroke. Also tightens typography to match the reference (small body text).
+     */
+    private fun applyQrTransferPlainEditText(
+        editText: EditText,
+        singleLine: Boolean
+    ) {
+        editText.background = ColorDrawable(Color.TRANSPARENT)
+        ViewCompat.setBackgroundTintList(editText, null)
+        editText.includeFontPadding = false
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            editText.defaultFocusHighlightEnabled = false
+        }
+        if (singleLine) {
+            editText.maxLines = 1
+            editText.setSingleLine(true)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val d = editText.resources.displayMetrics.density
+            val w = (2f * d).toInt().coerceAtLeast(2)
+            val h = (20f * d).toInt().coerceAtLeast(16)
+            editText.textCursorDrawable = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(themeColors.onSurface)
+                setSize(w, h)
+            }
+        }
     }
 
     private fun walletCardView(
@@ -416,6 +532,119 @@ class SendTokenFragment : BaseFragment() {
         lp.bottomMargin = LayoutHelper.dp(20f)
         box.layoutParams = lp
         return box
+    }
+
+    private fun walletCardViewQr(
+        context: android.content.Context,
+        userDisplay: String,
+        balance: String,
+        symbol: String
+    ): View {
+        val gr = GradientDrawable(
+            GradientDrawable.Orientation.LEFT_RIGHT,
+            intArrayOf(themeColors.surfaceVariant, themeColors.surface)
+        )
+        gr.cornerRadius = LayoutHelper.dp(16f).toFloat()
+        gr.setStroke(LayoutHelper.dp(1f), themeColors.outlineVariant)
+        val box = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            background = gr
+            setPadding(
+                LayoutHelper.dp(16f),
+                LayoutHelper.dp(14f),
+                LayoutHelper.dp(16f),
+                LayoutHelper.dp(14f)
+            )
+        }
+        addWalletRowQrAccountLine(
+            context,
+            box,
+            getString(R.string.send_token_debit_account),
+            userDisplay
+        )
+        val balHuman = runCatching {
+            formatBigIntegerHumanVi(
+                balance.toBigInteger() / CHAIN_UNITS_PER_TOKEN
+            )
+        }.getOrDefault("—")
+        addWalletRowQrBalanceLine(
+            context,
+            box,
+            getString(R.string.send_token_balance_label),
+            getString(R.string.send_token_balance_line, balHuman, symbol)
+        )
+        val lp = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+        lp.bottomMargin = LayoutHelper.dp(20f)
+        box.layoutParams = lp
+        return box
+    }
+
+    private fun addWalletRowQrAccountLine(
+        context: android.content.Context,
+        parent: LinearLayout,
+        label: String,
+        value: String
+    ) {
+        val row = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val a = TextView(context).apply {
+            text = label
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            setTextColor(themeColors.onSurfaceVariant)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val b = TextView(context).apply {
+            text = value
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(themeColors.onSurface)
+            gravity = Gravity.END
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        row.addView(a)
+        row.addView(b)
+        parent.addView(row)
+    }
+
+    private fun addWalletRowQrBalanceLine(
+        context: android.content.Context,
+        parent: LinearLayout,
+        label: String,
+        amountText: String
+    ) {
+        val row = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.BOTTOM
+        }
+        val labelTv = TextView(context).apply {
+            text = label
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            setTextColor(themeColors.onSurfaceVariant)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val amountTv = TextView(context).apply {
+            text = amountText
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(themeColors.onSurface)
+            gravity = Gravity.END
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        walletBalanceText = amountTv
+        row.addView(labelTv)
+        row.addView(amountTv)
+        parent.addView(
+            row,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = LayoutHelper.dp(16f) }
+        )
     }
 
     private val walletCardTitleTypeface: Typeface
@@ -489,8 +718,7 @@ class SendTokenFragment : BaseFragment() {
     }
 
     private fun refreshWalletBalance() {
-        val raw = runCatching { accountController.accountInfo.value.balance.toBigInteger() }.getOrNull()
-            ?: return
+        val raw = accountController.accountInfo.value.balance.toBigInteger()
         val human = formatBigIntegerHumanVi(raw / CHAIN_UNITS_PER_TOKEN)
         val symbol = getString(R.string.send_token_currency_symbol)
         walletBalanceText?.text = getString(R.string.send_token_balance_line, human, symbol)
@@ -498,17 +726,22 @@ class SendTokenFragment : BaseFragment() {
 
     private fun addRecipientBlock(
         context: android.content.Context,
-        column: LinearLayout
+        column: LinearLayout,
+        qrFlow: Boolean
     ) {
         val hasRecipient = !jsonWalletAddress.isNullOrBlank() || !jsonReceiverId.isNullOrBlank()
         val sectionTitle = when {
             !jsonWalletAddress.isNullOrBlank() -> getString(R.string.send_token_recipient_to_address)
             else -> getString(R.string.send_token_recipient_to)
         }
+        fun sectionForRecipient(): TextView =
+            if (qrFlow) qrFormSectionLabel(context, sectionTitle).apply {
+                setPadding(0, 0, 0, LayoutHelper.dp(6f))
+            }
+            else sectionLabel(context, sectionTitle)
+
         if (!hasRecipient && !formValue.isNullOrBlank()) {
-            column.addView(
-                sectionLabel(context, sectionTitle)
-            )
+            column.addView(sectionForRecipient())
             column.addView(
                 labelAndText(
                     context,
@@ -519,13 +752,14 @@ class SendTokenFragment : BaseFragment() {
             return
         }
         if (!jsonWalletAddress.isNullOrBlank()) {
-            column.addView(sectionLabel(context, sectionTitle))
+            column.addView(sectionForRecipient())
+            val rowBg = if (qrFlow) createQrTransferInputBackground() else createTextFieldBackground()
             val row = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                background = createTextFieldBackground()
+                background = rowBg
                 setPadding(
-                    LayoutHelper.dp(4f),
+                    if (qrFlow) LayoutHelper.dp(10f) else LayoutHelper.dp(4f),
                     0,
                     LayoutHelper.dp(10f),
                     0
@@ -533,10 +767,10 @@ class SendTokenFragment : BaseFragment() {
             }
             val valueTv = TextView(context).apply {
                 text = jsonWalletAddress
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, if (qrFlow) 13f else 14f)
                 setTextColor(themeColors.onSurface)
                 setPadding(
-                    LayoutHelper.dp(6f),
+                    LayoutHelper.dp(if (qrFlow) 4f else 6f),
                     0,
                     LayoutHelper.dp(6f),
                     0
@@ -581,21 +815,36 @@ class SendTokenFragment : BaseFragment() {
             return
         }
         if (!jsonReceiverId.isNullOrBlank()) {
-            column.addView(sectionLabel(context, sectionTitle))
+            column.addView(sectionForRecipient())
             val display = when {
-                !jsonReceiverName.isNullOrBlank() -> "${jsonReceiverName} (${jsonReceiverId})"
+                !jsonReceiverName.isNullOrBlank() -> jsonReceiverName!!
                 else -> jsonReceiverId!!
             }
-            column.addView(
-                labelAndText(
-                    context,
-                    getString(R.string.send_token_recipient),
-                    display
+            if (qrFlow) {
+                column.addView(
+                    qrRecipientReadout(context, display),
+                    LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        LayoutHelper.dp(40f)
+                    )
                 )
-            )
+            } else {
+                column.addView(
+                    labelAndText(
+                        context,
+                        getString(R.string.send_token_recipient),
+                        display
+                    )
+                )
+            }
             return
         }
-        column.addView(sectionLabel(context, getString(R.string.send_token_recipient_to)))
+        column.addView(
+            if (qrFlow) qrFormSectionLabel(context, getString(R.string.send_token_recipient_to)).apply {
+                setPadding(0, 0, 0, LayoutHelper.dp(6f))
+            }
+            else sectionLabel(context, getString(R.string.send_token_recipient_to))
+        )
         column.addView(
             labelAndText(
                 context,
@@ -603,6 +852,19 @@ class SendTokenFragment : BaseFragment() {
                 getString(R.string.send_token_scan_qr_or_use_profile)
             )
         )
+    }
+
+    private fun qrRecipientReadout(
+        context: android.content.Context,
+        display: String
+    ): TextView = TextView(context).apply {
+        text = display
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+        setTextColor(themeColors.onSurface)
+        gravity = Gravity.CENTER_VERTICAL
+        includeFontPadding = false
+        background = createQrTransferInputBackground()
+        setPadding(LayoutHelper.dp(14f), 0, LayoutHelper.dp(14f), 0)
     }
 
     private fun copyToClipboard(
@@ -668,6 +930,15 @@ class SendTokenFragment : BaseFragment() {
         noteCounter?.text = getString(R.string.send_token_note_char_count, len)
     }
 
+    private fun buildRecipientDisplay(): String {
+        return when {
+            !jsonWalletAddress.isNullOrBlank() -> jsonWalletAddress!!
+            !jsonReceiverName.isNullOrBlank() -> jsonReceiverName!!
+            !jsonReceiverId.isNullOrBlank() -> jsonReceiverId!!
+            else -> "—"
+        }
+    }
+
     private fun labelAndText(
         context: android.content.Context,
         label: String,
@@ -699,15 +970,16 @@ class SendTokenFragment : BaseFragment() {
 
     private fun wrapAmountField(
         context: android.content.Context,
-        field: EditText
+        field: EditText,
+        qrFlow: Boolean = false
     ): LinearLayout = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        background = createTextFieldBackground()
+        background = if (qrFlow) createQrTransferInputBackground() else createTextFieldBackground()
         setPadding(
-            LayoutHelper.dp(4f),
+            if (qrFlow) LayoutHelper.dp(2f) else LayoutHelper.dp(4f),
             0,
-            LayoutHelper.dp(4f),
+            if (qrFlow) LayoutHelper.dp(2f) else LayoutHelper.dp(4f),
             0
         )
         addView(
@@ -719,29 +991,31 @@ class SendTokenFragment : BaseFragment() {
     private fun wrapNoteFieldWithCounter(
         context: android.content.Context,
         field: EditText,
-        counter: TextView
+        counter: TextView,
+        qrFlow: Boolean = false
     ): LinearLayout = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
-        background = createTextFieldBackground()
+        background = if (qrFlow) createQrTransferInputBackground() else createTextFieldBackground()
+        val padSide = if (qrFlow) LayoutHelper.dp(2f) else LayoutHelper.dp(4f)
         setPadding(
-            LayoutHelper.dp(4f),
-            0,
-            LayoutHelper.dp(4f),
-            LayoutHelper.dp(4f)
+            padSide,
+            if (qrFlow) LayoutHelper.dp(2f) else 0,
+            padSide,
+            if (qrFlow) LayoutHelper.dp(8f) else LayoutHelper.dp(4f)
         )
         addView(
             field,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                LayoutHelper.dp(100f)
+                if (qrFlow) LayoutHelper.dp(108f) else LayoutHelper.dp(100f)
             )
         )
         val cLp = LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT
         ).apply {
-            rightMargin = LayoutHelper.dp(2f)
-            bottomMargin = LayoutHelper.dp(2f)
+            rightMargin = LayoutHelper.dp(if (qrFlow) 10f else 2f)
+            bottomMargin = LayoutHelper.dp(if (qrFlow) 8f else 2f)
         }
         addView(
             counter,
@@ -882,24 +1156,24 @@ class SendTokenFragment : BaseFragment() {
                     onSuccess = { r ->
                         if (r.ok) {
                             accountController.reduceBalanceLocally(amountInChainUnits)
-                            accountController.loadAccount(true)
                             val timeStr = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
                                 .format(Date())
                             val amountShow = amountField?.text?.toString().orEmpty()
                             val sym = getString(R.string.send_token_currency_symbol)
-                            AlertDialog.Builder(act)
-                                .setTitle(getString(R.string.send_token_success_dialog_title))
-                                .setMessage(
-                                    getString(
-                                        R.string.send_token_success_dialog_message,
-                                        amountShow,
-                                        sym,
-                                        note,
-                                        timeStr
-                                    )
-                                )
-                                .setPositiveButton(getString(R.string.common_ok), null)
-                                .show()
+                            val recipientDisplay = buildRecipientDisplay()
+                            val successFrag = TransferSuccessFragment.newInstance(
+                                amount = amountShow,
+                                symbol = sym,
+                                recipient = recipientDisplay,
+                                note = note,
+                                time = timeStr
+                            )
+                  
+                            successFrag.onDone = { shouldFinishOnResume = true }
+                            successFrag.onNewTransfer = { shouldFinishOnResume = true; pendingNewTransfer = true }
+                            presentFragment(successFrag)
+              
+                            return@launch
                         } else {
                             ToastOverlay(requireContext(), themeColors).show(
                                 parent,

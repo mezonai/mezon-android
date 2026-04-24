@@ -8,6 +8,7 @@ import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.util.Rational
 import android.view.ActionMode
 import android.view.Menu
@@ -30,20 +31,24 @@ import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.ConnectionController
+import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.MainTabsActivity
 import com.mezon.mobile.home.chat.ChatFragment
+import com.mezon.mobile.home.clans.ClanChannelEntity
 import com.mezon.mobile.home.sharing.SharingFragment
 import com.mezon.mobile.home.voice.VoiceOverlayManager
 import com.mezon.mobile.home.voice.VoiceRoomFragment
 import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
-import com.mezon.mobile.notification.FcmRepository
+import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
+import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
 import com.mezon.mobile.notification.NotificationHelper
 import com.mezon.mobile.session.AutoNightConfig
 import com.mezon.mobile.session.LocaleManager
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.session.ThemeManager
 import com.mezon.mobile.ui.theme.ThemeMode
+import com.mezon.mobile.update.AppUpdateGateManager
 import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.EntryPointAccessors
 import javax.inject.Inject
@@ -52,6 +57,12 @@ import javax.inject.Inject
 class MainActivity : BasePermissionsActivity(),
     INavigationLayout.INavigationLayoutDelegate,
     NotificationCenter.NotificationCenterDelegate {
+
+    private data class ChatRouteMeta(
+        val channelType: Int,
+        val isPrivate: Boolean,
+        val parentId: Long
+    )
 
     companion object {
         private const val TAG = "MainActivity"
@@ -80,8 +91,10 @@ class MainActivity : BasePermissionsActivity(),
     @Inject lateinit var themeManager: ThemeManager
     @Inject lateinit var themeColors: ThemeColors
     @Inject lateinit var notificationCenter: NotificationCenter
-    @Inject lateinit var fcmRepository: FcmRepository
+    @Inject lateinit var dialogsController: DialogsController
     @Inject lateinit var connectionController: ConnectionController
+    @Inject lateinit var notificationHelper: NotificationHelper
+    @Inject lateinit var appUpdateGateManager: AppUpdateGateManager
 
     lateinit var actionBarLayout: ActionBarLayout
     lateinit var drawerLayoutContainer: DrawerLayoutContainer
@@ -98,6 +111,7 @@ class MainActivity : BasePermissionsActivity(),
     private var isContentReady = false
     private val dismissSplashRunnable = Runnable { isContentReady = true }
     private var splashContentObserver: NotificationCenter.NotificationCenterDelegate? = null
+    private var appUpdateGateRunnable: Runnable? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
@@ -158,7 +172,6 @@ class MainActivity : BasePermissionsActivity(),
             if (hasSession) {
                 showHome()
                 setupSplashDismiss()
-                fcmRepository.getAndRegisterToken()
             } else {
                 showLogin()
             }
@@ -168,6 +181,16 @@ class MainActivity : BasePermissionsActivity(),
         } else {
             actionBarLayout.showLastFragment()
             rewireTopFragmentCallbacks()
+        }
+        if (hasSession) {
+            val run = Runnable {
+                appUpdateGateManager.checkAndShowIfNeeded(
+                    this@MainActivity,
+                    BuildConfig.MEZON_GOOGLE_PLAY_URL
+                )
+            }
+            appUpdateGateRunnable = run
+            AndroidUtilities.runOnUIThread(run, 2000L)
         }
         requestNotificationPermission()
 
@@ -211,6 +234,8 @@ class MainActivity : BasePermissionsActivity(),
         dismissVoiceRoom()
         actionBarLayout.unregisterBackCallback()
         AndroidUtilities.cancelRunOnUIThread(dismissSplashRunnable)
+        appUpdateGateRunnable?.let { AndroidUtilities.cancelRunOnUIThread(it) }
+        appUpdateGateRunnable = null
         splashContentObserver?.let {
             notificationCenter.removeObserver(it, NotificationCenter.clansDidLoad)
             notificationCenter.removeObserver(it, NotificationCenter.dialogsNeedReload)
@@ -243,7 +268,8 @@ class MainActivity : BasePermissionsActivity(),
 
     private fun tryEnterPiP(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
-        if (voiceRoomFragment == null) return false
+        val fragment = voiceRoomFragment ?: return false
+        if (fragment.getRoom() == null) return false
         val manager = voiceOverlayManager ?: return false
         if (!manager.isVisible()) return false
         if (manager.isMinimized()) {
@@ -439,9 +465,11 @@ class MainActivity : BasePermissionsActivity(),
         mainFragmentsStack.clear()
         actionBarLayout.addFragmentToStack(mainTabsActivity)
         actionBarLayout.showLastFragment()
+        dialogsController.loadDialogs()
     }
 
     private fun switchToLogin() {
+        notificationHelper.cancelAllNotifications()
         dismissVoiceRoom()
         val entryPoint = EntryPointAccessors.fromApplication(
             applicationContext, FragmentEntryPoint::class.java
@@ -524,10 +552,14 @@ class MainActivity : BasePermissionsActivity(),
         channelType: Int,
         messageId: Long = 0L,
         noAnimation: Boolean = false,
-        fromNotification: Boolean = false
+        fromNotification: Boolean = false,
+        forceRejoin: Boolean = false
     ) {
+        val routeMeta = resolveChatRouteMeta(channelId, clanId, channelType)
+        val resolvedChannelName = resolveChatDisplayName(channelId, channelName, clanId, routeMeta.channelType)
         val lastFragment = actionBarLayout.getLastFragment()
-        if (lastFragment is ChatFragment && lastFragment.getChannelId() == channelId && messageId == 0L) {
+        if (lastFragment is ChatFragment && lastFragment.getChannelId() == channelId && messageId == 0L && !forceRejoin) {
+            preloadChatContext(channelId, resolvedChannelName, clanId, routeMeta)
             if (fromNotification) {
                 clearStackAboveTabs()
                 switchToTabForClan(clanId)
@@ -540,9 +572,167 @@ class MainActivity : BasePermissionsActivity(),
             switchToTabForClan(clanId)
         }
 
-        val fragment = ChatFragment.newInstance(channelId, channelName, clanId, channelType, messageId)
+        preloadChatContext(channelId, resolvedChannelName, clanId, routeMeta)
+        val fragment = ChatFragment.newInstance(
+            channelId = channelId,
+            channelName = resolvedChannelName,
+            clanId = clanId,
+            channelType = routeMeta.channelType,
+            messageId = messageId,
+            isChannelPrivate = routeMeta.isPrivate,
+            parentId = routeMeta.parentId
+        )
         val params = INavigationLayout.NavigationParams(fragment).setNoAnimation(noAnimation)
         actionBarLayout.presentFragment(params)
+    }
+
+    private fun resolveChatDisplayName(
+        channelId: Long,
+        channelName: String,
+        clanId: Long,
+        channelType: Int
+    ): String {
+        if (clanId != 0L) return channelName
+        if (channelType != CHANNEL_TYPE_DM && channelType != CHANNEL_TYPE_GROUP) return channelName
+        val entryPoint = EntryPointAccessors.fromApplication(
+            applicationContext, FragmentEntryPoint::class.java
+        )
+        val dm = entryPoint.dialogsController().getDialog(channelId)
+        val dialogName = dm?.displayName?.ifEmpty { dm.label }.orEmpty()
+        return when {
+            dialogName.isNotBlank() -> dialogName
+            channelName.isNotBlank() -> channelName
+            else -> dm?.label.orEmpty()
+        }
+    }
+
+    private fun preloadChatContext(channelId: Long, channelName: String, clanId: Long, routeMeta: ChatRouteMeta) {
+        val entryPoint = EntryPointAccessors.fromApplication(
+            applicationContext, FragmentEntryPoint::class.java
+        )
+        if (clanId != 0L) {
+            entryPoint.clansController().selectClan(clanId)
+            Log.d(TAG, "openChat preload selectClan clanId=$clanId")
+        }
+        entryPoint.chatController().openChannel(
+            channelId = channelId,
+            clanId = clanId,
+            channelType = routeMeta.channelType,
+            isChannelPrivate = routeMeta.isPrivate,
+            parentId = routeMeta.parentId
+        )
+        Log.d(
+            TAG,
+            "openChat preload openChannel channelId=$channelId clanId=$clanId type=${routeMeta.channelType} private=${routeMeta.isPrivate} parent=${routeMeta.parentId}"
+        )
+        ensureThreadChannelRow(channelId, channelName, clanId, routeMeta.channelType)
+    }
+
+    private fun resolveChatRouteMeta(channelId: Long, clanId: Long, channelType: Int): ChatRouteMeta {
+        val entryPoint = EntryPointAccessors.fromApplication(
+            applicationContext, FragmentEntryPoint::class.java
+        )
+        if (clanId == 0L) {
+            val dm = entryPoint.dialogsController().getDialog(channelId)
+            val resolvedType = when {
+                dm?.type == CHANNEL_TYPE_GROUP -> CHANNEL_TYPE_GROUP
+                dm?.type == CHANNEL_TYPE_DM -> CHANNEL_TYPE_DM
+                channelType == CHANNEL_TYPE_GROUP -> CHANNEL_TYPE_GROUP
+                channelType == CHANNEL_TYPE_DM -> CHANNEL_TYPE_DM
+                else -> CHANNEL_TYPE_DM
+            }
+            return ChatRouteMeta(
+                channelType = resolvedType,
+                isPrivate = false,
+                parentId = 0L
+            )
+        }
+        val channelEntity = entryPoint.channelController().findChannelById(channelId, clanId)
+            ?: entryPoint.searchController().findChannelById(channelId)
+        val resolvedType = when {
+            channelEntity?.isThread == true -> CHANNEL_TYPE_THREAD
+            channelEntity?.type != null && channelEntity.type != 0 -> channelEntity.type
+            channelType != 0 -> channelType
+            else -> CHANNEL_TYPE_CHANNEL
+        }
+        val resolvedParent = channelEntity?.parentId ?: 0L
+        val resolvedPrivate = when {
+            channelEntity != null -> channelEntity.isPrivate
+            resolvedType == CHANNEL_TYPE_THREAD -> true
+            else -> false
+        }
+        return ChatRouteMeta(
+            channelType = resolvedType,
+            isPrivate = resolvedPrivate,
+            parentId = resolvedParent
+        )
+    }
+
+    private fun ensureThreadChannelRow(channelId: Long, channelName: String, clanId: Long, channelType: Int) {
+        if (channelType != CHANNEL_TYPE_THREAD) {
+            Log.d(TAG, "ensureThreadChannelRow skip: non-thread type=$channelType")
+            return
+        }
+        if (clanId == 0L || channelId == 0L) {
+            Log.d(TAG, "ensureThreadChannelRow skip: invalid ids clanId=$clanId channelId=$channelId")
+            return
+        }
+        val entryPoint = EntryPointAccessors.fromApplication(
+            applicationContext, FragmentEntryPoint::class.java
+        )
+        val channelController = entryPoint.channelController()
+        val searchEntity = entryPoint.searchController().findChannelById(channelId)
+        val searchParentId = searchEntity?.parentId ?: 0L
+        val searchPrivate = searchEntity?.isPrivate == true
+        val searchLabel = searchEntity?.channelLabel.orEmpty()
+        channelController.loadChannelsForClan(clanId)
+        Log.d(TAG, "ensureThreadChannelRow warm loadChannelsForClan clanId=$clanId")
+        val existing = channelController.findChannelById(channelId, clanId)
+        if (existing != null) {
+            val shouldPatchPrivacy = existing.type == CHANNEL_TYPE_THREAD && !existing.isPrivate && (existing.parentId == 0L || searchPrivate)
+            val shouldPatchParent = existing.parentId == 0L && searchParentId != 0L
+            if (shouldPatchPrivacy || shouldPatchParent) {
+                val patched = existing.copy(
+                    parentId = if (shouldPatchParent) searchParentId else existing.parentId,
+                    isPrivate = if (shouldPatchPrivacy) true else existing.isPrivate,
+                    channelLabel = when {
+                        existing.channelLabel.isNotBlank() -> existing.channelLabel
+                        searchLabel.isNotBlank() -> searchLabel
+                        else -> channelName
+                    }
+                )
+                channelController.upsertChannel(patched)
+                Log.d(
+                    TAG,
+                    "ensureThreadChannelRow patched existing thread clanId=$clanId channelId=$channelId parentId=${patched.parentId} private=${patched.isPrivate}"
+                )
+                return
+            }
+            Log.d(TAG, "ensureThreadChannelRow skip existing clanId=$clanId channelId=$channelId")
+            return
+        }
+        val channel = ClanChannelEntity(
+            clanId = clanId,
+            channelId = channelId,
+            parentId = searchParentId,
+            categoryId = searchEntity?.categoryId ?: 0L,
+            categoryName = searchEntity?.categoryName.orEmpty(),
+            channelLabel = when {
+                searchLabel.isNotBlank() -> searchLabel
+                else -> channelName
+            },
+            type = CHANNEL_TYPE_THREAD,
+            isPrivate = searchPrivate || searchParentId != 0L,
+            topic = "",
+            unreadCount = 0,
+            isMuted = searchEntity?.isMuted ?: false,
+            categoryOrder = searchEntity?.categoryOrder ?: 0
+        )
+        channelController.upsertChannel(channel)
+        Log.d(
+            TAG,
+            "ensureThreadChannelRow upsert clanId=$clanId channelId=$channelId parentId=${channel.parentId} private=${channel.isPrivate}"
+        )
     }
 
     private fun clearStackAboveTabs() {
@@ -638,20 +828,14 @@ class MainActivity : BasePermissionsActivity(),
 
         if (clanId != 0L && channelId != 0L) {
             val channelType = extras.getInt(NotificationHelper.EXTRA_CHANNEL_TYPE, CHANNEL_TYPE_CHANNEL)
-            val entryPoint = EntryPointAccessors.fromApplication(
-                applicationContext, FragmentEntryPoint::class.java
-            )
-            notificationCenter.postNotificationOnMainThread(NotificationCenter.navigateToClansTab)
-            entryPoint.clansController().selectClan(clanId)
-            entryPoint.chatController().openChannel(channelId, clanId, channelType)
             if (StartupCache.hasSession) {
                 openChat(channelId, channelName, clanId, channelType, noAnimation = isFromNotification, fromNotification = true)
             }
             intent.removeExtra(NotificationHelper.EXTRA_CHANNEL_ID)
         } else if (dmId != 0L) {
-            notificationCenter.postNotificationOnMainThread(NotificationCenter.navigateToMessagesTab)
+            val dmType = extras.getInt(NotificationHelper.EXTRA_CHANNEL_TYPE, CHANNEL_TYPE_DM)
             if (StartupCache.hasSession) {
-                openChat(dmId, channelName, 0L, CHANNEL_TYPE_DM, noAnimation = isFromNotification, fromNotification = isFromNotification)
+                openChat(dmId, channelName, 0L, dmType, noAnimation = isFromNotification, fromNotification = isFromNotification)
             }
             intent.removeExtra(NotificationHelper.EXTRA_DM_ID)
         }

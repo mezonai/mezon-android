@@ -59,6 +59,7 @@ class ChannelController @Inject constructor(
     private var _channelByIdIndex: Map<Long, ClanChannelEntity> = emptyMap()
 
     private val channelListLoading = ConcurrentHashMap<Long, Boolean>()
+    private val channelListNetworkFetchInflight = ConcurrentHashMap.newKeySet<Long>()
     private val favoritesByClan = ConcurrentHashMap<Long, MutableSet<Long>>()
 
     init {
@@ -72,6 +73,7 @@ class ChannelController @Inject constructor(
         currentOpenChannelId = 0L
         processedBadgeKeys.clear()
         channelListLoading.clear()
+        channelListNetworkFetchInflight.clear()
         favoritesByClan.clear()
     }
 
@@ -100,6 +102,9 @@ class ChannelController @Inject constructor(
         }
         val shouldForce = force
         if (!shouldForce && cacheTracker.shouldCall(cacheKey) == ApiCacheTracker.ShouldCall.SKIP) {
+            return
+        }
+        if (!shouldForce && !channelListNetworkFetchInflight.add(clanId)) {
             return
         }
         channelListLoading[clanId] = true
@@ -146,6 +151,7 @@ class ChannelController @Inject constructor(
             notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
         } catch (_: Exception) {
         } finally {
+            if (!force) channelListNetworkFetchInflight.remove(clanId)
             channelListLoading.remove(clanId)
             badgeCoordinator.get().processDeferredQueue()
         }
@@ -180,6 +186,16 @@ class ChannelController @Inject constructor(
             }
         }
         return findChannelById(channelId)
+    }
+
+    fun upsertChannel(channel: ClanChannelEntity) {
+        val clanId = channel.clanId
+        if (clanId == 0L) return
+        val existing = _channelsByClan.value[clanId] ?: emptyList()
+        val merged = sortChannels(existing.filter { it.channelId != channel.channelId } + channel)
+        updateCache(clanId, merged)
+        appScope.launch(ioDispatcher) { clanChannelDao.upsert(channel) }
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
     }
 
     suspend fun findOrFetchChannelLabel(channelId: Long, clanId: Long = 0L): String {
@@ -392,10 +408,14 @@ class ChannelController @Inject constructor(
                     unreadCount = mergeUnreadFromChannelList(cached.unreadCount, apiNorm)
                 )
             }
-        }.sortedWith(compareBy<ClanChannelEntity> { it.categoryOrder }
+        }
+        updateCache(clanId, merged)
+    }
+
+    private fun sortChannels(channels: List<ClanChannelEntity>): List<ClanChannelEntity> {
+        return channels.sortedWith(compareBy<ClanChannelEntity> { it.categoryOrder }
             .thenBy { if (it.parentId == 0L) 0 else 1 }
             .thenBy { it.channelId })
-        updateCache(clanId, merged)
     }
 
     private var currentOpenChannelId = 0L

@@ -15,6 +15,7 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.annotation.DrawableRes
 import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.R
@@ -186,7 +187,9 @@ class SettingsFragment : BaseFragment() {
                 null,
                 true,
                 false,
-                null
+                {
+                    Toast.makeText(requireContext(), getString(R.string.feature_coming_soon), Toast.LENGTH_SHORT).show()
+                }
             )
         )
         val appItems = listOf(
@@ -204,7 +207,7 @@ class SettingsFragment : BaseFragment() {
                 null,
                 true,
                 false,
-                { showThemeSelector(it) }
+                { presentFragment(AppearanceThemeFragment()) }
             ),
             MenuItem(
                 getString(R.string.setting_app_language),
@@ -434,13 +437,8 @@ class SettingsFragment : BaseFragment() {
         popup.show(anchor)
     }
 
-    private fun showLanguageSelector(anchor: View) {
-        val popup = SelectPopup(anchor.context, themeColors)
-        val items = listOf(getString(R.string.setting_language_english), getString(R.string.setting_language_vietnamese))
-        val tags = listOf(LocaleManager.ENGLISH, LocaleManager.VIETNAMESE)
-        popup.setItems(items, tags.indexOf(userController.languageTag).let { if (it < 0) 0 else it })
-        popup.setOnItemSelectedListener { userController.applyLanguage(tags[it]) }
-        popup.show(anchor)
+    private fun showLanguageSelector(@Suppress("UNUSED_PARAMETER") anchor: View) {
+        presentFragment(LanguageSettingFragment())
     }
 
     private fun getThemeDisplayName(mode: ThemeMode): String = when (mode) {
