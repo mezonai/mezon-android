@@ -452,27 +452,35 @@ class ThemeColors @Inject constructor() {
     val qrBrandAccent: Int get() = 0xFFE91E8C.toInt()
     val qrAvatarBackground: Int get() = Color.WHITE
 
-    // primary prop (outer shape) = iconSecondary || textNormal
+    // Bottom tab icon primary (outer shape)
     val tabIconPrimary: Int get() = when (resolvedMode) {
-        ThemeMode.LIGHT -> 0xFFE0E1E3.toInt()  // light.textNormal
-        ThemeMode.DARK -> 0xFF898993.toInt()    // dark.textNormal
-        ThemeMode.ABYSS -> 0xFFBDB4DC.toInt()   // abyssDark.textNormal
-        else -> 0xFF898993.toInt()
+        ThemeMode.LIGHT -> 0xFFCECECE.toInt()
+        ThemeMode.DARK -> 0xFFCECECE.toInt()
+        ThemeMode.ABYSS -> 0xFFCECECE.toInt()
+        else -> 0xFFCECECE.toInt()
     }
 
-    // color prop (inner detail) = borderRadio
+    // Bottom tab icon detail (inner small shape) when inactive - darker than primary.
     val tabIconDetail: Int get() = when (resolvedMode) {
-        ThemeMode.LIGHT -> 0xFF4D4D54.toInt()   // light.borderRadio
-        ThemeMode.DARK -> 0xFFDADADA.toInt()     // dark.borderRadio
-        ThemeMode.ABYSS -> 0xFFCACAD2.toInt()    // abyssDark.borderRadio
-        else -> 0xFFDADADA.toInt()
+        ThemeMode.LIGHT -> 0xFF6B6B6B.toInt()
+        ThemeMode.DARK -> 0xFF6B6B6B.toInt()
+        ThemeMode.ABYSS -> 0xFF6B6B6B.toInt()
+        else -> 0xFF6B6B6B.toInt()
     }
 
     val tabIconActivePrimary: Int get() = when (resolvedMode) {
-        ThemeMode.LIGHT -> 0xFF5A62F4.toInt()
-        ThemeMode.DARK -> 0xFF5A62F4.toInt()
-        ThemeMode.ABYSS -> 0xFF5A48FB.toInt()
-        else -> 0xFF5A62F4.toInt()
+        ThemeMode.LIGHT -> 0xFF939BF6.toInt()
+        ThemeMode.DARK -> 0xFF939BF6.toInt()
+        ThemeMode.ABYSS -> 0xFF939BF6.toInt()
+        else -> 0xFF939BF6.toInt()
+    }
+
+    // Bottom tab icon detail (inner small shape) when active - darker than active primary.
+    val tabIconActiveDetail: Int get() = when (resolvedMode) {
+        ThemeMode.LIGHT -> 0xFF5F66C9.toInt()
+        ThemeMode.DARK -> 0xFF5F66C9.toInt()
+        ThemeMode.ABYSS -> 0xFF5F66C9.toInt()
+        else -> 0xFF5F66C9.toInt()
     }
 
     // Tab label active color = textStrong
