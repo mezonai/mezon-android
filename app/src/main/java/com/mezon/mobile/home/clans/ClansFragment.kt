@@ -39,7 +39,6 @@ import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.di.FragmentEntryPoint
-import com.mezon.mobile.home.ChatController
 import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.chat.MezonImageLoader
@@ -70,7 +69,6 @@ class ClansFragment : BaseFragment() {
     private lateinit var clansController: ClansController
     private lateinit var channelController: ChannelController
     private lateinit var channelAppController: ChannelAppController
-    private lateinit var chatController: ChatController
     private lateinit var dialogsController: DialogsController
     private lateinit var accountController: AccountController
     private lateinit var friendController: FriendController
@@ -111,7 +109,6 @@ class ClansFragment : BaseFragment() {
         clansController = entryPoint.clansController()
         channelController = entryPoint.channelController()
         channelAppController = entryPoint.channelAppController()
-        chatController = entryPoint.chatController()
         dialogsController = entryPoint.dialogsController()
         accountController = entryPoint.accountController()
         friendController = entryPoint.friendController()
@@ -180,7 +177,6 @@ class ClansFragment : BaseFragment() {
         }
 
         clansController.loadClans()
-        friendController.loadFriendRelations()
         observe(NotificationCenter.favoriteChannelsChanged) { _, _, args ->
             if (fragmentView == null || isPaused || listFrozen) return@observe
             val clanId = args.firstOrNull() as? Long ?: return@observe
@@ -905,7 +901,6 @@ class ClansFragment : BaseFragment() {
             return
         }
 
-        chatController.openChannel(channel.channelId, clanIdForJoin, channel.type, channel.isPrivate)
         onOpenChat?.invoke(channel.channelId, channel.channelLabel, clanIdForJoin, channel.type)
     }
 
@@ -932,7 +927,6 @@ class ClansFragment : BaseFragment() {
             )
         }
         sheet.onOpenChat = {
-            chatController.openChannel(channel.channelId, clanId, channel.type, channel.isPrivate)
             onOpenChat?.invoke(channel.channelId, channel.channelLabel, clanId, channel.type)
         }
         sheet.show()

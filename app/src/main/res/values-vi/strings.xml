@@ -203,6 +203,21 @@
     <string name="message_toast_copy_text">Đã sao chép văn bản tin nhắn</string>
     <string name="message_forwarded">Đã chuyển tiếp</string>
     <string name="message_reply_deleted">Tin nhắn gốc đã bị xóa</string>
+    <string name="report_message_title">Báo cáo tin nhắn</string>
+    <string name="report_message_subtitle">Vui lòng chọn tùy chọn mô tả vấn đề tốt nhất.</string>
+    <string name="report_message_selected_message">Tin nhắn đã chọn</string>
+    <string name="report_message_spam">Thư rác</string>
+    <string name="report_message_harassment">Lạm dụng hoặc quấy rối</string>
+    <string name="report_message_violent_content">Nội dung bạo lực hoặc thông tin sai lệch</string>
+    <string name="report_message_private">Tiết lộ thông tin cá nhân riêng tư</string>
+    <string name="report_message_report_summary">Tóm tắt báo cáo</string>
+    <string name="report_message_review_before">Xem lại báo cáo của bạn trước khi gửi.</string>
+    <string name="report_message_category_label">Loại báo cáo</string>
+    <string name="report_message_submit_description">Khi gửi báo cáo này, bạn xác nhận thông tin là chính xác và được gửi với thiện ý. Vui lòng tuân thủ Quy định Cộng đồng và không gửi báo cáo sai sự thật hoặc trùng lặp.</string>
+    <string name="report_message_submit">Gửi báo cáo</string>
+    <string name="report_message_cancel">Hủy bỏ</string>
+    <string name="report_message_submitted">Đã gửi báo cáo</string>
+    <string name="report_message_toast_failed">Báo cáo tin nhắn thất bại</string>
     <string name="message_slide_to_cancel">Vuốt để hủy</string>
     <string name="message_voice_record_failed">Không thể bắt đầu ghi âm.</string>
     <string name="message_voice_record_too_short">Bản ghi quá ngắn.</string>
@@ -315,6 +330,13 @@
     <string name="setting_scan_qr">Quét mã QR</string>
     <string name="setting_devices">Thiết bị</string>
     <string name="setting_app_version_label">Phiên bản ứng dụng</string>
+
+    <!-- update gate (matches RN updateGate) -->
+    <string name="update_gate_out_of_date">Phiên Bản Mới Đã Sẵn Sàng</string>
+    <string name="update_gate_update_experience">Cần cập nhật nhanh để tiếp tục sử dụng các tính năng gia đình mới nhất của chúng tôi.</string>
+    <string name="update_gate_update_now">Cập nhật ngay</string>
+    <string name="update_gate_version_info">PHIÊN BẢN</string>
+    <string name="debug_preview_update_gate">Xem trước bắt buộc cập nhật</string>
 
     <!-- theme -->
     <string name="setting_theme_title">Giao diện</string>

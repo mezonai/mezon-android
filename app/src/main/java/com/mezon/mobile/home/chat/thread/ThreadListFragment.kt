@@ -26,8 +26,8 @@ import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.di.FragmentEntryPoint
-import com.mezon.mobile.home.ChatController
 import com.mezon.mobile.home.MemberResolver
+import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.session.SessionManager
@@ -71,7 +71,7 @@ class ThreadListFragment : BaseFragment() {
     private lateinit var api: MezonApi
     private lateinit var sessionManager: SessionManager
     private lateinit var memberResolver: MemberResolver
-    private lateinit var chatController: ChatController
+    private lateinit var channelController: ChannelController
     private lateinit var ioDispatcher: CoroutineDispatcher
 
     private var adapter: ThreadListAdapter? = null
@@ -103,7 +103,7 @@ class ThreadListFragment : BaseFragment() {
         api = entryPoint.mezonApi()
         sessionManager = entryPoint.sessionManager()
         memberResolver = entryPoint.memberResolver()
-        chatController = entryPoint.chatController()
+        channelController = entryPoint.channelController()
         ioDispatcher = entryPoint.ioDispatcher()
     }
 
@@ -480,7 +480,11 @@ class ThreadListFragment : BaseFragment() {
     }
 
     private fun navigateToThread(thread: ThreadInfo) {
-        chatController.openChannel(thread.channelId, thread.clanId, CHANNEL_TYPE_THREAD)
+        val existing = channelController.findChannelById(thread.channelId, thread.clanId)
+        val parent = if (thread.parentId != 0L) {
+            channelController.findChannelById(thread.parentId, thread.clanId)
+        } else null
+        channelController.upsertChannel(thread.toClanChannelEntity(existing, parent))
         (getParentActivity() as? MainActivity)?.openChat(
             thread.channelId, thread.channelLabel, thread.clanId, CHANNEL_TYPE_THREAD
         )

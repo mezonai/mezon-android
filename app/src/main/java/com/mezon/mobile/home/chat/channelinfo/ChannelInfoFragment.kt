@@ -23,7 +23,6 @@ import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.core.ViewPagerFixed
 import com.mezon.mobile.di.FragmentEntryPoint
-import com.mezon.mobile.home.ChatController
 import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.MemberResolver
@@ -54,18 +53,24 @@ class ChannelInfoFragment : BaseFragment() {
         private const val ARG_CHANNEL_NAME = "channelName"
         private const val ARG_CLAN_ID = "clanId"
         private const val ARG_CHANNEL_TYPE = "channelType"
+        private const val ARG_CHANNEL_PRIVATE = "channelPrivate"
+        private const val ARG_PARENT_ID = "parentId"
 
         fun newInstance(
             channelId: Long,
             channelName: String,
             clanId: Long,
-            channelType: Int
+            channelType: Int,
+            isChannelPrivate: Boolean = false,
+            parentId: Long = 0L
         ): ChannelInfoFragment = ChannelInfoFragment().apply {
             arguments = Bundle().apply {
                 putLong(ARG_CHANNEL_ID, channelId)
                 putString(ARG_CHANNEL_NAME, channelName)
                 putLong(ARG_CLAN_ID, clanId)
                 putInt(ARG_CHANNEL_TYPE, channelType)
+                if (isChannelPrivate) putBoolean(ARG_CHANNEL_PRIVATE, true)
+                if (parentId != 0L) putLong(ARG_PARENT_ID, parentId)
             }
         }
     }
@@ -74,12 +79,13 @@ class ChannelInfoFragment : BaseFragment() {
     private var channelName = ""
     private var clanId = 0L
     private var channelType = 0
+    private var routeChannelPrivate = false
+    private var routeParentId = 0L
 
     private lateinit var memberResolver: MemberResolver
     private lateinit var userClanController: UserClanController
     private lateinit var dialogsController: DialogsController
     private lateinit var userController: UserController
-    private lateinit var chatController: ChatController
     private lateinit var pinMessageController: PinMessageController
     private lateinit var channelController: ChannelController
 
@@ -100,6 +106,8 @@ class ChannelInfoFragment : BaseFragment() {
         channelName = arguments?.getString(ARG_CHANNEL_NAME) ?: ""
         clanId = arguments?.getLong(ARG_CLAN_ID) ?: 0L
         channelType = arguments?.getInt(ARG_CHANNEL_TYPE) ?: 0
+        routeChannelPrivate = arguments?.getBoolean(ARG_CHANNEL_PRIVATE) ?: false
+        routeParentId = arguments?.getLong(ARG_PARENT_ID) ?: 0L
 
         observe(NotificationCenter.clanMembersDidLoad) { _, _, args ->
             if (isPaused) return@observe
@@ -136,7 +144,6 @@ class ChannelInfoFragment : BaseFragment() {
         userClanController = entryPoint.userClanController()
         dialogsController = entryPoint.dialogsController()
         userController = entryPoint.userController()
-        chatController = entryPoint.chatController()
         pinMessageController = entryPoint.pinMessageController()
         channelController = entryPoint.channelController()
     }
@@ -286,7 +293,13 @@ class ChannelInfoFragment : BaseFragment() {
     }
 
     private fun resolveChannelTypeIcon(entity: com.mezon.mobile.home.clans.ClanChannelEntity?): MezonIcon {
-        if (entity == null) return MezonIcon.channelText
+        if (entity == null) {
+            val isThreadLike = channelType != CHANNEL_TYPE_CHANNEL || routeParentId != 0L
+            if (isThreadLike) {
+                return if (routeChannelPrivate || routeParentId != 0L) MezonIcon.threadLockIcon else MezonIcon.threadIcon
+            }
+            return if (routeChannelPrivate) MezonIcon.channelTextLock else MezonIcon.channelText
+        }
 
         val isChannel = !entity.isThread
         val isPrivate = entity.isPrivate
@@ -505,6 +518,7 @@ class ChannelInfoFragment : BaseFragment() {
     }
 
     private fun buildPinsTab(context: Context): View {
+        val act = getParentActivity() ?: return buildComingSoonTab(context)
         val helper = PinsTabHelper(
             channelId = channelId,
             clanId = clanId,
@@ -513,6 +527,7 @@ class ChannelInfoFragment : BaseFragment() {
             pinMessageController = pinMessageController,
             memberResolver = memberResolver,
             notificationCenter = notificationCenter,
+            hostActivity = act,
             onJumpToMessage = { finishFragment() },
             getString = { resId -> getString(resId) }
         )
@@ -538,7 +553,6 @@ class ChannelInfoFragment : BaseFragment() {
         fragmentScope.launch {
             val dmChannelId = dialogsController.getOrCreateDm(member.userId)
             if (dmChannelId != 0L) {
-                chatController.openChannel(dmChannelId, 0L, CHANNEL_TYPE_DM)
                 launch(Dispatchers.Main.immediate) {
                     (getParentActivity() as? MainActivity)?.openChat(
                         dmChannelId, member.displayName.ifBlank { member.username }, 0L, CHANNEL_TYPE_DM
