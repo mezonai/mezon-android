@@ -1148,14 +1148,35 @@ class ChatController @Inject constructor(
 
     fun editMessage(
         channelId: Long, clanId: Long, channelType: Int,
-        isChannelPrivate: Boolean, messageId: Long, newText: String
+        isChannelPrivate: Boolean, messageId: Long, newText: String,
+        mentions: List<MentionData>? = null,
+        emojiMarkers: List<EmojiMarker>? = null,
+        markdownMarkers: List<MarkdownMarker>? = null,
+        hashtags: List<com.mezon.mobile.util.HashtagData>? = null
     ) {
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
-        val content = buildTextContent(newText)
+        val hasExtras = !mentions.isNullOrEmpty() || !emojiMarkers.isNullOrEmpty() ||
+            !markdownMarkers.isNullOrEmpty() || !hashtags.isNullOrEmpty()
+        val content = if (hasExtras) {
+            buildTextContentWithEmojis(newText, mentions, emojiMarkers, markdownMarkers, hashtags)
+        } else {
+            buildTextContent(newText)
+        }
+        val protoMentions = mentions?.map { m ->
+            messageMention {
+                if (m.userId.isNotBlank()) userId = m.userId.toLongOrNull() ?: 0L
+                if (m.roleId.isNotBlank()) roleId = m.roleId.toLongOrNull() ?: 0L
+                if (m.display.isNotBlank()) username = m.display
+                s = m.startOffset
+                e = m.endOffset
+            }
+        }
         appScope.launch {
             try {
-                mezonSocket.updateChatMessage(clanId, channelId, mode, isPublic, messageId, content)
+                mezonSocket.updateChatMessage(
+                    clanId, channelId, mode, isPublic, messageId, content, protoMentions
+                )
                 Log.d(TAG, "Message edited: channelId=$channelId messageId=$messageId")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to edit message", e)
