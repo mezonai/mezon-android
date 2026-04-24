@@ -8,6 +8,8 @@ object ThreadStatus {
 
 private const val THIRTY_DAYS_SECONDS = 30L * 24 * 60 * 60
 
+const val THREAD_ARCHIVE_DURATION_SECONDS = 7L * 24 * 60 * 60
+
 data class ThreadSection(
     val title: String,
     val threads: List<ThreadInfo>
