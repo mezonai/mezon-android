@@ -320,6 +320,14 @@
     <string name="setting_theme_dark">Tối</string>
     <string name="setting_theme_abyss">Vực thẳm</string>
     <string name="setting_theme_system">Theo hệ thống</string>
+    <string name="setting_theme_system_short">Hệ thống</string>
+    <string name="theme_screen_title">Chủ đề ứng dụng</string>
+    <string name="theme_preview_conversations">Cuộc trò chuyện</string>
+    <string name="theme_preview_hint">Bạn vẫn có thể thay đổi điều này sau!</string>
+    <string name="theme_preview_message_1">Này, cuộc hẹn này mai của chúng ta vẫn diễn ra chứ?</string>
+    <string name="theme_preview_message_2">Đừng quên xem các cập nhật mới của dự án nhé!</string>
+    <string name="theme_preview_message_3">Bạn có thể gửi cho tôi các tập tin từ tuần trước không?</string>
+    <string name="theme_preview_message_4">Tuấn ơi chúng mình đi ăn trưa với nhau nhé.</string>
 
     <!-- connection states -->
     <string name="connection_connected">Đã kết nối</string>
