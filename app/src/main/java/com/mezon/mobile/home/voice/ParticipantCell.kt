@@ -49,11 +49,6 @@ class ParticipantCell(
         private val BADGE_MARGIN = LayoutHelper.dp(4)
         private val SHARE_ICON_SIZE = LayoutHelper.dp(14)
 
-        private val namePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = LayoutHelper.sp(14f)
-            color = 0xFFFFFFFF.toInt()
-            typeface = Typeface.DEFAULT
-        }
         private val speakingBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
             strokeWidth = LayoutHelper.dp(1).toFloat()
@@ -87,6 +82,11 @@ class ParticipantCell(
     private val reactionBadge: FrameLayout
     private val reactionBadgeIcon: ImageView
     private var currentBadgeType = ReactionBadgeType.NONE
+
+    private val namePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = LayoutHelper.sp(14f)
+        typeface = Typeface.DEFAULT
+    }
 
     init {
         setWillNotDraw(false)
@@ -374,6 +374,7 @@ class ParticipantCell(
     }
 
     private fun buildNameLayout() {
+        namePaint.color = themeColors.textStrong
         val iconSize = if (isScreenShare) SHARE_ICON_SIZE else MIC_ICON_SIZE
         val maxWidth = measuredWidth - NAME_H_PADDING * 2 - iconSize - LayoutHelper.dp(4)
         if (maxWidth <= 0) return

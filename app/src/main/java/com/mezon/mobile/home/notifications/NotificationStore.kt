@@ -5,6 +5,8 @@ import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.data.db.NotificationDao
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
+import com.mezon.mobile.network.CHANNEL_TYPE_DM
+import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.session.SessionManager
 import kotlinx.coroutines.CoroutineDispatcher
@@ -101,12 +103,7 @@ class NotificationStore @Inject constructor(
                         api.listNotifications(session.apiUrl, session.token, clanId, category, notificationId, PAGE_SIZE)
                     }
                     val entities = result.notificationsList.map { proto ->
-                        proto.toNotificationEntity().let { e ->
-                            e.copy(
-                                category = if (e.category == 0) category else e.category,
-                                clanId = if (e.clanId == 0L) clanId else e.clanId
-                            )
-                        }
+                        proto.toNotificationEntity();
                     }
                     val hasMore = entities.size >= PAGE_SIZE
                     updateCategoryState(category, entities, notificationId == 0L, hasMore)

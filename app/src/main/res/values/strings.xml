@@ -204,6 +204,23 @@
     <string name="message_forwarded">Forwarded</string>
     <string name="message_reply_deleted">Original message was deleted</string>
 
+    <!-- report message (parity with RN message.reportMessage) -->
+    <string name="report_message_title">Report message</string>
+    <string name="report_message_subtitle">Please select the option that best describes the problem.</string>
+    <string name="report_message_selected_message">Selected message</string>
+    <string name="report_message_spam">Spam</string>
+    <string name="report_message_harassment">Abuse or harassment</string>
+    <string name="report_message_violent_content">Harmful misinformation or glorifying violence</string>
+    <string name="report_message_private">Exposing private identifying information</string>
+    <string name="report_message_report_summary">Report summary</string>
+    <string name="report_message_review_before">Review your report before submitting.</string>
+    <string name="report_message_category_label">Report Category</string>
+    <string name="report_message_submit_description">By submitting this report you confirm that it is truthful and made in good faith. Please follow our Community Guidelines and do not submit false or duplicate reports.</string>
+    <string name="report_message_submit">Submit Report</string>
+    <string name="report_message_cancel">Cancel</string>
+    <string name="report_message_submitted">Report submitted</string>
+    <string name="report_message_toast_failed">Failed to report message</string>
+
     <!-- message action aliases (used by MessageActionBottomSheet) -->
     <string name="action_reply">Reply</string>
     <string name="action_forward">Forward</string>
@@ -376,6 +393,13 @@
     <string name="setting_scan_qr">Scan QR Code</string>
     <string name="setting_devices">Devices</string>
     <string name="setting_app_version_label">App Version</string>
+
+    <!-- update gate (matches RN updateGate) -->
+    <string name="update_gate_out_of_date">New Version Ready</string>
+    <string name="update_gate_update_experience">A quick update is needed to continue using our latest family features.</string>
+    <string name="update_gate_update_now">Update now</string>
+    <string name="update_gate_version_info">VERSION</string>
+    <string name="debug_preview_update_gate">Preview force update</string>
 
     <!-- theme -->
     <string name="setting_theme_title">Theme</string>

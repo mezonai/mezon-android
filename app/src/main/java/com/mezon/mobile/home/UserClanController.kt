@@ -181,11 +181,16 @@ class UserClanController @Inject constructor(
                 val hasCache: Boolean
                 synchronized(this@UserClanController) { hasCache = membersByChannel[channelId] != null }
 
-                if (hasCache && cacheTracker.shouldCall(cacheKey, noCache = noCache) == ApiCacheTracker.ShouldCall.SKIP) return@launch
+                if (hasCache && cacheTracker.shouldCall(cacheKey, noCache = noCache) == ApiCacheTracker.ShouldCall.SKIP) {
+                    Log.d(TAG, "loadChannelMembers skip cache clanId=$clanId channelId=$channelId type=$channelType")
+                    return@launch
+                }
+                Log.d(TAG, "loadChannelMembers request clanId=$clanId channelId=$channelId type=$channelType")
 
                 sessionManager.withAutoRefresh { session ->
                     val response = api.listChannelUsers(session.apiUrl, session.token, clanId, channelId, channelType)
                     val channelUsers = response.channelUsersList
+                    Log.d(TAG, "loadChannelMembers response clanId=$clanId channelId=$channelId type=$channelType count=${channelUsers.size}")
 
                     val clanMembers = getClanMembers(clanId)
                     val clanMemberDict = HashMap<Long, ClanMember>(clanMembers.size)

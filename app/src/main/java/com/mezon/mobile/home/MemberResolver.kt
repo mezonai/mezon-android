@@ -30,7 +30,7 @@ class MemberResolver @Inject constructor(
         }
 
         if (clanId != 0L) {
-            val member = findClanOrChannelMember(userId, clanId, channelId)
+            val member = findClanOrChannelMember(userId, clanId, channelId, channelType)
             if (member != null) return member
         } else {
             val participant = findDmParticipant(userId, channelId)
@@ -55,7 +55,7 @@ class MemberResolver @Inject constructor(
         }
 
         if (clanId != 0L) {
-            val members = resolveChannelMemberList(clanId, channelId)
+            val members = resolveChannelMemberList(clanId, channelId, channelType)
             for (m in members) {
                 if (m.userId in userIds) result[m.userId] = m
             }
@@ -80,9 +80,26 @@ class MemberResolver @Inject constructor(
         channelId: Long,
         channelType: Int
     ): List<ClanMember> {
-        if (clanId != 0L) return resolveChannelMemberList(clanId, channelId)
+        if (clanId != 0L) return resolveChannelMemberList(clanId, channelId, channelType)
         val participants = dialogsController.getParticipants(channelId)
         return participants.map { it.toClanMember() }
+    }
+
+    fun resolveMentionMembers(
+        clanId: Long,
+        channelId: Long,
+        channelType: Int
+    ): List<ClanMember> {
+        if (clanId == 0L) {
+            return dialogsController.getParticipants(channelId).map { it.toClanMember() }
+        }
+        val ch = channelController.findChannelById(channelId, clanId)
+        if (ch != null && (ch.isPrivate || ch.parentId != 0L)) {
+            val targetChannelId = if (ch.parentId != 0L) ch.parentId else channelId
+            val channelMembers = userClanController.getChannelMembers(targetChannelId)
+            if (channelMembers.isNotEmpty()) return channelMembers
+        }
+        return userClanController.getClanMembers(clanId)
     }
 
     private fun buildSelfMemberInContext(clanId: Long, channelId: Long, channelType: Int): ClanMember {
@@ -103,22 +120,55 @@ class MemberResolver @Inject constructor(
         val mode = channelTypeToStreamMode(channelType)
         val useClanPersona = mode == STREAM_MODE_CHANNEL || mode == STREAM_MODE_THREAD
         if (!useClanPersona) return globalFallback
-        val member = resolveChannelMemberList(clanId, channelId).firstOrNull { it.userId == selfId }
+        val member = resolveChannelMemberList(clanId, channelId, channelType).firstOrNull { it.userId == selfId }
         return member ?: globalFallback
     }
 
-    private fun resolveChannelMemberList(clanId: Long, channelId: Long): List<ClanMember> {
-        val ch = channelController.findChannelById(channelId)
-        if (ch != null && (ch.isPrivate || ch.parentId != 0L)) {
-            val targetChannelId = if (ch.parentId != 0L) ch.parentId else channelId
-            val channelMembers = userClanController.getChannelMembers(targetChannelId)
-            if (channelMembers.isNotEmpty()) return channelMembers
+    private fun resolveChannelMemberList(clanId: Long, channelId: Long, channelType: Int): List<ClanMember> {
+        val isThreadType = channelTypeToStreamMode(channelType) == STREAM_MODE_THREAD
+        if (channelTypeToStreamMode(channelType) == STREAM_MODE_THREAD) {
+            val directMembers = userClanController.getChannelMembers(channelId)
+            if (directMembers.isNotEmpty()) return enrichMembers(clanId, directMembers)
         }
+        val ch = channelController.findChannelById(channelId)
+        val isThreadLike = isThreadType || (ch?.parentId ?: 0L) != 0L
+        val isPrivateLike = ch?.isPrivate == true
+        if (ch != null && (ch.isPrivate || ch.parentId != 0L)) {
+            val directMembers = userClanController.getChannelMembers(channelId)
+            if (directMembers.isNotEmpty()) return enrichMembers(clanId, directMembers)
+            if (ch.parentId != 0L) {
+                val parentMembers = userClanController.getChannelMembers(ch.parentId)
+                if (parentMembers.isNotEmpty()) return enrichMembers(clanId, parentMembers)
+            }
+        }
+        if (isThreadLike || isPrivateLike) return emptyList()
         return userClanController.getClanMembers(clanId)
     }
 
-    private fun findClanOrChannelMember(userId: Long, clanId: Long, channelId: Long): ClanMember? {
-        val members = resolveChannelMemberList(clanId, channelId)
+    private fun enrichMembers(clanId: Long, members: List<ClanMember>): List<ClanMember> {
+        if (members.isEmpty()) return members
+        val clanMap = HashMap<Long, ClanMember>()
+        for (cm in userClanController.getClanMembers(clanId)) {
+            clanMap[cm.userId] = cm
+        }
+        val enriched = ArrayList<ClanMember>(members.size)
+        for (m in members) {
+            val clanMember = clanMap[m.userId]
+            val global = userClanController.getUserById(m.userId)
+            val next = m.copy(
+                username = m.username.ifBlank { clanMember?.username ?: global?.username.orEmpty() },
+                displayName = m.displayName.ifBlank { clanMember?.displayName ?: global?.displayName.orEmpty() },
+                avatarUrl = m.avatarUrl.ifBlank { clanMember?.avatarUrl ?: global?.avatarUrl.orEmpty() },
+                clanNick = m.clanNick.ifBlank { clanMember?.clanNick.orEmpty() },
+                clanAvatar = m.clanAvatar.ifBlank { clanMember?.clanAvatar?.ifBlank { clanMember.avatarUrl }.orEmpty() }
+            )
+            enriched.add(next)
+        }
+        return enriched
+    }
+
+    private fun findClanOrChannelMember(userId: Long, clanId: Long, channelId: Long, channelType: Int): ClanMember? {
+        val members = resolveChannelMemberList(clanId, channelId, channelType)
         return members.firstOrNull { it.userId == userId }
     }
 

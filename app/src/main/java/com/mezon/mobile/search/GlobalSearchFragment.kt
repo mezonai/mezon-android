@@ -25,7 +25,6 @@ import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.MainActivity
-import com.mezon.mobile.home.ChatController
 import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.MemberResolver
@@ -86,7 +85,6 @@ class GlobalSearchFragment : BaseFragment() {
     private lateinit var searchController: SearchController
     private var memberResolver: MemberResolver? = null
     private lateinit var dialogsController: DialogsController
-    private lateinit var chatController: ChatController
     private lateinit var voiceController: VoiceController
     private lateinit var userClanController: UserClanController
 
@@ -130,7 +128,6 @@ class GlobalSearchFragment : BaseFragment() {
         searchController = entryPoint.searchController()
         memberResolver = entryPoint.memberResolver()
         dialogsController = entryPoint.dialogsController()
-        chatController = entryPoint.chatController()
         voiceController = entryPoint.voiceController()
         userClanController = entryPoint.userClanController()
     }
@@ -794,7 +791,6 @@ class GlobalSearchFragment : BaseFragment() {
         fragmentScope.launch {
             val dmChannelId = dialogsController.getOrCreateDm(member.id)
             if (dmChannelId != 0L) {
-                chatController.openChannel(dmChannelId, 0L, CHANNEL_TYPE_DM)
                 launch(Dispatchers.Main.immediate) {
                     onOpenChat?.invoke(dmChannelId, member.displayName, 0L, CHANNEL_TYPE_DM)
                 }

@@ -70,6 +70,9 @@ import com.mezon.mobile.MainActivity
 import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
+import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
+import com.mezon.mobile.network.MezonApi
+import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.ui.cells.ActionBarView
 import com.mezon.mobile.ui.cells.ColoredImageSpan
 import com.mezon.mobile.ui.cells.MezonIcon
@@ -83,6 +86,8 @@ import com.mezon.mobile.util.parseMarkdownAndStrip
 import com.mezon.mobile.util.restoreInputFromContent
 import com.mezon.mobile.util.resolveStickerSourceUrl
 import com.mezon.mobile.core.SharedConfig
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import com.mezon.mobile.core.SizeNotifierFrameLayout
 import com.mezon.mobile.home.chat.emoji.EmojiView
 
@@ -95,6 +100,8 @@ class ChatFragment : BaseFragment() {
         private const val ARG_CHANNEL_NAME = "channelName"
         private const val ARG_CLAN_ID = "clanId"
         private const val ARG_CHANNEL_TYPE = "channelType"
+        private const val ARG_CHANNEL_PRIVATE = "channelPrivate"
+        private const val ARG_PARENT_ID = "parentId"
         private const val ARG_MESSAGE_ID = "message_id"
         private const val ARG_FORCE_LATEST = "force_latest"
         private const val VIEWPORT_LIMIT = 300
@@ -113,13 +120,17 @@ class ChatFragment : BaseFragment() {
             clanId: Long = 0L,
             channelType: Int = 0,
             messageId: Long = 0L,
-            forceLatest: Boolean = false
+            forceLatest: Boolean = false,
+            isChannelPrivate: Boolean = false,
+            parentId: Long = 0L
         ): ChatFragment = ChatFragment().apply {
             arguments = Bundle().apply {
                 putLong(ARG_CHANNEL_ID, channelId)
                 putString(ARG_CHANNEL_NAME, channelName)
                 putLong(ARG_CLAN_ID, clanId)
                 putInt(ARG_CHANNEL_TYPE, channelType)
+                if (isChannelPrivate) putBoolean(ARG_CHANNEL_PRIVATE, true)
+                if (parentId != 0L) putLong(ARG_PARENT_ID, parentId)
                 if (messageId != 0L) putLong(ARG_MESSAGE_ID, messageId)
                 if (forceLatest) putBoolean(ARG_FORCE_LATEST, true)
             }
@@ -178,6 +189,8 @@ class ChatFragment : BaseFragment() {
     private var channelName = ""
     private var clanId = 0L
     private var channelType = 0
+    private var routeChannelPrivate = false
+    private var routeParentId = 0L
     private var forceLatest = false
     private var startLoadFromMessageId = 0L
     private var startLoadFromMessageOffset = Int.MAX_VALUE
@@ -227,6 +240,11 @@ class ChatFragment : BaseFragment() {
     private lateinit var searchController: com.mezon.mobile.search.SearchController
     private lateinit var voiceController: VoiceController
     private lateinit var channelAppController: ChannelAppController
+    private lateinit var mezonApi: MezonApi
+    private lateinit var sessionManager: SessionManager
+    private lateinit var appScope: CoroutineScope
+    private lateinit var ioDispatcher: CoroutineDispatcher
+    private lateinit var mainDispatcher: CoroutineDispatcher
     private var suggestionsPopup: InputSuggestionsPopup? = null
     private var suggestionsAdapter: InputSuggestionsAdapter? = null
     private val mentionTrackers = mutableListOf<MentionData>()
@@ -274,6 +292,8 @@ class ChatFragment : BaseFragment() {
         channelName = arguments?.getString(ARG_CHANNEL_NAME) ?: ""
         clanId = arguments?.getLong(ARG_CLAN_ID) ?: 0L
         channelType = arguments?.getInt(ARG_CHANNEL_TYPE) ?: 0
+        routeChannelPrivate = arguments?.getBoolean(ARG_CHANNEL_PRIVATE) ?: false
+        routeParentId = arguments?.getLong(ARG_PARENT_ID) ?: 0L
         forceLatest = arguments?.getBoolean(ARG_FORCE_LATEST) ?: false
         startLoadFromMessageId = 0L
         startLoadFromMessageOffset = Int.MAX_VALUE
@@ -295,9 +315,17 @@ class ChatFragment : BaseFragment() {
         if (clanId != 0L) {
             userClanController.loadClanMembers(clanId)
             val ch = channelController.findChannelById(channelId)
-            if (ch != null && (ch.isPrivate || ch.parentId != 0L)) {
-                val targetChannelId = if (ch.parentId != 0L) ch.parentId else channelId
-                userClanController.loadChannelMembers(clanId, targetChannelId, channelType)
+            val effectiveParentId = ch?.parentId ?: routeParentId
+            val effectivePrivate = ch?.isPrivate ?: routeChannelPrivate
+            val shouldLoadScopedMembers =
+                channelType == CHANNEL_TYPE_THREAD || effectivePrivate || effectiveParentId != 0L
+            if (shouldLoadScopedMembers) {
+                if (effectiveParentId != 0L) {
+                    userClanController.loadChannelMembers(clanId, effectiveParentId, CHANNEL_TYPE_CHANNEL)
+                    Log.d(TAG, "onFragmentCreate loadChannelMembers parent clanId=$clanId parentId=$effectiveParentId")
+                }
+                userClanController.loadChannelMembers(clanId, channelId, CHANNEL_TYPE_CHANNEL)
+                Log.d(TAG, "onFragmentCreate loadChannelMembers channel clanId=$clanId channelId=$channelId")
             }
         } else if (channelType == CHANNEL_TYPE_GROUP) {
             dialogsController.loadDmParticipants(channelId)
@@ -385,6 +413,7 @@ class ChatFragment : BaseFragment() {
                         adapter.showLoadingDown = hasMoreBottom
                     }
                     adapter.notifyMessagesUpdated()
+                    updateUnreadDividerPosition()
 
                     if (scrollToMessageId != 0L) {
                         val scrollToIndex = messages.indexOfFirst { it.id == scrollToMessageId }
@@ -397,6 +426,7 @@ class ChatFragment : BaseFragment() {
                     if (direction == 1) adapter.showLoadingUp = hasMoreTop
                     else adapter.showLoadingDown = hasMoreBottom
                     adapter.updateRowsSafe()
+                    updateUnreadDividerPosition()
                 }
 
                 isLoadingMore = false
@@ -552,6 +582,8 @@ class ChatFragment : BaseFragment() {
                             }
                             updatePageDownVisibility()
                             recyclerView.post { scrollToAndHighlight(hIdx) }
+                        } else if (!isCache) {
+                            scrollToReplyMessage(highlightId)
                         }
                     } else if (forceLatest && wasFirstLoad) {
                         forceScrollToBottom()
@@ -884,6 +916,11 @@ class ChatFragment : BaseFragment() {
         pinMessageController = entryPoint.pinMessageController()
         voiceController = entryPoint.voiceController()
         channelAppController = entryPoint.channelAppController()
+        mezonApi = entryPoint.mezonApi()
+        sessionManager = entryPoint.sessionManager()
+        appScope = entryPoint.applicationScope()
+        ioDispatcher = entryPoint.ioDispatcher()
+        mainDispatcher = entryPoint.mainDispatcher()
     }
 
     override fun createView(context: Context): View {
@@ -904,9 +941,17 @@ class ChatFragment : BaseFragment() {
                 }
             }
             setTitleOnClickListener {
+                val channelEntity = channelController.findChannelById(channelId)
+                val infoPrivate = channelEntity?.isPrivate ?: routeChannelPrivate
+                val infoParentId = channelEntity?.parentId ?: routeParentId
                 presentFragment(
                     com.mezon.mobile.home.chat.channelinfo.ChannelInfoFragment.newInstance(
-                        channelId, channelName, clanId, channelType
+                        channelId = channelId,
+                        channelName = channelName,
+                        clanId = clanId,
+                        channelType = channelType,
+                        isChannelPrivate = infoPrivate,
+                        parentId = infoParentId
                     )
                 )
             }
@@ -1198,7 +1243,7 @@ class ChatFragment : BaseFragment() {
         })
 
         voiceOverlay = VoiceRecordingOverlay(context, themeColors).apply {
-            setSlideToCancelText(getString(R.string.message_slide_to_cancel))
+            setSlideToCancelText(getString(R.string.voice_record_slide_to_cancel))
         }
         inputWrapper.addView(voiceOverlay, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
@@ -1876,6 +1921,7 @@ class ChatFragment : BaseFragment() {
 
     private fun forceScrollToBottom() {
         unreadDecoration.clear()
+        recyclerView.invalidateItemDecorations()
         cancelPendingScroll()
         Log.d(TAG, "forceScrollToBottom: itemCount=${adapter.itemCount} recyclerVisibility=${recyclerView.visibility}")
         val r = Runnable {
@@ -1893,6 +1939,7 @@ class ChatFragment : BaseFragment() {
 
     private fun scrollToBottom() {
         unreadDecoration.clear()
+        recyclerView.invalidateItemDecorations()
         val lm = recyclerView.layoutManager as? LinearLayoutManager ?: return
         val firstVisible = lm.findFirstVisibleItemPosition()
         if (firstVisible <= 3 || firstVisible == RecyclerView.NO_POSITION) {
@@ -1961,6 +2008,7 @@ class ChatFragment : BaseFragment() {
         pageDownButton.show(false)
         pageDownButton.setUnreadCount(0)
         unreadDecoration.clear()
+        recyclerView.invalidateItemDecorations()
 
         val latestId = lastSentMessageId
         val alreadyLoaded = latestId != 0L && messagesDict.get(latestId) != null
@@ -2080,30 +2128,37 @@ class ChatFragment : BaseFragment() {
     }
 
     private fun updateUnreadDividerPosition() {
-        if (!hasUnread || dividerSeenMessageId == 0L || messages.isEmpty()) {
-            unreadDecoration.clear()
-            return
-        }
-        val seenIdx = messages.indexOfFirst { it.id == dividerSeenMessageId }
-        if (seenIdx < 0) {
-            val oldestId = messages.lastOrNull()?.id ?: 0L
-            if (oldestId > dividerSeenMessageId) {
-                unreadDecoration.firstUnreadAdapterPosition = adapter.messagesStartRow + messages.size - 1
-            } else {
+        val before = unreadDecoration.firstUnreadAdapterPosition
+        try {
+            if (!hasUnread || dividerSeenMessageId == 0L || messages.isEmpty()) {
                 unreadDecoration.clear()
+                return
             }
-            return
+            val seenIdx = messages.indexOfFirst { it.id == dividerSeenMessageId }
+            if (seenIdx < 0) {
+                val oldestId = messages.lastOrNull()?.id ?: 0L
+                if (oldestId > dividerSeenMessageId) {
+                    unreadDecoration.firstUnreadAdapterPosition = adapter.messagesStartRow + messages.size - 1
+                } else {
+                    unreadDecoration.clear()
+                }
+                return
+            }
+            if (seenIdx == 0) {
+                unreadDecoration.clear()
+                return
+            }
+            val firstUnreadMsg = messages[seenIdx - 1]
+            if (firstUnreadMsg.senderId == chatController.getCurrentUserId()) {
+                unreadDecoration.clear()
+                return
+            }
+            unreadDecoration.firstUnreadAdapterPosition = adapter.messagesStartRow + seenIdx - 1
+        } finally {
+            if (before != unreadDecoration.firstUnreadAdapterPosition) {
+                recyclerView.invalidateItemDecorations()
+            }
         }
-        if (seenIdx == 0) {
-            unreadDecoration.clear()
-            return
-        }
-        val firstUnreadMsg = messages[seenIdx - 1]
-        if (firstUnreadMsg.senderId == chatController.getCurrentUserId()) {
-            unreadDecoration.clear()
-            return
-        }
-        unreadDecoration.firstUnreadAdapterPosition = adapter.messagesStartRow + seenIdx - 1
     }
 
     private fun scrollToFirstUnread() {
@@ -2196,7 +2251,7 @@ class ChatFragment : BaseFragment() {
     }
 
     private fun resolveMentionMembers(): List<ClanMember> {
-        return memberResolver.resolveChannelMembers(clanId, channelId, channelType)
+        return memberResolver.resolveMentionMembers(clanId, channelId, channelType)
     }
 
     private fun adjustMentionTrackersForChange(editStart: Int, removedLen: Int, addedLen: Int) {
@@ -2291,8 +2346,15 @@ class ChatFragment : BaseFragment() {
     private fun sendMessage() {
         val rawInput = inputField.text?.toString() ?: ""
         val text = rawInput.trim()
+        if (text.isBlank() && pendingAttachments.isEmpty()) return
+
         val editMsg = editingMessage
-        if (text.isBlank() && pendingAttachments.isEmpty() && editMsg == null) return
+        if (editMsg != null) {
+            val isPrivate = resolveChannelPrivate()
+            chatController.editMessage(channelId, clanId, channelType, isPrivate, editMsg.id, text)
+            clearEditState()
+            return
+        }
 
         val isPrivate = resolveChannelPrivate()
         val references = buildReplyReferences()
@@ -2745,7 +2807,7 @@ class ChatFragment : BaseFragment() {
         val ctx = getContext() ?: return
         val recorder = VoiceRecorder(ctx)
         if (!recorder.start()) {
-            android.widget.Toast.makeText(ctx, R.string.message_voice_record_failed, android.widget.Toast.LENGTH_SHORT).show()
+            android.widget.Toast.makeText(ctx, R.string.voice_record_failed, android.widget.Toast.LENGTH_SHORT).show()
             return
         }
         voiceRecorder = recorder
@@ -2782,12 +2844,12 @@ class ChatFragment : BaseFragment() {
         val result = recorder.stop()
         teardownVoiceUi()
         if (result == null) {
-            android.widget.Toast.makeText(ctx, R.string.message_voice_record_failed, android.widget.Toast.LENGTH_SHORT).show()
+            android.widget.Toast.makeText(ctx, R.string.voice_record_failed, android.widget.Toast.LENGTH_SHORT).show()
             return
         }
         if (result.durationMs < VoiceRecorder.MIN_RECORD_MS) {
             try { result.file.delete() } catch (_: Exception) {}
-            android.widget.Toast.makeText(ctx, R.string.message_voice_record_too_short, android.widget.Toast.LENGTH_SHORT).show()
+            android.widget.Toast.makeText(ctx, R.string.voice_record_too_short, android.widget.Toast.LENGTH_SHORT).show()
             return
         }
         sendVoiceRecording(result.file, result.durationMs)
@@ -2800,7 +2862,7 @@ class ChatFragment : BaseFragment() {
         voiceCancelled = true
         teardownVoiceUi()
         if (showToast && ctx != null) {
-            android.widget.Toast.makeText(ctx, R.string.message_voice_record_cancelled, android.widget.Toast.LENGTH_SHORT).show()
+            android.widget.Toast.makeText(ctx, R.string.voice_record_cancelled, android.widget.Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -2848,7 +2910,7 @@ class ChatFragment : BaseFragment() {
 
     private fun showHoldToRecordHint() {
         val ctx = getContext() ?: return
-        android.widget.Toast.makeText(ctx, R.string.message_voice_record_hint, android.widget.Toast.LENGTH_SHORT).show()
+        android.widget.Toast.makeText(ctx, R.string.voice_record_hint, android.widget.Toast.LENGTH_SHORT).show()
     }
 
     private fun updateAttachmentPreview() {
@@ -3300,10 +3362,26 @@ class ChatFragment : BaseFragment() {
                 android.widget.Toast.makeText(c, R.string.feature_coming_soon, android.widget.Toast.LENGTH_SHORT).show()
             }
             MessageActionBottomSheet.ActionType.Report -> {
-                val c = getContext() ?: return
-                android.widget.Toast.makeText(c, R.string.feature_coming_soon, android.widget.Toast.LENGTH_SHORT).show()
+                showReportMessageSheet(msg)
             }
         }
+    }
+
+    private fun showReportMessageSheet(msg: MessageEntity) {
+        val ctx = getContext() ?: return
+        val activity = getParentActivity() ?: return
+        if (activity.isFinishing || activity.isDestroyed) return
+        val sheet = ReportMessageBottomSheet(
+            context = ctx,
+            messageId = msg.id,
+            mezonApi = mezonApi,
+            sessionManager = sessionManager,
+            applicationScope = appScope,
+            ioDispatcher = ioDispatcher,
+            mainDispatcher = mainDispatcher
+        )
+        sheet.setDrawNavigationBar(true)
+        sheet.show()
     }
 
     private fun showPinConfirmation(msg: MessageEntity, isUnpin: Boolean) {
@@ -3796,7 +3874,7 @@ class ChatFragment : BaseFragment() {
 
         val entity = channelController.findChannelById(channelId)
         val iconEnum = resolveChannelIcon(entity)
-        val isThread = entity?.isThread == true
+        val isThread = entity?.isThread == true || channelType == CHANNEL_TYPE_THREAD || routeParentId != 0L
 
         val iconSize = channelTitleIconSizePx()
         val span = ColoredImageSpan(iconEnum.getDrawable(context, themeColors), ColoredImageSpan.ALIGN_CENTER)
@@ -3813,7 +3891,15 @@ class ChatFragment : BaseFragment() {
     }
 
     private fun resolveChannelIcon(entity: com.mezon.mobile.home.clans.ClanChannelEntity?): MezonIcon {
-        if (entity == null) return MezonIcon.channelText
+        if (entity == null) {
+            if (channelType == CHANNEL_TYPE_THREAD || routeParentId != 0L) {
+                return ChannelItemCell.resolveChannelIcon(CHANNEL_TYPE_THREAD, routeChannelPrivate || routeParentId != 0L)
+            }
+            if (channelType == CHANNEL_TYPE_CHANNEL) {
+                return ChannelItemCell.resolveChannelIcon(CHANNEL_TYPE_CHANNEL, routeChannelPrivate)
+            }
+            return MezonIcon.channelText
+        }
         val type = if (entity.isThread) CHANNEL_TYPE_THREAD else entity.type
         return ChannelItemCell.resolveChannelIcon(type, entity.isPrivate)
     }

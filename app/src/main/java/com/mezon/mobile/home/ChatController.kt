@@ -489,6 +489,14 @@ class ChatController @Inject constructor(
         appScope.launch {
             try {
                 sessionManager.withAutoRefresh { session ->
+                    ensureMentionedUsersInThread(
+                        session.apiUrl,
+                        session.token,
+                        channelId,
+                        clanId,
+                        channelType,
+                        mentions
+                    )
                     val request = channelMessageSend {
                         this.clanId = clanId
                         this.channelId = channelId
@@ -849,6 +857,14 @@ class ChatController @Inject constructor(
         appScope.launch(ioDispatcher) {
             try {
                 sessionManager.withAutoRefresh { session ->
+                    ensureMentionedUsersInThread(
+                        session.apiUrl,
+                        session.token,
+                        channelId,
+                        clanId,
+                        channelType,
+                        mentions
+                    )
                     val cdnBaseUrl = BuildConfig.MEZON_BASE_IMG_URL
                     val uploadedAttachments = ArrayList<MessageAttachment>()
 
@@ -1088,6 +1104,37 @@ class ChatController @Inject constructor(
         }
     }
 
+    private suspend fun ensureMentionedUsersInThread(
+        apiUrl: String,
+        token: String,
+        channelId: Long,
+        clanId: Long,
+        channelType: Int,
+        mentions: List<MentionData>?
+    ) {
+        if (channelType != CHANNEL_TYPE_THREAD || clanId == 0L || mentions.isNullOrEmpty()) return
+        val selfId = getCurrentUserId()
+        val existingIds = userClanController.get().getChannelMembers(channelId)
+            .asSequence()
+            .map { it.userId }
+            .toHashSet()
+        val missing = mentions.asSequence()
+            .map { it.userId }
+            .filter { it.isNotBlank() && it != MENTION_HERE_USER_ID }
+            .mapNotNull { it.toLongOrNull() }
+            .filter { it != 0L && it != selfId && !existingIds.contains(it) }
+            .distinct()
+            .toList()
+        if (missing.isEmpty()) return
+        try {
+            api.addChannelUsers(apiUrl, token, channelId, missing)
+            userClanController.get().loadChannelMembers(clanId, channelId, channelType, noCache = true)
+            Log.d(TAG, "Added mentioned users to thread channelId=$channelId users=${missing.joinToString(",")}")
+        } catch (e: Exception) {
+            Log.e(TAG, "addChannelUsers failed channelId=$channelId users=${missing.joinToString(",")}", e)
+        }
+    }
+
     @Volatile private var cachedCurrentUserId = 0L
 
     fun getCurrentUserId(): Long {
@@ -1101,35 +1148,14 @@ class ChatController @Inject constructor(
 
     fun editMessage(
         channelId: Long, clanId: Long, channelType: Int,
-        isChannelPrivate: Boolean, messageId: Long, newText: String,
-        mentions: List<MentionData>? = null,
-        emojiMarkers: List<EmojiMarker>? = null,
-        markdownMarkers: List<MarkdownMarker>? = null,
-        hashtags: List<com.mezon.mobile.util.HashtagData>? = null
+        isChannelPrivate: Boolean, messageId: Long, newText: String
     ) {
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
-        val hasExtras = !mentions.isNullOrEmpty() || !emojiMarkers.isNullOrEmpty() ||
-            !markdownMarkers.isNullOrEmpty() || !hashtags.isNullOrEmpty()
-        val content = if (hasExtras) {
-            buildTextContentWithEmojis(newText, mentions, emojiMarkers, markdownMarkers, hashtags)
-        } else {
-            buildTextContent(newText)
-        }
-        val protoMentions = mentions?.map { m ->
-            messageMention {
-                if (m.userId.isNotBlank()) userId = m.userId.toLongOrNull() ?: 0L
-                if (m.roleId.isNotBlank()) roleId = m.roleId.toLongOrNull() ?: 0L
-                if (m.display.isNotBlank()) username = m.display
-                s = m.startOffset
-                e = m.endOffset
-            }
-        }
+        val content = buildTextContent(newText)
         appScope.launch {
             try {
-                mezonSocket.updateChatMessage(
-                    clanId, channelId, mode, isPublic, messageId, content, protoMentions
-                )
+                mezonSocket.updateChatMessage(clanId, channelId, mode, isPublic, messageId, content)
                 Log.d(TAG, "Message edited: channelId=$channelId messageId=$messageId")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to edit message", e)

@@ -45,7 +45,6 @@ class ConnectionController @Inject constructor(
         private set
 
     @Volatile private var fcmRegistered = false
-    @Volatile private var hasRefreshedOnce = false
 
     init {
         appScope.launch { observeConnectionState() }
@@ -119,10 +118,6 @@ class ConnectionController @Inject constructor(
             if (state == ConnectionState.CONNECTED) {
                 try { mezonSocket.joinClanChat(0L) }
                 catch (e: Exception) { Log.e(TAG, "joinClanChat(0) failed", e) }
-                if (!hasRefreshedOnce) {
-                    hasRefreshedOnce = true
-                    refreshOnReconnect()
-                }
             }
         }
     }

@@ -20,6 +20,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -50,6 +51,8 @@ class VoiceController @Inject constructor(
 
     private val aiAgentEnabled = HashMap<String, Boolean>()
 
+    private val voiceMemberListFetchInflight = ConcurrentHashMap.newKeySet<Long>()
+
     init {
         appScope.launch { dispatcher.voiceJoinedEvents.collect { onVoiceJoined(it) } }
         appScope.launch { dispatcher.voiceLeavedEvents.collect { onVoiceLeaved(it) } }
@@ -72,6 +75,7 @@ class VoiceController @Inject constructor(
             meetToken = null
             aiAgentEnabled.clear()
         }
+        voiceMemberListFetchInflight.clear()
     }
 
     @Synchronized
@@ -95,8 +99,10 @@ class VoiceController @Inject constructor(
     }
 
     fun fetchVoiceChannelMembers(clanId: Long, noCache: Boolean = false) {
+        if (clanId == 0L) return
         val key = apiCacheKey("ListChannelVoiceUsers", clanId)
         if (cacheTracker.shouldCall(key, noCache = noCache) == ApiCacheTracker.ShouldCall.SKIP) return
+        if (!noCache && !voiceMemberListFetchInflight.add(clanId)) return
 
         appScope.launch {
             try {
@@ -127,6 +133,8 @@ class VoiceController @Inject constructor(
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "fetchVoiceChannelMembers failed", e)
+            } finally {
+                if (!noCache) voiceMemberListFetchInflight.remove(clanId)
             }
         }
     }
