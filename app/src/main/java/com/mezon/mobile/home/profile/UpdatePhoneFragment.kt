@@ -1,8 +1,6 @@
 package com.mezon.mobile.home.profile
 
 import android.content.Context
-import android.text.Editable
-import android.text.TextWatcher
 import android.view.View
 import android.view.ViewGroup
 import android.widget.AdapterView
@@ -10,6 +8,7 @@ import android.widget.ArrayAdapter
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.Spinner
+import android.widget.Toast
 import com.mezon.mobile.R
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
@@ -162,13 +161,13 @@ class UpdatePhoneFragment : BaseFragment() {
     private fun handleNext() {
         val fullPhone = buildFullPhone()
         if (fullPhone == currentPhone && fullPhone.length > 4) {
-            phoneCell.setError(getString(R.string.phone_already_linked))
+            showToast(getString(R.string.phone_already_linked))
             return
         }
         val lastSent = otpCooldownCache[fullPhone] ?: 0L
         val elapsed = ((System.currentTimeMillis() - lastSent) / 1000).toInt()
         if (elapsed < 60) {
-            phoneCell.setError(getString(R.string.email_too_fast, 60 - elapsed))
+            showToast(getString(R.string.email_too_fast, 60 - elapsed))
             return
         }
         loadingView.visibility = View.VISIBLE
@@ -181,9 +180,14 @@ class UpdatePhoneFragment : BaseFragment() {
                 fragment.onVerified = { onPhoneVerified?.invoke() }
                 presentFragment(fragment)
             } else {
-                phoneCell.setError(errorMsg.ifEmpty { getString(R.string.phone_link_failed) })
+                showToast(errorMsg.ifEmpty { getString(R.string.phone_link_failed) })
                 nextButton.isEnabled = true
             }
         }
+    }
+
+    private fun showToast(message: String) {
+        val ctx = getContext() ?: return
+        Toast.makeText(ctx, message, Toast.LENGTH_SHORT).show()
     }
 }
