@@ -7,6 +7,7 @@ import com.mezon.mezon.api.Account
 import com.mezon.mezon.api.AllUsersAddChannelResponse
 import com.mezon.mezon.api.AllUserClans
 import com.mezon.mezon.api.allUsersAddChannelRequest
+import com.mezon.mezon.api.addChannelUsersRequest
 import com.mezon.mezon.api.CategoryDesc
 import com.mezon.mezon.api.ClanDesc
 import com.mezon.mezon.api.EmojiListedResponse
@@ -19,6 +20,7 @@ import com.mezon.mezon.api.ClanDescList
 import com.mezon.mezon.api.PinMessagesList
 import com.mezon.mezon.api.pinMessageRequest
 import com.mezon.mezon.api.deletePinMessage
+import com.mezon.mezon.api.reportMessageAbuseReqest
 import com.mezon.mezon.api.ChannelUserList
 import com.mezon.mezon.api.ClanUserList
 import com.mezon.mezon.api.FriendList
@@ -839,6 +841,19 @@ class MezonApi @Inject constructor(
         return rpc(apiUrl, token, "DeletePinMessage", request.toByteArray())
     }
 
+    suspend fun reportMessageAbuse(
+        apiUrl: String,
+        token: String,
+        messageId: Long,
+        abuseType: String
+    ): ByteArray {
+        val request = reportMessageAbuseReqest {
+            this.messageId = messageId
+            this.abuseType = abuseType
+        }
+        return rpc(apiUrl, token, "ReportMessageAbuse", request.toByteArray())
+    }
+
     suspend fun uploadAttachmentFile(
         apiUrl: String,
         token: String,
@@ -927,6 +942,19 @@ class MezonApi @Inject constructor(
         }
         val bytes = rpc(apiUrl, token, "ListChannelUsersUC", request.toByteArray())
         return AllUsersAddChannelResponse.parseFrom(bytes)
+    }
+
+    suspend fun addChannelUsers(
+        apiUrl: String,
+        token: String,
+        channelId: Long,
+        userIds: List<Long>
+    ) {
+        val request = addChannelUsersRequest {
+            this.channelId = channelId
+            this.userIds.addAll(userIds)
+        }
+        rpc(apiUrl, token, "AddChannelUsers", request.toByteArray())
     }
 
     suspend fun listChannelByUserId(
