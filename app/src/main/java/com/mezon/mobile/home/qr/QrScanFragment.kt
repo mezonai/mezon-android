@@ -223,6 +223,7 @@ class QrScanFragment : BaseFragment() {
 
     override fun onResume() {
         super.onResume()
+        scanningStopped = false
         scanningEnabled = true
         lastScanAt = 0L
         startCameraIfPermitted()
@@ -285,7 +286,8 @@ class QrScanFragment : BaseFragment() {
                     QrProfileFragment.newInstance(
                         username = action.username,
                         displayName = payload?.name.orEmpty(),
-                        avatarUrl = payload?.avatar
+                        avatarUrl = payload?.avatar,
+                        userId = payload?.id ?: 0L
                     )
                 )
             }
