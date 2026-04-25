@@ -143,6 +143,7 @@ class LoginFragment : BaseFragment() {
         })
 
         phoneCell = InputCell(context, themeColors).apply {
+            setLightInputAppearance()
             setHint(getString(R.string.common_login_phone_number))
             editText.inputType = InputType.TYPE_CLASS_PHONE
             editText.imeOptions = EditorInfo.IME_ACTION_DONE
@@ -150,6 +151,7 @@ class LoginFragment : BaseFragment() {
         phoneRow.addView(phoneCell, LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f))
 
         emailCell = InputCell(context, themeColors).apply {
+            setLightInputAppearance()
             setHint(getString(R.string.common_login_email_address))
             editText.inputType = InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
             editText.imeOptions = EditorInfo.IME_ACTION_NEXT
@@ -162,6 +164,7 @@ class LoginFragment : BaseFragment() {
         form.addView(passwordRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         passwordCell = InputCell(context, themeColors).apply {
+            setLightInputAppearance()
             setHint(getString(R.string.common_login_password))
             editText.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             editText.imeOptions = EditorInfo.IME_ACTION_DONE

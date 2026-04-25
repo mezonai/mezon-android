@@ -1337,31 +1337,82 @@ class ChatController @Inject constructor(
         }
     }
 
+    private data class ReactionDedup(
+        val channelId: Long,
+        val messageId: Long,
+        val emojiId: Long,
+        val senderId: Long,
+        val remove: Boolean
+    )
+
+    @Volatile
+    private var lastApiReactionDedup: Pair<ReactionDedup, Long>? = null
+
+    private fun shouldIgnoreSocketReactionAsDuplicate(reaction: com.mezon.mezon.api.MessageReaction): Boolean {
+        val now = System.currentTimeMillis()
+        val last = lastApiReactionDedup ?: return false
+        val (key, t) = last
+        if (now - t > 4000L) return false
+        return key.channelId == reaction.channelId &&
+            key.messageId == reaction.messageId &&
+            key.emojiId == reaction.emojiId &&
+            key.senderId == reaction.senderId &&
+            key.remove == reaction.action
+    }
+
     private fun handleReactionEvent(reaction: com.mezon.mezon.api.MessageReaction) {
-        val channelId = reaction.channelId
-        val messageId = reaction.messageId
+        if (shouldIgnoreSocketReactionAsDuplicate(reaction)) return
+        publishReactionUiAndPersist(
+            reaction.channelId,
+            reaction.messageId,
+            reaction.emojiId,
+            reaction.emoji,
+            reaction.senderId,
+            reaction.count,
+            reaction.action,
+            source = "socket"
+        )
+    }
+
+    private fun publishReactionUiAndPersist(
+        channelId: Long,
+        messageId: Long,
+        emojiId: Long,
+        emoji: String,
+        senderId: Long,
+        count: Int,
+        actionRemove: Boolean,
+        source: String
+    ) {
         if (channelId == 0L || messageId == 0L) return
+
+        if (source == "api") {
+            lastApiReactionDedup = Pair(
+                ReactionDedup(channelId, messageId, emojiId, senderId, actionRemove),
+                System.currentTimeMillis()
+            )
+        }
 
         notificationCenter.postNotificationOnMainThread(
             NotificationCenter.reactionDidUpdate,
             channelId,
             messageId,
-            reaction.emojiId,
-            reaction.emoji,
-            reaction.senderId,
-            reaction.count,
-            reaction.action
+            emojiId,
+            emoji,
+            senderId,
+            count,
+            actionRemove
         )
 
         appScope.launch(ioDispatcher) {
             val existing = messageDao.getById(channelId, messageId) ?: return@launch
             val updatedJson = applyReactionEvent(
                 existing.reactionsJson,
-                reaction.emojiId,
-                reaction.emoji,
-                reaction.senderId,
-                reaction.count,
-                reaction.action
+                emojiId,
+                emoji,
+                senderId,
+                count,
+                actionRemove
             )
             messageDao.updateReactions(channelId, messageId, updatedJson)
         }
@@ -1386,20 +1437,38 @@ class ChatController @Inject constructor(
         val (reactionSenderName, _) = optimisticSenderPresentation(uc, clanId, channelType, anon)
         appScope.launch {
             try {
-                mezonSocket.writeMessageReaction(
-                    id = emojiId,
-                    clanId = clanId,
-                    channelId = channelId,
-                    mode = mode,
-                    isPublic = isPublic,
-                    messageId = messageId,
-                    emojiId = emojiId,
-                    emoji = emoji,
-                    count = count,
-                    messageSenderId = messageSenderId,
-                    actionDelete = actionDelete,
-                    senderName = reactionSenderName
-                )
+                sessionManager.withAutoRefresh { session ->
+                    api.channelMessageReact(
+                        session.apiUrl,
+                        session.token,
+                        clanId = clanId,
+                        channelId = channelId,
+                        mode = mode,
+                        isPublic = isPublic,
+                        messageId = messageId,
+                        emojiId = emojiId,
+                        emoji = emoji,
+                        count = count,
+                        messageSenderId = messageSenderId,
+                        actionDelete = actionDelete,
+                        topicId = 0L,
+                        emojiRecentId = 0L,
+                        senderName = reactionSenderName
+                    )
+                    val selfId = session.userId.toLongOrNull() ?: 0L
+                    if (selfId != 0L) {
+                        publishReactionUiAndPersist(
+                            channelId,
+                            messageId,
+                            emojiId,
+                            emoji,
+                            selfId,
+                            count,
+                            actionDelete,
+                            source = "api"
+                        )
+                    }
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to send reaction", e)
             }
