@@ -64,6 +64,7 @@ import com.mezon.mezon.api.GenerateMeetTokenResponse
 import com.mezon.mezon.api.VoiceChannelUserList
 import com.mezon.mezon.api.generateMeetTokenRequest
 import com.mezon.mezon.api.meetParticipantRequest
+import com.mezon.mezon.api.messageReaction
 import com.mezon.mezon.api.updateAIAgentRequest
 import com.mezon.mezon.api.ListClanDiscover
 import com.mezon.mezon.api.InviteUserRes
@@ -71,6 +72,7 @@ import com.mezon.mezon.api.inviteUserRequest
 import com.mezon.mezon.api.clanDiscover as clanDiscoverProto
 import com.mezon.mezon.api.listClanDiscover
 import com.mezon.mezon.rtapi.ActiveArchivedThread
+import com.mezon.mezon.rtapi.ChannelMessageSend
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.header
@@ -751,6 +753,43 @@ class MezonApi @Inject constructor(
         token: String,
         request: com.mezon.mezon.rtapi.ChannelMessageUpdate
     ): ByteArray = rpc(apiUrl, token, "UpdateChannelMessage", request.toByteArray())
+
+    suspend fun channelMessageReact(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        channelId: Long,
+        mode: Int,
+        isPublic: Boolean,
+        messageId: Long,
+        emojiId: Long,
+        emoji: String,
+        count: Int,
+        messageSenderId: Long,
+        actionDelete: Boolean,
+        topicId: Long = 0L,
+        emojiRecentId: Long = 0L,
+        senderName: String = ""
+    ): ChannelMessageSend {
+        val request = messageReaction {
+            this.clanId = clanId
+            this.channelId = channelId
+            this.mode = mode
+            this.isPublic = isPublic
+            this.messageId = messageId
+            this.emojiId = emojiId
+            this.emoji = emoji
+            this.count = count
+            this.messageSenderId = messageSenderId
+            this.action = actionDelete
+            this.topicId = topicId
+            this.emojiRecentId = emojiRecentId
+            this.senderName = senderName
+        }
+        val bytes = rpc(apiUrl, token, "ReactChannelMessage", request.toByteArray())
+        return if (bytes.isEmpty()) ChannelMessageSend.getDefaultInstance()
+        else ChannelMessageSend.parseFrom(bytes)
+    }
 
     suspend fun activeArchivedThread(
         apiUrl: String,

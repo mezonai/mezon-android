@@ -27,6 +27,7 @@ class InputCell(context: Context, private val theme: ThemeColors) : LinearLayout
     private val charCountView: TextView
     private val inputContainer: FrameLayout
     private val bgDrawable: GradientDrawable
+    private var strokeWhenValid: Int? = null
     private var maxCharacter = 200
     private var isTextarea = false
     var onTextChanged: ((String) -> Unit)? = null
@@ -166,7 +167,7 @@ class InputCell(context: Context, private val theme: ThemeColors) : LinearLayout
             bgDrawable.setStroke(LayoutHelper.dp(1), theme.error)
         } else {
             errorView.visibility = View.GONE
-            bgDrawable.setStroke(LayoutHelper.dp(1), theme.outlineVariant)
+            bgDrawable.setStroke(LayoutHelper.dp(1), strokeWhenValid ?: theme.outlineVariant)
         }
     }
 
@@ -176,6 +177,21 @@ class InputCell(context: Context, private val theme: ThemeColors) : LinearLayout
 
     fun setCellStrokeColor(color: Int) {
         bgDrawable.setStroke(LayoutHelper.dp(1), color)
+    }
+
+    fun setLightInputAppearance(
+        fill: Int = 0xFFFFFFFF.toInt(),
+        stroke: Int = 0xFFD1D5DB.toInt(),
+        text: Int = 0xFF374151.toInt(),
+        hint: Int = 0xFF9CA3AF.toInt(),
+        clearIcon: Int = 0xFF6B7280.toInt()
+    ) {
+        strokeWhenValid = stroke
+        bgDrawable.setColor(fill)
+        bgDrawable.setStroke(LayoutHelper.dp(1), stroke)
+        editText.setTextColor(text)
+        editText.setHintTextColor(hint)
+        clearButton.setColorFilter(clearIcon)
     }
 
     override fun setEnabled(enabled: Boolean) {

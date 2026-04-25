@@ -9,7 +9,6 @@ import com.mezon.mezon.api.ListClanBadgeCountResponse
 import com.mezon.mezon.api.MessageAttachment
 import com.mezon.mezon.api.MessageMention
 import com.mezon.mezon.api.MessageRef
-import com.mezon.mezon.api.messageReaction
 import com.mezon.mezon.rtapi.EnvelopeKt
 import com.mezon.mezon.rtapi.Envelope
 import com.mezon.mezon.rtapi.channelJoin
@@ -116,7 +115,7 @@ class MezonSocket @Inject constructor(
 
     private fun correlationKeyForPending(envelope: Envelope, raw: ByteArray): String? {
         val fromParsed = envelope.cid
-        if (fromParsed.isNotEmpty()) return fromParsed
+        if (fromParsed != 0) return fromParsed.toString()
         return readCorrelationIdField1(raw)
     }
 
@@ -196,7 +195,7 @@ class MezonSocket @Inject constructor(
     }
 
     suspend fun send(block: EnvelopeKt.Dsl.() -> Unit): Envelope {
-        val cid = cidCounter.incrementAndGet().toString()
+        val cid = cidCounter.incrementAndGet()
         val env = envelope {
             this.cid = cid
             block()
@@ -205,13 +204,14 @@ class MezonSocket @Inject constructor(
         val ws = webSocket
             ?: throw IllegalStateException("WebSocket not connected")
 
+        val cidKey = cid.toString()
         val deferred = CompletableDeferred<Envelope>()
-        pendingRequests[cid] = deferred
+        pendingRequests[cidKey] = deferred
 
         val bytes = env.toByteArray().toByteString()
         val sent = ws.send(bytes)
         if (!sent) {
-            pendingRequests.remove(cid)
+            pendingRequests.remove(cidKey)
             throw IllegalStateException("Failed to enqueue WebSocket message")
         }
 
@@ -219,7 +219,7 @@ class MezonSocket @Inject constructor(
 
         scope.launch {
             delay(SEND_TIMEOUT_MS)
-            pendingRequests.remove(cid)?.completeExceptionally(
+            pendingRequests.remove(cidKey)?.completeExceptionally(
                 RuntimeException("Request timed out: cid=$cid")
             )
         }
@@ -387,40 +387,6 @@ class MezonSocket @Inject constructor(
             this.isPublic = isPublic
             this.senderDisplayName = senderDisplayName
             this.topicId = topicId
-        }
-    }
-
-    suspend fun writeMessageReaction(
-        id: Long,
-        clanId: Long,
-        channelId: Long,
-        mode: Int,
-        isPublic: Boolean,
-        messageId: Long,
-        emojiId: Long,
-        emoji: String,
-        count: Int,
-        messageSenderId: Long,
-        actionDelete: Boolean,
-        topicId: Long = 0L,
-        emojiRecentId: Long = 0L,
-        senderName: String = ""
-    ): Envelope = send {
-        this.messageReactionEvent = messageReaction {
-            this.id = id
-            this.clanId = clanId
-            this.channelId = channelId
-            this.mode = mode
-            this.isPublic = isPublic
-            this.messageId = messageId
-            this.emojiId = emojiId
-            this.emoji = emoji
-            this.count = count
-            this.messageSenderId = messageSenderId
-            this.action = actionDelete
-            this.topicId = topicId
-            this.emojiRecentId = emojiRecentId
-            this.senderName = senderName
         }
     }
 
