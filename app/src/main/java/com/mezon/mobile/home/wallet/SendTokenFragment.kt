@@ -4,6 +4,8 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Color
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
@@ -17,6 +19,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -769,6 +772,8 @@ class SendTokenFragment : BaseFragment() {
                 text = jsonWalletAddress
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, if (qrFlow) 13f else 14f)
                 setTextColor(themeColors.onSurface)
+                gravity = Gravity.CENTER_VERTICAL
+                includeFontPadding = false
                 setPadding(
                     LayoutHelper.dp(if (qrFlow) 4f else 6f),
                     0,
@@ -778,11 +783,18 @@ class SendTokenFragment : BaseFragment() {
                 maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
             }
-            val copyBtn = TextView(context).apply {
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-                setTextColor(themeColors.textLink)
-                setText(R.string.send_token_copy)
+            val copyBtn = ImageView(context).apply {
+                setImageResource(R.drawable.ic_copy_icon)
+                scaleType = ImageView.ScaleType.CENTER_INSIDE
+                contentDescription = getString(R.string.send_token_copy)
+                colorFilter = PorterDuffColorFilter(
+                    themeColors.onSurfaceVariant,
+                    PorterDuff.Mode.SRC_IN
+                )
                 isClickable = true
+                isFocusable = true
+                val padH = LayoutHelper.dp(if (qrFlow) 6f else 8f)
+                setPadding(padH, 0, if (qrFlow) LayoutHelper.dp(4f) else padH, 0)
                 setOnClickListener {
                     copyToClipboard(
                         requireContext(),
@@ -801,7 +813,7 @@ class SendTokenFragment : BaseFragment() {
             row.addView(
                 copyBtn,
                 LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    LayoutHelper.dp(36f),
                     ViewGroup.LayoutParams.MATCH_PARENT
                 )
             )
