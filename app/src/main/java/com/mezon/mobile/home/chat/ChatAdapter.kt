@@ -5,6 +5,7 @@ import android.widget.ProgressBar
 import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.network.LinkInvitePreview
 
 class ChatAdapter(
     private val themeColors: ThemeColors,
@@ -163,6 +164,7 @@ class ChatAdapter(
         when (holder) {
             is MessageViewHolder -> {
                 holder.cell.delegate = cellDelegate
+                holder.cell.loadLinkInvitePreview = loadLinkInvitePreview
                 holder.cell.isCombined = computeCombined(idx)
                 holder.cell.currentUserId = currentUserId.toLongOrNull() ?: 0L
                 val msg = messages[idx]
@@ -204,6 +206,7 @@ class ChatAdapter(
     var channelType = 0
     var clanId = 0L
     var isChannelPrivate = false
+    var loadLinkInvitePreview: (suspend (Long) -> LinkInvitePreview?)? = null
 
     class MessageViewHolder(val cell: ChatMessageCell) : RecyclerView.ViewHolder(cell)
     class WelcomeViewHolder(val cell: WelcomeMessageCell) : RecyclerView.ViewHolder(cell)

@@ -26,6 +26,8 @@ livekit = "2.24.0"
 cameraX = "1.4.1"
 zxing = "3.5.3"
 bouncyCastle = "1.78.1"
+photoView = "2.3.0"
+appcompat = "1.7.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -62,6 +64,8 @@ androidx-camera-camera2 = { group = "androidx.camera", name = "camera-camera2", 
 androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "cameraX" }
 androidx-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "cameraX" }
 zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxing" }
+photoview = { group = "com.github.chrisbanes", name = "PhotoView", version.ref = "photoView" }
+androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

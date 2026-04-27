@@ -317,6 +317,6 @@ class ChatAttachAlert(
     }
 
     companion object {
-        const val REQUEST_CODE_MEDIA_PERMISSION = 1001
+        const val REQUEST_CODE_MEDIA_PERMISSION = 1004
     }
 }

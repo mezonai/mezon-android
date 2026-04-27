@@ -33,6 +33,34 @@ private val BASE_IMG: String
     get() = com.mezon.mobile.BuildConfig.MEZON_BASE_IMG_URL
 private const val EMOJI_SIZE_DP = 20
 
+private val VALID_LINK_INVITE_REGEX =
+    Regex("""https?://(?:www\.)?(?:mezon\.ai|gw\.mezon\.ai)/invite/[0-9]+""", RegexOption.IGNORE_CASE)
+private val INVITE_ID_FROM_TEXT =
+    Regex("""https?://(?:www\.)?(?:mezon\.ai|gw\.mezon\.ai)/invite/([0-9]+)""", RegexOption.IGNORE_CASE)
+
+fun contentHasNonEmptyLinkArray(content: String): Boolean {
+    return try {
+        val obj = JSONObject(content)
+        val lk = obj.optJSONArray("lk")
+        if (lk != null && lk.length() > 0) return true
+        val mk = obj.optJSONArray("mk") ?: return false
+        for (i in 0 until mk.length()) {
+            val item = mk.optJSONObject(i) ?: continue
+            if (item.optString("type", "") == "lk") return true
+        }
+        false
+    } catch (_: Exception) {
+        false
+    }
+}
+
+fun parseInviteLinkMessageId(content: String): Long? {
+    if (!contentHasNonEmptyLinkArray(content)) return null
+    val t = parseContentText(content)
+    if (!VALID_LINK_INVITE_REGEX.containsMatchIn(t)) return null
+    return INVITE_ID_FROM_TEXT.find(t)?.groupValues?.getOrNull(1)?.toLongOrNull()
+}
+
 private fun SpannableStringBuilder.setExclusiveSpan(what: Any, start: Int, end: Int) {
     if (end > start) setSpan(what, start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
 }

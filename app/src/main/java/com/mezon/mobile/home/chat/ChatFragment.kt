@@ -10,6 +10,8 @@ import android.graphics.PorterDuffColorFilter
 import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.text.Editable
 import android.text.SpannableString
 import android.text.Spanned
@@ -35,6 +37,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AndroidUtilities
+import com.mezon.mobile.core.AlertDialog
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.StartupCache
@@ -47,7 +50,9 @@ import com.mezon.mobile.home.LOAD_TYPE_INITIAL
 import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.MemberResolver
 import com.mezon.mobile.home.UserClanController
+import com.mezon.mobile.home.clans.CLAN_CREATE_LIMIT
 import com.mezon.mobile.home.clans.ChannelController
+import com.mezon.mobile.home.clans.ClansController
 import com.mezon.mobile.home.clans.ClanChannelEntity
 import com.mezon.mobile.home.clans.ClanRole
 import com.mezon.mobile.home.clans.RoleController
@@ -73,10 +78,12 @@ import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.session.SessionManager
+import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.ui.cells.ActionBarView
 import com.mezon.mobile.ui.cells.ColoredImageSpan
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.PageDownButton
+import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.util.FileUtils
 import com.mezon.mobile.util.EmojiMarker
 import com.mezon.mobile.util.HashtagData
@@ -88,6 +95,8 @@ import com.mezon.mobile.util.resolveStickerSourceUrl
 import com.mezon.mobile.core.SharedConfig
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.mezon.mobile.core.SizeNotifierFrameLayout
 import com.mezon.mobile.home.chat.emoji.EmojiView
 
@@ -107,7 +116,7 @@ class ChatFragment : BaseFragment() {
         private const val VIEWPORT_LIMIT = 300
         private const val PAGE_DOWN_SCROLL_THRESHOLD = 2
         private const val REQUEST_CODE_LOCATION_PERMISSION = 1002
-        private const val REQUEST_CODE_PICK_FILE = 1001
+        private const val REQUEST_CODE_PICK_FILE = 1005
         private const val REQUEST_CODE_RECORD_AUDIO = 1003
         private const val MAX_LENGTH_MESSAGE_BUZZ = 160
         private const val VOICE_LONG_PRESS_DELAY_MS = 400L
@@ -174,6 +183,7 @@ class ChatFragment : BaseFragment() {
     private lateinit var sizeNotifierRoot: SizeNotifierFrameLayout
 
     private val pendingAttachments = ArrayList<AttachmentPickerItem>()
+    private var mediaPermissionDeniedOnce = false
     private val pendingAttachmentThumbTasks = ArrayList<Runnable?>()
     private var buzzMediaPlayer: android.media.MediaPlayer? = null
 
@@ -240,6 +250,7 @@ class ChatFragment : BaseFragment() {
     private lateinit var searchController: com.mezon.mobile.search.SearchController
     private lateinit var voiceController: VoiceController
     private lateinit var channelAppController: ChannelAppController
+    private lateinit var clansController: ClansController
     private lateinit var mezonApi: MezonApi
     private lateinit var sessionManager: SessionManager
     private lateinit var appScope: CoroutineScope
@@ -273,6 +284,9 @@ class ChatFragment : BaseFragment() {
     private var pendingSeenTimestamp = 0
     private var pendingBadgeCount = 0
     private val markVisibleRunnable = Runnable { flushPendingSeen() }
+    private var inviteJoinPendingClanId = 0L
+    private var inviteJoinClansObserver: NotificationCenter.NotificationCenterDelegate? = null
+    private var inviteJoinTimeout: Runnable? = null
 
     private val postponeNewMessagesCallback = object : NotificationCenter.PostponeNotificationCallback {
         override fun needPostpone(id: Int, currentAccount: Int, args: Array<out Any?>): Boolean {
@@ -916,6 +930,7 @@ class ChatFragment : BaseFragment() {
         pinMessageController = entryPoint.pinMessageController()
         voiceController = entryPoint.voiceController()
         channelAppController = entryPoint.channelAppController()
+        clansController = entryPoint.clansController()
         mezonApi = entryPoint.mezonApi()
         sessionManager = entryPoint.sessionManager()
         appScope = entryPoint.applicationScope()
@@ -1346,7 +1361,7 @@ class ChatFragment : BaseFragment() {
                             .setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, filename)
                         val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
                         dm.enqueue(request)
-                        android.widget.Toast.makeText(context, "Downloading $filename", android.widget.Toast.LENGTH_SHORT).show()
+                        MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.INFO, "Downloading $filename")
                     } catch (_: Exception) {}
                 }
             }
@@ -1378,7 +1393,11 @@ class ChatFragment : BaseFragment() {
                 if (msg.isSending) return
                 audioPlayerController.toggle(msg.id, url, msg.attachmentDuration)
             }
+            override fun didClickInviteJoin(cell: ChatMessageCell, msg: MessageEntity, inviteId: Long) {
+                onLinkInviteJoinClicked(inviteId)
+            }
         })
+        adapter.loadLinkInvitePreview = { id -> mezonApi.getLinkInvitePreview(id) }
         adapter.channelType = channelType
         adapter.clanId = clanId
         adapter.isChannelPrivate = resolveChannelPrivate()
@@ -1864,7 +1883,97 @@ class ChatFragment : BaseFragment() {
         voiceRecorder?.cancel()
         voiceRecorder = null
         voiceOverlay = null
+        inviteJoinClansObserver?.let {
+            notificationCenter.removeObserver(it, NotificationCenter.clansDidLoad)
+        }
+        inviteJoinClansObserver = null
+        inviteJoinTimeout?.let { Handler(Looper.getMainLooper()).removeCallbacks(it) }
+        inviteJoinTimeout = null
         super.onFragmentDestroy()
+    }
+
+    private fun onLinkInviteJoinClicked(inviteId: Long) {
+        if (inviteId == 0L) return
+        val act = getParentActivity() ?: return
+        if (clansController.getClanCount() >= CLAN_CREATE_LIMIT) {
+            AlertDialog.Builder(act)
+                .setTitle(getString(R.string.clan_create_limit_reached_title))
+                .setMessage(getString(R.string.clan_create_limit_reached_message))
+                .setPositiveButton(getString(R.string.common_ok), null)
+                .show()
+            return
+        }
+        fragmentScope.launch {
+            val res = runCatching {
+                sessionManager.withAutoRefresh { session ->
+                    withContext(ioDispatcher) {
+                        mezonApi.inviteUserByInviteId(session.apiUrl, session.token, inviteId)
+                    }
+                }
+            }
+            withContext(mainDispatcher) {
+                res.onSuccess { r ->
+                    val cid = r.clanId
+                    if (cid != 0L) {
+                        navigateToJoinedClanFromChatInvite(cid)
+                    } else {
+                        MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.ERROR, getString(R.string.discover_join_failed))
+                    }
+                }.onFailure {
+                    MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.ERROR, getString(R.string.discover_join_failed))
+                }
+            }
+        }
+    }
+
+    private fun navigateToJoinedClanFromChatInvite(clanId: Long) {
+        if (inviteJoinPendingClanId != 0L) return
+        inviteJoinPendingClanId = clanId
+        val handler = Handler(Looper.getMainLooper())
+        val observer = object : NotificationCenter.NotificationCenterDelegate {
+            override fun didReceivedNotification(id: Int, account: Int, vararg args: Any?) {
+                finalizeJoinFromChatInvite(clanId)
+            }
+        }
+        inviteJoinClansObserver = observer
+        notificationCenter.addObserver(observer, NotificationCenter.clansDidLoad)
+        inviteJoinTimeout = Runnable { finalizeJoinFromChatInvite(clanId) }
+        handler.postDelayed(inviteJoinTimeout!!, 2500L)
+        clansController.loadClans(force = true)
+    }
+
+    private fun finalizeJoinFromChatInvite(clanId: Long) {
+        if (inviteJoinPendingClanId != clanId) return
+        inviteJoinPendingClanId = 0L
+        inviteJoinClansObserver?.let {
+            notificationCenter.removeObserver(it, NotificationCenter.clansDidLoad)
+        }
+        inviteJoinClansObserver = null
+        inviteJoinTimeout?.let { Handler(Looper.getMainLooper()).removeCallbacks(it) }
+        inviteJoinTimeout = null
+        clansController.selectClan(clanId, force = true)
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.navigateToClansTab)
+        popToClansFragmentFromChat()
+    }
+
+    private fun popToClansFragmentFromChat() {
+        val layout = parentLayout
+        if (layout == null) {
+            finishFragment()
+            return
+        }
+        val stack = ArrayList(layout.getFragmentStack())
+        for (i in stack.size - 2 downTo 0) {
+            val f = stack[i]
+            if (f is com.mezon.mobile.home.clans.ClansFragment) {
+                for (j in stack.size - 2 downTo i + 1) {
+                    layout.removeFragmentFromStack(stack[j])
+                }
+                finishFragment()
+                return
+            }
+        }
+        finishFragment()
     }
 
     private fun refreshUI() {
@@ -2444,6 +2553,10 @@ class ChatFragment : BaseFragment() {
         if (activity.isFinishing || activity.isDestroyed) return
 
         if (!hasMediaPermission()) {
+            if (mediaPermissionDeniedOnce && !shouldShowMediaPermissionRationale()) {
+                showOpenMediaSettingsDialog()
+                return
+            }
             requestMediaPermission()
             return
         }
@@ -2459,6 +2572,38 @@ class ChatFragment : BaseFragment() {
         } else {
             ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
         }
+    }
+
+    private fun shouldShowMediaPermissionRationale(): Boolean {
+        val activity = getParentActivity() ?: return false
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            activity.shouldShowRequestPermissionRationale(Manifest.permission.READ_MEDIA_IMAGES) ||
+                activity.shouldShowRequestPermissionRationale(Manifest.permission.READ_MEDIA_VIDEO)
+        } else {
+            activity.shouldShowRequestPermissionRationale(Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
+    }
+
+    private fun computeMediaPermissionGrantedFromResult(
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ): Boolean {
+        if (grantResults.isEmpty()) return false
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            var imagesOk = false
+            var videoOk = false
+            for (i in permissions.indices) {
+                if (i >= grantResults.size) break
+                when (permissions[i]) {
+                    Manifest.permission.READ_MEDIA_IMAGES ->
+                        if (grantResults[i] == PackageManager.PERMISSION_GRANTED) imagesOk = true
+                    Manifest.permission.READ_MEDIA_VIDEO ->
+                        if (grantResults[i] == PackageManager.PERMISSION_GRANTED) videoOk = true
+                }
+            }
+            return imagesOk || videoOk
+        }
+        return grantResults[0] == PackageManager.PERMISSION_GRANTED
     }
 
     private fun requestMediaPermission() {
@@ -2536,7 +2681,7 @@ class ChatFragment : BaseFragment() {
         }
         if (item.size > maxSize) {
             val limitText = FileUtils.formatFileSize(maxSize)
-            android.widget.Toast.makeText(ctx, getString(R.string.file_too_large, limitText), android.widget.Toast.LENGTH_SHORT).show()
+            MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.file_too_large, limitText))
             return
         }
 
@@ -2625,7 +2770,7 @@ class ChatFragment : BaseFragment() {
             } else if (locationManager.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)) {
                 locationManager.requestSingleUpdate(android.location.LocationManager.NETWORK_PROVIDER, listener, null)
             } else {
-                android.widget.Toast.makeText(ctx, R.string.permission_no_location, android.widget.Toast.LENGTH_SHORT).show()
+                MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.permission_no_location))
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to get location", e)
@@ -2800,7 +2945,7 @@ class ChatFragment : BaseFragment() {
         val ctx = getContext() ?: return
         val recorder = VoiceRecorder(ctx)
         if (!recorder.start()) {
-            android.widget.Toast.makeText(ctx, R.string.voice_record_failed, android.widget.Toast.LENGTH_SHORT).show()
+            MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.voice_record_failed))
             return
         }
         voiceRecorder = recorder
@@ -2837,12 +2982,12 @@ class ChatFragment : BaseFragment() {
         val result = recorder.stop()
         teardownVoiceUi()
         if (result == null) {
-            android.widget.Toast.makeText(ctx, R.string.voice_record_failed, android.widget.Toast.LENGTH_SHORT).show()
+            MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.voice_record_failed))
             return
         }
         if (result.durationMs < VoiceRecorder.MIN_RECORD_MS) {
             try { result.file.delete() } catch (_: Exception) {}
-            android.widget.Toast.makeText(ctx, R.string.voice_record_too_short, android.widget.Toast.LENGTH_SHORT).show()
+            MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.voice_record_too_short))
             return
         }
         sendVoiceRecording(result.file, result.durationMs)
@@ -2854,8 +2999,8 @@ class ChatFragment : BaseFragment() {
         voiceRecorder = null
         voiceCancelled = true
         teardownVoiceUi()
-        if (showToast && ctx != null) {
-            android.widget.Toast.makeText(ctx, R.string.voice_record_cancelled, android.widget.Toast.LENGTH_SHORT).show()
+        if (showToast) {
+            MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.voice_record_cancelled))
         }
     }
 
@@ -2902,8 +3047,7 @@ class ChatFragment : BaseFragment() {
     }
 
     private fun showHoldToRecordHint() {
-        val ctx = getContext() ?: return
-        android.widget.Toast.makeText(ctx, R.string.voice_record_hint, android.widget.Toast.LENGTH_SHORT).show()
+        MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.voice_record_hint))
     }
 
     private fun updateAttachmentPreview() {
@@ -3046,8 +3190,14 @@ class ChatFragment : BaseFragment() {
         grantResults: IntArray
     ) {
         if (requestCode == ChatAttachAlert.REQUEST_CODE_MEDIA_PERMISSION) {
-            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            if (computeMediaPermissionGrantedFromResult(permissions, grantResults)) {
+                mediaPermissionDeniedOnce = false
                 openAttachAlert()
+            } else {
+                mediaPermissionDeniedOnce = true
+                if (!shouldShowMediaPermissionRationale()) {
+                    showOpenMediaSettingsDialog()
+                }
             }
         }
         if (requestCode == REQUEST_CODE_LOCATION_PERMISSION) {
@@ -3076,6 +3226,25 @@ class ChatFragment : BaseFragment() {
                 }
             }
         }
+    }
+
+    private fun showOpenMediaSettingsDialog() {
+        val activity = getParentActivity() ?: return
+        com.mezon.mobile.core.AlertDialog.Builder(activity)
+            .setTitle(getString(R.string.common_settings))
+            .setMessage(getString(R.string.permission_no_storage))
+            .setPositiveButton(getString(R.string.permission_open_settings)) { _, _ ->
+                try {
+                    val intent = android.content.Intent(
+                        android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        android.net.Uri.fromParts("package", activity.packageName, null)
+                    )
+                    activity.startActivity(intent)
+                } catch (_: Exception) {}
+            }
+            .setNegativeButton(getString(R.string.permission_not_now), null)
+            .create()
+            .show()
     }
 
     private fun showOpenAudioSettingsDialog() {
@@ -3286,10 +3455,10 @@ class ChatFragment : BaseFragment() {
             isDM = clanId == 0L,
             listener = object : UserProfileBottomSheet.UserProfileListener {
                 override fun onSendMessage(userId: Long) {
-                    android.widget.Toast.makeText(ctx, R.string.feature_coming_soon, android.widget.Toast.LENGTH_SHORT).show()
+                    MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.INFO, getString(R.string.feature_coming_soon))
                 }
                 override fun onVoiceCall(userId: Long) {
-                    android.widget.Toast.makeText(ctx, R.string.feature_coming_soon, android.widget.Toast.LENGTH_SHORT).show()
+                    MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.INFO, getString(R.string.feature_coming_soon))
                 }
                 override fun onAddFriend(userId: Long) {
                     showAddFriendBottomSheet()
@@ -3313,11 +3482,11 @@ class ChatFragment : BaseFragment() {
                 val plainText = parseContentText(msg.content).ifBlank { msg.content }
                 val clipboard = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                 clipboard.setPrimaryClip(android.content.ClipData.newPlainText("message", plainText))
-                android.widget.Toast.makeText(ctx, R.string.message_toast_copy_text, android.widget.Toast.LENGTH_SHORT).show()
+                MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.message_toast_copy_text))
             }
             MessageActionBottomSheet.ActionType.ForwardMessage -> {
-                val c = getContext() ?: return
-                android.widget.Toast.makeText(c, R.string.feature_coming_soon, android.widget.Toast.LENGTH_SHORT).show()
+                getContext() ?: return
+                MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.feature_coming_soon))
             }
             MessageActionBottomSheet.ActionType.PinMessage -> {
                 showPinConfirmation(msg, isUnpin = false)
@@ -3329,16 +3498,16 @@ class ChatFragment : BaseFragment() {
                 showDeleteConfirmation(msg)
             }
             MessageActionBottomSheet.ActionType.CreateThread -> {
-                val c = getContext() ?: return
-                android.widget.Toast.makeText(c, R.string.feature_coming_soon, android.widget.Toast.LENGTH_SHORT).show()
+                getContext() ?: return
+                MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.feature_coming_soon))
             }
             MessageActionBottomSheet.ActionType.MarkUnRead -> {
-                val c = getContext() ?: return
-                android.widget.Toast.makeText(c, R.string.feature_coming_soon, android.widget.Toast.LENGTH_SHORT).show()
+                getContext() ?: return
+                MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.feature_coming_soon))
             }
             MessageActionBottomSheet.ActionType.SaveMedia -> {
-                val c = getContext() ?: return
-                android.widget.Toast.makeText(c, R.string.feature_coming_soon, android.widget.Toast.LENGTH_SHORT).show()
+                getContext() ?: return
+                MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.feature_coming_soon))
             }
             MessageActionBottomSheet.ActionType.CopyMediaLink -> {
                 val url = msg.attachmentUrl
@@ -3346,13 +3515,13 @@ class ChatFragment : BaseFragment() {
                     val ctx = getContext() ?: return
                     val clipboard = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                     clipboard.setPrimaryClip(android.content.ClipData.newPlainText("media_url", url))
-                    android.widget.Toast.makeText(ctx, R.string.action_copy_link, android.widget.Toast.LENGTH_SHORT).show()
+                    MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.action_copy_link))
                 }
             }
             MessageActionBottomSheet.ActionType.CopyImage,
             MessageActionBottomSheet.ActionType.ShareImage -> {
-                val c = getContext() ?: return
-                android.widget.Toast.makeText(c, R.string.feature_coming_soon, android.widget.Toast.LENGTH_SHORT).show()
+                getContext() ?: return
+                MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.feature_coming_soon))
             }
             MessageActionBottomSheet.ActionType.Report -> {
                 showReportMessageSheet(msg)

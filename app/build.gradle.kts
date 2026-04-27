@@ -134,7 +134,8 @@ android {
             if (signingPropsFile.exists()) {
                 signingConfig = signingConfigs.getByName("release")
             }
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -216,6 +217,8 @@ dependencies {
 
     // LiveKit (voice/video channels)
     implementation(libs.livekit.android)
+    implementation(libs.photoview)
+    implementation(libs.androidx.appcompat)
     implementation("com.otaliastudios:zoomlayout:1.9.0")
 
     // Firebase

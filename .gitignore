@@ -75,3 +75,7 @@ credentials/
 build/reports/configuration-cache
 mmn-client-kotlin/build/kotlin/compileDebugKotlin
 mmn-client-kotlin/build
+
+.idea/
+
+build/

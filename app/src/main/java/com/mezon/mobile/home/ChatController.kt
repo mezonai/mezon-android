@@ -48,6 +48,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.withContext
 
 import javax.inject.Inject
@@ -744,6 +745,7 @@ class ChatController @Inject constructor(
         private const val SEND_RETRY_DELAY_MS = 500L
         private const val SHARE_MAX_RETRIES = 5
         private const val SHARE_RETRY_DELAY_MS = 4000L
+        private const val PENDING_API_REACTION_DEDUP_MS = 5000L
     }
 
     private fun generateTempId(): Long {
@@ -1345,19 +1347,51 @@ class ChatController @Inject constructor(
         val remove: Boolean
     )
 
+    private val pendingApiReactions = ConcurrentHashMap<ReactionDedup, Long>()
+
     @Volatile
     private var lastApiReactionDedup: Pair<ReactionDedup, Long>? = null
 
+    private fun prunePendingApiReactions() {
+        val now = System.currentTimeMillis()
+        val it = pendingApiReactions.iterator()
+        while (it.hasNext()) {
+            val e = it.next()
+            if (now - e.value > PENDING_API_REACTION_DEDUP_MS) it.remove()
+        }
+    }
+
+    private fun registerPendingApiReaction(key: ReactionDedup) {
+        prunePendingApiReactions()
+        pendingApiReactions[key] = System.currentTimeMillis()
+    }
+
+    private fun clearPendingApiReaction(key: ReactionDedup) {
+        pendingApiReactions.remove(key)
+    }
+
     private fun shouldIgnoreSocketReactionAsDuplicate(reaction: com.mezon.mezon.api.MessageReaction): Boolean {
+        prunePendingApiReactions()
+        val key = ReactionDedup(
+            reaction.channelId,
+            reaction.messageId,
+            reaction.emojiId,
+            reaction.senderId,
+            reaction.action
+        )
+        val pendingAt = pendingApiReactions[key] ?: 0L
+        if (pendingAt != 0L && System.currentTimeMillis() - pendingAt <= PENDING_API_REACTION_DEDUP_MS) {
+            return true
+        }
         val now = System.currentTimeMillis()
         val last = lastApiReactionDedup ?: return false
-        val (key, t) = last
+        val (k, t) = last
         if (now - t > 4000L) return false
-        return key.channelId == reaction.channelId &&
-            key.messageId == reaction.messageId &&
-            key.emojiId == reaction.emojiId &&
-            key.senderId == reaction.senderId &&
-            key.remove == reaction.action
+        return k.channelId == reaction.channelId &&
+            k.messageId == reaction.messageId &&
+            k.emojiId == reaction.emojiId &&
+            k.senderId == reaction.senderId &&
+            k.remove == reaction.action
     }
 
     private fun handleReactionEvent(reaction: com.mezon.mezon.api.MessageReaction) {
@@ -1433,6 +1467,11 @@ class ChatController @Inject constructor(
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
         val uc = userController.get()
+        val selfIdForDedup = uc.userId
+        val pendingKey = if (selfIdForDedup != 0L) {
+            ReactionDedup(channelId, messageId, emojiId, selfIdForDedup, actionDelete)
+        } else null
+        pendingKey?.let { registerPendingApiReaction(it) }
         val anon = isAnonymousSend(clanId)
         val (reactionSenderName, _) = optimisticSenderPresentation(uc, clanId, channelType, anon)
         appScope.launch {
@@ -1471,6 +1510,8 @@ class ChatController @Inject constructor(
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to send reaction", e)
+            } finally {
+                pendingKey?.let { clearPendingApiReaction(it) }
             }
         }
     }

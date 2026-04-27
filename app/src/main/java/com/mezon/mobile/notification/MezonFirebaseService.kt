@@ -70,7 +70,12 @@ class MezonFirebaseService : FirebaseMessagingService() {
                 }
 
                 if (isAppInForeground()) {
-                    notificationHelper.showInAppToast(title, body, channelId = channelId, clanId = clanId)
+                    notificationHelper.showInAppToast(
+                        title,
+                        body,
+                        channelId = channelId,
+                        clanId = clanId
+                    )
                 } else {
                     notificationHelper.showMessageNotification(title, body, channelId = channelId, clanId = clanId)
                 }
@@ -83,7 +88,11 @@ class MezonFirebaseService : FirebaseMessagingService() {
                     }
 
                     if (isAppInForeground()) {
-                        notificationHelper.showInAppToast(title, body, dmId = dmId)
+                        notificationHelper.showInAppToast(
+                            title,
+                            body,
+                            dmId = dmId
+                        )
                     } else {
                         notificationHelper.showDmNotification(title, body, dmChannelId = dmId)
                     }
@@ -95,4 +104,5 @@ class MezonFirebaseService : FirebaseMessagingService() {
     private fun isAppInForeground(): Boolean {
         return MainActivity.isResumed
     }
+
 }

@@ -107,7 +107,9 @@ class SearchTabHeader(context: Context, private val theme: ThemeColors) : Linear
                 count > 0 -> " ($count)"
                 else -> ""
             }
-            labelView.text = "$tabLabel$countText"
+            val newText = "$tabLabel$countText"
+            if (newText == labelView.text.toString()) return
+            labelView.text = newText
         }
 
         fun setActive(active: Boolean) {

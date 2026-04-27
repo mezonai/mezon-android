@@ -117,6 +117,7 @@ class GlobalSearchFragment : BaseFragment() {
     private var channelScopedMembers: List<SearchMember>? = null
     private var membersRequested = false
     private var channelsRequested = false
+    private var channelsFirstLoadPending = false
     private var isChannelPickerMode = false
     private var pickerQuery = ""
     private var pickerDisplayLimit = LOCAL_PAGE_SIZE
@@ -183,6 +184,7 @@ class GlobalSearchFragment : BaseFragment() {
         }
         observe(NotificationCenter.searchChannelsDidLoad) { _, _, _ ->
             if (fragmentView == null || isPaused) return@observe
+            channelsFirstLoadPending = false
             if (currentTab == TAB_CHANNELS) {
                 loadingView.visibility = View.GONE
                 recyclerView.visibility = View.VISIBLE
@@ -482,11 +484,16 @@ class GlobalSearchFragment : BaseFragment() {
             TAB_CHANNELS -> {
                 if (!channelsRequested) {
                     channelsRequested = true
+                    channelsFirstLoadPending = true
+                    emptyView.visibility = View.GONE
                     loadingView.visibility = View.VISIBLE
-                    recyclerView.visibility = View.GONE
+                    recyclerView.visibility = View.VISIBLE
+                    updateChannelsList()
                     searchController.loadChannels()
                 } else {
-                    loadingView.visibility = View.GONE
+                    loadingView.visibility =
+                        if (channelsFirstLoadPending) View.VISIBLE else View.GONE
+                    recyclerView.visibility = View.VISIBLE
                     updateChannelsList()
                 }
             }
@@ -548,7 +555,13 @@ class GlobalSearchFragment : BaseFragment() {
         )
         val totalCount = searchController.totalChannelsForQuery(searchText)
         adapter.hasMore = filtered.size < totalCount
-        updateEmptyState(filtered.isEmpty())
+        val isEmpty = filtered.isEmpty()
+        if (channelsFirstLoadPending && isEmpty) {
+            emptyView.visibility = View.GONE
+            recyclerView.visibility = View.VISIBLE
+        } else {
+            updateEmptyState(isEmpty)
+        }
     }
 
     private fun updateMessagesList() {
