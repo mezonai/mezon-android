@@ -112,6 +112,7 @@ open class BottomSheet(
     private var customView: View? = null
     protected var containerHeight = ViewGroup.LayoutParams.WRAP_CONTENT
     private var dismissed = false
+    private var openAnimationCompleted = false
     private var allowCustomAnimation = true
     @JvmField protected var canDismissWithSwipe = true
     private var canDismissWithTouchOutside = true
@@ -472,6 +473,7 @@ open class BottomSheet(
     override fun show() {
         super.show()
         dismissed = false
+        openAnimationCompleted = false
         cancelSheetAnimation()
 
         containerView?.let { cv ->
@@ -489,6 +491,7 @@ open class BottomSheet(
             delegate?.onOpenAnimationStart()
             delegate?.onOpenAnimationEnd()
             onOpenAnimationEnd()
+            openAnimationCompleted = true
             return
         }
 
@@ -567,6 +570,7 @@ open class BottomSheet(
                             currentSheetAnimation = null
                             currentSheetAnimationType = 0
                             finishHeavyOperationsAnimation()
+                            openAnimationCompleted = true
                             onOpenAnimationEnd()
                             delegate?.onOpenAnimationEnd()
                             if (useHardwareLayer) {
@@ -689,9 +693,16 @@ open class BottomSheet(
         cancelSheetAnimation()
         currentSheetAnimationType = 2
 
+        val cv = containerView
+        if (cv == null) {
+            itemClickListener?.onClick(this@BottomSheet, which)
+            onHideListener?.onDismiss(this@BottomSheet)
+            AndroidUtilities.runOnUIThread { dismissInternal() }
+            return
+        }
+
         beginHeavyOperationsAnimation()
         currentSheetAnimation = AnimatorSet().apply {
-            val cv = containerView ?: return
             val translationYAnim = ObjectAnimator.ofFloat(cv, View.TRANSLATION_Y,
                 (getContainerViewHeight() + keyboardHeight + LayoutHelper.dp(10) +
                         AndroidUtilities.navigationBarHeight.coerceAtMost(getBottomInsetInternal()).coerceAtLeast(0)
@@ -965,7 +976,9 @@ open class BottomSheet(
                 startedTrackingX = ev.x.toInt()
                 startedTrackingY = ev.y.toInt()
                 if (isTouchOutside(startedTrackingX.toFloat(), startedTrackingY.toFloat())) {
-                    onDismissWithTouchOutside()
+                    if (openAnimationCompleted) {
+                        onDismissWithTouchOutside()
+                    }
                     return true
                 }
                 onScrollUpBegin(swipeY)

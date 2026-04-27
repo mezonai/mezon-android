@@ -662,6 +662,12 @@
     <string name="discover_explore_communities">Explore communities</string>
     <string name="discover_members">Members</string>
     <string name="discover_verified">Verified</string>
+    <string name="clan_link_invite_title">INVITE TO JOIN A CLAN</string>
+    <string name="clan_link_invite_join">Join</string>
+    <string name="clan_link_invite_invalid_title">Invalid Invite</string>
+    <string name="clan_link_invite_invalid_message">Try sending a new invite!</string>
+    <string name="clan_link_invite_channel_prefix"># %1$s</string>
+    <string name="clan_link_invite_unknown_clan">Unknown clan</string>
     <string name="discover_join_clan">Join Clan</string>
     <string name="discover_join_failed">Could not join this clan.</string>
     <string name="discover_how_chatty">How chatty?</string>

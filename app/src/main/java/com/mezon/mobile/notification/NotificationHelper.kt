@@ -242,11 +242,11 @@ class NotificationHelper @Inject constructor(
                     }
                     else -> null
                 }
-                ToastOverlay(activity, activity.themeColors).show(
+                ToastOverlay.showInAppNotification(
+                    activity = activity,
                     parent = activity.drawerLayoutContainer,
-                    type = ToastOverlay.ToastType.INFO,
                     title = title,
-                    description = body,
+                    body = body,
                     onTap = onTap
                 )
             }

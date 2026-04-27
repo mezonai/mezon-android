@@ -1,7 +1,6 @@
 package com.mezon.mobile.home.chat
 
 import android.animation.ObjectAnimator
-import android.annotation.SuppressLint
 import android.app.Dialog
 import android.app.DownloadManager
 import android.content.ClipData
@@ -9,41 +8,47 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.graphics.Outline
 import android.graphics.drawable.AnimatedImageDrawable
+import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
-import android.view.GestureDetector
+import android.util.TypedValue
 import android.view.Gravity
-import android.view.MotionEvent
+import android.view.View
 import android.view.ViewGroup
+import android.view.ViewOutlineProvider
 import android.view.Window
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.Toast
+import androidx.core.content.ContextCompat
+import androidx.recyclerview.widget.RecyclerView
+import androidx.viewpager2.widget.ViewPager2
+import com.github.chrisbanes.photoview.PhotoView
+import com.mezon.mobile.R
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.util.createImgproxyUrl
-import com.otaliastudios.zoom.Alignment
-import com.otaliastudios.zoom.ZoomApi
-import com.otaliastudios.zoom.ZoomLayout
 
 class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Black_NoTitleBar_Fullscreen) {
 
-    companion object {
-        private const val MIN_ZOOM = 1f
-        private const val MAX_ZOOM = 4f
-        private const val GALLERY_FLING_ZOOM_THRESHOLD = 1.02f
-    }
-
-    private val imageView: ImageView
-    private val zoomLayout: ZoomLayout
-    private lateinit var gestureDetector: GestureDetector
     private val backgroundDrawable = ColorDrawable(Color.BLACK)
-    private val closeButton: ImageView
+    private val viewPager: ViewPager2
+    private val topBar: FrameLayout
+    private val bottomBar: LinearLayout
+    private val counterView: android.widget.TextView
+    private var toolbarVisible = true
+
+    private var urls = emptyList<String>()
+    private var isAnimated = false
+    private var currentIndex = 0
+    private val currentUrl get() = urls.getOrElse(currentIndex) { "" }
 
     init {
         requestWindowFeature(Window.FEATURE_NO_TITLE)
@@ -53,98 +58,287 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
 
         val root = FrameLayout(context)
 
-        imageView = ImageView(context).apply {
-            scaleType = ImageView.ScaleType.FIT_CENTER
+        viewPager = ViewPager2(context).apply {
+            offscreenPageLimit = 1
+            setBackgroundColor(Color.BLACK)
         }
-        zoomLayout = object : ZoomLayout(context) {
-            @SuppressLint("ClickableViewAccessibility")
-            override fun onTouchEvent(ev: MotionEvent): Boolean {
-                gestureDetector.onTouchEvent(ev)
-                return super.onTouchEvent(ev)
-            }
-        }.apply {
-            setTransformation(ZoomApi.TRANSFORMATION_CENTER_INSIDE, ZoomApi.TRANSFORMATION_GRAVITY_AUTO)
-            setAlignment(Alignment.CENTER)
-            setMinZoom(MIN_ZOOM, ZoomApi.TYPE_ZOOM)
-            setMaxZoom(MAX_ZOOM, ZoomApi.TYPE_ZOOM)
-            setOverPinchable(false)
-            setHorizontalPanEnabled(true)
-            setVerticalPanEnabled(true)
-            setFlingEnabled(true)
-        }
-        zoomLayout.addView(imageView, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.MATCH_PARENT
-        ))
-        root.addView(zoomLayout, FrameLayout.LayoutParams(
+        root.addView(viewPager, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.MATCH_PARENT
         ))
 
-        gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
-            override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-                dismissWithAnimation()
-                return true
+        topBar = FrameLayout(context)
+        counterView = android.widget.TextView(context).apply {
+            setTextColor(Color.WHITE)
+            textSize = 16f
+        }
+        val closeDiameter = LayoutHelper.dp(44)
+        val closeWrap = FrameLayout(context).apply {
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(0x80000000.toInt())
             }
-
-            override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
-                if (zoomLayout.zoom > GALLERY_FLING_ZOOM_THRESHOLD) return false
-                if (urls.size <= 1) return false
-                if (kotlin.math.abs(velocityX) > kotlin.math.abs(velocityY) && kotlin.math.abs(velocityX) > 800) {
-                    if (velocityX < 0 && currentIndex < urls.size - 1) {
-                        navigateTo(currentIndex + 1)
-                        return true
-                    } else if (velocityX > 0 && currentIndex > 0) {
-                        navigateTo(currentIndex - 1)
-                        return true
-                    }
+            outlineProvider = object : ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: Outline) {
+                    outline.setOval(0, 0, view.width, view.height)
                 }
-                return false
             }
-        })
-
-        closeButton = ImageView(context).apply {
-            setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
-            setColorFilter(Color.WHITE)
-            setPadding(LayoutHelper.dp(12), LayoutHelper.dp(12), LayoutHelper.dp(12), LayoutHelper.dp(12))
+            clipToOutline = true
+            isClickable = true
+            isFocusable = true
+            contentDescription = context.getString(R.string.common_close)
+            val tvRipple = TypedValue()
+            if (context.theme.resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, tvRipple, true)) {
+                foreground = ContextCompat.getDrawable(context, tvRipple.resourceId)
+            }
             setOnClickListener { dismissWithAnimation() }
+            val closeBtn = ImageView(context).apply {
+                setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
+                setColorFilter(Color.WHITE)
+                val p = LayoutHelper.dp(10)
+                setPadding(p, p, p, p)
+                isClickable = false
+                isFocusable = false
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }
+            addView(closeBtn, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER
+            ))
         }
-        val closeParams = FrameLayout.LayoutParams(LayoutHelper.dp(48), LayoutHelper.dp(48))
-        closeParams.gravity = Gravity.TOP or Gravity.START
-        closeParams.topMargin = LayoutHelper.dp(40)
-        closeParams.leftMargin = LayoutHelper.dp(8)
-        root.addView(closeButton, closeParams)
+        val counterParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            Gravity.CENTER
+        )
+        topBar.addView(counterView, counterParams)
+        val closeBtnParams = FrameLayout.LayoutParams(closeDiameter, closeDiameter, Gravity.END or Gravity.CENTER_VERTICAL)
+        closeBtnParams.marginEnd = LayoutHelper.dp(8)
+        topBar.addView(closeWrap, closeBtnParams)
 
-        val toolbar = LinearLayout(context).apply {
+        val topBarParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            LayoutHelper.dp(56)
+        )
+        topBarParams.gravity = Gravity.TOP
+        topBarParams.topMargin = LayoutHelper.dp(32)
+        root.addView(topBar, topBarParams)
+
+        bottomBar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             setBackgroundColor(0x99000000.toInt())
             val pad = LayoutHelper.dp(12)
             setPadding(pad, pad, pad, pad)
         }
-        val toolbarParams = FrameLayout.LayoutParams(
+        bottomBar.addView(createToolbarButton(context, android.R.drawable.ic_menu_share, "Share") {
+            shareUrl(currentUrl)
+        })
+        bottomBar.addView(createToolbarButton(context, android.R.drawable.ic_menu_save, "Save") {
+            downloadUrl(currentUrl)
+        })
+        bottomBar.addView(createToolbarButton(context, android.R.drawable.ic_menu_agenda, "Copy") {
+            copyLink(currentUrl)
+        })
+        val bottomBarParams = FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
             LayoutHelper.dp(56)
         )
-        toolbarParams.gravity = Gravity.BOTTOM
-        root.addView(toolbar, toolbarParams)
-
-        toolbar.addView(createToolbarButton(context, android.R.drawable.ic_menu_share, "Share") {
-            shareUrl(currentUrl)
-        })
-        toolbar.addView(createToolbarButton(context, android.R.drawable.ic_menu_save, "Save") {
-            downloadUrl(currentUrl)
-        })
-        toolbar.addView(createToolbarButton(context, android.R.drawable.ic_menu_agenda, "Copy") {
-            copyLink(currentUrl)
-        })
+        bottomBarParams.gravity = Gravity.BOTTOM
+        root.addView(bottomBar, bottomBarParams)
 
         setContentView(root)
     }
 
-    private var currentUrl = ""
-    private var isAnimated = false
-    private var urls = emptyList<String>()
+    fun show(
+        url: String,
+        animated: Boolean = false,
+        gallery: List<String> = emptyList(),
+        index: Int = 0,
+        thumbBitmap: Bitmap? = null
+    ) {
+        urls = if (gallery.isEmpty()) listOf(url) else gallery
+        currentIndex = if (index in urls.indices) index else 0
+        isAnimated = animated
+
+        viewPager.adapter = PhotoPagerAdapter(thumbBitmap.takeIf { !animated && urls.size == 1 })
+        viewPager.setCurrentItem(currentIndex, false)
+        viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
+            override fun onPageSelected(position: Int) {
+                currentIndex = position
+                updateCounter()
+            }
+        })
+
+        updateCounter()
+        backgroundDrawable.alpha = 0
+        super.show()
+        ObjectAnimator.ofInt(backgroundDrawable, "alpha", 0, 255).setDuration(200).start()
+    }
+
+    private fun updateCounter() {
+        if (urls.size > 1) {
+            counterView.text = "${currentIndex + 1} / ${urls.size}"
+            counterView.visibility = View.VISIBLE
+        } else {
+            counterView.visibility = View.GONE
+        }
+    }
+
+    private fun toggleToolbar() {
+        toolbarVisible = !toolbarVisible
+        val targetAlpha = if (toolbarVisible) 1f else 0f
+        topBar.animate().alpha(targetAlpha).setDuration(200).start()
+        bottomBar.animate().alpha(targetAlpha).setDuration(200).start()
+    }
+
+    private fun dismissWithAnimation() {
+        val anim = ObjectAnimator.ofInt(backgroundDrawable, "alpha", 255, 0)
+        anim.duration = 150
+        anim.addListener(object : android.animation.AnimatorListenerAdapter() {
+            override fun onAnimationEnd(animation: android.animation.Animator) { dismiss() }
+        })
+        anim.start()
+        viewPager.animate().alpha(0f).setDuration(150).start()
+    }
+
+    override fun onBackPressed() {
+        dismissWithAnimation()
+    }
+
+    private inner class PhotoPagerAdapter(
+        private val initialThumb: Bitmap?
+    ) : RecyclerView.Adapter<PhotoPagerAdapter.ViewHolder>() {
+
+        inner class ViewHolder(val photoView: PhotoView) : RecyclerView.ViewHolder(photoView) {
+            var pendingLoad: MezonImageLoader.Cancellable? = null
+            var bindGeneration: Long = 0L
+        }
+
+        private fun stopAndClearPhotoView(photoView: PhotoView) {
+            (photoView.drawable as? AnimatedImageDrawable)?.stop()
+            photoView.setImageDrawable(null)
+            photoView.getAttacher().update()
+            photoView.setScale(1f, false)
+        }
+
+        private fun applyLoadedDrawable(
+            holder: ViewHolder,
+            expectedPosition: Int,
+            expectedUrl: String,
+            drawable: Drawable
+        ) {
+            if (holder.bindingAdapterPosition != expectedPosition) return
+            if (urls.getOrNull(expectedPosition) != expectedUrl) return
+            val pv = holder.photoView
+            (pv.drawable as? AnimatedImageDrawable)?.stop()
+            pv.setImageDrawable(drawable)
+            pv.getAttacher().update()
+            pv.setScale(1f, false)
+            if (drawable is AnimatedImageDrawable) {
+                drawable.repeatCount = AnimatedImageDrawable.REPEAT_INFINITE
+                drawable.start()
+            }
+        }
+
+        private fun applyLoadedBitmap(
+            holder: ViewHolder,
+            expectedPosition: Int,
+            expectedUrl: String,
+            bmp: Bitmap
+        ) {
+            if (holder.bindingAdapterPosition != expectedPosition) return
+            if (urls.getOrNull(expectedPosition) != expectedUrl) return
+            val pv = holder.photoView
+            (pv.drawable as? AnimatedImageDrawable)?.stop()
+            pv.setImageDrawable(BitmapDrawable(pv.context.resources, bmp))
+            pv.getAttacher().update()
+            pv.setScale(1f, false)
+        }
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
+            val photoView = PhotoView(parent.context).apply {
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+                setBackgroundColor(Color.BLACK)
+                maximumScale = 4f
+                mediumScale = 2f
+                minimumScale = 0.5f
+                setOnSingleFlingListener { _, _, velocityX, velocityY ->
+                    val absX = kotlin.math.abs(velocityX)
+                    val absY = kotlin.math.abs(velocityY)
+                    val nearDefault = kotlin.math.abs(scale - 1f) < 0.06f
+                    if (absY > absX && absY > 800f && velocityY > 0 && nearDefault) {
+                        dismissWithAnimation()
+                        true
+                    } else false
+                }
+                setOnPhotoTapListener { _, _, _ -> toggleToolbar() }
+                setOnOutsidePhotoTapListener { toggleToolbar() }
+            }
+            return ViewHolder(photoView)
+        }
+
+        override fun onViewRecycled(holder: ViewHolder) {
+            super.onViewRecycled(holder)
+            holder.pendingLoad?.cancel()
+            holder.pendingLoad = null
+            holder.bindGeneration++
+            stopAndClearPhotoView(holder.photoView)
+        }
+
+        override fun onBindViewHolder(holder: ViewHolder, position: Int) {
+            val url = urls[position]
+            val photoView = holder.photoView
+
+            holder.pendingLoad?.cancel()
+            holder.pendingLoad = null
+            holder.bindGeneration++
+            val bindGen = holder.bindGeneration
+            stopAndClearPhotoView(photoView)
+
+            if (position == currentIndex && initialThumb != null) {
+                photoView.setImageBitmap(initialThumb)
+                photoView.getAttacher().update()
+                photoView.setScale(1f, false)
+            }
+
+            val screenW = context.resources.displayMetrics.widthPixels
+            val screenH = context.resources.displayMetrics.heightPixels
+            val loader = MezonImageLoader.getInstance(context)
+
+            if (isAnimated) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    holder.pendingLoad = loader.loadDrawable(url, screenW, screenH,
+                        onSuccess = { drawable ->
+                            if (holder.bindGeneration != bindGen) return@loadDrawable
+                            applyLoadedDrawable(holder, position, url, drawable)
+                        }
+                    )
+                } else {
+                    holder.pendingLoad = loader.load(url, screenW, screenH,
+                        onSuccess = { bmp ->
+                            if (holder.bindGeneration != bindGen) return@load
+                            applyLoadedBitmap(holder, position, url, bmp)
+                        }
+                    )
+                }
+            } else {
+                val loadUrl = createImgproxyUrl(url, screenW, screenH, "fit")
+                holder.pendingLoad = loader.load(loadUrl, screenW, screenH,
+                    onSuccess = { bmp ->
+                        if (holder.bindGeneration != bindGen) return@load
+                        applyLoadedBitmap(holder, position, url, bmp)
+                    }
+                )
+            }
+        }
+
+        override fun getItemCount() = urls.size
+    }
 
     private fun createToolbarButton(ctx: Context, iconRes: Int, desc: String, onClick: () -> Unit): ImageView {
         return ImageView(ctx).apply {
@@ -190,106 +384,5 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
             }
             context.startActivity(android.content.Intent.createChooser(intent, "Share"))
         } catch (_: Exception) {}
-    }
-
-    private var currentIndex = 0
-
-    fun show(url: String, animated: Boolean = false, gallery: List<String> = emptyList(), index: Int = 0, thumbBitmap: Bitmap? = null) {
-        urls = if (gallery.isEmpty()) listOf(url) else gallery
-        currentIndex = if (index in urls.indices) index else 0
-        currentUrl = urls[currentIndex]
-        isAnimated = animated
-        zoomLayout.moveToCenter(MIN_ZOOM, false)
-
-        if (thumbBitmap != null && !animated) {
-            imageView.setImageDrawable(BitmapDrawable(context.resources, thumbBitmap))
-        }
-
-        backgroundDrawable.alpha = 0
-        super.show()
-        ObjectAnimator.ofInt(backgroundDrawable, "alpha", 0, 255).setDuration(200).start()
-
-        val screenW = context.resources.displayMetrics.widthPixels
-        val screenH = context.resources.displayMetrics.heightPixels
-        val loader = MezonImageLoader.getInstance(context)
-
-        if (animated) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                loader.loadDrawable(url, screenW, screenH,
-                    onSuccess = { drawable ->
-                        imageView.setImageDrawable(drawable)
-                        if (drawable is AnimatedImageDrawable) {
-                            drawable.repeatCount = AnimatedImageDrawable.REPEAT_INFINITE
-                            drawable.start()
-                        }
-                    }
-                )
-            } else {
-                loader.load(url, screenW, screenH,
-                    onSuccess = { bmp ->
-                        imageView.setImageDrawable(BitmapDrawable(context.resources, bmp))
-                    }
-                )
-            }
-        } else {
-            val loadUrl = createImgproxyUrl(url, screenW, screenH, "fit")
-            loader.load(loadUrl, screenW, screenH,
-                onSuccess = { bmp ->
-                    imageView.setImageDrawable(BitmapDrawable(context.resources, bmp))
-                }
-            )
-        }
-    }
-
-    private fun navigateTo(index: Int) {
-        if (index !in urls.indices) return
-        currentIndex = index
-        currentUrl = urls[currentIndex]
-        zoomLayout.moveToCenter(MIN_ZOOM, false)
-        imageView.animate().alpha(0f).setDuration(100).withEndAction {
-            loadCurrentImage()
-            imageView.animate().alpha(1f).setDuration(150).start()
-        }.start()
-    }
-
-    private fun loadCurrentImage() {
-        val screenW = context.resources.displayMetrics.widthPixels
-        val screenH = context.resources.displayMetrics.heightPixels
-        val loader = MezonImageLoader.getInstance(context)
-
-        if (isAnimated && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            loader.loadDrawable(currentUrl, screenW, screenH,
-                onSuccess = { drawable ->
-                    imageView.setImageDrawable(drawable)
-                    if (drawable is AnimatedImageDrawable) {
-                        drawable.repeatCount = AnimatedImageDrawable.REPEAT_INFINITE
-                        drawable.start()
-                    }
-                }
-            )
-        } else {
-            val loadUrl = if (isAnimated) currentUrl else createImgproxyUrl(currentUrl, screenW, screenH, "fit")
-            loader.load(loadUrl, screenW, screenH,
-                onSuccess = { bmp ->
-                    imageView.setImageDrawable(BitmapDrawable(context.resources, bmp))
-                }
-            )
-        }
-    }
-
-    private fun dismissWithAnimation() {
-        val anim = ObjectAnimator.ofInt(backgroundDrawable, "alpha", 255, 0)
-        anim.duration = 150
-        anim.addListener(object : android.animation.AnimatorListenerAdapter() {
-            override fun onAnimationEnd(animation: android.animation.Animator) {
-                dismiss()
-            }
-        })
-        anim.start()
-        imageView.animate().alpha(0f).setDuration(150).start()
-    }
-
-    override fun onBackPressed() {
-        dismissWithAnimation()
     }
 }

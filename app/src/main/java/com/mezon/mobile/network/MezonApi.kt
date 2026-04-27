@@ -75,6 +75,7 @@ import com.mezon.mezon.rtapi.ActiveArchivedThread
 import com.mezon.mezon.rtapi.ChannelMessageSend
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.put
@@ -88,6 +89,8 @@ import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import org.json.JSONObject
+import java.util.Collections
 import javax.inject.Inject
 import javax.inject.Singleton
 class UnauthorizedException(message: String) : RuntimeException(message)
@@ -193,6 +196,53 @@ class MezonApi @Inject constructor(
     companion object {
         private val SERVER_KEY = BuildConfig.MEZON_API_KEY
         private const val DISCOVER_ITEMS_PER_PAGE = 6
+    }
+
+    private val linkInvitePreviewCache =
+        Collections.synchronizedMap(mutableMapOf<Long, LinkInvitePreview>())
+
+    suspend fun getLinkInvitePreview(inviteId: Long): LinkInvitePreview? {
+        if (inviteId == 0L) return null
+        synchronized(linkInvitePreviewCache) {
+            linkInvitePreviewCache[inviteId]?.let { return it }
+        }
+        return try {
+            val gatewayUrl = BuildConfig.MEZON_GATEWAY_URL.trimEnd('/')
+            val url = "$gatewayUrl/v2/invite/$inviteId?"
+            val basicCreds = Base64.encodeToString(
+                "$SERVER_KEY:".toByteArray(),
+                Base64.NO_WRAP
+            )
+            val response = httpClient.get(url) {
+                header(HttpHeaders.Authorization, "Basic $basicCreds")
+                header(HttpHeaders.Accept, ContentType.Application.Json.toString())
+            }
+            if (!response.status.isSuccess()) {
+                return null
+            }
+            val text = response.bodyAsText()
+            val obj = JSONObject(text)
+            val clanName = obj.optString("clan_name", "")
+                .ifEmpty { obj.optString("clanName", "") }
+                .trim()
+            val channelLabel = obj.optString("channel_label", "")
+                .ifEmpty { obj.optString("channelLabel", "") }
+                .trim()
+            val logo = obj.optString("clan_logo", "")
+                .ifEmpty { obj.optString("clanLogo", "") }
+                .trim()
+            val preview = LinkInvitePreview(
+                clanName = clanName,
+                channelLabel = channelLabel,
+                logoUrl = logo
+            )
+            synchronized(linkInvitePreviewCache) {
+                linkInvitePreviewCache[inviteId] = preview
+            }
+            preview
+        } catch (_: Exception) {
+            null
+        }
     }
 
     suspend fun authenticateEmail(

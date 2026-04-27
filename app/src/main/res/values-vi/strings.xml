@@ -514,6 +514,12 @@
     <string name="discover_explore_communities">Khám phá cộng đồng</string>
     <string name="discover_members">Thành viên</string>
     <string name="discover_verified">Đã xác minh</string>
+    <string name="clan_link_invite_title">MỜI THAM GIA CLAN</string>
+    <string name="clan_link_invite_join">Tham gia</string>
+    <string name="clan_link_invite_invalid_title">Lời mời không hợp lệ</string>
+    <string name="clan_link_invite_invalid_message">Hãy thử gửi một lời mời khác!</string>
+    <string name="clan_link_invite_channel_prefix"># %1$s</string>
+    <string name="clan_link_invite_unknown_clan">Clan không xác định</string>
     <string name="discover_join_clan">Tham gia clan</string>
     <string name="discover_join_failed">Không thể tham gia clan này.</string>
     <string name="discover_how_chatty">Năng động thế nào?</string>

@@ -115,7 +115,7 @@ class MezonSocket @Inject constructor(
 
     private fun correlationKeyForPending(envelope: Envelope, raw: ByteArray): String? {
         val fromParsed = envelope.cid
-        if (fromParsed != 0) return fromParsed.toString()
+        if (fromParsed.isNotEmpty()) return fromParsed
         return readCorrelationIdField1(raw)
     }
 
@@ -197,7 +197,7 @@ class MezonSocket @Inject constructor(
     suspend fun send(block: EnvelopeKt.Dsl.() -> Unit): Envelope {
         val cid = cidCounter.incrementAndGet()
         val env = envelope {
-            this.cid = cid
+            this.cid = cid.toString()
             block()
         }
 
