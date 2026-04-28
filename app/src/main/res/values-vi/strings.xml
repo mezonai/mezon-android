@@ -329,6 +329,26 @@
     <string name="setting_log_out_yes">Có</string>
     <string name="setting_scan_qr">Quét mã QR</string>
     <string name="setting_devices">Thiết bị</string>
+    <string name="setting_devices_title">Quản lý thiết bị</string>
+    <string name="setting_devices_description1">Đây là tất cả các thiết bị đang đăng nhập vào tài khoản của bạn. Bạn có thể đăng xuất từng thiết bị.</string>
+    <string name="setting_devices_description2">Nếu bạn nhìn thấy một lượt đăng nhập mà bạn không biết, hãy đăng xuất khỏi thiết bị đó và thay đổi mật khẩu tài khoản của bạn ngay lập tức.</string>
+    <string name="setting_devices_current">Thiết bị hiện tại</string>
+    <string name="setting_devices_other">Thiết bị khác</string>
+    <string name="setting_devices_no_devices">Không tìm thấy thiết bị</string>
+    <string name="setting_devices_logged_in_at">Đăng nhập lúc</string>
+    <string name="setting_devices_current_label">Hiện tại</string>
+    <string name="setting_devices_unknown">Không xác định</string>
+    <string name="setting_devices_platform_ios">iOS</string>
+    <string name="setting_devices_platform_android">Android</string>
+    <string name="setting_devices_platform_desktop">Máy tính</string>
+    <string name="setting_devices_platform_web">Web</string>
+    <string name="setting_devices_remove">Đăng xuất khỏi thiết bị này</string>
+    <string name="setting_devices_remove_confirm_title">Đăng xuất thiết bị</string>
+    <string name="setting_devices_remove_confirm_message">Bạn có chắc chắn muốn đăng xuất khỏi thiết bị này không?</string>
+    <string name="setting_devices_remove_confirm_yes">Đăng xuất</string>
+    <string name="setting_devices_remove_confirm_no">Hủy</string>
+    <string name="setting_devices_remove_success">Đăng xuất thiết bị thành công</string>
+    <string name="setting_devices_remove_failed">Đăng xuất thiết bị thất bại</string>
     <string name="setting_app_version_label">Phiên bản ứng dụng</string>
 
     <!-- update gate (matches RN updateGate) -->

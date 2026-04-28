@@ -188,7 +188,7 @@ class SettingsFragment : BaseFragment() {
                 true,
                 false,
                 {
-                    Toast.makeText(requireContext(), getString(R.string.feature_coming_soon), Toast.LENGTH_SHORT).show()
+                    presentFragment(DeviceManageFragment())
                 }
             )
         )
