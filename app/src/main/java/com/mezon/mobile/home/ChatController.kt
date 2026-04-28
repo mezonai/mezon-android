@@ -7,6 +7,7 @@ import com.mezon.mobile.data.db.MessageDao
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.home.chat.AttachmentPickerItem
+import com.mezon.mobile.home.chat.ChatAttachmentUploadBytes
 import com.mezon.mobile.home.chat.MessageEntity
 import com.mezon.mobile.home.chat.applyReactionEvent
 import com.mezon.mobile.home.chat.toMessageEntity
@@ -45,9 +46,14 @@ import com.mezon.mezon.rtapi.channelMessageSend
 import com.mezon.mezon.rtapi.channelMessageUpdate
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.withContext
 
@@ -974,6 +980,64 @@ class ChatController @Inject constructor(
         }
     }
 
+    private suspend fun shareMediaUploadAttachmentItem(
+        apiUrl: String,
+        token: String,
+        contentResolver: android.content.ContentResolver,
+        cdnBaseUrl: String,
+        item: AttachmentPickerItem,
+        attachmentIndex: Int,
+    ): MessageAttachment? {
+        for (attempt in 1..SHARE_MAX_RETRIES) {
+            try {
+                val loaded = ChatAttachmentUploadBytes.loadForUpload(contentResolver, item)
+                val sanitizedName = loaded.filename.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+                val uploadFilename = "${System.currentTimeMillis()}_${attachmentIndex}_$sanitizedName"
+                val presignResult = api.uploadAttachmentFile(
+                    apiUrl, token,
+                    uploadFilename, loaded.mimeType,
+                    loaded.bytes.size, loaded.width, loaded.height
+                )
+                api.putFileToPresignedUrl(presignResult.url, loaded.bytes, loaded.mimeType)
+                val cdnUrl = "$cdnBaseUrl/${presignResult.filename}"
+                return messageAttachment {
+                    filename = item.filename
+                    url = cdnUrl
+                    filetype = loaded.mimeType
+                    size = loaded.bytes.size
+                    width = loaded.width
+                    height = loaded.height
+                    if (item.duration > 0) duration = item.duration
+                }.also {
+                    Log.d(TAG, "shareMedia: Uploaded ${item.filename} → $cdnUrl (attempt $attempt)")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "shareMedia: Upload attempt $attempt failed for ${item.filename}", e)
+                if (attempt < SHARE_MAX_RETRIES) delay(SHARE_RETRY_DELAY_MS)
+            }
+        }
+        return null
+    }
+
+    private suspend fun shareMediaUploadAttachmentsParallel(
+        apiUrl: String,
+        token: String,
+        contentResolver: android.content.ContentResolver,
+        cdnBaseUrl: String,
+        attachments: List<AttachmentPickerItem>,
+    ): List<MessageAttachment> = coroutineScope {
+        val sem = Semaphore(3)
+        attachments.mapIndexed { index, item ->
+            async {
+                sem.withPermit {
+                    shareMediaUploadAttachmentItem(
+                        apiUrl, token, contentResolver, cdnBaseUrl, item, index
+                    )
+                }
+            }
+        }.awaitAll().filterNotNull()
+    }
+
     fun shareMediaToChannel(
         channelId: Long,
         clanId: Long,
@@ -1040,66 +1104,15 @@ class ChatController @Inject constructor(
 
         appScope.launch(ioDispatcher) {
             try {
-                runCatching {
-                    sessionManager.sessionFlow.first() ?: return@launch
-                    if (mezonSocket.awaitConnected()) {
-                        if (clanId != 0L) mezonSocket.joinClanChat(clanId)
-                        mezonSocket.joinChat(clanId, channelId, channelType, isPublic)
-                    }
-                }
-
                 sessionManager.withAutoRefresh { session ->
-                    ensureActiveArchivedThreadIfNeeded(session.apiUrl, session.token, channelId, clanId, channelType)
                     val cdnBaseUrl = BuildConfig.MEZON_BASE_IMG_URL
-                    val uploadedAttachments = ArrayList<MessageAttachment>()
-
-                    for (item in attachments) {
-                        var uploaded = false
-                        for (attempt in 1..SHARE_MAX_RETRIES) {
-                            try {
-                                val timestamp = System.currentTimeMillis() / 1000
-                                val sanitizedName = item.filename.replace(Regex("[^a-zA-Z0-9._-]"), "_")
-                                val uploadFilename = "${timestamp}_$sanitizedName"
-
-                                val presignResult = api.uploadAttachmentFile(
-                                    session.apiUrl, session.token,
-                                    uploadFilename, item.mimeType,
-                                    item.size.toInt(), item.width, item.height
-                                )
-
-                                val fileBytes = contentResolver.openInputStream(item.uri)?.use { it.readBytes() }
-                                if (fileBytes == null) {
-                                    Log.e(TAG, "shareMedia: Failed to read file: ${item.filename}")
-                                    break
-                                }
-
-                                api.putFileToPresignedUrl(presignResult.url, fileBytes, item.mimeType)
-
-                                val cdnUrl = "$cdnBaseUrl/${presignResult.filename}"
-                                val attachment = messageAttachment {
-                                    this.filename = item.filename
-                                    this.url = cdnUrl
-                                    this.filetype = item.mimeType
-                                    this.size = item.size.toInt()
-                                    this.width = item.width
-                                    this.height = item.height
-                                    if (item.duration > 0) this.duration = item.duration
-                                }
-                                uploadedAttachments.add(attachment)
-                                uploaded = true
-                                Log.d(TAG, "shareMedia: Uploaded ${item.filename} → $cdnUrl (attempt $attempt)")
-                                break
-                            } catch (e: Exception) {
-                                Log.e(TAG, "shareMedia: Upload attempt $attempt failed for ${item.filename}", e)
-                                if (attempt < SHARE_MAX_RETRIES) {
-                                    delay(SHARE_RETRY_DELAY_MS)
-                                }
-                            }
-                        }
-                        if (!uploaded) {
-                            Log.e(TAG, "shareMedia: All retries exhausted for ${item.filename}")
-                        }
-                    }
+                    val uploadedAttachments = shareMediaUploadAttachmentsParallel(
+                        session.apiUrl,
+                        session.token,
+                        contentResolver,
+                        cdnBaseUrl,
+                        attachments,
+                    )
 
                     if (uploadedAttachments.isNotEmpty()) {
                         val request = channelMessageSend {
