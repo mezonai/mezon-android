@@ -392,6 +392,26 @@
     <string name="setting_log_out_yes">Yes</string>
     <string name="setting_scan_qr">Scan QR Code</string>
     <string name="setting_devices">Devices</string>
+    <string name="setting_devices_title">Device Management</string>
+    <string name="setting_devices_description1">These are all the devices logged into your account. You can log out of each device individually.</string>
+    <string name="setting_devices_description2">If you see a login you don\'t recognize, log out of that device and change your account password immediately.</string>
+    <string name="setting_devices_current">Current Device</string>
+    <string name="setting_devices_other">Other Devices</string>
+    <string name="setting_devices_no_devices">No devices found</string>
+    <string name="setting_devices_logged_in_at">Logged in at</string>
+    <string name="setting_devices_current_label">Current</string>
+    <string name="setting_devices_unknown">Unknown</string>
+    <string name="setting_devices_platform_ios">iOS</string>
+    <string name="setting_devices_platform_android">Android</string>
+    <string name="setting_devices_platform_desktop">Desktop</string>
+    <string name="setting_devices_platform_web">Web</string>
+    <string name="setting_devices_remove">Log out of this device</string>
+    <string name="setting_devices_remove_confirm_title">Log out device</string>
+    <string name="setting_devices_remove_confirm_message">Are you sure you want to log out of this device?</string>
+    <string name="setting_devices_remove_confirm_yes">Log out</string>
+    <string name="setting_devices_remove_confirm_no">Cancel</string>
+    <string name="setting_devices_remove_success">Device logged out successfully</string>
+    <string name="setting_devices_remove_failed">Failed to log out device</string>
     <string name="setting_app_version_label">App Version</string>
 
     <!-- update gate (matches RN updateGate) -->
