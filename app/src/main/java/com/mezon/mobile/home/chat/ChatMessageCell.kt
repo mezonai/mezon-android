@@ -32,8 +32,11 @@ import com.mezon.mobile.util.EmbedData
 import com.mezon.mobile.util.OgpData
 import com.mezon.mobile.util.formatRelativeTime
 import com.mezon.mobile.util.buildPlainTextWithHeadings
+import com.mezon.mobile.util.hasContactEmbed
 import com.mezon.mobile.util.isRawMessage
-import com.mezon.mobile.util.parseEmbedData
+import com.mezon.mobile.util.buildTextContent
+import com.mezon.mobile.util.parseEmbedDataList
+import com.mezon.mobile.util.parseMezonChannelLink
 import com.mezon.mobile.util.parseContentPreview
 import com.mezon.mobile.util.parseContentText
 import com.mezon.mobile.util.parseContentToSpannable
@@ -155,20 +158,26 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private var pressedOnInviteJoin = false
 
-    private var embedData: EmbedData? = null
-    private var embedTitleLayout: StaticLayout? = null
-    private var embedDescLayout: StaticLayout? = null
-    private var embedAuthorLayout: StaticLayout? = null
-    private var embedFieldLayouts = emptyList<Pair<StaticLayout?, StaticLayout?>>()
-    private var embedFooterLayout: StaticLayout? = null
-    private val embedImage = ImageReceiver(this)
-    private val embedThumbImage = ImageReceiver(this)
-    private var embedImageW = 0
-    private var embedImageH = 0
-    private var embedBlockLeft = 0f
-    private var embedBlockTop = 0f
-    private var embedBlockRight = 0f
-    private var embedBlockBottom = 0f
+    private data class EmbedRenderState(
+        val data: EmbedData,
+        val authorLayout: StaticLayout?,
+        val titleLayout: StaticLayout?,
+        val descLayout: StaticLayout?,
+        val fieldLayouts: List<Pair<StaticLayout?, StaticLayout?>>,
+        val footerLayout: StaticLayout?,
+        val imageReceiver: ImageReceiver,
+        val thumbReceiver: ImageReceiver,
+        val imageW: Int,
+        val imageH: Int,
+        var left: Float = 0f,
+        var top: Float = 0f,
+        var right: Float = 0f,
+        var bottom: Float = 0f
+    )
+
+    private var embedDataList: List<EmbedData> = emptyList()
+    private var embedRenderStates: List<EmbedRenderState> = emptyList()
+    private var pressedEmbedIndex = -1
     private var pressedOnEmbed = false
     private var cachedEmbedTitleW = 0f
     private var cachedEmbedDescW = 0f
@@ -217,8 +226,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         extraPhotoImages.forEach { it.onAttachedToWindow() }
         ogpImage.onAttachedToWindow()
         linkInviteBlock.onAttachedToWindow()
-        embedImage.onAttachedToWindow()
-        embedThumbImage.onAttachedToWindow()
+        embedRenderStates.forEach {
+            it.imageReceiver.onAttachedToWindow()
+            it.thumbReceiver.onAttachedToWindow()
+        }
         pendingMessage?.let { msg ->
             pendingMessage = null
             update(0, msg)
@@ -232,8 +243,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         extraPhotoImages.forEach { it.onDetachedFromWindow() }
         ogpImage.onDetachedFromWindow()
         linkInviteBlock.onDetachedFromWindow()
-        embedImage.onDetachedFromWindow()
-        embedThumbImage.onDetachedFromWindow()
+        embedRenderStates.forEach {
+            it.imageReceiver.onDetachedFromWindow()
+            it.thumbReceiver.onDetachedFromWindow()
+        }
         avatarCancellable?.cancel()
         avatarCancellable = null
         reactionEmojiCancellables.forEach { it?.cancel() }
@@ -275,16 +288,13 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         replyAvatarCancellable = null
         replyAvatarDrawable.setPhoto(null)
         replyAvatarDrawable.setDrawableByInfo(true)
-        embedData = null
-        embedTitleLayout = null
-        embedDescLayout = null
-        embedAuthorLayout = null
-        embedFieldLayouts = emptyList()
-        embedFooterLayout = null
-        embedImageW = 0
-        embedImageH = 0
-        embedImage.recycle()
-        embedThumbImage.recycle()
+        embedDataList = emptyList()
+        embedRenderStates.forEach {
+            it.imageReceiver.recycle()
+            it.thumbReceiver.recycle()
+        }
+        embedRenderStates = emptyList()
+        pressedEmbedIndex = -1
         drawPhotoImage = false
         drawFileAttachment = false
         drawForwardHeader = false
@@ -759,9 +769,11 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             ogpImage.setImage(null, null, context)
         }
 
-        embedData = if (msg.content.contains("\"embed\"")) {
-            parseEmbedData(msg.content)
-        } else null
+        embedDataList = if (msg.content.contains("\"embed\"") && !hasContactEmbed(msg.content)) {
+            parseEmbedDataList(msg.content)
+        } else {
+            emptyList()
+        }
         buildEmbedLayouts(textWidth)
         linkInviteBlock.build(msg, bubbleMaxW) {
             val m = messageEntity ?: return@build
@@ -805,7 +817,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val ogpW = if (ogpData != null) maxOf(cachedOgpTitleW, cachedOgpDescW, ogpImageW.toFloat()) else 0f
         val fileW = if (drawFileAttachment) fileRowWidth.toFloat() else 0f
         val audioW = if (drawAudioAttachment) audioPillWidth.toFloat() else 0f
-        val embedW = if (embedData != null) (bubbleMaxW).toFloat() else 0f
+        val embedW = if (embedDataList.isNotEmpty()) (bubbleMaxW).toFloat() else 0f
         val inviteW = if (linkInviteBlock.isVisible) linkInviteBlock.cachedWidth else 0f
         cachedInnerWidth = if (drawPhotoImage) {
             photoWidth
@@ -906,7 +918,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             h += AUDIO_PILL_HEIGHT + GAP_V_INNER
         }
 
-        if (embedData != null) {
+        if (embedDataList.isNotEmpty()) {
             h += computeEmbedHeight()
         }
 
@@ -1057,133 +1069,134 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     }
 
     private fun buildEmbedLayouts(textWidth: Int) {
-        val data = embedData
-        if (data == null) {
-            embedTitleLayout = null
-            embedDescLayout = null
-            embedAuthorLayout = null
-            embedFieldLayouts = emptyList()
-            embedFooterLayout = null
-            embedImageW = 0
-            embedImageH = 0
-            embedImage.setImage(null, null, context)
-            embedThumbImage.setImage(null, null, context)
-            return
+        embedRenderStates.forEach {
+            it.imageReceiver.recycle()
+            it.thumbReceiver.recycle()
         }
-
+        embedRenderStates = emptyList()
+        if (embedDataList.isEmpty()) return
         applyEmbedPaintColors()
-
         val contentW = (textWidth - EMBED_COLOR_BAR_W - EMBED_PAD * 2).coerceAtLeast(1)
-        val hasThumb = data.thumbnailUrl.isNotEmpty()
-        val innerTextW = if (hasThumb) (contentW - EMBED_THUMB_SIZE - EMBED_GAP).coerceAtLeast(1) else contentW
-
-        embedAuthorLayout = if (data.authorName.isNotEmpty()) {
-            StaticLayout.Builder.obtain(data.authorName, 0, data.authorName.length, EMBED_AUTHOR_PAINT, innerTextW)
-                .setMaxLines(1)
-                .setEllipsize(TextUtils.TruncateAt.END)
-                .build()
-        } else null
-
-        val titlePaint = if (data.url.isNotEmpty()) EMBED_TITLE_LINK_PAINT else EMBED_TITLE_PAINT
-        embedTitleLayout = if (data.title.isNotEmpty()) {
-            val cleanTitle = data.title.replace(EMBED_NEWLINE_TAB_REGEX, " ")
-                .replace(EMBED_WHITESPACE_REGEX, " ")
-                .trim()
-            StaticLayout.Builder.obtain(cleanTitle, 0, cleanTitle.length, titlePaint, innerTextW)
-                .setMaxLines(3)
-                .setEllipsize(TextUtils.TruncateAt.END)
-                .build()
-        } else null
-
-        embedDescLayout = if (data.description.isNotEmpty()) {
-            val cleanDesc = data.description.split("\n")
-                .map { it.trim() }
-                .filter { it.isNotEmpty() }
-                .joinToString("\n")
-            StaticLayout.Builder.obtain(cleanDesc, 0, cleanDesc.length, EMBED_DESC_PAINT, innerTextW)
-                .setMaxLines(6)
-                .setEllipsize(TextUtils.TruncateAt.END)
-                .setLineSpacing(LayoutHelper.dpf(2f), 1f)
-                .build()
-        } else null
-
-        embedFieldLayouts = data.fields.map { field ->
-            val nameLay = if (field.name.isNotEmpty()) {
-                StaticLayout.Builder.obtain(field.name, 0, field.name.length, EMBED_FIELD_NAME_PAINT, contentW)
+        val states = ArrayList<EmbedRenderState>(embedDataList.size)
+        embedDataList.forEach { data ->
+            val hasThumb = data.thumbnailUrl.isNotEmpty()
+            val innerTextW = if (hasThumb) (contentW - EMBED_THUMB_SIZE - EMBED_GAP).coerceAtLeast(1) else contentW
+            val authorLayout = if (data.authorName.isNotEmpty()) {
+                StaticLayout.Builder.obtain(data.authorName, 0, data.authorName.length, EMBED_AUTHOR_PAINT, innerTextW)
                     .setMaxLines(1)
                     .setEllipsize(TextUtils.TruncateAt.END)
                     .build()
             } else null
-            val valLay = if (field.value.isNotEmpty()) {
-                StaticLayout.Builder.obtain(field.value, 0, field.value.length, EMBED_FIELD_VALUE_PAINT, contentW)
+            val titlePaint = if (data.url.isNotEmpty()) EMBED_TITLE_LINK_PAINT else EMBED_TITLE_PAINT
+            val titleLayout = if (data.title.isNotEmpty()) {
+                val cleanTitle = data.title.replace(EMBED_NEWLINE_TAB_REGEX, " ")
+                    .replace(EMBED_WHITESPACE_REGEX, " ")
+                    .trim()
+                StaticLayout.Builder.obtain(cleanTitle, 0, cleanTitle.length, titlePaint, innerTextW)
                     .setMaxLines(3)
                     .setEllipsize(TextUtils.TruncateAt.END)
                     .build()
             } else null
-            nameLay to valLay
+            val descLayout = if (data.description.isNotEmpty()) {
+                val cleanDesc = data.description.split("\n")
+                    .map { it.trim() }
+                    .filter { it.isNotEmpty() }
+                    .joinToString("\n")
+                val parsedDesc = parseContentToSpannable(
+                    content = buildTextContent(cleanDesc),
+                    linkColor = theme.textLink,
+                    view = this,
+                    theme = theme
+                )
+                StaticLayout.Builder.obtain(parsedDesc, 0, parsedDesc.length, EMBED_DESC_PAINT, innerTextW)
+                    .setMaxLines(6)
+                    .setEllipsize(TextUtils.TruncateAt.END)
+                    .setLineSpacing(LayoutHelper.dpf(2f), 1f)
+                    .build()
+            } else null
+            val fieldLayouts = data.fields.map { field ->
+                val nameLay = if (field.name.isNotEmpty()) {
+                    StaticLayout.Builder.obtain(field.name, 0, field.name.length, EMBED_FIELD_NAME_PAINT, contentW)
+                        .setMaxLines(1)
+                        .setEllipsize(TextUtils.TruncateAt.END)
+                        .build()
+                } else null
+                val valLay = if (field.value.isNotEmpty()) {
+                    StaticLayout.Builder.obtain(field.value, 0, field.value.length, EMBED_FIELD_VALUE_PAINT, contentW)
+                        .setMaxLines(3)
+                        .setEllipsize(TextUtils.TruncateAt.END)
+                        .build()
+                } else null
+                nameLay to valLay
+            }
+            val footerParts = mutableListOf<String>()
+            if (data.footerText.isNotEmpty()) footerParts.add(data.footerText)
+            if (data.timestamp.isNotEmpty()) {
+                try {
+                    val localDate = java.time.Instant.parse(data.timestamp)
+                        .atZone(java.time.ZoneId.systemDefault())
+                        .toLocalDate()
+                    val fmt = java.time.format.DateTimeFormatter
+                        .ofLocalizedDate(java.time.format.FormatStyle.SHORT)
+                        .withLocale(java.util.Locale.getDefault())
+                    footerParts.add(localDate.format(fmt))
+                } catch (_: Exception) {}
+            }
+            val footerStr = footerParts.joinToString(" • ")
+            val footerLayout = if (footerStr.isNotEmpty()) {
+                StaticLayout.Builder.obtain(footerStr, 0, footerStr.length, EMBED_FOOTER_PAINT, contentW)
+                    .setMaxLines(1)
+                    .setEllipsize(TextUtils.TruncateAt.END)
+                    .build()
+            } else null
+            val imageReceiver = ImageReceiver(this)
+            val thumbReceiver = ImageReceiver(this)
+            if (attachedToWindow) {
+                imageReceiver.onAttachedToWindow()
+                thumbReceiver.onAttachedToWindow()
+            }
+            val imageH: Int
+            val imageW: Int
+            if (data.imageUrl.isNotEmpty()) {
+                val aspect = if (data.imageWidth > 0 && data.imageHeight > 0) {
+                    data.imageWidth.toFloat() / data.imageHeight
+                } else 1f
+                imageW = contentW
+                imageH = (imageW / aspect).toInt().coerceIn(LayoutHelper.dp(60), LayoutHelper.dp(300))
+                imageReceiver.setRoundRadius(EMBED_IMG_RADIUS.toInt())
+                val proxyUrl = createImgproxyUrl(data.imageUrl, imageW, imageH, "fit")
+                imageReceiver.setImage(proxyUrl, null, context)
+            } else {
+                imageW = 0
+                imageH = 0
+            }
+            if (hasThumb) {
+                thumbReceiver.setRoundRadius(EMBED_IMG_RADIUS.toInt())
+                val thumbProxy = createImgproxyUrl(data.thumbnailUrl, EMBED_THUMB_SIZE, EMBED_THUMB_SIZE, "fit")
+                thumbReceiver.setImage(thumbProxy, null, context)
+            }
+            states += EmbedRenderState(
+                data = data,
+                authorLayout = authorLayout,
+                titleLayout = titleLayout,
+                descLayout = descLayout,
+                fieldLayouts = fieldLayouts,
+                footerLayout = footerLayout,
+                imageReceiver = imageReceiver,
+                thumbReceiver = thumbReceiver,
+                imageW = imageW,
+                imageH = imageH
+            )
         }
-
-        val footerParts = mutableListOf<String>()
-        if (data.footerText.isNotEmpty()) footerParts.add(data.footerText)
-        if (data.timestamp.isNotEmpty()) {
-            try {
-                val date = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
-                    .parse(data.timestamp.replace("Z", "+0000").take(19))
-                if (date != null) {
-                    val fmt = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.US)
-                    footerParts.add(fmt.format(date))
-                }
-            } catch (_: Exception) {}
-        }
-        val footerStr = footerParts.joinToString(" • ")
-        embedFooterLayout = if (footerStr.isNotEmpty()) {
-            StaticLayout.Builder.obtain(footerStr, 0, footerStr.length, EMBED_FOOTER_PAINT, contentW)
-                .setMaxLines(1)
-                .setEllipsize(TextUtils.TruncateAt.END)
-                .build()
-        } else null
-
-        if (data.imageUrl.isNotEmpty()) {
-            val aspect = if (data.imageWidth > 0 && data.imageHeight > 0) {
-                data.imageWidth.toFloat() / data.imageHeight
-            } else 16f / 9f
-            embedImageW = contentW
-            embedImageH = (embedImageW / aspect).toInt().coerceIn(LayoutHelper.dp(60), LayoutHelper.dp(300))
-            embedImage.setRoundRadius(EMBED_IMG_RADIUS.toInt())
-            val proxyUrl = createImgproxyUrl(data.imageUrl, embedImageW, embedImageH, "fit")
-            embedImage.setImage(proxyUrl, null, context)
-        } else {
-            embedImageW = 0
-            embedImageH = 0
-            embedImage.setImage(null, null, context)
-        }
-
-        if (hasThumb) {
-            embedThumbImage.setRoundRadius(EMBED_IMG_RADIUS.toInt())
-            val thumbProxy = createImgproxyUrl(data.thumbnailUrl, EMBED_THUMB_SIZE, EMBED_THUMB_SIZE, "fit")
-            embedThumbImage.setImage(thumbProxy, null, context)
-        } else {
-            embedThumbImage.setImage(null, null, context)
-        }
-
-        cachedEmbedTitleW = embedTitleLayout?.let { maxLineWidth(it) } ?: 0f
-        cachedEmbedDescW = embedDescLayout?.let { maxLineWidth(it) } ?: 0f
+        embedRenderStates = states
+        val first = states.firstOrNull()
+        cachedEmbedTitleW = first?.titleLayout?.let { maxLineWidth(it) } ?: 0f
+        cachedEmbedDescW = first?.descLayout?.let { maxLineWidth(it) } ?: 0f
     }
 
     private fun computeEmbedHeight(): Int {
-        if (embedData == null) return 0
-        var h = EMBED_PAD * 2 + EMBED_TOP_MARGIN
-        embedAuthorLayout?.let { h += it.height + EMBED_GAP }
-        embedTitleLayout?.let { h += it.height + EMBED_GAP }
-        embedDescLayout?.let { h += it.height + EMBED_GAP }
-        for ((nameLay, valLay) in embedFieldLayouts) {
-            nameLay?.let { h += it.height + LayoutHelper.dp(2) }
-            valLay?.let { h += it.height + EMBED_GAP }
-        }
-        if (embedImageH > 0) h += embedImageH + EMBED_GAP
-        embedFooterLayout?.let { h += it.height + EMBED_GAP }
-        val thumbH = if (embedData?.thumbnailUrl?.isNotEmpty() == true) EMBED_THUMB_SIZE + EMBED_PAD else 0
-        return maxOf(h, thumbH + EMBED_PAD * 2 + EMBED_TOP_MARGIN)
+        if (embedRenderStates.isEmpty()) return 0
+        return embedRenderStates.sumOf { computeSingleEmbedHeight(it) }
     }
 
     private fun parseReply(msg: MessageEntity): Boolean {
@@ -1465,6 +1478,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         pressedOnAvatar = false
         pressedOnReply = false
         pressedOnInviteJoin = false
+        pressedEmbedIndex = -1
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -1477,6 +1491,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 pressedOnMedia = false
                 pressedOnOgp = false
                 pressedOnEmbed = false
+                pressedEmbedIndex = -1
                 pressedOnFile = false
                 pressedOnAudio = false
                 pressedOnAvatar = false
@@ -1561,9 +1576,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     scheduleLongPress()
                     return true
                 }
-                val ed = embedData
-                if (ed != null && x >= embedBlockLeft && x <= embedBlockRight && y >= embedBlockTop && y <= embedBlockBottom) {
+                val hitIndex = embedRenderStates.indexOfFirst { x >= it.left && x <= it.right && y >= it.top && y <= it.bottom }
+                if (hitIndex >= 0) {
                     pressedOnEmbed = true
+                    pressedEmbedIndex = hitIndex
                     scheduleLongPress()
                     return true
                 }
@@ -1595,7 +1611,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     }
                     if (drawFileAttachment) reacBaseY += FILE_ICON_SIZE + GAP_V_INNER
                     if (drawAudioAttachment) reacBaseY += AUDIO_PILL_HEIGHT + GAP_V_INNER
-                    if (embedData != null) reacBaseY += computeEmbedHeight()
+                    if (embedRenderStates.isNotEmpty()) reacBaseY += computeEmbedHeight()
                     if (drawEphemeral) ephemeralLayout?.let { reacBaseY += it.height + GAP_V_INNER }
                     reacBaseY += REACTION_TOP_PAD
 
@@ -1729,7 +1745,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 }
                 if (pressedOnEmbed) {
                     pressedOnEmbed = false
-                    embedData?.let { if (it.url.isNotEmpty()) onLinkClicked(it.url) }
+                    val idx = pressedEmbedIndex
+                    pressedEmbedIndex = -1
+                    val data = embedRenderStates.getOrNull(idx)?.data
+                    if (data?.url?.isNotEmpty() == true) onLinkClicked(data.url)
                     return true
                 }
                 if (pressedOnInviteJoin) {
@@ -1753,6 +1772,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 pressedOnMedia = false
                 pressedOnOgp = false
                 pressedOnEmbed = false
+                pressedEmbedIndex = -1
                 pressedOnFile = false
                 pressedOnAudio = false
                 pressedOnAvatar = false
@@ -1789,6 +1809,11 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     fun onLinkClicked(url: String) {
         try {
+            val channelLink = parseMezonChannelLink(url)
+            if (channelLink != null) {
+                onHashtagClicked(channelLink.channelId)
+                return
+            }
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
             context.startActivity(intent)
         } catch (_: Exception) {}
@@ -2039,8 +2064,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             yOff = drawAudioBlock(canvas, contentLeft.toFloat(), yOff, msg)
         }
 
-        if (embedData != null) {
-            yOff = drawEmbedCard(canvas, contentLeft.toFloat(), yOff)
+        if (embedRenderStates.isNotEmpty()) {
+            yOff = drawEmbedCards(canvas, contentLeft.toFloat(), yOff)
         }
 
         if (drawEphemeral) {
@@ -2277,100 +2302,91 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         return y
     }
 
-    private fun drawEmbedCard(canvas: Canvas, left: Float, top: Float): Float {
-        val data = embedData ?: return top
+    private fun computeSingleEmbedHeight(state: EmbedRenderState): Int {
+        var h = EMBED_PAD * 2 + EMBED_TOP_MARGIN
+        state.authorLayout?.let { h += it.height + EMBED_GAP }
+        state.titleLayout?.let { h += it.height + EMBED_GAP }
+        state.descLayout?.let { h += it.height + EMBED_GAP }
+        for ((nameLay, valLay) in state.fieldLayouts) {
+            nameLay?.let { h += it.height + LayoutHelper.dp(2) }
+            valLay?.let { h += it.height + EMBED_GAP }
+        }
+        if (state.imageH > 0) h += state.imageH + EMBED_GAP
+        state.footerLayout?.let { h += it.height + EMBED_GAP }
+        val thumbH = if (state.data.thumbnailUrl.isNotEmpty()) EMBED_THUMB_SIZE + EMBED_PAD else 0
+        return maxOf(h, thumbH + EMBED_PAD * 2 + EMBED_TOP_MARGIN)
+    }
+
+    private fun drawEmbedCards(canvas: Canvas, left: Float, top: Float): Float {
+        if (embedRenderStates.isEmpty()) return top
         applyEmbedPaintColors()
-        val cardTop = top + EMBED_TOP_MARGIN
-        val embedH = computeEmbedHeight() - EMBED_TOP_MARGIN
         val bubbleMaxW = maxBubbleWidth()
         val contentW = (bubbleMaxW - EMBED_COLOR_BAR_W - EMBED_PAD * 2).coerceAtLeast(1)
         val cardW = (EMBED_COLOR_BAR_W + EMBED_PAD * 2 + contentW).toFloat()
+        var cardBottom = top
+        embedRenderStates.forEachIndexed { index, state ->
+            val cardTop = if (index == 0) top + EMBED_TOP_MARGIN else cardBottom + EMBED_TOP_MARGIN
+            val embedH = computeSingleEmbedHeight(state) - EMBED_TOP_MARGIN
+            state.left = left
+            state.top = cardTop
+            state.right = left + cardW
+            state.bottom = cardTop + embedH
 
-        embedBlockLeft = left
-        embedBlockTop = cardTop
-        embedBlockRight = left + cardW
-        embedBlockBottom = cardTop + embedH
+            EMBED_BG_PAINT.color = theme.surfaceVariant
+            tmpRect.set(left, cardTop, left + cardW, cardTop + embedH)
+            canvas.drawRoundRect(tmpRect, EMBED_RADIUS, EMBED_RADIUS, EMBED_BG_PAINT)
 
-        EMBED_BG_PAINT.color = theme.surfaceVariant
-        tmpRect.set(left, cardTop, left + cardW, cardTop + embedH)
-        canvas.drawRoundRect(tmpRect, EMBED_RADIUS, EMBED_RADIUS, EMBED_BG_PAINT)
+            val barColor = if (state.data.color != 0) state.data.color else theme.primary
+            EMBED_BAR_PAINT.color = barColor
+            tmpRect.set(left, cardTop, left + EMBED_COLOR_BAR_W, cardTop + embedH)
+            canvas.drawRoundRect(tmpRect, EMBED_RADIUS / 2, EMBED_RADIUS / 2, EMBED_BAR_PAINT)
 
-        val barColor = if (data.color != 0) data.color else theme.primary
-        EMBED_BAR_PAINT.color = barColor
-        tmpRect.set(left, cardTop, left + EMBED_COLOR_BAR_W, cardTop + embedH)
-        canvas.drawRoundRect(tmpRect, EMBED_RADIUS / 2, EMBED_RADIUS / 2, EMBED_BAR_PAINT)
-
-        val textLeft = left + EMBED_COLOR_BAR_W + EMBED_PAD
-        var y = cardTop + EMBED_PAD.toFloat()
-
-        if (data.thumbnailUrl.isNotEmpty()) {
-            val thumbX = left + cardW - EMBED_PAD - EMBED_THUMB_SIZE
-            val thumbY = y
-            embedThumbImage.setImageCoords(thumbX, thumbY, EMBED_THUMB_SIZE.toFloat(), EMBED_THUMB_SIZE.toFloat())
-            embedThumbImage.draw(canvas)
-        }
-
-        embedAuthorLayout?.let {
-            canvas.save()
-            canvas.translate(textLeft, y)
-            it.draw(canvas)
-            canvas.restore()
-            y += it.height + EMBED_GAP
-        }
-
-        embedTitleLayout?.let {
-            canvas.save()
-            canvas.translate(textLeft, y)
-            it.draw(canvas)
-            canvas.restore()
-            y += it.height + EMBED_GAP
-        }
-
-        embedDescLayout?.let {
-            canvas.save()
-            canvas.translate(textLeft, y)
-            it.draw(canvas)
-            canvas.restore()
-            y += it.height + EMBED_GAP
-        }
-
-        for ((nameLay, valLay) in embedFieldLayouts) {
-            nameLay?.let {
-                canvas.save()
-                canvas.translate(textLeft, y)
-                it.draw(canvas)
-                canvas.restore()
-                y += it.height + SECTION_GAP
+            val textLeft = left + EMBED_COLOR_BAR_W + EMBED_PAD
+            var y = cardTop + EMBED_PAD.toFloat()
+            if (state.data.thumbnailUrl.isNotEmpty()) {
+                val thumbX = left + cardW - EMBED_PAD - EMBED_THUMB_SIZE
+                state.thumbReceiver.setImageCoords(thumbX, y, EMBED_THUMB_SIZE.toFloat(), EMBED_THUMB_SIZE.toFloat())
+                state.thumbReceiver.draw(canvas)
             }
-            valLay?.let {
-                canvas.save()
-                canvas.translate(textLeft, y)
-                it.draw(canvas)
-                canvas.restore()
+            state.authorLayout?.let {
+                canvas.save(); canvas.translate(textLeft, y); it.draw(canvas); canvas.restore()
                 y += it.height + EMBED_GAP
             }
-        }
-
-        if (embedImageW > 0 && embedImageH > 0) {
-            embedImage.setImageCoords(textLeft, y, embedImageW.toFloat(), embedImageH.toFloat())
-            embedImage.draw(canvas)
-            if (!embedImage.hasMainImage()) {
-                shimmerEffect.draw(canvas, textLeft, y, textLeft + embedImageW, y + embedImageH,
-                    EMBED_IMG_RADIUS, theme.resolvedMode != com.mezon.mobile.ui.theme.ThemeMode.LIGHT)
-                postInvalidateDelayed(32)
+            state.titleLayout?.let {
+                canvas.save(); canvas.translate(textLeft, y); it.draw(canvas); canvas.restore()
+                y += it.height + EMBED_GAP
             }
-            y += embedImageH + EMBED_GAP
+            state.descLayout?.let {
+                canvas.save(); canvas.translate(textLeft, y); it.draw(canvas); canvas.restore()
+                y += it.height + EMBED_GAP
+            }
+            for ((nameLay, valLay) in state.fieldLayouts) {
+                nameLay?.let {
+                    canvas.save(); canvas.translate(textLeft, y); it.draw(canvas); canvas.restore()
+                    y += it.height + SECTION_GAP
+                }
+                valLay?.let {
+                    canvas.save(); canvas.translate(textLeft, y); it.draw(canvas); canvas.restore()
+                    y += it.height + EMBED_GAP
+                }
+            }
+            if (state.imageW > 0 && state.imageH > 0) {
+                state.imageReceiver.setImageCoords(textLeft, y, state.imageW.toFloat(), state.imageH.toFloat())
+                state.imageReceiver.draw(canvas)
+                if (!state.imageReceiver.hasMainImage()) {
+                    shimmerEffect.draw(canvas, textLeft, y, textLeft + state.imageW, y + state.imageH,
+                        EMBED_IMG_RADIUS, theme.resolvedMode != com.mezon.mobile.ui.theme.ThemeMode.LIGHT)
+                    postInvalidateDelayed(32)
+                }
+                y += state.imageH + EMBED_GAP
+            }
+            state.footerLayout?.let {
+                canvas.save(); canvas.translate(textLeft, y); it.draw(canvas); canvas.restore()
+                y += it.height + EMBED_GAP
+            }
+            cardBottom = state.bottom
         }
-
-        embedFooterLayout?.let {
-            canvas.save()
-            canvas.translate(textLeft, y)
-            it.draw(canvas)
-            canvas.restore()
-            y += it.height + EMBED_GAP
-        }
-
-        return cardTop + embedH
+        return cardBottom
     }
 
     private var gridExtraCount = 0

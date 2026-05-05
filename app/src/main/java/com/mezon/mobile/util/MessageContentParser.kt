@@ -549,6 +549,8 @@ data class EmbedField(
     val inline: Boolean
 )
 
+const val SHARE_CONTACT_KEY = "SHARE_CONTACT_KEY"
+
 data class EmbedData(
     val color: Int,
     val title: String,
@@ -567,58 +569,89 @@ data class EmbedData(
 )
 
 fun parseEmbedData(content: String): EmbedData? {
+    return parseEmbedDataList(content).firstOrNull()
+}
+
+fun parseEmbedDataList(content: String): List<EmbedData> {
     return try {
         val obj = JSONObject(content)
-        val embeds = obj.optJSONArray("embed") ?: return null
-        if (embeds.length() == 0) return null
-        val embed = embeds.optJSONObject(0) ?: return null
+        val embeds = obj.optJSONArray("embed") ?: return emptyList()
+        if (embeds.length() == 0) return emptyList()
+        val parsed = mutableListOf<EmbedData>()
+        for (index in 0 until embeds.length()) {
+            val embed = embeds.optJSONObject(index) ?: continue
+            if (isShareContactEmbed(embed)) continue
 
-        val colorStr = embed.optString("color", "")
-        val color = if (colorStr.isNotEmpty()) {
-            try { android.graphics.Color.parseColor(colorStr) } catch (_: Exception) { 0 }
-        } else 0
+            val colorStr = embed.optString("color", "")
+            val color = if (colorStr.isNotEmpty()) {
+                try { android.graphics.Color.parseColor(colorStr) } catch (_: Exception) { 0 }
+            } else 0
 
-        val title = embed.optString("title", "")
-        val url = embed.optString("url", "")
+            val title = embed.optString("title", "")
+            val url = embed.optString("url", "")
 
-        val authorObj = embed.optJSONObject("author")
-        val authorName = authorObj?.optString("name", "") ?: ""
-        val authorIconUrl = authorObj?.optString("icon_url", "") ?: ""
+            val authorObj = embed.optJSONObject("author")
+            val authorName = authorObj?.optString("name", "") ?: ""
+            val authorIconUrl = authorObj?.optString("icon_url", "") ?: ""
 
-        val description = embed.optString("description", "")
+            val description = embed.optString("description", "")
 
-        val fields = mutableListOf<EmbedField>()
-        val fieldsArr = embed.optJSONArray("fields")
-        if (fieldsArr != null) {
-            for (i in 0 until fieldsArr.length()) {
-                val f = fieldsArr.optJSONObject(i) ?: continue
-                fields.add(EmbedField(
-                    name = f.optString("name", ""),
-                    value = f.optString("value", ""),
-                    inline = f.optBoolean("inline", false)
-                ))
+            val fields = mutableListOf<EmbedField>()
+            val fieldsArr = embed.optJSONArray("fields")
+            if (fieldsArr != null) {
+                for (i in 0 until fieldsArr.length()) {
+                    val f = fieldsArr.optJSONObject(i) ?: continue
+                    fields.add(EmbedField(
+                        name = f.optString("name", ""),
+                        value = f.optString("value", ""),
+                        inline = f.optBoolean("inline", false)
+                    ))
+                }
             }
+
+            val imageObj = embed.optJSONObject("image")
+            val imageUrl = imageObj?.optString("url", "") ?: ""
+            val imageWidth = imageObj?.optInt("width", 0) ?: 0
+            val imageHeight = imageObj?.optInt("height", 0) ?: 0
+
+            val thumbnailObj = embed.optJSONObject("thumbnail")
+            val thumbnailUrl = thumbnailObj?.optString("url", "") ?: ""
+
+            val footerObj = embed.optJSONObject("footer")
+            val footerText = footerObj?.optString("text", "") ?: ""
+            val footerIconUrl = footerObj?.optString("icon_url", "") ?: ""
+
+            val timestamp = embed.optString("timestamp", "")
+
+            if (title.isEmpty() && description.isEmpty() && fields.isEmpty() && imageUrl.isEmpty()) continue
+
+            parsed += EmbedData(
+                color, title, url, authorName, authorIconUrl, description, fields,
+                imageUrl, imageWidth, imageHeight, thumbnailUrl, footerText, footerIconUrl, timestamp
+            )
         }
-
-        val imageObj = embed.optJSONObject("image")
-        val imageUrl = imageObj?.optString("url", "") ?: ""
-        val imageWidth = imageObj?.optInt("width", 0) ?: 0
-        val imageHeight = imageObj?.optInt("height", 0) ?: 0
-
-        val thumbnailObj = embed.optJSONObject("thumbnail")
-        val thumbnailUrl = thumbnailObj?.optString("url", "") ?: ""
-
-        val footerObj = embed.optJSONObject("footer")
-        val footerText = footerObj?.optString("text", "") ?: ""
-        val footerIconUrl = footerObj?.optString("icon_url", "") ?: ""
-
-        val timestamp = embed.optString("timestamp", "")
-
-        if (title.isEmpty() && description.isEmpty() && fields.isEmpty() && imageUrl.isEmpty()) return null
-
-        EmbedData(color, title, url, authorName, authorIconUrl, description, fields,
-            imageUrl, imageWidth, imageHeight, thumbnailUrl, footerText, footerIconUrl, timestamp)
+        parsed
     } catch (_: Exception) {
-        null
+        emptyList()
     }
+}
+
+fun hasContactEmbed(content: String): Boolean {
+    return try {
+        val obj = JSONObject(content)
+        val embeds = obj.optJSONArray("embed") ?: return false
+        (0 until embeds.length())
+            .asSequence()
+            .mapNotNull { embeds.optJSONObject(it) }
+            .any(::isShareContactEmbed)
+    } catch (_: Exception) {
+        false
+    }
+}
+
+private fun isShareContactEmbed(embed: JSONObject): Boolean {
+    val fields = embed.optJSONArray("fields") ?: return false
+    if (fields.length() == 0) return false
+    val first = fields.optJSONObject(0)
+    return first?.optString("value", "") == SHARE_CONTACT_KEY
 }
