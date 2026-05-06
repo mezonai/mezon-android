@@ -2,6 +2,7 @@ package com.mezon.mobile.home
 
 import android.content.Context
 import android.graphics.Color
+import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -20,6 +21,8 @@ import com.mezon.mobile.home.messages.MessagesFragment
 import com.mezon.mobile.home.notifications.NotificationStore
 import com.mezon.mobile.home.notifications.NotificationsFragment
 import com.mezon.mobile.home.friends.FriendController
+import com.mezon.mobile.home.call.IncomingCallActivity
+import com.mezon.mobile.home.profile.AccountController
 import com.mezon.mobile.home.profile.ProfileFragment
 import com.mezon.mobile.ui.cells.BottomTabBar
 
@@ -30,6 +33,7 @@ class MainTabsActivity : ViewPagerActivity() {
         private const val TAB_MESSAGES = 1
         private const val TAB_NOTIFICATIONS = 2
         private const val TAB_PROFILE = 3
+        private const val REQUEST_CALL_PERMISSIONS = 9001
     }
 
     private lateinit var connectionController: ConnectionController
@@ -46,6 +50,11 @@ class MainTabsActivity : ViewPagerActivity() {
     private lateinit var channelFilesController: ChannelFilesController
     private lateinit var emojiController: EmojiController
     private lateinit var searchController: com.mezon.mobile.search.SearchController
+    private lateinit var accountController: AccountController
+    @Suppress("unused")
+    private lateinit var callController: com.mezon.mobile.home.call.CallController
+    @Suppress("unused")
+    private lateinit var callManager: com.mezon.mobile.home.call.CallManager
 
     var onLogout: (() -> Unit)? = null
     var onOpenChat: ((channelId: Long, channelName: String, clanId: Long, channelType: Int) -> Unit)? = null
@@ -97,6 +106,9 @@ class MainTabsActivity : ViewPagerActivity() {
         channelGalleryController = entryPoint.channelGalleryController()
         emojiController = entryPoint.emojiController()
         searchController = entryPoint.searchController()
+        accountController = entryPoint.accountController()
+        callController = entryPoint.callController()
+        callManager = entryPoint.callManager()
         entryPoint.notificationStore()
     }
 
@@ -126,7 +138,51 @@ class MainTabsActivity : ViewPagerActivity() {
             viewPager.scrollToPosition(TAB_CLANS)
         }
 
+        observe(NotificationCenter.incomingCall) { _, _, args ->
+            if (IncomingCallActivity.shouldSuppressMainTabsIncomingOverlay()) return@observe
+            if (fragmentView == null || isPaused) return@observe
+            val callInfo = args.firstOrNull() as? com.mezon.mobile.home.call.CallInfo ?: return@observe
+            showCallingOverlay(callInfo)
+        }
+
+        observe(NotificationCenter.callEnded) { _, _, _ ->
+            callingOverlay?.dismiss()
+        }
+
         return true
+    }
+
+    private var callingOverlay: com.mezon.mobile.home.call.CallingOverlay? = null
+
+    private fun showCallingOverlay(callInfo: com.mezon.mobile.home.call.CallInfo) {
+        val ctx = getContext() ?: return
+        Log.d("MainTabsActivity", "showCallingOverlay: caller=${callInfo.peerName}, state=${callController.callState::class.simpleName}")
+        requestCallPermissionsEagerly()
+        if (callingOverlay == null) {
+            callingOverlay = com.mezon.mobile.home.call.CallingOverlay(ctx)
+        }
+        callingOverlay!!.setCallerInfo(callInfo.peerName, callInfo.peerAvatar)
+        callingOverlay!!.delegate = object : com.mezon.mobile.home.call.CallingOverlay.Delegate {
+            override fun onAcceptClicked() {
+                Log.d("MainTabsActivity", "onAcceptClicked: state=${callController.callState::class.simpleName}")
+                callingOverlay?.dismiss()
+                callController.acceptCall()
+                presentFragment(com.mezon.mobile.home.call.CallFragment())
+            }
+            override fun onDeclineClicked() {
+                callingOverlay?.dismiss()
+                callController.rejectCall()
+            }
+        }
+        if (callingOverlay!!.parent == null) {
+            (fragmentView as? android.widget.FrameLayout)?.addView(callingOverlay, android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = android.view.Gravity.TOP or android.view.Gravity.CENTER_HORIZONTAL
+            })
+        }
+        callingOverlay!!.show()
     }
 
     override fun createView(context: Context): View {
@@ -326,4 +382,21 @@ class MainTabsActivity : ViewPagerActivity() {
         updateContentRootBackground()
         bottomTabBar.applyTheme()
     }
+
+    private fun requestCallPermissionsEagerly() {
+        val activity = getParentActivity() ?: return
+        val needed = mutableListOf<String>()
+        if (androidx.core.content.ContextCompat.checkSelfPermission(activity, android.Manifest.permission.RECORD_AUDIO)
+            != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            needed.add(android.Manifest.permission.RECORD_AUDIO)
+        }
+        if (androidx.core.content.ContextCompat.checkSelfPermission(activity, android.Manifest.permission.CAMERA)
+            != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            needed.add(android.Manifest.permission.CAMERA)
+        }
+        if (needed.isNotEmpty()) {
+            androidx.core.app.ActivityCompat.requestPermissions(activity, needed.toTypedArray(), REQUEST_CALL_PERMISSIONS)
+        }
+    }
+
 }

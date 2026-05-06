@@ -36,6 +36,7 @@ import com.mezon.mobile.home.ConnectionController
 import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.MainTabsActivity
 import com.mezon.mobile.home.chat.ChatFragment
+import com.mezon.mobile.home.call.IncomingCallFcmHandler
 import com.mezon.mobile.home.clans.ClanChannelEntity
 import com.mezon.mobile.home.sharing.SharingFragment
 import com.mezon.mobile.home.voice.VoiceOverlayManager
@@ -100,6 +101,7 @@ class MainActivity : BasePermissionsActivity(),
     @Inject lateinit var connectionController: ConnectionController
     @Inject lateinit var notificationHelper: NotificationHelper
     @Inject lateinit var appUpdateGateManager: AppUpdateGateManager
+    @Inject lateinit var incomingCallFcmHandler: IncomingCallFcmHandler
 
     lateinit var actionBarLayout: ActionBarLayout
     lateinit var drawerLayoutContainer: DrawerLayoutContainer
@@ -933,6 +935,28 @@ class MainActivity : BasePermissionsActivity(),
 
     private fun handleNotificationIntent(intent: Intent?) {
         intent ?: return
+
+        val offerJson = sequenceOf("offer", "offer_json", "json_data")
+            .mapNotNull { intent.getStringExtra(it)?.trim()?.takeIf { s -> s.isNotEmpty() } }
+            .firstOrNull()
+        offerJson?.let { json ->
+            if (StartupCache.hasSession) {
+                incomingCallFcmHandler.handleOfferExtraFromNotificationIntent(json)
+            }
+            sequenceOf("offer", "offer_json", "json_data").forEach { intent.removeExtra(it) }
+            return
+        }
+
+        if (intent.getBooleanExtra(com.mezon.mobile.home.call.CallNotificationManager.EXTRA_OPEN_CALL, false)) {
+            intent.removeExtra(com.mezon.mobile.home.call.CallNotificationManager.EXTRA_OPEN_CALL)
+            if (StartupCache.hasSession) {
+                val callFragment = com.mezon.mobile.home.call.CallFragment()
+                val params = INavigationLayout.NavigationParams(callFragment)
+                actionBarLayout.presentFragment(params)
+            }
+            return
+        }
+
         val action = intent.action
         val isFromNotification = action != null && action.startsWith(NotificationHelper.ACTION_OPEN_CHAT)
         val extras = intent.extras ?: return

@@ -10,6 +10,9 @@ import com.mezon.mobile.home.ChannelFilesController
 import com.mezon.mobile.home.ChannelGalleryController
 import com.mezon.mobile.home.PinMessageController
 import com.mezon.mobile.home.chat.AudioPlayerController
+import com.mezon.mobile.home.call.CallController
+import com.mezon.mobile.home.call.CallManager
+import com.mezon.mobile.home.call.WebRtcInfra
 import com.mezon.mobile.home.chat.EmojiController
 import com.mezon.mobile.home.chat.ImageClipboardCoordinator
 import com.mezon.mobile.home.DialogsController
@@ -75,6 +78,9 @@ interface FragmentEntryPoint {
     fun sessionManager(): SessionManager
     fun walletController(): WalletController
     fun apiCacheTracker(): ApiCacheTracker
+    fun callController(): CallController
+    fun callManager(): CallManager
+    fun webRtcInfra(): WebRtcInfra
 
     @IoDispatcher
     fun ioDispatcher(): CoroutineDispatcher

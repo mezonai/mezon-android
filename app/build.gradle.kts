@@ -236,6 +236,8 @@ dependencies {
     implementation(libs.photoview)
     implementation(libs.androidx.appcompat)
     implementation("com.otaliastudios:zoomlayout:1.9.0")
+    // WebRTC
+    implementation(libs.google.webrtc)
 
     // Firebase
     implementation(platform(libs.firebase.bom))
