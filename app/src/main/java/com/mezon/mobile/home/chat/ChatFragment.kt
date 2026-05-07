@@ -106,6 +106,8 @@ import com.mezon.mobile.util.parseContentText
 import com.mezon.mobile.util.parseMarkdownAndStrip
 import com.mezon.mobile.util.restoreInputFromContent
 import com.mezon.mobile.util.resolveStickerSourceUrl
+import com.mezon.mobile.util.EmbedFormUtil
+import com.mezon.mobile.util.embedFormValidationError
 import com.mezon.mobile.core.SharedConfig
 import com.mezon.mobile.home.chat.poll.ChatPollBridge
 import com.mezon.mobile.home.chat.poll.ParsedPoll
@@ -1507,6 +1509,9 @@ class ChatFragment : BaseFragment() {
             override fun didClickInviteJoin(cell: ChatMessageCell, msg: MessageEntity, inviteId: Long) {
                 onLinkInviteJoinClicked(inviteId)
             }
+            override fun didClickEmbedComponentButton(cell: ChatMessageCell, msg: MessageEntity, buttonId: String) {
+                submitEmbedComponentButton(msg, buttonId)
+            }
         })
 
         adapter.sendTokenDelegate = object : SendTokenMessageCell.Delegate {
@@ -2614,6 +2619,44 @@ class ChatFragment : BaseFragment() {
         }
     }
 
+    private fun submitEmbedComponentButton(msg: MessageEntity, buttonId: String) {
+        if (msg.isSending) return
+        embedFormValidationError(msg.id, msg.content)?.let { err ->
+            val t = if (err.formatArgs.isEmpty()) {
+                getString(err.messageRes)
+            } else {
+                getString(err.messageRes, *err.formatArgs.toTypedArray())
+            }
+            MezonToast.show(this, ToastOverlay.ToastType.ERROR, t)
+            return
+        }
+        val uid = currentUserIdLong()
+        appScope.launch(Dispatchers.IO) {
+            try {
+                sessionManager.withAutoRefresh { session ->
+                    mezonApi.messageButtonClick(
+                        session.apiUrl,
+                        session.token,
+                        msg.id,
+                        msg.channelId,
+                        buttonId,
+                        msg.senderId,
+                        uid,
+                        EmbedFormUtil.buildExtraDataJson(msg.id),
+                    )
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    MezonToast.show(
+                        this@ChatFragment,
+                        ToastOverlay.ToastType.ERROR,
+                        getString(R.string.embed_form_submit_failed),
+                    )
+                }
+            }
+        }
+    }
+
     private fun requestPollCountsRefresh(messageId: Long, msgChannelId: Long) {
         if (msgChannelId != channelId) return
         val msgEntity = messagesDict.get(messageId) ?: return
@@ -2973,7 +3016,10 @@ class ChatFragment : BaseFragment() {
             clearPendingAttachments()
         } else {
             val emojiMarkers = buildEmojiMarkers(cleanedText)
-            chatController.sendMessage(channelId, clanId, channelType, isPrivate, cleanedText, references, mentions, emojiMarkers, mdMarkers, hashtags)
+            chatController.sendMessage(
+                channelId, clanId, channelType, isPrivate, cleanedText,
+                references, mentions, emojiMarkers, mdMarkers, hashtags
+            )
         }
         inputField.text?.clear()
         emojiObjPicked.clear()

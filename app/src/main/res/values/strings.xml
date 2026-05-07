@@ -796,6 +796,7 @@
     <string name="advanced_anonymous_off">Turn off anonymous</string>
     <string name="advanced_buzz">Buzz</string>
     <string name="advanced_ephemeral">Ephemeral</string>
+    <string name="ephemeral_only_visible_to_recipient">Only visible to recipient</string>
     <string name="advanced_transfer_funds">Transfer Funds</string>
     <string name="advanced_poll">Poll</string>
     <string name="advanced_share_contact">Share Contact</string>
@@ -918,6 +919,22 @@
     <string name="channel_creator_private_title">Private Channel</string>
     <string name="channel_creator_private_description">By making a private channel, only select members and roles will be able to view this channel</string>
     <string name="category_menu_create_channel">Create channel</string>
+
+    <!-- Embed form: select menus in message embeds -->
+    <string name="embed_select_one">Select 1 option</string>
+    <string name="embed_select_up_to">Select up to %d options</string>
+    <string name="embed_select_at_least">Select at least %d options</string>
+    <string name="embed_select_range">Select from %1$d to %2$d options</string>
+    <string name="embed_select_no_results">No matching options</string>
+    <string name="embed_select_one_for">Select 1 option for %1$s</string>
+    <string name="embed_select_up_to_for">Select up to %1$d options for %2$s</string>
+    <string name="embed_select_at_least_for">Select at least %1$d options for %2$s</string>
+    <string name="embed_select_range_for">Select from %1$d to %2$d options for %3$s</string>
+
+    <string name="embed_form_error_required_field">Please fill in all required fields.</string>
+    <string name="embed_form_error_select_min">Select at least %1$d options.</string>
+    <string name="embed_form_error_select_max">Select at most %1$d options.</string>
+    <string name="embed_form_submit_failed">Could not submit the form</string>
 
     <!-- Poll messages -->
     <string name="poll_select_one">Select one answer</string>

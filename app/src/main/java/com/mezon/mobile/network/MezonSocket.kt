@@ -577,13 +577,24 @@ class MezonSocket @Inject constructor(
         }
     }
 
+    private fun isServerChatPush(case: Envelope.MessageCase): Boolean =
+        when (case) {
+            Envelope.MessageCase.CHANNEL_MESSAGE,
+            Envelope.MessageCase.CHANNEL_MESSAGE_SEND,
+            Envelope.MessageCase.CHANNEL_MESSAGE_UPDATE,
+            Envelope.MessageCase.CHANNEL_MESSAGE_REMOVE,
+            Envelope.MessageCase.EPHEMERAL_MESSAGE_SEND -> true
+            else -> false
+        }
+
     private fun handleEnvelope(envelope: Envelope) {
         val cid = envelope.cid
+        val case = envelope.messageCase
 
-        if (cid != 0) {
+        if (cid != 0 && !isServerChatPush(case)) {
             val deferred = pendingRequests.remove(cid)
             if (deferred != null) {
-                if (envelope.messageCase == Envelope.MessageCase.ERROR) {
+                if (case == Envelope.MessageCase.ERROR) {
                     deferred.completeExceptionally(
                         RuntimeException("Server error: ${envelope.error.message}")
                     )
@@ -594,14 +605,14 @@ class MezonSocket @Inject constructor(
             }
         }
 
-        if (envelope.messageCase == Envelope.MessageCase.PONG) {
+        if (case == Envelope.MessageCase.PONG) {
             return
         }
 
-        when (envelope.messageCase) {
+        when (case) {
             Envelope.MessageCase.MESSAGE_TYPING_EVENT,
             Envelope.MessageCase.STATUS_PRESENCE_EVENT -> Unit
-            else -> Log.d(TAG, "Event: ${envelope.messageCase}")
+            else -> Log.d(TAG, "Event: $case")
         }
         if (!_events.tryEmit(envelope)) {
             scope.launch { _events.emit(envelope) }

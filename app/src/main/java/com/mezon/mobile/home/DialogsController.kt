@@ -7,6 +7,7 @@ import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.data.db.DirectMessageDao
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
+import com.mezon.mobile.home.chat.MessageEntity
 import com.mezon.mobile.home.messages.DirectMessage
 import com.mezon.mobile.home.messages.DmParticipant
 import com.mezon.mobile.home.messages.extractParticipants
@@ -319,7 +320,8 @@ class DialogsController @Inject constructor(
         var updatedDm: DirectMessage? = null
         synchronized(this) {
             val dm = dialogsDict[msg.channelId] ?: return
-            val isContentMutation = msg.code == CODE_CHAT_UPDATE || msg.code == CODE_CHAT_REMOVE
+            val isContentMutation = msg.code == CODE_CHAT_UPDATE || msg.code == CODE_CHAT_REMOVE ||
+                msg.code == MessageEntity.CODE_UPDATE_EPHEMERAL || msg.code == MessageEntity.CODE_DELETE_EPHEMERAL
             val isFromMe = msg.senderId == currentUserId
             val isCurrentlyOpen = currentChannelId == msg.channelId
 
@@ -329,7 +331,8 @@ class DialogsController @Inject constructor(
                 isFromMe -> dm.unreadCount
                 else -> dm.unreadCount + 1
             }
-            val newPreview = if (!isContentMutation || msg.code == CODE_CHAT_UPDATE)
+            val newPreview = if (!isContentMutation || msg.code == CODE_CHAT_UPDATE ||
+                msg.code == MessageEntity.CODE_UPDATE_EPHEMERAL)
                 parseContentPreview(msg.content) else dm.lastMessageContent
 
             val newSentMessageId = if (!isContentMutation) msg.messageId else dm.lastSentMessageId

@@ -7,13 +7,17 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.drawable.Drawable
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.text.Spannable
+import android.text.SpannableString
 import android.text.Spanned
 import android.text.StaticLayout
 import android.text.TextUtils
 import android.text.style.ClickableSpan
+import android.text.style.ForegroundColorSpan
 import android.view.MotionEvent
+import android.view.View
 import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AndroidUtilities
@@ -24,17 +28,15 @@ import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.util.FileUtils
+import com.mezon.mobile.util.formatEmbedRichText
 import com.mezon.mobile.util.avatarImgproxyUrl
 import com.mezon.mobile.util.createImgproxyUrl
 import com.mezon.mobile.util.getEmojiDirectUrl
 import com.mezon.mobile.util.getEmojiUrl
 import com.mezon.mobile.util.MentionColors
-import com.mezon.mobile.util.EmbedData
 import com.mezon.mobile.util.OgpData
 import com.mezon.mobile.util.formatRelativeTime
-import com.mezon.mobile.util.buildPlainTextWithHeadings
 import com.mezon.mobile.util.isRawMessage
-import com.mezon.mobile.util.parseEmbedData
 import com.mezon.mobile.util.parseContentPreview
 import com.mezon.mobile.util.parseContentText
 import com.mezon.mobile.util.parseContentToSpannable
@@ -43,6 +45,18 @@ import com.mezon.mobile.home.chat.poll.ParsedPoll
 import com.mezon.mobile.home.chat.poll.PollLocalState
 import com.mezon.mobile.home.chat.poll.PollMessageLayout
 import com.mezon.mobile.home.chat.poll.parsePollContent
+import com.mezon.mobile.home.messages.EmbedButtonHit
+import com.mezon.mobile.home.messages.EmbedInteractiveGeometry
+import com.mezon.mobile.home.messages.EmbedMessageRenderer
+import com.mezon.mobile.home.messages.EmbedSelectOptionSheet
+import com.mezon.mobile.home.messages.EphemeralMessageUi
+import com.mezon.mobile.ui.cells.EditTextBoldCursor
+import com.mezon.mobile.util.EmbedFormUtil
+import com.mezon.mobile.util.EmbedInputComponentSpec
+import com.mezon.mobile.util.EmbedRadioOptionSpec
+import com.mezon.mobile.util.EmbedRadioSpec
+import com.mezon.mobile.util.EmbedSelectOptionSpec
+import com.mezon.mobile.util.EmbedSelectSpec
 import com.mezon.mobile.util.parseOgpData
 import android.graphics.Bitmap
 import android.graphics.Typeface
@@ -56,12 +70,29 @@ import kotlinx.coroutines.withContext
 import android.graphics.Color
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
+import android.text.Editable
+import android.text.InputType
+import android.text.TextWatcher
 import android.util.Log
+import android.util.TypedValue
+import android.view.Gravity
+import android.view.ViewGroup
+import android.widget.CheckBox
+import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.RadioButton
+import android.widget.RadioGroup
+import android.widget.TextView
 import androidx.core.content.ContextCompat
 import kotlin.math.min
 import kotlin.math.max
 
 class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCell(context) {
+    private val embedMessage = EmbedMessageRenderer(this) { theme }
+    private val embedInputSlots = mutableListOf<EmbedInputSlot>()
+    private val embedSelectSlots = mutableListOf<EmbedSelectSlot>()
+    private val embedRadioSlots = mutableListOf<EmbedRadioSlot>()
+
     var hasMentionHighlight: Boolean = false
     private var highlightProgress = 0f
 
@@ -100,6 +131,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var fileNameLayout: StaticLayout? = null
     private var fileSizeLayout: StaticLayout? = null
     private var ephemeralLayout: StaticLayout? = null
+    private val ephemeralDecorRect = RectF()
+    private var hasEphemeralDecor = false
+    private var ephemeralIconDrawable: Drawable? = null
     private var errorLayout: StaticLayout? = null
     private var hasReply = false
     private var parsedContent: String = ""
@@ -156,23 +190,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private var pressedOnInviteJoin = false
 
-    private var embedData: EmbedData? = null
-    private var embedTitleLayout: StaticLayout? = null
-    private var embedDescLayout: StaticLayout? = null
-    private var embedAuthorLayout: StaticLayout? = null
-    private var embedFieldLayouts = emptyList<Pair<StaticLayout?, StaticLayout?>>()
-    private var embedFooterLayout: StaticLayout? = null
-    private val embedImage = ImageReceiver(this)
-    private val embedThumbImage = ImageReceiver(this)
-    private var embedImageW = 0
-    private var embedImageH = 0
-    private var embedBlockLeft = 0f
-    private var embedBlockTop = 0f
-    private var embedBlockRight = 0f
-    private var embedBlockBottom = 0f
     private var pressedOnEmbed = false
-    private var cachedEmbedTitleW = 0f
-    private var cachedEmbedDescW = 0f
+    private var pressedEmbedButtonHit: EmbedButtonHit? = null
 
     private var cachedContentW = 0f
     private var cachedSenderW = 0f
@@ -219,8 +238,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         extraPhotoImages.forEach { it.onAttachedToWindow() }
         ogpImage.onAttachedToWindow()
         linkInviteBlock.onAttachedToWindow()
-        embedImage.onAttachedToWindow()
-        embedThumbImage.onAttachedToWindow()
+        embedMessage.onAttachedToWindow()
         pendingMessage?.let { msg ->
             pendingMessage = null
             update(0, msg)
@@ -234,8 +252,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         extraPhotoImages.forEach { it.onDetachedFromWindow() }
         ogpImage.onDetachedFromWindow()
         linkInviteBlock.onDetachedFromWindow()
-        embedImage.onDetachedFromWindow()
-        embedThumbImage.onDetachedFromWindow()
+        embedMessage.onDetachedFromWindow()
         avatarCancellable?.cancel()
         avatarCancellable = null
         reactionEmojiCancellables.forEach { it?.cancel() }
@@ -262,6 +279,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         fileNameLayout = null
         fileSizeLayout = null
         ephemeralLayout = null
+        ephemeralDecorRect.setEmpty()
+        hasEphemeralDecor = false
+        ephemeralIconDrawable = null
         errorLayout = null
         ogpTitleLayout = null
         ogpDescLayout = null
@@ -277,16 +297,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         replyAvatarCancellable = null
         replyAvatarDrawable.setPhoto(null)
         replyAvatarDrawable.setDrawableByInfo(true)
-        embedData = null
-        embedTitleLayout = null
-        embedDescLayout = null
-        embedAuthorLayout = null
-        embedFieldLayouts = emptyList()
-        embedFooterLayout = null
-        embedImageW = 0
-        embedImageH = 0
-        embedImage.recycle()
-        embedThumbImage.recycle()
+        embedMessage.clear()
+        hideEmbedInteractiveViews()
         drawPhotoImage = false
         drawFileAttachment = false
         drawForwardHeader = false
@@ -387,9 +399,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
 
         if ((mask and NotificationCenter.UPDATE_MASK_MESSAGE_TEXT) != 0) {
-            val newContent = parseContentText(msg.content)
-            if (newContent != parsedContent) {
-                parsedContent = newContent
+            val prevRaw = messageEntity?.content
+            val newParsed = parseContentText(msg.content)
+            if (newParsed != parsedContent || msg.content != prevRaw) {
+                parsedContent = newParsed
                 rebuildLayout = true
             }
         }
@@ -697,11 +710,18 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 theme.darkMossGreen
             )
             val charSeq: CharSequence = if (isRawMessage(content)) {
-                buildPlainTextWithHeadings(parsedContent, theme)
+                formatEmbedRichText(parsedContent, theme)
             } else {
                 parseContentToSpannable(content, linkColor, this, mentionColors, theme)
             }
-            val layout = StaticLayout.Builder.obtain(charSeq, 0, charSeq.length, currentContentPaint, textWidth.coerceAtLeast(1))
+            val layoutTargetW = textWidth.coerceAtLeast(1)
+            val contentLayoutW =
+                if ((charSeq as? Spanned)?.getSpans(0, charSeq.length, CodeFenceSpan::class.java)?.isNotEmpty() == true) {
+                    (layoutTargetW - CodeFenceSpan.layoutExtraHorizontalShrink()).coerceAtLeast(1)
+                } else {
+                    layoutTargetW
+                }
+            val layout = StaticLayout.Builder.obtain(charSeq, 0, charSeq.length, currentContentPaint, contentLayoutW)
                 .setLineSpacing(LayoutHelper.dpf(2f), 1f)
                 .build()
             val spannedText = charSeq as? Spanned
@@ -710,8 +730,13 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 for (span in codeFenceSpans) {
                     val spanStart = spannedText.getSpanStart(span)
                     val spanEnd = spannedText.getSpanEnd(span)
-                    span.spanFirstLine = layout.getLineForOffset(spanStart)
-                    span.spanLastLine = layout.getLineForOffset((spanEnd - 1).coerceAtLeast(spanStart))
+                    val firstContent = (spanStart until spanEnd).firstOrNull { spannedText[it] != '\n' } ?: spanStart
+                    val lastContent = (spanEnd - 1 downTo spanStart).firstOrNull { spannedText[it] != '\n' }
+                        ?: (spanEnd - 1).coerceAtLeast(spanStart)
+                    val a = firstContent.coerceAtMost(lastContent)
+                    val b = lastContent.coerceAtLeast(firstContent)
+                    span.spanFirstLine = layout.getLineForOffset(a)
+                    span.spanLastLine = layout.getLineForOffset(b)
                 }
             }
             layout
@@ -761,10 +786,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             ogpImage.setImage(null, null, context)
         }
 
-        embedData = if (msg.content.contains("\"embed\"")) {
-            parseEmbedData(msg.content)
-        } else null
-        buildEmbedLayouts(textWidth)
+        embedMessage.setDataFromContent(msg.content)
+        embedMessage.rebuildLayouts(textWidth, context)
         linkInviteBlock.build(msg, bubbleMaxW) {
             val m = messageEntity ?: return@build
             buildLayouts(m)
@@ -793,7 +816,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         cachedForwardW = forwardLayout?.let { maxLineWidth(it) + FORWARD_ICON_SIZE + FORWARD_ICON_GAP } ?: 0f
         cachedFileNameW = fileNameLayout?.let { maxLineWidth(it) } ?: 0f
         cachedFileSizeW = fileSizeLayout?.let { maxLineWidth(it) } ?: 0f
-        cachedEphW = ephemeralLayout?.let { maxLineWidth(it) + EPHEMERAL_ICON_SIZE + GAP_V_INNER } ?: 0f
+        cachedEphW = ephemeralLayout?.let {
+            maxLineWidth(it) + EphemeralMessageUi.indicatorIconSize() + EphemeralMessageUi.INDICATOR_ICON_GAP
+        } ?: 0f
 
         buildReactionLayouts(msg, textWidth)
 
@@ -807,7 +832,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val ogpW = if (ogpData != null) maxOf(cachedOgpTitleW, cachedOgpDescW, ogpImageW.toFloat()) else 0f
         val fileW = if (drawFileAttachment) fileRowWidth.toFloat() else 0f
         val audioW = if (drawAudioAttachment) audioPillWidth.toFloat() else 0f
-        val embedW = if (embedData != null) (bubbleMaxW).toFloat() else 0f
+        val embedW = if (embedMessage.hasEmbedOrButtons()) (bubbleMaxW).toFloat() else 0f
         val inviteW = if (linkInviteBlock.isVisible) linkInviteBlock.cachedWidth else 0f
         cachedInnerWidth = if (drawPhotoImage) {
             photoWidth
@@ -820,6 +845,25 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 w = maxOf(w, pollLayoutHelper.cardWidth)
             }
             w
+        }
+
+        if (drawEphemeral && !isInPinMode) {
+            val bodyH = mainContentStackHeight()
+            if (bodyH > 0) {
+                val contentLeft = if (isInPinMode) PIN_PAD_H else PAD_H + AVATAR_SIZE + GAP_AVATAR
+                val top = yOffsetTopOfMainContent(msg)
+                ephemeralDecorRect.set(
+                    contentLeft - EphemeralMessageUi.HORIZONTAL_INSET.toFloat(),
+                    top,
+                    contentLeft + cachedInnerWidth + EphemeralMessageUi.HORIZONTAL_INSET.toFloat(),
+                    top + bodyH
+                )
+                hasEphemeralDecor = true
+            } else {
+                hasEphemeralDecor = false
+            }
+        } else {
+            hasEphemeralDecor = false
         }
 
         measuredCellHeight = computeHeight(msg)
@@ -862,6 +906,54 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         )
     }
 
+    private fun yOffsetTopOfMainContent(msg: MessageEntity): Float {
+        val topPad = if (isCombined) COMBINE_PAD_V else PAD_V
+        var y = topPad.toFloat()
+        if (hasReply) y += REPLY_ROW_HEIGHT + REPLY_V_GAP
+        senderLayout?.let { y += it.height + GAP_V_INNER }
+        forwardLayout?.let { y += it.height + GAP_V_INNER }
+        if (msg.isPollMessage && pollParsed != null) {
+            y += pollLayoutHelper.blockHeight + GAP_V_INNER
+        }
+        return y
+    }
+
+    private fun mainContentStackHeight(): Int {
+        var h = 0
+        contentLayout?.let {
+            h += it.height
+            h += if (ogpData != null || linkInviteBlock.isVisible) LINK_INVITE_V_MARGIN else GAP_V_INNER
+        }
+        if (ogpData != null) {
+            h += GAP_V_INNER
+            ogpTitleLayout?.let { block -> h += block.height + GAP_V_INNER }
+            ogpDescLayout?.let { block -> h += block.height + GAP_V_INNER }
+            h += ogpImageH + GAP_V_INNER
+        }
+        if (linkInviteBlock.isVisible) {
+            h += linkInviteBlock.blockHeight + LINK_INVITE_V_MARGIN
+        }
+        if (drawPhotoImage) {
+            val imgH = if (mediaGridCount > 1) mediaGridTotalH else photoHeight
+            h += imgH + GAP_V_INNER
+        }
+        if (drawFileAttachment) {
+            val textH = (fileNameLayout?.height ?: 0) + (fileSizeLayout?.height ?: 0)
+            val innerH = maxOf(FILE_ICON_SIZE, textH)
+            h += FILE_ROW_V_PAD * 2 + maxOf(innerH, FILE_ROW_MIN_HEIGHT - FILE_ROW_V_PAD * 2) + GAP_V_INNER
+        }
+        if (drawAudioAttachment) {
+            h += AUDIO_PILL_HEIGHT + GAP_V_INNER
+        }
+        if (embedMessage.hasEmbedOrButtons()) {
+            h += embedMessage.computeHeight()
+        }
+        if (drawEphemeral) {
+            ephemeralLayout?.let { h += it.height + GAP_V_INNER }
+        }
+        return h
+    }
+
     private fun computeHeight(msg: MessageEntity): Int {
         val topPad = if (isCombined) COMBINE_PAD_V else PAD_V
         var h = topPad + PAD_BOTTOM
@@ -877,44 +969,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             h += pollLayoutHelper.blockHeight + GAP_V_INNER
         }
 
-        contentLayout?.let {
-            h += it.height
-            h += if (ogpData != null || linkInviteBlock.isVisible) LINK_INVITE_V_MARGIN else GAP_V_INNER
-        }
-
-        if (ogpData != null) {
-            h += GAP_V_INNER
-            ogpTitleLayout?.let { h += it.height + GAP_V_INNER }
-            ogpDescLayout?.let { h += it.height + GAP_V_INNER }
-            h += ogpImageH + GAP_V_INNER
-        }
-
-        if (linkInviteBlock.isVisible) {
-            h += linkInviteBlock.blockHeight + LINK_INVITE_V_MARGIN
-        }
-
-        if (drawPhotoImage) {
-            val imgH = if (mediaGridCount > 1) mediaGridTotalH else photoHeight
-            h += imgH + GAP_V_INNER
-        }
-
-        if (drawFileAttachment) {
-            val textH = (fileNameLayout?.height ?: 0) + (fileSizeLayout?.height ?: 0)
-            val innerH = maxOf(FILE_ICON_SIZE, textH)
-            h += FILE_ROW_V_PAD * 2 + maxOf(innerH, FILE_ROW_MIN_HEIGHT - FILE_ROW_V_PAD * 2) + GAP_V_INNER
-        }
-
-        if (drawAudioAttachment) {
-            h += AUDIO_PILL_HEIGHT + GAP_V_INNER
-        }
-
-        if (embedData != null) {
-            h += computeEmbedHeight()
-        }
-
-        if (drawEphemeral) {
-            ephemeralLayout?.let { h += it.height + GAP_V_INNER }
-        }
+        h += mainContentStackHeight()
 
         if (reactionGroups.isNotEmpty()) {
             h += REACTION_TOP_PAD + reactionRowHeight
@@ -1029,12 +1084,18 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private fun buildEphemeralLayout(msg: MessageEntity, textWidth: Int) {
         if (!drawEphemeral) {
             ephemeralLayout = null
+            ephemeralIconDrawable = null
             return
         }
-        val text = EPHEMERAL_TEXT
-        ephemeralLayout = StaticLayout.Builder.obtain(text, 0, text.length, EPHEMERAL_PAINT, textWidth.coerceAtLeast(1))
-            .setMaxLines(1)
-            .build()
+        val paint = EphemeralMessageUi.indicatorTextPaint(theme)
+        val iconW = EphemeralMessageUi.indicatorIconSize()
+        val gap = EphemeralMessageUi.INDICATOR_ICON_GAP
+        val label = context.getString(R.string.ephemeral_only_visible_to_recipient)
+        val textAvail = (textWidth - iconW - gap).coerceAtLeast(1)
+        ephemeralLayout = EphemeralMessageUi.buildIndicatorLayout(label, textAvail, paint)
+        val d = ContextCompat.getDrawable(context, R.drawable.ic_ephemeral_icon_gray)?.mutate()
+        d?.setTint(theme.textDisabled)
+        ephemeralIconDrawable = d
     }
 
     private fun buildErrorLayout(msg: MessageEntity, textWidth: Int) {
@@ -1046,146 +1107,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         errorLayout = StaticLayout.Builder.obtain(text, 0, text.length, ERROR_PAINT, textWidth.coerceAtLeast(1))
             .setMaxLines(1)
             .build()
-    }
-
-    private fun applyEmbedPaintColors() {
-        EMBED_TITLE_PAINT.color = theme.onSurface
-        EMBED_TITLE_LINK_PAINT.color = theme.textLink
-        EMBED_DESC_PAINT.color = theme.onSurfaceVariant
-        EMBED_FIELD_NAME_PAINT.color = theme.onSurface
-        EMBED_FIELD_VALUE_PAINT.color = theme.onSurfaceVariant
-        EMBED_FOOTER_PAINT.color = theme.onSurfaceVariant
-        EMBED_AUTHOR_PAINT.color = theme.onSurface
-    }
-
-    private fun buildEmbedLayouts(textWidth: Int) {
-        val data = embedData
-        if (data == null) {
-            embedTitleLayout = null
-            embedDescLayout = null
-            embedAuthorLayout = null
-            embedFieldLayouts = emptyList()
-            embedFooterLayout = null
-            embedImageW = 0
-            embedImageH = 0
-            embedImage.setImage(null, null, context)
-            embedThumbImage.setImage(null, null, context)
-            return
-        }
-
-        applyEmbedPaintColors()
-
-        val contentW = (textWidth - EMBED_COLOR_BAR_W - EMBED_PAD * 2).coerceAtLeast(1)
-        val hasThumb = data.thumbnailUrl.isNotEmpty()
-        val innerTextW = if (hasThumb) (contentW - EMBED_THUMB_SIZE - EMBED_GAP).coerceAtLeast(1) else contentW
-
-        embedAuthorLayout = if (data.authorName.isNotEmpty()) {
-            StaticLayout.Builder.obtain(data.authorName, 0, data.authorName.length, EMBED_AUTHOR_PAINT, innerTextW)
-                .setMaxLines(1)
-                .setEllipsize(TextUtils.TruncateAt.END)
-                .build()
-        } else null
-
-        val titlePaint = if (data.url.isNotEmpty()) EMBED_TITLE_LINK_PAINT else EMBED_TITLE_PAINT
-        embedTitleLayout = if (data.title.isNotEmpty()) {
-            val cleanTitle = data.title.replace(EMBED_NEWLINE_TAB_REGEX, " ")
-                .replace(EMBED_WHITESPACE_REGEX, " ")
-                .trim()
-            StaticLayout.Builder.obtain(cleanTitle, 0, cleanTitle.length, titlePaint, innerTextW)
-                .setMaxLines(3)
-                .setEllipsize(TextUtils.TruncateAt.END)
-                .build()
-        } else null
-
-        embedDescLayout = if (data.description.isNotEmpty()) {
-            val cleanDesc = data.description.split("\n")
-                .map { it.trim() }
-                .filter { it.isNotEmpty() }
-                .joinToString("\n")
-            StaticLayout.Builder.obtain(cleanDesc, 0, cleanDesc.length, EMBED_DESC_PAINT, innerTextW)
-                .setMaxLines(6)
-                .setEllipsize(TextUtils.TruncateAt.END)
-                .setLineSpacing(LayoutHelper.dpf(2f), 1f)
-                .build()
-        } else null
-
-        embedFieldLayouts = data.fields.map { field ->
-            val nameLay = if (field.name.isNotEmpty()) {
-                StaticLayout.Builder.obtain(field.name, 0, field.name.length, EMBED_FIELD_NAME_PAINT, contentW)
-                    .setMaxLines(1)
-                    .setEllipsize(TextUtils.TruncateAt.END)
-                    .build()
-            } else null
-            val valLay = if (field.value.isNotEmpty()) {
-                StaticLayout.Builder.obtain(field.value, 0, field.value.length, EMBED_FIELD_VALUE_PAINT, contentW)
-                    .setMaxLines(3)
-                    .setEllipsize(TextUtils.TruncateAt.END)
-                    .build()
-            } else null
-            nameLay to valLay
-        }
-
-        val footerParts = mutableListOf<String>()
-        if (data.footerText.isNotEmpty()) footerParts.add(data.footerText)
-        if (data.timestamp.isNotEmpty()) {
-            try {
-                val date = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
-                    .parse(data.timestamp.replace("Z", "+0000").take(19))
-                if (date != null) {
-                    val fmt = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.US)
-                    footerParts.add(fmt.format(date))
-                }
-            } catch (_: Exception) {}
-        }
-        val footerStr = footerParts.joinToString(" • ")
-        embedFooterLayout = if (footerStr.isNotEmpty()) {
-            StaticLayout.Builder.obtain(footerStr, 0, footerStr.length, EMBED_FOOTER_PAINT, contentW)
-                .setMaxLines(1)
-                .setEllipsize(TextUtils.TruncateAt.END)
-                .build()
-        } else null
-
-        if (data.imageUrl.isNotEmpty()) {
-            val aspect = if (data.imageWidth > 0 && data.imageHeight > 0) {
-                data.imageWidth.toFloat() / data.imageHeight
-            } else 16f / 9f
-            embedImageW = contentW
-            embedImageH = (embedImageW / aspect).toInt().coerceIn(LayoutHelper.dp(60), LayoutHelper.dp(300))
-            embedImage.setRoundRadius(EMBED_IMG_RADIUS.toInt())
-            val proxyUrl = createImgproxyUrl(data.imageUrl, embedImageW, embedImageH, "fit")
-            embedImage.setImage(proxyUrl, null, context)
-        } else {
-            embedImageW = 0
-            embedImageH = 0
-            embedImage.setImage(null, null, context)
-        }
-
-        if (hasThumb) {
-            embedThumbImage.setRoundRadius(EMBED_IMG_RADIUS.toInt())
-            val thumbProxy = createImgproxyUrl(data.thumbnailUrl, EMBED_THUMB_SIZE, EMBED_THUMB_SIZE, "fit")
-            embedThumbImage.setImage(thumbProxy, null, context)
-        } else {
-            embedThumbImage.setImage(null, null, context)
-        }
-
-        cachedEmbedTitleW = embedTitleLayout?.let { maxLineWidth(it) } ?: 0f
-        cachedEmbedDescW = embedDescLayout?.let { maxLineWidth(it) } ?: 0f
-    }
-
-    private fun computeEmbedHeight(): Int {
-        if (embedData == null) return 0
-        var h = EMBED_PAD * 2 + EMBED_TOP_MARGIN
-        embedAuthorLayout?.let { h += it.height + EMBED_GAP }
-        embedTitleLayout?.let { h += it.height + EMBED_GAP }
-        embedDescLayout?.let { h += it.height + EMBED_GAP }
-        for ((nameLay, valLay) in embedFieldLayouts) {
-            nameLay?.let { h += it.height + LayoutHelper.dp(2) }
-            valLay?.let { h += it.height + EMBED_GAP }
-        }
-        if (embedImageH > 0) h += embedImageH + EMBED_GAP
-        embedFooterLayout?.let { h += it.height + EMBED_GAP }
-        val thumbH = if (embedData?.thumbnailUrl?.isNotEmpty() == true) EMBED_THUMB_SIZE + EMBED_PAD else 0
-        return maxOf(h, thumbH + EMBED_PAD * 2 + EMBED_TOP_MARGIN)
     }
 
     private fun parseReply(msg: MessageEntity): Boolean {
@@ -1420,6 +1341,12 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         fun didLongPressReaction(cell: ChatMessageCell, msg: MessageEntity, group: ReactionGroup) {}
         fun didTapAddReaction(cell: ChatMessageCell, msg: MessageEntity) {}
         fun didClickInviteJoin(cell: ChatMessageCell, msg: MessageEntity, inviteId: Long) {}
+        fun didClickEmbedComponentButton(cell: ChatMessageCell, msg: MessageEntity, buttonId: String) {}
+        /**
+         * Embed select (inside form): same as web [MessageSelect] with `inside` — notifies server with
+         * [button_id] = select component id and [extra_data] = raw option value (not full form JSON).
+         */
+        fun didChangeEmbedSelect(cell: ChatMessageCell, msg: MessageEntity, componentId: String, value: String) {}
     }
 
     private var pressedLink: ClickableSpan? = null
@@ -1467,6 +1394,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         pressedOnAvatar = false
         pressedOnReply = false
         pressedOnInviteJoin = false
+        pressedEmbedButtonHit = null
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -1557,14 +1485,21 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                         }
                     }
                 }
+                pressedEmbedButtonHit = null
                 val data = ogpData
                 if (data != null && x >= ogpBlockLeft && x <= ogpBlockRight && y >= ogpBlockTop && y <= ogpBlockBottom) {
                     pressedOnOgp = true
                     scheduleLongPress()
                     return true
                 }
-                val ed = embedData
-                if (ed != null && x >= embedBlockLeft && x <= embedBlockRight && y >= embedBlockTop && y <= embedBlockBottom) {
+                embedMessage.hitTestButton(x, y)?.let { hit ->
+                    if (!hit.disabled) {
+                        pressedEmbedButtonHit = hit
+                        scheduleLongPress()
+                        return true
+                    }
+                }
+                if (embedMessage.containsTouch(x, y)) {
                     pressedOnEmbed = true
                     scheduleLongPress()
                     return true
@@ -1597,7 +1532,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     }
                     if (drawFileAttachment) reacBaseY += FILE_ICON_SIZE + GAP_V_INNER
                     if (drawAudioAttachment) reacBaseY += AUDIO_PILL_HEIGHT + GAP_V_INNER
-                    if (embedData != null) reacBaseY += computeEmbedHeight()
+                    if (embedMessage.hasEmbedOrButtons()) reacBaseY += embedMessage.computeHeight()
                     if (drawEphemeral) ephemeralLayout?.let { reacBaseY += it.height + GAP_V_INNER }
                     reacBaseY += REACTION_TOP_PAD
 
@@ -1667,6 +1602,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     pressedOnReply = false
                     pressedOnInviteJoin = false
                     pressedReactionIndex = -1
+                    pressedEmbedButtonHit = null
                     return true
                 }
                 val pollMsg = messageEntity
@@ -1729,9 +1665,21 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     ogpData?.let { onLinkClicked(it.url) }
                     return true
                 }
+                pressedEmbedButtonHit?.let { hit ->
+                    pressedEmbedButtonHit = null
+                    if (!hit.disabled) {
+                        val url = hit.url
+                        if (!url.isNullOrEmpty()) onLinkClicked(url)
+                        else {
+                            val msg = messageEntity
+                            if (msg != null) delegate?.didClickEmbedComponentButton(this, msg, hit.buttonId)
+                        }
+                    }
+                    return true
+                }
                 if (pressedOnEmbed) {
                     pressedOnEmbed = false
-                    embedData?.let { if (it.url.isNotEmpty()) onLinkClicked(it.url) }
+                    embedMessage.hitTestEmbedCardLink(x, y)?.let { onLinkClicked(it) }
                     return true
                 }
                 if (pressedOnInviteJoin) {
@@ -1760,6 +1708,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 pressedOnAvatar = false
                 pressedOnReply = false
                 pressedOnInviteJoin = false
+                pressedEmbedButtonHit = null
             }
         }
         return super.onTouchEvent(event)
@@ -1861,9 +1810,11 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
         if (isSticker && contentLayout == null && !hasReply && !drawForwardHeader) {
             drawStickerOnly(canvas, msg)
+            embedMessage.discardInteractiveGeometry()
         } else {
             drawMessageBubble(canvas, msg)
         }
+        layoutEmbedInteractiveViews()
         if (alpha < 1f) {
             canvas.restore()
         }
@@ -2001,6 +1952,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             pollCardDrawTopY = Float.NaN
         }
 
+        if (hasEphemeralDecor) {
+            EphemeralMessageUi.drawBubbleBackground(canvas, theme, ephemeralDecorRect)
+        }
+
         contentLayout?.let {
             contentLayoutLeft = contentLeft
             contentLayoutTop = yOff.toInt()
@@ -2041,8 +1996,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             yOff = drawAudioBlock(canvas, contentLeft.toFloat(), yOff, msg)
         }
 
-        if (embedData != null) {
-            yOff = drawEmbedCard(canvas, contentLeft.toFloat(), yOff)
+        if (embedMessage.hasEmbedOrButtons()) {
+            yOff = embedMessage.draw(canvas, contentLeft.toFloat(), yOff, maxBubbleWidth(), shimmerEffect)
         }
 
         if (drawEphemeral) {
@@ -2089,9 +2044,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         fileBlockRight = x + cardW
         fileBlockBottom = y + cardH
 
-        EMBED_BG_PAINT.color = theme.secondaryLight
+        FILE_CARD_BG_PAINT.color = theme.secondaryLight
         fileRoundRect.set(x, y, x + cardW, y + cardH)
-        canvas.drawRoundRect(fileRoundRect, FILE_ROW_RADIUS, FILE_ROW_RADIUS, EMBED_BG_PAINT)
+        canvas.drawRoundRect(fileRoundRect, FILE_ROW_RADIUS, FILE_ROW_RADIUS, FILE_CARD_BG_PAINT)
 
         val innerX = x + FILE_ROW_H_PAD
         val innerY = y + FILE_ROW_V_PAD
@@ -2233,12 +2188,15 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private fun drawEphemeralIndicator(canvas: Canvas, x: Float, y: Float): Float {
         val layout = ephemeralLayout ?: return y
-        val iconSize = EPHEMERAL_ICON_SIZE.toFloat()
-        canvas.drawCircle(x + iconSize / 2, y + layout.height / 2f, iconSize / 2, EPHEMERAL_ICON_PAINT)
-        canvas.save()
-        canvas.translate(x + iconSize + GAP_V_INNER, y)
-        layout.draw(canvas)
-        canvas.restore()
+        EphemeralMessageUi.drawIndicatorRow(
+            canvas,
+            x,
+            y,
+            layout,
+            ephemeralIconDrawable,
+            EphemeralMessageUi.indicatorIconSize(),
+            EphemeralMessageUi.INDICATOR_ICON_GAP
+        )
         return y + layout.height + GAP_V_INNER
     }
 
@@ -2277,102 +2235,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         ogpBlockRight = (left + maxOf(cachedOgpTitleW, cachedOgpDescW, ogpImageW.toFloat())).toInt()
         ogpBlockBottom = y.toInt()
         return y
-    }
-
-    private fun drawEmbedCard(canvas: Canvas, left: Float, top: Float): Float {
-        val data = embedData ?: return top
-        applyEmbedPaintColors()
-        val cardTop = top + EMBED_TOP_MARGIN
-        val embedH = computeEmbedHeight() - EMBED_TOP_MARGIN
-        val bubbleMaxW = maxBubbleWidth()
-        val contentW = (bubbleMaxW - EMBED_COLOR_BAR_W - EMBED_PAD * 2).coerceAtLeast(1)
-        val cardW = (EMBED_COLOR_BAR_W + EMBED_PAD * 2 + contentW).toFloat()
-
-        embedBlockLeft = left
-        embedBlockTop = cardTop
-        embedBlockRight = left + cardW
-        embedBlockBottom = cardTop + embedH
-
-        EMBED_BG_PAINT.color = theme.surfaceVariant
-        tmpRect.set(left, cardTop, left + cardW, cardTop + embedH)
-        canvas.drawRoundRect(tmpRect, EMBED_RADIUS, EMBED_RADIUS, EMBED_BG_PAINT)
-
-        val barColor = if (data.color != 0) data.color else theme.primary
-        EMBED_BAR_PAINT.color = barColor
-        tmpRect.set(left, cardTop, left + EMBED_COLOR_BAR_W, cardTop + embedH)
-        canvas.drawRoundRect(tmpRect, EMBED_RADIUS / 2, EMBED_RADIUS / 2, EMBED_BAR_PAINT)
-
-        val textLeft = left + EMBED_COLOR_BAR_W + EMBED_PAD
-        var y = cardTop + EMBED_PAD.toFloat()
-
-        if (data.thumbnailUrl.isNotEmpty()) {
-            val thumbX = left + cardW - EMBED_PAD - EMBED_THUMB_SIZE
-            val thumbY = y
-            embedThumbImage.setImageCoords(thumbX, thumbY, EMBED_THUMB_SIZE.toFloat(), EMBED_THUMB_SIZE.toFloat())
-            embedThumbImage.draw(canvas)
-        }
-
-        embedAuthorLayout?.let {
-            canvas.save()
-            canvas.translate(textLeft, y)
-            it.draw(canvas)
-            canvas.restore()
-            y += it.height + EMBED_GAP
-        }
-
-        embedTitleLayout?.let {
-            canvas.save()
-            canvas.translate(textLeft, y)
-            it.draw(canvas)
-            canvas.restore()
-            y += it.height + EMBED_GAP
-        }
-
-        embedDescLayout?.let {
-            canvas.save()
-            canvas.translate(textLeft, y)
-            it.draw(canvas)
-            canvas.restore()
-            y += it.height + EMBED_GAP
-        }
-
-        for ((nameLay, valLay) in embedFieldLayouts) {
-            nameLay?.let {
-                canvas.save()
-                canvas.translate(textLeft, y)
-                it.draw(canvas)
-                canvas.restore()
-                y += it.height + SECTION_GAP
-            }
-            valLay?.let {
-                canvas.save()
-                canvas.translate(textLeft, y)
-                it.draw(canvas)
-                canvas.restore()
-                y += it.height + EMBED_GAP
-            }
-        }
-
-        if (embedImageW > 0 && embedImageH > 0) {
-            embedImage.setImageCoords(textLeft, y, embedImageW.toFloat(), embedImageH.toFloat())
-            embedImage.draw(canvas)
-            if (!embedImage.hasMainImage()) {
-                shimmerEffect.draw(canvas, textLeft, y, textLeft + embedImageW, y + embedImageH,
-                    EMBED_IMG_RADIUS, theme.resolvedMode != com.mezon.mobile.ui.theme.ThemeMode.LIGHT)
-                postInvalidateDelayed(32)
-            }
-            y += embedImageH + EMBED_GAP
-        }
-
-        embedFooterLayout?.let {
-            canvas.save()
-            canvas.translate(textLeft, y)
-            it.draw(canvas)
-            canvas.restore()
-            y += it.height + EMBED_GAP
-        }
-
-        return cardTop + embedH
     }
 
     private var gridExtraCount = 0
@@ -2778,6 +2640,485 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
     }
 
+    private fun buildEmbedInputBg(): GradientDrawable {
+        return GradientDrawable().apply {
+            cornerRadius = LayoutHelper.dpf(12f)
+            setColor(theme.secondaryLight)
+            setStroke(LayoutHelper.dp(1), theme.outline)
+        }
+    }
+
+    /** Native HTML &lt;select&gt;-like control: flat rect, 1px theme outline, minimal radius (colors follow [theme]). */
+    private fun buildEmbedSelectBg(): GradientDrawable {
+        return GradientDrawable().apply {
+            cornerRadius = LayoutHelper.dpf(4f)
+            setColor(theme.surface)
+            setStroke(LayoutHelper.dp(1), theme.outline)
+        }
+    }
+
+    private fun embedSelectChevronDrawable(): android.graphics.drawable.Drawable {
+        val d = MezonIcon.chevronDownSmallIcon.getDrawable(context).mutate()
+        val sz = LayoutHelper.dp(18)
+        d.setBounds(0, 0, sz, sz)
+        d.colorFilter = PorterDuffColorFilter(theme.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
+        return d
+    }
+
+    private fun embedSelectRowForeground(): Drawable? {
+        val tv = TypedValue()
+        return if (context.theme.resolveAttribute(android.R.attr.selectableItemBackground, tv, true)) {
+            ContextCompat.getDrawable(context, tv.resourceId)
+        } else {
+            null
+        }
+    }
+
+    private fun hideEmbedInteractiveViews() {
+        for (slot in embedInputSlots) slot.edit.visibility = View.GONE
+        for (slot in embedSelectSlots) slot.row.visibility = View.GONE
+        for (slot in embedRadioSlots) slot.container.visibility = View.GONE
+    }
+
+    /** Appends a space and red * (required cue for select placeholder / sheet title). */
+    private fun embedRequiredSuffixStar(text: CharSequence): CharSequence {
+        val s = SpannableString("$text *")
+        val starStart = s.length - 1
+        s.setSpan(ForegroundColorSpan(theme.error), starStart, s.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        return s
+    }
+
+    private fun embedSelectOptionDisplayLabel(opt: EmbedSelectOptionSpec): String =
+        opt.label.ifEmpty { opt.value }
+
+    private fun embedSelectPlaceholder(spec: EmbedSelectSpec, fieldName: String): String {
+        val name = fieldName.trim()
+        val hasName = name.isNotEmpty()
+        val min = spec.minPick
+        val max = spec.maxPick
+        if (min > 0 && max > 0 && min <= max) {
+            return if (hasName) {
+                context.getString(R.string.embed_select_range_for, min, max, name)
+            } else {
+                context.getString(R.string.embed_select_range, min, max)
+            }
+        }
+        if (max > 1) {
+            return if (hasName) {
+                context.getString(R.string.embed_select_up_to_for, max, name)
+            } else {
+                context.getString(R.string.embed_select_up_to, max)
+            }
+        }
+        if (min > 1) {
+            return if (hasName) {
+                context.getString(R.string.embed_select_at_least_for, min, name)
+            } else {
+                context.getString(R.string.embed_select_at_least, min)
+            }
+        }
+        return if (hasName) {
+            context.getString(R.string.embed_select_one_for, name)
+        } else {
+            context.getString(R.string.embed_select_one)
+        }
+    }
+
+    private fun formatEmbedSelectLabel(
+        spec: EmbedSelectSpec,
+        messageId: Long,
+        componentId: String,
+        fieldName: String,
+    ): CharSequence {
+        val vals = EmbedFormUtil.getValuesForComponent(messageId, componentId)
+        if (vals.isEmpty()) {
+            val ph = embedSelectPlaceholder(spec, fieldName)
+            return if (spec.minPick > 0) embedRequiredSuffixStar(ph) else ph
+        }
+        if (!spec.isMulti) {
+            val v = vals.firstOrNull() ?: return embedSelectPlaceholder(spec, fieldName)
+            return spec.options.find { it.value == v }?.let { embedSelectOptionDisplayLabel(it) } ?: v
+        }
+        return vals.joinToString(", ") { valItem ->
+            spec.options.find { it.value == valItem }?.let { embedSelectOptionDisplayLabel(it) } ?: valItem
+        }
+    }
+
+    private fun showEmbedSelectDialog(messageId: Long, componentId: String, spec: EmbedSelectSpec, fieldName: String) {
+        val act = AndroidUtilities.findActivity(context) ?: return
+        val msg = messageEntity
+        val title = run {
+            val ph = embedSelectPlaceholder(spec, fieldName)
+            if (spec.minPick > 0) embedRequiredSuffixStar(ph) else ph
+        }
+        EmbedSelectOptionSheet.show(
+            context = act,
+            theme = theme,
+            title = title,
+            spec = spec,
+            messageId = messageId,
+            componentId = componentId,
+            onInvalidate = { invalidate() },
+            onSingleSelectionNotify = { value ->
+                msg?.let { m -> delegate?.didChangeEmbedSelect(this@ChatMessageCell, m, componentId, value) }
+            },
+            onMultiValueAddedNotify = { value ->
+                msg?.let { m -> delegate?.didChangeEmbedSelect(this@ChatMessageCell, m, componentId, value) }
+            },
+        )
+    }
+
+    /**
+     * ChatMessageCell lays out overlay children manually from embed geometry without a full measure pass.
+     * [FrameLayout]/[LinearLayout] children keep measured width/height 0 unless we [View.measure] first,
+     * which hides all descendants (empty select, no chevron).
+     */
+    private fun layoutEmbeddedChild(v: View, r: RectF) {
+        val l = r.left.toInt()
+        val t = r.top.toInt()
+        val rgt = r.right.toInt()
+        val btm = r.bottom.toInt()
+        val w = (rgt - l).coerceAtLeast(1)
+        val h = (btm - t).coerceAtLeast(1)
+        val ws = View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY)
+        val hs = View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY)
+        v.measure(ws, hs)
+        v.layout(l, t, rgt, btm)
+    }
+
+    private fun layoutEmbedInteractiveViews() {
+        val msg = messageEntity ?: run {
+            hideEmbedInteractiveViews()
+            return
+        }
+        val geoms = embedMessage.lastEmbedInteractiveGeometries
+        if (geoms.isEmpty()) {
+            hideEmbedInteractiveViews()
+            return
+        }
+        var inputIdx = 0
+        var selectIdx = 0
+        var radioIdx = 0
+        for (g in geoms) {
+            when (g) {
+                is EmbedInteractiveGeometry.InputField -> {
+                    while (embedInputSlots.size <= inputIdx) embedInputSlots.add(EmbedInputSlot())
+                    val slot = embedInputSlots[inputIdx++]
+                    if (slot.edit.parent == null) addView(slot.edit)
+                    slot.bind(msg.id, g.componentId, g.input)
+                    slot.edit.visibility = View.VISIBLE
+                    layoutEmbeddedChild(slot.edit, g.rect)
+                }
+                is EmbedInteractiveGeometry.SelectField -> {
+                    while (embedSelectSlots.size <= selectIdx) embedSelectSlots.add(EmbedSelectSlot())
+                    val slot = embedSelectSlots[selectIdx++]
+                    if (slot.row.parent == null) addView(slot.row)
+                    slot.bind(msg.id, g.componentId, g.input, g.fieldName)
+                    slot.row.visibility = View.VISIBLE
+                    layoutEmbeddedChild(slot.row, g.rect)
+                }
+                is EmbedInteractiveGeometry.RadioField -> {
+                    while (embedRadioSlots.size <= radioIdx) embedRadioSlots.add(EmbedRadioSlot())
+                    val slot = embedRadioSlots[radioIdx++]
+                    if (slot.container.parent == null) addView(slot.container)
+                    slot.bind(msg.id, g.componentId, g.input)
+                    slot.container.visibility = View.VISIBLE
+                    layoutEmbeddedChild(slot.container, g.rect)
+                }
+            }
+        }
+        for (j in inputIdx until embedInputSlots.size) embedInputSlots[j].edit.visibility = View.GONE
+        for (j in selectIdx until embedSelectSlots.size) embedSelectSlots[j].row.visibility = View.GONE
+        for (j in radioIdx until embedRadioSlots.size) embedRadioSlots[j].container.visibility = View.GONE
+    }
+
+    private inner class EmbedSelectSlot {
+        val row: FrameLayout = FrameLayout(context).apply {
+            clipToOutline = true
+            isClickable = true
+            isFocusable = true
+        }
+        val label: TextView = TextView(context).apply {
+            setPadding(LayoutHelper.dp(10), LayoutHelper.dp(9), LayoutHelper.dp(10), LayoutHelper.dp(9))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+            gravity = Gravity.CENTER_VERTICAL or Gravity.START
+            isClickable = false
+            isFocusable = false
+        }
+        private var boundKey = ""
+        private var rippleInstalled = false
+
+        init {
+            row.addView(
+                label,
+                FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                ),
+            )
+        }
+
+        fun bind(messageId: Long, componentId: String, spec: EmbedSelectSpec, fieldName: String) {
+            val key = "$messageId|$componentId|${spec.options.size}|${spec.isMulti}|${
+                spec.initialSelection.joinToString()
+            }|$fieldName"
+            val identityChanged = boundKey != key
+            boundKey = key
+
+            if (!rippleInstalled) {
+                embedSelectRowForeground()?.let { row.foreground = it }
+                rippleInstalled = true
+            }
+
+            row.background = buildEmbedSelectBg()
+            row.isEnabled = !spec.disabled
+            row.alpha = if (spec.disabled) 0.5f else 1f
+
+            label.setCompoundDrawablesRelative(null, null, embedSelectChevronDrawable(), null)
+            label.compoundDrawablePadding = LayoutHelper.dp(6)
+
+            if (identityChanged && spec.initialSelection.isNotEmpty() &&
+                EmbedFormUtil.isComponentEmpty(messageId, componentId)
+            ) {
+                if (spec.isMulti) {
+                    EmbedFormUtil.setMultiValues(messageId, componentId, spec.initialSelection)
+                } else {
+                    EmbedFormUtil.setValue(messageId, componentId, spec.initialSelection.first())
+                }
+            }
+
+            label.text = formatEmbedSelectLabel(spec, messageId, componentId, fieldName)
+            val hasValue = !EmbedFormUtil.isComponentEmpty(messageId, componentId)
+            label.setTextColor(if (hasValue) theme.onSurface else theme.onSurfaceVariant)
+
+            val mid = messageId
+            val cid = componentId
+            val sp = spec
+            val fname = fieldName
+            row.setOnClickListener {
+                if (sp.disabled) return@setOnClickListener
+                showEmbedSelectDialog(mid, cid, sp, fname)
+            }
+        }
+    }
+
+    private inner class EmbedRadioSlot {
+        val container = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        private var boundKey = ""
+        private var suppressRadioCb = false
+
+        fun bind(messageId: Long, componentId: String, spec: EmbedRadioSpec) {
+            val key = "$messageId|$componentId|${spec.options.joinToString { it.value }}"
+            val identityChanged = boundKey != key
+            boundKey = key
+
+            if (identityChanged) {
+                container.removeAllViews()
+                if (!spec.multi) {
+                    val rg = RadioGroup(context)
+                    for (opt in spec.options) {
+                        val rb = RadioButton(context)
+                        rb.id = View.generateViewId()
+                        rb.text = radioOptionDisplayCharSeq(opt)
+                        rb.setSingleLine(false)
+                        rb.maxLines = 8
+                        rb.setTextColor(theme.onSurface)
+                        rb.isEnabled = !spec.disabled && !opt.disabled
+                        rg.addView(
+                            rb,
+                            LinearLayout.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.WRAP_CONTENT,
+                            ),
+                        )
+                    }
+                    rg.setOnCheckedChangeListener { group, checkedId ->
+                        if (suppressRadioCb || checkedId == -1) return@setOnCheckedChangeListener
+                        for (i in 0 until group.childCount) {
+                            if (group.getChildAt(i).id == checkedId) {
+                                EmbedFormUtil.setValue(messageId, componentId, spec.options[i].value)
+                                invalidate()
+                                return@setOnCheckedChangeListener
+                            }
+                        }
+                    }
+                    container.addView(rg)
+                } else {
+                    for (opt in spec.options) {
+                        val row = LinearLayout(context).apply {
+                            orientation = LinearLayout.HORIZONTAL
+                            gravity = Gravity.CENTER_VERTICAL
+                        }
+                        val tv = TextView(context).apply {
+                            text = radioOptionDisplayCharSeq(opt)
+                            setSingleLine(false)
+                            maxLines = 8
+                            setTextColor(theme.onSurface)
+                            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+                        }
+                        val cb = CheckBox(context)
+                        row.addView(
+                            tv,
+                            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
+                        )
+                        row.addView(cb, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                        cb.isEnabled = !spec.disabled && !opt.disabled
+                        val optVal = opt.value
+                        cb.setOnCheckedChangeListener { _, isChecked ->
+                            if (suppressRadioCb) return@setOnCheckedChangeListener
+                            val has = EmbedFormUtil.isValueSelected(messageId, componentId, optVal)
+                            if (isChecked && !has) {
+                                val n = EmbedFormUtil.getValuesForComponent(messageId, componentId).size
+                                val max = spec.maxOptions ?: Int.MAX_VALUE
+                                if (n >= max) {
+                                    suppressRadioCb = true
+                                    cb.isChecked = false
+                                    suppressRadioCb = false
+                                    return@setOnCheckedChangeListener
+                                }
+                                EmbedFormUtil.toggleMultiValue(messageId, componentId, optVal)
+                            } else if (!isChecked && has) {
+                                EmbedFormUtil.toggleMultiValue(messageId, componentId, optVal)
+                            }
+                            invalidate()
+                        }
+                        container.addView(row)
+                    }
+                }
+            }
+
+            if (identityChanged && EmbedFormUtil.isComponentEmpty(messageId, componentId)) {
+                val uid = currentUserId.toString()
+                if (uid.isNotEmpty()) {
+                    for (opt in spec.options) {
+                        if (opt.extraData.any { it == uid }) {
+                            if (spec.multi) {
+                                if (!EmbedFormUtil.isValueSelected(messageId, componentId, opt.value)) {
+                                    EmbedFormUtil.toggleMultiValue(messageId, componentId, opt.value)
+                                }
+                            } else {
+                                EmbedFormUtil.setValue(messageId, componentId, opt.value)
+                                break
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (!spec.multi) {
+                val rg = container.getChildAt(0) as? RadioGroup ?: return
+                suppressRadioCb = true
+                val cur = EmbedFormUtil.getValue(messageId, componentId)
+                var sel = spec.options.indexOfFirst { it.value == cur }
+                if (sel < 0) {
+                    val uid = currentUserId.toString()
+                    sel = spec.options.indexOfFirst { opt -> opt.extraData.any { it == uid } }
+                    if (sel >= 0) {
+                        EmbedFormUtil.setValue(messageId, componentId, spec.options[sel].value)
+                    }
+                }
+                if (sel >= 0 && sel < rg.childCount) {
+                    rg.check(rg.getChildAt(sel).id)
+                } else {
+                    rg.clearCheck()
+                }
+                suppressRadioCb = false
+            } else {
+                val selected = EmbedFormUtil.getValuesForComponent(messageId, componentId).toSet()
+                for (i in spec.options.indices) {
+                    if (i >= container.childCount) break
+                    val row = container.getChildAt(i) as LinearLayout
+                    val cb = row.getChildAt(row.childCount - 1) as CheckBox
+                    suppressRadioCb = true
+                    cb.isChecked = spec.options[i].value in selected
+                    suppressRadioCb = false
+                }
+            }
+        }
+
+        private fun radioOptionPrimaryText(opt: EmbedRadioOptionSpec): String =
+            opt.label.ifEmpty { opt.value }
+
+        private fun radioOptionDisplayCharSeq(opt: EmbedRadioOptionSpec): CharSequence =
+            formatEmbedRichText(
+                if (opt.description.isNotEmpty() && opt.label.isNotEmpty()) {
+                    "${opt.label}\n${opt.description}"
+                } else {
+                    radioOptionPrimaryText(opt)
+                },
+                theme,
+            )
+    }
+
+    private inner class EmbedInputSlot {
+        val edit = EditTextBoldCursor(context).apply {
+            includeFontPadding = false
+            setPadding(LayoutHelper.dp(12), LayoutHelper.dp(8), LayoutHelper.dp(12), LayoutHelper.dp(8))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+        }
+        private var suppressWatch = false
+        private val watcher = object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                if (suppressWatch) return
+                val mid = boundMessageId
+                val cid = boundComponentId
+                if (mid != 0L && cid.isNotEmpty()) {
+                    EmbedFormUtil.setValue(mid, cid, s?.toString() ?: "")
+                }
+            }
+        }
+        private var boundMessageId = 0L
+        private var boundComponentId = ""
+        private var boundSpecKey = ""
+
+        init {
+            edit.addTextChangedListener(watcher)
+        }
+
+        fun bind(messageId: Long, componentId: String, spec: EmbedInputComponentSpec) {
+            val specKey = "${spec.textarea}|${spec.numberInput}|${spec.disabled}|${spec.placeholder}|${spec.defaultValue}"
+            val identityChanged =
+                boundMessageId != messageId || boundComponentId != componentId || boundSpecKey != specKey
+            boundMessageId = messageId
+            boundComponentId = componentId
+            boundSpecKey = specKey
+
+            edit.background = buildEmbedInputBg()
+            edit.setHintTextColor(theme.onSurfaceVariant)
+            edit.setTextColor(theme.onSurface)
+            edit.hint = spec.placeholder.takeIf { it.isNotEmpty() }
+            edit.isEnabled = !spec.disabled
+            edit.alpha = if (spec.disabled) 0.5f else 1f
+            edit.gravity = if (spec.textarea) Gravity.TOP or Gravity.START
+            else Gravity.CENTER_VERTICAL or Gravity.START
+            edit.inputType = if (spec.numberInput) {
+                InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+            } else {
+                val base = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+                if (spec.textarea) base or InputType.TYPE_TEXT_FLAG_MULTI_LINE else base
+            }
+            edit.minLines = if (spec.textarea) 3 else 1
+            edit.maxLines = if (spec.textarea) 8 else 1
+            edit.isSingleLine = !spec.textarea
+
+            if (identityChanged) {
+                val stored = EmbedFormUtil.getValue(messageId, componentId)
+                suppressWatch = true
+                edit.setText(stored ?: spec.defaultValue)
+                suppressWatch = false
+                if (stored == null && spec.defaultValue.isNotEmpty()) {
+                    EmbedFormUtil.setValue(messageId, componentId, spec.defaultValue)
+                }
+            }
+        }
+    }
+
     companion object {
         const val COMBINE_TIME_THRESHOLD = 2 * 60L
         private const val TAG = "ChatMessageCell"
@@ -2786,12 +3127,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
         private const val VIDEO_THUMB_TIMEOUT_MS = 8_000L
         private val VIDEO_THUMB_SCOPE = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-        private val EMBED_NEWLINE_TAB_REGEX = Regex("[\\n\\r\\t]+")
-        private val EMBED_WHITESPACE_REGEX = Regex("\\s+")
         private val BUBBLE_RIGHT_INSET = LayoutHelper.dp(28)
         private val TIME_GAP_LEFT = LayoutHelper.dp(6)
         private val TIME_GAP_RIGHT = LayoutHelper.dp(4)
-        private val SECTION_GAP = LayoutHelper.dp(2)
 
         private val AVATAR_SIZE = LayoutHelper.dp(40)  
         private val PAD_H = LayoutHelper.dp(6)          
@@ -2880,7 +3218,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
         private val FORWARD_ICON_SIZE = LayoutHelper.dp(14)
         private val FORWARD_ICON_GAP = LayoutHelper.dp(4).toFloat()
-        private val EPHEMERAL_ICON_SIZE = LayoutHelper.dp(12)
 
         private val SENDING_ICON_SIZE = LayoutHelper.dp(12)
         private val SENDING_STROKE_W = LayoutHelper.dpf(1.5f)
@@ -2899,7 +3236,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
         private const val FORWARD_TEXT = "Forwarded"
         private const val EDITED_TEXT = "(edited)"
-        private const val EPHEMERAL_TEXT = "Only visible to you"
         private const val ERROR_TEXT = "Unable to send message"
 
         private val REFERENCE_SENDER_REGEX = Regex("\"message_sender_display_name\"\\s*:\\s*\"([^\"]*?)\"")
@@ -2976,16 +3312,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             strokeJoin = Paint.Join.ROUND
         }
 
-        private val EPHEMERAL_PAINT = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = 0xFF8B8D93.toInt()
-            textSize = LayoutHelper.dpf(11f)
-        }
-
-        private val EPHEMERAL_ICON_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = 0xFF8B8D93.toInt()
-            style = Paint.Style.FILL
-        }
-
         private val ERROR_PAINT = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = 0xFFD30E0E.toInt()
             textSize = LayoutHelper.dpf(12f)
@@ -3042,7 +3368,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
         private const val EMOJI_PLACEHOLDER_COLOR = 0x1A000000
         private val EMOJI_PLACEHOLDER_RADIUS = LayoutHelper.dpf(4f)
-
+        
         private val EMBED_COLOR_BAR_W = LayoutHelper.dp(4)
         private val EMBED_PAD = LayoutHelper.dp(10)
         private val EMBED_RADIUS = LayoutHelper.dpf(4f)
@@ -3051,10 +3377,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         private val EMBED_IMG_RADIUS = LayoutHelper.dpf(4f)
         private val EMBED_TOP_MARGIN = LayoutHelper.dp(4)
 
-        private val EMBED_BG_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        private val FILE_CARD_BG_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.FILL
         }
-
+        
         private val EMBED_BAR_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.FILL
         }

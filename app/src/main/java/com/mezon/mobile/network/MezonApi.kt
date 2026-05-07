@@ -95,6 +95,7 @@ import com.mezon.mezon.api.listAuditLogRequest
 import com.mezon.mezon.rtapi.ActiveArchivedThread
 import com.mezon.mezon.rtapi.ChannelMessageSend
 import com.mezon.mezon.rtapi.ListActivity
+import com.mezon.mezon.rtapi.messageButtonClicked
 import android.util.Log
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -1073,6 +1074,31 @@ class MezonApi @Inject constructor(
             .build()
             .toByteArray()
         rpc(apiUrl, token, "ActiveArchivedThread", body)
+    }
+
+    /**
+     * Same contract as web `mezon-js` [messageButtonClick]: HTTP POST
+     * `mezon.api.Mezon/MessageButtonClick` with a [MessageButtonClicked] protobuf body (from rtapi).
+     */
+    suspend fun messageButtonClick(
+        apiUrl: String,
+        token: String,
+        messageId: Long,
+        channelId: Long,
+        buttonId: String,
+        senderId: Long,
+        userId: Long,
+        extraData: String,
+    ) {
+        val body = messageButtonClicked {
+            this.messageId = messageId
+            this.channelId = channelId
+            this.buttonId = buttonId
+            this.senderId = senderId
+            this.userId = userId
+            this.extraData = extraData
+        }.toByteArray()
+        rpc(apiUrl, token, "MessageButtonClick", body)
     }
 
     suspend fun votePoll(

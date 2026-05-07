@@ -22,6 +22,7 @@ import com.mezon.mobile.network.SocketEventDispatcher
 import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.network.channelTypeToStreamMode
 import com.mezon.mobile.network.STREAM_MODE_CHANNEL
+import com.mezon.mobile.network.STREAM_MODE_DM
 import com.mezon.mobile.network.STREAM_MODE_THREAD
 import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
@@ -40,6 +41,7 @@ import com.mezon.mobile.util.EmojiMarker
 import com.mezon.mobile.util.MarkdownMarker
 import com.mezon.mobile.util.buildTextContentWithEmojis
 import com.mezon.mobile.util.mergePendingMentionsIntoContent
+import com.mezon.mezon.api.ChannelMessage
 import com.mezon.mezon.api.MessageAttachment
 import com.mezon.mezon.api.MessageMention
 import com.mezon.mezon.api.messageAttachment
@@ -55,6 +57,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicInteger
 
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -93,6 +96,7 @@ class ChatController @Inject constructor(
     val dialogMessage = LongSparseArray<MessageEntity>()
     private val initialFetchDone = HashSet<Long>()
     private val lastMessageByChannel = LongSparseArray<Long>()
+    private val provisionalRealtimeMessageSeq = AtomicInteger(kotlin.random.Random.nextInt(1 shl 18))
 
     private fun isAnonymousSend(clanId: Long): Boolean =
         clanId != 0L && anonymousController.get().isAnonymous(clanId)
@@ -127,6 +131,12 @@ class ChatController @Inject constructor(
     /** Returns the newest known messageId for [channelId], 0 if unknown. */
     fun getLastMessageId(channelId: Long): Long =
         synchronized(this) { lastMessageByChannel.get(channelId, 0L) }
+
+    private fun allocateProvisionalRealtimeMessageId(): Long {
+        val ms = System.currentTimeMillis()
+        val seq = provisionalRealtimeMessageSeq.incrementAndGet() and 0x3FFFF
+        return (ms shl 22) or seq.toLong()
+    }
 
     private fun updateLastMessageByChannel(channelId: Long, messages: List<MessageEntity>, latestIdFromResponse: Long = 0L) {
         // Prefer the server-provided lastSentMessage (like RN's response.last_sent_message)
@@ -1279,7 +1289,15 @@ class ChatController @Inject constructor(
         val currentUserId = sessionManager.sessionFlow
             .first { it != null }?.userId?.toLongOrNull() ?: 0L
 
-        socketEventDispatcher.channelMessages.collect { msg ->
+        socketEventDispatcher.channelMessages.collect { raw ->
+            val resolved = resolveEphemeralSender(raw, currentUserId)
+            val msg =
+                if (resolved.messageId == 0L) {
+                    val pid = allocateProvisionalRealtimeMessageId()
+                    ChannelMessage.newBuilder(resolved).setMessageId(pid).build()
+                } else {
+                    resolved
+                }
             val entity = msg.toMessageEntity(currentUserId)
 
             when (msg.code) {
@@ -1295,7 +1313,39 @@ class ChatController @Inject constructor(
                         NotificationCenter.UPDATE_MASK_MESSAGE_TEXT
                     )
                 }
-                CODE_CHAT_REMOVE -> {
+                MessageEntity.CODE_UPDATE_EPHEMERAL -> {
+                    val codeToStore = MessageEntity.CODE_EPHEMERAL
+                    val notifyEntity = if (codeToStore != entity.code) entity.copy(code = codeToStore) else entity
+                    appScope.launch(ioDispatcher) {
+                        val existing = messageDao.getById(notifyEntity.channelId, notifyEntity.id)
+                        if (existing == null) {
+                            messageDao.upsert(notifyEntity)
+                            synchronized(this@ChatController) {
+                                dialogMessage.put(notifyEntity.channelId, notifyEntity)
+                                if (notifyEntity.id > lastMessageByChannel.get(notifyEntity.channelId, 0L)) {
+                                    lastMessageByChannel.put(notifyEntity.channelId, notifyEntity.id)
+                                }
+                            }
+                            notificationCenter.postNotificationOnMainThread(
+                                NotificationCenter.didReceiveNewMessages, notifyEntity.channelId, notifyEntity
+                            )
+                            notificationCenter.postNotificationOnMainThread(
+                                NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_NEW_MESSAGE
+                            )
+                        } else {
+                            messageDao.updateContent(
+                                entity.channelId, entity.id, entity.content,
+                                entity.updateTimeSeconds, entity.hideEditted, codeToStore
+                            )
+                            notificationCenter.postNotificationOnMainThread(
+                                NotificationCenter.messageDidUpdate, notifyEntity.channelId, notifyEntity,
+                                NotificationCenter.UPDATE_MASK_MESSAGE_TEXT
+                            )
+                        }
+                    }
+                }
+                CODE_CHAT_REMOVE,
+                MessageEntity.CODE_DELETE_EPHEMERAL -> {
                     appScope.launch { messageDao.delete(msg.channelId, msg.messageId) }
                     synchronized(this) {
                         if (lastMessageByChannel.get(msg.channelId, 0L) == msg.messageId) {
@@ -1337,6 +1387,22 @@ class ChatController @Inject constructor(
 
             dialogsController.updateOnNewMessage(msg, currentUserId)
         }
+    }
+
+    private fun resolveEphemeralSender(msg: ChannelMessage, currentUserId: Long): ChannelMessage {
+        if (msg.senderId != 0L) return msg
+        if (msg.code != MessageEntity.CODE_EPHEMERAL && msg.code != MessageEntity.CODE_UPDATE_EPHEMERAL) return msg
+        val others = dialogsController.getParticipants(msg.channelId).filter { it.userId != currentUserId }
+        if (others.size == 1) {
+            return ChannelMessage.newBuilder(msg).setSenderId(others[0].userId).build()
+        }
+        if (msg.mode == STREAM_MODE_DM) {
+            val other = dialogsController.getDialog(msg.channelId)?.otherUserId ?: 0L
+            if (other != 0L && other != currentUserId) {
+                return ChannelMessage.newBuilder(msg).setSenderId(other).build()
+            }
+        }
+        return msg
     }
 
     private suspend fun observeReactionEvents() {
