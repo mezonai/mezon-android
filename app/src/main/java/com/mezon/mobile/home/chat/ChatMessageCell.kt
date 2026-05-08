@@ -45,11 +45,15 @@ import com.mezon.mobile.home.chat.poll.ParsedPoll
 import com.mezon.mobile.home.chat.poll.PollLocalState
 import com.mezon.mobile.home.chat.poll.PollMessageLayout
 import com.mezon.mobile.home.chat.poll.parsePollContent
+import com.mezon.mobile.home.call.CallLogMessageType
+import com.mezon.mobile.home.call.ParsedCallLogMessage
+import com.mezon.mobile.home.call.parseCallLogMessage
 import com.mezon.mobile.home.messages.EmbedButtonHit
 import com.mezon.mobile.home.messages.EmbedInteractiveGeometry
 import com.mezon.mobile.home.messages.EmbedMessageRenderer
 import com.mezon.mobile.home.messages.EmbedSelectOptionSheet
 import com.mezon.mobile.home.messages.EphemeralMessageUi
+import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.ui.cells.EditTextBoldCursor
 import com.mezon.mobile.util.EmbedFormUtil
 import com.mezon.mobile.util.EmbedInputComponentSpec
@@ -1569,11 +1573,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         fun didTapAddReaction(cell: ChatMessageCell, msg: MessageEntity) {}
         fun didClickInviteJoin(cell: ChatMessageCell, msg: MessageEntity, inviteId: Long) {}
         fun didClickEmbedComponentButton(cell: ChatMessageCell, msg: MessageEntity, buttonId: String) {}
-        /**
-         * Embed select (inside form): same as web [MessageSelect] with `inside` — notifies server with
-         * [button_id] = select component id and [extra_data] = raw option value (not full form JSON).
-         */
         fun didChangeEmbedSelect(cell: ChatMessageCell, msg: MessageEntity, componentId: String, value: String) {}
+        fun isDmPeerBlockedForCallLog(): Boolean = false
+        fun didTapCallLogCallBack(cell: ChatMessageCell, msg: MessageEntity) {}
     }
 
     private var pressedLink: ClickableSpan? = null

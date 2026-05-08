@@ -42,6 +42,8 @@ internal class EmbedAnimationRuntime(
     private var memoLayouts: List<CellLayout>? = null
 
     private val bmpPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
+    private val drawSrcRect = Rect()
+    private val drawDstRectF = RectF()
 
     fun dispose() {
         jsonCall?.cancel()
@@ -295,12 +297,9 @@ internal class EmbedAnimationRuntime(
                     val sy = fr.y.coerceIn(0, max(0, ih - 1))
                     val sw = fr.w.coerceIn(1, max(1, iw - sx))
                     val sh = fr.h.coerceIn(1, max(1, ih - sy))
-                    canvas.drawBitmap(
-                        bmp,
-                        Rect(sx, sy, sx + sw, sy + sh),
-                        RectF(xCursor, top, xCursor + dw, top + dh),
-                        bmpPaint,
-                    )
+                    drawSrcRect.set(sx, sy, sx + sw, sy + sh)
+                    drawDstRectF.set(xCursor, top, xCursor + dw, top + dh)
+                    canvas.drawBitmap(bmp, drawSrcRect, drawDstRectF, bmpPaint)
                 }
                 xCursor += dw + gap
             }

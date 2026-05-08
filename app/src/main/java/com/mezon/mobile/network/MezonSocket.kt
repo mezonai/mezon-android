@@ -577,21 +577,12 @@ class MezonSocket @Inject constructor(
         }
     }
 
-    private fun isServerChatPush(case: Envelope.MessageCase): Boolean =
-        when (case) {
-            Envelope.MessageCase.CHANNEL_MESSAGE,
-            Envelope.MessageCase.CHANNEL_MESSAGE_SEND,
-            Envelope.MessageCase.CHANNEL_MESSAGE_UPDATE,
-            Envelope.MessageCase.CHANNEL_MESSAGE_REMOVE,
-            Envelope.MessageCase.EPHEMERAL_MESSAGE_SEND -> true
-            else -> false
-        }
 
     private fun handleEnvelope(envelope: Envelope) {
         val cid = envelope.cid
         val case = envelope.messageCase
 
-        if (cid != 0 && !isServerChatPush(case)) {
+        if (cid != 0) {
             val deferred = pendingRequests.remove(cid)
             if (deferred != null) {
                 if (case == Envelope.MessageCase.ERROR) {

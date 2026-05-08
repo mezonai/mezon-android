@@ -10,23 +10,27 @@ private data class FormEntry(
 )
 
 object EmbedFormUtil {
-    private val byMessage = ConcurrentHashMap<Long, ConcurrentHashMap<String, FormEntry>>()
+    private val messageForm = ConcurrentHashMap<Long, ConcurrentHashMap<String, FormEntry>>()
+
+    fun clearAll() {
+        messageForm.clear()
+    }
 
     fun setValue(messageId: Long, componentId: String, value: String) {
         if (componentId.isEmpty()) return
-        val row = byMessage.getOrPut(messageId) { ConcurrentHashMap() }
+        val row = messageForm.getOrPut(messageId) { ConcurrentHashMap() }
         row[componentId] = FormEntry(false, mutableListOf(value))
     }
 
     fun setMultiValues(messageId: Long, componentId: String, values: List<String>) {
         if (componentId.isEmpty()) return
-        val row = byMessage.getOrPut(messageId) { ConcurrentHashMap() }
+        val row = messageForm.getOrPut(messageId) { ConcurrentHashMap() }
         row[componentId] = FormEntry(true, values.distinct().toMutableList())
     }
 
     fun toggleMultiValue(messageId: Long, componentId: String, value: String) {
         if (componentId.isEmpty()) return
-        val row = byMessage.getOrPut(messageId) { ConcurrentHashMap() }
+        val row = messageForm.getOrPut(messageId) { ConcurrentHashMap() }
         val e = row.getOrPut(componentId) { FormEntry(true, mutableListOf()) }
         e.isMultiple = true
         val i = e.values.indexOf(value)
@@ -34,19 +38,19 @@ object EmbedFormUtil {
     }
 
     fun isValueSelected(messageId: Long, componentId: String, value: String): Boolean =
-        byMessage[messageId]?.get(componentId)?.values?.contains(value) == true
+        messageForm[messageId]?.get(componentId)?.values?.contains(value) == true
 
     fun isComponentEmpty(messageId: Long, componentId: String): Boolean =
-        byMessage[messageId]?.get(componentId)?.values.isNullOrEmpty()
+        messageForm[messageId]?.get(componentId)?.values.isNullOrEmpty()
 
     fun getValue(messageId: Long, componentId: String): String? =
-        byMessage[messageId]?.get(componentId)?.values?.firstOrNull()
+        messageForm[messageId]?.get(componentId)?.values?.firstOrNull()
 
     fun getValuesForComponent(messageId: Long, componentId: String): List<String> =
-        byMessage[messageId]?.get(componentId)?.values?.toList() ?: emptyList()
+        messageForm[messageId]?.get(componentId)?.values?.toList() ?: emptyList()
 
     fun buildExtraDataJson(messageId: Long): String {
-        val row = byMessage[messageId] ?: return "{}"
+        val row = messageForm[messageId] ?: return "{}"
         if (row.isEmpty()) return "{}"
         val o = JSONObject()
         for ((k, e) in row) {

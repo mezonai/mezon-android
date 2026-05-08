@@ -29,6 +29,7 @@ import com.mezon.mobile.notification.ActiveChannelTracker
 import com.mezon.mobile.notification.NotificationHelper
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.session.StoredSession
+import com.mezon.mobile.util.parseContentPreview
 import com.mezon.mobile.home.call.messagePreviewForDialog
 import dagger.Lazy
 import com.mezon.mezon.api.ChannelDescription

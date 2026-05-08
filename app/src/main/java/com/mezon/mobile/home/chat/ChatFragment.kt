@@ -2104,6 +2104,7 @@ class ChatFragment : BaseFragment() {
         hashtagTrackers.clear()
         suggestionsPopup = null
         suggestionsAdapter = null
+        EmbedFormUtil.clearAll()
         pendingHighlightMessageId = 0L
         chatAdjustPanHelper?.onDetach()
         chatAdjustPanHelper = null

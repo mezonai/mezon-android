@@ -180,6 +180,12 @@ private fun stripMarkdownFenceLanguage(body: String): String {
 }
 
 private val MULTILINE_FENCE_REGEX = Regex("```([\\s\\S]*?)```")
+private val EMBED_INLINE_CODE_REGEX = Regex("`([^`\n]+)`")
+private val EMBED_INLINE_BOLD_REGEX = Regex("\\*\\*([^*\n]+)\\*\\*")
+private val EMBED_INLINE_UNDERLINE_REGEX = Regex("__(?!_)([^_\n]+)__")
+private val EMBED_INLINE_STRIKE_REGEX = Regex("~~([^~\n]+)~~")
+private val EMBED_INLINE_ITALIC_ASTERISK_REGEX = Regex("(?<!\\*)\\*([^*\n]+)\\*(?!\\*)")
+private val EMBED_INLINE_ITALIC_UNDERSCORE_REGEX = Regex("(?<!_)_([^_\n]+)_(?!_)")
 
 private fun appendCodeFenceBlock(sb: SpannableStringBuilder, innerRaw: String, theme: ThemeColors) {
     val inner = stripMarkdownFenceLanguage(innerRaw)
@@ -270,24 +276,24 @@ private fun stripDelimiterAndSpan(
 }
 
 private fun applyEmbedInlineMarkdown(sb: SpannableStringBuilder, theme: ThemeColors) {
-    stripDelimiterAndSpan(sb, Regex("`([^`\n]+)`")) { b, a, e ->
+    stripDelimiterAndSpan(sb, EMBED_INLINE_CODE_REGEX) { b, a, e ->
         b.setExclusiveSpan(TypefaceSpan("monospace"), a, e)
         b.setExclusiveSpan(ForegroundColorSpan(theme.codeInlineText), a, e)
         b.setExclusiveSpan(BackgroundColorSpan(theme.codeInlineBg), a, e)
     }
-    stripDelimiterAndSpan(sb, Regex("\\*\\*([^*\n]+)\\*\\*")) { b, a, e ->
+    stripDelimiterAndSpan(sb, EMBED_INLINE_BOLD_REGEX) { b, a, e ->
         b.setExclusiveSpan(StyleSpan(Typeface.BOLD), a, e)
     }
-    stripDelimiterAndSpan(sb, Regex("__(?!_)([^_\n]+)__")) { b, a, e ->
+    stripDelimiterAndSpan(sb, EMBED_INLINE_UNDERLINE_REGEX) { b, a, e ->
         b.setExclusiveSpan(UnderlineSpan(), a, e)
     }
-    stripDelimiterAndSpan(sb, Regex("~~([^~\n]+)~~")) { b, a, e ->
+    stripDelimiterAndSpan(sb, EMBED_INLINE_STRIKE_REGEX) { b, a, e ->
         b.setExclusiveSpan(StrikethroughSpan(), a, e)
     }
-    stripDelimiterAndSpan(sb, Regex("(?<!\\*)\\*([^*\n]+)\\*(?!\\*)")) { b, a, e ->
+    stripDelimiterAndSpan(sb, EMBED_INLINE_ITALIC_ASTERISK_REGEX) { b, a, e ->
         b.setExclusiveSpan(StyleSpan(Typeface.ITALIC), a, e)
     }
-    stripDelimiterAndSpan(sb, Regex("(?<!_)_([^_\n]+)_(?!_)")) { b, a, e ->
+    stripDelimiterAndSpan(sb, EMBED_INLINE_ITALIC_UNDERSCORE_REGEX) { b, a, e ->
         b.setExclusiveSpan(StyleSpan(Typeface.ITALIC), a, e)
     }
 }
@@ -806,16 +812,11 @@ fun getStickerImageUrl(stickerId: String, src: String): String? {
     return sourceUrl
 }
 
-/** Same as [EMessageComponentType.SELECT] / [EMessageComponentType.INPUT] / [EMessageComponentType.RADIO] / [EMessageComponentType.ANIMATION]. */
 private const val MESSAGE_COMPONENT_TYPE_SELECT = 2
 private const val MESSAGE_COMPONENT_TYPE_INPUT = 3
 private const val MESSAGE_COMPONENT_TYPE_RADIO = 5
 private const val MESSAGE_COMPONENT_TYPE_ANIMATION = 6
 
-/**
- * Reads embed select `valueSelected` / `value_selected` in whatever shape the API sends
- * (object, plain string, or array for multi), matching web [IMessageSelect.valueSelected].
- */
 private fun extractSelectValueSelectedStrings(comp: JSONObject): List<String> {
     val out = mutableListOf<String>()
     for (key in listOf("valueSelected", "value_selected")) {
@@ -840,11 +841,6 @@ private fun extractSelectValueSelectedStrings(comp: JSONObject): List<String> {
     return emptyList()
 }
 
-/**
- * When the user never opened the select dialog, the label can still show `valueSelected` from JSON
- * while [EmbedFormUtil] is empty — web avoids this via MessageSelect mount [addEmbedValue].
- * Call before building embed button [extra_data].
- */
 fun fillEmbedSelectValuesFromMessageIfEmpty(messageId: Long, content: String) {
     if (content.isBlank()) return
     try {
@@ -879,10 +875,6 @@ data class EmbedFormValidationError(
     val formatArgs: List<Any> = emptyList(),
 )
 
-/**
- * Client-side checks before [EmbedFormUtil.buildExtraDataJson] / MessageButtonClick.
- * Call after [fillEmbedSelectValuesFromMessageIfEmpty] or rely on this function to call it.
- */
 fun embedFormValidationError(messageId: Long, content: String): EmbedFormValidationError? {
     if (content.isBlank()) return null
     fillEmbedSelectValuesFromMessageIfEmpty(messageId, content)
