@@ -60,6 +60,7 @@ import com.mezon.mobile.home.LOAD_TYPE_INITIAL
 import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.MemberResolver
 import com.mezon.mobile.home.UserClanController
+import com.mezon.mobile.home.friends.FriendController
 import com.mezon.mobile.home.clans.CLAN_CREATE_LIMIT
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.ClansController
@@ -165,6 +166,9 @@ class ChatFragment : BaseFragment() {
         private const val GIVE_COFFEE_EMOJI = ":coffee:"
         private const val LOADING_INDICATOR_DELAY_MS = 300L
         private val ANONYMOUS_USER_ID = BuildConfig.MEZON_ANONYMOUS_USER_ID.toLongOrNull() ?: 0L
+        private const val REQUEST_CALL_PERMISSIONS = 9002
+        private const val MENU_DM_VOICE_CALL = 8801
+        private const val DM_HEADER_CALL_ICON_DP = 22f
 
         fun newInstance(
             channelId: Long,
@@ -196,6 +200,8 @@ class ChatFragment : BaseFragment() {
     private lateinit var audioPlayerController: AudioPlayerController
     private lateinit var pinMessageController: com.mezon.mobile.home.PinMessageController
     private lateinit var walletController: WalletController
+    private lateinit var callController: com.mezon.mobile.home.call.CallController
+    private lateinit var friendController: FriendController
 
     private lateinit var recyclerView: RecyclerListView
     private lateinit var loadingView: ProgressBar
@@ -1003,6 +1009,12 @@ class ChatFragment : BaseFragment() {
             }
         }
 
+        observe(NotificationCenter.dialogsNeedReload) { _, _, _ ->
+            if (isPaused) return@observe
+            if (clanId != 0L || channelType != CHANNEL_TYPE_DM) return@observe
+            actionBar?.let { setupDmHeaderCallMenu(it) }
+        }
+
         observe(NotificationCenter.jumpToMessage) { _, _, args ->
             val targetChannelId = args.getOrNull(0) as? Long ?: return@observe
             val targetMessageId = args.getOrNull(1) as? Long ?: return@observe
@@ -1033,6 +1045,8 @@ class ChatFragment : BaseFragment() {
         memberResolver = entryPoint.memberResolver()
         roleController = entryPoint.roleController()
         searchController = entryPoint.searchController()
+        callController = entryPoint.callController()
+        friendController = entryPoint.friendController()
         emojiController = entryPoint.emojiController()
         anonymousController = entryPoint.anonymousController()
         pinMessageController = entryPoint.pinMessageController()
@@ -1110,6 +1124,7 @@ class ChatFragment : BaseFragment() {
                 val rect = Rect(backWidth, 0, width, height)
                 touchDelegate = TouchDelegate(rect, tv)
             }
+            setupDmHeaderCallMenu(this)
         }
         actionBar = chatActionBar
         innerLayout.addView(chatActionBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 56))
@@ -1440,7 +1455,11 @@ class ChatFragment : BaseFragment() {
                 if (url.isEmpty()) return
 
                 val isVideo = att.filetype.startsWith("video/")
-                val isGif = att.filetype.contains("gif", true) || url.contains("tenor.com", true)
+                val isSticker = att.filetype.equals("sticker", ignoreCase = true) ||
+                    url.contains("/stickers/", ignoreCase = true)
+                val isGif = isSticker ||
+                    att.filetype.contains("gif", true) ||
+                    url.contains("tenor.com", true)
                 val thumbBmp = cell.getMediaBitmap(attachmentIndex)
 
                 when {
@@ -2836,6 +2855,108 @@ class ChatFragment : BaseFragment() {
         }
     }
 
+    private fun resolveDmCallPeerForCallback(msg: MessageEntity): Triple<Long, String, String?>? {
+        val myId = chatController.getCurrentUserId()
+        val parts = dialogsController.getParticipants(channelId)
+        val o = parts.firstOrNull { it.userId != myId }
+        if (o != null) {
+            val name = o.displayName.ifBlank { o.username.ifBlank { "User" } }
+            return Triple(o.userId, name, o.avatarUrl.ifBlank { null })
+        }
+        if (msg.senderId != myId) {
+            return Triple(msg.senderId, msg.senderName.ifBlank { "User" }, msg.senderAvatar.ifBlank { null })
+        }
+        return null
+    }
+
+    private fun isDmSelfOnlyChat(): Boolean {
+        if (channelType != CHANNEL_TYPE_DM || clanId != 0L) return false
+        val myId = chatController.getCurrentUserId()
+        val participants = dialogsController.getParticipants(channelId)
+        if (participants.isNotEmpty()) {
+            return participants.size <= 1 || participants.all { it.userId == myId }
+        }
+        val dm = dialogsController.getDialog(channelId) ?: return false
+        if (dm.otherUserId == 0L) return false
+        return dm.otherUserId == myId
+    }
+
+    private fun dmHeaderCallOtherUserId(): Long? {
+        val myId = chatController.getCurrentUserId()
+        dialogsController.getParticipants(channelId).firstOrNull { it.userId != myId }?.let { return it.userId }
+        val dm = dialogsController.getDialog(channelId) ?: return null
+        if (dm.otherUserId != 0L && dm.otherUserId != myId) return dm.otherUserId
+        return null
+    }
+
+    private fun resolveDmCallPeerForHeader(): Triple<Long, String, String?>? {
+        val myId = chatController.getCurrentUserId()
+        val o = dialogsController.getParticipants(channelId).firstOrNull { it.userId != myId }
+        if (o != null) {
+            val name = o.displayName.ifBlank { o.username.ifBlank { "User" } }
+            return Triple(o.userId, name, o.avatarUrl.ifBlank { null })
+        }
+        val dm = dialogsController.getDialog(channelId) ?: return null
+        if (dm.otherUserId == 0L || dm.otherUserId == myId) return null
+        val name = dm.displayName.ifBlank { dm.label.ifBlank { "User" } }
+        return Triple(dm.otherUserId, name, dm.avatarUrl.ifBlank { null })
+    }
+
+    private fun setupDmHeaderCallMenu(chatActionBar: ActionBarView) {
+        if (clanId != 0L || channelType != CHANNEL_TYPE_DM) return
+        if (isDmSelfOnlyChat()) return
+        val otherId = dmHeaderCallOtherUserId()
+        if (otherId != null && friendController.isUserBlocked(otherId)) return
+        chatActionBar.setMenuOnItemClick(object : ActionBarView.ActionBarMenuOnItemClick() {
+            override fun onItemClick(id: Int) {
+                when (id) {
+                    -1 -> {
+                        if (emojiViewVisible) {
+                            hideEmojiView()
+                        } else {
+                            finishFragment()
+                        }
+                    }
+                    MENU_DM_VOICE_CALL -> {
+                        val triple = resolveDmCallPeerForHeader() ?: run {
+                            dialogsController.loadDmParticipants(channelId)
+                            MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.INFO, getString(R.string.common_loading_data))
+                            return
+                        }
+                        requestCallPermissions(needsCamera = false) {
+                            callController.startCall(
+                                triple.first,
+                                triple.second,
+                                triple.third,
+                                channelId,
+                                clanId,
+                                channelType,
+                                resolveChannelPrivate(),
+                                isVideo = false
+                            )
+                            presentFragment(com.mezon.mobile.home.call.CallFragment())
+                        }
+                    }
+                }
+            }
+        })
+        val menu = chatActionBar.createMenu()
+        if (menu.getItem(MENU_DM_VOICE_CALL) != null) {
+            chatActionBar.setItemsColor(themeColors.onSurface)
+            return
+        }
+        val callMenuItem = menu.addItem(MENU_DM_VOICE_CALL, MezonIcon.phoneCallIcon.resId)
+        callMenuItem.contentDescription = getString(R.string.user_profile_voice_call)
+        val callItemLp = callMenuItem.layoutParams as LinearLayout.LayoutParams
+        callItemLp.height = LayoutHelper.MATCH_PARENT
+        callItemLp.gravity = Gravity.CENTER_VERTICAL
+        callMenuItem.layoutParams = callItemLp
+        val callIconPx = LayoutHelper.dp(DM_HEADER_CALL_ICON_DP)
+        callMenuItem.iconView.scaleType = ImageView.ScaleType.FIT_CENTER
+        callMenuItem.iconView.layoutParams = FrameLayout.LayoutParams(callIconPx, callIconPx, Gravity.CENTER)
+        chatActionBar.setItemsColor(themeColors.onSurface)
+    }
+
     private fun resolveChannelPrivate(): Boolean {
         if (channelType == CHANNEL_TYPE_DM || channelType == CHANNEL_TYPE_GROUP) {
             return true
@@ -3807,6 +3928,16 @@ class ChatFragment : BaseFragment() {
                 }
             }
         }
+        if (requestCode == REQUEST_CALL_PERMISSIONS) {
+            val audioGranted = permissions.indices.any { i ->
+                permissions[i] == Manifest.permission.RECORD_AUDIO &&
+                    grantResults[i] == PackageManager.PERMISSION_GRANTED
+            }
+            if (audioGranted) {
+                pendingCallPermissionCallback?.invoke()
+            }
+            pendingCallPermissionCallback = null
+        }
     }
 
     private fun showOpenMediaSettingsDialog() {
@@ -4057,7 +4188,21 @@ class ChatFragment : BaseFragment() {
                     MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.INFO, getString(R.string.feature_coming_soon))
                 }
                 override fun onVoiceCall(userId: Long) {
-                    MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.INFO, getString(R.string.feature_coming_soon))
+                    val senderName = msg.senderName ?: "Unknown"
+                    val senderAvatar = msg.senderAvatar
+                    requestCallPermissions(needsCamera = false) {
+                        callController.startCall(
+                            userId,
+                            senderName,
+                            senderAvatar.ifBlank { null },
+                            channelId,
+                            clanId,
+                            channelType,
+                            resolveChannelPrivate(),
+                            isVideo = false
+                        )
+                        presentFragment(com.mezon.mobile.home.call.CallFragment())
+                    }
                 }
                 override fun onAddFriend(userId: Long) {
                     showAddFriendBottomSheet()
@@ -4950,4 +5095,27 @@ class ChatFragment : BaseFragment() {
         }
         sheet.show()
     }
+
+    private var pendingCallPermissionCallback: (() -> Unit)? = null
+
+    private fun requestCallPermissions(needsCamera: Boolean = true, onGranted: () -> Unit) {
+        val activity = getParentActivity() ?: run { onGranted(); return }
+        val needed = mutableListOf<String>()
+        if (androidx.core.content.ContextCompat.checkSelfPermission(activity, android.Manifest.permission.RECORD_AUDIO)
+            != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            needed.add(android.Manifest.permission.RECORD_AUDIO)
+        }
+        if (needsCamera &&
+            androidx.core.content.ContextCompat.checkSelfPermission(activity, android.Manifest.permission.CAMERA)
+            != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            needed.add(android.Manifest.permission.CAMERA)
+        }
+        if (needed.isEmpty()) {
+            onGranted()
+        } else {
+            pendingCallPermissionCallback = onGranted
+            androidx.core.app.ActivityCompat.requestPermissions(activity, needed.toTypedArray(), REQUEST_CALL_PERMISSIONS)
+        }
+    }
+
 }

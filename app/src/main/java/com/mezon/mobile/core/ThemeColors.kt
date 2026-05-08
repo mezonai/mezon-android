@@ -395,6 +395,7 @@ class ThemeColors @Inject constructor() {
     val dividerColor: Int get() = outlineVariant
 
     val error: Int get() = 0xFFD30E0E.toInt()
+    val redStrong: Int get() = 0xFFC61E1B.toInt()
     val success: Int get() = 0xFF00D4AA.toInt()
 
     val primaryContainer: Int get() = when (resolvedMode) {
@@ -551,6 +552,13 @@ class ThemeColors @Inject constructor() {
         ThemeMode.DARK -> 0xFF2A2D31.toInt()
         ThemeMode.ABYSS -> 0xFF16206A.toInt()
         else -> 0xFF2A2D31.toInt()
+    }
+
+    val secondaryWeight: Int get() = when (resolvedMode) {
+        ThemeMode.LIGHT -> 0xFFF0F0F0.toInt()
+        ThemeMode.DARK -> 0xFF212122.toInt()
+        ThemeMode.ABYSS -> 0xFF0E0B20.toInt()
+        else -> 0xFF212122.toInt()
     }
 
     val colorText: Int get() = when (resolvedMode) {

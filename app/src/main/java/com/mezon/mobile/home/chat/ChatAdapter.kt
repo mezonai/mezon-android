@@ -216,6 +216,9 @@ class ChatAdapter(
                 holder.cell.loadLinkInvitePreview = loadLinkInvitePreview
                 holder.cell.isCombined = computeCombined(idx)
                 holder.cell.currentUserId = currentUserId.toLongOrNull() ?: 0L
+                holder.cell.channelType = channelType
+                holder.cell.clanId = clanId
+                holder.cell.isChannelPrivate = isChannelPrivate
                 val msg = messages[idx]
                 holder.cell.hasMentionHighlight = currentUserId.isNotEmpty() &&
                     msg.hasMention(currentUserId)

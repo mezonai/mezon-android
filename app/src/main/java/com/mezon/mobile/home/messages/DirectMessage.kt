@@ -1,6 +1,6 @@
 package com.mezon.mobile.home.messages
 
-import com.mezon.mobile.util.parseContentPreview
+import com.mezon.mobile.home.call.messagePreviewForDialog
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -9,6 +9,7 @@ import com.mezon.mobile.home.extractLastSeenMessageId
 import com.mezon.mobile.home.extractLastSeenMessageTs
 import com.mezon.mobile.home.extractLastSentMessageId
 import com.mezon.mobile.home.extractLastSentMessageTs
+import com.mezon.mobile.util.parseContentPreview
 
 data class DmParticipant(
     val userId: Long,
@@ -54,7 +55,7 @@ data class DirectMessage(
 )
 
 
-fun ChannelDescription.toDirectMessage(currentUserId: Long): DirectMessage {
+fun ChannelDescription.toDirectMessage(currentUserId: Long, previewContext: android.content.Context? = null): DirectMessage {
     val otherIndex = userIdsList.indexOfFirst { it != currentUserId }
         .takeIf { it >= 0 }
         ?: 0 
@@ -70,7 +71,8 @@ fun ChannelDescription.toDirectMessage(currentUserId: Long): DirectMessage {
     val isOnline = onlinesList.getOrElse(otherIndex) { false }
 
     val lastMsgContent = if (hasLastSentMessage()) {
-        parseContentPreview(lastSentMessage.content)
+        if (previewContext != null) messagePreviewForDialog(previewContext, lastSentMessage.content)
+        else parseContentPreview(lastSentMessage.content)
     } else ""
 
     val otherUserId = userIdsList.getOrElse(otherIndex) { 0L }

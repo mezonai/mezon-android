@@ -1,6 +1,7 @@
 package com.mezon.mobile.home.clans
 
 import com.mezon.mobile.core.NotificationCenter
+import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.data.db.ClanChannelDao
 import com.mezon.mobile.data.db.FavoriteChannelDao
 import com.mezon.mobile.data.db.FavoriteChannelEntity
@@ -113,6 +114,9 @@ class ChannelController @Inject constructor(
                 updateCache(clanId, cached)
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
             }
+        }
+        if (StartupCache.suppressHomeListApiForIncomingCallWake && !force) {
+            return
         }
         val shouldForce = force
         if (!shouldForce && cacheTracker.shouldCall(cacheKey) == ApiCacheTracker.ShouldCall.SKIP) {

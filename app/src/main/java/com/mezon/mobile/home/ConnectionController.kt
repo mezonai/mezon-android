@@ -7,6 +7,8 @@ import com.google.firebase.messaging.FirebaseMessaging
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
+import com.mezon.mobile.home.call.CallController
+import com.mezon.mobile.home.call.CallState
 import com.mezon.mobile.home.clans.ClansController
 import com.mezon.mobile.home.messages.MessageActivitiesController
 import com.mezon.mobile.network.ApiCacheTracker
@@ -18,6 +20,7 @@ import com.mezon.mobile.session.SessionManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
@@ -37,6 +40,7 @@ class ConnectionController @Inject constructor(
     private val dialogsController: DialogsController,
     private val messageActivitiesController: MessageActivitiesController,
     private val clansController: ClansController,
+    private val callController: dagger.Lazy<CallController>,
     private val badgeCoordinator: dagger.Lazy<BadgeCoordinator>,
     @ApplicationContext private val appContext: Context,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
@@ -48,7 +52,22 @@ class ConnectionController @Inject constructor(
 
     @Volatile private var fcmRegistered = false
 
+    @Volatile private var deferredReconnectRefreshPending = false
+
+    private val callEndedFlushDelegate = object : NotificationCenter.NotificationCenterDelegate {
+        override fun didReceivedNotification(id: Int, account: Int, vararg args: Any?) {
+            if (args.firstOrNull() !is CallState.Idle) return
+            if (!deferredReconnectRefreshPending) return
+            deferredReconnectRefreshPending = false
+            Log.i(TAG, "Flush deferred reconnect refresh (call session ended)")
+            doFullReconnectRefresh()
+        }
+    }
+
     init {
+        appScope.launch(Dispatchers.Main) {
+            notificationCenter.addObserver(callEndedFlushDelegate, NotificationCenter.callStateChanged)
+        }
         appScope.launch { observeConnectionState() }
         appScope.launch { connectSocket() }
         appScope.launch { joinClanOnConnected() }
@@ -71,11 +90,48 @@ class ConnectionController @Inject constructor(
             try { sessionManager.requireValidSession() }
             catch (e: java.io.IOException) { return@launch }
             catch (e: Exception) { Log.e(TAG, "Failed to refresh session", e); return@launch }
+        }
+    }
+
+    fun reconnectSocketForOfferSignaling() {
+        Log.i(
+            TAG,
+            "reconnectSocketForOfferSignaling: invoked (only from IncomingCallFcmHandler after FCM offer filters pass)"
+        )
+        appScope.launch {
+            if (!networkMonitor.isOnline.value) {
+                Log.w(TAG, "reconnectSocketForOfferSignaling: skip, network offline")
+                return@launch
+            }
+            try { sessionManager.requireValidSession() }
+            catch (e: java.io.IOException) {
+                Log.w(TAG, "reconnectSocketForOfferSignaling: skip, session IO error", e)
+                return@launch
+            }
+            catch (e: Exception) {
+                Log.e(TAG, "reconnectSocketForOfferSignaling: session refresh failed", e)
+                return@launch
+            }
+            val before = mezonSocket.connectionState.value
+            Log.i(
+                TAG,
+                "reconnectSocketForOfferSignaling: session OK, socketState=$before → reconnectIfNeeded (no-op unless DISCONNECTED)"
+            )
             mezonSocket.reconnectIfNeeded()
         }
     }
 
     private fun refreshOnReconnect() {
+        if (callController.get().isCallSessionActive()) {
+            deferredReconnectRefreshPending = true
+            Log.i(TAG, "refreshOnReconnect: defer full home refresh (active call session)")
+            return
+        }
+        deferredReconnectRefreshPending = false
+        doFullReconnectRefresh()
+    }
+
+    private fun doFullReconnectRefresh() {
         Log.d(TAG, "refreshOnReconnect: invalidating cache + refreshing all lists")
 
         badgeCoordinator.get().onReconnect()

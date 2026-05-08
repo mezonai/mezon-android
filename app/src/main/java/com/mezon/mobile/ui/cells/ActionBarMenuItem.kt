@@ -68,6 +68,7 @@ class ActionBarMenuItem(
             Gravity.CENTER
         ))
         foreground = parentMenu.parentActionBar.createCircleRipple()
+        ActionBarView.bindCircularRippleRadius(this)
         isClickable = true
         isFocusable = true
     }

@@ -14,6 +14,7 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.util.avatarImgproxyUrl
 
 class DmLogoCell(
     context: Context,
@@ -45,15 +46,16 @@ class DmLogoCell(
     private var badgeText = ""
 
     fun setLogoUrl(url: String) {
-        val effectiveUrl = url.ifEmpty { DEFAULT_LOGO_URL }
-        if (currentLogoUrl == effectiveUrl && logoBitmap != null) return
-        currentLogoUrl = effectiveUrl
+        val raw = url.ifEmpty { DEFAULT_LOGO_URL }
+        val loadUrl = avatarImgproxyUrl(raw, iconSizePx).ifEmpty { raw }
+        if (currentLogoUrl == loadUrl && logoBitmap != null) return
+        currentLogoUrl = loadUrl
 
         logoCancellable?.cancel()
         logoCancellable = null
 
         val loader = MezonImageLoader.getInstance(context)
-        val cached = loader.getBitmapFromMemory(effectiveUrl, iconSizePx, iconSizePx)
+        val cached = loader.getBitmapFromMemory(loadUrl, iconSizePx, iconSizePx)
         if (cached != null) {
             logoBitmap = cached
             invalidate()
@@ -62,7 +64,7 @@ class DmLogoCell(
 
         logoBitmap = null
         logoCancellable = loader.load(
-            effectiveUrl, iconSizePx, iconSizePx,
+            loadUrl, iconSizePx, iconSizePx,
             onSuccess = { bmp ->
                 logoBitmap = bmp
                 invalidate()

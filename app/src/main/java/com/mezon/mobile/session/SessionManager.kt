@@ -254,6 +254,7 @@ class SessionManager @Inject constructor(
         StartupCache.hasSession = false
         StartupCache.needsUsernameSetup = false
         StartupCache.userId = ""
+        StartupCache.clearAccountProfileScratch()
         PollVotePersistence.clearAll()
         lastRefreshToken = ""
         failCount = 0

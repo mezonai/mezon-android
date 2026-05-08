@@ -973,4 +973,17 @@
         <item quantity="one">%d day left</item>
         <item quantity="other">%d days left</item>
     </plurals>
+
+    <string name="message_call_log_cancel">You canceled</string>
+    <string name="message_call_log_missed">You missed</string>
+    <string name="message_call_log_receiver_rejected">Receiver rejected</string>
+    <string name="message_call_log_you_rejected">You rejected</string>
+    <string name="message_call_log_audio_call">Audio call</string>
+    <string name="message_call_log_video_call">Video call</string>
+    <string name="message_call_log_call_back">Call back</string>
+    <string name="message_call_log_incoming_call">Incoming call</string>
+    <string name="message_call_log_outgoing_call">Outgoing call</string>
+    <string name="message_call_log_start_group_call">%1$s started a group call</string>
+    <string name="message_call_log_start_audio_call">%1$s started an audio call</string>
+    <string name="message_call_log_start_video_call">%1$s started a video call</string>
 </resources>

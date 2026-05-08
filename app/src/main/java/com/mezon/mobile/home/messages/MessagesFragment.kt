@@ -22,6 +22,7 @@ import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
+import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.friends.AddFriendFragment
@@ -105,7 +106,9 @@ class MessagesFragment : BaseFragment() {
             syncMessageActivitiesStrip()
         }
 
-        controller.loadDialogs()
+        if (!StartupCache.suppressHomeListApiForIncomingCallWake) {
+            controller.loadDialogs()
+        }
         return true
     }
 

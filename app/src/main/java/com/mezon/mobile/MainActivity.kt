@@ -10,12 +10,17 @@ import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.util.Rational
+import android.view.Gravity
+import android.view.View
 import android.view.ActionMode
 import android.view.Menu
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.widget.FrameLayout
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
@@ -24,6 +29,7 @@ import com.mezon.mobile.auth.OTPVerificationFragment
 import com.mezon.mobile.auth.UpdateUsernameFragment
 import com.mezon.mobile.core.ActionBarLayout
 import com.mezon.mobile.core.AndroidUtilities
+import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.DrawerLayoutContainer
 import com.mezon.mobile.core.INavigationLayout
@@ -37,6 +43,12 @@ import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.messages.MessageActivitiesController
 import com.mezon.mobile.home.MainTabsActivity
 import com.mezon.mobile.home.chat.ChatFragment
+import com.mezon.mobile.home.call.CallController
+import com.mezon.mobile.home.call.CallFragment
+import com.mezon.mobile.home.call.CallInfo
+import com.mezon.mobile.home.call.CallingOverlay
+import com.mezon.mobile.home.call.IncomingCallActivity
+import com.mezon.mobile.home.call.IncomingCallFcmHandler
 import com.mezon.mobile.home.clans.ClanChannelEntity
 import com.mezon.mobile.home.sharing.SharingFragment
 import com.mezon.mobile.home.voice.VoiceOverlayManager
@@ -55,6 +67,7 @@ import com.mezon.mobile.update.AppUpdateGateManager
 import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.EntryPointAccessors
 import javax.inject.Inject
+import kotlin.math.max
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -72,6 +85,7 @@ class MainActivity : BasePermissionsActivity(),
 
     companion object {
         private const val TAG = "MainActivity"
+        private const val REQUEST_INCOMING_CALL_PERMISSIONS = 9041
 
         var instance: MainActivity? = null
             private set
@@ -102,6 +116,8 @@ class MainActivity : BasePermissionsActivity(),
     @Inject lateinit var connectionController: ConnectionController
     @Inject lateinit var notificationHelper: NotificationHelper
     @Inject lateinit var appUpdateGateManager: AppUpdateGateManager
+    @Inject lateinit var incomingCallFcmHandler: IncomingCallFcmHandler
+    @Inject lateinit var callController: CallController
 
     lateinit var actionBarLayout: ActionBarLayout
     lateinit var drawerLayoutContainer: DrawerLayoutContainer
@@ -119,6 +135,7 @@ class MainActivity : BasePermissionsActivity(),
     private val dismissSplashRunnable = Runnable { isContentReady = true }
     private var splashContentObserver: NotificationCenter.NotificationCenterDelegate? = null
     private var appUpdateGateRunnable: Runnable? = null
+    private var callingOverlay: CallingOverlay? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
@@ -214,6 +231,8 @@ class MainActivity : BasePermissionsActivity(),
         notificationCenter.addObserver(this, NotificationCenter.connectionStateChanged)
         notificationCenter.addObserver(this, NotificationCenter.sessionExpired)
         notificationCenter.addObserver(this, NotificationCenter.appDidLogout)
+        notificationCenter.addObserver(this, NotificationCenter.incomingCall)
+        notificationCenter.addObserver(this, NotificationCenter.callEnded)
     }
 
     override fun onResume() {
@@ -262,6 +281,10 @@ class MainActivity : BasePermissionsActivity(),
         notificationCenter.removeObserver(this, NotificationCenter.connectionStateChanged)
         notificationCenter.removeObserver(this, NotificationCenter.sessionExpired)
         notificationCenter.removeObserver(this, NotificationCenter.appDidLogout)
+        notificationCenter.removeObserver(this, NotificationCenter.incomingCall)
+        notificationCenter.removeObserver(this, NotificationCenter.callEnded)
+
+        dismissIncomingCallOverlay(removeView = true)
 
         isActive = false
         if (instance === this) instance = null
@@ -394,8 +417,98 @@ class MainActivity : BasePermissionsActivity(),
                 // handled by ConnectionController UI updates
             }
             NotificationCenter.sessionExpired, NotificationCenter.appDidLogout -> {
+                dismissIncomingCallOverlay(removeView = false)
                 switchToLogin()
             }
+            NotificationCenter.incomingCall -> {
+                if (!StartupCache.hasSession) return
+                if (IncomingCallActivity.shouldSuppressMainTabsIncomingOverlay()) return
+                val callInfo = args.firstOrNull() as? CallInfo ?: return
+                showIncomingCallingOverlay(callInfo)
+            }
+            NotificationCenter.callEnded -> {
+                dismissIncomingCallOverlay(removeView = false)
+            }
+        }
+    }
+
+    private fun requestIncomingCallPermissionsEagerly() {
+        val needed = mutableListOf<String>()
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            needed.add(Manifest.permission.RECORD_AUDIO)
+        }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            needed.add(Manifest.permission.CAMERA)
+        }
+        if (needed.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, needed.toTypedArray(), REQUEST_INCOMING_CALL_PERMISSIONS)
+        }
+    }
+
+    private fun showIncomingCallingOverlay(callInfo: CallInfo) {
+        if (!StartupCache.hasSession) return
+        Log.d(TAG, "showIncomingCallingOverlay: caller=${callInfo.peerName}")
+        requestIncomingCallPermissionsEagerly()
+        var overlay = callingOverlay
+        if (overlay == null) {
+            overlay = CallingOverlay(this)
+            callingOverlay = overlay
+        }
+        overlay.setCallerInfo(callInfo.peerName, callInfo.peerAvatar)
+        overlay.delegate = object : CallingOverlay.Delegate {
+            override fun onAcceptClicked() {
+                Log.d(TAG, "incoming overlay accept: state=${callController.callState::class.simpleName}")
+                dismissIncomingCallOverlay(removeView = false)
+                callController.acceptCall()
+                actionBarLayout.presentFragment(CallFragment())
+            }
+
+            override fun onDeclineClicked() {
+                dismissIncomingCallOverlay(removeView = false)
+                callController.rejectCall()
+            }
+        }
+        if (overlay.parent == null) {
+            val lp = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            }
+            drawerLayoutContainer.addView(overlay, lp)
+        }
+        drawerLayoutContainer.bringChildToFront(overlay)
+        drawerLayoutContainer.post { applyIncomingCallOverlayLayoutParams(overlay) }
+        overlay.requestApplyInsets()
+        overlay.show()
+    }
+
+    private fun applyIncomingCallOverlayLayoutParams(overlay: View) {
+        val lp = overlay.layoutParams as? FrameLayout.LayoutParams ?: return
+        val insets = ViewCompat.getRootWindowInsets(drawerLayoutContainer)
+        val insetTop = if (insets != null) {
+            val sys = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val cut = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
+            max(sys.top, cut.top)
+        } else {
+            0
+        }
+        lp.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+        lp.topMargin = max(insetTop, AndroidUtilities.statusBarHeight) + LayoutHelper.dp(8f)
+        lp.marginStart = LayoutHelper.dp(12f)
+        lp.marginEnd = LayoutHelper.dp(12f)
+        lp.width = FrameLayout.LayoutParams.MATCH_PARENT
+        lp.height = FrameLayout.LayoutParams.WRAP_CONTENT
+        overlay.layoutParams = lp
+    }
+
+    private fun dismissIncomingCallOverlay(removeView: Boolean) {
+        val o = callingOverlay ?: return
+        o.dismiss()
+        o.delegate = null
+        if (removeView) {
+            (o.parent as? ViewGroup)?.removeView(o)
+            callingOverlay = null
         }
     }
 
@@ -520,12 +633,16 @@ class MainActivity : BasePermissionsActivity(),
         mainFragmentsStack.clear()
         actionBarLayout.addFragmentToStack(mainTabsActivity)
         actionBarLayout.showLastFragment()
-        dialogsController.loadDialogs()
-        messageActivitiesController.loadListActivities()
+        if (!StartupCache.suppressHomeListApiForIncomingCallWake) {
+            dialogsController.loadDialogs()
+            messageActivitiesController.loadListActivities()
+            
+        }
     }
 
     private fun switchToLogin() {
         StartupCache.needsUsernameSetup = false
+        StartupCache.suppressHomeListApiForIncomingCallWake = false
         notificationHelper.cancelAllNotifications()
         dismissVoiceRoom()
         val entryPoint = EntryPointAccessors.fromApplication(
@@ -936,6 +1053,28 @@ class MainActivity : BasePermissionsActivity(),
 
     private fun handleNotificationIntent(intent: Intent?) {
         intent ?: return
+
+        val offerJson = sequenceOf("offer", "offer_json", "json_data")
+            .mapNotNull { intent.getStringExtra(it)?.trim()?.takeIf { s -> s.isNotEmpty() } }
+            .firstOrNull()
+        offerJson?.let { json ->
+            if (StartupCache.hasSession) {
+                incomingCallFcmHandler.handleOfferExtraFromNotificationIntent(json)
+            }
+            sequenceOf("offer", "offer_json", "json_data").forEach { intent.removeExtra(it) }
+            return
+        }
+
+        if (intent.getBooleanExtra(com.mezon.mobile.home.call.CallNotificationManager.EXTRA_OPEN_CALL, false)) {
+            intent.removeExtra(com.mezon.mobile.home.call.CallNotificationManager.EXTRA_OPEN_CALL)
+            if (StartupCache.hasSession) {
+                val callFragment = com.mezon.mobile.home.call.CallFragment()
+                val params = INavigationLayout.NavigationParams(callFragment)
+                actionBarLayout.presentFragment(params)
+            }
+            return
+        }
+
         val action = intent.action
         val isFromNotification = action != null && action.startsWith(NotificationHelper.ACTION_OPEN_CHAT)
         val extras = intent.extras ?: return

@@ -56,10 +56,10 @@ class MezonImageLoader private constructor(context: Context) {
     }
 
     private val diskCacheDir: File = File(context.cacheDir, "img_cache").also { it.mkdirs() }
-    private val maxDiskCacheBytes = 128L * 1024 * 1024
+    private val maxDiskCacheBytes = 512L * 1024 * 1024
 
     private val avatarCacheDir: File = File(context.cacheDir, "avatar_cache").also { it.mkdirs() }
-    private val maxAvatarDiskBytes = 64L * 1024 * 1024
+    private val maxAvatarDiskBytes = 256L * 1024 * 1024
 
     private val inflightUrlCalls = ConcurrentHashMap<String, Call>()
     private val pendingDecodes = ConcurrentHashMap<String, MutableList<PendingDecode>>()
@@ -149,6 +149,27 @@ class MezonImageLoader private constructor(context: Context) {
             onSuccess = onSuccess as (Any) -> Unit, onError = onError)
     }
 
+    private fun stableUrlForDiskAndMemory(fetchUrl: String): String {
+        val marker = "/plain/"
+        val p = fetchUrl.indexOf(marker)
+        if (p >= 0) {
+            val embedded = fetchUrl.substring(p + marker.length).substringBefore('@')
+            return stripQueryAndFragment(embedded)
+        }
+        return when {
+            fetchUrl.startsWith("https://cdn.mezon") -> stripQueryAndFragment(fetchUrl)
+            fetchUrl.startsWith("https://profile.mezon") -> stripQueryAndFragment(fetchUrl)
+            fetchUrl.startsWith("http://cdn.mezon") -> stripQueryAndFragment(fetchUrl)
+            fetchUrl.startsWith("http://profile.mezon") -> stripQueryAndFragment(fetchUrl)
+            else -> fetchUrl
+        }
+    }
+
+    private fun stripQueryAndFragment(raw: String): String {
+        if (raw.isEmpty()) return raw
+        return raw.substringBefore('#').substringBefore('?')
+    }
+
     private fun loadInternal(
         url: String,
         reqWidth: Int,
@@ -162,7 +183,8 @@ class MezonImageLoader private constructor(context: Context) {
             return Cancellable.EMPTY
         }
 
-        val memKey = cacheKey(url, reqWidth, reqHeight)
+        val logicalUrl = stableUrlForDiskAndMemory(url)
+        val memKey = cacheKey(logicalUrl, reqWidth, reqHeight)
 
         if (!animated) {
             getFromMemory(memKey)?.let { cached ->
@@ -174,87 +196,96 @@ class MezonImageLoader private constructor(context: Context) {
         val cb = LoadCallback(onSuccess, onError)
 
         if (addCallback(memKey, cb)) {
-            return Cancellable { removePendingCallback(url, memKey, cb) }
+            return Cancellable { removePendingCallback(logicalUrl, memKey, cb) }
         }
 
-        val urlFile = diskFileForUrl(url)
+        val urlFile = diskFileForUrl(logicalUrl)
         if (urlFile.exists() && urlFile.length() > 0L) {
             touchFile(urlFile)
             if (animated) decodeAnimatedInBackground(urlFile, memKey, reqWidth, reqHeight)
             else decodeInBackground(urlFile, memKey, reqWidth, reqHeight)
-            return Cancellable { removePendingCallback(url, memKey, cb) }
+            return Cancellable { removePendingCallback(logicalUrl, memKey, cb) }
         }
 
-        enqueueDecodeAfterDownload(url, memKey, reqWidth, reqHeight, animated)
-        ensureNetworkFetch(url)
-        return Cancellable { removePendingCallback(url, memKey, cb) }
+        enqueueDecodeAfterDownload(logicalUrl, memKey, reqWidth, reqHeight, animated)
+        ensureNetworkFetch(url, logicalUrl)
+        return Cancellable { removePendingCallback(logicalUrl, memKey, cb) }
     }
 
     private fun enqueueDecodeAfterDownload(
-        url: String,
+        logicalUrl: String,
         memKey: String,
         reqWidth: Int,
         reqHeight: Int,
         animated: Boolean
     ) {
         val task = PendingDecode(memKey, reqWidth, reqHeight, animated)
-        val list = pendingDecodes.getOrPut(url) { mutableListOf() }
+        val list = pendingDecodes.getOrPut(logicalUrl) { mutableListOf() }
         synchronized(list) { list.add(task) }
     }
 
-    private fun ensureNetworkFetch(url: String, attempt: Int = 0) {
-        if (inflightUrlCalls.containsKey(url)) return
-        val request = Request.Builder().url(url).build()
+    private fun ensureNetworkFetch(fetchUrl: String, logicalUrl: String, attempt: Int = 0) {
+        if (inflightUrlCalls.containsKey(logicalUrl)) return
+        val request = Request.Builder().url(fetchUrl).build()
         val call = client.newCall(request)
-        val prev = inflightUrlCalls.putIfAbsent(url, call)
+        val prev = inflightUrlCalls.putIfAbsent(logicalUrl, call)
         if (prev != null) return
 
         call.enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                inflightUrlCalls.remove(url, call)
+                inflightUrlCalls.remove(logicalUrl, call)
                 if (call.isCanceled()) return
                 if (attempt < 2) {
-                    mainHandler.postDelayed({ ensureNetworkFetch(url, attempt + 1) }, 350L shl attempt)
+                    mainHandler.postDelayed({
+                        ensureNetworkFetch(fetchUrl, logicalUrl, attempt + 1)
+                    }, 350L shl attempt)
                 } else {
-                    dispatchAllDecodeError(url, e)
+                    dispatchAllDecodeError(logicalUrl, e)
                 }
             }
 
             override fun onResponse(call: Call, response: Response) {
-                inflightUrlCalls.remove(url, call)
+                inflightUrlCalls.remove(logicalUrl, call)
                 if (!response.isSuccessful) {
                     val code = response.code
                     response.close()
                     if (attempt < 2 && (code == 408 || code == 429 || code >= 500)) {
-                        mainHandler.postDelayed({ ensureNetworkFetch(url, attempt + 1) }, 350L shl attempt)
+                        mainHandler.postDelayed({
+                            ensureNetworkFetch(fetchUrl, logicalUrl, attempt + 1)
+                        }, 350L shl attempt)
                     } else {
-                        dispatchAllDecodeError(url, IOException("HTTP $code"))
+                        dispatchAllDecodeError(logicalUrl, IOException("HTTP $code"))
                     }
                     return
                 }
                 try {
-                    val urlFile = diskFileForUrl(url)
+                    val urlFile = diskFileForUrl(logicalUrl)
                     response.body?.byteStream()?.use { input ->
                         FileOutputStream(urlFile).use { output -> input.copyTo(output) }
                     } ?: throw IOException("Empty body")
                     response.close()
                     trimDiskCache()
-                    dispatchAllDecodeSuccess(url, urlFile)
+                    dispatchAllDecodeSuccess(logicalUrl, urlFile)
                 } catch (e: Exception) {
                     val ex = e as? Exception ?: Exception(e)
                     if (attempt < 2 && e is IOException) {
-                        try { diskFileForUrl(url).delete() } catch (_: Throwable) {}
-                        mainHandler.postDelayed({ ensureNetworkFetch(url, attempt + 1) }, 350L shl attempt)
+                        try {
+                            diskFileForUrl(logicalUrl).delete()
+                        } catch (_: Throwable) {
+                        }
+                        mainHandler.postDelayed({
+                            ensureNetworkFetch(fetchUrl, logicalUrl, attempt + 1)
+                        }, 350L shl attempt)
                     } else {
-                        dispatchAllDecodeError(url, ex)
+                        dispatchAllDecodeError(logicalUrl, ex)
                     }
                 }
             }
         })
     }
 
-    private fun dispatchAllDecodeSuccess(url: String, file: File) {
-        val list = pendingDecodes.remove(url) ?: return
+    private fun dispatchAllDecodeSuccess(logicalUrl: String, file: File) {
+        val list = pendingDecodes.remove(logicalUrl) ?: return
         val copy: List<PendingDecode>
         synchronized(list) { copy = ArrayList(list) }
         for (task in copy) {
@@ -263,14 +294,14 @@ class MezonImageLoader private constructor(context: Context) {
         }
     }
 
-    private fun dispatchAllDecodeError(url: String, error: Exception) {
-        val list = pendingDecodes.remove(url) ?: return
+    private fun dispatchAllDecodeError(logicalUrl: String, error: Exception) {
+        val list = pendingDecodes.remove(logicalUrl) ?: return
         val copy: List<PendingDecode>
         synchronized(list) { copy = ArrayList(list) }
         for (task in copy) dispatchError(task.memKey, error)
     }
 
-    private fun removePendingCallback(url: String, memKey: String, cb: LoadCallback) {
+    private fun removePendingCallback(logicalUrl: String, memKey: String, cb: LoadCallback) {
         val list = pendingCallbacks[memKey] ?: return
         val callbacksEmpty = synchronized(list) {
             list.remove(cb)
@@ -280,16 +311,16 @@ class MezonImageLoader private constructor(context: Context) {
             } else false
         }
         if (!callbacksEmpty) return
-        val decodeList = pendingDecodes[url] ?: return
+        val decodeList = pendingDecodes[logicalUrl] ?: return
         val decodeEmpty = synchronized(decodeList) {
             decodeList.removeAll { it.memKey == memKey }
             if (decodeList.isEmpty()) {
-                pendingDecodes.remove(url, decodeList)
+                pendingDecodes.remove(logicalUrl, decodeList)
                 true
             } else false
         }
         if (decodeEmpty) {
-            inflightUrlCalls.remove(url)?.cancel()
+            inflightUrlCalls.remove(logicalUrl)?.cancel()
         }
     }
 
@@ -381,7 +412,7 @@ class MezonImageLoader private constructor(context: Context) {
     }
 
     fun getBitmapFromMemory(url: String, reqWidth: Int, reqHeight: Int): Bitmap? {
-        return getFromMemory(cacheKey(url, reqWidth, reqHeight))
+        return getFromMemory(cacheKey(stableUrlForDiskAndMemory(url), reqWidth, reqHeight))
     }
 
     fun cancelAll() {
@@ -397,7 +428,7 @@ class MezonImageLoader private constructor(context: Context) {
     }
 
     fun removeFromCache(url: String, reqWidth: Int, reqHeight: Int) {
-        val key = cacheKey(url, reqWidth, reqHeight)
+        val key = cacheKey(stableUrlForDiskAndMemory(url), reqWidth, reqHeight)
         smallCache.remove(key)
         largeCache.remove(key)
     }
@@ -470,10 +501,13 @@ class MezonImageLoader private constructor(context: Context) {
             val files = dir.listFiles() ?: return
             var totalSize = files.sumOf { it.length() }
             if (totalSize <= maxBytes) return
-            val sorted = files.sortedBy { it.lastModified() }
-            for (f in sorted) {
+            val largeMin = LARGE_FILE_TRIM_PRIORITY_BYTES.toLong()
+            val largeCandidates = files.filter { it.length() >= largeMin }.sortedBy { it.lastModified() }
+            val smallCandidates = files.filter { it.length() < largeMin }.sortedBy { it.lastModified() }
+            for (f in largeCandidates.asSequence() + smallCandidates.asSequence()) {
                 if (totalSize <= maxBytes * 0.8) break
-                totalSize -= f.length()
+                val len = f.length()
+                totalSize -= len
                 try { f.delete() } catch (_: Throwable) {}
             }
         } catch (_: Exception) {}
@@ -541,6 +575,8 @@ class MezonImageLoader private constructor(context: Context) {
         private var instance: MezonImageLoader? = null
 
         private const val SMALL_IMAGE_THRESHOLD = 100
+        private const val MAX_DECODE_QUEUE = 64
+        private const val LARGE_FILE_TRIM_PRIORITY_BYTES = 384_000
 
         private val AVATAR_BUCKET_MARKERS = arrayOf(
             "/rs:fill:64:64:1/",

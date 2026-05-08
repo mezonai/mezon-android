@@ -1,9 +1,11 @@
 package com.mezon.mobile.home
 
+import android.content.Context
 import android.util.LongSparseArray
 import android.util.Log
 import com.mezon.mezon.api.ChannelMessage
 import com.mezon.mobile.core.NotificationCenter
+import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.data.db.DirectMessageDao
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
@@ -27,7 +29,7 @@ import com.mezon.mobile.notification.ActiveChannelTracker
 import com.mezon.mobile.notification.NotificationHelper
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.session.StoredSession
-import com.mezon.mobile.util.parseContentPreview
+import com.mezon.mobile.home.call.messagePreviewForDialog
 import dagger.Lazy
 import com.mezon.mezon.api.ChannelDescription
 import com.mezon.mezon.rtapi.LastSeenMessageEvent
@@ -37,11 +39,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
+import dagger.hilt.android.qualifiers.ApplicationContext
 
 private const val TAG = "DialogsController"
 
 @Singleton
 class DialogsController @Inject constructor(
+    @ApplicationContext private val appContext: Context,
     private val api: MezonApi,
     private val directMessageDao: DirectMessageDao,
     private val socketEventDispatcher: SocketEventDispatcher,
@@ -180,6 +184,10 @@ class DialogsController @Inject constructor(
     fun loadDialogs(page: Int = 1, limit: Int = 500) {
         appScope.launch(ioDispatcher) {
             try {
+                if (StartupCache.suppressHomeListApiForIncomingCallWake) {
+                    return@launch
+                }
+
                 val cacheKey = apiCacheKey("listChannelDescs", page)
                 val hasCache: Boolean
                 synchronized(this@DialogsController) { hasCache = dialogs.isNotEmpty() }
@@ -225,7 +233,7 @@ class DialogsController @Inject constructor(
                     }
 
                     val merged = activeDescs
-                        .map { it.toDirectMessage(currentUserId) }
+                        .map { it.toDirectMessage(currentUserId, appContext) }
                         .sortedByDescending { it.lastSentMessageTs }
 
                     val withContent = merged.count { it.lastMessageContent.isNotBlank() }
@@ -462,7 +470,7 @@ class DialogsController @Inject constructor(
                 }
             }
             if (m.content.isNotEmpty()) {
-                val preview = parseContentPreview(m.content)
+                val preview = messagePreviewForDialog(appContext, m.content)
                 if (preview.isNotBlank() && preview != next.lastMessageContent) {
                     val sameLastMessage = m.id != 0L && m.id == next.lastSentMessageId
                     val sameTsSparseHeader = m.id == 0L && ts > 0L && ts == next.lastSentMessageTs

@@ -296,6 +296,9 @@ class FriendController @Inject constructor(
         ).size
     }
 
+    fun isUserBlocked(userId: Long): Boolean =
+        _blockedUsers.value.any { it.user.id == userId }
+
     fun cleanup() {
         _blockedUsers.value = emptyList()
         _friends.value = emptyList()

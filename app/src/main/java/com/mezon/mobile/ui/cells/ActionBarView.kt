@@ -6,6 +6,7 @@ import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
+import android.graphics.drawable.RippleDrawable
 import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
@@ -118,6 +119,7 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
             }
         }
         addView(backButtonImageView, LayoutHelper.createFrame(54, 54, Gravity.START or Gravity.TOP))
+        bindCircularRippleRadius(backButtonImageView!!)
     }
 
     fun setBackButtonImage(resource: Int) {
@@ -545,6 +547,19 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
         private val TEXT_LEFT_WITH_BACK = com.mezon.mobile.core.LayoutHelper.dp(72)
 
         @JvmStatic fun getCurrentActionBarHeightStatic(): Int = ACTION_BAR_HEIGHT
+
+        @JvmStatic
+        fun bindCircularRippleRadius(view: View) {
+            view.addOnLayoutChangeListener { v, left, top, right, bottom, _, _, _, _ ->
+                val w = right - left
+                val h = bottom - top
+                if (w <= 0 || h <= 0) return@addOnLayoutChangeListener
+                val rad = kotlin.math.min(w, h) / 2
+                val target = v as View
+                (target.background as? RippleDrawable)?.radius = rad
+                (target.foreground as? RippleDrawable)?.radius = rad
+            }
+        }
     }
 
     fun getActionBarFullHeight(): Int {

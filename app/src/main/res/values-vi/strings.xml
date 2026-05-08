@@ -836,4 +836,17 @@
     <plurals name="poll_days_remaining">
         <item quantity="other">%d ngày còn lại</item>
     </plurals>
+
+    <string name="message_call_log_cancel">Bạn đã từ chối</string>
+    <string name="message_call_log_missed">Bạn bị nhỡ</string>
+    <string name="message_call_log_receiver_rejected">Người nhận từ chối</string>
+    <string name="message_call_log_you_rejected">Bạn đã từ chối</string>
+    <string name="message_call_log_audio_call">Cuộc gọi thoại</string>
+    <string name="message_call_log_video_call">Cuộc gọi video</string>
+    <string name="message_call_log_call_back">Gọi lại</string>
+    <string name="message_call_log_incoming_call">Cuộc gọi đến</string>
+    <string name="message_call_log_outgoing_call">Cuộc gọi đi</string>
+    <string name="message_call_log_start_group_call">%1$s đã bắt đầu 1 cuộc gọi nhóm</string>
+    <string name="message_call_log_start_audio_call">%1$s đã bắt đầu 1 cuộc gọi thoại</string>
+    <string name="message_call_log_start_video_call">%1$s đã bắt đầu 1 cuộc gọi video</string>
 </resources>

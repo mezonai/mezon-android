@@ -28,8 +28,10 @@ zxing = "3.5.3"
 bouncyCastle = "1.78.1"
 photoView = "2.3.0"
 appcompat = "1.7.0"
+webrtc = "125.6422.07"
 
 [libraries]
+google-webrtc = { module = "io.github.webrtc-sdk:android", version.ref = "webrtc" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }

@@ -77,19 +77,29 @@ class FriendsHomeFragment : BaseFragment() {
         val searchRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = LayoutHelper.dp(40)
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(12f).toFloat()
                 setColor(themeColors.surfaceVariant)
             }
             setPadding(LayoutHelper.dp(12), LayoutHelper.dp(10), LayoutHelper.dp(12), LayoutHelper.dp(10))
         }
-        root.addView(searchRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+        root.addView(
+            searchRow,
+            LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
+                bottomMargin = LayoutHelper.dp(12)
+            }
+        )
 
         val searchIcon = ImageView(context).apply {
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
             setImageDrawable(MezonIcon.searchIcon.getDrawable(context))
             colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
         }
-        searchRow.addView(searchIcon, LayoutHelper.createLinear(18, 18, rightMargin = 8f))
+        searchRow.addView(
+            searchIcon,
+            LayoutHelper.createLinear(20, 20, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, 8f, 0f)
+        )
 
         searchInput = EditText(context).apply {
             hint = getString(R.string.common_search_placeholder)
@@ -97,6 +107,10 @@ class FriendsHomeFragment : BaseFragment() {
             setTextColor(themeColors.onSurface)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             background = null
+            setPadding(0, 0, 0, 0)
+            minHeight = 0
+            gravity = Gravity.CENTER_VERTICAL
+            includeFontPadding = false
             maxLines = 1
             isSingleLine = true
             addTextChangedListener(object : TextWatcher {
@@ -111,13 +125,12 @@ class FriendsHomeFragment : BaseFragment() {
                 }
             })
         }
-        searchRow.addView(searchInput, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f))
+        searchRow.addView(searchInput, LayoutHelper.createLinear(0, LayoutHelper.MATCH_PARENT, 1f))
 
         requestRow = buildRequestRow(context)
         root.addView(
             requestRow,
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
-                topMargin = LayoutHelper.dp(12)
                 bottomMargin = LayoutHelper.dp(12)
             }
         )
@@ -127,6 +140,7 @@ class FriendsHomeFragment : BaseFragment() {
 
         recyclerView = RecyclerListView(context).apply {
             layoutManager = LinearLayoutManager(context)
+            itemAnimator = null
             overScrollMode = View.OVER_SCROLL_NEVER
             isVerticalScrollBarEnabled = false
         }

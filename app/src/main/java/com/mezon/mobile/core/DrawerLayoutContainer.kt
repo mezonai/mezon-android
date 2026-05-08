@@ -127,15 +127,22 @@ class DrawerLayoutContainer(context: Context) : FrameLayout(context) {
             if (child.visibility == GONE) continue
 
             val lp = child.layoutParams as LayoutParams
-            val contentWidthSpec = MeasureSpec.makeMeasureSpec(
-                widthSize - lp.leftMargin - lp.rightMargin, MeasureSpec.EXACTLY
-            )
-            val contentHeightSpec = if (lp.height > 0) {
-                MeasureSpec.makeMeasureSpec(lp.height, MeasureSpec.EXACTLY)
-            } else {
-                MeasureSpec.makeMeasureSpec(
-                    heightSize - lp.topMargin - lp.bottomMargin, MeasureSpec.EXACTLY
+            val wAvail = widthSize - lp.leftMargin - lp.rightMargin
+            val hAvail = heightSize - lp.topMargin - lp.bottomMargin
+
+            val contentWidthSpec = when {
+                lp.width > 0 -> MeasureSpec.makeMeasureSpec(lp.width, MeasureSpec.EXACTLY)
+                lp.width == ViewGroup.LayoutParams.MATCH_PARENT -> MeasureSpec.makeMeasureSpec(
+                    maxOf(wAvail, 0), MeasureSpec.EXACTLY
                 )
+                else -> MeasureSpec.makeMeasureSpec(maxOf(wAvail, 0), MeasureSpec.AT_MOST)
+            }
+            val contentHeightSpec = when {
+                lp.height > 0 -> MeasureSpec.makeMeasureSpec(lp.height, MeasureSpec.EXACTLY)
+                lp.height == ViewGroup.LayoutParams.MATCH_PARENT -> MeasureSpec.makeMeasureSpec(
+                    maxOf(hAvail, 0), MeasureSpec.EXACTLY
+                )
+                else -> MeasureSpec.makeMeasureSpec(maxOf(hAvail, 0), MeasureSpec.AT_MOST)
             }
             child.measure(contentWidthSpec, contentHeightSpec)
         }

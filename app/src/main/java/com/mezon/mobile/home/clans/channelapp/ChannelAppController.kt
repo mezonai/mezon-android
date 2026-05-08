@@ -1,6 +1,7 @@
 package com.mezon.mobile.home.clans.channelapp
 
 import com.mezon.mobile.core.NotificationCenter
+import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.data.db.ChannelAppDao
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
@@ -87,6 +88,10 @@ class ChannelAppController @Inject constructor(
             notificationCenter.postNotificationOnMainThread(
                 NotificationCenter.channelAppsDidLoad, clanId
             )
+        }
+
+        if (StartupCache.suppressHomeListApiForIncomingCallWake && !force) {
+            return
         }
 
         if (!force && cacheTracker.shouldCall(cacheKey) == ApiCacheTracker.ShouldCall.SKIP) {

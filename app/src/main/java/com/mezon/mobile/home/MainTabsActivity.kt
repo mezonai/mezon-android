@@ -17,9 +17,10 @@ import com.mezon.mobile.home.ChannelFilesController
 import com.mezon.mobile.home.chat.EmojiController
 import com.mezon.mobile.home.clans.ClansFragment
 import com.mezon.mobile.home.messages.MessagesFragment
+import com.mezon.mobile.home.friends.FriendController
 import com.mezon.mobile.home.notifications.NotificationStore
 import com.mezon.mobile.home.notifications.NotificationsFragment
-import com.mezon.mobile.home.friends.FriendController
+import com.mezon.mobile.home.profile.AccountController
 import com.mezon.mobile.home.profile.ProfileFragment
 import com.mezon.mobile.ui.cells.BottomTabBar
 
@@ -46,6 +47,7 @@ class MainTabsActivity : ViewPagerActivity() {
     private lateinit var channelFilesController: ChannelFilesController
     private lateinit var emojiController: EmojiController
     private lateinit var searchController: com.mezon.mobile.search.SearchController
+    private lateinit var accountController: AccountController
 
     var onLogout: (() -> Unit)? = null
     var onOpenChat: ((channelId: Long, channelName: String, clanId: Long, channelType: Int) -> Unit)? = null
@@ -97,6 +99,7 @@ class MainTabsActivity : ViewPagerActivity() {
         channelGalleryController = entryPoint.channelGalleryController()
         emojiController = entryPoint.emojiController()
         searchController = entryPoint.searchController()
+        accountController = entryPoint.accountController()
         entryPoint.notificationStore()
     }
 
@@ -326,4 +329,5 @@ class MainTabsActivity : ViewPagerActivity() {
         updateContentRootBackground()
         bottomTabBar.applyTheme()
     }
+
 }

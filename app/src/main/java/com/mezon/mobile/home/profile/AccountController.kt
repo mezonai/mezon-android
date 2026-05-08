@@ -4,7 +4,10 @@ import android.content.ContentResolver
 import android.net.Uri
 import android.util.Log
 import com.mezon.mobile.BuildConfig
+import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
+import com.mezon.mobile.core.StartupCache
+import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.network.ApiCacheTracker
@@ -13,6 +16,7 @@ import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.network.SocketEventDispatcher
 import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.session.SessionManager
+import com.mezon.mobile.util.avatarImgproxyUrl
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
@@ -44,6 +48,9 @@ data class AccountInfo(
     val address: String = ""
 )
 
+private fun AccountInfo.hasColdStartScratch(): Boolean =
+    userId != 0L || displayName.isNotEmpty() || avatarUrl.isNotEmpty() || logo.isNotEmpty()
+
 private const val ACCOUNT_LOG = "AccountController"
 
 @Singleton
@@ -60,13 +67,33 @@ class AccountController @Inject constructor(
     @ApplicationScope private val appScope: CoroutineScope,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) {
-    private val _accountInfo = MutableStateFlow(AccountInfo())
+    private fun readBootstrappedAccountInfo(): AccountInfo {
+        if (!StartupCache.hasSession) return AccountInfo()
+        val userId = StartupCache.userId.toLongOrNull() ?: 0L
+        val logo = StartupCache.cachedDmLogoUrl
+        val displayName = StartupCache.cachedUserDisplayName
+        val avatarUrl = StartupCache.cachedUserAvatarUrl
+        if (userId == 0L && logo.isEmpty() && displayName.isEmpty() && avatarUrl.isEmpty()) return AccountInfo()
+        return AccountInfo(userId = userId, displayName = displayName, avatarUrl = avatarUrl, logo = logo)
+    }
+
+    private fun persistAccountScratch(info: AccountInfo) {
+        StartupCache.cachedDmLogoUrl = info.logo
+        StartupCache.cachedUserDisplayName = info.displayName
+        StartupCache.cachedUserAvatarUrl = info.avatarUrl
+    }
+
+    private val _accountInfo = MutableStateFlow(readBootstrappedAccountInfo())
     val accountInfo: StateFlow<AccountInfo> = _accountInfo.asStateFlow()
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
     init {
+        val boot = _accountInfo.value
+        if (boot.hasColdStartScratch()) {
+            userController.updateFromAccount(boot)
+        }
         appScope.launch {
             sessionManager.sessionFlow.first { it != null }
             loadAccountInternal()
@@ -85,6 +112,7 @@ class AccountController @Inject constructor(
                 avatarUrl = event.avatar.ifEmpty { current.avatarUrl }
             )
             _accountInfo.value = updated
+            persistAccountScratch(updated)
             userController.updateFromAccount(updated)
             notificationCenter.postNotificationOnMainThread(NotificationCenter.accountInfoLoaded)
         }
@@ -116,6 +144,13 @@ class AccountController @Inject constructor(
     }
 
     private val cacheKey = apiCacheKey("getAccount")
+
+    private fun scheduleDmLogoPrefetch(logoRaw: String) {
+        if (logoRaw.isEmpty()) return
+        val px = LayoutHelper.dp(42)
+        val proxied = avatarImgproxyUrl(logoRaw, px).ifEmpty { logoRaw }
+        MezonImageLoader.getInstance(appContext).load(proxied, px, px, onSuccess = {})
+    }
 
     private suspend fun loadAccountInternal(noCache: Boolean = false) {
         try {
@@ -152,6 +187,8 @@ class AccountController @Inject constructor(
                     _accountInfo.value = info
                     cacheTracker.markCalled(cacheKey)
                     userController.updateFromAccount(info)
+                    persistAccountScratch(info)
+                    scheduleDmLogoPrefetch(info.logo)
                     notificationCenter.postNotificationOnMainThread(NotificationCenter.accountInfoLoaded)
                 }
             }
@@ -328,6 +365,8 @@ class AccountController @Inject constructor(
                 _accountInfo.value = updated
                 cacheTracker.invalidate(cacheKey)
                 userController.updateFromAccount(updated)
+                persistAccountScratch(updated)
+                scheduleDmLogoPrefetch(logoUrl)
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.accountInfoLoaded)
                 withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(true, "") }
             } catch (e: Exception) {
@@ -458,6 +497,7 @@ class AccountController @Inject constructor(
     }
 
     fun cleanup() {
+        StartupCache.clearAccountProfileScratch()
         _accountInfo.value = AccountInfo()
         _isLoading.value = false
     }

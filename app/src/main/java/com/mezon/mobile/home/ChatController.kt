@@ -540,6 +540,61 @@ class ChatController @Inject constructor(
         }
     }
 
+    suspend fun sendRawChannelMessage(
+        channelId: Long,
+        clanId: Long,
+        channelType: Int,
+        isChannelPrivate: Boolean,
+        contentJson: String
+    ): Long {
+        val mode = channelTypeToStreamMode(channelType)
+        val isPublic = !isChannelPrivate
+        val tempId = generateTempId()
+        val uc = userController.get()
+        val anon = isAnonymousSend(clanId)
+        val (optName, optAvatar) = optimisticSenderPresentation(uc, clanId, channelType, anon)
+        val optimistic = MessageEntity(
+            id = tempId,
+            channelId = channelId,
+            senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
+            senderName = optName,
+            senderAvatar = optAvatar,
+            content = contentJson,
+            timestampSeconds = System.currentTimeMillis() / 1000,
+            code = MessageEntity.CODE_CHAT,
+            isMe = true,
+            sendState = MessageEntity.SEND_STATE_SENDING
+        )
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.didReceiveNewMessages, channelId, optimistic
+        )
+        return try {
+            sessionManager.withAutoRefresh { session ->
+                ensureActiveArchivedThreadIfNeeded(session.apiUrl, session.token, channelId, clanId, channelType)
+                val request = channelMessageSend {
+                    this.clanId = clanId
+                    this.channelId = channelId
+                    this.mode = mode
+                    this.isPublic = isPublic
+                    this.content = contentJson
+                    if (anon) this.anonymousMessage = true
+                }
+                val ack = withContext(ioDispatcher) {
+                    api.sendChannelMessage(session.apiUrl, session.token, request)
+                }
+                notificationCenter.postNotificationOnMainThread(
+                    NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
+                )
+                ack.messageId
+            }
+        } catch (_: Exception) {
+            notificationCenter.postNotificationOnMainThread(
+                NotificationCenter.pendingMessageError, channelId, tempId
+            )
+            0L
+        }
+    }
+
     fun sendDirectAttachment(
         channelId: Long,
         clanId: Long,
