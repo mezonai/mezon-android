@@ -242,11 +242,18 @@ private data class ClanDiscoverJson(
 
 @Singleton
 class MezonApi @Inject constructor(
-    private val httpClient: HttpClient
+    private val httpClient: HttpClient,
+    private val mezonSocketLazy: dagger.Lazy<MezonSocket>
 ) {
     companion object {
         private val SERVER_KEY = BuildConfig.MEZON_API_KEY
         private const val DISCOVER_ITEMS_PER_PAGE = 6
+        private const val SOCKET_WAIT_MS = 30_000L
+        private val HTTP_ONLY_API_NAMES = setOf(
+            "SessionRefresh",
+            "RegistFCMDeviceToken",
+            "SendChannelMessage"
+        )
     }
 
     private val linkInvitePreviewCache = android.util.LruCache<Long, LinkInvitePreview>(256)
@@ -367,9 +374,46 @@ class MezonApi @Inject constructor(
         method: String,
         body: ByteArray
     ): ByteArray {
+        if (method !in HTTP_ONLY_API_NAMES) {
+            return rpcOverSocket(method, body)
+        }
+        return rpcOverHttp(apiUrl, token, method, body)
+    }
+
+    private suspend fun rpcOverSocket(method: String, body: ByteArray): ByteArray {
+        val socket = mezonSocketLazy.get()
+        if (!socket.awaitConnected(SOCKET_WAIT_MS)) {
+            throw IllegalStateException("WebSocket unavailable for '$method'")
+        }
+        val started = System.currentTimeMillis()
+        try {
+            val resp = socket.sendApiRequest(apiName = method, body = body)
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                    "MezonApi",
+                    "SOCKET ok method=$method respBytes=${resp.size} elapsedMs=${System.currentTimeMillis() - started}"
+                )
+            }
+            return resp
+        } catch (e: Exception) {
+            Log.w(
+                "MezonApi",
+                "SOCKET fail method=$method elapsedMs=${System.currentTimeMillis() - started} err=${e.message}"
+            )
+            throw e
+        }
+    }
+
+    private suspend fun rpcOverHttp(
+        apiUrl: String,
+        token: String,
+        method: String,
+        body: ByteArray
+    ): ByteArray {
         val base = apiUrl.trimEnd('/')
         val url = "$base/mezon.api.Mezon/$method"
         logRpcRequest(method, url)
+        val started = System.currentTimeMillis()
         val response = httpClient.post(url) {
             header(HttpHeaders.Authorization, "Bearer $token")
             header(HttpHeaders.Accept, CONTENT_TYPE_PROTO.toString())
@@ -390,7 +434,14 @@ class MezonApi @Inject constructor(
             throw RuntimeException("RPC $method failed (${response.status.value}): $errorBody")
         }
 
-        return response.readBytes()
+        val bytes = response.readBytes()
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                "MezonApi",
+                "HTTP ok method=$method status=${response.status.value} bytes=${bytes.size} elapsedMs=${System.currentTimeMillis() - started}"
+            )
+        }
+        return bytes
     }
 
     private suspend fun rpcNoAuth(
