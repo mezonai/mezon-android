@@ -257,15 +257,15 @@ class ClansController @Inject constructor(
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.clansDidLoad)
                 badgeCoordinator.get().processDeferredQueue()
 
-                val previousSelected = _selectedClanId.value
-                if (previousSelected == 0L && sorted.isNotEmpty()) {
+                val selAfterApi = _selectedClanId.value
+                if (selAfterApi == 0L && sorted.isNotEmpty()) {
                     _selectedClanId.value = sorted.first().clanId
                 }
                 val sel = _selectedClanId.value
                 if (sel != 0L) {
                     channelController.loadChannelsForClanNow(sel, force)
                     channelAppController.loadAppsForClan(sel, force)
-                    if (previousSelected == 0L && sorted.isNotEmpty()) {
+                    if (selAfterApi == 0L && sorted.isNotEmpty()) {
                         notificationCenter.postNotificationOnMainThread(NotificationCenter.selectedClanChanged, sel)
                         appScope.launch {
                             try {
