@@ -380,7 +380,9 @@ class ChannelInfoFragment : BaseFragment() {
         if (!isDmContext) {
             addActionGap(row)
             row.addView(createActionButton(context, MezonIcon.settingIcon, "Settings") {
-                Toast.makeText(context, "Coming soon", Toast.LENGTH_SHORT).show()
+                presentFragment(
+                    ChannelSettingFragment.newInstance(channelId, clanId)
+                )
             })
         }
 

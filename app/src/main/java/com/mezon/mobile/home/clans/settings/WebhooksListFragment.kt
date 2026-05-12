@@ -51,18 +51,22 @@ class WebhooksListFragment : BaseFragment() {
     companion object {
         private const val ARG_CLAN_ID = "clanId"
         private const val ARG_CLAN_SCOPE = "isClanIntegration"
+        private const val ARG_FIXED_HOOK_CHANNEL_ID = "fixedHookChannelId"
 
-        fun newInstance(clanId: Long, isClanScope: Boolean): WebhooksListFragment =
+        fun newInstance(clanId: Long, isClanScope: Boolean, fixedHookChannelId: Long = 0L): WebhooksListFragment =
             WebhooksListFragment().apply {
                 arguments = Bundle().apply {
                     putLong(ARG_CLAN_ID, clanId)
                     putBoolean(ARG_CLAN_SCOPE, isClanScope)
+                    if (fixedHookChannelId != 0L) putLong(ARG_FIXED_HOOK_CHANNEL_ID, fixedHookChannelId)
                 }
             }
     }
 
     private var clanId = 0L
     private var isClanIntegration = false
+    /** When non-zero, list/create webhooks only for this channel (Channel Setting → Webhooks). */
+    private var fixedHookChannelId = 0L
 
     private lateinit var clansController: ClansController
     private lateinit var mainDispatcher: CoroutineDispatcher
@@ -88,6 +92,7 @@ class WebhooksListFragment : BaseFragment() {
         super.onFragmentCreate()
         clanId = arguments?.getLong(ARG_CLAN_ID) ?: 0L
         isClanIntegration = arguments?.getBoolean(ARG_CLAN_SCOPE) ?: false
+        fixedHookChannelId = arguments?.getLong(ARG_FIXED_HOOK_CHANNEL_ID, 0L) ?: 0L
         if (clanId != 0L) {
             channelController.loadChannelsForClan(clanId, force = true)
             userClanController.loadClanMembers(clanId)
@@ -311,7 +316,13 @@ class WebhooksListFragment : BaseFragment() {
                         clanWebhookItems.addAll(clansController.fetchClanWebhooks(clanId).listClanWebhooksList)
                     } else {
                         channelWebhookItems.clear()
-                        channelWebhookItems.addAll(clansController.fetchChannelWebhooksForClan(clanId).webhooksList)
+                        if (fixedHookChannelId != 0L) {
+                            channelWebhookItems.addAll(
+                                clansController.fetchChannelWebhooks(fixedHookChannelId, clanId).webhooksList
+                            )
+                        } else {
+                            channelWebhookItems.addAll(clansController.fetchChannelWebhooksForClan(clanId).webhooksList)
+                        }
                     }
                 }.onSuccess {
                     listWrap.removeAllViews()
@@ -460,6 +471,11 @@ class WebhooksListFragment : BaseFragment() {
     private fun onAddWebhookPressed() {
         val ctx = getContext() ?: return
         if (!isClanIntegration) {
+            val fixed = fixedHookChannelId
+            if (fixed != 0L) {
+                createChannelWebhook(channelId = fixed)
+                return
+            }
             val channels = parentTextChannelsOrdered()
             if (channels.isEmpty()) {
                 MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.clan_invite_need_channel))

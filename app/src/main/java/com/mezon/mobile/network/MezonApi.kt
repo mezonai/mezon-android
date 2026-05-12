@@ -17,6 +17,9 @@ import com.mezon.mezon.api.ChannelDescList
 import com.mezon.mezon.api.ChannelDescription
 import com.mezon.mezon.api.ChannelMessageList
 import com.mezon.mezon.api.createChannelDescRequest
+import com.mezon.mezon.api.deleteChannelDescRequest
+import com.mezon.mezon.api.leaveThreadRequest
+import com.mezon.mezon.api.updateChannelDescRequest
 import com.mezon.mezon.api.ClanDescList
 import com.mezon.mezon.api.NotificationSetting
 import com.mezon.mezon.api.SystemMessage
@@ -53,6 +56,15 @@ import com.mezon.mezon.api.listClanDescRequest
 import com.mezon.mezon.api.listChannelUsersRequest
 import com.mezon.mezon.api.listClanUsersRequest
 import com.mezon.mezon.api.removeClanUsersRequest
+import com.mezon.mezon.api.removeChannelUsersRequest
+import com.mezon.mezon.api.changeChannelPrivateRequest
+import com.mezon.mezon.api.deleteRoleRequest
+import com.mezon.mezon.api.permissionRoleChannelListEventRequest
+import com.mezon.mezon.api.PermissionRoleChannelListEventResponse
+import com.mezon.mezon.api.updateRoleChannelRequest
+import com.mezon.mezon.api.addRoleChannelDescRequest
+import com.mezon.mezon.api.listPermissionsRequest
+import com.mezon.mezon.api.PermissionList
 import com.mezon.mezon.api.ListChannelAppsResponse
 import com.mezon.mezon.api.GenerateHashChannelAppsResponse
 import com.mezon.mezon.api.listChannelAppsRequest
@@ -514,6 +526,59 @@ class MezonApi @Inject constructor(
         }
         val bytes = rpc(apiUrl, token, "CreateChannelDesc", request.toByteArray())
         return ChannelDescription.parseFrom(bytes)
+    }
+
+    suspend fun updateChannelDesc(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        channelId: Long,
+        channelLabel: String,
+        categoryId: Long,
+        appId: Long = 0L,
+        topic: String,
+        ageRestricted: Int = 0,
+        e2ee: Int = 0,
+    ): ChannelDescription {
+        val request = updateChannelDescRequest {
+            this.clanId = clanId
+            this.channelId = channelId
+            this.channelLabel = StringValue.of(channelLabel)
+            this.categoryId = categoryId
+            this.appId = appId
+            this.topic = topic
+            this.ageRestricted = ageRestricted
+            this.e2Ee = e2ee
+        }
+        val bytes = rpc(apiUrl, token, "UpdateChannelDesc", request.toByteArray())
+        return if (bytes.isEmpty()) ChannelDescription.getDefaultInstance()
+        else ChannelDescription.parseFrom(bytes)
+    }
+
+    suspend fun deleteChannelDesc(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        channelId: Long,
+    ) {
+        val request = deleteChannelDescRequest {
+            this.clanId = clanId
+            this.channelId = channelId
+        }
+        rpc(apiUrl, token, "DeleteChannelDesc", request.toByteArray())
+    }
+
+    suspend fun leaveThread(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        threadChannelId: Long,
+    ) {
+        val request = leaveThreadRequest {
+            this.clanId = clanId
+            this.channelId = threadChannelId
+        }
+        rpc(apiUrl, token, "LeaveThread", request.toByteArray())
     }
 
     suspend fun createClanDesc(
@@ -1496,6 +1561,129 @@ class MezonApi @Inject constructor(
             this.userIds.addAll(userIds)
         }
         rpc(apiUrl, token, "AddChannelUsers", request.toByteArray())
+    }
+
+    /**
+     * Same convention as [createChannelDesc] / [ChannelDescription]: `channel_private = 1` means **private**,
+     * `0` means **public**.
+     */
+    suspend fun changeChannelPrivate(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        channelId: Long,
+        channelPrivate: Int,
+        userIds: List<Long>,
+        roleIds: List<Long> = emptyList()
+    ) {
+        val request = changeChannelPrivateRequest {
+            this.clanId = clanId
+            this.channelId = channelId
+            this.channelPrivate = channelPrivate
+            this.userIds.addAll(userIds)
+            this.roleIds.addAll(roleIds)
+        }
+        val body = request.toByteArray()
+        try {
+            rpc(apiUrl, token, "ChangeChannelPrivate", body)
+        } catch (e: RuntimeException) {
+            val msg = e.message.orEmpty()
+            if (msg.contains("404") || msg.contains("Not Found", ignoreCase = true)) {
+                rpc(apiUrl, token, "UpdateChannelPrivate", body)
+            } else {
+                throw e
+            }
+        }
+    }
+
+    suspend fun removeChannelUsers(
+        apiUrl: String,
+        token: String,
+        channelId: Long,
+        userIds: List<Long>
+    ) {
+        val request = removeChannelUsersRequest {
+            this.channelId = channelId
+            this.userIds.addAll(userIds)
+        }
+        rpc(apiUrl, token, "RemoveChannelUsers", request.toByteArray())
+    }
+
+    /** RN `deleteRoleChannelDesc` — removes a role assignment from a channel. */
+    suspend fun deleteRoleChannelDesc(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        channelId: Long,
+        roleId: Long
+    ) {
+        val request = deleteRoleRequest {
+            this.clanId = clanId
+            this.channelId = channelId
+            this.roleId = roleId
+        }
+        rpc(apiUrl, token, "DeleteRoleChannelDesc", request.toByteArray())
+    }
+
+    suspend fun addRolesChannelDesc(
+        apiUrl: String,
+        token: String,
+        channelId: Long,
+        roleIds: List<Long>
+    ) {
+        val request = addRoleChannelDescRequest {
+            this.channelId = channelId
+            this.roleIds.addAll(roleIds)
+        }
+        rpc(apiUrl, token, "AddRoleChannelDesc", request.toByteArray())
+    }
+
+    /** RN `getPermissionByRoleIdChannelId` — pass roleId **or** userId (other zero). */
+    suspend fun permissionRoleChannelList(
+        apiUrl: String,
+        token: String,
+        channelId: Long,
+        roleId: Long,
+        userId: Long
+    ): PermissionRoleChannelListEventResponse {
+        val request = permissionRoleChannelListEventRequest {
+            this.channelId = channelId
+            this.roleId = roleId
+            this.userId = userId
+        }
+        val bytes = rpc(apiUrl, token, "PermissionRoleChannelList", request.toByteArray())
+        return PermissionRoleChannelListEventResponse.parseFrom(bytes)
+    }
+
+    /** RN `setRoleChannelPermission`. */
+    suspend fun updateRoleChannelPermission(
+        apiUrl: String,
+        token: String,
+        channelId: Long,
+        roleId: Long,
+        userId: Long,
+        maxPermissionId: Long,
+        permissionUpdates: List<com.mezon.mezon.api.PermissionUpdate>
+    ) {
+        val request = updateRoleChannelRequest {
+            this.channelId = channelId
+            this.roleId = roleId
+            this.userId = userId
+            this.maxPermissionId = maxPermissionId
+            this.permissionUpdate.addAll(permissionUpdates)
+        }
+        rpc(apiUrl, token, "UpdateRoleChannel", request.toByteArray())
+    }
+
+    /** Full permission catalog for labels (optional; RPC name must match gateway). */
+    suspend fun listPermissionsCatalog(
+        apiUrl: String,
+        token: String,
+        roleId: Long = 0L
+    ): PermissionList {
+        val request = listPermissionsRequest { this.roleId = roleId }
+        val bytes = rpc(apiUrl, token, "ListPermissions", request.toByteArray())
+        return PermissionList.parseFrom(bytes)
     }
 
     suspend fun listChannelByUserId(

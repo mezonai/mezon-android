@@ -216,6 +216,23 @@ class ChannelController @Inject constructor(
         notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
     }
 
+    /** Local cache after RN `updateChannelPrivate` succeeds (UI [isPrivate] matches [ChannelDescription] semantics). */
+    fun setChannelPrivateFlag(clanId: Long, channelId: Long, isPrivate: Boolean) {
+        if (clanId == 0L || channelId == 0L) return
+        val list = _channelsByClan.value[clanId] ?: return
+        val idx = list.indexOfFirst { it.channelId == channelId }
+        if (idx < 0) return
+        val ch = list[idx]
+        if (ch.isPrivate == isPrivate) {
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
+            return
+        }
+        val updated = list.toMutableList().also { it[idx] = ch.copy(isPrivate = isPrivate) }
+        updateCache(clanId, sortChannels(updated))
+        appScope.launch(ioDispatcher) { clanChannelDao.upsert(updated[idx]) }
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
+    }
+
     suspend fun createClanChannel(
         clanId: Long,
         categoryId: Long,
@@ -241,6 +258,116 @@ class ChannelController @Inject constructor(
             upsertChannel(desc.toClanChannelEntity())
             desc
         }
+    }
+
+    /**
+     * Loads authoritative [ChannelDescription] for update payload (app_id, age_restricted, e2ee, category_id).
+     * Threads may only appear under [MezonApi.listThreadDescs] for the parent channel.
+     */
+    suspend fun fetchChannelDescriptionForUpdate(entity: ClanChannelEntity): ChannelDescription? {
+        if (entity.clanId == 0L || entity.channelId == 0L) return null
+        return sessionManager.withAutoRefresh { session ->
+            withContext(ioDispatcher) {
+                val clanList = api.listChannelsByClan(session.apiUrl, session.token, entity.clanId)
+                clanList.channeldescList.firstOrNull { it.channelId == entity.channelId }
+                    ?: fetchThreadChannelDescription(session.apiUrl, session.token, entity)
+            }
+        }
+    }
+
+    private suspend fun fetchThreadChannelDescription(
+        apiUrl: String,
+        token: String,
+        entity: ClanChannelEntity,
+    ): ChannelDescription? {
+        val parentId = entity.parentId.takeIf { it != 0L } ?: return null
+        var page = 1
+        val limit = 100
+        while (page <= 50) {
+            val threads = api.listThreadDescs(apiUrl, token, parentId, entity.clanId, page, limit)
+            threads.channeldescList.firstOrNull { it.channelId == entity.channelId }?.let { return it }
+            if (threads.channeldescList.size < limit) break
+            page++
+        }
+        return null
+    }
+
+    suspend fun updateChannelFromSettings(
+        entity: ClanChannelEntity,
+        newLabel: String,
+        newTopicDraft: String,
+    ) {
+        val topicForApi = newTopicDraft.ifEmpty { entity.topic }
+        val trimmedLabel = newLabel.trim()
+        sessionManager.withAutoRefresh { session ->
+            val baseline = withContext(ioDispatcher) {
+                fetchChannelDescriptionForUpdate(entity)
+            }
+            val categoryId = when {
+                baseline != null && baseline.categoryId != 0L -> baseline.categoryId
+                entity.categoryId != 0L -> entity.categoryId
+                else -> 0L
+            }
+            val appId = baseline?.appId ?: 0L
+            val ageRestricted = baseline?.ageRestricted ?: 0
+            val e2ee = baseline?.e2Ee ?: 0
+            val desc = withContext(ioDispatcher) {
+                api.updateChannelDesc(
+                    apiUrl = session.apiUrl,
+                    token = session.token,
+                    clanId = entity.clanId,
+                    channelId = entity.channelId,
+                    channelLabel = trimmedLabel,
+                    categoryId = categoryId,
+                    appId = appId,
+                    topic = topicForApi,
+                    ageRestricted = ageRestricted,
+                    e2ee = e2ee,
+                )
+            }
+            if (desc.channelId != 0L) {
+                upsertChannel(withClanIdFromContext(entity.clanId, desc.toClanChannelEntity()))
+            } else {
+                upsertChannel(
+                    entity.copy(
+                        channelLabel = trimmedLabel,
+                        topic = topicForApi,
+                    )
+                )
+            }
+        }
+    }
+
+    suspend fun fetchCreatorId(clanId: Long, channelId: Long): Long {
+        if (clanId == 0L || channelId == 0L) return 0L
+        val entity = findChannelById(channelId, clanId) ?: findChannelById(channelId) ?: return 0L
+        return fetchChannelDescriptionForUpdate(entity)?.creatorId ?: 0L
+    }
+
+    suspend fun deleteChannelRemote(clanId: Long, channelId: Long) {
+        sessionManager.withAutoRefresh { session ->
+            withContext(ioDispatcher) {
+                api.deleteChannelDesc(session.apiUrl, session.token, clanId, channelId)
+            }
+            removeChannelLocally(clanId, channelId)
+        }
+    }
+
+    suspend fun leaveThreadRemote(clanId: Long, threadChannelId: Long) {
+        sessionManager.withAutoRefresh { session ->
+            withContext(ioDispatcher) {
+                api.leaveThread(session.apiUrl, session.token, clanId, threadChannelId)
+            }
+            removeChannelLocally(clanId, threadChannelId)
+        }
+    }
+
+    fun removeChannelLocally(clanId: Long, channelId: Long) {
+        if (clanId == 0L || channelId == 0L) return
+        val existing = _channelsByClan.value[clanId] ?: return
+        updateCache(clanId, existing.filter { it.channelId != channelId })
+        appScope.launch(ioDispatcher) { clanChannelDao.delete(clanId, channelId) }
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
     }
 
     suspend fun findOrFetchChannelLabel(channelId: Long, clanId: Long = 0L): String {
@@ -698,11 +825,7 @@ class ChannelController @Inject constructor(
 
         appScope.launch {
             dispatcher.channelDeletedEvents.collect { event ->
-                val clanId = event.clanId
-                val existing = _channelsByClan.value[clanId] ?: return@collect
-                updateCache(clanId, existing.filter { it.channelId != event.channelId })
-                appScope.launch(ioDispatcher) { clanChannelDao.delete(clanId, event.channelId) }
-                notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
+                removeChannelLocally(event.clanId, event.channelId)
             }
         }
 
