@@ -68,6 +68,7 @@ class PeerConnectionWrapper(
     private val answerLock = Any()
     private var pendingAnswerCallback: ((SessionDescription) -> Unit)? = null
     private var iceReconnectRunnable: Runnable? = null
+    private var iceRestartAttempts = 0
     private var disposed = false
     private val attachedLocalSinks = mutableSetOf<SurfaceViewRenderer>()
     private val attachedRemoteSinks = mutableSetOf<SurfaceViewRenderer>()
@@ -97,7 +98,8 @@ class PeerConnectionWrapper(
                     }
                     PeerConnection.IceConnectionState.FAILED -> {
                         cancelIceReconnectTimer()
-                        listener.onIceFailed()
+                        val restarted = tryIceRestart()
+                        if (!restarted) listener.onIceFailed()
                     }
                     else -> {}
                 }
@@ -194,13 +196,23 @@ class PeerConnectionWrapper(
                     peerConnection?.setLocalDescription(object : SimpleSdpObserver() {
                         override fun onSetSuccess() {
                             android.util.Log.d(TAG, "[WEBRTC:HANDSHAKE] setLocalDescription OFFER ok")
+                            mainHandler.post { callback(preferredSdp) }
                         }
 
                         override fun onSetFailure(error: String?) {
                             android.util.Log.e(TAG, "[WEBRTC:HANDSHAKE] setLocalDescription OFFER fail: $error")
+                            mainHandler.post {
+                                listener.onInboundSignalingSetupFailed(error ?: "setLocalDescription OFFER failed")
+                            }
                         }
                     }, preferredSdp)
-                    mainHandler.post { callback(preferredSdp) }
+                }
+            }
+
+            override fun onCreateFailure(error: String?) {
+                android.util.Log.e(TAG, "createOffer onCreateFailure: $error")
+                mainHandler.post {
+                    listener.onInboundSignalingSetupFailed(error ?: "createOffer failed")
                 }
             }
         }, constraints)
@@ -440,10 +452,14 @@ class PeerConnectionWrapper(
                         }
 
                         override fun onSetFailure(error: String?) {
-                            android.util.Log.e(TAG, "[WEBRTC:HANDSHAKE] setLocalDescription OFFER fail: $error")
+                            android.util.Log.e(TAG, "[WEBRTC:HANDSHAKE] setLocalDescription OFFER fail (renegotiate): $error")
                         }
                     }, preferredSdp)
                 }
+            }
+
+            override fun onCreateFailure(error: String?) {
+                android.util.Log.e(TAG, "[WEBRTC:HANDSHAKE] createRenegotiationOffer fail: $error")
             }
         }, constraints)
     }
@@ -555,6 +571,7 @@ class PeerConnectionWrapper(
 
     fun dispose() {
         disposed = true
+        iceRestartAttempts = 0
         cancelIceReconnectTimer()
 
         attachedLocalSinks.toList().forEach { sink ->
@@ -693,6 +710,15 @@ class PeerConnectionWrapper(
         peerConnection?.addTrack(localVideoTrack, listOf("stream0"))
     }
 
+    private fun tryIceRestart(): Boolean {
+        if (iceRestartAttempts >= MAX_ICE_RESTART_ATTEMPTS) return false
+        val pc = peerConnection ?: return false
+        iceRestartAttempts++
+        android.util.Log.w(TAG, "[WEBRTC:ICE] restart attempt $iceRestartAttempts/$MAX_ICE_RESTART_ATTEMPTS")
+        pc.restartIce()
+        return true
+    }
+
     private fun startIceReconnectTimer() {
         cancelIceReconnectTimer()
         iceReconnectRunnable = Runnable {
@@ -741,6 +767,7 @@ class PeerConnectionWrapper(
 
     companion object {
         private const val ICE_RECONNECT_TIMEOUT_MS = 3000L
+        private const val MAX_ICE_RESTART_ATTEMPTS = 1
     }
 }
 
