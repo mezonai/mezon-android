@@ -27,15 +27,29 @@ import com.mezon.mobile.R
 import com.mezon.mobile.core.AlertDialog
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BaseFragment
+import com.mezon.mobile.core.BottomSheet
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.FragmentEntryPoint
+import com.mezon.mobile.home.DialogsController
+import com.mezon.mobile.home.chat.MessageEntity
+import com.mezon.mobile.home.friends.FriendController
+import com.mezon.mezon.api.Friend
 import com.mezon.mobile.home.profile.AccountController
+import com.mezon.mobile.network.MezonApi
+import com.mezon.mobile.network.STREAM_MODE_DM
+import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.ui.cells.ToastOverlay
+import com.mezon.mobile.ui.cells.AvatarView
 import com.mezon.mobile.wallet.WalletController
 import androidx.core.view.ViewCompat
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import org.json.JSONArray
 import org.json.JSONObject
 import java.math.BigInteger
 import java.text.SimpleDateFormat
@@ -65,6 +79,10 @@ class SendTokenFragment : BaseFragment() {
     }
 
     private lateinit var accountController: AccountController
+    private lateinit var friendController: FriendController
+    private lateinit var dialogsController: DialogsController
+    private lateinit var mezonApi: MezonApi
+    private lateinit var sessionManager: SessionManager
     private lateinit var walletController: WalletController
     private var formValue: String? = null
 
@@ -83,6 +101,7 @@ class SendTokenFragment : BaseFragment() {
     private var sendButton: TextView? = null
     private var noteCounter: TextView? = null
     private var walletBalanceText: TextView? = null
+    private var recipientValueText: TextView? = null
     private var amountFormatSuppress: Boolean = false
 
     /** Set by TransferSuccessFragment callbacks to control navigation when this fragment resumes. */
@@ -97,6 +116,10 @@ class SendTokenFragment : BaseFragment() {
         entryPoint: FragmentEntryPoint
     ) {
         accountController = entryPoint.accountController()
+        friendController = entryPoint.friendController()
+        dialogsController = entryPoint.dialogsController()
+        mezonApi = entryPoint.mezonApi()
+        sessionManager = entryPoint.sessionManager()
         walletController = entryPoint.walletController()
     }
 
@@ -104,6 +127,7 @@ class SendTokenFragment : BaseFragment() {
         super.onFragmentCreate()
         formValue = arguments?.getString(ARG_FORM_VALUE)
         parseForm(formValue)
+        friendController.loadFriends()
         observe(NotificationCenter.accountInfoLoaded) { _, _, _ ->
             refreshWalletBalance()
         }
@@ -858,12 +882,272 @@ class SendTokenFragment : BaseFragment() {
             else sectionLabel(context, getString(R.string.send_token_recipient_to))
         )
         column.addView(
-            labelAndText(
-                context,
-                getString(R.string.send_token_recipient),
-                getString(R.string.send_token_scan_qr_or_use_profile)
+            selectableRecipientRow(context, qrFlow),
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                LayoutHelper.dp(40f)
             )
         )
+    }
+
+    private fun selectableRecipientRow(
+        context: Context,
+        qrFlow: Boolean
+    ): View {
+        val rowBg = if (qrFlow) createQrTransferInputBackground() else createTextFieldBackground()
+        val row = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = rowBg
+            isClickable = true
+            isFocusable = true
+            setPadding(
+                if (qrFlow) LayoutHelper.dp(12f) else LayoutHelper.dp(10f),
+                0,
+                if (qrFlow) LayoutHelper.dp(12f) else LayoutHelper.dp(10f),
+                0
+            )
+            setOnClickListener { openRecipientPicker() }
+        }
+        val valueTv = TextView(context).apply {
+            text = getString(R.string.send_token_select_user_placeholder)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, if (qrFlow) 13f else 14f)
+            setTextColor(themeColors.onSurfaceVariant)
+            gravity = Gravity.CENTER_VERTICAL
+            includeFontPadding = false
+        }
+        recipientValueText = valueTv
+        row.addView(
+            valueTv,
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        )
+        row.addView(
+            TextView(context).apply {
+                text = ">"
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+                setTextColor(themeColors.onSurfaceVariant)
+                includeFontPadding = false
+            }
+        )
+        return row
+    }
+
+    private fun openRecipientPicker() {
+        val act = getParentActivity() ?: return
+        val allOptions = buildRecipientOptions()
+        if (allOptions.isEmpty()) {
+            friendController.loadFriends(noCache = true)
+            showToast(
+                getString(R.string.send_token_no_friends_to_select),
+                ToastOverlay.ToastType.INFO
+            )
+            return
+        }
+        val sheet = BottomSheet(act)
+        val content = LinearLayout(act).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(LayoutHelper.dp(16f), LayoutHelper.dp(10f), LayoutHelper.dp(16f), LayoutHelper.dp(16f))
+            setBackgroundColor(themeColors.background)
+        }
+        val titleTv = TextView(act).apply {
+            text = getString(R.string.send_token_select_user_title)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(themeColors.onSurface)
+            setPadding(LayoutHelper.dp(4f), LayoutHelper.dp(6f), LayoutHelper.dp(4f), LayoutHelper.dp(10f))
+        }
+        val searchField = EditText(act).apply {
+            hint = getString(R.string.send_token_search_user_hint)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            setTextColor(themeColors.onSurface)
+            setHintTextColor(themeColors.onSurfaceVariant)
+            maxLines = 1
+            isSingleLine = true
+            setPadding(LayoutHelper.dp(12f), 0, LayoutHelper.dp(12f), 0)
+            background = createQrTransferInputBackground()
+        }
+        val emptyTv = TextView(act).apply {
+            text = getString(R.string.send_token_no_user_match)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            setTextColor(themeColors.onSurfaceVariant)
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+            setPadding(0, LayoutHelper.dp(16f), 0, LayoutHelper.dp(8f))
+        }
+        val recycler = RecyclerView(act).apply {
+            layoutManager = LinearLayoutManager(act)
+            overScrollMode = View.OVER_SCROLL_NEVER
+            isNestedScrollingEnabled = true
+        }
+        val adapter = RecipientPickerAdapter(themeColors) { selected ->
+            applyRecipientSelection(selected.friend)
+            sheet.dismiss()
+        }
+        recycler.adapter = adapter
+        adapter.submit(allOptions)
+        recycler.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            LayoutHelper.dp(320f)
+        )
+        fun applyFilter(q: String) {
+            val query = q.trim().lowercase(Locale.getDefault())
+            val filtered = if (query.isBlank()) {
+                allOptions
+            } else {
+                allOptions.filter {
+                    it.displayName.lowercase(Locale.getDefault()).contains(query) ||
+                        it.username.lowercase(Locale.getDefault()).contains(query)
+                }
+            }
+            adapter.submit(filtered)
+            emptyTv.visibility = if (filtered.isEmpty()) View.VISIBLE else View.GONE
+        }
+        searchField.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                applyFilter(s?.toString().orEmpty())
+            }
+        })
+        content.addView(titleTv)
+        content.addView(
+            searchField,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                LayoutHelper.dp(40f)
+            )
+        )
+        content.addView(emptyTv)
+        content.addView(
+            recycler,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                LayoutHelper.dp(320f)
+            ).apply {
+                topMargin = LayoutHelper.dp(8f)
+            }
+        )
+        sheet.setCustomView(content)
+        sheet.show()
+    }
+
+    private fun buildRecipientOptions(): List<RecipientOption> {
+        val currentUserId = accountController.accountInfo.value.userId
+        return friendController.friends.value
+            .asSequence()
+            .filter { it.user.id != currentUserId }
+            .map { friend ->
+                val display = friend.user.displayName.ifBlank { friend.user.username }.ifBlank { friend.user.id.toString() }
+                RecipientOption(
+                    friend = friend,
+                    displayName = display,
+                    username = friend.user.username,
+                    avatarUrl = friend.user.avatarUrl
+                )
+            }
+            .sortedBy { it.displayName.lowercase(Locale.getDefault()) }
+            .toList()
+    }
+
+    private fun applyRecipientSelection(friend: Friend) {
+        jsonReceiverId = friend.user.id.toString()
+        jsonReceiverName = friend.user.displayName.ifBlank { friend.user.username }.ifBlank { jsonReceiverId }
+        recipientValueText?.text = jsonReceiverName
+        recipientValueText?.setTextColor(themeColors.onSurface)
+        if (isAmountFieldEditable()) {
+            amountField?.requestFocus()
+        }
+    }
+
+    private data class RecipientOption(
+        val friend: Friend,
+        val displayName: String,
+        val username: String,
+        val avatarUrl: String
+    )
+
+    private class RecipientPickerAdapter(
+        private val themeColors: com.mezon.mobile.core.ThemeColors,
+        private val onSelect: (RecipientOption) -> Unit
+    ) : RecyclerView.Adapter<RecipientPickerAdapter.Holder>() {
+        private val items = ArrayList<RecipientOption>()
+
+        fun submit(newItems: List<RecipientOption>) {
+            items.clear()
+            items.addAll(newItems)
+            notifyDataSetChanged()
+        }
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder {
+            val ctx = parent.context
+            val row = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(LayoutHelper.dp(8f), LayoutHelper.dp(8f), LayoutHelper.dp(8f), LayoutHelper.dp(8f))
+                setBackgroundColor(themeColors.background)
+            }
+            val avatar = AvatarView(ctx).apply {
+                setSizeDp(36)
+                setRoundRadius(18f)
+            }
+            val textWrap = LinearLayout(ctx).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(LayoutHelper.dp(10f), 0, LayoutHelper.dp(10f), 0)
+            }
+            val nameTv = TextView(ctx).apply {
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(themeColors.onSurface)
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+            }
+            val userTv = TextView(ctx).apply {
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                setTextColor(themeColors.onSurfaceVariant)
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+            }
+            val chevron = TextView(ctx).apply {
+                text = ">"
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+                setTextColor(themeColors.onSurfaceVariant)
+            }
+            row.addView(
+                avatar,
+                LinearLayout.LayoutParams(LayoutHelper.dp(36f), LayoutHelper.dp(36f))
+            )
+            textWrap.addView(nameTv)
+            textWrap.addView(userTv)
+            row.addView(
+                textWrap,
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            )
+            row.addView(chevron)
+            row.setOnClickListener {
+                val pos = (it.tag as? Int) ?: return@setOnClickListener
+                val chosen = items.getOrNull(pos) ?: return@setOnClickListener
+                onSelect(chosen)
+            }
+            return Holder(row, avatar, nameTv, userTv)
+        }
+
+        override fun onBindViewHolder(holder: Holder, position: Int) {
+            val item = items[position]
+            holder.itemView.tag = position
+            holder.avatar.setInfo(item.friend.user.id, item.displayName)
+            holder.avatar.setImageUrl(item.avatarUrl.ifBlank { null })
+            holder.nameTv.text = item.displayName
+            holder.userTv.text = "@${item.username}"
+        }
+
+        override fun getItemCount(): Int = items.size
+
+        class Holder(
+            itemView: View,
+            val avatar: AvatarView,
+            val nameTv: TextView,
+            val userTv: TextView
+        ) : RecyclerView.ViewHolder(itemView)
     }
 
     private fun qrRecipientReadout(
@@ -1184,6 +1468,16 @@ class SendTokenFragment : BaseFragment() {
                             successFrag.onDone = { shouldFinishOnResume = true }
                             successFrag.onNewTransfer = { shouldFinishOnResume = true; pendingNewTransfer = true }
                             presentFragment(successFrag)
+                            if (!toUserId.isNullOrBlank()) {
+                                fragmentScope.launch(Dispatchers.IO) {
+                                    sendTransferDmNotification(
+                                        receiverId = toUserId,
+                                        amountDisplay = amountShow,
+                                        symbol = sym,
+                                        note = note
+                                    )
+                                }
+                            }
               
                             return@launch
                         } else {
@@ -1204,6 +1498,39 @@ class SendTokenFragment : BaseFragment() {
                 )
             } finally {
                 setSendEnabled(true)
+            }
+        }
+    }
+
+    private suspend fun sendTransferDmNotification(
+        receiverId: String,
+        amountDisplay: String,
+        symbol: String,
+        note: String
+    ) {
+        val receiverLong = receiverId.toLongOrNull() ?: return
+        val session = sessionManager.sessionFlow.first() ?: return
+        val dmChannelId = withContext(Dispatchers.IO) {
+            dialogsController.getOrCreateDm(receiverLong)
+        }
+        if (dmChannelId == 0L) return
+        val safeNote = note.ifBlank { "-" }
+        val text = "Funds Transferred: $amountDisplay$symbol | $safeNote"
+        val content = JSONObject().apply {
+            put("t", text)
+            put("mk", JSONArray())
+        }.toString()
+        val request = com.mezon.mezon.rtapi.channelMessageSend {
+            this.clanId = 0L
+            this.channelId = dmChannelId
+            this.mode = STREAM_MODE_DM
+            this.isPublic = false
+            this.content = content
+            this.code = MessageEntity.CODE_SEND_TOKEN
+        }
+        runCatching {
+            withContext(Dispatchers.IO) {
+                mezonApi.sendChannelMessage(session.apiUrl, session.token, request)
             }
         }
     }

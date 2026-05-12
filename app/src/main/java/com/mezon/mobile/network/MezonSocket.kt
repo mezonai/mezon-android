@@ -3,13 +3,14 @@ package com.mezon.mobile.network
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.session.SessionManager
 import android.util.Log
+import com.google.protobuf.ByteString as ProtoByteString
 import com.google.protobuf.StringValue
-import com.mezon.mezon.api.ListClanBadgeCountResponse
 import com.mezon.mezon.api.MessageAttachment
 import com.mezon.mezon.api.MessageMention
 import com.mezon.mezon.api.MessageRef
 import com.mezon.mezon.rtapi.EnvelopeKt
 import com.mezon.mezon.rtapi.Envelope
+import com.mezon.mezon.rtapi.apiRequestEvent
 import com.mezon.mezon.rtapi.channelJoin
 import com.mezon.mezon.rtapi.channelLeave
 import com.mezon.mezon.rtapi.channelMessageRemove
@@ -22,7 +23,6 @@ import com.mezon.mezon.rtapi.envelope
 import com.mezon.mezon.rtapi.incomingCallPush
 import com.mezon.mezon.rtapi.lastPinMessageEvent
 import com.mezon.mezon.rtapi.lastSeenMessageEvent
-import com.mezon.mezon.rtapi.listDataSocket
 import com.mezon.mezon.rtapi.markAsRead
 import com.mezon.mezon.rtapi.messageTypingEvent
 import com.mezon.mezon.rtapi.ping
@@ -31,6 +31,7 @@ import com.mezon.mezon.rtapi.statusUnfollow
 import com.mezon.mezon.rtapi.statusUpdate
 import com.mezon.mezon.rtapi.voiceReactionSend
 import com.mezon.mezon.rtapi.webrtcSignalingFwd
+import java.util.Locale
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -74,6 +75,7 @@ class MezonSocket @Inject constructor(
         private const val JITTER_RANGE_MS = 1_000L
         private const val MAX_RECONNECT_FAILS = 6
         private const val SEND_TIMEOUT_MS = 10_000L
+        private const val STABLE_CONNECTION_RESET_MS = 10_000L
 
         const val TYPE_CHECK_CLAN = 0
         const val TYPE_CHECK_CATEGORY = 1
@@ -97,35 +99,50 @@ class MezonSocket @Inject constructor(
     private var webSocket: WebSocket? = null
     private var heartbeatJob: Job? = null
     private var reconnectJob: Job? = null
+    private var reconnectHealthResetJob: Job? = null
     private var currentWsUrl: String? = null
     private var currentToken: String? = null
 
     private val cidCounter = AtomicInteger(0)
     private val pendingRequests = ConcurrentHashMap<Int, CompletableDeferred<Envelope>>()
+    private val pendingApiRequests = ConcurrentHashMap<Int, CompletableDeferred<ByteArray>>()
+    private val apiResponseStreams = ConcurrentHashMap<Int, ByteArray>()
+    private fun nextCid(): Int = cidCounter.updateAndGet { c -> if (c >= 65534) 1 else c + 1 }
     private var reconnectDelayMs = RECONNECT_MIN_MS
     private var reconnectFailCount = 0
     @Volatile private var isReconnecting = false
     @Volatile private var userDisconnected = false
     @Volatile private var hasConnectedBefore = false
+    @Volatile private var forceRefreshNextReconnect = false
+
+    private val connectLock = Any()
+
+    private fun cancelReconnectHealthReset() {
+        reconnectHealthResetJob?.cancel()
+        reconnectHealthResetJob = null
+    }
 
     fun connect(wsUrl: String, token: String) {
-        if (_connectionState.value == ConnectionState.CONNECTED ||
-            _connectionState.value == ConnectionState.CONNECTING
-        ) {
-            Log.d(TAG, "Already connected or connecting, skipping")
-            return
+        synchronized(connectLock) {
+            if (_connectionState.value == ConnectionState.CONNECTED ||
+                _connectionState.value == ConnectionState.CONNECTING
+            ) {
+                Log.d(TAG, "Already connected or connecting, skipping")
+                return
+            }
+
+            reconnectJob?.cancel()
+            isReconnecting = false
+            reconnectFailCount = 0
+            reconnectDelayMs = RECONNECT_MIN_MS
+            userDisconnected = false
+
+            cancelReconnectHealthReset()
+            currentWsUrl = wsUrl
+            currentToken = token
+
+            doConnect(wsUrl, token)
         }
-
-        reconnectJob?.cancel()
-        isReconnecting = false
-        reconnectFailCount = 0
-        reconnectDelayMs = RECONNECT_MIN_MS
-        userDisconnected = false
-
-        currentWsUrl = wsUrl
-        currentToken = token
-
-        doConnect(wsUrl, token)
     }
 
     fun reconnectIfNeeded() {
@@ -138,6 +155,7 @@ class MezonSocket @Inject constructor(
         }
 
         Log.d(TAG, "App resumed — socket disconnected, triggering reconnect")
+        cancelReconnectHealthReset()
         reconnectFailCount = 0
         reconnectDelayMs = RECONNECT_MIN_MS
         scheduleReconnect()
@@ -145,23 +163,46 @@ class MezonSocket @Inject constructor(
 
     fun disconnect() {
         Log.d(TAG, "Disconnect requested")
-        userDisconnected = true
-        hasConnectedBefore = false
-        currentWsUrl = null
-        currentToken = null
-        heartbeatJob?.cancel()
-        reconnectJob?.cancel()
-        isReconnecting = false
-        reconnectFailCount = 0
-        reconnectDelayMs = RECONNECT_MIN_MS
-        webSocket?.close(1000, "Client disconnect")
-        webSocket = null
-        _connectionState.value = ConnectionState.DISCONNECTED
-        cancelAllPending("Disconnected")
+        synchronized(connectLock) {
+            userDisconnected = true
+            hasConnectedBefore = false
+            currentWsUrl = null
+            currentToken = null
+            heartbeatJob?.cancel()
+            reconnectJob?.cancel()
+            cancelReconnectHealthReset()
+            isReconnecting = false
+            reconnectFailCount = 0
+            reconnectDelayMs = RECONNECT_MIN_MS
+            webSocket?.close(1000, "Client disconnect")
+            webSocket = null
+            _connectionState.value = ConnectionState.DISCONNECTED
+            cancelAllPending("Disconnected")
+        }
+    }
+
+    fun forceReconnectForAuthFailure(reason: String) {
+        if (userDisconnected) return
+        Log.w(TAG, "forceReconnectForAuthFailure: $reason")
+        val ws = webSocket
+        if (ws == null) {
+            if (currentWsUrl != null && currentToken != null) scheduleReconnect()
+            return
+        }
+        val safeReason = reason.take(100)
+        try {
+            ws.close(4001, safeReason)
+        } catch (_: Exception) {
+            _connectionState.value = ConnectionState.DISCONNECTED
+            heartbeatJob?.cancel()
+            cancelReconnectHealthReset()
+            cancelAllPending("Auth failure reconnect")
+            if (!userDisconnected) scheduleReconnect()
+        }
     }
 
     suspend fun send(block: EnvelopeKt.Dsl.() -> Unit): Envelope {
-        val cid = cidCounter.incrementAndGet()
+        val cid = nextCid()
         val env = envelope {
             this.cid = cid
             block()
@@ -177,6 +218,12 @@ class MezonSocket @Inject constructor(
         val sent = ws.send(bytes)
         if (!sent) {
             pendingRequests.remove(cid)
+            Log.w(TAG, "send: ws.send returned false case=${env.messageCase} bytes=${bytes.size} state=${_connectionState.value} queueSize=${ws.queueSize()}, forcing reconnect")
+            _connectionState.value = ConnectionState.DISCONNECTED
+            cancelReconnectHealthReset()
+            try { ws.close(1001, "send enqueue failed") } catch (_: Exception) {}
+            if (webSocket === ws) webSocket = null
+            if (!userDisconnected) scheduleReconnect()
             throw IllegalStateException("Failed to enqueue WebSocket message")
         }
 
@@ -212,15 +259,41 @@ class MezonSocket @Inject constructor(
         }
     }
 
-    suspend fun fetchListClanBadgeCountSocket(): ListClanBadgeCountResponse {
-        val env = send {
-            this.listDataSocket = listDataSocket { apiName = "ListClanBadgeCount" }
+    suspend fun sendApiRequest(
+        apiName: String,
+        body: ByteArray,
+        timeoutMs: Long = SEND_TIMEOUT_MS
+    ): ByteArray {
+        val ws = webSocket
+            ?: throw IllegalStateException("WebSocket not connected")
+
+        val cid = nextCid()
+        val env = envelope {
+            this.cid = cid
+            this.apiRequestEvent = apiRequestEvent {
+                this.apiIndex = MezonApiNameRegistry.indexOf(apiName)
+                this.apiName = apiName
+                this.body = ProtoByteString.copyFrom(body)
+            }
         }
-        require(env.messageCase == Envelope.MessageCase.LIST_DATA_SOCKET) {
-            "ListClanBadgeCount: expected LIST_DATA_SOCKET, got ${env.messageCase}"
+
+        val deferred = CompletableDeferred<ByteArray>()
+        pendingApiRequests[cid] = deferred
+
+        val sent = ws.send(env.toByteArray().toByteString())
+        if (!sent) {
+            pendingApiRequests.remove(cid)
+            apiResponseStreams.remove(cid)
+            throw IllegalStateException("Failed to enqueue WebSocket api_request_event")
         }
-        val data = env.listDataSocket
-        return if (data.hasClanBadgeCount()) data.clanBadgeCount else ListClanBadgeCountResponse.getDefaultInstance()
+
+        return try {
+            withTimeout(timeoutMs) { deferred.await() }
+        } catch (e: TimeoutCancellationException) {
+            pendingApiRequests.remove(cid)
+            apiResponseStreams.remove(cid)
+            throw RuntimeException("api_request_event '$apiName' timed out after ${timeoutMs}ms", e)
+        }
     }
 
     suspend fun joinChat(
@@ -468,12 +541,17 @@ class MezonSocket @Inject constructor(
         jsonData: String,
         channelId: Long,
         callerId: Long
-    ): Envelope = send {
-        this.incomingCallPush = incomingCallPush {
-            this.receiverId = receiverId
-            this.jsonData = jsonData
-            this.channelId = channelId
-            this.callerId = callerId
+    ): Envelope {
+        val offerUtf8Bytes = jsonData.toByteArray(Charsets.UTF_8).size
+        val offerKb = offerUtf8Bytes / 1024.0
+        Log.d(TAG, "makeCallPush jsonData len=${jsonData.length} chars utf8=${offerUtf8Bytes}B ${String.format(Locale.US, "%.2f", offerKb)}KiB receiverId=$receiverId channelId=$channelId callerId=$callerId")
+        return send {
+            this.incomingCallPush = incomingCallPush {
+                this.receiverId = receiverId
+                this.jsonData = jsonData
+                this.channelId = channelId
+                this.callerId = callerId
+            }
         }
     }
 
@@ -511,44 +589,68 @@ class MezonSocket @Inject constructor(
     }
 
     private fun doConnect(wsUrl: String, token: String) {
-        webSocket?.close(1000, "Reconnecting")
-        webSocket = null
-        _connectionState.value = ConnectionState.CONNECTING
+        synchronized(connectLock) {
+            cancelReconnectHealthReset()
+            webSocket?.close(1000, "Reconnecting")
+            webSocket = null
+            _connectionState.value = ConnectionState.CONNECTING
 
-        val host = if (wsUrl.startsWith("ws://") || wsUrl.startsWith("wss://")) {
-            wsUrl
-        } else {
-            "wss://$wsUrl"
+            val host = if (wsUrl.startsWith("ws://") || wsUrl.startsWith("wss://")) {
+                wsUrl
+            } else {
+                "wss://$wsUrl"
+            }
+            val url = "$host/ws?token=$token&status=true&platform=1&lang=en&format=protobuf"
+            Log.d(TAG, "Connecting to: $host/ws?token=***&status=true&platform=1&lang=en&format=protobuf")
+
+            val request = Request.Builder()
+                .url(url)
+                .header("Authorization", "Bearer $token")
+                .build()
+            webSocket = okHttpClient.newWebSocket(request, socketListener)
         }
-        val url = "$host/ws?token=$token&status=true&platform=1&lang=en&format=protobuf"
-        Log.d(TAG, "Connecting to: $host/ws?token=***&status=true&platform=1&lang=en&format=protobuf")
-
-        val request = Request.Builder()
-            .url(url)
-            .header("Authorization", "Bearer $token")
-            .build()
-        webSocket = okHttpClient.newWebSocket(request, socketListener)
     }
 
     private val socketListener = object : WebSocketListener() {
 
         override fun onOpen(webSocket: WebSocket, response: Response) {
             Log.d(TAG, "Connected")
-            _connectionState.value = ConnectionState.CONNECTED
-            reconnectDelayMs = RECONNECT_MIN_MS
-            reconnectFailCount = 0
-            isReconnecting = false
-            if (hasConnectedBefore) {
+            val emitReconnect: Boolean
+            synchronized(connectLock) {
+                if (webSocket !== this@MezonSocket.webSocket) {
+                    Log.d(TAG, "Ignoring onOpen(non-active)")
+                    return
+                }
+                _connectionState.value = ConnectionState.CONNECTED
+                isReconnecting = false
+                cancelReconnectHealthReset()
+                reconnectHealthResetJob = scope.launch {
+                    delay(STABLE_CONNECTION_RESET_MS)
+                    synchronized(connectLock) {
+                        if (_connectionState.value == ConnectionState.CONNECTED && !userDisconnected) {
+                            reconnectFailCount = 0
+                            reconnectDelayMs = RECONNECT_MIN_MS
+                        }
+                    }
+                }
+                emitReconnect = hasConnectedBefore
+                hasConnectedBefore = true
+            }
+            if (emitReconnect) {
                 Log.d(TAG, "Socket reconnected — emitting reconnect event")
                 _reconnected.tryEmit(Unit)
             }
-            hasConnectedBefore = true
             startHeartbeat()
         }
 
         override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
             try {
-                val envelope = Envelope.parseFrom(bytes.toByteArray())
+                val raw = bytes.toByteArray()
+                if (raw.isNotEmpty() && (raw[0].toInt() and 0xFF) == 0xFF) {
+                    handleFramedApiResponse(raw)
+                    return
+                }
+                val envelope = Envelope.parseFrom(raw)
                 handleEnvelope(envelope)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to parse Envelope", e)
@@ -557,23 +659,82 @@ class MezonSocket @Inject constructor(
 
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
             Log.d(TAG, "Server closing: $code $reason")
+            if (code == 1008 || (code in 4001..4099)) {
+                Log.w(TAG, "Server close suggests auth issue (code=$code), will force refresh on reconnect")
+                forceRefreshNextReconnect = true
+            }
             webSocket.close(1000, null)
         }
 
-        override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+        override fun onClosed(sock: WebSocket, code: Int, reason: String) {
             Log.d(TAG, "Closed: $code $reason")
-            _connectionState.value = ConnectionState.DISCONNECTED
-            heartbeatJob?.cancel()
-            cancelAllPending("Connection closed")
-            if (!userDisconnected) scheduleReconnect()
+            synchronized(connectLock) {
+                if (sock !== webSocket) {
+                    Log.d(TAG, "Ignoring onClosed(non-active)")
+                    return
+                }
+                cancelReconnectHealthReset()
+                _connectionState.value = ConnectionState.DISCONNECTED
+                heartbeatJob?.cancel()
+                cancelAllPending("Connection closed")
+                if (!userDisconnected) scheduleReconnect()
+            }
         }
 
-        override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-            Log.e(TAG, "WebSocket failure: ${t.message}")
-            _connectionState.value = ConnectionState.DISCONNECTED
-            heartbeatJob?.cancel()
-            cancelAllPending("Connection failed: ${t.message}")
-            if (!userDisconnected) scheduleReconnect()
+        override fun onFailure(sock: WebSocket, t: Throwable, response: Response?) {
+            val httpCode = response?.code
+            val httpMsg = response?.message
+            Log.e(TAG, "WebSocket failure: ${t.message} (http=$httpCode $httpMsg type=${t.javaClass.simpleName})")
+            synchronized(connectLock) {
+                if (sock !== webSocket) {
+                    Log.d(TAG, "Ignoring onFailure(non-active)")
+                    return
+                }
+                if (httpCode == 401 || httpCode == 403) {
+                    Log.w(TAG, "WebSocket handshake failed with auth code $httpCode, will force refresh on reconnect")
+                    forceRefreshNextReconnect = true
+                }
+                cancelReconnectHealthReset()
+                _connectionState.value = ConnectionState.DISCONNECTED
+                heartbeatJob?.cancel()
+                cancelAllPending("Connection failed: ${t.message}")
+                if (!userDisconnected) scheduleReconnect()
+            }
+        }
+    }
+
+    private fun handleFramedApiResponse(data: ByteArray) {
+        val headerLen = 7
+        if (data.size < headerLen) {
+            Log.w(TAG, "framed RPC frame too small (${data.size}B)")
+            return
+        }
+        val cid = ((data[1].toInt() and 0xFF) shl 8) or (data[2].toInt() and 0xFF)
+        val statusWord =
+            ((data[3].toInt() and 0xFF) shl 24) or
+            ((data[4].toInt() and 0xFF) shl 16) or
+            ((data[5].toInt() and 0xFF) shl 8) or
+            (data[6].toInt() and 0xFF)
+        val responseCode = (statusWord ushr 16) and 0xFFFF
+        val finFlag = statusWord and 0xFFFF
+        val payload = if (data.size > headerLen) data.copyOfRange(headerLen, data.size) else ByteArray(0)
+
+        val previous = apiResponseStreams[cid] ?: ByteArray(0)
+        val merged = if (payload.isEmpty()) previous else previous + payload
+
+        if (finFlag == 0xFF) {
+            apiResponseStreams.remove(cid)
+            val deferred = pendingApiRequests.remove(cid) ?: return
+            if (responseCode == 0) {
+                deferred.complete(merged)
+            } else {
+                val msg = if (merged.isNotEmpty()) String(merged, Charsets.UTF_8) else ""
+                deferred.completeExceptionally(
+                    RuntimeException("Server error code=$responseCode msg='$msg'")
+                )
+            }
+        } else {
+            apiResponseStreams[cid] = merged
         }
     }
 
@@ -589,6 +750,18 @@ class MezonSocket @Inject constructor(
                     )
                 } else {
                     deferred.complete(envelope)
+                }
+                return
+            }
+            val apiDeferred = pendingApiRequests.remove(cid)
+            if (apiDeferred != null) {
+                apiResponseStreams.remove(cid)
+                if (envelope.messageCase == Envelope.MessageCase.ERROR) {
+                    apiDeferred.completeExceptionally(
+                        RuntimeException("Server error: ${envelope.error.message}")
+                    )
+                } else {
+                    apiDeferred.complete(ByteArray(0))
                 }
                 return
             }
@@ -625,57 +798,86 @@ class MezonSocket @Inject constructor(
     }
 
     private fun scheduleReconnect() {
-        if (currentWsUrl == null || currentToken == null) return
-        if (isReconnecting) return
+        synchronized(connectLock) {
+            if (currentWsUrl == null || currentToken == null) return
+            if (isReconnecting) return
 
-        reconnectFailCount++
+            reconnectFailCount++
 
-        if (reconnectFailCount > MAX_RECONNECT_FAILS) {
-            Log.e(TAG, "Max reconnect attempts ($MAX_RECONNECT_FAILS) reached, giving up")
-            reconnectFailCount = 0
-            isReconnecting = false
-            return
-        }
-
-        isReconnecting = true
-        reconnectJob?.cancel()
-        reconnectJob = scope.launch {
-            if (!networkMonitor.isOnline.value) {
-                Log.d(TAG, "Offline — waiting for network before reconnect")
-                networkMonitor.onlineEvents.first { it }
-                Log.d(TAG, "Network restored — proceeding with reconnect")
-                reconnectFailCount = 1
-                reconnectDelayMs = RECONNECT_MIN_MS
+            if (reconnectFailCount > MAX_RECONNECT_FAILS) {
+                Log.e(TAG, "Max reconnect attempts ($MAX_RECONNECT_FAILS) reached, giving up")
+                reconnectFailCount = 0
+                isReconnecting = false
+                return
             }
 
-            if (userDisconnected) return@launch
+            isReconnecting = true
+            reconnectJob?.cancel()
+            reconnectJob = scope.launch {
+                if (!networkMonitor.isOnline.value) {
+                    Log.d(TAG, "Offline — waiting for network before reconnect")
+                    networkMonitor.onlineEvents.first { it }
+                    Log.d(TAG, "Network restored — proceeding with reconnect")
+                    synchronized(connectLock) {
+                        reconnectFailCount = 1
+                        reconnectDelayMs = RECONNECT_MIN_MS
+                    }
+                }
 
-            val jitter = Random.nextLong(JITTER_RANGE_MS)
-            val delayMs = reconnectDelayMs + jitter
-            Log.d(TAG, "Reconnecting in ${delayMs}ms (attempt $reconnectFailCount/$MAX_RECONNECT_FAILS, base=${reconnectDelayMs}ms, jitter=${jitter}ms)")
-            delay(delayMs)
-            reconnectDelayMs = (reconnectDelayMs * 2).coerceAtMost(RECONNECT_MAX_MS)
+                if (userDisconnected) {
+                    synchronized(connectLock) { isReconnecting = false }
+                    return@launch
+                }
 
-            try {
-                val session = sessionManager.requireValidSession()
-                currentWsUrl = session.wsUrl
-                currentToken = session.token
-                isReconnecting = false
-                doConnect(session.wsUrl, session.token)
-            } catch (e: com.mezon.mobile.session.SessionExpiredException) {
-                Log.e(TAG, "Session expired, stopping reconnect — logout will be triggered")
-                currentWsUrl = null
-                currentToken = null
-                isReconnecting = false
-                reconnectFailCount = 0
-            } catch (e: java.io.IOException) {
-                Log.w(TAG, "Network error during reconnect, will wait for network", e)
-                isReconnecting = false
-                scheduleReconnect()
-            } catch (e: Exception) {
-                Log.e(TAG, "Unexpected error before reconnect, retrying...", e)
-                isReconnecting = false
-                scheduleReconnect()
+                val jitter = Random.nextLong(JITTER_RANGE_MS)
+                val baseMs = synchronized(connectLock) { reconnectDelayMs }
+                val delayMs = baseMs + jitter
+                Log.d(TAG, "Reconnecting in ${delayMs}ms (attempt $reconnectFailCount/$MAX_RECONNECT_FAILS, base=${baseMs}ms, jitter=${jitter}ms)")
+                delay(delayMs)
+                synchronized(connectLock) {
+                    reconnectDelayMs = (reconnectDelayMs * 2).coerceAtMost(RECONNECT_MAX_MS)
+                }
+
+                try {
+                    val session = if (forceRefreshNextReconnect) {
+                        Log.d(TAG, "Force-refreshing session before reconnect")
+                        forceRefreshNextReconnect = false
+                        try {
+                            sessionManager.refresh()
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Forced refresh failed, falling back to requireValidSession", e)
+                            sessionManager.requireValidSession()
+                        }
+                    } else {
+                        sessionManager.requireValidSession()
+                    }
+                    synchronized(connectLock) {
+                        if (userDisconnected) {
+                            isReconnecting = false
+                            return@launch
+                        }
+                        currentWsUrl = session.wsUrl
+                        currentToken = session.token
+                        doConnect(session.wsUrl, session.token)
+                        isReconnecting = false
+                    }
+                } catch (e: com.mezon.mobile.session.SessionExpiredException) {
+                    Log.e(TAG, "Session expired, stopping reconnect — logout will be triggered")
+                    synchronized(connectLock) {
+                        currentWsUrl = null
+                        currentToken = null
+                        isReconnecting = false
+                        reconnectFailCount = 0
+                    }
+                } catch (e: java.io.IOException) {
+                    Log.w(TAG, "Network error during reconnect, will wait for network", e)
+                    synchronized(connectLock) { isReconnecting = false }
+                    scheduleReconnect()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Unexpected error before reconnect, retrying...", e)
+                    synchronized(connectLock) { isReconnecting = false }
+                    scheduleReconnect()
+                }
             }
         }
     }
@@ -685,5 +887,10 @@ class MezonSocket @Inject constructor(
             deferred.completeExceptionally(RuntimeException(reason))
         }
         pendingRequests.clear()
+        pendingApiRequests.forEach { (_, deferred) ->
+            deferred.completeExceptionally(RuntimeException(reason))
+        }
+        pendingApiRequests.clear()
+        apiResponseStreams.clear()
     }
 }

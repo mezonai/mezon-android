@@ -87,10 +87,6 @@ class MessagesFragment : BaseFragment() {
             val mask = args.firstOrNull() as? Int ?: 0
             updateVisibleRows(mask)
         }
-        observe(NotificationCenter.onlineStatusChanged) { _, _, _ ->
-            if (fragmentView == null || isPaused) return@observe
-            updateVisibleRows(NotificationCenter.UPDATE_MASK_STATUS)
-        }
         observe(NotificationCenter.dialogsLoadError) { _, _, args ->
             if (fragmentView == null) return@observe
             if (controller.getDialogs().isEmpty()) {

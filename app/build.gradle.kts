@@ -40,8 +40,8 @@ android {
         applicationId = "com.mezon.mobile"
         minSdk = 24
         targetSdk = 35
-        versionCode = 2_000_000
-        versionName = "1.1.175"
+        versionCode = 1016
+        versionName = "1.1.177"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -200,6 +200,7 @@ dependencies {
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.ktor.serialization.kotlinx.json)
     implementation(libs.ktor.client.logging)
+    implementation("org.slf4j:slf4j-nop:1.7.36")
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.okhttp.logging.interceptor)
 

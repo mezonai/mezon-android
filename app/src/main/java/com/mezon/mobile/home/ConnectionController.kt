@@ -90,6 +90,7 @@ class ConnectionController @Inject constructor(
             try { sessionManager.requireValidSession() }
             catch (e: java.io.IOException) { return@launch }
             catch (e: Exception) { Log.e(TAG, "Failed to refresh session", e); return@launch }
+            mezonSocket.reconnectIfNeeded()
         }
     }
 
@@ -163,12 +164,14 @@ class ConnectionController @Inject constructor(
 
     private suspend fun connectSocket() {
         sessionManager.sessionFlow.collect { session ->
-            if (session != null && mezonSocket.connectionState.value == ConnectionState.DISCONNECTED) {
+            if (session != null) {
                 val s = try { sessionManager.requireValidSession() }
                 catch (e: java.io.IOException) { session }
                 catch (e: Exception) { Log.e(TAG, "Failed to get valid session", e); return@collect }
-                Log.d(TAG, "Connecting WebSocket... wsUrl=${s.wsUrl}")
+                Log.d(TAG, "Ensuring WebSocket connection... wsUrl=${s.wsUrl}")
                 mezonSocket.connect(s.wsUrl, s.token)
+            } else {
+                mezonSocket.disconnect()
             }
         }
     }

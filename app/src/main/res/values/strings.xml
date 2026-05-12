@@ -581,7 +581,12 @@
     <string name="transfer_success_done">Done</string>
     <string name="send_token_qr_invalid">Could not read recipient from this QR</string>
     <string name="send_token_scan_qr_or_use_profile">Scan a transfer QR code (Profile → My QR → Transfer)</string>
-    <string name="send_token_error_no_recipient">Select a recipient or scan a transfer QR</string>
+    <string name="send_token_select_user_title">Select recipient</string>
+    <string name="send_token_select_user_placeholder">Tap to select a user</string>
+    <string name="send_token_search_user_hint">Search by name or username</string>
+    <string name="send_token_no_user_match">No matching users</string>
+    <string name="send_token_no_friends_to_select">No friends available to select yet. Pull friends list and try again.</string>
+    <string name="send_token_error_no_recipient">Please select a recipient</string>
     <string name="send_token_error_amount">Enter an amount greater than zero</string>
     <string name="send_token_error_exceeds_balance">Amount exceeds your balance</string>
     <string name="send_token_error_balance_parse">Could not read wallet balance</string>

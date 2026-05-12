@@ -648,6 +648,7 @@ class MainActivity : BasePermissionsActivity(),
         val entryPoint = EntryPointAccessors.fromApplication(
             applicationContext, FragmentEntryPoint::class.java
         )
+        entryPoint.messagesController().disconnect()
         entryPoint.voiceController().cleanup()
         entryPoint.dialogsController().cleanup()
         entryPoint.chatController().cleanup()
@@ -666,7 +667,6 @@ class MainActivity : BasePermissionsActivity(),
         entryPoint.pinMessageController().cleanup()
         entryPoint.emojiController().cleanup()
         entryPoint.audioPlayerController().stop()
-        entryPoint.messagesController().clearCachedUsersAndChannels()
         entryPoint.apiCacheTracker().invalidateAll()
         com.mezon.mobile.home.chat.MezonImageLoader.getInstance(this).also {
             it.cancelAll()

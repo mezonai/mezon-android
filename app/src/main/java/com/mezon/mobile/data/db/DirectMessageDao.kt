@@ -25,7 +25,4 @@ interface DirectMessageDao {
 
     @Query("UPDATE direct_messages SET lastSeenMessageId = :messageId, unreadCount = 0 WHERE channelId = :channelId")
     suspend fun updateLastSeen(channelId: Long, messageId: Long)
-
-    @Query("UPDATE direct_messages SET isOnline = :online WHERE channelId = :channelId")
-    suspend fun updateOnlineStatus(channelId: Long, online: Boolean)
 }

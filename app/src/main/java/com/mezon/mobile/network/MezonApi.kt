@@ -132,6 +132,18 @@ import javax.inject.Inject
 import javax.inject.Singleton
 class UnauthorizedException(message: String) : RuntimeException(message)
 
+class SocketRpcTransportException(
+    message: String,
+    val retryOverHttp: Boolean = true,
+    cause: Throwable? = null
+) : RuntimeException(message, cause)
+
+class SocketRpcServerException(
+    message: String,
+    val code: Int,
+    cause: Throwable? = null
+) : RuntimeException(message, cause)
+
 @Serializable
 data class AuthEmailBody(
     val account: AccountEmailBody
@@ -230,11 +242,53 @@ private data class ClanDiscoverJson(
 
 @Singleton
 class MezonApi @Inject constructor(
-    private val httpClient: HttpClient
+    private val httpClient: HttpClient,
+    private val mezonSocketLazy: dagger.Lazy<MezonSocket>
 ) {
     companion object {
         private val SERVER_KEY = BuildConfig.MEZON_API_KEY
         private const val DISCOVER_ITEMS_PER_PAGE = 6
+        private const val SOCKET_WAIT_MS = 30_000L
+        private val HTTP_ONLY_API_NAMES = setOf(
+            "SessionRefresh",
+            "RegistFCMDeviceToken",
+            "SendChannelMessage"
+        )
+        private val SOCKET_RPC_API_NAMES = setOf(
+            "GetAccount",
+            "GetListEmojisByUserId",
+            "GetListFavoriteChannel",
+            "GetListStickersByUserId",
+            "GetNotificationClan",
+            "GetPinMessagesList",
+            "GetPoll",
+            "GetSystemMessageByClanId",
+            "GetUserProfileOnClan",
+            "GetUserStatus",
+            "ListActivity",
+            "ListAuditLog",
+            "ListChannelApps",
+            "ListChannelAttachment",
+            "ListChannelBadgeCount",
+            "ListChannelByUserId",
+            "ListChannelDescs",
+            "ListChannelMessages",
+            "ListChannelUsers",
+            "ListChannelUsersUC",
+            "ListChannelVoiceUsers",
+            "ListClanBadgeCount",
+            "ListClanDescs",
+            "ListClanUsers",
+            "ListClanWebhook",
+            "ListFriends",
+            "ListLogedDevice",
+            "ListNotifications",
+            "ListRoles",
+            "ListThreadDescs",
+            "ListUserClansByUserId",
+            "ListWebhookByChannelId",
+            "SearchMessage"
+        )
     }
 
     private val linkInvitePreviewCache = android.util.LruCache<Long, LinkInvitePreview>(256)
@@ -355,9 +409,63 @@ class MezonApi @Inject constructor(
         method: String,
         body: ByteArray
     ): ByteArray {
+        if (method in HTTP_ONLY_API_NAMES || method !in SOCKET_RPC_API_NAMES) {
+            return rpcOverHttp(apiUrl, token, method, body)
+        }
+        return try {
+            rpcOverSocket(method, body)
+        } catch (e: UnauthorizedException) {
+            throw e
+        } catch (e: SocketRpcServerException) {
+            throw e
+        } catch (e: SocketRpcTransportException) {
+            Log.w("MezonApi", "SOCKET unavailable method=$method, falling back to HTTP: ${e.message}")
+            rpcOverHttp(apiUrl, token, method, body)
+        } catch (e: IllegalArgumentException) {
+            throw e
+        }
+    }
+
+    private suspend fun rpcOverSocket(method: String, body: ByteArray): ByteArray {
+        val socket = mezonSocketLazy.get()
+        if (!socket.awaitConnected(SOCKET_WAIT_MS)) {
+            throw SocketRpcTransportException(
+                "WebSocket unavailable for '$method'",
+                retryOverHttp = true
+            )
+        }
+        val started = System.currentTimeMillis()
+        try {
+            val resp = socket.sendApiRequest(apiName = method, body = body)
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                    "MezonApi",
+                    "SOCKET ok method=$method respBytes=${resp.size} elapsedMs=${System.currentTimeMillis() - started}"
+                )
+            }
+            return resp
+        } catch (e: Exception) {
+            Log.w(
+                "MezonApi",
+                "SOCKET fail method=$method elapsedMs=${System.currentTimeMillis() - started} err=${e.message}"
+            )
+            if (e is UnauthorizedException) {
+                socket.forceReconnectForAuthFailure("Socket RPC unauthorized for '$method'")
+            }
+            throw e
+        }
+    }
+
+    private suspend fun rpcOverHttp(
+        apiUrl: String,
+        token: String,
+        method: String,
+        body: ByteArray
+    ): ByteArray {
         val base = apiUrl.trimEnd('/')
         val url = "$base/mezon.api.Mezon/$method"
         logRpcRequest(method, url)
+        val started = System.currentTimeMillis()
         val response = httpClient.post(url) {
             header(HttpHeaders.Authorization, "Bearer $token")
             header(HttpHeaders.Accept, CONTENT_TYPE_PROTO.toString())
@@ -378,7 +486,14 @@ class MezonApi @Inject constructor(
             throw RuntimeException("RPC $method failed (${response.status.value}): $errorBody")
         }
 
-        return response.readBytes()
+        val bytes = response.readBytes()
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                "MezonApi",
+                "HTTP ok method=$method status=${response.status.value} bytes=${bytes.size} elapsedMs=${System.currentTimeMillis() - started}"
+            )
+        }
+        return bytes
     }
 
     private suspend fun rpcNoAuth(
@@ -1023,7 +1138,9 @@ class MezonApi @Inject constructor(
         return try {
             rpc(apiUrl, token, "LinkSMS", requestBytes)
         } catch (e: RuntimeException) {
-            if (e.message?.contains("(404)") == true) {
+            if (e.message?.contains("(404)") == true ||
+                (e as? SocketRpcServerException)?.code == 404
+            ) {
                 rpc(apiUrl, token, "LinkSms", requestBytes)
             } else {
                 throw e

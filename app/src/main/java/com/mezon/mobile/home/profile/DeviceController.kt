@@ -3,9 +3,8 @@ package com.mezon.mobile.home.profile
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
-import com.mezon.mobile.network.MezonSocket
-import com.mezon.mezon.rtapi.Envelope
-import com.mezon.mezon.rtapi.listDataSocket
+import com.mezon.mobile.network.MezonApi
+import com.mezon.mobile.session.SessionManager
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.withContext
@@ -14,24 +13,18 @@ import javax.inject.Singleton
 
 @Singleton
 class DeviceController @Inject constructor(
-    private val mezonSocket: MezonSocket,
+    private val api: MezonApi,
+    private val sessionManager: SessionManager,
     private val notificationCenter: NotificationCenter,
     @ApplicationScope private val appScope: CoroutineScope,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) {
     suspend fun fetchDevices(): Result<List<Device>> = withContext(ioDispatcher) {
         try {
-            val env = mezonSocket.send {
-                this.listDataSocket = listDataSocket {
-                    apiName = "ListLogedDevice"
-                }
+            val response = sessionManager.withAutoRefresh { session ->
+                api.listLogedDevice(session.apiUrl, session.token)
             }
-            if (env.messageCase != Envelope.MessageCase.LIST_DATA_SOCKET) {
-                return@withContext Result.failure(Exception("Invalid response"))
-            }
-            val data = env.listDataSocket
-            val listLoggedDevice = data.listLogedDevice
-            val devices = listLoggedDevice.devicesList.map { deviceInfo ->
+            val devices = response.devicesList.map { deviceInfo ->
                 Device(
                     deviceId = deviceInfo.deviceId.ifEmpty { "" },
                     deviceName = if (deviceInfo.deviceName.isNotEmpty()) deviceInfo.deviceName else null,

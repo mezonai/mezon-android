@@ -811,7 +811,12 @@
     <string name="send_token_recipient">Người nhận</string>
     <string name="send_token_qr_invalid">Không đọc được người nhận từ mã QR này</string>
     <string name="send_token_scan_qr_or_use_profile">Quét mã QR chuyển khoản (Hồ sơ → Mã QR của tôi → Chuyển khoản)</string>
-    <string name="send_token_error_no_recipient">Chọn người nhận hoặc quét mã QR chuyển khoản</string>
+    <string name="send_token_select_user_title">Chọn người nhận</string>
+    <string name="send_token_select_user_placeholder">Chạm để chọn người nhận</string>
+    <string name="send_token_search_user_hint">Tìm theo tên hoặc username</string>
+    <string name="send_token_no_user_match">Không tìm thấy người dùng phù hợp</string>
+    <string name="send_token_no_friends_to_select">Chưa có bạn bè để chọn. Vui lòng tải lại danh sách bạn bè và thử lại.</string>
+    <string name="send_token_error_no_recipient">Vui lòng chọn người nhận</string>
     <string name="send_token_error_amount">Nhập số tiền lớn hơn 0</string>
     <string name="send_token_error_exceeds_balance">Số tiền vượt quá số dư</string>
     <string name="send_token_error_balance_parse">Không đọc được số dư ví</string>

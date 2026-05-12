@@ -292,10 +292,9 @@ class ClansController @Inject constructor(
             return
         }
         runCatching {
-            if (!mezonSocket.awaitConnected()) {
-                return@runCatching
+            val badgeResponse = sessionManager.withAutoRefresh { session ->
+                api.listClanBadgeCount(session.apiUrl, session.token)
             }
-            val badgeResponse = mezonSocket.fetchListClanBadgeCountSocket()
             cacheTracker.markCalled(badgeKey)
             val list = badgeResponse.listBadgeList
             applyClanBadgeList(list)

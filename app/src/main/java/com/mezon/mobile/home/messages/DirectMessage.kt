@@ -68,8 +68,6 @@ fun ChannelDescription.toDirectMessage(currentUserId: Long, previewContext: andr
     } else {
         avatarsList.getOrElse(otherIndex) { "" }
     }
-    val isOnline = onlinesList.getOrElse(otherIndex) { false }
-
     val lastMsgContent = if (hasLastSentMessage()) {
         if (previewContext != null) messagePreviewForDialog(previewContext, lastSentMessage.content)
         else parseContentPreview(lastSentMessage.content)
@@ -85,7 +83,7 @@ fun ChannelDescription.toDirectMessage(currentUserId: Long, previewContext: andr
         displayName = displayName,
         lastMessageContent = lastMsgContent,
         unreadCount = countMessUnread,
-        isOnline = isOnline,
+        isOnline = false,
         isMute = isMute,
         otherUserId = otherUserId,
         lastSeenMessageId = extractLastSeenMessageId(),

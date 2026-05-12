@@ -45,8 +45,11 @@ import com.mezon.mezon.api.MessageMention
 import com.mezon.mezon.api.messageAttachment
 import com.mezon.mezon.api.messageMention
 import org.json.JSONObject
+import com.mezon.mezon.rtapi.ChannelMessageSend
+import com.mezon.mezon.rtapi.Envelope
 import com.mezon.mezon.rtapi.channelMessageSend
 import com.mezon.mezon.rtapi.channelMessageUpdate
+import com.mezon.mobile.network.ConnectionState
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -440,6 +443,29 @@ class ChatController @Inject constructor(
         )
     }
 
+    private suspend fun channelSend(
+        apiUrl: String,
+        token: String,
+        request: ChannelMessageSend
+    ): com.mezon.mezon.rtapi.ChannelMessageAck {
+        if (mezonSocket.connectionState.value == ConnectionState.CONNECTED) {
+            try {
+                return withContext(ioDispatcher) {
+                    val env = mezonSocket.send { channelMessageSend = request }
+                    if (env.messageCase != Envelope.MessageCase.CHANNEL_MESSAGE_ACK) {
+                        throw IllegalStateException("unexpected envelope ${env.messageCase}")
+                    }
+                    env.channelMessageAck
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Channel message send via socket failed, using REST", e)
+            }
+        }
+        return withContext(ioDispatcher) {
+            api.sendChannelMessage(apiUrl, token, request)
+        }
+    }
+
     fun sendMessage(
         channelId: Long,
         clanId: Long,
@@ -515,9 +541,7 @@ class ChatController @Inject constructor(
                         this.mentionEveryone = mentionEveryone
                         if (anon) this.anonymousMessage = true
                     }
-                    val ack = withContext(ioDispatcher) {
-                        api.sendChannelMessage(session.apiUrl, session.token, request)
-                    }
+                    val ack = channelSend(session.apiUrl, session.token, request)
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
                     )
@@ -569,9 +593,7 @@ class ChatController @Inject constructor(
                     this.content = contentJson
                     if (anon) this.anonymousMessage = true
                 }
-                val ack = withContext(ioDispatcher) {
-                    api.sendChannelMessage(session.apiUrl, session.token, request)
-                }
+                val ack = channelSend(session.apiUrl, session.token, request)
                 notificationCenter.postNotificationOnMainThread(
                     NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
                 )
@@ -649,9 +671,7 @@ class ChatController @Inject constructor(
                         references?.let { this.references.addAll(it) }
                         if (anon) this.anonymousMessage = true
                     }
-                    val ack = withContext(ioDispatcher) {
-                        api.sendChannelMessage(session.apiUrl, session.token, request)
-                    }
+                    val ack = channelSend(session.apiUrl, session.token, request)
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
                     )
@@ -712,9 +732,7 @@ class ChatController @Inject constructor(
                         this.code = MessageEntity.CODE_LOCATION
                         if (anon) this.anonymousMessage = true
                     }
-                    val ack = withContext(ioDispatcher) {
-                        api.sendChannelMessage(session.apiUrl, session.token, request)
-                    }
+                    val ack = channelSend(session.apiUrl, session.token, request)
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
                     )
@@ -773,9 +791,7 @@ class ChatController @Inject constructor(
                         this.code = MessageEntity.CODE_MESSAGE_BUZZ
                         if (anon) this.anonymousMessage = true
                     }
-                    val ack = withContext(ioDispatcher) {
-                        api.sendChannelMessage(session.apiUrl, session.token, request)
-                    }
+                    val ack = channelSend(session.apiUrl, session.token, request)
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
                     )
@@ -1018,7 +1034,7 @@ class ChatController @Inject constructor(
                             this.mentionEveryone = mentionEveryone
                             if (anon) this.anonymousMessage = true
                         }
-                        val ack = api.sendChannelMessage(session.apiUrl, session.token, request)
+                        val ack = channelSend(session.apiUrl, session.token, request)
                         notificationCenter.postNotificationOnMainThread(
                             NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
                         )
@@ -1172,7 +1188,7 @@ class ChatController @Inject constructor(
                             this.attachments.addAll(uploadedAttachments)
                             if (anon) this.anonymousMessage = true
                         }
-                        val ack = api.sendChannelMessage(session.apiUrl, session.token, request)
+                        val ack = channelSend(session.apiUrl, session.token, request)
                         notificationCenter.postNotificationOnMainThread(
                             NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
                         )
@@ -1653,7 +1669,7 @@ class ChatController @Inject constructor(
                                     mentionEveryone = extractMentionEveryoneFromForwardContent(wire)
                                     if (anon) anonymousMessage = true
                                 }
-                                api.sendChannelMessage(session.apiUrl, session.token, request)
+                                channelSend(session.apiUrl, session.token, request)
                             } catch (e: Exception) {
                                 allOk = false
                                 val everyone = extractMentionEveryoneFromForwardContent(wire)
@@ -1678,7 +1694,7 @@ class ChatController @Inject constructor(
                                     content = txt
                                     if (anon) anonymousMessage = true
                                 }
-                                api.sendChannelMessage(session.apiUrl, session.token, requestExtra)
+                                channelSend(session.apiUrl, session.token, requestExtra)
                             } catch (e: Exception) {
                                 allOk = false
                                 Log.e(TAG, "forward REST extra comment failed channel=${dest.channelId}", e)

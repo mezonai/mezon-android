@@ -34,6 +34,7 @@ class MainTabsActivity : ViewPagerActivity() {
     }
 
     private lateinit var connectionController: ConnectionController
+    @Suppress("unused")
     private lateinit var messagesController: MessagesController
     private lateinit var friendController: FriendController
     @Suppress("unused")
@@ -81,7 +82,6 @@ class MainTabsActivity : ViewPagerActivity() {
         }
         TAB_PROFILE -> ProfileFragment().also { f ->
             f.onLogout = {
-                messagesController.disconnect()
                 onLogout?.invoke()
             }
         }
