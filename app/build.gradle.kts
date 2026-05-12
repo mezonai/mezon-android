@@ -71,6 +71,16 @@ android {
         fun buildInt(name: String) {
             buildConfigField("int", name, req(name))
         }
+        fun buildBoolOpt(name: String, default: Boolean) {
+            val v = mezonSecrets.getProperty(name)?.trim()?.takeIf { it.isNotEmpty() }?.lowercase()
+            val lit = when (v) {
+                null -> if (default) "true" else "false"
+                "true", "1", "yes" -> "true"
+                "false", "0", "no" -> "false"
+                else -> error("Invalid optional boolean for $name: '$v' (use true/false or omit)")
+            }
+            buildConfigField("Boolean", name, lit)
+        }
 
         buildStr("MEZON_GATEWAY_URL")
         buildStr("MEZON_API_HOST")
@@ -102,6 +112,7 @@ android {
         buildStr("MEZON_WEBRTC_ICESERVERS_URL")
         buildStr("MEZON_WEBRTC_ICESERVERS_USERNAME")
         buildStr("MEZON_WEBRTC_ICESERVERS_CREDENTIAL")
+        buildBoolOpt("MEZON_WEBRTC_ICE_RELAY_ONLY", false)
         buildStr("MEZON_STREAM_WS_URL")
         buildStr("MEZON_BASE_IMG_URL")
         buildStr("MEZON_LOGO_URL")

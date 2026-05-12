@@ -1016,6 +1016,11 @@
     <string name="message_call_log_start_audio_call">%1$s started an audio call</string>
     <string name="message_call_log_start_video_call">%1$s started a video call</string>
 
+    <string name="call_phone_account_title">Enable system calling</string>
+    <string name="call_phone_account_message">To show incoming calls on your lock screen using the system interface, enable Mezon in Phone accounts settings.</string>
+    <string name="call_phone_account_open_settings">Open settings</string>
+    <string name="call_busy_incoming_title">Incoming call</string>
+    <string name="call_busy_incoming_text">%1$s is calling — you are already in a call</string>
     <string name="call_full_screen_intent_title">Fullscreen incoming calls</string>
     <string name="call_full_screen_intent_message">Allow Mezon to use fullscreen notifications while the device is locked so you won’t miss voice calls.</string>
     <string name="call_full_screen_intent_open_settings">Turn on</string>

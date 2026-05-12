@@ -18,7 +18,7 @@ class LocalCallVideoPip(context: Context) : FrameLayout(context) {
             setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FILL)
             setMirror(true)
             setZOrderMediaOverlay(true)
-            setEnableHardwareScaler(true)
+            setEnableHardwareScaler(false)
         }
         addView(renderer, LayoutParams(w, h))
     }

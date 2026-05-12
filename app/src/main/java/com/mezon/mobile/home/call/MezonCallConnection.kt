@@ -52,7 +52,7 @@ class MezonCallConnection(private val context: Context) : Connection() {
     override fun onAnswer() {
         val controller = ensureCallController()
         Log.d(TAG, "onAnswer: instance=${controller != null}, state=${controller?.callState?.let { it::class.simpleName }}")
-        setActive()
+        // setActive()
         controller?.acceptCall()
     }
 

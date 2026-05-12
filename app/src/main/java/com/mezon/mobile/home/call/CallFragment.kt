@@ -200,6 +200,23 @@ class CallFragment : BaseFragment() {
         }
     }
 
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        val activity = getParentActivity() ?: return
+        AndroidUtilities.checkDisplaySize(activity, newConfig)
+        durationView?.stopTimer()
+        releaseLocalPipOverlay()
+        releaseVideoView()
+        lastConnectedMainVideoMode = null
+        avatarView = null
+        contentContainer = null
+        dmHeader = null
+        durationView = null
+        controlBar = null
+        clearViews()
+        parentLayout?.showLastFragment()
+    }
+
     override fun onFragmentDestroy() {
         durationView?.stopTimer()
         releaseLocalPipOverlay()
@@ -279,6 +296,7 @@ class CallFragment : BaseFragment() {
         val v = videoView ?: return
         callController.getPeerConnection()?.detachRemoteRenderer(v.remoteRenderer)
         callController.getPeerConnection()?.detachLocalRenderer(v.localRenderer)
+        v.setLocalPreviewVisible(false)
         v.visibility = View.GONE
     }
 
@@ -421,20 +439,23 @@ class CallFragment : BaseFragment() {
             it.visibility = View.GONE
         }
         if (videoView == null) {
-            videoView = CallVideoView(requireContext())
-            videoView!!.initialize()
-        }
-        if (videoView?.parent == null) {
-            contentContainer?.addView(videoView, LayoutHelper.createFrame(
+            val v = CallVideoView(requireContext())
+            videoView = v
+            v.initialize()
+            contentContainer?.addView(v, LayoutHelper.createFrame(
                 LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT
             ))
         }
-        videoView?.visibility = View.VISIBLE
-        videoView?.let { v ->
-            callController.getPeerConnection()?.attachRemoteRenderer(v.remoteRenderer)
+        val v = videoView ?: return
+        if (v.parent == null) {
+            contentContainer?.addView(v, LayoutHelper.createFrame(
+                LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT
+            ))
         }
+        v.visibility = View.VISIBLE
+        callController.getPeerConnection()?.attachRemoteRenderer(v.remoteRenderer)
         applyLocalVideoPreviewInMainLayout()
-        videoView?.let { contentContainer?.bringChildToFront(it) }
+        contentContainer?.bringChildToFront(v)
     }
 
     private fun startForegroundService(callInfo: CallInfo?) {

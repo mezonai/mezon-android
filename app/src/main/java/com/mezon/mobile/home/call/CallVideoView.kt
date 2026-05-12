@@ -1,7 +1,6 @@
 package com.mezon.mobile.home.call
 
 import android.content.Context
-import android.graphics.Color
 import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
@@ -27,7 +26,7 @@ class CallVideoView(context: Context) : FrameLayout(context) {
             setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FILL)
             setMirror(false)
             setZOrderMediaOverlay(false)
-            setEnableHardwareScaler(true)
+            setEnableHardwareScaler(false)
         }
         addView(remoteRenderer, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
 
@@ -36,7 +35,7 @@ class CallVideoView(context: Context) : FrameLayout(context) {
             setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FILL)
             setMirror(true)
             setZOrderMediaOverlay(true)
-            setEnableHardwareScaler(true)
+            setEnableHardwareScaler(false)
         }
         localPreviewContainer.addView(
             localRenderer,
@@ -51,14 +50,14 @@ class CallVideoView(context: Context) : FrameLayout(context) {
             localAvatarOverlay,
             FrameLayout.LayoutParams(LayoutHelper.dp(120), LayoutHelper.dp(120), Gravity.CENTER),
         )
+        localPreviewContainer.visibility = View.GONE
+
         val localParams = LayoutParams(localWidth, localHeight).apply {
             gravity = Gravity.TOP or Gravity.END
             topMargin = localMargin
             marginEnd = localMargin
         }
         addView(localPreviewContainer, localParams)
-
-        setBackgroundColor(Color.BLACK)
     }
 
     fun setLocalPreviewVisible(visible: Boolean) {
@@ -71,11 +70,11 @@ class CallVideoView(context: Context) : FrameLayout(context) {
         }
     }
 
-    fun initialize() {
+    fun initialize(remoteRendererEvents: RendererCommon.RendererEvents? = null) {
         if (initialized) return
         initialized = true
         val eglContext = EglBaseProvider.acquire()
-        remoteRenderer.init(eglContext, null)
+        remoteRenderer.init(eglContext, remoteRendererEvents)
         localRenderer.init(eglContext, null)
     }
 

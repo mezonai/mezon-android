@@ -610,6 +610,50 @@ class CallController @Inject constructor(
         peerConnection?.switchCamera()
     }
 
+    fun dismissIncomingCall() {
+        if (callState !is CallState.Incoming) return
+        cancelTimeout()
+        StartupCache.suppressHomeListApiForIncomingCallWake = false
+        try { CallForegroundService.stop(appContext) } catch (_: Exception) {}
+        try {
+            val notifier = CallNotificationManager(appContext)
+            notifier.dismissIncomingNotification()
+        } catch (_: Exception) {}
+        callAudioManager?.stopTone()
+        peerConnection?.dispose()
+        peerConnection = null
+        callState = CallState.Idle
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.callEnded, CallEndReason.CANCELLED, null)
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.callStateChanged, CallState.Idle)
+        appScope.launch {
+            callAudioManager?.stop()
+            callAudioManager = null
+        }
+    }
+
+    fun dismissOutgoingCallSilently() {
+        if (callState !is CallState.Outgoing) return
+        Log.i(TAG, "dismissOutgoingCallSilently: call connected elsewhere")
+        cancelTimeout()
+        StartupCache.suppressHomeListApiForIncomingCallWake = false
+        try { CallForegroundService.stop(appContext) } catch (_: Exception) {}
+        try {
+            val notifier = CallNotificationManager(appContext)
+            notifier.dismissIncomingNotification()
+            notifier.dismissOngoingNotification()
+        } catch (_: Exception) {}
+        callAudioManager?.stopTone()
+        peerConnection?.dispose()
+        peerConnection = null
+        callState = CallState.Idle
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.callEnded, CallEndReason.CANCELLED, null)
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.callStateChanged, CallState.Idle)
+        appScope.launch {
+            callAudioManager?.stop()
+            callAudioManager = null
+        }
+    }
+
     fun endCall(reason: CallEndReason) {
         cancelTimeout()
         cancelRemoteVideoRevealRefresh()
@@ -733,6 +777,14 @@ class CallController @Inject constructor(
             return
         }
         if (callState !is CallState.Idle) {
+            val current = callState
+            if (current is CallState.Incoming &&
+                current.callInfo.peerId == callerId &&
+                current.callInfo.channelId == channelId
+            ) {
+                Log.d(TAG, "handleOffer: duplicate offer from same caller (FCM+WS race), ignoring")
+                return
+            }
             Log.d(TAG, "handleOffer: busy, current state=${callState::class.simpleName}")
             sendSignaling(callerId, channelId, WebrtcSignalingType.SDP_JOINED_OTHER_CALL, "")
             return
@@ -890,11 +942,20 @@ class CallController @Inject constructor(
     }
 
     private fun handleClearCall() {
-        endCall(CallEndReason.CLEAR_CALL)
+        if (callState is CallState.Incoming) {
+            dismissIncomingCall()
+        } else {
+            endCall(CallEndReason.CLEAR_CALL)
+        }
     }
 
     private fun handleSdpInit() {
         val state = callState
+        if (state is CallState.Incoming) {
+            Log.i(TAG, "handleSdpInit: caller connected elsewhere while Incoming → dismissIncomingCall")
+            dismissIncomingCall()
+            return
+        }
         if (state is CallState.Connecting) {
             val connectedTime = SystemClock.elapsedRealtime()
             callState = CallState.Connected(state.callInfo, connectedTime)
@@ -949,6 +1010,7 @@ class CallController @Inject constructor(
             callState = CallState.Connected(callInfo, connectedTime)
             cancelTimeout()
             callAudioManager?.stopTone()
+            MezonCallConnection.activeConnection?.setCallActive()
 
             sendSignaling(callInfo.peerId, callInfo.channelId, WebrtcSignalingType.SDP_INIT, "")
             sendMediaStatus()
@@ -1026,6 +1088,7 @@ class CallController @Inject constructor(
     private fun pushCancelCallToCallee(callInfo: CallInfo) {
         val callerName = userController.displayName.ifEmpty { userController.username }
         val callerAvatar = userController.avatarUrl.orEmpty()
+        val fingerprint = localOffer?.description?.hashCode()?.toString().orEmpty()
         val fcmPayload = JSONObject().apply {
             put("offer", "CANCEL_CALL")
             put("isVideo", callInfo.isVideo)
@@ -1033,6 +1096,7 @@ class CallController @Inject constructor(
             put("callerAvatar", callerAvatar)
             put("callerId", userController.userIdStr)
             put("channelId", callInfo.channelId.toString())
+            if (fingerprint.isNotEmpty()) put("offerFingerprint", fingerprint)
         }.toString()
         appScope.launch(ioDispatcher) {
             try {

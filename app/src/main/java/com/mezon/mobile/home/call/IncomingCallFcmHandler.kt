@@ -7,6 +7,7 @@ import android.telecom.DisconnectCause
 import android.util.Log
 import com.google.firebase.messaging.RemoteMessage
 import com.mezon.mobile.MainActivity
+import com.mezon.mobile.R
 import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.home.ConnectionController
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -74,17 +75,33 @@ class IncomingCallFcmHandler @Inject constructor(
             }
         }
         if (innerOffer == "CANCEL_CALL") {
+            val isConnected = parsed.optBoolean("isConnected", false)
+            val controller = CallController.instance
+            val currentState = controller?.callState
             CallNotificationManager(appContext).dismissIncomingNotification()
+            try { CallForegroundService.stop(appContext) } catch (_: Exception) {}
             MezonCallConnection.activeConnection?.let {
                 it.setDisconnected(DisconnectCause(DisconnectCause.CANCELED))
                 it.destroy()
                 MezonCallConnection.activeConnection = null
             }
-            CallController.instance?.endCall(CallEndReason.CANCELLED)
+            when {
+                currentState is CallState.Incoming -> mainHandler.post { controller.dismissIncomingCall() }
+                currentState is CallState.Outgoing && isConnected -> mainHandler.post { controller.dismissOutgoingCallSilently() }
+                else -> controller?.endCall(CallEndReason.CANCELLED)
+            }
             return
         }
         if (callController.callState !is CallState.Idle) {
             Log.d(TAG, "skip offer, callState=${callController.callState::class.simpleName}")
+            val callerName = parsed.optString("callerName", "Unknown")
+            mainHandler.post {
+                android.widget.Toast.makeText(
+                    appContext,
+                    appContext.getString(R.string.call_busy_incoming_text, callerName),
+                    android.widget.Toast.LENGTH_LONG
+                ).show()
+            }
             return
         }
         StartupCache.suppressHomeListApiForIncomingCallWake = true
@@ -99,13 +116,15 @@ class IncomingCallFcmHandler @Inject constructor(
         connectionController.reconnectSocketForOfferSignaling()
         webRtcInfra.ensureFactoryReady()
         Log.d(TAG, "feeding offer to CallController")
-        callController.handleIncomingOfferFromFcm(
-            callerName,
-            callerAvatar = callerAvatar,
-            callerId,
-            channelId,
-            offerJson
-        )
+        mainHandler.post {
+            callController.handleIncomingOfferFromFcm(
+                callerName,
+                callerAvatar = callerAvatar,
+                callerId,
+                channelId,
+                offerJson
+            )
+        }
         mainHandler.post {
             if (MainActivity.isResumed) {
                 return@post

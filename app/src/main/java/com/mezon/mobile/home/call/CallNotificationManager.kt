@@ -198,6 +198,22 @@ class CallNotificationManager(private val context: Context) {
             .build()
     }
 
+    fun showBusyIncomingCallNotification(callerName: String) {
+        val title = context.getString(R.string.call_busy_incoming_title)
+        val text = context.getString(R.string.call_busy_incoming_text, callerName)
+        val notification = NotificationCompat.Builder(context, CHANNEL_INCOMING_CALL)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setAutoCancel(true)
+            .setTimeoutAfter(10_000)
+            .setColor(0xFF7029C6.toInt())
+            .build()
+        notificationManager.notify(BUSY_INCOMING_CALL_NOTIFICATION_ID, notification)
+    }
+
     fun dismissIncomingNotification() {
         notificationManager.cancel(INCOMING_CALL_NOTIFICATION_ID)
     }
@@ -214,6 +230,7 @@ class CallNotificationManager(private val context: Context) {
         const val CHANNEL_ONGOING_CALL = "ongoing_call"
         const val INCOMING_CALL_NOTIFICATION_ID = 9001
         const val ONGOING_CALL_NOTIFICATION_ID = 9002
+        const val BUSY_INCOMING_CALL_NOTIFICATION_ID = 9003
         const val EXTRA_OPEN_CALL = "open_call_fragment"
     }
 }

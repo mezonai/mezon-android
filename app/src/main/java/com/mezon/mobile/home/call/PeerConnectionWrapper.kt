@@ -162,17 +162,20 @@ class PeerConnectionWrapper(
 
     fun createOffer(isVideo: Boolean, callback: (SessionDescription) -> Unit) {
         createPeerConnection()
-        holdLocalCandidates = true 
+        holdLocalCandidates = true
         addLocalMedia(isVideo)
 
-        val constraints = sessionOfferConstraints()
+        val constraints = sessionOfferConstraints(isVideo)
 
         peerConnection?.createOffer(object : SimpleSdpObserver() {
             override fun onCreateSuccess(sdp: SessionDescription?) {
                 sdp?.let { offer ->
                     val preferredSdp = preferVp8Codec(offer)
-                    peerConnection?.setLocalDescription(SimpleSdpObserver(), preferredSdp)
-                    mainHandler.post { callback(preferredSdp) }
+                    peerConnection?.setLocalDescription(object : SimpleSdpObserver() {
+                        override fun onSetSuccess() {
+                            mainHandler.post { callback(preferredSdp) }
+                        }
+                    }, preferredSdp)
                 }
             }
         }, constraints)
@@ -297,11 +300,14 @@ class PeerConnectionWrapper(
                     return
                 }
                 val preferredAnswer = preferVp8Codec(answer)
-                pc.setLocalDescription(SimpleSdpObserver(), preferredAnswer)
-                mainHandler.post {
-                    callback(preferredAnswer)
-                    flushPendingLocalIce()
-                }
+                pc.setLocalDescription(object : SimpleSdpObserver() {
+                    override fun onSetSuccess() {
+                        mainHandler.post {
+                            callback(preferredAnswer)
+                            flushPendingLocalIce()
+                        }
+                    }
+                }, preferredAnswer)
             }
 
             override fun onCreateFailure(error: String?) {
@@ -339,8 +345,11 @@ class PeerConnectionWrapper(
                     override fun onCreateSuccess(answer: SessionDescription?) {
                         answer?.let {
                             val preferredAnswer = preferVp8Codec(it)
-                            pc.setLocalDescription(SimpleSdpObserver(), preferredAnswer)
-                            mainHandler.post { callback(preferredAnswer) }
+                            pc.setLocalDescription(object : SimpleSdpObserver() {
+                                override fun onSetSuccess() {
+                                    mainHandler.post { callback(preferredAnswer) }
+                                }
+                            }, preferredAnswer)
                         }
                     }
                 }, MediaConstraints())
@@ -353,13 +362,16 @@ class PeerConnectionWrapper(
     }
 
     fun createRenegotiationOffer(callback: (SessionDescription) -> Unit) {
-        val constraints = sessionOfferConstraints()
+        val constraints = sessionOfferConstraints(isVideo = true)
         peerConnection?.createOffer(object : SimpleSdpObserver() {
             override fun onCreateSuccess(sdp: SessionDescription?) {
                 sdp?.let { offer ->
                     val preferredSdp = preferVp8Codec(offer)
-                    peerConnection?.setLocalDescription(SimpleSdpObserver(), preferredSdp)
-                    mainHandler.post { callback(preferredSdp) }
+                    peerConnection?.setLocalDescription(object : SimpleSdpObserver() {
+                        override fun onSetSuccess() {
+                            mainHandler.post { callback(preferredSdp) }
+                        }
+                    }, preferredSdp)
                 }
             }
         }, constraints)
@@ -540,10 +552,10 @@ class PeerConnectionWrapper(
         }
     }
 
-    private fun sessionOfferConstraints(): MediaConstraints {
+    private fun sessionOfferConstraints(isVideo: Boolean = false): MediaConstraints {
         return MediaConstraints().apply {
             mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "true"))
-            mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", if (isVideo) "true" else "false"))
             mandatory.add(MediaConstraints.KeyValuePair("VoiceActivityDetection", "true"))
         }
     }

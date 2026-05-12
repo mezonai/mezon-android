@@ -879,6 +879,11 @@
     <string name="message_call_log_start_audio_call">%1$s đã bắt đầu 1 cuộc gọi thoại</string>
     <string name="message_call_log_start_video_call">%1$s đã bắt đầu 1 cuộc gọi video</string>
 
+    <string name="call_phone_account_title">Bật cuộc gọi hệ thống</string>
+    <string name="call_phone_account_message">Để hiển thị cuộc gọi đến trên màn hình khóa theo giao diện hệ thống, hãy bật Mezon trong cài đặt Tài khoản điện thoại.</string>
+    <string name="call_phone_account_open_settings">Mở cài đặt</string>
+    <string name="call_busy_incoming_title">Cuộc gọi đến</string>
+    <string name="call_busy_incoming_text">%1$s đang gọi — bạn đang trong cuộc gọi khác</string>
     <string name="call_full_screen_intent_title">Cuộc gọi đến toàn màn hình</string>
     <string name="call_full_screen_intent_message">Cho phép Mezon dùng thông báo toàn màn hình khi khóa màn hình để bạn không bỏ lỡ cuộc gọi thoại.</string>
     <string name="call_full_screen_intent_open_settings">Bật trong cài đặt</string>
