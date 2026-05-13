@@ -2,7 +2,9 @@ package com.mezon.mobile.auth
 
 import android.content.Context
 import android.graphics.drawable.GradientDrawable
+import android.text.InputFilter
 import android.text.InputType
+import android.text.Spanned
 import android.view.Gravity
 import android.view.View
 import android.view.inputmethod.EditorInfo
@@ -18,13 +20,46 @@ import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.di.FragmentEntryPoint
+import com.mezon.mobile.network.SocketRpcTransportException
+import com.mezon.mobile.network.UnauthorizedException
 import com.mezon.mobile.ui.cells.ActionButton
-import java.text.Normalizer
+import java.io.IOException
+import java.util.Locale
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class UpdateUsernameFragment : BaseFragment() {
+
+    companion object {
+        private const val USERNAME_MIN_LEN = 2
+        private const val USERNAME_MAX_LEN = 30
+        private val USERNAME_REGEX = Regex("^[a-z0-9]{${USERNAME_MIN_LEN},${USERNAME_MAX_LEN}}$")
+
+        private object AsciiLowercaseLettersAndDigitsFilter : InputFilter {
+            override fun filter(
+                source: CharSequence?,
+                start: Int,
+                end: Int,
+                dest: Spanned?,
+                dstart: Int,
+                dend: Int
+            ): CharSequence? {
+                if (source == null) return null
+                val out = StringBuilder(end - start)
+                for (i in start until end) {
+                    when (val c = source[i]) {
+                        in 'a'..'z' -> out.append(c)
+                        in 'A'..'Z' -> out.append(c.lowercaseChar())
+                        in '0'..'9' -> out.append(c)
+                    }
+                }
+                val sub = source.subSequence(start, end)
+                return if (out.contentEquals(sub)) null else out
+            }
+        }
+    }
 
     var onComplete: (() -> Unit)? = null
 
@@ -104,6 +139,10 @@ class UpdateUsernameFragment : BaseFragment() {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
             imeOptions = EditorInfo.IME_ACTION_DONE
             isSingleLine = true
+            filters = arrayOf(
+                AsciiLowercaseLettersAndDigitsFilter,
+                InputFilter.LengthFilter(USERNAME_MAX_LEN)
+            )
             setOnEditorActionListener { _, actionId, _ ->
                 if (actionId == EditorInfo.IME_ACTION_DONE) {
                     doSubmit()
@@ -115,9 +154,9 @@ class UpdateUsernameFragment : BaseFragment() {
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
                 override fun afterTextChanged(s: android.text.Editable?) {
                     errorText.visibility = View.GONE
-                    val sanitized = sanitizeUsername(s?.toString().orEmpty())
-                    if (sanitized.isNotEmpty()) {
-                        previewView.text = getString(R.string.update_username_preview, sanitized)
+                    val text = s?.toString().orEmpty()
+                    if (text.isNotEmpty()) {
+                        previewView.text = getString(R.string.update_username_preview, text)
                         previewView.visibility = View.VISIBLE
                     } else {
                         previewView.visibility = View.GONE
@@ -191,15 +230,69 @@ class UpdateUsernameFragment : BaseFragment() {
         return root
     }
 
-    private fun sanitizeUsername(raw: String): String {
-        val nfd = Normalizer.normalize(raw, Normalizer.Form.NFD)
-        val noMarks = nfd.replace("\\p{Mn}+".toRegex(), "")
-        return noMarks.replace(Regex("[\\s\\p{P}]"), "")
+    private fun userMessageForUpdateUsernameFailure(err: Throwable): String {
+        if (err is TimeoutCancellationException) {
+            return getString(R.string.common_error_offline)
+        }
+        if (err is SocketRpcTransportException || err is IOException) {
+            return getString(R.string.common_error_offline)
+        }
+        if (err is UnauthorizedException) {
+            return getString(R.string.common_session_expired_content)
+        }
+        var chain: Throwable? = err
+        while (chain != null) {
+            if (chain is TimeoutCancellationException) {
+                return getString(R.string.common_error_offline)
+            }
+            chain = chain.cause
+        }
+        val msg = err.message.orEmpty()
+        val lower = msg.lowercase(Locale.ROOT)
+        if ("timed out" in lower) {
+            return getString(R.string.common_error_offline)
+        }
+        if ("websocket not connected" in lower || "websocket unavailable" in lower) {
+            return getString(R.string.common_error_offline)
+        }
+        extractFramedServerUserMessage(msg)?.let { extracted ->
+            if (extracted.isNotBlank()) return extracted
+        }
+        if (msg.startsWith("Server error: ")) {
+            val rest = msg.removePrefix("Server error: ").trim()
+            return rest.ifBlank { getString(R.string.update_username_error) }
+        }
+        if (looksLikeTechnicalRpcFailure(msg)) {
+            return getString(R.string.update_username_error)
+        }
+        return msg.ifBlank { getString(R.string.update_username_error) }
+    }
+
+    private fun looksLikeTechnicalRpcFailure(msg: String): Boolean {
+        if (msg.isBlank()) return true
+        return msg.startsWith("Socket RPC ") ||
+            msg.startsWith("RPC ") ||
+            msg.startsWith("Server error code=")
+    }
+
+    /** Payload from framed RPC error: `Server error code=… msg='…'` */
+    private fun extractFramedServerUserMessage(msg: String): String? {
+        val prefix = "msg='"
+        val i = msg.indexOf(prefix)
+        if (i < 0) return null
+        val start = i + prefix.length
+        val end = msg.indexOf('\'', start)
+        if (end <= start) return null
+        return msg.substring(start, end)
     }
 
     private fun doSubmit() {
-        val sanitized = sanitizeUsername(input.text?.toString().orEmpty())
-        if (sanitized.isEmpty()) return
+        val username = input.text?.toString().orEmpty()
+        if (!USERNAME_REGEX.matches(username)) {
+            errorText.text = getString(R.string.update_username_validation_invalid)
+            errorText.visibility = View.VISIBLE
+            return
+        }
 
         AndroidUtilities.hideKeyboard(fragmentView)
         submitButton.isEnabled = false
@@ -209,7 +302,7 @@ class UpdateUsernameFragment : BaseFragment() {
 
         fragmentScope.launch(Dispatchers.Main) {
             val result = withContext(entryPoint().ioDispatcher()) {
-                authRepository.updateUsername(sanitized)
+                authRepository.updateUsername(username)
             }
             result
                 .onSuccess {
@@ -224,8 +317,7 @@ class UpdateUsernameFragment : BaseFragment() {
                     submitButton.isEnabled = true
                     submitButton.visibility = View.VISIBLE
                     errorText.visibility = View.VISIBLE
-                    errorText.text = err.message?.takeIf { it.isNotBlank() }
-                        ?: getString(R.string.update_username_error)
+                    errorText.text = userMessageForUpdateUsernameFailure(err)
                 }
         }
     }

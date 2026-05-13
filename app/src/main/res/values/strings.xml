@@ -131,7 +131,8 @@
 
     <string name="update_username_title">Enter Mezon name</string>
     <string name="update_username_subtitle">Please use your actual name to make it easier for people to identify you.</string>
-    <string name="update_username_hint">Your name…</string>
+    <string name="update_username_hint">Lowercase letters and numbers (a–z, 0–9), one word…</string>
+    <string name="update_username_validation_invalid">Use 2–30 characters: lowercase letters and digits only (a–z, 0–9), one word—no spaces or symbols.</string>
     <string name="update_username_preview">Username: %1$s</string>
     <string name="update_username_button">Update</string>
     <string name="update_username_error">There’s an issue or the name already exists, please choose another one.</string>

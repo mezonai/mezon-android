@@ -134,6 +134,10 @@
     <string name="otp_change_confirm_title">Đổi %1$s?</string>
     <string name="otp_change_confirm_message">Bạn sẽ quay lại màn hình đăng nhập.</string>
 
+    <!-- updateUsername -->
+    <string name="update_username_hint">Chữ thường và số (a–z, 0–9), viết liền…</string>
+    <string name="update_username_validation_invalid">Nhập 2–30 ký tự: chỉ chữ thường và số (a–z, 0–9), viết liền, không khoảng trắng hay ký tự đặc biệt.</string>
+
     <!-- common.sessionExpired -->
     <string name="common_session_expired_title">Phiên đăng nhập đã hết hạn hoặc lỗi mạng</string>
     <string name="common_session_expired_confirm">Đăng nhập lại</string>
