@@ -182,6 +182,7 @@ class ClansFragment : BaseFragment() {
             serverAdapter.notifyDataSetChanged()
             channelListView.invalidateTheme()
             updateClanPanelHeaderMode()
+            refreshClanHeaderAfterThemeChange()
         }
 
         clansController.loadClans()
@@ -571,6 +572,26 @@ class ClansFragment : BaseFragment() {
         return root
     }
 
+    /** Re-apply palette to clan header TextViews and rebuild member subtitle (spans hold old colors until rebuild). */
+    private fun refreshClanHeaderAfterThemeChange() {
+        if (!::clanNameText.isInitialized || !::memberCountText.isInitialized) return
+        clanNameText.setTextColor(themeColors.onSurface)
+        memberCountText.setTextColor(themeColors.textDisabled)
+        val vctx = verifiedIcon?.context
+        if (vctx != null) {
+            verifiedIcon?.setImageDrawable(MezonIcon.verifyIcon.getDrawable(vctx).apply {
+                colorFilter = PorterDuffColorFilter(themeColors.blurple, PorterDuff.Mode.SRC_IN)
+            })
+        }
+        (normalClanHeaderRoot as? LinearLayout)?.setBackgroundColor(themeColors.channelPanelBg)
+        renderedSubtitleKey = null
+        if (memberCountText.visibility == View.VISIBLE) {
+            memberCountText.animate().cancel()
+            memberCountText.alpha = 1f
+        }
+        updateMemberCount()
+    }
+
     private fun updateClanPanelHeaderMode() {
         if (fragmentView == null) return
         val emptyServerList = clansController.clansLoaded && clansController.clans.value.isEmpty()
@@ -759,7 +780,8 @@ class ClansFragment : BaseFragment() {
         val isCommunity = renderedIsCommunity == true
         val key = "$count|$isCommunity"
         val alreadyShown = memberCountText.visibility == View.VISIBLE && memberCountText.alpha >= 1f
-        if (renderedSubtitleKey == key && alreadyShown) return
+        // Do not skip if subtitle is empty (e.g. first layout before fragmentView was assigned in parent bindView).
+        if (renderedSubtitleKey == key && alreadyShown && memberCountText.text.isNotEmpty()) return
         val wasHidden = !alreadyShown
         renderedSubtitleKey = key
         memberCountText.text = buildSubtitleText(count, isCommunity)
@@ -775,7 +797,12 @@ class ClansFragment : BaseFragment() {
     }
 
     private fun buildSubtitleText(count: Int, isCommunity: Boolean): CharSequence {
-        val ctx = fragmentView?.context ?: return ""
+        // During createView(), parent bindView assigns fragmentView only after createView returns,
+        // but updateServerRail() → updateMemberCount() runs at end of createView while fragmentView is still null.
+        val ctx = fragmentView?.context
+            ?: if (::memberCountText.isInitialized) memberCountText.context else null
+            ?: if (::clanNameText.isInitialized) clanNameText.context else null
+            ?: return ""
         val memberWord = if (count == 1) {
             ctx.getString(R.string.common_member)
         } else {
