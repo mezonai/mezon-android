@@ -460,6 +460,7 @@ class DialogsController @Inject constructor(
                         lastMessageContent = dm.lastMessageContent.ifBlank { existing.lastMessageContent },
                         isOnline = false,
                         otherUserId = if (dm.otherUserId != 0L) dm.otherUserId else existing.otherUserId,
+                        groupCreatorId = if (dm.groupCreatorId != 0L) dm.groupCreatorId else existing.groupCreatorId,
                         lastSeenMessageId = maxOf(existing.lastSeenMessageId, dm.lastSeenMessageId),
                         lastSentMessageId = maxOf(existing.lastSentMessageId, dm.lastSentMessageId),
                         lastSeenMessageTs = maxOf(existing.lastSeenMessageTs, dm.lastSeenMessageTs),

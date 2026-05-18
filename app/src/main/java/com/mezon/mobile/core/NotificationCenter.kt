@@ -124,6 +124,8 @@ class NotificationCenter(val currentAccount: Int) {
         val channelFilesLoadError = nextId()
         val channelGalleryDidLoad = nextId()
         val channelGalleryLoadError = nextId()
+        val channelPermissionsDidLoad = nextId()
+        val channelPermissionOverridesDidLoad = nextId()
 
         val voiceChannelMembersChanged = nextId()
         val voiceLeftRoom = nextId()

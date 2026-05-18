@@ -383,7 +383,7 @@ class MessageActionBottomSheet(
     private fun buildWarningActions(): List<ActionItem> {
         val actions = mutableListOf<ActionItem>()
 
-        if (canDeleteMessage || isMyMessage) {
+        if (canDeleteMessage) {
             actions.add(ActionItem(
                 ActionType.DeleteMessage,
                 context.getString(R.string.action_delete),

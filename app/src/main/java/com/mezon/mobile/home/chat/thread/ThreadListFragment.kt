@@ -19,17 +19,21 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
+import android.widget.Toast
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.mezon.mobile.MainActivity
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
+import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.MemberResolver
 import com.mezon.mobile.home.clans.ChannelController
+import com.mezon.mobile.home.clans.PermissionPolicy
 import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.session.SessionManager
+import com.mezon.mobile.ui.cells.ActionBarMenuItem
 import com.mezon.mobile.ui.cells.ActionBarView
 import com.mezon.mobile.ui.cells.MezonIcon
 import android.util.Log
@@ -71,9 +75,12 @@ class ThreadListFragment : BaseFragment() {
     private lateinit var sessionManager: SessionManager
     private lateinit var memberResolver: MemberResolver
     private lateinit var channelController: ChannelController
+    private lateinit var permissionPolicy: PermissionPolicy
     private lateinit var ioDispatcher: CoroutineDispatcher
 
     private var adapter: ThreadListAdapter? = null
+    private var createMenuItem: ActionBarMenuItem? = null
+    private var emptyCreateButton: TextView? = null
     private var recyclerView: RecyclerListView? = null
     private var emptyView: View? = null
     private var loadingView: ProgressBar? = null
@@ -95,6 +102,23 @@ class ThreadListFragment : BaseFragment() {
         channelId = arguments?.getLong(ARG_CHANNEL_ID) ?: 0L
         channelName = arguments?.getString(ARG_CHANNEL_NAME) ?: ""
         clanId = arguments?.getLong(ARG_CLAN_ID) ?: 0L
+        permissionPolicy.ensurePermissionChecker(
+            listOf(PermissionPolicy.CLAN_OWNER, PermissionPolicy.MANAGE_THREAD, PermissionPolicy.MANAGE_CHANNEL),
+            channelId,
+            clanId
+        )
+        observe(NotificationCenter.channelPermissionOverridesDidLoad) { _, _, args ->
+            val changedChannelId = args.firstOrNull() as? Long ?: return@observe
+            if (changedChannelId == channelId) updateCreateThreadActions()
+        }
+        observe(NotificationCenter.channelPermissionsDidLoad) { _, _, args ->
+            val changedChannelId = args.firstOrNull() as? Long ?: return@observe
+            if (changedChannelId == channelId) updateCreateThreadActions()
+        }
+        observe(NotificationCenter.clanRolesDidLoad) { _, _, args ->
+            val changedClanId = args.firstOrNull() as? Long ?: return@observe
+            if (changedClanId == clanId) updateCreateThreadActions()
+        }
         return true
     }
 
@@ -103,6 +127,7 @@ class ThreadListFragment : BaseFragment() {
         sessionManager = entryPoint.sessionManager()
         memberResolver = entryPoint.memberResolver()
         channelController = entryPoint.channelController()
+        permissionPolicy = entryPoint.permissionPolicy()
         ioDispatcher = entryPoint.ioDispatcher()
     }
 
@@ -122,6 +147,7 @@ class ThreadListFragment : BaseFragment() {
         val createMenuItem = actionBarView.createMenu().addItem(1, MezonIcon.plusLargeIcon.getDrawable(context).apply {
             colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
         })
+        this.createMenuItem = createMenuItem
         val createIconPx = LayoutHelper.dp(CREATE_MENU_ICON_DP)
         createMenuItem.iconView.scaleType = ImageView.ScaleType.FIT_CENTER
         createMenuItem.iconView.layoutParams = FrameLayout.LayoutParams(createIconPx, createIconPx, Gravity.CENTER)
@@ -129,7 +155,7 @@ class ThreadListFragment : BaseFragment() {
             override fun onItemClick(id: Int) {
                 if (id == -1) finishFragment()
                 else if (id == 1) {
-                    presentFragment(CreateThreadFragment.newInstance(channelId, channelName, clanId))
+                    openCreateThread()
                 }
             }
         })
@@ -180,8 +206,24 @@ class ThreadListFragment : BaseFragment() {
         ))
 
         fragmentView = root
+        updateCreateThreadActions()
         fetchThreads(1)
         return root
+    }
+
+    private fun updateCreateThreadActions() {
+        val visibility = if (permissionPolicy.canCreateThreadFromThreadList(channelId, clanId)) View.VISIBLE else View.GONE
+        createMenuItem?.visibility = visibility
+        emptyCreateButton?.visibility = visibility
+    }
+
+    private fun openCreateThread() {
+        if (!permissionPolicy.canCreateThreadFromThreadList(channelId, clanId)) {
+            val ctx = getContext() ?: return
+            Toast.makeText(ctx, R.string.channel_permissions_no_access, Toast.LENGTH_SHORT).show()
+            return
+        }
+        presentFragment(CreateThreadFragment.newInstance(channelId, channelName, clanId))
     }
 
     private fun buildSearchBar(context: Context): View {
@@ -296,8 +338,14 @@ class ThreadListFragment : BaseFragment() {
             val padV = LayoutHelper.dp(2)
             setPadding(padH, padV, padH, padV)
             setOnClickListener {
-                presentFragment(CreateThreadFragment.newInstance(channelId, channelName, clanId))
+                openCreateThread()
             }
+        }
+        emptyCreateButton = createButton
+        createButton.visibility = if (permissionPolicy.canCreateThreadFromThreadList(channelId, clanId)) {
+            View.VISIBLE
+        } else {
+            View.GONE
         }
         container.addView(createButton, LayoutHelper.createLinear(150, 50, 0f, Gravity.CENTER_HORIZONTAL, 0f, 20f, 0f, 0f))
 

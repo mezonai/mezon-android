@@ -309,6 +309,72 @@
     <string name="clan_settings_members">Thành viên</string>
     <string name="clan_settings_roles">Vai trò</string>
     <string name="clan_settings_invites">Lời mời</string>
+    <string name="clan_roles_description">Dùng vai trò để nhóm thành viên clan và gán quyền</string>
+    <string name="clan_roles_default_role">Quyền mặc định cho mọi thành viên clan</string>
+    <string name="clan_roles_header_count">Vai trò - %1$d</string>
+    <string name="clan_roles_member_count">%1$d - Thành viên</string>
+    <string name="clan_roles_no_roles">Hiện chưa có vai trò</string>
+    <string name="clan_roles_all_members">Mọi thành viên</string>
+    <string name="clan_roles_add_content_desc">Thêm vai trò</string>
+    <string name="clan_roles_create_step_title">Bước 1/3</string>
+    <string name="clan_roles_create_heading">Tạo vai trò mới</string>
+    <string name="clan_roles_create_body">Đặt tên và màu riêng cho vai trò. Bạn có thể đổi sau.</string>
+    <string name="clan_roles_create_name_label">Tên vai trò</string>
+    <string name="clan_roles_create_name_placeholder">Vai trò mới</string>
+    <string name="clan_roles_create_button">Tạo</string>
+    <string name="clan_roles_create_success">Đã tạo %1$s thành công</string>
+    <string name="clan_roles_perm_step_title">Bước 2/3</string>
+    <string name="clan_roles_perm_heading">Thiết lập quyền</string>
+    <string name="clan_roles_perm_search">Tìm quyền</string>
+    <string name="clan_roles_perm_next">Tiếp</string>
+    <string name="clan_roles_members_step_title">Bước 3/3</string>
+    <string name="clan_roles_members_heading">Thêm thành viên</string>
+    <string name="clan_roles_members_body">Gán vai trò này cho thành viên. Mỗi người có thể có nhiều vai trò.</string>
+    <string name="clan_roles_members_search">Tìm thành viên</string>
+    <string name="clan_roles_members_finish">Xong</string>
+    <string name="clan_roles_members_added">Đã thêm thành viên thành công</string>
+    <string name="clan_roles_members_none">Không có thành viên</string>
+    <string name="clan_roles_detail_role">Vai trò</string>
+    <string name="clan_roles_detail_role_name">Tên vai trò</string>
+    <string name="clan_roles_detail_permissions">Quyền</string>
+    <string name="clan_roles_detail_members">Thành viên</string>
+    <string name="clan_roles_detail_save">Lưu</string>
+    <string name="clan_roles_detail_delete">Xóa vai trò</string>
+    <string name="clan_roles_detail_color">Màu vai trò</string>
+    <string name="clan_roles_detail_icon">Biểu tượng vai trò</string>
+    <string name="clan_roles_detail_icon_upload_hint">Chọn ảnh</string>
+    <string name="clan_roles_icon_image_set">Biểu tượng tùy chỉnh</string>
+    <string name="clan_roles_icon_choose">Chọn ảnh</string>
+    <string name="clan_roles_icon_remove">Xoá</string>
+    <string name="clan_roles_icon_picker_title">Chọn ảnh</string>
+    <string name="clan_roles_icon_too_large">Ảnh tối đa 256 KB</string>
+    <string name="clan_roles_changes_saved">Đã lưu thay đổi</string>
+    <string name="clan_roles_failed">Thất bại</string>
+    <string name="clan_roles_back_content_desc">Quay lại</string>
+    <string name="clan_roles_confirm_save_title">Lưu thay đổi?</string>
+    <string name="clan_roles_confirm_save_message">Bạn đã thay đổi. Lưu lại?</string>
+    <string name="clan_roles_confirm_yes">Có</string>
+    <string name="clan_roles_confirm_delete_title">Xóa vai trò</string>
+    <string name="clan_roles_confirm_delete_message">Bạn có chắc muốn xóa vai trò này?</string>
+    <string name="clan_roles_color_picker_title">Chọn màu</string>
+    <string name="clan_roles_color_save">Lưu</string>
+    <string name="clan_roles_color_reset">Đặt lại</string>
+    <string name="clan_roles_perm_desc_fallback">Chưa có mô tả quyền</string>
+    <string name="clan_roles_perm_title_administrator">Quản trị viên</string>
+    <string name="clan_roles_perm_title_view_channel">Xem kênh</string>
+    <string name="clan_roles_perm_title_manage_channel">Quản lý kênh</string>
+    <string name="clan_roles_perm_title_manage_clan">Quản lý clan</string>
+    <string name="clan_roles_perm_title_manage_thread">Quản lý chủ đề</string>
+    <string name="clan_roles_perm_title_send_message">Gửi tin nhắn</string>
+    <string name="clan_roles_perm_title_delete_message">Xóa tin nhắn</string>
+    <string name="clan_roles_perm_title_clan_owner">Chủ clan</string>
+    <string name="clan_roles_perm_desc_administrator">Cho phép quản lý toàn bộ clan (thấp hơn quyền chủ).</string>
+    <string name="clan_roles_perm_desc_view_channel">Cho phép xem kênh công khai.</string>
+    <string name="clan_roles_perm_desc_manage_channel">Cho phép tạo, sửa hoặc xóa kênh.</string>
+    <string name="clan_roles_perm_desc_manage_clan">Cho phép điều khiển cài đặt clan, quản lý vai trò và kênh.</string>
+    <string name="clan_roles_perm_desc_manage_thread">Cho phép tạo, sửa, xóa chủ đề trong kênh (kể cả chủ đề riêng).</string>
+    <string name="clan_roles_perm_desc_send_message">Cho phép gửi tin trong kênh công khai (kể cả chủ đề).</string>
+    <string name="clan_roles_perm_desc_delete_message">Cho phép xóa tin trong kênh công khai (kể cả chủ đề).</string>
     <string name="clan_settings_change_logo">Đổi biểu tượng clan</string>
     <string name="image_crop_choose">Chọn</string>
     <string name="image_crop_rotate_left_cd">Xoay trái</string>
@@ -353,6 +419,7 @@
     <string name="channel_creator_screen_title">Tạo kênh</string>
     <string name="category_menu_create_channel">Tạo kênh</string>
     <string name="category_menu_create_channel_unavailable">Chưa thể tạo kênh cho danh mục này lúc này.</string>
+    <string name="channel_open_no_view_permission">Bạn không có quyền xem kênh này.</string>
     <string name="audit_log_action_create_channel">Tạo kênh</string>
     <string name="audit_log_action_update_channel">Cập nhật kênh</string>
     <string name="audit_log_action_update_channel_private">Cập nhật quyền riêng tư kênh</string>
@@ -861,7 +928,6 @@
     <string name="channel_creator_type_stream_desc">Chia sẻ sở thích và hoạt động</string>
     <string name="channel_creator_private_title">Kênh riêng</string>
     <string name="channel_creator_private_description">Khi bật kênh riêng, chỉ thành viên và vai trò được chọn mới xem được kênh này</string>
-    <string name="category_menu_create_channel">Tạo kênh</string>
 
     <!-- Channel / thread settings (ChannelSetting RN port) -->
     <string name="channel_settings_title_channel">Cài đặt kênh</string>
@@ -887,12 +953,22 @@
     <string name="channel_settings_menu_leave_thread">Rời thread</string>
     <string name="channel_settings_delete_confirm_channel_title">Xóa kênh?</string>
     <string name="channel_settings_delete_confirm_thread_title">Xóa thread?</string>
-    <string name="channel_settings_delete_confirm_message">Thao tác này sẽ xóa vĩnh viễn \"%s\". Không thể hoàn tác.</string>
+    <string name="channel_settings_delete_confirm_message">Thao tác này sẽ xóa vĩnh viễn "%s". Không thể hoàn tác.</string>
     <string name="channel_settings_leave_confirm_title">Rời thread?</string>
-    <string name="channel_settings_leave_confirm_message">Bạn sẽ không còn thấy \"%s\" trong clan này.</string>
+    <string name="channel_settings_leave_confirm_message">Bạn sẽ không còn thấy "%s" trong clan này.</string>
     <string name="channel_settings_delete_system_channel">Kênh này dùng cho tin nhắn hệ thống và không thể xóa.</string>
     <string name="channel_settings_delete_failed">Không xóa được: %s</string>
     <string name="channel_settings_leave_failed">Không rời được: %s</string>
+    <string name="channel_settings_title">Cài đặt kênh</string>
+    <string name="channel_settings_save">Lưu</string>
+    <string name="channel_settings_channel_topic">Chủ đề kênh</string>
+    <string name="channel_settings_change_category">Đổi danh mục</string>
+    <string name="channel_settings_permissions">Quyền kênh</string>
+    <string name="channel_settings_quick_action">Thao tác nhanh</string>
+    <string name="channel_settings_ban_list">Danh sách cấm</string>
+    <string name="channel_settings_permission_description">Thay đổi thiết lập riêng tư và tùy chỉnh cách thành viên tương tác với kênh này.</string>
+    <string name="channel_settings_webhooks">Webhook</string>
+    <string name="channel_settings_delete_channel">Xóa kênh</string>
 
     <!-- Channel permission (Basic / Advanced) -->
     <string name="channel_permission_title">Quyền kênh</string>
@@ -920,6 +996,34 @@
     <string name="channel_permission_saved">Đã lưu quyền</string>
     <string name="channel_permission_save_failed">Không lưu được quyền</string>
     <string name="channel_permission_load_failed">Không tải được quyền</string>
+
+    <!-- Channel permissions (new structure from other branch) -->
+    <string name="channel_permissions_title">Quyền truy cập</string>
+    <string name="channel_permissions_overrides">Ghi đè quyền</string>
+    <string name="channel_permissions_save">Lưu</string>
+    <string name="channel_permissions_general_channel_permissions">QUYỀN TỔNG QUÁT KÊNH</string>
+    <string name="channel_permissions_basic_view">Cơ bản</string>
+    <string name="channel_permissions_advanced_view">Nâng cao</string>
+    <string name="channel_permissions_roles">Vai trò</string>
+    <string name="channel_permissions_members">Thành viên</string>
+    <string name="channel_permissions_add">Thêm</string>
+    <string name="channel_permissions_add_members_or_roles">Thêm thành viên hoặc vai trò</string>
+    <string name="channel_permissions_role_member_placeholder">Vai trò/Thành viên</string>
+    <string name="channel_permissions_private_channel">Kênh riêng tư</string>
+    <string name="channel_permissions_basic_description">Khi bạn chuyển kênh sang chế độ riêng tư, chỉ những thành viên và vai trò được chọn mới có thể xem kênh này</string>
+    <string name="channel_permissions_who_can_access">Ai có thể truy cập</string>
+    <string name="channel_permissions_creator_badge">Người tạo</string>
+    <string name="channel_permissions_role_badge">Vai trò</string>
+    <string name="channel_permissions_unsaved_title">Bạn có các cài đặt chưa được lưu</string>
+    <string name="channel_permissions_unsaved_content">Bạn có muốn lưu các thay đổi không?</string>
+    <string name="channel_permissions_unsaved_confirm">Có, Lưu</string>
+    <string name="channel_permissions_desc_view_channel">Cho phép thành viên xem kênh này theo mặc định. Tắt quyền này cho \u0040everyone sẽ chuyển kênh thành riêng tư.</string>
+    <string name="channel_permissions_desc_manage_channel">Cho phép thành viên đổi tên, mô tả và cài đặt văn bản của kênh này. Họ cũng có thể xóa kênh.</string>
+    <string name="channel_permissions_toast_success">Lưu thành công</string>
+    <string name="channel_permissions_toast_failed">Lưu thất bại</string>
+    <string name="channel_permissions_role_member_empty">Chưa có vai trò và thành viên để thiết lập quyền riêng</string>
+    <string name="channel_permissions_no_matches">Không có vai trò hoặc thành viên phù hợp</string>
+    <string name="channel_permissions_no_access">Bạn không có quyền quản lý kênh này.</string>
 
     <!-- Poll messages -->
     <string name="poll_select_one">Chọn một đáp án</string>
@@ -968,6 +1072,8 @@
     <string name="message_call_log_start_audio_call">%1$s đã bắt đầu 1 cuộc gọi thoại</string>
     <string name="message_call_log_start_video_call">%1$s đã bắt đầu 1 cuộc gọi video</string>
 
+    <string name="call_busy_status">Đang trong cuộc gọi khác</string>
+    <string name="call_busy_peer_status">%1$s đang trong cuộc gọi khác</string>
     <string name="call_full_screen_intent_title">Cuộc gọi đến toàn màn hình</string>
     <string name="call_full_screen_intent_message">Cho phép Mezon dùng thông báo toàn màn hình khi khóa màn hình để bạn không bỏ lỡ cuộc gọi thoại.</string>
     <string name="call_full_screen_intent_open_settings">Bật trong cài đặt</string>

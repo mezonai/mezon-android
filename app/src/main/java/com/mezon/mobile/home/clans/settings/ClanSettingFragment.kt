@@ -16,6 +16,7 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
+import android.widget.ScrollView
 import android.widget.TextView
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AndroidUtilities
@@ -28,6 +29,7 @@ import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.ClanEntity
 import com.mezon.mobile.home.clans.ClansController
 import com.mezon.mobile.home.clans.CreateClanRnUiTokens
+import com.mezon.mobile.home.clans.PermissionPolicy
 import com.mezon.mobile.home.clans.RoleController
 import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
@@ -54,8 +56,10 @@ class ClanSettingFragment : BaseFragment() {
     private lateinit var userClanController: UserClanController
     private lateinit var roleController: RoleController
     private lateinit var userController: UserController
+    private lateinit var permissionPolicy: PermissionPolicy
 
     private lateinit var scrollInner: LinearLayout
+    private lateinit var logoContainer: LinearLayout
     private var logoUploadOverlay: FrameLayout? = null
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
@@ -64,12 +68,15 @@ class ClanSettingFragment : BaseFragment() {
         userClanController = entryPoint.userClanController()
         roleController = entryPoint.roleController()
         userController = entryPoint.userController()
+        permissionPolicy = entryPoint.permissionPolicy()
     }
 
     override fun onFragmentCreate(): Boolean {
         super.onFragmentCreate()
         clanId = arguments?.getLong(ARG_CLAN_ID) ?: 0L
         if (clanId != 0L) {
+            roleController.loadPermissionCatalogIfNeeded()
+            roleController.loadUserMaxPermissionForClan(clanId, force = true)
             roleController.loadRolesForClan(clanId, force = true)
             userClanController.loadClanMembers(clanId)
         }
@@ -94,6 +101,8 @@ class ClanSettingFragment : BaseFragment() {
     override fun onBecomeFullyVisible() {
         super.onBecomeFullyVisible()
         if (clanId != 0L) {
+            roleController.loadPermissionCatalogIfNeeded()
+            roleController.loadUserMaxPermissionForClan(clanId, force = true)
             roleController.loadRolesForClan(clanId, force = true)
             userClanController.loadClanMembers(clanId)
         }
@@ -161,7 +170,18 @@ class ClanSettingFragment : BaseFragment() {
 
         root.addView(header, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
-        val scroll = ClanSettingsUiHelpers.newMezonScrollRoot(context)
+        logoContainer = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            clipChildren = false
+        }
+        root.addView(logoContainer, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+
+        val scroll = ScrollView(context).apply {
+            isFillViewport = true
+            overScrollMode = View.OVER_SCROLL_NEVER
+            clipChildren = false
+            clipToPadding = false
+        }
         scrollInner = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(LayoutHelper.dp(20f), 0, LayoutHelper.dp(20f), LayoutHelper.dp(24f))
@@ -187,21 +207,12 @@ class ClanSettingFragment : BaseFragment() {
     }
 
     private fun refreshMenu() {
-        if (!::scrollInner.isInitialized) return
+        if (!::scrollInner.isInitialized || !::logoContainer.isInitialized) return
         val clan = clansController.clans.value.firstOrNull { it.clanId == clanId } ?: return
-        scrollInner.removeAllViews()
+        val perm = permissionPolicy.clanSettingsPermissionState(clanId)
 
-        val members = userClanController.getClanMembers(clanId)
-        val roles = roleController.getRoles(clanId)
-        val perm = ClanSettingsPermissionState.evaluateForClanSettings(
-            userController,
-            clanId,
-            members,
-            roles,
-            clan.creatorId,
-        )
-
-        scrollInner.addView(
+        logoContainer.removeAllViews()
+        logoContainer.addView(
             buildClanLogoStrip(clan, perm.isShowOverviewOption),
             LayoutHelper.createLinear(
                 LayoutHelper.MATCH_PARENT,
@@ -210,6 +221,8 @@ class ClanSettingFragment : BaseFragment() {
                 Gravity.CENTER_HORIZONTAL,
             )
         )
+
+        scrollInner.removeAllViews()
 
         val ctx = scrollInner.context
         scrollInner.addView(
@@ -234,7 +247,7 @@ class ClanSettingFragment : BaseFragment() {
     }
 
     private fun buildClanLogoStrip(clan: ClanEntity, canEditClanLogo: Boolean): LinearLayout {
-        val ctx = scrollInner.context
+        val ctx = logoContainer.context
         val outer = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
@@ -412,6 +425,10 @@ class ClanSettingFragment : BaseFragment() {
                     R.string.clan_settings_integrations ->
                         navigationRow(ctx, row.icon, row.labelRes, Runnable {
                             presentFragment(IntegrationSettingFragment.newInstance(clanId))
+                        })
+                    R.string.clan_settings_roles ->
+                        navigationRow(ctx, row.icon, row.labelRes, Runnable {
+                            presentFragment(ServerRolesFragment.newInstance(clanId))
                         })
                     else ->
                         navigationRow(ctx, row.icon, row.labelRes, Runnable {

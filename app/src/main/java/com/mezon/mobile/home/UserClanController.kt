@@ -2,6 +2,7 @@ package com.mezon.mobile.home
 
 import android.util.Log
 import android.util.LongSparseArray
+import com.mezon.mezon.api.AllUsersAddChannelResponse
 import com.mezon.mezon.api.ClanUserList
 import com.mezon.mezon.api.User
 import com.mezon.mobile.core.NotificationCenter
@@ -170,9 +171,22 @@ class UserClanController @Inject constructor(
     }
 
     private val membersByChannel = LongSparseArray<List<ClanMember>>()
+    private val directMembersByChannel = LongSparseArray<List<ClanMember>>()
 
     fun getChannelMembers(channelId: Long): List<ClanMember> {
         synchronized(this) { return membersByChannel[channelId] ?: emptyList() }
+    }
+
+    fun getDirectChannelMembers(channelId: Long): List<ClanMember> {
+        synchronized(this) { return directMembersByChannel[channelId] ?: emptyList() }
+    }
+
+    fun hasDirectChannelMembersLoaded(channelId: Long): Boolean = synchronized(this) {
+        directMembersByChannel.indexOfKey(channelId) >= 0
+    }
+
+    fun hasChannelMembersLoaded(channelId: Long): Boolean = synchronized(this) {
+        membersByChannel.indexOfKey(channelId) >= 0
     }
 
     fun loadChannelMembers(clanId: Long, channelId: Long, channelType: Int, noCache: Boolean = false) {
@@ -232,7 +246,70 @@ class UserClanController @Inject constructor(
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "loadChannelMembers failed for channel $channelId", e)
+                synchronized(this@UserClanController) {
+                    if (membersByChannel.indexOfKey(channelId) < 0) {
+                        membersByChannel.put(channelId, emptyList())
+                    }
+                }
+                notificationCenter.postNotificationOnMainThread(
+                    NotificationCenter.channelMembersDidLoad, channelId
+                )
             }
+        }
+    }
+
+    fun loadDirectChannelMembers(clanId: Long, channelId: Long, noCache: Boolean = false) {
+        if (clanId == 0L || channelId == 0L) return
+        appScope.launch(ioDispatcher) {
+            try {
+                val cacheKey = apiCacheKey("listChannelUsersUC", channelId.toString())
+                val hasCache: Boolean
+                synchronized(this@UserClanController) { hasCache = directMembersByChannel[channelId] != null }
+
+                if (hasCache && cacheTracker.shouldCall(cacheKey, noCache = noCache) == ApiCacheTracker.ShouldCall.SKIP) {
+                    return@launch
+                }
+
+                sessionManager.withAutoRefresh { session ->
+                    val response = api.listChannelUsersUC(session.apiUrl, session.token, channelId)
+                    val members = response.toDirectChannelMembers(clanId)
+                    synchronized(this@UserClanController) {
+                        directMembersByChannel.put(channelId, members)
+                    }
+
+                    cacheTracker.markCalled(cacheKey)
+                    notificationCenter.postNotificationOnMainThread(
+                        NotificationCenter.channelMembersDidLoad, channelId
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "loadDirectChannelMembers failed for channel $channelId", e)
+                synchronized(this@UserClanController) {
+                    if (directMembersByChannel.indexOfKey(channelId) < 0) {
+                        directMembersByChannel.put(channelId, emptyList())
+                    }
+                }
+                notificationCenter.postNotificationOnMainThread(
+                    NotificationCenter.channelMembersDidLoad, channelId
+                )
+            }
+        }
+    }
+
+    fun removeDirectChannelMembers(channelId: Long, userIds: Collection<Long>) {
+        if (channelId == 0L || userIds.isEmpty()) return
+        var changed = false
+        synchronized(this) {
+            val current = directMembersByChannel[channelId] ?: return
+            val removed = userIds.toHashSet()
+            val next = current.filterNot { it.userId in removed }
+            if (next.size != current.size) {
+                directMembersByChannel.put(channelId, next)
+                changed = true
+            }
+        }
+        if (changed) {
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.channelMembersDidLoad, channelId)
         }
     }
 
@@ -243,7 +320,44 @@ class UserClanController @Inject constructor(
             loaded = false
             membersByClan.clear()
             membersByChannel.clear()
+            directMembersByChannel.clear()
         }
+    }
+
+    private fun AllUsersAddChannelResponse.toDirectChannelMembers(clanId: Long): List<ClanMember> {
+        val clanMembers = getClanMembers(clanId)
+        val clanMemberDict = HashMap<Long, ClanMember>(clanMembers.size)
+        for (member in clanMembers) clanMemberDict[member.userId] = member
+
+        val members = ArrayList<ClanMember>(userIdsCount)
+        val seen = HashSet<Long>(userIdsCount)
+        for (i in 0 until userIdsCount) {
+            val userId = getUserIds(i)
+            if (userId == 0L || userId in seen) continue
+            seen.add(userId)
+            val existing = clanMemberDict[userId]
+            if (existing != null) {
+                members.add(existing)
+                continue
+            }
+            val username = usernamesList.getOrElse(i) { "" }
+            val displayName = displayNamesList.getOrElse(i) { "" }
+            val avatar = avatarsList.getOrElse(i) { "" }
+            members.add(
+                ClanMember(
+                    userId = userId,
+                    username = username,
+                    displayName = displayName,
+                    avatarUrl = avatar,
+                    isOnline = onlinesList.getOrElse(i) { false },
+                    clanNick = displayName,
+                    clanAvatar = avatar,
+                    clanId = clanId,
+                    roleIds = emptyList()
+                )
+            )
+        }
+        return members
     }
 }
 

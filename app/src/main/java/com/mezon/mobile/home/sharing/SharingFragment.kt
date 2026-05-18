@@ -48,6 +48,7 @@ import com.mezon.mobile.home.chat.MessageEntity
 import com.mezon.mobile.home.clans.CHANNEL_TYPE_VOICE
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.ClansController
+import com.mezon.mobile.home.clans.PermissionPolicy
 import com.mezon.mobile.home.friends.FriendController
 import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
@@ -82,6 +83,7 @@ class SharingFragment(
     private lateinit var ioDispatcher: CoroutineDispatcher
     private lateinit var channelController: ChannelController
     private lateinit var friendController: FriendController
+    private lateinit var permissionPolicy: PermissionPolicy
 
     private val isForwardMode: Boolean
         get() = payload is SharingPayload.ForwardFromChat
@@ -156,6 +158,7 @@ class SharingFragment(
         ioDispatcher = entryPoint.ioDispatcher()
         channelController = entryPoint.channelController()
         friendController = entryPoint.friendController()
+        permissionPolicy = entryPoint.permissionPolicy()
     }
 
     override fun onFragmentCreate(): Boolean {
@@ -183,6 +186,21 @@ class SharingFragment(
             if (fragmentView == null || !isForwardMode) return@observe
             scheduleRebuildForwardTargets()
         }
+        observe(NotificationCenter.channelPermissionOverridesDidLoad) { _, _, args ->
+            if (fragmentView == null) return@observe
+            val changedChannelId = args.firstOrNull() as? Long ?: return@observe
+            if (hasTargetForChannel(changedChannelId)) refreshSendButtonEnabled()
+        }
+        observe(NotificationCenter.channelPermissionsDidLoad) { _, _, args ->
+            if (fragmentView == null) return@observe
+            val changedChannelId = args.firstOrNull() as? Long ?: return@observe
+            if (hasTargetForChannel(changedChannelId)) refreshSendButtonEnabled()
+        }
+        observe(NotificationCenter.clanRolesDidLoad) { _, _, args ->
+            if (fragmentView == null) return@observe
+            val changedClanId = args.firstOrNull() as? Long ?: return@observe
+            if (hasTargetForClan(changedClanId)) refreshSendButtonEnabled()
+        }
         observe(NotificationCenter.pendingMessageSent) { _, _, _ ->
             if (fragmentView == null || !isSending || isForwardMode) return@observe
             isSending = false
@@ -206,6 +224,44 @@ class SharingFragment(
         val v = fragmentView ?: return
         v.removeCallbacks(rebuildForwardDebounced)
         v.postDelayed(rebuildForwardDebounced, 120L)
+    }
+
+    private fun targetKey(t: SharingTarget): String = "${t.channelId}_${t.channelType}"
+
+    private fun hasTargetForChannel(channelId: Long): Boolean {
+        if (selectedTarget?.channelId == channelId) return true
+        return allTargets.any { it.channelId == channelId && forwardSelectedKeys.contains(targetKey(it)) }
+    }
+
+    private fun hasTargetForClan(clanId: Long): Boolean {
+        if (clanId == 0L) return false
+        if (selectedTarget?.clanId == clanId) return true
+        return allTargets.any { it.clanId == clanId && forwardSelectedKeys.contains(targetKey(it)) }
+    }
+
+    private fun ensureSendPermission(t: SharingTarget) {
+        if (t.clanId == 0L || t.isDm || t.isGroup) return
+        permissionPolicy.ensurePermissionChecker(
+            listOf(PermissionPolicy.SEND_MESSAGE),
+            t.channelId,
+            t.clanId,
+        )
+    }
+
+    private fun canSendToTarget(t: SharingTarget): Boolean {
+        if (t.channelId == 0L) return false
+        if (t.clanId == 0L || t.isDm || t.isGroup) return true
+        ensureSendPermission(t)
+        return permissionPolicy.checkPermission(PermissionPolicy.SEND_MESSAGE, t.channelId, t.clanId)
+    }
+
+    private fun selectedForwardTargets(): List<SharingTarget> {
+        if (!isForwardMode || forwardSelectedKeys.isEmpty()) return emptyList()
+        return allTargets.filter { forwardSelectedKeys.contains(targetKey(it)) }
+    }
+
+    private fun showNoSendPermissionToast() {
+        MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.message_no_send_permission))
     }
 
     override fun onFragmentDestroy() {
@@ -267,8 +323,13 @@ class SharingFragment(
             if (view is SharingTargetCell) {
                 val t = view.target ?: return@OnItemClickListener
                 if (isForwardMode) {
-                    val key = "${t.channelId}_${t.channelType}"
-                    if (forwardSelectedKeys.contains(key)) forwardSelectedKeys.remove(key) else forwardSelectedKeys.add(key)
+                    val key = targetKey(t)
+                    if (forwardSelectedKeys.contains(key)) {
+                        forwardSelectedKeys.remove(key)
+                    } else {
+                        forwardSelectedKeys.add(key)
+                        ensureSendPermission(t)
+                    }
                     adapter.updateForwardSelection(forwardSelectedKeys)
                     refreshForwardSelectionUi()
                 } else {
@@ -702,6 +763,7 @@ class SharingFragment(
 
     private fun selectTarget(t: SharingTarget) {
         selectedTarget = t
+        ensureSendPermission(t)
 
         searchEditText.visibility = View.GONE
         searchIcon.visibility = View.GONE
@@ -894,13 +956,14 @@ class SharingFragment(
 
     private fun refreshSendButtonEnabled() {
         if (isForwardMode) {
-            val ok = forwardSelectedKeys.isNotEmpty() && !isSending
+            val targets = selectedForwardTargets()
+            val ok = targets.isNotEmpty() && targets.all { canSendToTarget(it) } && !isSending
             sendButton.isEnabled = ok
             sendButton.alpha = if (ok) 1f else 0.5f
             return
         }
-        val hasTarget = selectedTarget != null
-        sendButton.isEnabled = hasTarget && !isSending
+        val target = selectedTarget
+        sendButton.isEnabled = target != null && canSendToTarget(target) && !isSending
         sendButton.alpha = if (sendButton.isEnabled) 1f else 0.5f
     }
 
@@ -1037,15 +1100,16 @@ class SharingFragment(
         if (isSending) return
         if (isForwardMode) {
             val fp = forwardPayload ?: return
-            val picks = ArrayList<ForwardDestination>()
-            for (t in allTargets) {
-                val key = "${t.channelId}_${t.channelType}"
-                if (forwardSelectedKeys.contains(key)) picks.add(t.toForwardDestination())
-            }
-            if (picks.isEmpty()) {
+            val targets = selectedForwardTargets()
+            if (targets.isEmpty()) {
                 MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.forward_pick_dest))
                 return
             }
+            if (targets.any { !canSendToTarget(it) }) {
+                showNoSendPermissionToast()
+                return
+            }
+            val picks = targets.map { it.toForwardDestination() }
             AndroidUtilities.hideKeyboard(captionInput)
             setSendingState(true)
             chatController.forwardMessages(
@@ -1066,6 +1130,10 @@ class SharingFragment(
         }
 
         val target = selectedTarget ?: return
+        if (!canSendToTarget(target)) {
+            showNoSendPermissionToast()
+            return
+        }
         AndroidUtilities.hideKeyboard(captionInput)
 
         val contentResolver = getParentActivity()?.contentResolver ?: run {

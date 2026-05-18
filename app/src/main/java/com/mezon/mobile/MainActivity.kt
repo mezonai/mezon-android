@@ -512,6 +512,12 @@ class MainActivity : BasePermissionsActivity(),
         }
     }
 
+    fun bringIncomingCallingOverlayToFront() {
+        val o = callingOverlay ?: return
+        if (o.parent !== drawerLayoutContainer || o.visibility != View.VISIBLE) return
+        drawerLayoutContainer.bringChildToFront(o)
+    }
+
     // ── INavigationLayoutDelegate ───────────────────────────────────────────
 
     override fun needPresentFragment(
@@ -655,6 +661,7 @@ class MainActivity : BasePermissionsActivity(),
         entryPoint.clansController().cleanup()
         entryPoint.channelController().cleanup()
         entryPoint.channelAppController().cleanup()
+        entryPoint.channelPermissionController().cleanup()
         entryPoint.userClanController().cleanup()
         entryPoint.roleController().cleanup()
         entryPoint.notificationStore().cleanup()
@@ -690,6 +697,7 @@ class MainActivity : BasePermissionsActivity(),
         entryPoint.clansController().cleanup()
         entryPoint.channelController().cleanup()
         entryPoint.channelAppController().cleanup()
+        entryPoint.channelPermissionController().cleanup()
         entryPoint.userClanController().cleanup()
         entryPoint.roleController().cleanup()
         entryPoint.notificationStore().cleanup()

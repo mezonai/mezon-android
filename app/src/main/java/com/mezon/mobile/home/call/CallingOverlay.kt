@@ -44,7 +44,7 @@ class CallingOverlay(context: Context) : FrameLayout(context) {
                 outline.setRoundRect(0, 0, view.width, view.height, corner)
             }
         }
-        elevation = LayoutHelper.dp(4).toFloat()
+        elevation = LayoutHelper.dpf(24f)
 
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL

@@ -119,6 +119,7 @@ class ToastOverlay(context: Context, private val theme: ThemeColors) : FrameLayo
             addSelfToParentWithOverlayLp(parent)
         }
         parent.bringChildToFront(this)
+        bumpIncomingCallAboveToasts(parent)
         visibleInstance = this
         if (childCount == 0) return
         val toastView = getChildAt(0)
@@ -176,6 +177,11 @@ class ToastOverlay(context: Context, private val theme: ThemeColors) : FrameLayo
             handler.removeCallbacksAndMessages(null)
             handler.postDelayed({ dismiss() }, durationMs)
         }
+        bumpIncomingCallAboveToasts(parent)
+    }
+
+    private fun bumpIncomingCallAboveToasts(parent: ViewGroup) {
+        (parent.context as? MainActivity)?.bringIncomingCallingOverlayToFront()
     }
 
     private fun bindInAppNotificationInteraction(toastView: View, onTap: (() -> Unit)?) {
