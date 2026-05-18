@@ -154,20 +154,16 @@ class RoleController @Inject constructor(
             notificationCenter.postNotificationOnMainThread(NotificationCenter.clanRolesDidLoad, clanId)
             return
         }
-        val shouldLoad = synchronized(lock) {
-            if (!force && permissionsUserClanId == clanId && userMaxFromGetRoleByClan.containsKey(clanId)) {
-                false
-            } else {
-                true
-            }
-        }
-        if (!shouldLoad) return
-        synchronized(lock) {
-            permissionsUserClanId = clanId
-            maxPermissionUser = userMaxFromGetRoleByClan[clanId] ?: 0
-        }
-        if (!beginUserMaxLoad(clanId, force)) return
         appScope.launch(ioDispatcher) {
+            hydrateLocalPermissionSnapshotForClan(clanId)
+            synchronized(lock) {
+                permissionsUserClanId = clanId
+                maxPermissionUser = userMaxFromGetRoleByClan[clanId] ?: maxPermissionUser
+            }
+            val needsRemote =
+                force || synchronized(lock) { !userMaxFromGetRoleByClan.containsKey(clanId) }
+            if (!needsRemote) return@launch
+            if (!beginUserMaxLoad(clanId, force)) return@launch
             try {
                 refreshPermissionsUserForClanCoalesced(clanId)
             } catch (e: Exception) {
@@ -178,8 +174,12 @@ class RoleController @Inject constructor(
 
     fun loadUserMaxPermissionForClan(clanId: Long, force: Boolean = false) {
         if (clanId <= 0L) return
-        if (!beginUserMaxLoad(clanId, force)) return
         appScope.launch(ioDispatcher) {
+            hydrateLocalPermissionSnapshotForClan(clanId)
+            val needsRemote =
+                force || synchronized(lock) { !userMaxFromGetRoleByClan.containsKey(clanId) }
+            if (!needsRemote) return@launch
+            if (!beginUserMaxLoad(clanId, force)) return@launch
             try {
                 refreshPermissionsUserForClanCoalesced(clanId)
             } catch (e: Exception) {
@@ -191,6 +191,7 @@ class RoleController @Inject constructor(
     suspend fun refreshPermissionsUserForClan(clanId: Long): Result<Int> = withContext(ioDispatcher) {
         try {
             if (clanId <= 0L) return@withContext Result.success(0)
+            hydrateLocalPermissionSnapshotForClan(clanId)
             synchronized(lock) {
                 permissionsUserClanId = clanId
                 maxPermissionUser = userMaxFromGetRoleByClan[clanId] ?: 0
@@ -366,26 +367,22 @@ class RoleController @Inject constructor(
             return
         }
         val lockObj = clanLoadLocks.computeIfAbsent(clanId) { Any() }
-        synchronized(lockObj) {
-            if (!force && rolesByClan[clanId].isNullOrEmpty().not()) {
-                appScope.launch(mainDispatcher) { onComplete.run() }
-                return
-            }
-            if (!force && loadingClans[clanId] == true) {
-                appScope.launch(mainDispatcher) { onComplete.run() }
-                return
-            }
-            if (loadingClans[clanId] == true) {
-                clanRoleLoadWaiters.computeIfAbsent(clanId) { CopyOnWriteArrayList() }.add(onComplete)
-                return
-            }
-            loadingClans[clanId] = true
-        }
         appScope.launch(ioDispatcher) {
+            hydrateLocalPermissionSnapshotForClan(clanId)
+            withContext(mainDispatcher) { onComplete.run() }
+            synchronized(lockObj) {
+                if (!force && rolesByClan[clanId].isNullOrEmpty().not()) {
+                    return@launch
+                }
+                if (loadingClans[clanId] == true) {
+                    return@launch
+                }
+                loadingClans[clanId] = true
+            }
             try {
                 loadRolesForClanSync(clanId)
             } finally {
-                finalizeAfterRoleLoad(clanId, onComplete)
+                finalizeAfterRoleLoad(clanId, null)
             }
         }
     }
@@ -405,9 +402,76 @@ class RoleController @Inject constructor(
         }
     }
 
+    suspend fun hydrateLocalPermissionSnapshotForClan(clanId: Long) {
+        if (clanId <= 0L) return
+        fillPermissionCatalogFromDiskIfEmpty()
+        hydrateUserMaxForClanFromDiskIfMissing(clanId)
+        hydrateClanRolesFromDiskIfMissing(clanId)
+    }
+
+    private suspend fun fillPermissionCatalogFromDiskIfEmpty() {
+        val skip = synchronized(lock) { permissionCatalog.isNotEmpty() }
+        if (skip) return
+        val catalogRows = permissionCatalogDao.getAll()
+        if (catalogRows.isEmpty()) return
+        val mapped = catalogRows.map {
+            PermissionCatalogEntry(
+                permissionId = it.permissionId,
+                slug = it.slug,
+                title = it.title,
+                description = it.description,
+                level = it.level,
+                scope = it.scope,
+            )
+        }
+        val notifyClanId = synchronized(lock) {
+            if (permissionCatalog.isEmpty()) {
+                permissionCatalog = mapped
+                permissionsUserClanId
+            } else {
+                0L
+            }
+        }
+        if (notifyClanId != 0L) {
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.clanRolesDidLoad, notifyClanId)
+        }
+    }
+
+    private suspend fun hydrateUserMaxForClanFromDiskIfMissing(clanId: Long) {
+        if (clanId <= 0L) return
+        val hasKey = synchronized(lock) { userMaxFromGetRoleByClan.containsKey(clanId) }
+        if (hasKey) return
+        val row = clanUserMaxPermissionDao.getForClan(clanId) ?: return
+        synchronized(lock) {
+            userMaxFromGetRoleByClan[clanId] = row.maxLevel
+            if (permissionsUserClanId == clanId) {
+                maxPermissionUser = row.maxLevel
+            }
+        }
+    }
+
+    private suspend fun hydrateClanRolesFromDiskIfMissing(clanId: Long) {
+        if (clanId <= 0L) return
+        val needsRoles = synchronized(lock) { rolesByClan[clanId].isNullOrEmpty() }
+        if (!needsRoles) return
+        val rows = clanRoleCacheDao.getForClan(clanId)
+        if (rows.isEmpty()) return
+        val meta = clanRoleListMetaDao.getForClan(clanId)
+        val mappedRoles = rows.mapNotNull { it.toClanRole() }
+        if (mappedRoles.isEmpty()) return
+        synchronized(lock) {
+            rolesByClan[clanId] = ArrayList(mappedRoles)
+            if (meta != null) {
+                listRolesSelfMaxLevelByClan[clanId] = meta.listRolesSelfMaxLevel
+            }
+        }
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.clanRolesDidLoad, clanId)
+    }
+
     suspend fun ensurePermissionCatalogLoaded() {
         try {
             permissionCatalogLoadMutex.withLock {
+                fillPermissionCatalogFromDiskIfEmpty()
                 val empty = synchronized(lock) { permissionCatalog.isEmpty() }
                 if (!empty) return@withLock
                 synchronized(lock) {

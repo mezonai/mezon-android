@@ -4258,6 +4258,7 @@ class ChatFragment : BaseFragment() {
     private fun canSendMessageInCurrentChannel(): Boolean {
         if (channelId == 0L) return false
         if (clanId == 0L || channelType == CHANNEL_TYPE_DM || channelType == CHANNEL_TYPE_GROUP) return true
+        if (!permissionPolicy.hasCachedChannelUserPermissions(channelId)) return true
         return permissionPolicy.checkPermission(PermissionPolicy.SEND_MESSAGE, channelId, clanId)
     }
 

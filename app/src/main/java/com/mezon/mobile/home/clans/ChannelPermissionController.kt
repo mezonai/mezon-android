@@ -81,13 +81,6 @@ class ChannelPermissionController @Inject constructor(
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.channelPermissionsDidLoad, channelId)
             } catch (e: Exception) {
                 Log.e(TAG, "ensureUserPermissionsInChannel failed", e)
-                synchronized(this@ChannelPermissionController) {
-                    if (!userPermissionsByChannel.containsKey(channelId)) {
-                        userPermissionsByChannel[channelId] = emptyMap()
-                    }
-                }
-                Log.d(TAG, "ensureUserPermissionsInChannel channelId=$channelId cached empty map after error, posting channelPermissionsDidLoad")
-                notificationCenter.postNotificationOnMainThread(NotificationCenter.channelPermissionsDidLoad, channelId)
             } finally {
                 userPermissionLoadingChannels.remove(channelId)
             }

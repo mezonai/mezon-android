@@ -158,14 +158,6 @@ class UserClanController @Inject constructor(
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "loadClanMembers failed for clan $clanId", e)
-                synchronized(this@UserClanController) {
-                    if (membersByClan[clanId] == null) {
-                        membersByClan.put(clanId, ArrayList())
-                    }
-                }
-                notificationCenter.postNotificationOnMainThread(
-                    NotificationCenter.clanMembersDidLoad, clanId
-                )
             }
         }
     }
@@ -246,14 +238,6 @@ class UserClanController @Inject constructor(
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "loadChannelMembers failed for channel $channelId", e)
-                synchronized(this@UserClanController) {
-                    if (membersByChannel.indexOfKey(channelId) < 0) {
-                        membersByChannel.put(channelId, emptyList())
-                    }
-                }
-                notificationCenter.postNotificationOnMainThread(
-                    NotificationCenter.channelMembersDidLoad, channelId
-                )
             }
         }
     }
@@ -284,14 +268,6 @@ class UserClanController @Inject constructor(
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "loadDirectChannelMembers failed for channel $channelId", e)
-                synchronized(this@UserClanController) {
-                    if (directMembersByChannel.indexOfKey(channelId) < 0) {
-                        directMembersByChannel.put(channelId, emptyList())
-                    }
-                }
-                notificationCenter.postNotificationOnMainThread(
-                    NotificationCenter.channelMembersDidLoad, channelId
-                )
             }
         }
     }

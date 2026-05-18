@@ -50,6 +50,9 @@ interface ClanUserMaxPermissionDao {
     @Query("SELECT * FROM clan_user_max_permission")
     suspend fun getAll(): List<ClanUserMaxPermissionEntity>
 
+    @Query("SELECT * FROM clan_user_max_permission WHERE clanId = :clanId LIMIT 1")
+    suspend fun getForClan(clanId: Long): ClanUserMaxPermissionEntity?
+
     @Upsert
     suspend fun upsert(row: ClanUserMaxPermissionEntity)
 

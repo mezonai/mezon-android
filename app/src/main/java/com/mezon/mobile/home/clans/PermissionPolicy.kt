@@ -11,15 +11,6 @@ import javax.inject.Singleton
 
 private const val TAG_PRIVATE_CHANNEL = "PermissionPolicy"
 
-sealed class PrivateChannelOpenResolution {
-    data object Proceed : PrivateChannelOpenResolution()
-    data object WaitPermissionData : PrivateChannelOpenResolution()
-    data object WaitChannelEvidence : PrivateChannelOpenResolution()
-    data object NeedNetworkForPermission : PrivateChannelOpenResolution()
-    data object NeedNetworkForEvidence : PrivateChannelOpenResolution()
-    data object DeniedNoView : PrivateChannelOpenResolution()
-}
-
 @Singleton
 class PermissionPolicy @Inject constructor(
     private val roleController: RoleController,
@@ -186,72 +177,6 @@ class PermissionPolicy @Inject constructor(
         userClanController.loadChannelMembers(clanId, channelId, channelType, noCache = false)
     }
 
-    fun privateChannelViewEvidenceLoaded(channelId: Long): Boolean {
-        if (channelId == 0L) return true
-        val hasPerm = channelPermissionController.hasCachedChannelUserPermissions(channelId)
-        val direct = userClanController.hasDirectChannelMembersLoaded(channelId)
-        val channel = userClanController.hasChannelMembersLoaded(channelId)
-        val ok = hasPerm && (direct || channel)
-        Log.d(
-            TAG_PRIVATE_CHANNEL,
-            "privateChannelViewEvidenceLoaded channelId=$channelId hasPermCache=$hasPerm directLoaded=$direct channelMembersLoaded=$channel ready=$ok",
-        )
-        if (!hasPerm) return false
-        return direct || channel
-    }
-
-    fun canViewClanChannel(clanId: Long, channelId: Long, isPrivate: Boolean): Boolean {
-        if (clanId == 0L || channelId == 0L) return true
-        if (!isPrivate) {
-            val v = checkPermission(VIEW_CHANNEL, null, clanId)
-            Log.d(TAG_PRIVATE_CHANNEL, "canViewClanChannel public channelId=$channelId clanId=$clanId allow=$v (clan view-channel)")
-            return v
-        }
-        if (checkPermission(VIEW_CHANNEL, null, clanId)) {
-            Log.d(TAG_PRIVATE_CHANNEL, "canViewClanChannel private channelId=$channelId clanId=$clanId allow=true (clan view-channel)")
-            return true
-        }
-        if (channelPermissionController.hasUserPermissionInChannel(channelId, VIEW_CHANNEL)) {
-            Log.d(TAG_PRIVATE_CHANNEL, "canViewClanChannel private channelId=$channelId clanId=$clanId allow=true (channel override view-channel)")
-            return true
-        }
-        val self = userController.userId
-        if (self != 0L) {
-            val inDirect = userClanController.getDirectChannelMembers(channelId).any { it.userId == self }
-            val inChannel = userClanController.getChannelMembers(channelId).any { it.userId == self }
-            if (inDirect || inChannel) {
-                Log.d(
-                    TAG_PRIVATE_CHANNEL,
-                    "canViewClanChannel private channelId=$channelId clanId=$clanId allow=true selfId=$self inDirect=$inDirect inChannelUsers=$inChannel",
-                )
-                return true
-            }
-        }
-        Log.d(TAG_PRIVATE_CHANNEL, "canViewClanChannel private channelId=$channelId clanId=$clanId allow=false")
-        return false
-    }
-
-    fun resolvePrivateChannelListTap(
-        clanIdForJoin: Long,
-        channel: ClanChannelEntity,
-        selectedClanId: Long,
-        networkOnline: Boolean,
-    ): PrivateChannelOpenResolution? {
-        if (clanIdForJoin == 0L || !channel.isPrivate) return null
-        if (selectedClanId != clanIdForJoin) return null
-        ensurePrivateChannelAccessPrefetch(clanIdForJoin, channel.channelId, channel.type)
-        if (!isPermissionDataReadyForClan(clanIdForJoin)) {
-            return if (networkOnline) PrivateChannelOpenResolution.WaitPermissionData
-            else PrivateChannelOpenResolution.NeedNetworkForPermission
-        }
-        if (!privateChannelViewEvidenceLoaded(channel.channelId)) {
-            return if (networkOnline) PrivateChannelOpenResolution.WaitChannelEvidence
-            else PrivateChannelOpenResolution.NeedNetworkForEvidence
-        }
-        return if (canViewClanChannel(clanIdForJoin, channel.channelId, channel.isPrivate)) {
-            PrivateChannelOpenResolution.Proceed
-        } else {
-            PrivateChannelOpenResolution.DeniedNoView
-        }
-    }
+    fun hasCachedChannelUserPermissions(channelId: Long): Boolean =
+        channelPermissionController.hasCachedChannelUserPermissions(channelId)
 }

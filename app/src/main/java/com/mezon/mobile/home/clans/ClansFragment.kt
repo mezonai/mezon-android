@@ -52,8 +52,6 @@ import com.mezon.mobile.MainActivity
 import com.mezon.mobile.home.voice.JoinVoiceBottomSheet
 import com.mezon.mobile.home.voice.VoiceController
 import com.mezon.mobile.home.voice.VoiceRoomFragment
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import com.mezon.mobile.home.clans.discover.DiscoverClansListSection
 import com.mezon.mobile.home.clans.discover.buildDiscoverCommunitySearchToolbar
 import com.mezon.mobile.home.clans.discover.DiscoverRailCell
@@ -65,7 +63,6 @@ import com.mezon.mobile.search.GlobalSearchFragment
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.home.qr.QrScanFragment
 import com.mezon.mobile.home.profile.UserController
-import com.mezon.mobile.network.NetworkMonitor
 
 private const val TAG_CHANNEL_OPEN = "ClansFragment"
 
@@ -83,9 +80,7 @@ class ClansFragment : BaseFragment() {
     private lateinit var userController: UserController
     private lateinit var roleController: RoleController
     private lateinit var permissionPolicy: PermissionPolicy
-    private lateinit var networkMonitor: NetworkMonitor
     private var clanMenuSheet: ClanMenuBottomSheet? = null
-    private var pendingViewPermissionChannel: ClanChannelEntity? = null
 
     var onOpenChat: ((channelId: Long, channelName: String, clanId: Long, channelType: Int) -> Unit)? = null
     var onSwitchToMessages: (() -> Unit)? = null
@@ -132,7 +127,6 @@ class ClansFragment : BaseFragment() {
         userController = entryPoint.userController()
         roleController = entryPoint.roleController()
         permissionPolicy = entryPoint.permissionPolicy()
-        networkMonitor = entryPoint.networkMonitor()
     }
 
     override fun onFragmentCreate(): Boolean {
@@ -164,33 +158,6 @@ class ClansFragment : BaseFragment() {
             if (fragmentView == null || isPaused) return@observe
             val clanId = args.firstOrNull() as? Long ?: return@observe
             if (clanId == clansController.selectedClanId.value) updateMemberCount()
-        }
-        observe(NotificationCenter.clanRolesDidLoad) { _, _, args ->
-            if (fragmentView == null || isPaused) return@observe
-            val clanId = args.firstOrNull() as? Long ?: return@observe
-            val pending = pendingViewPermissionChannel ?: return@observe
-            val pendingClanId = if (pending.clanId != 0L) pending.clanId else clansController.selectedClanId.value
-            if (pendingClanId == clanId) {
-                pendingViewPermissionChannel = null
-                Log.d(TAG_CHANNEL_OPEN, "pending private channel retry after clanRolesDidLoad clanId=$clanId")
-                onChannelSelected(pending)
-            }
-        }
-        observe(NotificationCenter.channelMembersDidLoad) { _, _, args ->
-            if (fragmentView == null || isPaused || listFrozen) return@observe
-            val channelId = args.firstOrNull() as? Long ?: return@observe
-            val pending = pendingViewPermissionChannel ?: return@observe
-            if (!pending.isPrivate || pending.channelId != channelId) return@observe
-            Log.d(TAG_CHANNEL_OPEN, "pending private channel retry after channelMembersDidLoad channelId=$channelId")
-            onChannelSelected(pending)
-        }
-        observe(NotificationCenter.channelPermissionsDidLoad) { _, _, args ->
-            if (fragmentView == null || isPaused || listFrozen) return@observe
-            val channelId = args.firstOrNull() as? Long ?: return@observe
-            val pending = pendingViewPermissionChannel ?: return@observe
-            if (!pending.isPrivate || pending.channelId != channelId) return@observe
-            Log.d(TAG_CHANNEL_OPEN, "pending private channel retry after channelPermissionsDidLoad channelId=$channelId")
-            onChannelSelected(pending)
         }
         observe(NotificationCenter.dialogsNeedReload) { _, _, _ ->
             if (fragmentView == null || isPaused || listFrozen) return@observe
@@ -1012,63 +979,14 @@ class ClansFragment : BaseFragment() {
                 "onChannelSelected private channelId=${channel.channelId} clanIdForJoin=$clanIdForJoin selectedClan=$selectedClan label=${channel.channelLabel}",
             )
             if (selectedClan == clanIdForJoin) {
-                when (
-                    permissionPolicy.resolvePrivateChannelListTap(
-                        clanIdForJoin,
-                        channel,
-                        selectedClan,
-                        networkMonitor.isOnline.value,
-                    )
-                ) {
-                    null -> {}
-                    PrivateChannelOpenResolution.Proceed -> {
-                        pendingViewPermissionChannel = null
-                        Log.d(TAG_CHANNEL_OPEN, "private channel gate: ALLOW channelId=${channel.channelId} clanId=$clanIdForJoin")
-                    }
-                    PrivateChannelOpenResolution.WaitPermissionData -> {
-                        Log.d(TAG_CHANNEL_OPEN, "private channel gate: wait clan permission data clanId=$clanIdForJoin")
-                        pendingViewPermissionChannel = channel
-                        return
-                    }
-                    PrivateChannelOpenResolution.WaitChannelEvidence -> {
-                        Log.d(TAG_CHANNEL_OPEN, "private channel gate: wait channel evidence channelId=${channel.channelId}")
-                        pendingViewPermissionChannel = channel
-                        return
-                    }
-                    PrivateChannelOpenResolution.NeedNetworkForPermission -> {
-                        pendingViewPermissionChannel = null
-                        Log.d(TAG_CHANNEL_OPEN, "private channel gate: offline, cannot load clan permission clanId=$clanIdForJoin")
-                        Toast.makeText(
-                            requireContext(),
-                            getString(R.string.error_network_no_connection),
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                        return
-                    }
-                    PrivateChannelOpenResolution.NeedNetworkForEvidence -> {
-                        pendingViewPermissionChannel = null
-                        Log.d(TAG_CHANNEL_OPEN, "private channel gate: offline, cannot load channel evidence channelId=${channel.channelId}")
-                        Toast.makeText(
-                            requireContext(),
-                            getString(R.string.error_network_no_connection),
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                        return
-                    }
-                    PrivateChannelOpenResolution.DeniedNoView -> {
-                        pendingViewPermissionChannel = null
-                        Log.w(TAG_CHANNEL_OPEN, "private channel gate: DENY channelId=${channel.channelId} clanId=$clanIdForJoin")
-                        Toast.makeText(
-                            requireContext(),
-                            getString(R.string.channel_open_no_view_permission),
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                        return
-                    }
-                }
+                permissionPolicy.ensurePrivateChannelAccessPrefetch(clanIdForJoin, channel.channelId, channel.type)
             }
         }
 
+        continueChannelOpenAfterPrivateGate(channel, clanIdForJoin)
+    }
+
+    private fun continueChannelOpenAfterPrivateGate(channel: ClanChannelEntity, clanIdForJoin: Long) {
         if (channel.type == CHANNEL_TYPE_VOICE) {
             val inRoom = voiceController.isJoined || voiceController.isConnecting
             if (inRoom && voiceController.currentVoiceInfo?.channelId == channel.channelId) {

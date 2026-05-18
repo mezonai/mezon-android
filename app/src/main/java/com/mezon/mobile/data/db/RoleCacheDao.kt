@@ -62,6 +62,9 @@ interface ClanRoleListMetaDao {
     @Query("SELECT * FROM clan_role_list_meta")
     suspend fun getAll(): List<ClanRoleListMetaEntity>
 
+    @Query("SELECT * FROM clan_role_list_meta WHERE clanId = :clanId LIMIT 1")
+    suspend fun getForClan(clanId: Long): ClanRoleListMetaEntity?
+
     @Upsert
     suspend fun upsert(row: ClanRoleListMetaEntity)
 
@@ -76,6 +79,9 @@ interface ClanRoleListMetaDao {
 interface ClanRoleCacheDao {
     @Query("SELECT * FROM clan_role_cache")
     suspend fun getAll(): List<ClanRoleCacheEntity>
+
+    @Query("SELECT * FROM clan_role_cache WHERE clanId = :clanId")
+    suspend fun getForClan(clanId: Long): List<ClanRoleCacheEntity>
 
     @Query("DELETE FROM clan_role_cache WHERE clanId = :clanId")
     suspend fun deleteForClan(clanId: Long)
