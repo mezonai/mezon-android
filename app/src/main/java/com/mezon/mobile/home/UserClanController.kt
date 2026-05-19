@@ -214,15 +214,12 @@ class UserClanController @Inject constructor(
                 synchronized(this@UserClanController) { hasCache = membersByChannel[channelId] != null }
 
                 if (hasCache && cacheTracker.shouldCall(cacheKey, noCache = noCache) == ApiCacheTracker.ShouldCall.SKIP) {
-                    Log.d(TAG, "loadChannelMembers skip cache clanId=$clanId channelId=$channelId type=$channelType")
                     return@launch
                 }
-                Log.d(TAG, "loadChannelMembers request clanId=$clanId channelId=$channelId type=$channelType")
 
                 sessionManager.withAutoRefresh { session ->
                     val response = api.listChannelUsers(session.apiUrl, session.token, clanId, channelId, channelType)
                     val channelUsers = response.channelUsersList
-                    Log.d(TAG, "loadChannelMembers response clanId=$clanId channelId=$channelId type=$channelType count=${channelUsers.size}")
 
                     val clanMembers = getClanMembers(clanId)
                     val clanMemberDict = HashMap<Long, ClanMember>(clanMembers.size)
@@ -279,21 +276,12 @@ class UserClanController @Inject constructor(
     }
 
     private fun applyUserChannelAdded(event: UserChannelAdded) {
-        if (!event.hasChannelDesc()) {
-            Log.d(TAG, "userChannelAdded ignored missing channelDesc for members")
-            return
-        }
+        if (!event.hasChannelDesc()) return
         val channelId = event.channelDesc.channelId
-        if (channelId == 0L) {
-            Log.d(TAG, "userChannelAdded ignored empty channelId for members")
-            return
-        }
+        if (channelId == 0L) return
         val clanId = event.clanId.takeIf { it != 0L } ?: event.channelDesc.clanId
         val incomingUsers = event.usersList
-        if (incomingUsers.isEmpty()) {
-            Log.d(TAG, "userChannelAdded ignored empty users channelId=$channelId clanId=$clanId")
-            return
-        }
+        if (incomingUsers.isEmpty()) return
         val incomingMembers = incomingUsers.map { it.toClanMember(clanId) }
         var channelMembersChanged = false
         var clanMembersChanged = false
@@ -322,10 +310,6 @@ class UserClanController @Inject constructor(
                 clanMembersChanged = true
             }
         }
-        Log.d(
-            TAG,
-            "userChannelAdded applied members channelId=$channelId clanId=$clanId members=$incomingMembers channelCache=$channelMembersChanged clanCache=$clanMembersChanged"
-        )
         notificationCenter.postNotificationOnMainThread(NotificationCenter.userClansDidLoad)
         if (channelMembersChanged) {
             notificationCenter.postNotificationOnMainThread(NotificationCenter.channelMembersDidLoad, channelId)
@@ -337,15 +321,9 @@ class UserClanController @Inject constructor(
 
     private fun applyUserChannelRemoved(event: UserChannelRemoved) {
         val channelId = event.channelId
-        if (channelId == 0L) {
-            Log.d(TAG, "userChannelRemoved ignored empty channelId for members")
-            return
-        }
+        if (channelId == 0L) return
         val removedIds = event.userIdsList.toSet()
-        if (removedIds.isEmpty()) {
-            Log.d(TAG, "userChannelRemoved ignored empty userIds channelId=$channelId clanId=${event.clanId}")
-            return
-        }
+        if (removedIds.isEmpty()) return
         var changed = false
         synchronized(this) {
             val members = membersByChannel[channelId] ?: return@synchronized
@@ -356,16 +334,7 @@ class UserClanController @Inject constructor(
             }
         }
         if (changed) {
-            Log.d(
-                TAG,
-                "userChannelRemoved applied members channelId=$channelId clanId=${event.clanId} removedIds=$removedIds"
-            )
             notificationCenter.postNotificationOnMainThread(NotificationCenter.channelMembersDidLoad, channelId)
-        } else {
-            Log.d(
-                TAG,
-                "userChannelRemoved skipped members channelId=$channelId clanId=${event.clanId} removedIds=$removedIds cacheLoaded=false"
-            )
         }
     }
 

@@ -1,6 +1,5 @@
 package com.mezon.mobile.home.clans
 
-import android.util.Log
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.data.db.ClanChannelDao
@@ -39,7 +38,6 @@ import javax.inject.Singleton
 private const val NOTIFICATION_CODE_USER_MENTIONED = -9
 private const val NOTIFICATION_CODE_USER_REPLIED = -11
 private const val MAX_BADGE_CACHE = 500
-private const val TAG = "ChannelController"
 
 const val FAVORITE_CATEGORY_ID = -1L
 const val FAVORITE_CATEGORY_NAME = "Favorites"
@@ -508,51 +506,26 @@ class ChannelController @Inject constructor(
         type == CHANNEL_TYPE_DM || type == CHANNEL_TYPE_GROUP
 
     private fun applyUserChannelAdded(event: UserChannelAdded, currentUserId: Long) {
-        if (!event.hasChannelDesc()) {
-            Log.d(TAG, "userChannelAdded ignored missing channelDesc for channel list")
-            return
-        }
+        if (!event.hasChannelDesc()) return
         val desc = event.channelDesc
         if (isDirectChannelType(desc.type)) return
-        if (event.usersList.none { it.userId == currentUserId }) {
-            Log.d(
-                TAG,
-                "userChannelAdded ignored non-self channelId=${desc.channelId} type=${desc.type} clanId=${event.clanId} users=${event.usersList.map { it.userId }}"
-            )
-            return
-        }
+        if (event.usersList.none { it.userId == currentUserId }) return
         val clanId = event.clanId.takeIf { it != 0L } ?: desc.clanId
-        if (clanId == 0L || desc.channelId == 0L) {
-            Log.d(TAG, "userChannelAdded ignored invalid channel channelId=${desc.channelId} clanId=$clanId type=${desc.type}")
-            return
-        }
+        if (clanId == 0L || desc.channelId == 0L) return
         val active = event.active.takeIf { it != 0 } ?: desc.active.takeIf { it != 0 } ?: 1
         val channel = desc.toClanChannelEntity().copy(clanId = clanId, active = active)
         val existing = _channelsByClan.value[clanId] ?: emptyList()
         updateCache(clanId, sortChannels(existing.filter { it.channelId != channel.channelId } + channel))
         appScope.launch(ioDispatcher) { clanChannelDao.upsert(channel) }
-        Log.d(
-            TAG,
-            "userChannelAdded applied channelId=${channel.channelId} type=${channel.type} clanId=$clanId active=$active"
-        )
         notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
         notificationCenter.postNotificationOnMainThread(NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_CHAT)
     }
 
     private fun applyUserChannelRemoved(event: UserChannelRemoved, currentUserId: Long) {
         if (isDirectChannelType(event.channelType)) return
-        if (event.userIdsList.none { it == currentUserId }) {
-            Log.d(
-                TAG,
-                "userChannelRemoved ignored non-self channelId=${event.channelId} type=${event.channelType} clanId=${event.clanId} userIds=${event.userIdsList}"
-            )
-            return
-        }
+        if (event.userIdsList.none { it == currentUserId }) return
         val channelId = event.channelId
-        if (channelId == 0L) {
-            Log.d(TAG, "userChannelRemoved ignored empty channelId type=${event.channelType} clanId=${event.clanId}")
-            return
-        }
+        if (channelId == 0L) return
         val clanId = event.clanId.takeIf { it != 0L } ?: findClanIdForChannel(channelId)
         if (clanId != 0L) {
             val existing = _channelsByClan.value[clanId]
@@ -566,8 +539,6 @@ class ChannelController @Inject constructor(
                 messageDao.deleteByChannel(channelId)
             }
             notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
-        } else {
-            Log.d(TAG, "userChannelRemoved skipped channel db delete channelId=$channelId type=${event.channelType} clanId=0")
         }
         val wasOpen = currentOpenChannelId == channelId
         if (wasOpen) {
@@ -575,10 +546,6 @@ class ChannelController @Inject constructor(
             notificationCenter.postNotificationOnMainThread(NotificationCenter.closeChats, channelId, event.channelType)
             notificationCenter.postNotificationOnMainThread(NotificationCenter.navigateToClansTab)
         }
-        Log.d(
-            TAG,
-            "userChannelRemoved applied self channelId=$channelId type=${event.channelType} clanId=$clanId open=$wasOpen"
-        )
         notificationCenter.postNotificationOnMainThread(NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_CHAT)
     }
 

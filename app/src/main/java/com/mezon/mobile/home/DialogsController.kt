@@ -500,52 +500,31 @@ class DialogsController @Inject constructor(
             } else {
                 val isFromMe = msg.senderId == currentUserId
                 val isCurrentlyOpen = currentChannelId == msg.channelId
-                val groupLabel = msg.channelLabel.takeIf {
-                    msg.mode == STREAM_MODE_GROUP && it.isNotBlank()
-                } ?: if (msg.mode == STREAM_MODE_GROUP) {
-                    groupNameFallbackFromParticipants(participantsByChannel[msg.channelId] ?: emptyList())
-                        .takeIf { it.isNotBlank() }
-                } else {
-                    null
-                }
-                var metadataChanged = false
-                val baseDm = if (groupLabel != null && (dm.label != groupLabel || dm.displayName != groupLabel)) {
-                    metadataChanged = true
-                    dm.copy(label = groupLabel, displayName = groupLabel, username = groupLabel)
-                } else {
-                    dm
-                }
 
                 val newUnread = when {
-                    isContentMutation -> baseDm.unreadCount
+                    isContentMutation -> dm.unreadCount
                     isCurrentlyOpen -> 0
-                    isFromMe -> baseDm.unreadCount
-                    else -> baseDm.unreadCount + 1
+                    isFromMe -> dm.unreadCount
+                    else -> dm.unreadCount + 1
                 }
                 val newPreview = if (!isContentMutation || msg.code == CODE_CHAT_UPDATE)
-                    messagePreviewForDialog(appContext, msg.content) else baseDm.lastMessageContent
+                    messagePreviewForDialog(appContext, msg.content) else dm.lastMessageContent
 
-                val newSentMessageId = if (!isContentMutation) msg.messageId else baseDm.lastSentMessageId
+                val newSentMessageId = if (!isContentMutation) msg.messageId else dm.lastSentMessageId
 
-                val newLastSeenId = if (isFromMe && !isContentMutation && msg.messageId > baseDm.lastSeenMessageId)
-                    msg.messageId else baseDm.lastSeenMessageId
+                val newLastSeenId = if (isFromMe && !isContentMutation && msg.messageId > dm.lastSeenMessageId)
+                    msg.messageId else dm.lastSeenMessageId
 
                 val newSentTs = if (!isContentMutation && msg.createTimeSeconds > 0) {
-                    maxOf(baseDm.lastSentMessageTs, msg.createTimeSeconds.toLong() and 0xFFFF_FFFFL)
-                } else baseDm.lastSentMessageTs
-                val result = baseDm.copy(
-                    lastMessageContent = newPreview.ifBlank { baseDm.lastMessageContent },
-                    lastSentMessageId = newSentMessageId.takeIf { it > 0 } ?: baseDm.lastSentMessageId,
+                    maxOf(dm.lastSentMessageTs, msg.createTimeSeconds.toLong() and 0xFFFF_FFFFL)
+                } else dm.lastSentMessageTs
+                val result = dm.copy(
+                    lastMessageContent = newPreview.ifBlank { dm.lastMessageContent },
+                    lastSentMessageId = newSentMessageId.takeIf { it > 0 } ?: dm.lastSentMessageId,
                     lastSentMessageTs = newSentTs,
                     lastSeenMessageId = newLastSeenId,
                     unreadCount = newUnread
                 )
-                if (metadataChanged) {
-                    Log.d(
-                        TAG,
-                        "updateOnNewMessage patched group label channelId=${msg.channelId} label=$groupLabel"
-                    )
-                }
                 updatedDm = result
                 dialogsDict.put(msg.channelId, result)
                 reorderDialogInPlace(msg.channelId, result, isContentMutation)
@@ -851,17 +830,11 @@ class DialogsController @Inject constructor(
     }
 
     private fun applyUserChannelAdded(event: UserChannelAdded, currentUserId: Long) {
-        if (!event.hasChannelDesc()) {
-            Log.d(TAG, "userChannelAdded ignored missing channelDesc")
-            return
-        }
+        if (!event.hasChannelDesc()) return
         val desc = event.channelDesc
         if (desc.type != CHANNEL_TYPE_DM && desc.type != CHANNEL_TYPE_GROUP) return
         val channelId = desc.channelId
-        if (channelId == 0L) {
-            Log.d(TAG, "userChannelAdded ignored empty channelId type=${desc.type}")
-            return
-        }
+        if (channelId == 0L) return
         val addedParticipants = event.usersList.map { it.toDmParticipant() }
         val descParticipants = desc.extractParticipants()
         val containsSelf = event.usersList.any { it.userId == currentUserId } ||
@@ -870,13 +843,7 @@ class DialogsController @Inject constructor(
         var changed = false
         synchronized(this) {
             val existing = dialogsDict[channelId]
-            if (existing == null && !containsSelf) {
-                Log.d(
-                    TAG,
-                    "userChannelAdded ignored non-self dm channelId=$channelId type=${desc.type} users=${event.usersList.map { it.userId }}"
-                )
-                return@synchronized
-            }
+            if (existing == null && !containsSelf) return@synchronized
             if (descParticipants.isNotEmpty()) {
                 mergeParticipants(channelId, descParticipants)
                 changed = true
@@ -920,11 +887,6 @@ class DialogsController @Inject constructor(
         }
         toPersist?.let { dm -> appScope.launch(ioDispatcher) { directMessageDao.upsert(dm) } }
         if (changed) {
-            val row = toPersist
-            Log.d(
-                TAG,
-                "userChannelAdded applied dm channelId=$channelId type=${desc.type} label=${row?.label.orEmpty()} displayName=${row?.displayName.orEmpty()} username=${row?.username.orEmpty()} avatar=${row?.avatarUrl.orEmpty()} containsSelf=$containsSelf added=${addedParticipants.map { it.userId }} participants=${getParticipants(channelId)}"
-            )
             notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
             notificationCenter.postNotificationOnMainThread(NotificationCenter.channelMembersDidLoad, channelId)
         }
@@ -933,15 +895,9 @@ class DialogsController @Inject constructor(
     private fun applyUserChannelRemoved(event: UserChannelRemoved, currentUserId: Long) {
         if (event.channelType != CHANNEL_TYPE_DM && event.channelType != CHANNEL_TYPE_GROUP) return
         val channelId = event.channelId
-        if (channelId == 0L) {
-            Log.d(TAG, "userChannelRemoved ignored empty channelId type=${event.channelType}")
-            return
-        }
+        if (channelId == 0L) return
         val removedIds = event.userIdsList.toHashSet()
-        if (removedIds.isEmpty()) {
-            Log.d(TAG, "userChannelRemoved ignored empty userIds channelId=$channelId type=${event.channelType}")
-            return
-        }
+        if (removedIds.isEmpty()) return
         val removedSelf = currentUserId in removedIds
         var changed = false
         synchronized(this) {
@@ -961,21 +917,12 @@ class DialogsController @Inject constructor(
         }
         if (!changed) return
         if (removedSelf) {
-            Log.d(
-                TAG,
-                "userChannelRemoved applied self dm channelId=$channelId type=${event.channelType} removedIds=$removedIds"
-            )
             appScope.launch(ioDispatcher) {
                 directMessageDao.delete(channelId)
                 messageDao.deleteByChannel(channelId)
             }
             notificationCenter.postNotificationOnMainThread(NotificationCenter.closeChats, channelId, event.channelType)
             notificationCenter.postNotificationOnMainThread(NotificationCenter.navigateToMessagesTab)
-        } else {
-            Log.d(
-                TAG,
-                "userChannelRemoved applied member dm channelId=$channelId type=${event.channelType} removedIds=$removedIds participants=${getParticipants(channelId).map { it.userId }}"
-            )
         }
         notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
         notificationCenter.postNotificationOnMainThread(NotificationCenter.channelMembersDidLoad, channelId)
