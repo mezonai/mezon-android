@@ -157,6 +157,28 @@ class DialogsController @Inject constructor(
         return true
     }
 
+    private fun applyDmPeerIdentity(
+        row: DirectMessage,
+        currentUserId: Long,
+        users: List<UserProfileRedis>,
+        participants: List<DmParticipant>
+    ): DirectMessage {
+        if (row.type != CHANNEL_TYPE_DM) return row
+        if (row.otherUserId != 0L && row.otherUserId != currentUserId) return row
+        val peer = users.firstOrNull { it.userId != 0L && it.userId != currentUserId }?.toDmParticipant()
+            ?: participants.firstOrNull { it.userId != 0L && it.userId != currentUserId }
+            ?: return row
+        val name = peer.displayName.ifBlank { peer.username }
+        if (name.isBlank()) return row
+        return row.copy(
+            label = name,
+            displayName = name,
+            username = peer.username.ifBlank { name },
+            avatarUrl = peer.avatarUrl.ifBlank { row.avatarUrl },
+            otherUserId = peer.userId
+        )
+    }
+
     private fun groupNameFallbackFromUsers(
         users: List<UserProfileRedis>
     ): String {
@@ -500,27 +522,40 @@ class DialogsController @Inject constructor(
             } else {
                 val isFromMe = msg.senderId == currentUserId
                 val isCurrentlyOpen = currentChannelId == msg.channelId
+                var baseDm = dm
+                if (msg.mode == STREAM_MODE_DM && !isFromMe && dm.otherUserId == 0L) {
+                    val senderName = msg.displayName.ifBlank { msg.username }
+                    if (senderName.isNotBlank()) {
+                        baseDm = dm.copy(
+                            label = senderName,
+                            displayName = senderName,
+                            username = msg.username.ifBlank { senderName },
+                            avatarUrl = msg.avatar.ifBlank { dm.avatarUrl },
+                            otherUserId = msg.senderId
+                        )
+                    }
+                }
 
                 val newUnread = when {
-                    isContentMutation -> dm.unreadCount
+                    isContentMutation -> baseDm.unreadCount
                     isCurrentlyOpen -> 0
-                    isFromMe -> dm.unreadCount
-                    else -> dm.unreadCount + 1
+                    isFromMe -> baseDm.unreadCount
+                    else -> baseDm.unreadCount + 1
                 }
                 val newPreview = if (!isContentMutation || msg.code == CODE_CHAT_UPDATE)
-                    messagePreviewForDialog(appContext, msg.content) else dm.lastMessageContent
+                    messagePreviewForDialog(appContext, msg.content) else baseDm.lastMessageContent
 
-                val newSentMessageId = if (!isContentMutation) msg.messageId else dm.lastSentMessageId
+                val newSentMessageId = if (!isContentMutation) msg.messageId else baseDm.lastSentMessageId
 
-                val newLastSeenId = if (isFromMe && !isContentMutation && msg.messageId > dm.lastSeenMessageId)
-                    msg.messageId else dm.lastSeenMessageId
+                val newLastSeenId = if (isFromMe && !isContentMutation && msg.messageId > baseDm.lastSeenMessageId)
+                    msg.messageId else baseDm.lastSeenMessageId
 
                 val newSentTs = if (!isContentMutation && msg.createTimeSeconds > 0) {
-                    maxOf(dm.lastSentMessageTs, msg.createTimeSeconds.toLong() and 0xFFFF_FFFFL)
-                } else dm.lastSentMessageTs
-                val result = dm.copy(
-                    lastMessageContent = newPreview.ifBlank { dm.lastMessageContent },
-                    lastSentMessageId = newSentMessageId.takeIf { it > 0 } ?: dm.lastSentMessageId,
+                    maxOf(baseDm.lastSentMessageTs, msg.createTimeSeconds.toLong() and 0xFFFF_FFFFL)
+                } else baseDm.lastSentMessageTs
+                val result = baseDm.copy(
+                    lastMessageContent = newPreview.ifBlank { baseDm.lastMessageContent },
+                    lastSentMessageId = newSentMessageId.takeIf { it > 0 } ?: baseDm.lastSentMessageId,
                     lastSentMessageTs = newSentTs,
                     lastSeenMessageId = newLastSeenId,
                     unreadCount = newUnread
@@ -576,10 +611,24 @@ class DialogsController @Inject constructor(
                 if (existing == null) {
                     dialogsDict.put(dm.channelId, dm)
                 } else {
+                    val keepExistingIdentity = existing.otherUserId != 0L && dm.otherUserId == 0L
                     val merged = dm.copy(
-                        label = dm.label.ifBlank { existing.label },
+                        label = if (keepExistingIdentity && existing.label.isNotBlank()) {
+                            existing.label
+                        } else {
+                            dm.label.ifBlank { existing.label }
+                        },
                         avatarUrl = dm.avatarUrl.ifBlank { existing.avatarUrl },
-                        displayName = dm.displayName.ifBlank { existing.displayName },
+                        displayName = if (keepExistingIdentity && existing.displayName.isNotBlank()) {
+                            existing.displayName
+                        } else {
+                            dm.displayName.ifBlank { existing.displayName }
+                        },
+                        username = if (keepExistingIdentity && existing.username.isNotBlank()) {
+                            existing.username
+                        } else {
+                            dm.username.ifBlank { existing.username }
+                        },
                         lastMessageContent = dm.lastMessageContent.ifBlank { existing.lastMessageContent },
                         isOnline = false,
                         otherUserId = if (dm.otherUserId != 0L) dm.otherUserId else existing.otherUserId,
@@ -679,30 +728,36 @@ class DialogsController @Inject constructor(
         val fresh = desc.toDirectMessage(currentUserId, appContext)
         var next = row
         var changed = false
+        val peerResolved = fresh.type != CHANNEL_TYPE_DM ||
+            (fresh.otherUserId != 0L && fresh.otherUserId != currentUserId)
         val displayName = if (desc.type == CHANNEL_TYPE_GROUP && desc.channelLabel.isNotBlank()) {
             desc.channelLabel
-        } else {
+        } else if (peerResolved) {
             fresh.displayName
+        } else {
+            ""
         }
         if (fresh.type != 0 && fresh.type != next.type) {
             changed = true
             next = next.copy(type = fresh.type)
         }
-        if (fresh.label.isNotBlank() && fresh.label != next.label) {
-            changed = true
-            next = next.copy(label = fresh.label)
-        }
-        if (displayName.isNotBlank() && displayName != next.displayName) {
-            changed = true
-            next = next.copy(displayName = displayName)
-        }
-        if (fresh.avatarUrl.isNotBlank() && fresh.avatarUrl != next.avatarUrl) {
-            changed = true
-            next = next.copy(avatarUrl = fresh.avatarUrl)
-        }
-        if (fresh.username.isNotBlank() && fresh.username != next.username) {
-            changed = true
-            next = next.copy(username = fresh.username)
+        if (peerResolved || desc.type == CHANNEL_TYPE_GROUP) {
+            if (fresh.label.isNotBlank() && fresh.label != next.label) {
+                changed = true
+                next = next.copy(label = fresh.label)
+            }
+            if (displayName.isNotBlank() && displayName != next.displayName) {
+                changed = true
+                next = next.copy(displayName = displayName)
+            }
+            if (fresh.username.isNotBlank() && fresh.username != next.username) {
+                changed = true
+                next = next.copy(username = fresh.username)
+            }
+            if (fresh.avatarUrl.isNotBlank() && fresh.avatarUrl != next.avatarUrl) {
+                changed = true
+                next = next.copy(avatarUrl = fresh.avatarUrl)
+            }
         }
         if (fresh.type == CHANNEL_TYPE_DM && fresh.otherUserId != 0L && fresh.otherUserId != next.otherUserId) {
             changed = true
@@ -853,7 +908,8 @@ class DialogsController @Inject constructor(
                 changed = true
             }
             val fresh = desc.toDirectMessage(currentUserId, appContext)
-            val row = if (existing == null) {
+            val channelParticipants = participantsByChannel[channelId] ?: emptyList()
+            var row = if (existing == null) {
                 val (withFallback, fallbackChanged) = applyGroupFallbackMetadata(fresh, desc, event.usersList)
                 changed = changed || fallbackChanged
                 withFallback
@@ -870,6 +926,13 @@ class DialogsController @Inject constructor(
                     lastSentMessageTs = maxOf(withFallback.lastSentMessageTs, fresh.lastSentMessageTs),
                     unreadCount = mergeDmUnreadFromList(withFallback.unreadCount, fresh)
                 )
+            }
+            if (desc.type == CHANNEL_TYPE_DM) {
+                val patched = applyDmPeerIdentity(row, currentUserId, event.usersList, channelParticipants)
+                if (patched != row) {
+                    changed = true
+                    row = patched
+                }
             }
             dialogsDict.put(channelId, row)
             val oldIdx = dialogs.indexOfFirst { it.channelId == channelId }
