@@ -10,6 +10,8 @@ import com.mezon.mobile.home.extractLastSeenMessageId
 import com.mezon.mobile.home.extractLastSeenMessageTs
 import com.mezon.mobile.home.extractLastSentMessageId
 import com.mezon.mobile.home.extractLastSentMessageTs
+import com.mezon.mobile.network.CHANNEL_TYPE_DM
+import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.util.parseContentPreview
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
@@ -67,6 +69,14 @@ data class DirectMessage(
     val lastSentMessageTs: Long = 0L
 )
 
+/** Key for [com.mezon.mobile.core.AvatarDrawable] when there is no photo. */
+fun DirectMessage.avatarPlaceholderKey(): String {
+    return when (type) {
+        CHANNEL_TYPE_GROUP -> displayName.ifEmpty { label }
+        CHANNEL_TYPE_DM -> username
+        else -> username.ifEmpty { displayName.ifEmpty { label } }
+    }
+}
 
 fun ChannelDescription.toDirectMessage(currentUserId: Long, previewContext: android.content.Context? = null): DirectMessage {
     val isGroup = type == CHANNEL_TYPE_GROUP
