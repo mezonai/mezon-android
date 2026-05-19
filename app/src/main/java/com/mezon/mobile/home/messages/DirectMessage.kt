@@ -37,6 +37,14 @@ fun ChannelDescription.extractParticipants(): List<DmParticipant> {
     return result
 }
 
+fun ChannelDescription.resolveOtherParticipantIndex(currentUserId: Long): Int {
+    for (i in 0 until userIdsCount) {
+        val id = getUserIds(i)
+        if (id != 0L && id != currentUserId) return i
+    }
+    return -1
+}
+
 @Entity(
     tableName = "direct_messages",
     indices = [Index(value = ["lastSentMessageTs"])]
@@ -61,30 +69,47 @@ data class DirectMessage(
 
 
 fun ChannelDescription.toDirectMessage(currentUserId: Long, previewContext: android.content.Context? = null): DirectMessage {
-    val otherIndex = userIdsList.indexOfFirst { it != currentUserId }
-        .takeIf { it >= 0 }
-        ?: 0 
-
-    val username = usernamesList.getOrElse(otherIndex) { "" }
-    val participantName = displayNamesList.getOrElse(otherIndex) { "" }
-        .ifBlank { username.ifBlank { channelLabel } }
     val isGroup = type == CHANNEL_TYPE_GROUP
+    val otherIndex = resolveOtherParticipantIndex(currentUserId)
+    val username: String
+    val participantName: String
+    val avatarUrl: String
+    val otherUserId: Long
+    if (otherIndex >= 0) {
+        username = usernamesList.getOrElse(otherIndex) { "" }
+        participantName = displayNamesList.getOrElse(otherIndex) { "" }
+            .ifBlank { username.ifBlank { channelLabel } }
+        avatarUrl = when {
+            channelAvatar.isNotEmpty() -> channelAvatar
+            isGroup -> ""
+            else -> avatarsList.getOrElse(otherIndex) { "" }
+        }
+        otherUserId = if (isGroup) 0L else getUserIds(otherIndex)
+    } else if (isGroup) {
+        val fallbackIndex = if (userIdsCount > 0) 0 else -1
+        username = if (fallbackIndex >= 0) usernamesList.getOrElse(fallbackIndex) { "" } else ""
+        participantName = if (fallbackIndex >= 0) {
+            displayNamesList.getOrElse(fallbackIndex) { "" }.ifBlank { username.ifBlank { channelLabel } }
+        } else {
+            channelLabel
+        }
+        avatarUrl = if (channelAvatar.isNotEmpty()) channelAvatar else ""
+        otherUserId = 0L
+    } else {
+        username = ""
+        participantName = channelLabel
+        avatarUrl = if (channelAvatar.isNotEmpty()) channelAvatar else ""
+        otherUserId = 0L
+    }
     val displayName = if (isGroup) {
         channelLabel.ifBlank { participantName }
     } else {
         participantName
     }
-    val avatarUrl = when {
-        channelAvatar.isNotEmpty() -> channelAvatar
-        isGroup -> ""
-        else -> avatarsList.getOrElse(otherIndex) { "" }
-    }
     val lastMsgContent = if (hasLastSentMessage()) {
         if (previewContext != null) messagePreviewForDialog(previewContext, lastSentMessage.content)
         else parseContentPreview(lastSentMessage.content)
     } else ""
-
-    val otherUserId = if (isGroup) 0L else userIdsList.getOrElse(otherIndex) { 0L }
 
     return DirectMessage(
         channelId = channelId,
@@ -114,10 +139,11 @@ fun ChannelMessage.toDirectMessageFromIncoming(
     val isOpen = viewingChannelId != null && viewingChannelId == channelId
     val type = streamModeToChannelType(mode)
     val senderName = displayName.ifBlank { username }
-    val name = if (type == CHANNEL_TYPE_GROUP && channelLabel.isNotBlank()) {
-        channelLabel
-    } else {
-        senderName.ifBlank { channelLabel }
+    val name = when {
+        type == CHANNEL_TYPE_GROUP && channelLabel.isNotBlank() -> channelLabel
+        type == CHANNEL_TYPE_GROUP -> senderName.ifBlank { channelLabel }
+        !isFromMe -> senderName.ifBlank { channelLabel }
+        else -> channelLabel.ifBlank { senderName }
     }
     val preview = messagePreviewForDialog(previewContext, content)
     val ts = createTimeSeconds.toLong() and 0xFFFF_FFFFL
