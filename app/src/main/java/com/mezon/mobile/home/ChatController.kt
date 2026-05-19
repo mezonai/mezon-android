@@ -85,6 +85,7 @@ class ChatController @Inject constructor(
     private val cacheTracker: ApiCacheTracker,
     private val dialogsController: DialogsController,
     private val badgeCoordinator: BadgeCoordinator,
+    private val forwardTargetUsageStore: ForwardTargetUsageStore,
     private val channelController: dagger.Lazy<com.mezon.mobile.home.clans.ChannelController>,
     private val userController: dagger.Lazy<UserController>,
     private val anonymousController: dagger.Lazy<AnonymousController>,
@@ -565,6 +566,7 @@ class ChatController @Inject constructor(
                         if (anon) this.anonymousMessage = true
                     }
                     val ack = channelSend(session.apiUrl, session.token, request)
+                    markForwardTargetUsed(channelId, channelType)
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
                     )
@@ -618,6 +620,7 @@ class ChatController @Inject constructor(
                     if (anon) this.anonymousMessage = true
                 }
                 val ack = channelSend(session.apiUrl, session.token, request)
+                markForwardTargetUsed(channelId, channelType)
                 notificationCenter.postNotificationOnMainThread(
                     NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
                 )
@@ -697,6 +700,7 @@ class ChatController @Inject constructor(
                         if (anon) this.anonymousMessage = true
                     }
                     val ack = channelSend(session.apiUrl, session.token, request)
+                    markForwardTargetUsed(channelId, channelType)
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
                     )
@@ -759,6 +763,7 @@ class ChatController @Inject constructor(
                         if (anon) this.anonymousMessage = true
                     }
                     val ack = channelSend(session.apiUrl, session.token, request)
+                    markForwardTargetUsed(channelId, channelType)
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
                     )
@@ -819,6 +824,7 @@ class ChatController @Inject constructor(
                         if (anon) this.anonymousMessage = true
                     }
                     val ack = channelSend(session.apiUrl, session.token, request)
+                    markForwardTargetUsed(channelId, channelType)
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
                     )
@@ -851,6 +857,10 @@ class ChatController @Inject constructor(
     private fun generateTempId(): Long {
         val ts = System.currentTimeMillis()
         return (ts shl 22) or (Thread.currentThread().id and 0x3FFFFF)
+    }
+
+    private fun markForwardTargetUsed(channelId: Long, channelType: Int) {
+        forwardTargetUsageStore.markLastSent(channelId, channelType)
     }
 
     private suspend fun ensureActiveArchivedThreadIfNeeded(
@@ -1065,6 +1075,7 @@ class ChatController @Inject constructor(
                             if (anon) this.anonymousMessage = true
                         }
                         val ack = channelSend(session.apiUrl, session.token, request)
+                        markForwardTargetUsed(channelId, channelType)
                         notificationCenter.postNotificationOnMainThread(
                             NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
                         )
@@ -1220,6 +1231,7 @@ class ChatController @Inject constructor(
                             if (anon) this.anonymousMessage = true
                         }
                         val ack = channelSend(session.apiUrl, session.token, request)
+                        markForwardTargetUsed(channelId, channelType)
                         notificationCenter.postNotificationOnMainThread(
                             NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
                         )
@@ -1673,6 +1685,7 @@ class ChatController @Inject constructor(
                             dest.clanId,
                             dest.channelType
                         )
+                        var sentToDestination = false
                         for (msg in messages) {
                             val wire = mergeFwdIntoContent(msg.content)
                             val mentionsProto: List<MessageMention>? =
@@ -1715,6 +1728,7 @@ class ChatController @Inject constructor(
                                     if (anon) anonymousMessage = true
                                 }
                                 channelSend(session.apiUrl, session.token, request)
+                                sentToDestination = true
                             } catch (e: Exception) {
                                 allOk = false
                                 val everyone = extractMentionEveryoneFromForwardContent(wire)
@@ -1740,10 +1754,14 @@ class ChatController @Inject constructor(
                                     if (anon) anonymousMessage = true
                                 }
                                 channelSend(session.apiUrl, session.token, requestExtra)
+                                sentToDestination = true
                             } catch (e: Exception) {
                                 allOk = false
                                 Log.e(TAG, "forward REST extra comment failed channel=${dest.channelId}", e)
                             }
+                        }
+                        if (sentToDestination) {
+                            markForwardTargetUsed(dest.channelId, dest.channelType)
                         }
                     }
                 }
