@@ -74,7 +74,7 @@
     <string name="qr_login_confirm">Log in</string>
     <string name="qr_login_success">Login confirmed</string>
     <string name="qr_login_failed">Failed to confirm login</string>
-    <string name="qr_login_require_mobile_session">Please log in on this mobile device before confirming QR login.</string>
+    <string name="qr_login_require_mobile_session">Your session has expired. Please log in again to confirm QR login.</string>
     <string name="qr_camera_denied_title">Camera permission denied</string>
     <string name="qr_camera_denied_message">Please allow camera access in Settings to scan QR codes.</string>
     <string name="qr_scan_title_hint">Scan QR Code</string>
@@ -601,7 +601,7 @@
     <string name="send_token_copy">Copy</string>
     <string name="send_token_address_copied">Address copied</string>
     <string name="send_token_submit">Transfer Funds</string>
-    <string name="send_token_zk_relogin">Wallet needs a valid sign-in. Sign in again (OpenID) so your ID token and ZK proof can be loaded, then try again.</string>
+    <string name="send_token_zk_relogin">Your wallet session has expired. Please log in again to continue.</string>
     <string name="send_token_success_dialog_title">Transfer sent</string>
     <string name="send_token_success_dialog_message">Amount: %1$s %2$s\n\nNote: %3$s\n\n%4$s</string>
     <string name="transfer_success_title">Transfer successful!</string>
