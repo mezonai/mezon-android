@@ -11,6 +11,7 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.chat.MezonImageLoader
+import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.util.avatarImgproxyUrl
 import com.mezon.mobile.util.formatRelativeTime
 
@@ -92,9 +93,9 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         if (mask == 0) {
             val changed = newDm != null && newDm != directMessage
             if (newDm != null) directMessage = newDm
-            avatarDrawable.setInfo(dm.channelId, dm.username)
+            avatarDrawable.setInfo(dm.channelId, dm.avatarPlaceholderKey())
             buildLayouts()
-            loadAvatar(dm.avatarUrl)
+            loadAvatar(dm)
             invalidate()
             return changed
         }
@@ -108,7 +109,7 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
 
         if ((mask and NotificationCenter.UPDATE_MASK_AVATAR) != 0) {
             if (directMessage?.avatarUrl != dm.avatarUrl) {
-                loadAvatar(dm.avatarUrl)
+                loadAvatar(dm)
                 needInvalidate = true
             }
         }
@@ -200,7 +201,25 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
             .build()
     }
 
-    private fun loadAvatar(url: String) {
+    private fun loadAvatar(dm: DirectMessage) {
+        if (dm.type == CHANNEL_TYPE_GROUP && !dm.hasCustomAvatar()) {
+            loadGroupDefaultAvatar()
+            return
+        }
+        loadAvatarFromUrl(dm.avatarUrl)
+    }
+
+    private fun loadGroupDefaultAvatar() {
+        if (currentAvatarLoadUrl == GROUP_DEFAULT_AVATAR_KEY && avatarDrawable.hasPhoto()) return
+        avatarDisposable?.cancel()
+        avatarDisposable = null
+        currentAvatarUrl = null
+        currentAvatarLoadUrl = GROUP_DEFAULT_AVATAR_KEY
+        avatarDrawable.setPhoto(GroupAvatar.bitmap(context))
+        invalidate()
+    }
+
+    private fun loadAvatarFromUrl(url: String) {
         val loadUrl = avatarImgproxyUrl(url, AVATAR_SIZE).ifEmpty { url }
         if (loadUrl == currentAvatarLoadUrl && avatarDrawable.hasPhoto()) return
         currentAvatarUrl = url
@@ -313,5 +332,6 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         private val BUZZ_H_PAD = LayoutHelper.dp(4).toFloat()
         private val BUZZ_BADGE_H = LayoutHelper.dp(20)
         private val BUZZ_RADIUS = LayoutHelper.dpf(4f)
+        private const val GROUP_DEFAULT_AVATAR_KEY = "\u0000group_default_avatar"
     }
 }
