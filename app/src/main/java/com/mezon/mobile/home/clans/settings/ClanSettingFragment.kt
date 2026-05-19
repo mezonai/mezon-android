@@ -413,6 +413,10 @@ class ClanSettingFragment : BaseFragment() {
                         navigationRow(ctx, row.icon, row.labelRes, Runnable {
                             presentFragment(IntegrationSettingFragment.newInstance(clanId))
                         })
+                    R.string.clan_settings_emoji ->
+                        navigationRow(ctx, row.icon, row.labelRes, Runnable {
+                            presentFragment(EmojiSettingFragment.newInstance(clanId))
+                        })
                     else ->
                         navigationRow(ctx, row.icon, row.labelRes, Runnable {
                             MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.feature_coming_soon))

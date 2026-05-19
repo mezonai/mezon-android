@@ -370,6 +370,32 @@
     <string name="clan_settings_logo_permission_denied">You don\'t have permission to change the clan logo.</string>
     <string name="clan_settings_logo_too_large">Clan logo image must be 1 MB or smaller.</string>
     <string name="clan_settings_logo_update_failed">Couldn\'t update clan logo. Try again.</string>
+
+    <string name="clan_emoji_upload_button">Upload Emoji</string>
+    <string name="clan_emoji_description_body">Add custom emoji that anyone can use in this clan. Animated GIF emoji may be used by members with Mezon.</string>
+    <string name="clan_emoji_requirements_title">UPLOAD REQUIREMENTS</string>
+    <string name="clan_emoji_requirements_list">• File type: JPEG, PNG, GIF\n• Recommended file size: 256 KB\n• Recommended dimensions: 128×128\n• Naming: Emoji names must be at least 3 characters long and can only contain alphanumeric characters, underscores (_), and hyphens (-).</string>
+    <string name="clan_emoji_column_image">IMAGE</string>
+    <string name="clan_emoji_column_name">NAME</string>
+    <string name="clan_emoji_column_uploaded_by">UPLOADED BY</string>
+    <string name="clan_emoji_preview_dialog_title">Preview</string>
+    <string name="clan_emoji_section_label">Emoji</string>
+    <string name="clan_emoji_preview_title">Preview</string>
+    <string name="clan_emoji_name_label">Emoji name</string>
+    <string name="clan_emoji_name_hint">Ex: cat_hug</string>
+    <string name="clan_emoji_for_sale">This is for sale</string>
+    <string name="clan_emoji_confirm_upload">Upload</string>
+    <string name="clan_emoji_validate_name">Length must be %1$d–%2$d characters. Only letters, numbers, _ and - are allowed.</string>
+    <string name="clan_emoji_error_size_limit">Image size limit exceeded 256 KB</string>
+    <string name="clan_emoji_error_export_too_large">Could not export under 256 KB. Try a simpler image.</string>
+    <string name="clan_emoji_upload_failed">Couldn\'t upload emoji. Try again.</string>
+    <string name="clan_emoji_saved">Saved</string>
+    <string name="clan_emoji_update_failed">Couldn\'t update emoji.</string>
+    <string name="clan_emoji_delete_title">Delete emoji</string>
+    <string name="clan_emoji_delete_message">Remove %1$s from this clan?</string>
+    <string name="clan_emoji_delete_confirm">Delete</string>
+    <string name="clan_emoji_delete_failed">Couldn\'t delete emoji.</string>
+    <string name="clan_emoji_limit_slots">Emoji upload limit reached.</string>
     <string name="clan_menu_action_invite">Invite</string>
     <string name="clan_menu_action_notifications">Notifications</string>
     <string name="clan_menu_action_settings">Settings</string>
@@ -1095,6 +1121,9 @@
     <string name="message_call_log_start_group_call">%1$s started a group call</string>
     <string name="message_call_log_start_audio_call">%1$s started an audio call</string>
     <string name="message_call_log_start_video_call">%1$s started a video call</string>
+
+    <string name="call_busy_status">Busy</string>
+    <string name="call_busy_peer_status">%1$s is busy</string>
 
     <string name="call_full_screen_intent_title">Fullscreen incoming calls</string>
     <string name="call_full_screen_intent_message">Allow Mezon to use fullscreen notifications while the device is locked so you won’t miss voice calls.</string>

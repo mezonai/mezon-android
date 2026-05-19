@@ -322,6 +322,32 @@
     <string name="clan_settings_logo_permission_denied">Bạn không có quyền thay đổi biểu tượng clan.</string>
     <string name="clan_settings_logo_too_large">Ảnh biểu tượng clan tối đa 1 MB.</string>
     <string name="clan_settings_logo_update_failed">Không cập nhật được biểu tượng clan. Thử lại.</string>
+
+    <string name="clan_emoji_upload_button">Tải lên biểu cảm</string>
+    <string name="clan_emoji_description_body">Thêm biểu cảm tùy chỉnh mà mọi người trong clan đều có thể dùng. Biểu cảm GIF động có thể dùng trên Mezon.</string>
+    <string name="clan_emoji_requirements_title">YÊU CẦU TẢI LÊN</string>
+    <string name="clan_emoji_requirements_list">• Loại tệp: JPEG, PNG, GIF\n• Kích thước đề xuất: 256 KB\n• Kích cỡ đề nghị: 128×128\n• Đặt tên: Tên emoji phải có ít nhất 3 ký tự và chỉ gồm chữ cái, chữ số, gạch dưới (_) và gạch ngang (-).</string>
+    <string name="clan_emoji_column_image">HÌNH ẢNH</string>
+    <string name="clan_emoji_column_name">TÊN</string>
+    <string name="clan_emoji_column_uploaded_by">TẢI LÊN BỞI</string>
+    <string name="clan_emoji_preview_dialog_title">Xem trước</string>
+    <string name="clan_emoji_section_label">Emoji</string>
+    <string name="clan_emoji_preview_title">Xem trước</string>
+    <string name="clan_emoji_name_label">Tên emoji</string>
+    <string name="clan_emoji_name_hint">VD: cat_hug</string>
+    <string name="clan_emoji_for_sale">Đây là sản phẩm bán</string>
+    <string name="clan_emoji_confirm_upload">Tải lên</string>
+    <string name="clan_emoji_validate_name">Độ dài phải từ %1$d đến %2$d ký tự. Chỉ cho phép chữ cái, chữ số, _ và -.</string>
+    <string name="clan_emoji_error_size_limit">Kích thước ảnh vượt quá 256 KB</string>
+    <string name="clan_emoji_error_export_too_large">Không thể xuất dưới 256 KB. Hãy thử ảnh đơn giản hơn.</string>
+    <string name="clan_emoji_upload_failed">Không tải lên được emoji. Thử lại.</string>
+    <string name="clan_emoji_saved">Đã lưu</string>
+    <string name="clan_emoji_update_failed">Không cập nhật được emoji.</string>
+    <string name="clan_emoji_delete_title">Xóa emoji</string>
+    <string name="clan_emoji_delete_message">Xóa %1$s khỏi clan này?</string>
+    <string name="clan_emoji_delete_confirm">Xóa</string>
+    <string name="clan_emoji_delete_failed">Không xóa được emoji.</string>
+    <string name="clan_emoji_limit_slots">Đã đạt giới hạn số emoji.</string>
     <string name="clan_menu_action_invite">Lời mời</string>
     <string name="clan_menu_action_notifications">Thông báo</string>
     <string name="clan_menu_action_settings">Cài đặt</string>
@@ -355,8 +381,6 @@
     <string name="clan_audit_log_load_failed">Không tải được nhật ký kiểm tra.</string>
     <string name="audit_log_action_update_clan">Cập nhật clan</string>
     <string name="channel_creator_screen_title">Tạo kênh</string>
-    <string name="category_menu_create_channel">Tạo kênh</string>
-    <string name="category_menu_create_channel_unavailable">Chưa thể tạo kênh cho danh mục này lúc này.</string>
     <string name="audit_log_action_create_channel">Tạo kênh</string>
     <string name="audit_log_action_update_channel">Cập nhật kênh</string>
     <string name="audit_log_action_update_channel_private">Cập nhật quyền riêng tư kênh</string>
@@ -868,7 +892,8 @@
     <string name="channel_creator_type_stream_desc">Chia sẻ sở thích và hoạt động</string>
     <string name="channel_creator_private_title">Kênh riêng</string>
     <string name="channel_creator_private_description">Khi bật kênh riêng, chỉ thành viên và vai trò được chọn mới xem được kênh này</string>
-
+    <string name="category_menu_create_channel">Tạo kênh</string>
+    <string name="category_menu_create_channel_unavailable">Chưa thể tạo kênh cho danh mục này lúc này.</string>
     <!-- Channel / thread settings (ChannelSetting RN port) -->
     <string name="channel_settings_title_channel">Cài đặt kênh</string>
     <string name="channel_settings_title_thread">Cài đặt thread</string>
@@ -973,6 +998,9 @@
     <string name="message_call_log_start_group_call">%1$s đã bắt đầu 1 cuộc gọi nhóm</string>
     <string name="message_call_log_start_audio_call">%1$s đã bắt đầu 1 cuộc gọi thoại</string>
     <string name="message_call_log_start_video_call">%1$s đã bắt đầu 1 cuộc gọi video</string>
+
+    <string name="call_busy_status">Bận</string>
+    <string name="call_busy_peer_status">%1$s đang bận</string>
 
     <string name="call_full_screen_intent_title">Cuộc gọi đến toàn màn hình</string>
     <string name="call_full_screen_intent_message">Cho phép Mezon dùng thông báo toàn màn hình khi khóa màn hình để bạn không bỏ lỡ cuộc gọi thoại.</string>

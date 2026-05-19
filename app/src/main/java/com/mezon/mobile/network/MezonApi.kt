@@ -103,6 +103,9 @@ import com.mezon.mezon.api.InviteUserRes
 import com.mezon.mezon.api.inviteUserRequest
 import com.mezon.mezon.api.clanDiscover as clanDiscoverProto
 import com.mezon.mezon.api.listClanDiscover
+import com.mezon.mezon.api.clanEmojiCreateRequest
+import com.mezon.mezon.api.clanEmojiDeleteRequest
+import com.mezon.mezon.api.clanEmojiUpdateRequest
 import com.mezon.mezon.api.listAuditLogRequest
 import com.mezon.mezon.rtapi.ActiveArchivedThread
 import com.mezon.mezon.rtapi.ChannelMessageSend
@@ -1826,6 +1829,57 @@ class MezonApi @Inject constructor(
     ): EmojiListedResponse {
         val bytes = rpc(apiUrl, token, "GetListEmojisByUserId", ByteArray(0))
         return EmojiListedResponse.parseFrom(bytes)
+    }
+
+    suspend fun createClanEmoji(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        emojiId: Long,
+        sourceUrl: String,
+        shortname: String,
+        category: String,
+        isForSale: Boolean,
+    ) {
+        val request = clanEmojiCreateRequest {
+            this.clanId = clanId
+            this.id = emojiId
+            this.source = sourceUrl
+            this.shortname = shortname
+            this.category = category
+            this.isForSale = isForSale
+        }
+        rpc(apiUrl, token, "CreateClanEmoji", request.toByteArray())
+    }
+
+    suspend fun updateClanEmojiById(
+        apiUrl: String,
+        token: String,
+        emojiId: Long,
+        clanId: Long,
+        shortname: String,
+    ) {
+        val request = clanEmojiUpdateRequest {
+            this.id = emojiId
+            this.clanId = clanId
+            this.shortname = shortname
+        }
+        rpc(apiUrl, token, "UpdateClanEmojiById", request.toByteArray())
+    }
+
+    suspend fun deleteByIdClanEmoji(
+        apiUrl: String,
+        token: String,
+        emojiId: Long,
+        clanId: Long,
+        emojiLabel: String,
+    ) {
+        val request = clanEmojiDeleteRequest {
+            this.id = emojiId
+            this.clanId = clanId
+            this.emojiLabel = emojiLabel
+        }
+        rpc(apiUrl, token, "DeleteByIdClanEmoji", request.toByteArray())
     }
 
     suspend fun listStickersByUserId(
