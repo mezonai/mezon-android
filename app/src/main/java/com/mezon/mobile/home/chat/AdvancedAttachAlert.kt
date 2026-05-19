@@ -31,7 +31,8 @@ class AdvancedAttachAlert(
     context: Context,
     private val theme: ThemeColors,
     private val clanId: Long = 0L,
-    private val isAnonymousMode: Boolean = false
+    private val isAnonymousMode: Boolean = false,
+    private val showCreatePoll: Boolean = false
 ) : BottomSheet(context) {
 
     interface AdvancedAttachAlertDelegate {
@@ -39,6 +40,7 @@ class AdvancedAttachAlert(
         fun onFilesSelected()
         fun onBuzzSelected()
         fun onAnonymousToggled()
+        fun onCreatePollRequested() {}
     }
 
     var advancedDelegate: AdvancedAttachAlertDelegate? = null
@@ -67,7 +69,7 @@ class AdvancedAttachAlert(
             list.add(FunctionItem("ephemeral", R.string.advanced_ephemeral, MezonIcon.ephemeralIconGray))
         }
         list.add(FunctionItem("transfer_funds", R.string.advanced_transfer_funds, MezonIcon.sendMoneyAdvancedIcon))
-        if (clanId != 0L) {
+        if (showCreatePoll) {
             list.add(FunctionItem("poll", R.string.advanced_poll, MezonIcon.pollIconGray))
         }
         if (!isAnonymousMode) {
@@ -126,6 +128,7 @@ class AdvancedAttachAlert(
             "files" -> advancedDelegate?.onFilesSelected()
             "buzz" -> advancedDelegate?.onBuzzSelected()
             "anonymous" -> advancedDelegate?.onAnonymousToggled()
+            "poll" -> advancedDelegate?.onCreatePollRequested()
             else -> Toast.makeText(context, R.string.feature_coming_soon, Toast.LENGTH_SHORT).show()
         }
     }
@@ -137,17 +140,24 @@ private class FunctionCell(context: Context, private val theme: ThemeColors) : V
     private var iconDrawable: Drawable? = null
     private var labelLayout: StaticLayout? = null
 
+    private val labelPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = LayoutHelper.dpf(12f)
+        typeface = Typeface.DEFAULT
+    }
+
     fun setData(labelResId: Int, icon: MezonIcon) {
-        this.label = context.getString(labelResId)
+        label = context.getString(labelResId)
         iconDrawable = icon.getDrawable(context).mutate()
+        labelPaint.color = theme.onSurface
         buildLayout()
         invalidate()
     }
 
     private fun buildLayout() {
+        labelPaint.color = theme.onSurface
         val w = if (measuredWidth > 0) measuredWidth else AndroidUtilities.displaySize.x / ITEMS_PER_ROW
         val textW = (w - LayoutHelper.dp(8f)).coerceAtLeast(1)
-        labelLayout = StaticLayout.Builder.obtain(label, 0, label.length, LABEL_PAINT, textW)
+        labelLayout = StaticLayout.Builder.obtain(label, 0, label.length, labelPaint, textW)
             .setMaxLines(2)
             .setAlignment(android.text.Layout.Alignment.ALIGN_CENTER)
             .setEllipsize(TextUtils.TruncateAt.END)
@@ -179,17 +189,6 @@ private class FunctionCell(context: Context, private val theme: ThemeColors) : V
             canvas.translate((width - it.width) / 2f, textY)
             it.draw(canvas)
             canvas.restore()
-        }
-    }
-
-    companion object {
-        private val LABEL_PAINT = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = LayoutHelper.dpf(12f)
-            typeface = Typeface.DEFAULT
-        }
-
-        init {
-            LABEL_PAINT.color = ThemeColors.instance.onSurface
         }
     }
 }

@@ -1073,6 +1073,29 @@
     <string name="embed_form_submit_failed">Không thể gửi biểu mẫu</string>
     <string name="advanced_ephemeral">Ephemeral</string>
     <string name="ephemeral_only_visible_to_recipient">Chỉ người nhận mới thấy được</string>
+    <!-- Create poll -->
+    <string name="file_selection_upload">Tải tệp lên</string>
+    <string name="file_selection_create_poll">Tạo bình chọn</string>
+    <string name="poll_create_title">Tạo bình chọn</string>
+    <string name="poll_question">Câu hỏi</string>
+    <string name="poll_question_placeholder">Bạn muốn hỏi điều gì?</string>
+    <string name="poll_question_counter">%1$d/%2$d</string>
+    <string name="poll_answers">Câu trả lời</string>
+    <string name="poll_answer_placeholder">Nhập câu trả lời</string>
+    <string name="poll_add_answer">+ Thêm câu trả lời</string>
+    <string name="poll_pick_emoji_title">Chọn emoji</string>
+    <string name="poll_emoji_search_hint">Tìm emoji</string>
+    <string name="poll_remove_answer">Xóa câu trả lời</string>
+    <string name="poll_duration">Thời gian</string>
+    <string name="poll_allow_multiple">Cho phép chọn nhiều đáp án</string>
+    <string name="poll_post">Đăng</string>
+    <string name="poll_create_failed">Không tạo được bình chọn</string>
+    <string name="poll_duration_1_hour">1 Giờ</string>
+    <string name="poll_duration_4_hours">4 Giờ</string>
+    <string name="poll_duration_8_hours">8 Giờ</string>
+    <string name="poll_duration_24_hours">24 Giờ</string>
+    <string name="poll_duration_3_days">3 Ngày</string>
+    <string name="poll_duration_1_week">1 Tuần</string>
 
     <!-- Poll messages -->
     <string name="poll_select_one">Chọn một đáp án</string>

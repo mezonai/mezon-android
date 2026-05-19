@@ -23,7 +23,8 @@ data class PollLocalState(
 sealed class PollTap {
     data class ToggleOption(val answerIndex: Int) : PollTap()
     data object PrimaryAction : PollTap()
-    data object FooterStats : PollTap()
+    /** "View details" link — opens full voter breakdown modal. */
+    data object ViewDetails : PollTap()
     data object ToggleExpandOptions : PollTap()
 }
 

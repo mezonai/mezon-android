@@ -1098,7 +1098,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         if (msg.isPollMessage && pollParsed != null) {
             val st = pollBridge?.getLocalState(msg.id) ?: PollLocalState()
             val forLayout = pollBridge?.pollForLayout(msg.id, pollParsed!!) ?: pollParsed!!
-            pollLayoutHelper.prepare(forLayout, st, currentUserId, theme, bubbleMaxW)
+            pollLayoutHelper.prepare(forLayout, st, currentUserId, theme, bubbleMaxW, this)
         }
 
         val replyW = if (hasReply) cachedReplyNameW + cachedReplyTextW + REPLY_AVATAR_SIZE + REPLY_H_GAP * 2 else 0f
