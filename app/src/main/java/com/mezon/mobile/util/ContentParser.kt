@@ -7,6 +7,54 @@ import org.json.JSONObject
 
 private val CONTENT_REGEX = Regex("\"t\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"")
 
+private const val SHARE_CONTACT_KEY = "share_contact"
+
+private val GENERIC_DIALOG_PREVIEW_PLACEHOLDERS = setOf("[embed]", "[file]", "[link]", "[contact]")
+
+fun isGenericDialogPreviewPlaceholder(preview: String): Boolean =
+    preview in GENERIC_DIALOG_PREVIEW_PLACEHOLDERS
+
+private fun unescapeJsonText(text: String, singleLine: Boolean): String {
+    var s = text.replace("\\/", "/").replace("\\\"", "\"")
+    s = if (singleLine) s.replace("\\n", " ") else s.replace("\\n", "\n")
+    return s.trim()
+}
+
+private fun parseEmbedPreview(obj: JSONObject): String {
+    val embedArr = obj.optJSONArray("embed") ?: return ""
+    if (embedArr.length() == 0) return ""
+    val embed = embedArr.optJSONObject(0) ?: return ""
+    val title = embed.optString("title", "").trim()
+    if (title.isNotBlank()) return title
+    val description = embed.optString("description", "").trim()
+    if (description.isNotBlank()) return description
+    val fields = embed.optJSONArray("fields") ?: return ""
+    if (fields.length() == 0) return ""
+    val firstVal = fields.optJSONObject(0)?.optString("value", "")?.trim().orEmpty()
+    if (firstVal == SHARE_CONTACT_KEY) return "[contact]"
+    return ""
+}
+
+private fun parseStructuredContentText(obj: JSONObject): String {
+    val t = unescapeJsonText(obj.optString("t", ""), singleLine = false)
+    if (t.isNotBlank()) return t
+    val embedPreview = parseEmbedPreview(obj)
+    if (embedPreview.isNotBlank()) return embedPreview
+    if (obj.has("lk")) return "[link]"
+    if (obj.has("attachments")) return "[file]"
+    return ""
+}
+
+private fun parseStructuredContentPreview(obj: JSONObject): String {
+    val t = unescapeJsonText(obj.optString("t", ""), singleLine = true)
+    if (t.isNotBlank()) return t
+    val embedPreview = parseEmbedPreview(obj)
+    if (embedPreview.isNotBlank()) return embedPreview
+    if (obj.has("lk")) return "[link]"
+    if (obj.has("attachments")) return "[file]"
+    return ""
+}
+
 private val THREAD_INFO_REGEX = Regex("\\(([^,]+),\\s*([^)]+)\\)")
 
 data class ParsedThreadInfo(val label: String, val channelId: Long)
@@ -22,6 +70,7 @@ fun parseThreadInfoFromPlainText(text: String): ParsedThreadInfo? {
 fun parseContentText(content: String): String {
     if (content.isBlank()) return ""
     return try {
+        val trimmed = content.trim()
         val match = CONTENT_REGEX.find(content)
         val text = match?.groupValues?.getOrNull(1)
             ?.replace("\\/", "/")
@@ -29,17 +78,19 @@ fun parseContentText(content: String): String {
             ?.replace("\\\"", "\"")
             ?.trim()
         if (!text.isNullOrBlank()) return text
-        if (content.contains("\"lk\"")) return "[link]"
-        if (content.contains("\"embed\"")) return "[embed]"
-        ""
+        if (trimmed.startsWith("{")) {
+            return parseStructuredContentText(JSONObject(trimmed))
+        }
+        trimmed
     } catch (_: Exception) {
-        content
+        content.trim()
     }
 }
 
 fun parseContentPreview(content: String): String {
     if (content.isBlank()) return ""
     return try {
+        val trimmed = content.trim()
         val match = CONTENT_REGEX.find(content)
         val text = match?.groupValues?.getOrNull(1)
             ?.replace("\\/", "/")
@@ -47,12 +98,12 @@ fun parseContentPreview(content: String): String {
             ?.replace("\\\"", "\"")
             ?.trim()
         if (!text.isNullOrBlank()) return text
-        if (content.contains("\"lk\"")) return "[link]"
-        if (content.contains("\"attachments\"")) return "[file]"
-        if (content.contains("\"embed\"")) return "[embed]"
-        ""
+        if (trimmed.startsWith("{")) {
+            return parseStructuredContentPreview(JSONObject(trimmed))
+        }
+        trimmed.replace("\n", " ").take(200)
     } catch (_: Exception) {
-        content.take(100)
+        content.trim().replace("\n", " ").take(200)
     }
 }
 

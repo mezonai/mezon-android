@@ -13,6 +13,7 @@ import com.mezon.mobile.home.messages.DirectMessage
 import com.mezon.mobile.home.messages.DmParticipant
 import com.mezon.mobile.home.messages.extractParticipants
 import com.mezon.mobile.home.messages.toDirectMessage
+import com.mezon.mobile.home.messages.toDirectMessageFromIncoming
 import com.mezon.mobile.network.ApiCacheTracker
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
@@ -29,6 +30,7 @@ import com.mezon.mobile.notification.NotificationHelper
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.session.StoredSession
 import com.mezon.mobile.home.call.messagePreviewForDialog
+import com.mezon.mobile.util.isGenericDialogPreviewPlaceholder
 import dagger.Lazy
 import com.mezon.mezon.api.ChannelDescription
 import com.mezon.mezon.rtapi.LastSeenMessageEvent
@@ -238,36 +240,28 @@ class DialogsController @Inject constructor(
                 val cacheKey = apiCacheKey("listChannelDescs", page)
                 val hasCache: Boolean
                 synchronized(this@DialogsController) { hasCache = dialogs.isNotEmpty() }
-                Log.d(TAG, "loadDialogs: hasCache=$hasCache dialogsLoaded=$dialogsLoaded online=${networkMonitor.isOnline.value}")
 
                 if (!networkMonitor.isOnline.value && hasCache) {
-                    Log.d(TAG, "loadDialogs: offline+cache → skip")
                     if (!dialogsLoaded) dialogsLoaded = true
                     badgeCoordinator.get().processDeferredQueue()
                     return@launch
                 }
                 if (hasCache && cacheTracker.shouldCall(cacheKey) == ApiCacheTracker.ShouldCall.SKIP) {
-                    Log.d(TAG, "loadDialogs: cache fresh → skip list, sync DM badges")
                     if (!dialogsLoaded) dialogsLoaded = true
-                    sessionManager.withAutoRefresh { session -> syncDmBadgesWithApi(session) }
-                    notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
+                    val badgePatched = sessionManager.withAutoRefresh { session -> syncDmBadgesWithApi(session) }
+                    if (badgePatched) {
+                        notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
+                    }
                     badgeCoordinator.get().processDeferredQueue()
                     return@launch
                 }
 
-                Log.d(TAG, "loadDialogs: fetching from API…")
                 sessionManager.withAutoRefresh { session ->
                     val currentUserId = session.userId.toLongOrNull() ?: 0L
 
                     val response = api.listChannelDescs(session.apiUrl, session.token, CHANNEL_TYPE_GROUP, page, limit)
 
                     val rawList = response.channeldescList
-                    val activeCount = rawList.count { it.active == 1 }
-                    val inactiveCount = rawList.size - activeCount
-                    // Log.d(TAG, "loadDialogs: raw=${rawList.size} active=$activeCount inactive=$inactiveCount")
-                    // rawList.forEachIndexed { i, ch ->
-                    //     Log.d(TAG, "  [$i] channelId=${ch.channelId} type=${ch.type} active=${ch.active} label='${ch.channelLabel}'")
-                    // }
 
                     val activeDescs = rawList.filter { it.active == 1 }
                     synchronized(this@DialogsController) {
@@ -283,16 +277,12 @@ class DialogsController @Inject constructor(
                         .map { it.toDirectMessage(currentUserId, appContext) }
                         .sortedByDescending { it.lastSentMessageTs }
 
-                    val withContent = merged.count { it.lastMessageContent.isNotBlank() }
-                    Log.d(TAG, "loadDialogs: API returned ${merged.size} items, withContent=$withContent")
-
                     putDialogs(merged)
                     cacheTracker.markCalled(cacheKey)
                     syncDmBadgesWithApi(session)
                 }
 
                 dialogsLoaded = true
-                Log.d(TAG, "loadDialogs: done, posting dialogsNeedReload")
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
                 badgeCoordinator.get().processDeferredQueue()
             } catch (e: Exception) {
@@ -372,43 +362,71 @@ class DialogsController @Inject constructor(
 
     fun updateOnNewMessage(msg: ChannelMessage, currentUserId: Long) {
         if (msg.mode != STREAM_MODE_DM && msg.mode != STREAM_MODE_GROUP) return
+        val isContentMutation = msg.code == CODE_CHAT_UPDATE || msg.code == CODE_CHAT_REMOVE
         var updatedDm: DirectMessage? = null
         synchronized(this) {
-            val dm = dialogsDict[msg.channelId] ?: return
-            val isContentMutation = msg.code == CODE_CHAT_UPDATE || msg.code == CODE_CHAT_REMOVE
-            val isFromMe = msg.senderId == currentUserId
-            val isCurrentlyOpen = currentChannelId == msg.channelId
+            var dm = dialogsDict[msg.channelId]
+            if (dm == null) {
+                if (isContentMutation) return
+                dm = msg.toDirectMessageFromIncoming(currentUserId, appContext, currentChannelId)
+                if (msg.senderId != currentUserId) {
+                    participantsByChannel.put(
+                        msg.channelId,
+                        listOf(
+                            DmParticipant(
+                                msg.senderId,
+                                msg.username,
+                                msg.displayName.ifBlank { msg.username },
+                                msg.avatar
+                            )
+                        )
+                    )
+                }
+                dialogsDict.put(dm.channelId, dm)
+                updatedDm = dm
+                var lo = 0
+                var hi = dialogs.size
+                val target = dm.lastSentMessageTs
+                while (lo < hi) {
+                    val mid = (lo + hi) ushr 1
+                    if (dialogs[mid].lastSentMessageTs > target) lo = mid + 1 else hi = mid
+                }
+                dialogs.add(lo, dm)
+            } else {
+                val isFromMe = msg.senderId == currentUserId
+                val isCurrentlyOpen = currentChannelId == msg.channelId
 
-            val newUnread = when {
-                isContentMutation -> dm.unreadCount
-                isCurrentlyOpen -> 0
-                isFromMe -> dm.unreadCount
-                else -> dm.unreadCount + 1
+                val newUnread = when {
+                    isContentMutation -> dm.unreadCount
+                    isCurrentlyOpen -> 0
+                    isFromMe -> dm.unreadCount
+                    else -> dm.unreadCount + 1
+                }
+                val newPreview = if (!isContentMutation || msg.code == CODE_CHAT_UPDATE)
+                    messagePreviewForDialog(appContext, msg.content) else dm.lastMessageContent
+
+                val newSentMessageId = if (!isContentMutation) msg.messageId else dm.lastSentMessageId
+
+                val newLastSeenId = if (isFromMe && !isContentMutation && msg.messageId > dm.lastSeenMessageId)
+                    msg.messageId else dm.lastSeenMessageId
+
+                val newSentTs = if (!isContentMutation && msg.createTimeSeconds > 0) {
+                    maxOf(dm.lastSentMessageTs, msg.createTimeSeconds.toLong() and 0xFFFF_FFFFL)
+                } else dm.lastSentMessageTs
+                val result = dm.copy(
+                    lastMessageContent = newPreview.ifBlank { dm.lastMessageContent },
+                    lastSentMessageId = newSentMessageId.takeIf { it > 0 } ?: dm.lastSentMessageId,
+                    lastSentMessageTs = newSentTs,
+                    lastSeenMessageId = newLastSeenId,
+                    unreadCount = newUnread
+                )
+                updatedDm = result
+                dialogsDict.put(msg.channelId, result)
+                reorderDialogInPlace(msg.channelId, result, isContentMutation)
             }
-            val newPreview = if (!isContentMutation || msg.code == CODE_CHAT_UPDATE)
-                messagePreviewForDialog(appContext, msg.content) else dm.lastMessageContent
-
-            val newSentMessageId = if (!isContentMutation) msg.messageId else dm.lastSentMessageId
-
-            val newLastSeenId = if (isFromMe && !isContentMutation && msg.messageId > dm.lastSeenMessageId)
-                msg.messageId else dm.lastSeenMessageId
-
-            val newSentTs = if (!isContentMutation && msg.createTimeSeconds > 0) {
-                maxOf(dm.lastSentMessageTs, msg.createTimeSeconds.toLong() and 0xFFFF_FFFFL)
-            } else dm.lastSentMessageTs
-            val result = dm.copy(
-                lastMessageContent = newPreview.ifBlank { dm.lastMessageContent },
-                lastSentMessageId = newSentMessageId.takeIf { it > 0 } ?: dm.lastSentMessageId,
-                lastSentMessageTs = newSentTs,
-                lastSeenMessageId = newLastSeenId,
-                unreadCount = newUnread
-            )
-            updatedDm = result
-            dialogsDict.put(msg.channelId, result)
-            reorderDialogInPlace(msg.channelId, result, isContentMutation)
         }
         updatedDm?.let { dm ->
-            appScope.launch { directMessageDao.upsert(dm) }
+            appScope.launch(ioDispatcher) { directMessageDao.upsert(dm) }
             notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
         }
     }
@@ -515,17 +533,21 @@ class DialogsController @Inject constructor(
                 }
             }
             if (m.content.isNotEmpty()) {
-                val preview = messagePreviewForDialog(appContext, m.content)
-                if (preview.isNotBlank() && preview != next.lastMessageContent) {
-                    val sameLastMessage = m.id != 0L && m.id == next.lastSentMessageId
-                    val sameTsSparseHeader = m.id == 0L && ts > 0L && ts == next.lastSentMessageTs
-                    val shouldTakePreview =
-                        isNewer || next.lastMessageContent.isBlank() || sameLastMessage || sameTsSparseHeader
-                    if (shouldTakePreview) {
+                val sameLastMessage = m.id != 0L && m.id == next.lastSentMessageId
+                val sameTsHeader = m.id == 0L && ts > 0L && ts == next.lastSentMessageTs
+                val needsPreview = next.lastMessageContent.isBlank() || sameLastMessage || sameTsHeader || isNewer
+                if (needsPreview) {
+                    val preview = messagePreviewForDialog(appContext, m.content)
+                    if (preview.isNotBlank() && preview != next.lastMessageContent) {
                         changed = true
                         next = next.copy(lastMessageContent = preview)
                     }
                 }
+            } else if (m.id != 0L && m.id == next.lastSentMessageId &&
+                isGenericDialogPreviewPlaceholder(next.lastMessageContent)
+            ) {
+                changed = true
+                next = next.copy(lastMessageContent = "")
             }
         }
         if (p.hasLastSeenMessage()) {
@@ -549,12 +571,26 @@ class DialogsController @Inject constructor(
         return Pair(next, changed)
     }
 
-    private fun applyDmReadStatePatchFromSocket(badgeDescs: List<ChannelDescription>) {
-        if (badgeDescs.isEmpty()) return
+    private fun applyDmReadStatePatchFromSocket(
+        badgeDescs: List<ChannelDescription>,
+        currentUserId: Long
+    ): Boolean {
+        if (badgeDescs.isEmpty()) return false
         val byId = badgeDescs.associateBy { it.channelId }
         var changed = false
         var snapshot: ArrayList<DirectMessage>? = null
         synchronized(this) {
+            for (p in badgeDescs) {
+                if (p.active != 1 || dialogsDict.get(p.channelId) != null) continue
+                val participants = p.extractParticipants()
+                if (participants.isNotEmpty()) {
+                    participantsByChannel.put(p.channelId, participants)
+                }
+                val inserted = p.toDirectMessage(currentUserId, appContext)
+                dialogsDict.put(inserted.channelId, inserted)
+                dialogs.add(inserted)
+                changed = true
+            }
             val newList = ArrayList<DirectMessage>(dialogs.size)
             for (row in dialogs) {
                 val p = byId[row.channelId]
@@ -575,29 +611,26 @@ class DialogsController @Inject constructor(
                 snapshot = ArrayList(dialogs)
             }
         }
-        if (!changed) return
+        if (!changed) return false
         snapshot?.let { snap ->
             appScope.launch(ioDispatcher) { directMessageDao.upsertAll(snap) }
         }
-        notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
-        notificationCenter.postNotificationOnMainThread(
-            NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_BADGE
-        )
+        return true
     }
 
-    private suspend fun syncDmBadgesWithApi(session: StoredSession) {
-        runCatching {
+    private suspend fun syncDmBadgesWithApi(session: StoredSession): Boolean {
+        val currentUserId = session.userId.toLongOrNull() ?: 0L
+        return runCatching {
             val badge = api.listChannelBadgeCount(session.apiUrl, session.token, 0L)
-            val badgeWithContent = badge.channeldescList.count { it.hasLastSentMessage() && it.lastSentMessage.content.isNotEmpty() }
-            Log.d(TAG, "syncDmBadgesWithApi: badge returned ${badge.channeldescList.size} channels, withContent=$badgeWithContent")
-            applyDmReadStatePatchFromSocket(badge.channeldescList)
+            applyDmReadStatePatchFromSocket(badge.channeldescList, currentUserId)
+        }.getOrElse { e ->
+            Log.e(TAG, "syncDmBadgesWithApi failed", e)
+            false
         }
     }
 
     private suspend fun loadDialogsFromDb() {
-        Log.d(TAG, "loadDialogsFromDb: start")
         val cached = withContext(ioDispatcher) { directMessageDao.getAll() }
-        Log.d(TAG, "loadDialogsFromDb: Room returned ${cached.size} items")
         if (cached.isNotEmpty()) {
             synchronized(this) {
                 dialogs.clear()
@@ -608,12 +641,8 @@ class DialogsController @Inject constructor(
                     dialogsDict.put(dm.channelId, dm)
                 }
             }
-            cacheTracker.markCalled(apiCacheKey("listChannelDescs", 1))
             dialogsLoaded = true
-            Log.d(TAG, "loadDialogsFromDb: done, posting dialogsNeedReload")
             notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
-        } else {
-            Log.d(TAG, "loadDialogsFromDb: empty cache, no notification")
         }
     }
 

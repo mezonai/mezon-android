@@ -5,11 +5,13 @@ import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.mezon.mezon.api.ChannelDescription
+import com.mezon.mezon.api.ChannelMessage
 import com.mezon.mobile.home.extractLastSeenMessageId
 import com.mezon.mobile.home.extractLastSeenMessageTs
 import com.mezon.mobile.home.extractLastSentMessageId
 import com.mezon.mobile.home.extractLastSentMessageTs
 import com.mezon.mobile.util.parseContentPreview
+import com.mezon.mobile.network.streamModeToChannelType
 
 data class DmParticipant(
     val userId: Long,
@@ -93,6 +95,41 @@ fun ChannelDescription.toDirectMessage(currentUserId: Long, previewContext: andr
         lastSentMessageId = extractLastSentMessageId(),
         lastSeenMessageTs = extractLastSeenMessageTs(),
         lastSentMessageTs = extractLastSentMessageTs()
+    )
+}
+
+fun ChannelMessage.toDirectMessageFromIncoming(
+    currentUserId: Long,
+    previewContext: android.content.Context,
+    viewingChannelId: Long?
+): DirectMessage {
+    val isFromMe = senderId == currentUserId
+    val isOpen = viewingChannelId != null && viewingChannelId == channelId
+    val type = streamModeToChannelType(mode)
+    val name = displayName.ifBlank { username }
+    val preview = messagePreviewForDialog(previewContext, content)
+    val ts = createTimeSeconds.toLong() and 0xFFFF_FFFFL
+    val unread = when {
+        isOpen -> 0
+        isFromMe -> 0
+        else -> 1
+    }
+    return DirectMessage(
+        channelId = channelId,
+        type = type,
+        label = name,
+        avatarUrl = avatar,
+        displayName = name,
+        username = username,
+        lastMessageContent = preview,
+        unreadCount = unread,
+        isOnline = false,
+        isMute = false,
+        otherUserId = if (!isFromMe) senderId else 0L,
+        lastSeenMessageId = 0L,
+        lastSentMessageId = messageId,
+        lastSeenMessageTs = 0L,
+        lastSentMessageTs = ts
     )
 }
 

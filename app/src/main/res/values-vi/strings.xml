@@ -17,6 +17,7 @@
     <string name="common_settings">Cài đặt</string>
     <string name="common_loading_data">Đang tải dữ liệu, vui lòng chờ trong giây lát.</string>
     <string name="common_failed_to_load">Không thể tải dữ liệu</string>
+    <string name="common_no_results_found">Không tìm thấy kết quả</string>
     <string name="common_something_went_wrong">Đã xảy ra lỗi</string>
     <string name="common_log_out">Đăng xuất</string>
     <string name="common_confirm_log_out">Bạn có chắc chắn muốn đăng xuất?</string>
@@ -195,6 +196,7 @@
     <string name="message_actions_unpin">Bỏ ghim tin nhắn</string>
     <string name="message_actions_mark_unread">Đánh dấu chưa đọc</string>
     <string name="message_actions_forward">Chuyển tiếp tin nhắn</string>
+    <string name="action_forward_all_nearby">Chuyển tiếp tất cả gần đây</string>
     <string name="action_give_coffee">Tặng một cà phê</string>
     <string name="tokens_sent_title">Biến động số dư: %1$s₫</string>
     <string name="give_coffee_action">Hành động tặng cà phê</string>
@@ -295,7 +297,7 @@
     <string name="clan_template_local_community">Cộng đồng địa phương</string>
     <string name="clan_template_artists_creators">Nghệ sĩ &amp; Nhà sáng tạo</string>
     <string name="clan_upload_label">Tải lên</string>
-    <string name="clan_create_community_guide_prefix">Khi tạo clan, bạn đồng ý với </string>
+    <string name="clan_create_community_guide_prefix">Khi tạo clan, bạn đồng ý với</string>
     <string name="clan_create_community_guide_link">Nguyên tắc cộng đồng của Mezon.</string>
     <string name="clan_image_too_large">Dung lượng ảnh phải nhỏ hơn %1$dMB</string>
     <string name="clan_create_failed">Không thể tạo clan. Vui lòng thử lại.</string>
