@@ -337,8 +337,11 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         avatarLoadStartTime = 0L
         avatarFallbackVisible = false
         avatarDrawable.setDrawableByInfo(true)
-        videoThumbJob?.cancel()
-        videoThumbJob = null
+        for (i in videoThumbJobs.indices) {
+            videoThumbJobs[i]?.cancel()
+            videoThumbJobs[i] = null
+        }
+        slotIsVideo.fill(false)
         mediaGridCount = 0
         mediaGridTotalH = 0
         gridExtraCount = 0
@@ -557,7 +560,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         photoHeight = h.coerceAtLeast(LayoutHelper.dp(100))
     }
 
-    private var videoThumbJob: Job? = null
+    private val videoThumbJobs = arrayOfNulls<Job>(4)
+    private val slotIsVideo = BooleanArray(4)
 
     private fun bubbleDecodeProxySizePx(slotIndex: Int): Pair<Int, Int> {
         val gapPx = LayoutHelper.dp(2)
@@ -592,6 +596,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private fun loadPhotoImage(msg: MessageEntity) {
         val allMedia = msg.allImageAttachments
         mediaGridCount = allMedia.size.coerceAtMost(4)
+        slotIsVideo.fill(false)
 
         if (mediaGridCount == 0) return
 
@@ -608,20 +613,22 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 allReceivers[i].setRoundRadius(MEDIA_RADIUS.toInt())
                 allReceivers[i].setRequestedSize(pw, ph)
                 val isLocalUri = att.url.startsWith("content://") || att.url.startsWith("file://")
-                val isVideo = att.filetype.startsWith("video/")
+                val isVideo = att.filetype.startsWith("video/", true)
+                slotIsVideo[i] = isVideo
                 if (isLocalUri && isVideo) {
                     allReceivers[i].recycle()
-                    if (i == 0) loadLocalVideoThumbnail(att.url)
+                    loadLocalVideoThumbnail(att.url, i)
                 } else if (isLocalUri) {
                     allReceivers[i].setLocalUri(android.net.Uri.parse(att.url), context)
                 } else if (isAnimated || isStickerAttachment) {
                     allReceivers[i].setImage(att.url, att.thumb.ifEmpty { null }, context)
-                } else if (att.filetype.startsWith("video/")) {
+                } else if (isVideo) {
                     val thumb = att.thumb.ifEmpty { null }
+                    Log.d(TAG, "video slot=$i hasThumb=${thumb != null} thumb='${att.thumb}' filetype='${att.filetype}' url=${att.url}")
                     if (thumb != null) {
                         allReceivers[i].setImage(createImgproxyUrl(thumb, pw, ph, "fill"), null, context)
-                    } else if (i == 0) {
-                        loadVideoThumbnail(att.url)
+                    } else {
+                        allReceivers[i].recycle()
                     }
                 } else {
                     val mainUrl = createImgproxyUrl(att.url, pw, ph, "fit")
@@ -655,54 +662,18 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private fun videoThumbCacheKey(videoUrl: String): String = "vthumb:$videoUrl"
 
-    @Suppress("deprecation")
-    private fun loadVideoThumbnail(videoUrl: String) {
-        val pw = photoWidth.coerceAtLeast(1)
-        val ph = photoHeight.coerceAtLeast(1)
-        val loader = MezonImageLoader.getInstance(context)
-        val key = videoThumbCacheKey(videoUrl)
-        loader.getBitmapFromMemory(key, pw, ph)?.let {
-            photoImage.setBitmapDirectly(it)
-            invalidate()
-            return
-        }
-        videoThumbJob?.cancel()
-        videoThumbJob = VIDEO_THUMB_SCOPE.launch {
-            val retriever = android.media.MediaMetadataRetriever()
-            try {
-                kotlinx.coroutines.withTimeout(VIDEO_THUMB_TIMEOUT_MS) {
-                    retriever.setDataSource(videoUrl, HashMap<String, String>())
-                }
-                val frame = retriever.getFrameAtTime(
-                    100_000L,
-                    android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC
-                )
-                if (frame != null) {
-                    loader.cacheBitmap(key, pw, ph, frame)
-                    withContext(Dispatchers.Main) {
-                        photoImage.setBitmapDirectly(frame)
-                        invalidate()
-                    }
-                }
-            } catch (_: Exception) {
-            } finally {
-                runCatching { retriever.release() }
-            }
-        }
-    }
-
-    private fun loadLocalVideoThumbnail(localUrl: String) {
+    private fun loadLocalVideoThumbnail(localUrl: String, slotIndex: Int) {
         val pw = photoWidth.coerceAtLeast(1)
         val ph = photoHeight.coerceAtLeast(1)
         val loader = MezonImageLoader.getInstance(context)
         val key = videoThumbCacheKey(localUrl)
         loader.getBitmapFromMemory(key, pw, ph)?.let {
-            photoImage.setBitmapDirectly(it)
+            allReceivers[slotIndex].setBitmapDirectly(it)
             invalidate()
             return
         }
-        videoThumbJob?.cancel()
-        videoThumbJob = VIDEO_THUMB_SCOPE.launch {
+        videoThumbJobs[slotIndex]?.cancel()
+        videoThumbJobs[slotIndex] = VIDEO_THUMB_SCOPE.launch {
             val retriever = android.media.MediaMetadataRetriever()
             try {
                 val uri = android.net.Uri.parse(localUrl)
@@ -713,14 +684,16 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     100_000L,
                     android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC
                 )
+                Log.d(TAG, "loadLocalVideoThumbnail slot=$slotIndex frame=${if (frame != null) "${frame.width}x${frame.height}" else "NULL"} url=$localUrl")
                 if (frame != null) {
                     loader.cacheBitmap(key, pw, ph, frame)
                     withContext(Dispatchers.Main) {
-                        photoImage.setBitmapDirectly(frame)
+                        allReceivers[slotIndex].setBitmapDirectly(frame)
                         invalidate()
                     }
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                Log.e(TAG, "loadLocalVideoThumbnail FAILED slot=$slotIndex url=$localUrl", e)
             } finally {
                 runCatching { retriever.release() }
             }
@@ -2757,6 +2730,24 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private var gridExtraCount = 0
 
+    private fun drawGridCell(canvas: Canvas, slot: Int, x: Float, y: Float, w: Float, h: Float, isDark: Boolean): Boolean {
+        var needsRedraw = false
+        if (drawSending) {
+            drawAttachmentUploadSpinner(canvas, x, y, w, h, MEDIA_RADIUS)
+        } else if (!allReceivers[slot].hasMainImage()) {
+            if (slotIsVideo[slot]) {
+                drawVideoPlaceholder(canvas, x, y, w, h, MEDIA_RADIUS)
+            } else if (allReceivers[slot].shouldAnimateLoadingPlaceholder()) {
+                shimmerEffect.draw(canvas, x, y, x + w, y + h, MEDIA_RADIUS, isDark)
+                needsRedraw = true
+            }
+        }
+        if (slotIsVideo[slot] && !drawSending) {
+            drawVideoPlayButton(canvas, x, y, w, h)
+        }
+        return needsRedraw
+    }
+
     private fun drawMediaGrid(canvas: Canvas, msg: MessageEntity, startX: Float, startY: Float): Float {
         val gap = GRID_GAP
         val totalW = photoWidth.toFloat()
@@ -2771,12 +2762,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     val x = startX + i * (cellW + gap)
                     allReceivers[i].setImageCoords(x, startY, cellW, cellH)
                     allReceivers[i].draw(canvas)
-                    if (drawSending) {
-                        drawAttachmentUploadSpinner(canvas, x, startY, cellW, cellH, MEDIA_RADIUS)
-                    } else if (!allReceivers[i].hasMainImage() && allReceivers[i].shouldAnimateLoadingPlaceholder()) {
-                        shimmerEffect.draw(canvas, x, startY, x + cellW, startY + cellH, MEDIA_RADIUS, isDark)
-                        needsShimmerRedraw = true
-                    }
+                    if (drawGridCell(canvas, i, x, startY, cellW, cellH, isDark)) needsShimmerRedraw = true
                 }
                 if (needsShimmerRedraw) postInvalidateDelayed(16)
                 return startY + cellH
@@ -2789,24 +2775,14 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
                 allReceivers[0].setImageCoords(startX, startY, leftW, leftH)
                 allReceivers[0].draw(canvas)
-                if (drawSending) {
-                    drawAttachmentUploadSpinner(canvas, startX, startY, leftW, leftH, MEDIA_RADIUS)
-                } else if (!allReceivers[0].hasMainImage() && allReceivers[0].shouldAnimateLoadingPlaceholder()) {
-                    shimmerEffect.draw(canvas, startX, startY, startX + leftW, startY + leftH, MEDIA_RADIUS, isDark)
-                    needsShimmerRedraw = true
-                }
+                if (drawGridCell(canvas, 0, startX, startY, leftW, leftH, isDark)) needsShimmerRedraw = true
 
                 val rx = startX + leftW + gap
                 for (i in 1 until 3) {
                     val ry = startY + (i - 1) * (rightH + gap)
                     allReceivers[i].setImageCoords(rx, ry, rightW, rightH)
                     allReceivers[i].draw(canvas)
-                    if (drawSending) {
-                        drawAttachmentUploadSpinner(canvas, rx, ry, rightW, rightH, MEDIA_RADIUS)
-                    } else if (!allReceivers[i].hasMainImage() && allReceivers[i].shouldAnimateLoadingPlaceholder()) {
-                        shimmerEffect.draw(canvas, rx, ry, rx + rightW, ry + rightH, MEDIA_RADIUS, isDark)
-                        needsShimmerRedraw = true
-                    }
+                    if (drawGridCell(canvas, i, rx, ry, rightW, rightH, isDark)) needsShimmerRedraw = true
                 }
                 if (needsShimmerRedraw) postInvalidateDelayed(16)
                 return startY + leftH
@@ -2821,12 +2797,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     val y = startY + row * (cellH + gap)
                     allReceivers[i].setImageCoords(x, y, cellW, cellH)
                     allReceivers[i].draw(canvas)
-                    if (drawSending) {
-                        drawAttachmentUploadSpinner(canvas, x, y, cellW, cellH, MEDIA_RADIUS)
-                    } else if (!allReceivers[i].hasMainImage() && allReceivers[i].shouldAnimateLoadingPlaceholder()) {
-                        shimmerEffect.draw(canvas, x, y, x + cellW, y + cellH, MEDIA_RADIUS, isDark)
-                        needsShimmerRedraw = true
-                    }
+                    if (drawGridCell(canvas, i, x, y, cellW, cellH, isDark)) needsShimmerRedraw = true
                 }
                 if (gridExtraCount > 0) {
                     val x = startX + (cellW + gap)
@@ -2845,15 +2816,22 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     }
 
     private fun drawMediaOverlays(canvas: Canvas, msg: MessageEntity, imgX: Float, imgY: Float) {
+        val w = photoWidth.toFloat()
+        val h = photoHeight.toFloat()
+        val isVideo = msg.messageType == MessageEntity.TYPE_VIDEO || slotIsVideo[0]
         if (drawSending) {
-            drawAttachmentUploadSpinner(canvas, imgX, imgY, photoWidth.toFloat(), photoHeight.toFloat(), MEDIA_RADIUS)
-        } else if (!photoImage.hasMainImage() && photoImage.shouldAnimateLoadingPlaceholder()) {
-            shimmerEffect.draw(canvas, imgX, imgY, imgX + photoWidth, imgY + photoHeight, MEDIA_RADIUS,
-                theme.resolvedMode != com.mezon.mobile.ui.theme.ThemeMode.LIGHT)
-            postInvalidateDelayed(32)
+            drawAttachmentUploadSpinner(canvas, imgX, imgY, w, h, MEDIA_RADIUS)
+        } else if (!photoImage.hasMainImage()) {
+            if (isVideo) {
+                drawVideoPlaceholder(canvas, imgX, imgY, w, h, MEDIA_RADIUS)
+            } else if (photoImage.shouldAnimateLoadingPlaceholder()) {
+                shimmerEffect.draw(canvas, imgX, imgY, imgX + w, imgY + h, MEDIA_RADIUS,
+                    theme.resolvedMode != com.mezon.mobile.ui.theme.ThemeMode.LIGHT)
+                postInvalidateDelayed(32)
+            }
         }
-        if (msg.messageType == MessageEntity.TYPE_VIDEO) {
-            drawVideoPlayButton(canvas, imgX, imgY)
+        if (isVideo && !drawSending) {
+            drawVideoPlayButton(canvas, imgX, imgY, w, h)
             durationLayout?.let { drawDurationBadge(canvas, it, imgX, imgY) }
         }
         if (msg.messageType == MessageEntity.TYPE_GIF) {
@@ -2861,10 +2839,15 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
     }
 
-    private fun drawVideoPlayButton(canvas: Canvas, imgX: Float, imgY: Float) {
-        val cx = imgX + photoWidth / 2f
-        val cy = imgY + photoHeight / 2f
-        val r = PLAY_BTN_SIZE / 2f
+    private fun drawVideoPlaceholder(canvas: Canvas, x: Float, y: Float, w: Float, h: Float, radius: Float) {
+        tmpRect.set(x, y, x + w, y + h)
+        canvas.drawRoundRect(tmpRect, radius, radius, VIDEO_PLACEHOLDER_PAINT)
+    }
+
+    private fun drawVideoPlayButton(canvas: Canvas, x: Float, y: Float, w: Float, h: Float) {
+        val cx = x + w / 2f
+        val cy = y + h / 2f
+        val r = (min(w, h) * 0.2f).coerceIn(LayoutHelper.dp(14f).toFloat(), PLAY_BTN_SIZE / 2f)
         canvas.drawCircle(cx, cy, r, PLAY_BG_PAINT)
 
         playTriPath.reset()
@@ -3333,6 +3316,11 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
         private val PLAY_BG_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = 0x66000000.toInt()
+            style = Paint.Style.FILL
+        }
+
+        private val VIDEO_PLACEHOLDER_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFF2A2D33.toInt()
             style = Paint.Style.FILL
         }
 
