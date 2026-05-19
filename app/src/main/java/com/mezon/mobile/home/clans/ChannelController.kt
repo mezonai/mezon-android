@@ -1,13 +1,17 @@
 package com.mezon.mobile.home.clans
 
+import android.util.Log
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.data.db.ClanChannelDao
 import com.mezon.mobile.data.db.FavoriteChannelDao
 import com.mezon.mobile.data.db.FavoriteChannelEntity
+import com.mezon.mobile.data.db.MessageDao
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.network.ApiCacheTracker
+import com.mezon.mobile.network.CHANNEL_TYPE_DM
+import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.network.CODE_CHAT_REMOVE
 import com.mezon.mobile.network.CODE_CHAT_UPDATE
 import com.mezon.mobile.network.MezonApi
@@ -17,6 +21,8 @@ import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mezon.api.ChannelDescription
 import com.mezon.mezon.rtapi.LastSeenMessageEvent
+import com.mezon.mezon.rtapi.UserChannelAdded
+import com.mezon.mezon.rtapi.UserChannelRemoved
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,6 +39,7 @@ import javax.inject.Singleton
 private const val NOTIFICATION_CODE_USER_MENTIONED = -9
 private const val NOTIFICATION_CODE_USER_REPLIED = -11
 private const val MAX_BADGE_CACHE = 500
+private const val TAG = "ChannelController"
 
 const val FAVORITE_CATEGORY_ID = -1L
 const val FAVORITE_CATEGORY_NAME = "Favorites"
@@ -43,6 +50,7 @@ class ChannelController @Inject constructor(
     private val sessionManager: SessionManager,
     private val clanChannelDao: ClanChannelDao,
     private val favoriteChannelDao: FavoriteChannelDao,
+    private val messageDao: MessageDao,
     private val dispatcher: SocketEventDispatcher,
     private val notificationCenter: NotificationCenter,
     private val cacheTracker: ApiCacheTracker,
@@ -496,6 +504,84 @@ class ChannelController @Inject constructor(
         return 0L
     }
 
+    private fun isDirectChannelType(type: Int): Boolean =
+        type == CHANNEL_TYPE_DM || type == CHANNEL_TYPE_GROUP
+
+    private fun applyUserChannelAdded(event: UserChannelAdded, currentUserId: Long) {
+        if (!event.hasChannelDesc()) {
+            Log.d(TAG, "userChannelAdded ignored missing channelDesc for channel list")
+            return
+        }
+        val desc = event.channelDesc
+        if (isDirectChannelType(desc.type)) return
+        if (event.usersList.none { it.userId == currentUserId }) {
+            Log.d(
+                TAG,
+                "userChannelAdded ignored non-self channelId=${desc.channelId} type=${desc.type} clanId=${event.clanId} users=${event.usersList.map { it.userId }}"
+            )
+            return
+        }
+        val clanId = event.clanId.takeIf { it != 0L } ?: desc.clanId
+        if (clanId == 0L || desc.channelId == 0L) {
+            Log.d(TAG, "userChannelAdded ignored invalid channel channelId=${desc.channelId} clanId=$clanId type=${desc.type}")
+            return
+        }
+        val active = event.active.takeIf { it != 0 } ?: desc.active.takeIf { it != 0 } ?: 1
+        val channel = desc.toClanChannelEntity().copy(clanId = clanId, active = active)
+        val existing = _channelsByClan.value[clanId] ?: emptyList()
+        updateCache(clanId, sortChannels(existing.filter { it.channelId != channel.channelId } + channel))
+        appScope.launch(ioDispatcher) { clanChannelDao.upsert(channel) }
+        Log.d(
+            TAG,
+            "userChannelAdded applied channelId=${channel.channelId} type=${channel.type} clanId=$clanId active=$active"
+        )
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_CHAT)
+    }
+
+    private fun applyUserChannelRemoved(event: UserChannelRemoved, currentUserId: Long) {
+        if (isDirectChannelType(event.channelType)) return
+        if (event.userIdsList.none { it == currentUserId }) {
+            Log.d(
+                TAG,
+                "userChannelRemoved ignored non-self channelId=${event.channelId} type=${event.channelType} clanId=${event.clanId} userIds=${event.userIdsList}"
+            )
+            return
+        }
+        val channelId = event.channelId
+        if (channelId == 0L) {
+            Log.d(TAG, "userChannelRemoved ignored empty channelId type=${event.channelType} clanId=${event.clanId}")
+            return
+        }
+        val clanId = event.clanId.takeIf { it != 0L } ?: findClanIdForChannel(channelId)
+        if (clanId != 0L) {
+            val existing = _channelsByClan.value[clanId]
+            if (existing != null) {
+                updateCache(clanId, existing.filter { it.channelId != channelId })
+            }
+            favoritesByClan[clanId]?.remove(channelId)
+            appScope.launch(ioDispatcher) {
+                clanChannelDao.delete(clanId, channelId)
+                favoriteChannelDao.delete(clanId, channelId)
+                messageDao.deleteByChannel(channelId)
+            }
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
+        } else {
+            Log.d(TAG, "userChannelRemoved skipped channel db delete channelId=$channelId type=${event.channelType} clanId=0")
+        }
+        val wasOpen = currentOpenChannelId == channelId
+        if (wasOpen) {
+            currentOpenChannelId = 0L
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.closeChats, channelId, event.channelType)
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.navigateToClansTab)
+        }
+        Log.d(
+            TAG,
+            "userChannelRemoved applied self channelId=$channelId type=${event.channelType} clanId=$clanId open=$wasOpen"
+        )
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_CHAT)
+    }
+
     fun updateLastSentMessage(channelId: Long, messageId: Long, createTimeSeconds: Long = 0L) {
         for ((clanId, channels) in _channelsByClan.value) {
             val idx = channels.indexOfFirst { it.channelId == channelId }
@@ -703,6 +789,24 @@ class ChannelController @Inject constructor(
                 updateCache(clanId, existing.filter { it.channelId != event.channelId })
                 appScope.launch(ioDispatcher) { clanChannelDao.delete(clanId, event.channelId) }
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
+            }
+        }
+
+        appScope.launch {
+            val currentUserId = sessionManager.sessionFlow
+                .first { it != null }?.userId?.toLongOrNull() ?: 0L
+
+            dispatcher.userChannelAddedEvents.collect { event ->
+                applyUserChannelAdded(event, currentUserId)
+            }
+        }
+
+        appScope.launch {
+            val currentUserId = sessionManager.sessionFlow
+                .first { it != null }?.userId?.toLongOrNull() ?: 0L
+
+            dispatcher.userChannelRemovedEvents.collect { event ->
+                applyUserChannelRemoved(event, currentUserId)
             }
         }
 

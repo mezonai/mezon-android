@@ -9,8 +9,12 @@ import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.network.ApiCacheTracker
 import com.mezon.mobile.network.MezonApi
+import com.mezon.mobile.network.SocketEventDispatcher
 import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.session.SessionManager
+import com.mezon.mezon.rtapi.UserChannelAdded
+import com.mezon.mezon.rtapi.UserChannelRemoved
+import com.mezon.mezon.rtapi.UserProfileRedis
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -45,9 +49,15 @@ class UserClanController @Inject constructor(
     private val sessionManager: SessionManager,
     private val notificationCenter: NotificationCenter,
     private val cacheTracker: ApiCacheTracker,
+    private val socketEventDispatcher: SocketEventDispatcher,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     @ApplicationScope private val appScope: CoroutineScope
 ) {
+
+    init {
+        appScope.launch { observeUserChannelAdded() }
+        appScope.launch { observeUserChannelRemoved() }
+    }
 
     // --- All users across all clans (for search) ---
     private val users = ArrayList<ClanUser>()
@@ -63,6 +73,26 @@ class UserClanController @Inject constructor(
 
     @Synchronized
     fun getUserCount(): Int = users.size
+
+    private fun UserProfileRedis.toClanUser(): ClanUser = ClanUser(
+        id = userId,
+        username = username,
+        displayName = displayName.ifBlank { username },
+        avatarUrl = avatar,
+        isOnline = online
+    )
+
+    private fun UserProfileRedis.toClanMember(clanId: Long): ClanMember = ClanMember(
+        userId = userId,
+        username = username,
+        displayName = displayName.ifBlank { username },
+        avatarUrl = avatar,
+        isOnline = online,
+        clanNick = "",
+        clanAvatar = "",
+        clanId = clanId,
+        roleIds = emptyList()
+    )
 
     fun loadUsers(noCache: Boolean = false) {
         appScope.launch(ioDispatcher) {
@@ -233,6 +263,109 @@ class UserClanController @Inject constructor(
             } catch (e: Exception) {
                 Log.e(TAG, "loadChannelMembers failed for channel $channelId", e)
             }
+        }
+    }
+
+    private suspend fun observeUserChannelAdded() {
+        socketEventDispatcher.userChannelAddedEvents.collect { event ->
+            applyUserChannelAdded(event)
+        }
+    }
+
+    private suspend fun observeUserChannelRemoved() {
+        socketEventDispatcher.userChannelRemovedEvents.collect { event ->
+            applyUserChannelRemoved(event)
+        }
+    }
+
+    private fun applyUserChannelAdded(event: UserChannelAdded) {
+        if (!event.hasChannelDesc()) {
+            Log.d(TAG, "userChannelAdded ignored missing channelDesc for members")
+            return
+        }
+        val channelId = event.channelDesc.channelId
+        if (channelId == 0L) {
+            Log.d(TAG, "userChannelAdded ignored empty channelId for members")
+            return
+        }
+        val clanId = event.clanId.takeIf { it != 0L } ?: event.channelDesc.clanId
+        val incomingUsers = event.usersList
+        if (incomingUsers.isEmpty()) {
+            Log.d(TAG, "userChannelAdded ignored empty users channelId=$channelId clanId=$clanId")
+            return
+        }
+        val incomingMembers = incomingUsers.map { it.toClanMember(clanId) }
+        var channelMembersChanged = false
+        var clanMembersChanged = false
+        synchronized(this) {
+            for (user in incomingUsers) {
+                val clanUser = user.toClanUser()
+                usersDict.put(clanUser.id, clanUser)
+                val idx = users.indexOfFirst { it.id == clanUser.id }
+                if (idx >= 0) users[idx] = clanUser else users.add(clanUser)
+            }
+            loaded = users.isNotEmpty()
+            val channelMembers = membersByChannel[channelId]
+            if (channelMembers != null) {
+                val merged = LinkedHashMap<Long, ClanMember>(channelMembers.size + incomingMembers.size)
+                for (m in channelMembers) merged[m.userId] = m
+                for (m in incomingMembers) merged[m.userId] = m
+                membersByChannel.put(channelId, ArrayList(merged.values))
+                channelMembersChanged = true
+            }
+            val clanMembers = membersByClan[clanId]
+            if (clanId != 0L && clanMembers != null) {
+                val merged = LinkedHashMap<Long, ClanMember>(clanMembers.size + incomingMembers.size)
+                for (m in clanMembers) merged[m.userId] = m
+                for (m in incomingMembers) merged[m.userId] = m
+                membersByClan.put(clanId, ArrayList(merged.values))
+                clanMembersChanged = true
+            }
+        }
+        Log.d(
+            TAG,
+            "userChannelAdded applied members channelId=$channelId clanId=$clanId members=$incomingMembers channelCache=$channelMembersChanged clanCache=$clanMembersChanged"
+        )
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.userClansDidLoad)
+        if (channelMembersChanged) {
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.channelMembersDidLoad, channelId)
+        }
+        if (clanMembersChanged) {
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.clanMembersDidLoad, clanId)
+        }
+    }
+
+    private fun applyUserChannelRemoved(event: UserChannelRemoved) {
+        val channelId = event.channelId
+        if (channelId == 0L) {
+            Log.d(TAG, "userChannelRemoved ignored empty channelId for members")
+            return
+        }
+        val removedIds = event.userIdsList.toSet()
+        if (removedIds.isEmpty()) {
+            Log.d(TAG, "userChannelRemoved ignored empty userIds channelId=$channelId clanId=${event.clanId}")
+            return
+        }
+        var changed = false
+        synchronized(this) {
+            val members = membersByChannel[channelId] ?: return@synchronized
+            val updated = members.filter { it.userId !in removedIds }
+            if (updated.size != members.size) {
+                membersByChannel.put(channelId, updated)
+                changed = true
+            }
+        }
+        if (changed) {
+            Log.d(
+                TAG,
+                "userChannelRemoved applied members channelId=$channelId clanId=${event.clanId} removedIds=$removedIds"
+            )
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.channelMembersDidLoad, channelId)
+        } else {
+            Log.d(
+                TAG,
+                "userChannelRemoved skipped members channelId=$channelId clanId=${event.clanId} removedIds=$removedIds cacheLoaded=false"
+            )
         }
     }
 

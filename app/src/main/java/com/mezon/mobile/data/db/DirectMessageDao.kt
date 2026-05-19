@@ -25,4 +25,7 @@ interface DirectMessageDao {
 
     @Query("UPDATE direct_messages SET lastSeenMessageId = :messageId, unreadCount = 0 WHERE channelId = :channelId")
     suspend fun updateLastSeen(channelId: Long, messageId: Long)
+
+    @Query("DELETE FROM direct_messages WHERE channelId = :channelId")
+    suspend fun delete(channelId: Long)
 }

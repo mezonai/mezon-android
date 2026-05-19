@@ -9,11 +9,6 @@ private val CONTENT_REGEX = Regex("\"t\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"")
 
 private const val SHARE_CONTACT_KEY = "share_contact"
 
-private val GENERIC_DIALOG_PREVIEW_PLACEHOLDERS = setOf("[embed]", "[file]", "[link]", "[contact]")
-
-fun isGenericDialogPreviewPlaceholder(preview: String): Boolean =
-    preview in GENERIC_DIALOG_PREVIEW_PLACEHOLDERS
-
 private fun unescapeJsonText(text: String, singleLine: Boolean): String {
     var s = text.replace("\\/", "/").replace("\\\"", "\"")
     s = if (singleLine) s.replace("\\n", " ") else s.replace("\\n", "\n")

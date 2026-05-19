@@ -247,10 +247,26 @@ class SocketEventDispatcher @Inject constructor(
         }
     }
 
+    private fun UserChannelAdded.userSummary(): String =
+        usersList.joinToString(prefix = "[", postfix = "]") { user ->
+            "{id=${user.userId}, username=${user.username}, display=${user.displayName}, avatar=${user.avatar}}"
+        }
+
+    private fun UserChannelAdded.descSummary(): String {
+        val desc = channelDesc
+        return "channelId=${desc.channelId} type=${desc.type} label=${desc.channelLabel} channelAvatar=${desc.channelAvatar} clanId=$clanId active=$active userIds=${desc.userIdsList} usernames=${desc.usernamesList} displayNames=${desc.displayNamesList} avatars=${desc.avatarsList}"
+    }
+
     private suspend fun dispatch(envelope: Envelope) {
         when (envelope.messageCase) {
             Envelope.MessageCase.CHANNEL_MESSAGE -> {
                 val msg = envelope.channelMessage
+                if (msg.mode == STREAM_MODE_GROUP) {
+                    Log.d(
+                        TAG,
+                        "channelMessage group received channelId=${msg.channelId} label=${msg.channelLabel} senderId=${msg.senderId} username=${msg.username} display=${msg.displayName} avatar=${msg.avatar} messageId=${msg.messageId}"
+                    )
+                }
                 _channelMessages.emit(msg)
             }
             Envelope.MessageCase.MESSAGE_TYPING_EVENT ->
@@ -295,10 +311,22 @@ class SocketEventDispatcher @Inject constructor(
                 _transferOwnershipEvents.emit(envelope.transferOwnershipEvent)
             Envelope.MessageCase.ALLOW_ANONYMOUS_EVENT ->
                 _allowAnonymousEvents.emit(envelope.allowAnonymousEvent)
-            Envelope.MessageCase.USER_CHANNEL_ADDED_EVENT ->
-                _userChannelAddedEvents.emit(envelope.userChannelAddedEvent)
-            Envelope.MessageCase.USER_CHANNEL_REMOVED_EVENT ->
-                _userChannelRemovedEvents.emit(envelope.userChannelRemovedEvent)
+            Envelope.MessageCase.USER_CHANNEL_ADDED_EVENT -> {
+                val event = envelope.userChannelAddedEvent
+                Log.d(
+                    TAG,
+                    "userChannelAdded received ${event.descSummary()} users=${event.userSummary()}"
+                )
+                _userChannelAddedEvents.emit(event)
+            }
+            Envelope.MessageCase.USER_CHANNEL_REMOVED_EVENT -> {
+                val event = envelope.userChannelRemovedEvent
+                Log.d(
+                    TAG,
+                    "userChannelRemoved received channelId=${event.channelId} type=${event.channelType} clanId=${event.clanId} userIds=${event.userIdsList} badgeCounts=${event.badgeCountsList}"
+                )
+                _userChannelRemovedEvents.emit(event)
+            }
             Envelope.MessageCase.USER_CLAN_REMOVED_EVENT ->
                 _userClanRemovedEvents.emit(envelope.userClanRemovedEvent)
             Envelope.MessageCase.ADD_CLAN_USER_EVENT ->
