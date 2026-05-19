@@ -78,8 +78,8 @@ class BackupImageView(context: Context) : View(context) {
         invalidate()
     }
 
-    fun setAvatarInfo(id: Long, name: String) {
-        avatarDrawable.setInfo(id, name)
+    fun setAvatarInfo(id: Long, username: String) {
+        avatarDrawable.setInfo(id, username)
         invalidate()
     }
 
@@ -91,8 +91,8 @@ class BackupImageView(context: Context) : View(context) {
         invalidate()
     }
 
-    fun setImage(url: String?, id: Long = 0, name: String = "") {
-        if (id != 0L) avatarDrawable.setInfo(id, name)
+    fun setImage(url: String?, id: Long = 0, username: String = "") {
+        if (id != 0L) avatarDrawable.setInfo(id, username)
         imageUrl = url
         loadedDrawable = null
         if (attached && url != null) loadImage(url)

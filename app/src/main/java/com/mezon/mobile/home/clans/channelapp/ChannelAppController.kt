@@ -14,6 +14,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
@@ -54,6 +55,19 @@ class ChannelAppController @Inject constructor(
         findByChannelId(channelId)?.let { return it }
         val fromDb = withContext(ioDispatcher) { channelAppDao.getByChannelId(channelId) }
         return fromDb?.let { ChannelAppUiModel.fromEntity(it) }
+    }
+
+    suspend fun ensureAppLoaded(channelId: Long, clanId: Long): ChannelAppUiModel? {
+        findOrFetchByChannelId(channelId)?.let { return it }
+        if (clanId == 0L) return null
+        var waited = 0
+        while (loadingByClan[clanId] == true && waited < 10_000) {
+            delay(50)
+            waited += 50
+            findByChannelId(channelId)?.let { return it }
+        }
+        loadAppsForClanNow(clanId, force = true)
+        return findByChannelId(channelId)
     }
 
     fun loadAppsForClan(clanId: Long, force: Boolean = false) {

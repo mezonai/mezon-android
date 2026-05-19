@@ -179,7 +179,7 @@ class SendTokenMessageCell(context: Context, private val theme: ThemeColors) : F
         senderNameView.text = msg.senderName
         timeView.text = formatRelativeTime(msg.timestampSeconds)
 
-        avatarView.setInfo(msg.senderId, msg.senderName)
+        avatarView.setInfo(msg.senderId, msg.senderUsername)
         avatarView.setImageUrl(msg.senderAvatar.ifEmpty { null })
 
         val rawText = try {

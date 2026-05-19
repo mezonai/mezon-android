@@ -442,7 +442,7 @@ class CallFragment : BaseFragment() {
         }
         avatarView?.visibility = View.VISIBLE
         callInfo?.let {
-            avatarView?.setData(it.peerName, it.peerAvatar)
+            avatarView?.setData(it.peerName, it.peerUsername, it.peerAvatar)
         }
         avatarView?.let { contentContainer?.bringChildToFront(it) }
     }

@@ -69,6 +69,10 @@
     <string name="qr_share_message">Quét QR để trò chuyện với tôi trên Mezon</string>
     <string name="qr_code_not_valid">Mã QR không hợp lệ</string>
     <string name="qr_select_photo_with_qr">Vui lòng chọn ảnh có mã QR</string>
+    <string name="qr_external_link_title">Mở liên kết?</string>
+    <string name="qr_external_link_message">Mã QR này chứa liên kết chưa được xử lý trong Mezon.</string>
+    <string name="qr_external_link_open">Mở liên kết</string>
+    <string name="qr_external_link_open_failed">Không thể mở liên kết</string>
     <string name="qr_login_title">Đăng nhập trên thiết bị mới</string>
     <string name="qr_login_message">Bạn có muốn xác nhận đăng nhập bằng QR này?</string>
     <string name="qr_login_confirm">Đăng nhập</string>
@@ -687,6 +691,9 @@
     <string name="channel_apps_title_mezon">Mezon</string>
     <string name="channel_apps_title_subtitle"> Ứng dụng kênh</string>
     <string name="channel_apps_empty">Không có ứng dụng kênh nào</string>
+    <string name="channel_app_launch">Khởi chạy ứng dụng</string>
+    <string name="channel_app_help">Trợ giúp</string>
+    <string name="channel_app_launch_unavailable">Không mở được ứng dụng. Hãy thử lại.</string>
     <string name="channel_gallery_empty">Chưa có ảnh hoặc video được chia sẻ.</string>
     <string name="channel_gallery_load_error">Không tải được nội dung media. Hãy thử lại.</string>
     <!-- Edit Profile -->
@@ -1079,4 +1086,6 @@
     <string name="call_full_screen_intent_open_settings">Bật trong cài đặt</string>
     <string name="call_full_screen_intent_start_call_anyway">Vẫn gọi</string>
     <string name="call_full_screen_intent_incoming_hint">Đang tắt toàn màn hình khi khóa — chạm để bật</string>
+    <string name="call_busy_status">Bận</string>
+    <string name="call_busy_peer_status">%1$s đang bận</string>
 </resources>

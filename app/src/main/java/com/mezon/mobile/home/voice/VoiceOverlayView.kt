@@ -121,6 +121,7 @@ class VoiceOverlayView(
         room: Room?,
         videoTrack: VideoTrack?,
         name: String,
+        username: String,
         avatarUrl: String?,
         isMuted: Boolean,
         userId: Long
@@ -131,8 +132,8 @@ class VoiceOverlayView(
         } else {
             detachVideo()
             avatarView.visibility = VISIBLE
-            avatarDrawable.setInfo(userId, name)
-            loadAvatar(avatarUrl, userId, name)
+            avatarDrawable.setInfo(userId, username)
+            loadAvatar(avatarUrl, userId, username)
         }
 
         val micDrawable = if (isMuted) {

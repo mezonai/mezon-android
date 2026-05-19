@@ -44,6 +44,7 @@ data class DirectMessage(
     val label: String,
     val avatarUrl: String,
     val displayName: String,
+    val username: String = "",
     val lastMessageContent: String,
     val unreadCount: Int,
     val isOnline: Boolean,
@@ -62,8 +63,9 @@ fun ChannelDescription.toDirectMessage(currentUserId: Long, previewContext: andr
         .takeIf { it >= 0 }
         ?: 0 
 
+    val username = usernamesList.getOrElse(otherIndex) { "" }
     val displayName = displayNamesList.getOrElse(otherIndex) {
-        usernamesList.getOrElse(otherIndex) { channelLabel }
+        username.ifBlank { channelLabel }
     }
     val avatarUrl = if (channelAvatar.isNotEmpty()) {
         channelAvatar
@@ -84,6 +86,7 @@ fun ChannelDescription.toDirectMessage(currentUserId: Long, previewContext: andr
         label = channelLabel.ifEmpty { displayName },
         avatarUrl = avatarUrl,
         displayName = displayName,
+        username = username,
         lastMessageContent = lastMsgContent,
         unreadCount = countMessUnread,
         isOnline = false,

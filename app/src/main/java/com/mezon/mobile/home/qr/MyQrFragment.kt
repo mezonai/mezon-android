@@ -291,7 +291,7 @@ class MyQrFragment : BaseFragment() {
 
         if (!::headerAvatar.isInitialized) return
 
-        headerAvatar.setInfo(info.userId, name)
+        headerAvatar.setInfo(info.userId, username)
         if (avatarUrl.isNotEmpty()) headerAvatar.setImageUrl(avatarUrl)
 
         val isProfile = activeTab == Tab.PROFILE
@@ -317,7 +317,7 @@ class MyQrFragment : BaseFragment() {
                        else getString(R.string.qr_transfer_hint),
             qrBitmap = qrBitmap,
             avatarUrl  = avatarUrl,
-            avatarName = name
+            avatarName = username
         ))
 
         actionRow.visibility = if (isProfile) View.VISIBLE else View.GONE

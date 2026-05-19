@@ -603,8 +603,7 @@ class CreateThreadFragment : BaseFragment() {
         val avatar = AvatarView(ctx).apply {
             setSizeDp(40)
             val m = memberResolver.resolveMember(msg.senderId, clanId, parentChannelId, parentChannelType())
-            val name = m?.clanNick?.ifBlank { m.displayName.ifBlank { m.username } } ?: msg.senderName
-            setInfo(msg.senderId, name)
+            setInfo(msg.senderId, m?.username ?: msg.senderUsername)
             val url = m?.clanAvatar?.ifBlank { m.avatarUrl } ?: msg.senderAvatar
             if (url.isNotBlank()) setImageUrl(url)
         }

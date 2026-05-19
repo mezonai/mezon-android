@@ -49,13 +49,13 @@ class VoiceUserAvatarCell(
     private var overflowText: String = ""
     private var isOverflowItem = false
 
-    fun setUser(userId: Long, name: String, avatarUrl: String?) {
+    fun setUser(userId: Long, name: String, username: String, avatarUrl: String?) {
         this.userId = userId
         this.displayName = name
         this.avatarUrl = avatarUrl
         this.isOverflowItem = false
         this.overflowCount = 0
-        avatarDrawable.setInfo(userId, name)
+        avatarDrawable.setInfo(userId, username)
         loadAvatar(avatarUrl)
         buildNameLayout()
         invalidate()

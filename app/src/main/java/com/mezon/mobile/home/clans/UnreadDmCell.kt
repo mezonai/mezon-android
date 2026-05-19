@@ -23,7 +23,7 @@ class UnreadDmCell(
         private set
 
     private val avatar = AvatarDrawable()
-    private val avatarSizePx = LayoutHelper.dp(36)
+    private val avatarSizePx = LayoutHelper.dp(42)
     private val badgeBgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val badgeTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = LayoutHelper.sp(9f)
@@ -41,12 +41,12 @@ class UnreadDmCell(
         private val BADGE_PAD_H = LayoutHelper.dp(4f).toFloat()
         private val BADGE_OFFSET_RIGHT = LayoutHelper.dp(2f).toFloat()
         private val BADGE_OFFSET_TOP = LayoutHelper.dp(2f).toFloat()
-        private val EXTRA_HEIGHT = LayoutHelper.dp(12)
+        private val EXTRA_HEIGHT = LayoutHelper.dp(16)
     }
 
     fun setData(dm: DirectMessage) {
         directMessage = dm
-        avatar.setInfo(dm.channelId, dm.displayName.ifEmpty { dm.label })
+        avatar.setInfo(dm.channelId, dm.username)
         badgeText = when {
             dm.unreadCount <= 0 -> ""
             dm.unreadCount > 99 -> "99+"

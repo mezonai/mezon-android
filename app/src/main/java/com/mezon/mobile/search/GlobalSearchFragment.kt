@@ -777,8 +777,9 @@ class GlobalSearchFragment : BaseFragment() {
         val displays = memberIds.map { uid ->
             val m = memberMap[uid]
             val name = m?.clanNick?.ifEmpty { null } ?: m?.displayName?.ifEmpty { null } ?: m?.username ?: "User"
+            val username = m?.username.orEmpty()
             val avatar = m?.clanAvatar?.ifEmpty { null } ?: m?.avatarUrl
-            VoiceMemberDisplay(uid, name, avatar)
+            VoiceMemberDisplay(uid, name, username, avatar)
         }
         val sheet = JoinVoiceBottomSheet(
             activity,

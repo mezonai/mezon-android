@@ -64,6 +64,10 @@
     <string name="qr_share_message">Scan QR code to chat with me on Mezon</string>
     <string name="qr_code_not_valid">QR code is not valid</string>
     <string name="qr_select_photo_with_qr">Please select a photo with QR code</string>
+    <string name="qr_external_link_title">Open link?</string>
+    <string name="qr_external_link_message">This QR code contains a link that is not handled in Mezon.</string>
+    <string name="qr_external_link_open">Open link</string>
+    <string name="qr_external_link_open_failed">Could not open link</string>
     <string name="qr_login_title">Log in on new device</string>
     <string name="qr_login_message">Confirm login using this QR code?</string>
     <string name="qr_login_confirm">Log in</string>
@@ -777,6 +781,9 @@
     <string name="channel_apps_title_mezon">Mezon</string>
     <string name="channel_apps_title_subtitle"> Channel apps</string>
     <string name="channel_apps_empty">No channel apps available</string>
+    <string name="channel_app_launch">Launch App</string>
+    <string name="channel_app_help">Help</string>
+    <string name="channel_app_launch_unavailable">Couldn\'t open this app. Try again.</string>
 
     <!-- Profile -->
     <string name="profile_account_settings">Account Settings</string>
@@ -1201,4 +1208,6 @@
     <string name="call_full_screen_intent_open_settings">Turn on</string>
     <string name="call_full_screen_intent_start_call_anyway">Start call anyway</string>
     <string name="call_full_screen_intent_incoming_hint">Fullscreen while locked off — tap to turn on</string>
+    <string name="call_busy_status">Busy</string>
+    <string name="call_busy_peer_status">%1$s is busy</string>
 </resources>

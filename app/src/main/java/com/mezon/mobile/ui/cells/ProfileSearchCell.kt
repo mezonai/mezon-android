@@ -58,7 +58,7 @@ class ProfileSearchCell(context: Context, private val theme: ThemeColors) : Base
         val m = newMember ?: member ?: return
         if (newMember != null) member = newMember
 
-        avatarDrawable.setInfo(m.id, m.displayName.ifEmpty { m.username })
+        avatarDrawable.setInfo(m.id, m.username)
         loadAvatar(m.avatarUrl)
         buildLayouts()
         invalidate()

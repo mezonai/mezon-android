@@ -97,7 +97,7 @@ class MemberResolver @Inject constructor(
         if (ch != null && (ch.isPrivate || ch.parentId != 0L)) {
             val targetChannelId = if (ch.parentId != 0L) ch.parentId else channelId
             val channelMembers = userClanController.getChannelMembers(targetChannelId)
-            if (channelMembers.isNotEmpty()) return channelMembers
+            if (channelMembers.isNotEmpty()) return enrichMembers(clanId, channelMembers)
         }
         return userClanController.getClanMembers(clanId)
     }

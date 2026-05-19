@@ -14,6 +14,10 @@ import androidx.core.view.WindowInsetsCompat
 
 class DrawerLayoutContainer(context: Context) : FrameLayout(context) {
 
+    companion object {
+        const val CHILD_TAG_TOP_END_OVERLAY = "mezon_drawer_top_end_overlay"
+    }
+
     var parentActionBarLayout: ActionBarLayout? = null
 
     private val backgroundPaint = Paint()
@@ -156,6 +160,22 @@ class DrawerLayoutContainer(context: Context) : FrameLayout(context) {
 
             val lp = child.layoutParams as LayoutParams
             try {
+                if (child.tag == CHILD_TAG_TOP_END_OVERLAY) {
+                    val rtl = layoutDirection == View.LAYOUT_DIRECTION_RTL
+                    val leftPx = if (rtl) {
+                        paddingLeft + lp.leftMargin
+                    } else {
+                        measuredWidth - paddingRight - lp.rightMargin - child.measuredWidth
+                    }
+                    val topPx = lp.topMargin + paddingTop
+                    child.layout(
+                        leftPx,
+                        topPx,
+                        leftPx + child.measuredWidth,
+                        topPx + child.measuredHeight
+                    )
+                    continue
+                }
                 child.layout(
                     lp.leftMargin,
                     lp.topMargin + paddingTop,
@@ -231,9 +251,6 @@ class DrawerLayoutContainer(context: Context) : FrameLayout(context) {
     }
 
     private fun dispatchInsetsToChild(child: View, insets: WindowInsetsCompat) {
-        val canApplyInsets = child is ActionBarLayout || child.tag == null
-        if (!canApplyInsets) return
-
         val lp = child.layoutParams as? MarginLayoutParams ?: return
 
         val systemInsetsWithIme = insets.getInsets(
@@ -243,17 +260,21 @@ class DrawerLayoutContainer(context: Context) : FrameLayout(context) {
         )
 
         val newBottom = systemInsetsWithIme.bottom
-        val changed = lp.topMargin != 0
-                || lp.bottomMargin != newBottom
-                || lp.leftMargin != systemInsetsWithIme.left
-                || lp.rightMargin != systemInsetsWithIme.right
+        val shouldApplySystemMargins = child is ActionBarLayout || child.tag == null
 
-        if (changed) {
-            lp.leftMargin = systemInsetsWithIme.left
-            lp.topMargin = 0
-            lp.rightMargin = systemInsetsWithIme.right
-            lp.bottomMargin = newBottom
-            child.requestLayout()
+        if (shouldApplySystemMargins) {
+            val changed = lp.topMargin != 0
+                    || lp.bottomMargin != newBottom
+                    || lp.leftMargin != systemInsetsWithIme.left
+                    || lp.rightMargin != systemInsetsWithIme.right
+
+            if (changed) {
+                lp.leftMargin = systemInsetsWithIme.left
+                lp.topMargin = 0
+                lp.rightMargin = systemInsetsWithIme.right
+                lp.bottomMargin = newBottom
+                child.requestLayout()
+            }
         }
 
         val consumed = insets.inset(lp.leftMargin, lp.topMargin, lp.rightMargin, lp.bottomMargin)

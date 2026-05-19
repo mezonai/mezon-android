@@ -197,7 +197,12 @@ class ChatController @Inject constructor(
         }
     }
 
-    fun loadMessages(channelId: Long, clanId: Long, forceRefresh: Boolean = false) {
+    fun loadMessages(
+        channelId: Long,
+        clanId: Long,
+        forceRefresh: Boolean = false,
+        preferHttp: Boolean = false
+    ) {
         appScope.launch(ioDispatcher) {
             try {
                 val cacheKey = apiCacheKey("fetchMessages", clanId, channelId)
@@ -221,7 +226,12 @@ class ChatController @Inject constructor(
                 sessionManager.withAutoRefresh { session ->
                     val currentUserId = session.userId.toLongOrNull() ?: 0L
                     val response = api.listChannelMessages(
-                        session.apiUrl, session.token, channelId, clanId, limit = PAGE_SIZE
+                        session.apiUrl,
+                        session.token,
+                        channelId,
+                        clanId,
+                        limit = PAGE_SIZE,
+                        preferHttp = preferHttp
                     )
                     val allMessages = response.messagesList.map { it.toMessageEntity(currentUserId) }
                     val firstMessageReached = allMessages.any { it.code == MessageEntity.CODE_FIRST_MESSAGE }
@@ -257,7 +267,13 @@ class ChatController @Inject constructor(
         }
     }
 
-    fun loadMessagesAround(channelId: Long, clanId: Long, anchorMessageId: Long, requireExactAnchor: Boolean = false) {
+    fun loadMessagesAround(
+        channelId: Long,
+        clanId: Long,
+        anchorMessageId: Long,
+        requireExactAnchor: Boolean = false,
+        preferHttp: Boolean = false
+    ) {
         appScope.launch(ioDispatcher) {
             try {
                 val cacheKey = apiCacheKey("fetchMessages", clanId, channelId)
@@ -303,8 +319,14 @@ class ChatController @Inject constructor(
                 sessionManager.withAutoRefresh { session ->
                     val currentUserId = session.userId.toLongOrNull() ?: 0L
                     val response = api.listChannelMessages(
-                        session.apiUrl, session.token, channelId, clanId,
-                        anchorMessageId, DIRECTION_AROUND, PAGE_SIZE
+                        session.apiUrl,
+                        session.token,
+                        channelId,
+                        clanId,
+                        anchorMessageId,
+                        DIRECTION_AROUND,
+                        PAGE_SIZE,
+                        preferHttp = preferHttp
                     )
                     val allMsgs = response.messagesList.map { it.toMessageEntity(currentUserId) }
                     val firstMessageReached = allMsgs.any { it.code == MessageEntity.CODE_FIRST_MESSAGE }
@@ -507,6 +529,7 @@ class ChatController @Inject constructor(
             channelId = channelId,
             senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
             senderName = optName,
+            senderUsername = if (anon) "Anonymous" else uc.username,
             senderAvatar = optAvatar,
             content = optimisticContent,
             timestampSeconds = System.currentTimeMillis() / 1000,
@@ -572,6 +595,7 @@ class ChatController @Inject constructor(
             channelId = channelId,
             senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
             senderName = optName,
+            senderUsername = if (anon) "Anonymous" else uc.username,
             senderAvatar = optAvatar,
             content = contentJson,
             timestampSeconds = System.currentTimeMillis() / 1000,
@@ -642,6 +666,7 @@ class ChatController @Inject constructor(
             channelId = channelId,
             senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
             senderName = optName,
+            senderUsername = if (anon) "Anonymous" else uc.username,
             senderAvatar = optAvatar,
             content = content,
             timestampSeconds = System.currentTimeMillis() / 1000,
@@ -708,6 +733,7 @@ class ChatController @Inject constructor(
             channelId = channelId,
             senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
             senderName = optName,
+            senderUsername = if (anon) "Anonymous" else uc.username,
             senderAvatar = optAvatar,
             content = content,
             timestampSeconds = System.currentTimeMillis() / 1000,
@@ -767,6 +793,7 @@ class ChatController @Inject constructor(
             channelId = channelId,
             senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
             senderName = optName,
+            senderUsername = if (anon) "Anonymous" else uc.username,
             senderAvatar = optAvatar,
             content = content,
             timestampSeconds = System.currentTimeMillis() / 1000,
@@ -869,7 +896,9 @@ class ChatController @Inject constructor(
                 item.put("ref_type", ref.refType)
                 item.put("message_sender_id", ref.messageSenderId.toString())
                 item.put("message_sender_username", ref.messageSenderUsername)
+                item.put("message_sender_avatar", ref.messageSenderAvatar)
                 item.put("mesages_sender_avatar", ref.messageSenderAvatar)
+                item.put("message_sender_clan_nick", ref.messageSenderClanNick)
                 item.put("message_sender_display_name", ref.messageSenderDisplayName)
                 item.put("content", ref.content)
                 item.put("has_attachment", ref.hasAttachment)
@@ -945,6 +974,7 @@ class ChatController @Inject constructor(
             channelId = channelId,
             senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
             senderName = optName,
+            senderUsername = if (anon) "Anonymous" else uc.username,
             senderAvatar = optAvatar,
             content = optimisticContent,
             timestampSeconds = System.currentTimeMillis() / 1000,
@@ -1099,6 +1129,7 @@ class ChatController @Inject constructor(
             channelId = channelId,
             senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
             senderName = optName,
+            senderUsername = if (anon) "Anonymous" else uc.username,
             senderAvatar = optAvatar,
             content = baseContent,
             timestampSeconds = System.currentTimeMillis() / 1000,
@@ -1272,7 +1303,8 @@ class ChatController @Inject constructor(
         mentions: List<MentionData>? = null,
         emojiMarkers: List<EmojiMarker>? = null,
         markdownMarkers: List<MarkdownMarker>? = null,
-        hashtags: List<com.mezon.mobile.util.HashtagData>? = null
+        hashtags: List<com.mezon.mobile.util.HashtagData>? = null,
+        existingMessage: MessageEntity? = null
     ) {
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
@@ -1292,12 +1324,24 @@ class ChatController @Inject constructor(
                 e = m.endOffset
             }
         }
+        val protoAttachments = existingMessage?.allAttachmentsInfo?.map { att ->
+            messageAttachment {
+                filename = att.filename
+                size = att.size
+                url = att.url
+                filetype = att.filetype
+                width = att.width
+                height = att.height
+                thumbnail = att.thumb
+            }
+        }
         val request = channelMessageUpdate {
             this.clanId = clanId
             this.channelId = channelId
             this.messageId = messageId
             this.content = content
             protoMentions?.let { this.mentions.addAll(it) }
+            protoAttachments?.let { this.attachments.addAll(it) }
             this.mode = mode
             this.isPublic = isPublic
         }
@@ -1365,11 +1409,12 @@ class ChatController @Inject constructor(
                             entity.channelId, entity.id, entity.content,
                             entity.updateTimeSeconds, entity.hideEditted, entity.code
                         )
+                        val merged = messageDao.getById(entity.channelId, entity.id) ?: entity
+                        notificationCenter.postNotificationOnMainThread(
+                            NotificationCenter.messageDidUpdate, merged.channelId, merged,
+                            NotificationCenter.UPDATE_MASK_MESSAGE_TEXT
+                        )
                     }
-                    notificationCenter.postNotificationOnMainThread(
-                        NotificationCenter.messageDidUpdate, entity.channelId, entity,
-                        NotificationCenter.UPDATE_MASK_MESSAGE_TEXT
-                    )
                 }
                 CODE_CHAT_REMOVE -> {
                     appScope.launch { messageDao.delete(msg.channelId, msg.messageId) }

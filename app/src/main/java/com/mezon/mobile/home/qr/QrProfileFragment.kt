@@ -109,8 +109,7 @@ class QrProfileFragment : BaseFragment() {
         val avatar = AvatarView(context).apply {
             setSizeDp(64)
             setRoundRadius(32f)
-            val nameSeed = displayName.ifEmpty { username }
-            setInfo(0L, nameSeed)
+            setInfo(0L, username)
             if (!avatarUrl.isNullOrBlank()) setImageUrl(avatarUrl)
         }
         card.addView(avatar, LinearLayout.LayoutParams(

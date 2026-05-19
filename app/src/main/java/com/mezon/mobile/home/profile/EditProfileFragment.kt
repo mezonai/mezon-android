@@ -265,10 +265,9 @@ class EditProfileFragment : BaseFragment() {
             loadBannerFromAvatar(currentAvatarUrl)
         }
 
-        val nameForAvatar = displayName.ifEmpty { username }
         avatarView = AvatarView(context).apply {
             setSizeDp(100)
-            setInfo(userId, nameForAvatar)
+            setInfo(userId, username)
             if (currentAvatarUrl.isNotEmpty()) setImageUrl(currentAvatarUrl)
         }
         val avatarBorderColor = if (themeColors.resolvedMode == com.mezon.mobile.ui.theme.ThemeMode.LIGHT) 0xFFFFFFFF.toInt() else 0xFF0D0D18.toInt()
@@ -328,10 +327,9 @@ class EditProfileFragment : BaseFragment() {
             setCellBackgroundColor(themeColors.surface)
             setCellStrokeColor(0x00000000)
             onTextChanged = { text ->
-                val forAvatar = text.ifEmpty { username }
-                nameView.text = forAvatar
-                avatarView.setInfo(userId, forAvatar)
-                if (::clanAvatarView.isInitialized) clanAvatarView.setInfo(userId, forAvatar)
+                nameView.text = text.ifEmpty { username }
+                avatarView.setInfo(userId, username)
+                if (::clanAvatarView.isInitialized) clanAvatarView.setInfo(userId, username)
             }
         }
         inputGroupCard.addView(displayNameCell, LayoutHelper.createLinear(
@@ -459,7 +457,6 @@ class EditProfileFragment : BaseFragment() {
         val displayName = info.displayName.ifEmpty { userController.displayName }
         val username = info.username.ifEmpty { userController.username }
         val userId = info.userId.takeIf { it != 0L } ?: userController.userId
-        val clanNameForAvatar = displayName.ifEmpty { username }
 
         val scrollView = ScrollView(context).apply {
             isFillViewport = true
@@ -520,7 +517,7 @@ class EditProfileFragment : BaseFragment() {
 
         clanAvatarView = AvatarView(context).apply {
             setSizeDp(100)
-            setInfo(userId, clanNameForAvatar)
+            setInfo(userId, username)
             if (currentAvatarUrl.isNotEmpty()) setImageUrl(currentAvatarUrl)
         }
         val clanAvatarBorderColor = if (themeColors.resolvedMode == com.mezon.mobile.ui.theme.ThemeMode.LIGHT) 0xFFFFFFFF.toInt() else 0xFF0D0D18.toInt()
@@ -790,9 +787,9 @@ class EditProfileFragment : BaseFragment() {
             nameView.text = updatedInfo.displayName.ifEmpty { updatedInfo.username }
             usernameSubView.text = updatedInfo.username
             val uid = updatedInfo.userId.takeIf { it != 0L } ?: userController.userId
-            val refreshedName = updatedInfo.displayName.ifEmpty { updatedInfo.username.ifEmpty { userController.username } }
-            avatarView.setInfo(uid, refreshedName)
-            if (::clanAvatarView.isInitialized) clanAvatarView.setInfo(uid, refreshedName)
+            val refreshedUsername = updatedInfo.username.ifEmpty { userController.username }
+            avatarView.setInfo(uid, refreshedUsername)
+            if (::clanAvatarView.isInitialized) clanAvatarView.setInfo(uid, refreshedUsername)
         }
         observe(NotificationCenter.themeChanged) { _, _, _ ->
             fragmentView?.setBackgroundColor(themeColors.background)

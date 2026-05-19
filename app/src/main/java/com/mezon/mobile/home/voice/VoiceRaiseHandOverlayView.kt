@@ -57,15 +57,15 @@ class VoiceRaiseHandOverlayView(
         )
     }
 
-    fun showRaiseHand(senderId: Long, displayName: String, avatarUrl: String?) {
+    fun showRaiseHand(senderId: Long, displayName: String, username: String, avatarUrl: String?) {
         if (senderId == 0L) return
         val existing = items[senderId]
         if (existing != null) {
-            bindItem(existing, senderId, displayName, avatarUrl)
+            bindItem(existing, senderId, displayName, username, avatarUrl)
             scheduleRemove(senderId, existing)
             return
         }
-        val item = createItem(senderId, displayName, avatarUrl)
+        val item = createItem(senderId, displayName, username, avatarUrl)
         items.put(senderId, item)
         rowsContainer.addView(
             item.root,
@@ -104,7 +104,7 @@ class VoiceRaiseHandOverlayView(
         postDelayed(runnable, RAISE_HAND_TIMEOUT_MS)
     }
 
-    private fun createItem(senderId: Long, displayName: String, avatarUrl: String?): RaiseHandItem {
+    private fun createItem(senderId: Long, displayName: String, username: String, avatarUrl: String?): RaiseHandItem {
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -150,14 +150,14 @@ class VoiceRaiseHandOverlayView(
         root.addView(iconView, LinearLayout.LayoutParams(ICON_SIZE, ICON_SIZE))
 
         val item = RaiseHandItem(root, avatarView, nameView, avatarDrawable)
-        bindItem(item, senderId, displayName, avatarUrl)
+        bindItem(item, senderId, displayName, username, avatarUrl)
         root.animate().alpha(1f).translationY(0f).setDuration(180L).start()
         return item
     }
 
-    private fun bindItem(item: RaiseHandItem, senderId: Long, displayName: String, avatarUrl: String?) {
+    private fun bindItem(item: RaiseHandItem, senderId: Long, displayName: String, username: String, avatarUrl: String?) {
         item.nameView.text = displayName
-        item.avatarDrawable.setInfo(senderId, displayName)
+        item.avatarDrawable.setInfo(senderId, username)
         item.avatarDrawable.setPhoto(null)
         item.avatarView.setImageDrawable(item.avatarDrawable)
         item.cancellable?.cancel()

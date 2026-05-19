@@ -202,7 +202,7 @@ class ConnectionController @Inject constructor(
     }
 
     private suspend fun observeNetworkRestore() {
-        networkMonitor.onlineEvents.collectLatest { online ->
+        networkMonitor.isOnline.collectLatest { online ->
             if (online && mezonSocket.connectionState.value == ConnectionState.DISCONNECTED) {
                 Log.d(TAG, "Network restored — triggering reconnect")
                 mezonSocket.reconnectIfNeeded()

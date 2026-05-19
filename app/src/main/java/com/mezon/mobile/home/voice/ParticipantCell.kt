@@ -161,6 +161,7 @@ class ParticipantCell(
     fun setParticipant(
         userId: Long,
         name: String,
+        username: String,
         avatarUrl: String?,
         muted: Boolean,
         speaking: Boolean,
@@ -176,7 +177,7 @@ class ParticipantCell(
         this.isScreenShare = screenShare
 
         if (userChanged) {
-            avatarDrawable.setInfo(userId, name)
+            avatarDrawable.setInfo(userId, username)
         }
         avatarView.visibility = if (hasVideo) GONE else VISIBLE
         nameOverlay.visibility = if (hasVideo) VISIBLE else GONE

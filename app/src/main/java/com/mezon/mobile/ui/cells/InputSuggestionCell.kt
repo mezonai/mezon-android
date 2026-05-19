@@ -221,7 +221,7 @@ class InputSuggestionCell(
         val displayName = member.clanNick.ifBlank {
             member.displayName.ifBlank { member.username }
         }
-        avatarDrawable.setInfo(member.userId, displayName)
+        avatarDrawable.setInfo(member.userId, member.username)
         avatarDrawable.setPhoto(null)
         namePaint.color = theme.onSurface
         subPaint.color = theme.textDisabled
