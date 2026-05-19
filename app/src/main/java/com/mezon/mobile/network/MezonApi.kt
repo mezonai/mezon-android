@@ -9,6 +9,7 @@ import com.mezon.mezon.api.AllUsersAddChannelResponse
 import com.mezon.mezon.api.AllUserClans
 import com.mezon.mezon.api.allUsersAddChannelRequest
 import com.mezon.mezon.api.addChannelUsersRequest
+import com.mezon.mezon.api.removeChannelUsersRequest
 import com.mezon.mezon.api.CategoryDesc
 import com.mezon.mezon.api.ClanDesc
 import com.mezon.mezon.api.EmojiListedResponse
@@ -1784,6 +1785,19 @@ class MezonApi @Inject constructor(
             this.userIds.addAll(userIds)
         }
         rpc(apiUrl, token, "AddChannelUsers", request.toByteArray())
+    }
+
+    suspend fun removeChannelUsers(
+        apiUrl: String,
+        token: String,
+        channelId: Long,
+        userIds: List<Long>
+    ) {
+        val request = removeChannelUsersRequest {
+            this.channelId = channelId
+            this.userIds.addAll(userIds)
+        }
+        rpc(apiUrl, token, "RemoveChannelUsers", request.toByteArray())
     }
 
     suspend fun listChannelByUserId(

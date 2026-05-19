@@ -1,7 +1,6 @@
 package com.mezon.mobile.network
 
 import com.mezon.mobile.di.ApplicationScope
-import android.util.Log
 import com.mezon.mezon.api.ChannelMessage
 import com.mezon.mezon.api.CreateEventRequest
 import com.mezon.mezon.api.GiveCoffeeEvent
@@ -70,10 +69,6 @@ class SocketEventDispatcher @Inject constructor(
     private val mezonSocket: MezonSocket,
     @ApplicationScope private val scope: CoroutineScope
 ) {
-    companion object {
-        private const val TAG = "SocketEventDispatcher"
-    }
-
     private val _channelMessages = MutableSharedFlow<ChannelMessage>(extraBufferCapacity = 32)
     val channelMessages: SharedFlow<ChannelMessage> = _channelMessages.asSharedFlow()
 
@@ -249,10 +244,8 @@ class SocketEventDispatcher @Inject constructor(
 
     private suspend fun dispatch(envelope: Envelope) {
         when (envelope.messageCase) {
-            Envelope.MessageCase.CHANNEL_MESSAGE -> {
-                val msg = envelope.channelMessage
-                _channelMessages.emit(msg)
-            }
+            Envelope.MessageCase.CHANNEL_MESSAGE ->
+                _channelMessages.emit(envelope.channelMessage)
             Envelope.MessageCase.MESSAGE_TYPING_EVENT ->
                 _typingEvents.emit(envelope.messageTypingEvent)
             Envelope.MessageCase.MESSAGE_REACTION_EVENT ->

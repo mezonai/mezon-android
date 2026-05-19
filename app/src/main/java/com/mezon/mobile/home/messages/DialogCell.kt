@@ -92,7 +92,7 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         if (mask == 0) {
             val changed = newDm != null && newDm != directMessage
             if (newDm != null) directMessage = newDm
-            avatarDrawable.setInfo(dm.channelId, dm.username)
+            avatarDrawable.setInfo(dm.channelId, dm.displayName.ifBlank { dm.label }.ifBlank { dm.username })
             buildLayouts()
             loadAvatar(dm.avatarUrl)
             invalidate()

@@ -18,6 +18,7 @@
     <string name="common_settings">Settings</string>
     <string name="common_loading_data">Loading data, please wait a moment!</string>
     <string name="common_failed_to_load">Failed to load</string>
+    <string name="common_no_results_found">No results found</string>
     <string name="common_something_went_wrong">Something went wrong</string>
     <string name="common_log_out">Log Out</string>
     <string name="common_confirm_log_out">Please confirm if you would like to log out?</string>
@@ -244,6 +245,7 @@
     
     <string name="action_reply">Reply</string>
     <string name="action_forward">Forward</string>
+    <string name="action_forward_all_nearby">Forward All Nearby</string>
     <string name="forward_screen_title">Forward to</string>
     <string name="forward_extra_hint">Add a comment (optional)</string>
     <string name="forward_cta_send">Forward</string>
@@ -343,7 +345,7 @@
     <string name="clan_customize_title">Customize Your Clan</string>
     <string name="clan_customize_subtitle">Give your new clan a personality with a name and an icon. You can always change it later.</string>
     <string name="clan_upload_label">Upload</string>
-    <string name="clan_create_community_guide_prefix">By creating a clan, you agree to Mezon\'s </string>
+    <string name="clan_create_community_guide_prefix">By creating a clan, you agree to Mezon\'s</string>
     <string name="clan_create_community_guide_link">Community Guidelines.</string>
     <string name="clan_image_too_large">Image size must be less than %1$dMB</string>
     <string name="clan_create_failed">Unable to create clan. Please try again.</string>
