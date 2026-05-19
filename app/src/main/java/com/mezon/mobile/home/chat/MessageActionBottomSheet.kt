@@ -32,12 +32,14 @@ class MessageActionBottomSheet(
     private val hasMedia: Boolean = false,
     private val hasImage: Boolean = false,
     private val showForwardSingle: Boolean = true,
+    private val showForwardAllNearby: Boolean = false,
     private val listener: MessageActionListener
 ) : BottomSheet(context) {
 
     enum class ActionType {
         Reply,
         ForwardMessage,
+        ForwardAllNearby,
         EditMessage,
         CopyText,
         PinMessage,
@@ -289,6 +291,14 @@ class MessageActionBottomSheet(
                 ActionType.ForwardMessage,
                 context.getString(R.string.action_forward),
                 R.drawable.ic_arrowanglerightuplight
+            ))
+        }
+
+        if (showForwardAllNearby) {
+            actions.add(ActionItem(
+                ActionType.ForwardAllNearby,
+                context.getString(R.string.action_forward_all_nearby),
+                R.drawable.ic_forward_all
             ))
         }
 

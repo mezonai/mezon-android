@@ -134,6 +134,7 @@ import com.mezon.mobile.home.chat.emoji.EmojiView
 import java.util.concurrent.ConcurrentHashMap
 
 private const val TAG = "ChatFragment"
+private const val FORWARD_NEARBY_WINDOW_SECONDS = 10 * 60L
 
 /** Soft realtime when BE does not push ChatUpdate for every poll vote — GetPoll on visible rows. */
 private const val POLL_TALLY_TICK_MS = 15_000L
@@ -1004,6 +1005,12 @@ class ChatFragment : BaseFragment() {
             if (loadedChannelId == targetChannelId) {
                 checkSuggestionTrigger()
             }
+        }
+
+        observe(NotificationCenter.closeChats) { _, _, args ->
+            val removedChannelId = args.firstOrNull() as? Long ?: 0L
+            if (removedChannelId != 0L && removedChannelId != channelId) return@observe
+            finishFragment()
         }
 
         observe(NotificationCenter.clanMembersDidLoad) { _, _, args ->
@@ -4268,6 +4275,7 @@ class ChatFragment : BaseFragment() {
             hasMedia = hasMedia,
             hasImage = hasImage,
             showForwardSingle = allowFwd,
+            showForwardAllNearby = allowFwd && collectForwardNearbyMessages(msg).size > 1,
             listener = object : MessageActionBottomSheet.MessageActionListener {
                 override fun onActionSelected(action: MessageActionBottomSheet.ActionType, message: MessageEntity) {
                     handleMessageAction(action, message)
@@ -4290,6 +4298,36 @@ class ChatFragment : BaseFragment() {
     private fun openForwardScreen(msg: MessageEntity) {
         ForwardNavigationStash.pendingMessages = ArrayList<MessageEntity>().apply { add(msg) }
         presentFragment(SharingFragment(SharingPayload.ForwardFromChat(channelId, clanId, channelType)))
+    }
+
+    private fun openForwardAllNearbyScreen(msg: MessageEntity) {
+        ForwardNavigationStash.pendingMessages = ArrayList(collectForwardNearbyMessages(msg))
+        presentFragment(SharingFragment(SharingPayload.ForwardFromChat(channelId, clanId, channelType)))
+    }
+
+    private fun collectForwardNearbyMessages(msg: MessageEntity): List<MessageEntity> {
+        val index = messages.indexOfFirst { it.id == msg.id }
+        if (index < 0) return listOf(msg)
+        var newestIndex = index
+        while (newestIndex > 0 && canForwardTogether(messages[newestIndex - 1], messages[newestIndex], msg.senderId)) {
+            newestIndex--
+        }
+        var oldestIndex = index
+        while (oldestIndex < messages.lastIndex && canForwardTogether(messages[oldestIndex], messages[oldestIndex + 1], msg.senderId)) {
+            oldestIndex++
+        }
+        val result = ArrayList<MessageEntity>(oldestIndex - newestIndex + 1)
+        for (i in oldestIndex downTo newestIndex) {
+            result.add(messages[i])
+        }
+        return result
+    }
+
+    private fun canForwardTogether(newer: MessageEntity, older: MessageEntity, senderId: Long): Boolean {
+        if (newer.senderId != senderId || older.senderId != senderId) return false
+        if (newer.isPollMessage || older.isPollMessage) return false
+        if (newer.timestampSeconds <= 0L || older.timestampSeconds <= 0L) return false
+        return kotlin.math.abs(newer.timestampSeconds - older.timestampSeconds) <= FORWARD_NEARBY_WINDOW_SECONDS
     }
 
     private fun showUserProfile(msg: MessageEntity) {
@@ -4458,6 +4496,9 @@ class ChatFragment : BaseFragment() {
             }
             MessageActionBottomSheet.ActionType.ForwardMessage -> {
                 openForwardScreen(msg)
+            }
+            MessageActionBottomSheet.ActionType.ForwardAllNearby -> {
+                openForwardAllNearbyScreen(msg)
             }
             MessageActionBottomSheet.ActionType.PinMessage -> {
                 showPinConfirmation(msg, isUnpin = false)

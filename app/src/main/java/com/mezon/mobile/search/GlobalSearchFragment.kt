@@ -359,7 +359,7 @@ class GlobalSearchFragment : BaseFragment() {
         ))
 
         emptyView = TextView(context).apply {
-            text = "No results found"
+            text = getString(R.string.common_no_results_found)
             setTextColor(themeColors.onSurfaceVariant)
             textSize = 15f
             gravity = Gravity.CENTER
