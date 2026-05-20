@@ -22,7 +22,12 @@ data class PollSubmitPayload(
 
 const val DEFAULT_POLL_DURATION_HOURS = "24"
 const val POLL_QUESTION_MAX_LENGTH = 300
+/** UI slots: always start with 2 rows; trash hidden until size > this. */
 const val POLL_ANSWER_MIN_SLOTS = 2
+
+/** Non-empty answers required to enable Post — same as web `CreatePollModal` (not 1). */
+const val POLL_ANSWER_MIN_FOR_POST = POLL_ANSWER_MIN_SLOTS
+
 const val POLL_ANSWER_MAX_SLOTS = 20
 
 val POLL_DURATION_OPTIONS: List<Pair<String, Int>> = listOf(
@@ -34,11 +39,17 @@ val POLL_DURATION_OPTIONS: List<Pair<String, Int>> = listOf(
     "168" to com.mezon.mobile.R.string.poll_duration_1_week
 )
 
+
+/** Web `FileSelectionButton`: hidden only for `CHANNEL_TYPE_DM` (1:1 DM). */
 fun canCreatePoll(channelType: Int): Boolean = channelType != CHANNEL_TYPE_DM
 
+/**
+ * Web `canPost`: question non-empty (trim) and **≥ [POLL_ANSWER_MIN_FOR_POST]** non-empty answers.
+ * One filled answer alone cannot post — QA case “single answer” is expected to fail (by design).
+ */
 fun canPostPoll(state: CreatePollFormState): Boolean {
     val nonEmpty = state.answers.count { it.trim().isNotEmpty() }
-    return state.question.trim().isNotEmpty() && nonEmpty >= 2
+    return state.question.trim().isNotEmpty() && nonEmpty >= POLL_ANSWER_MIN_FOR_POST
 }
 
 fun emojiIdForApi(emoji: EmojiItem): String =

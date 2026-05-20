@@ -33,6 +33,8 @@ import com.mezon.mobile.ui.cells.BackupImageView
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.SwitchView
 import com.mezon.mobile.util.getEmojiUrl
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class CreatePollFragment : BaseFragment() {
 
@@ -49,7 +51,9 @@ class CreatePollFragment : BaseFragment() {
             }
     }
 
-    var onPollSubmit: ((PollSubmitPayload) -> Unit)? = null
+    var onPollSubmit: (suspend (PollSubmitPayload) -> Boolean)? = null
+
+    private var isSubmitting = false
 
     private var channelId: Long = 0L
     private var clanId: Long = 0L
@@ -64,7 +68,9 @@ class CreatePollFragment : BaseFragment() {
     private lateinit var durationValueView: TextView
     private lateinit var multipleSwitch: SwitchView
     private lateinit var postButton: TextView
+    private lateinit var postButtonBackground: GradientDrawable
     private lateinit var scrollView: ScrollView
+    private lateinit var formContainer: LinearLayout
     private lateinit var rootFrame: FrameLayout
 
     private var emojiPickerSheet: PollAnswerEmojiPickerSheet? = null
@@ -73,7 +79,6 @@ class CreatePollFragment : BaseFragment() {
     private val postRadiusPx by lazy { LayoutHelper.dpf(10f) }
 
     private val colorScreen get() = themeColors.chatBackground
-    /** Input rows — tertiary has contrast on white; secondaryLight is nearly white on light theme. */
     private val colorField get() = themeColors.tertiary
     private val colorLabel get() = themeColors.onSurfaceVariant
     private val colorText get() = themeColors.onSurface
@@ -111,15 +116,16 @@ class CreatePollFragment : BaseFragment() {
 
         val pollHeader = buildPollHeader(context, contentPadDp)
 
-        val body = LinearLayout(context).apply {
+        formContainer = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(padH, LayoutHelper.dp(8), padH, LayoutHelper.dp(76))
         }
+        val body = formContainer
 
         body.addView(sectionLabel(context, R.string.poll_question))
         body.addView(buildQuestionField(context), sectionMargin(labelGap))
 
-        body.addView(sectionLabel(context, R.string.poll_answers), sectionMargin(sectionGap))
+        body.addView(buildAnswersSectionHeader(context), sectionMargin(sectionGap))
         answersContainer = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
         }
@@ -180,6 +186,10 @@ class CreatePollFragment : BaseFragment() {
             )
         }
 
+        postButtonBackground = GradientDrawable().apply {
+            cornerRadius = postRadiusPx
+            setColor(colorPostDisabled)
+        }
         postButton = TextView(context).apply {
             gravity = Gravity.CENTER
             text = getString(R.string.poll_post)
@@ -188,6 +198,7 @@ class CreatePollFragment : BaseFragment() {
             setTextColor(colorText)
             minimumHeight = LayoutHelper.dp(42)
             setPadding(LayoutHelper.dp(14), LayoutHelper.dp(10), LayoutHelper.dp(14), LayoutHelper.dp(10))
+            background = postButtonBackground
             setOnClickListener { submitPoll() }
         }
 
@@ -470,26 +481,61 @@ class CreatePollFragment : BaseFragment() {
     }
 
     private fun refreshPostButton() {
-        val enabled = canPostPoll(formState)
-        postButton.background = GradientDrawable().apply {
-            cornerRadius = postRadiusPx
-            setColor(if (enabled) themeColors.primary else colorPostDisabled)
+        val canPost = canPostPoll(formState)
+        val enabled = canPost && !isSubmitting
+        postButton.text = if (isSubmitting) {
+            getString(R.string.poll_posting)
+        } else {
+            getString(R.string.poll_post)
         }
-        postButton.setTextColor(if (enabled) themeColors.onPrimary else colorLabel)
+        postButtonBackground.setColor(
+            when {
+                isSubmitting -> themeColors.primary
+                enabled -> themeColors.primary
+                else -> colorPostDisabled
+            }
+        )
+        postButton.setTextColor(
+            if (isSubmitting || enabled) themeColors.onPrimary else colorLabel
+        )
         postButton.isEnabled = enabled
-        postButton.alpha = 1f
+        postButton.isClickable = enabled
+        postButton.alpha = if (isSubmitting) 0.75f else 1f
+        setPollFormBusy(isSubmitting)
+    }
+
+    private fun setPollFormBusy(busy: Boolean) {
+        scrollView.setOnTouchListener(if (busy) { _, _ -> true } else null)
+        formContainer.isEnabled = !busy
+        formContainer.alpha = if (busy) 0.6f else 1f
+        addAnswerLink.isEnabled = !busy
+        multipleSwitch.isEnabled = !busy
     }
 
     private fun submitPoll() {
         val payload = buildPollSubmitPayload(formState) ?: return
-        onPollSubmit?.invoke(payload)
-        finishFragment()
+        val submit = onPollSubmit ?: return
+        if (isSubmitting) return
+        isSubmitting = true
+        refreshPostButton()
+        fragmentScope.launch(Dispatchers.Main) {
+            val success = try {
+                submit(payload)
+            } catch (_: Exception) {
+                false
+            }
+            isSubmitting = false
+            if (success) {
+                finishFragment()
+            } else {
+                refreshPostButton()
+            }
+        }
     }
 
     private fun buildPollHeader(context: Context, contentPadDp: Int): View {
         val barH = 40
         val backIconDp = 24
-        // ic_arrow_back tip is ~4dp from the left inside a 24dp viewport — offset so tip lines up with labels.
         val backMarginDp = (contentPadDp - 4f * (backIconDp / 24f)).coerceAtLeast(0f)
         return FrameLayout(context).apply {
             setBackgroundColor(colorScreen)
@@ -558,6 +604,20 @@ class CreatePollFragment : BaseFragment() {
         setTextColor(colorLabel)
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
     }
+
+    private fun buildAnswersSectionHeader(context: Context): LinearLayout =
+        LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(sectionLabel(context, R.string.poll_answers))
+            addView(
+                TextView(context).apply {
+                    text = getString(R.string.poll_answers_min_required)
+                    setTextColor(colorLabel)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+                    setPadding(0, LayoutHelper.dp(2), 0, 0)
+                }
+            )
+        }
 
     private fun sectionMargin(topPx: Int): LinearLayout.LayoutParams =
         LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {

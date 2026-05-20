@@ -1202,6 +1202,7 @@
     <string name="poll_question_placeholder">What do you want to ask?</string>
     <string name="poll_question_counter">%1$d/%2$d</string>
     <string name="poll_answers">Answers</string>
+    <string name="poll_answers_min_required">At least 2 answers required (same as web)</string>
     <string name="poll_answer_placeholder">Enter an answer</string>
     <string name="poll_add_answer">+ Add answer</string>
     <string name="poll_pick_emoji_title">Choose emoji</string>
@@ -1210,6 +1211,7 @@
     <string name="poll_duration">Duration</string>
     <string name="poll_allow_multiple">Allow multiple answers</string>
     <string name="poll_post">Post</string>
+    <string name="poll_posting">Posting…</string>
     <string name="poll_create_failed">Could not create poll</string>
     <string name="poll_duration_1_hour">1 hour</string>
     <string name="poll_duration_4_hours">4 hours</string>

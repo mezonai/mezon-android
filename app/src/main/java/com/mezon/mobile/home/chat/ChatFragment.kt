@@ -117,8 +117,10 @@ import com.mezon.mobile.home.chat.poll.ParsedPoll
 import com.mezon.mobile.home.chat.poll.PollDetailModal
 import com.mezon.mobile.home.chat.poll.PollLocalState
 import com.mezon.mobile.home.chat.poll.PollSubmitPayload
+import com.mezon.mobile.home.chat.poll.PollPrimaryIntent
 import com.mezon.mobile.home.chat.poll.PollTap
 import com.mezon.mobile.home.chat.poll.PollVotePersistence
+import com.mezon.mobile.home.chat.poll.resolvePollPrimaryIntent
 import com.mezon.mobile.home.chat.poll.canCreatePoll
 import com.mezon.mobile.home.chat.poll.mergePollFromGetResponse
 import com.mezon.mobile.home.chat.poll.parsePollContent
@@ -138,6 +140,7 @@ import kotlinx.coroutines.withContext
 import com.mezon.mobile.core.SizeNotifierFrameLayout
 import com.mezon.mobile.home.chat.emoji.EmojiView
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 
 private const val TAG = "ChatFragment"
 private const val FORWARD_NEARBY_WINDOW_SECONDS = 10 * 60L
@@ -343,6 +346,7 @@ class ChatFragment : BaseFragment() {
     private val messages = ArrayList<MessageEntity>()
     private val messagesDict = LongSparseArray<MessageEntity>()
     private val pollStates = mutableMapOf<Long, PollLocalState>()
+    private val createPollInFlight = AtomicBoolean(false)
     private var pollTallyRefreshJob: Job? = null
     private val pollTallyLastRequestedAtMs = ConcurrentHashMap<Long, Long>()
     private var transitionAnimationIndex = 0
@@ -2770,7 +2774,7 @@ class ChatFragment : BaseFragment() {
                 refreshPollCell(msg.id)
             }
             PollTap.PrimaryAction -> handlePollPrimaryAction(msg, parsed)
-            PollTap.ViewDetails -> openPollDetailSheet(msg, parsed)
+            PollTap.ViewDetails, PollTap.FooterStats -> openPollDetailSheet(msg, parsed)
             PollTap.ToggleExpandOptions -> {
                 val st = pollStates[msg.id] ?: PollLocalState()
                 pollStates[msg.id] = st.copy(optionsExpanded = !st.optionsExpanded)
@@ -2807,17 +2811,19 @@ class ChatFragment : BaseFragment() {
 
     private fun handlePollPrimaryAction(msg: MessageEntity, parsed: ParsedPoll) {
         val expired = pollExpired(parsed)
-        if (parsed.isClosed || expired) return
         val st = pollStates[msg.id] ?: PollLocalState()
-        val voted = resolvedVotedList(parsed, msg).isNotEmpty()
-        when {
-            st.showResultsPreview && !voted -> {
+        val hasVoted = resolvedVotedList(parsed, msg).isNotEmpty()
+        when (
+            resolvePollPrimaryIntent(parsed, st, hasVoted, expired)
+        ) {
+            null -> return
+            PollPrimaryIntent.BackToVote -> {
                 pollStates[msg.id] = st.copy(showResultsPreview = false)
                 refreshPollCell(msg.id)
             }
-            voted -> submitPollVote(msg, parsed, emptyList())
-            st.selection.isNotEmpty() -> submitPollVote(msg, parsed, st.selection.sorted())
-            else -> {
+            PollPrimaryIntent.RemoveVote -> submitPollVote(msg, parsed, emptyList())
+            PollPrimaryIntent.CastVote -> submitPollVote(msg, parsed, st.selection.sorted())
+            PollPrimaryIntent.ShowResultsPreview -> {
                 pollStates[msg.id] = st.copy(showResultsPreview = true)
                 refreshPollCell(msg.id)
                 requestPollCountsRefresh(msg.id, msg.channelId)
@@ -3701,9 +3707,10 @@ class ChatFragment : BaseFragment() {
         }
     }
 
-    private fun submitCreatePoll(payload: PollSubmitPayload) {
-        fragmentScope.launch(ioDispatcher) {
-            try {
+    private suspend fun submitCreatePoll(payload: PollSubmitPayload): Boolean {
+        if (!createPollInFlight.compareAndSet(false, true)) return false
+        return try {
+            withContext(ioDispatcher) {
                 sessionManager.withAutoRefresh { session ->
                     mezonApi.createPoll(
                         session.apiUrl,
@@ -3716,16 +3723,20 @@ class ChatFragment : BaseFragment() {
                         payload.pollType
                     )
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "createPoll failed", e)
-                withContext(mainDispatcher) {
-                    MezonToast.show(
-                        this@ChatFragment,
-                        ToastOverlay.ToastType.ERROR,
-                        getString(R.string.poll_create_failed)
-                    )
-                }
             }
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "createPoll failed", e)
+            withContext(mainDispatcher) {
+                MezonToast.show(
+                    this@ChatFragment,
+                    ToastOverlay.ToastType.ERROR,
+                    getString(R.string.poll_create_failed)
+                )
+            }
+            false
+        } finally {
+            createPollInFlight.set(false)
         }
     }
 
@@ -3739,6 +3750,7 @@ class ChatFragment : BaseFragment() {
             themeColors,
             clanId,
             isAnon,
+            // Poll menu: web hides only 1:1 DM (canCreatePoll), not clanId != 0.
             showCreatePoll = canCreatePoll(channelType)
         )
         alert.advancedDelegate = object : AdvancedAttachAlert.AdvancedAttachAlertDelegate {

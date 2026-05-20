@@ -32,6 +32,10 @@ class AdvancedAttachAlert(
     private val theme: ThemeColors,
     private val clanId: Long = 0L,
     private val isAnonymousMode: Boolean = false,
+    /**
+     * Web `FileSelectionButton`: poll hidden only for `CHANNEL_TYPE_DM` (1:1 DM).
+     * Caller must set this from [com.mezon.mobile.home.chat.poll.canCreatePoll] — not from [clanId].
+     */
     private val showCreatePoll: Boolean = false
 ) : BottomSheet(context) {
 
@@ -69,6 +73,7 @@ class AdvancedAttachAlert(
             list.add(FunctionItem("ephemeral", R.string.advanced_ephemeral, MezonIcon.ephemeralIconGray))
         }
         list.add(FunctionItem("transfer_funds", R.string.advanced_transfer_funds, MezonIcon.sendMoneyAdvancedIcon))
+        // Poll: non-DM channels only (group DM + clan). Threads/ephemeral still use clanId above.
         if (showCreatePoll) {
             list.add(FunctionItem("poll", R.string.advanced_poll, MezonIcon.pollIconGray))
         }

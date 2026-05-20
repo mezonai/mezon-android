@@ -55,14 +55,12 @@ class PollAnswerEmojiPickerSheet(
         val screenH = AndroidUtilities.displaySize.y
         val panelHeight = (screenH * 0.5f).toInt().coerceAtLeast(LayoutHelper.dp(320f))
         val columns = 8
-        val sheetBg = SHEET_BG
-        val fieldBg = FIELD_BG
-        val labelColor = LABEL_COLOR
-        val textColor = TEXT_COLOR
+        val sheetBg = themeColors.surface
+        val fieldBg = themeColors.tertiary
 
         val titleBar = TextView(context).apply {
             text = context.getString(R.string.poll_pick_emoji_title)
-            setTextColor(textColor)
+            setTextColor(themeColors.onSurface)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             gravity = Gravity.CENTER
             setPadding(0, LayoutHelper.dp(14), 0, LayoutHelper.dp(8))
@@ -97,8 +95,8 @@ class PollAnswerEmojiPickerSheet(
         }
         val searchInput = EditTextBoldCursor(context).apply {
             hint = context.getString(R.string.poll_emoji_search_hint)
-            setHintTextColor(labelColor)
-            setTextColor(textColor)
+            setHintTextColor(themeColors.textDisabled)
+            setTextColor(themeColors.onSurface)
             textSize = 14f
             maxLines = 1
             isSingleLine = true
@@ -123,7 +121,7 @@ class PollAnswerEmojiPickerSheet(
         searchField = searchInput
         val searchIcon = ImageView(context).apply {
             setImageDrawable(MezonIcon.magnifyingIcon.getDrawable(context).apply {
-                colorFilter = PorterDuffColorFilter(labelColor, PorterDuff.Mode.SRC_IN)
+                colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
             })
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
@@ -171,12 +169,5 @@ class PollAnswerEmojiPickerSheet(
         searchField = null
         emojiAdapter = null
         super.dismiss()
-    }
-
-    companion object {
-        private const val SHEET_BG = 0xFF0B0913.toInt()
-        private const val FIELD_BG = 0xFF171927.toInt()
-        private const val LABEL_COLOR = 0xFF8D8FA3.toInt()
-        private const val TEXT_COLOR = 0xFFFFFFFF.toInt()
     }
 }
