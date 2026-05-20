@@ -30,11 +30,20 @@ import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import com.mezon.mobile.di.FragmentEntryPoint
+import com.mezon.mobile.util.SentryReporter
 import dagger.hilt.android.EntryPointAccessors
 
 class MezonImageLoader private constructor(context: Context) {
 
     private val appContext = context.applicationContext
+
+    private val sentryReporter: SentryReporter? = run {
+        try {
+            EntryPointAccessors.fromApplication(appContext, FragmentEntryPoint::class.java).sentryReporter()
+        } catch (_: Throwable) {
+            null
+        }
+    }
 
     private val client: OkHttpClient = run {
         val shared = try {
@@ -340,6 +349,10 @@ class MezonImageLoader private constructor(context: Context) {
     }
 
     private fun dispatchAllDecodeError(logicalUrl: String, error: Exception) {
+        val httpCode = (error as? IOException)?.message?.let { msg ->
+            Regex("HTTP (\\d+)").find(msg)?.groupValues?.getOrNull(1)?.toIntOrNull()
+        }
+        sentryReporter?.logImageLoadFailure(logicalUrl, httpCode, error)
         val list = pendingDecodes.remove(logicalUrl) ?: return
         val copy: List<PendingDecode>
         synchronized(list) { copy = ArrayList(list) }

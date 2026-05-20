@@ -2,6 +2,7 @@
 package com.mezon.mobile.network
 
 import com.mezon.mobile.BuildConfig
+import com.mezon.mobile.util.SentryReporter
 import android.net.Uri
 import android.util.Base64
 import com.mezon.mezon.api.Account
@@ -113,6 +114,7 @@ import com.mezon.mezon.api.listAuditLogRequest
 import com.mezon.mezon.rtapi.ActiveArchivedThread
 import com.mezon.mezon.rtapi.ChannelMessageSend
 import com.mezon.mezon.rtapi.ListActivity
+import com.mezon.mezon.rtapi.messageButtonClicked
 import android.util.Log
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -274,7 +276,8 @@ private data class ClanDiscoverJson(
 @Singleton
 class MezonApi @Inject constructor(
     private val httpClient: HttpClient,
-    private val mezonSocketLazy: dagger.Lazy<MezonSocket>
+    private val mezonSocketLazy: dagger.Lazy<MezonSocket>,
+    private val sentryReporter: SentryReporter
 ) {
     private data class InFlightReadRpc(
         val startedAtMs: Long,
@@ -366,6 +369,12 @@ class MezonApi @Inject constructor(
         Log.w(
             "MezonApi",
             "rpcFail method=$method http=${response.status.value} reqBytes=$requestByteSize errLen=${errorBody.length} err=$errPreview meta=$meta"
+        )
+        sentryReporter.logRpcFailure(
+            method = method,
+            transport = "http",
+            detail = errPreview,
+            httpCode = response.status.value
         )
     }
 
@@ -494,6 +503,7 @@ class MezonApi @Inject constructor(
         } catch (e: SocketRpcTransportException) {
             if (!retryableRead || !e.retryOverHttp) throw e
             Log.w("MezonApi", "SOCKET unavailable method=$method, falling back to HTTP: ${e.message}")
+            sentryReporter.logRpcWarning(method, "socket", "fallback to HTTP: ${e.message}")
             rpcOverHttpWithRetry(apiUrl, token, method, body, true)
         } catch (e: IllegalArgumentException) {
             throw e
@@ -554,6 +564,9 @@ class MezonApi @Inject constructor(
                 "MezonApi",
                 "SOCKET fail method=$method elapsedMs=${System.currentTimeMillis() - started} err=${e.message}"
             )
+            if (e !is UnauthorizedException && e !is SocketRpcServerException && e !is IllegalArgumentException) {
+                sentryReporter.logRpcFailure(method, "socket", e)
+            }
             if (e is UnauthorizedException) {
                 socket.forceReconnectForAuthFailure("Socket RPC unauthorized for '$method'")
                 throw e
@@ -586,6 +599,9 @@ class MezonApi @Inject constructor(
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 if (!retryable || !isHttpRetryableFailure(e) || attempt >= HTTP_RETRY_DELAYS_MS.size) {
+                    if (e !is HttpRpcStatusException) {
+                        sentryReporter.logRpcFailure(method, "http", e)
+                    }
                     throw e
                 }
                 val delayMs = HTTP_RETRY_DELAYS_MS[attempt]
@@ -1510,6 +1526,27 @@ class MezonApi @Inject constructor(
             .build()
             .toByteArray()
         rpc(apiUrl, token, "ActiveArchivedThread", body)
+    }
+
+    suspend fun messageButtonClick(
+        apiUrl: String,
+        token: String,
+        messageId: Long,
+        channelId: Long,
+        buttonId: String,
+        senderId: Long,
+        userId: Long,
+        extraData: String,
+    ) {
+        val body = messageButtonClicked {
+            this.messageId = messageId
+            this.channelId = channelId
+            this.buttonId = buttonId
+            this.senderId = senderId
+            this.userId = userId
+            this.extraData = extraData
+        }.toByteArray()
+        rpc(apiUrl, token, "MessageButtonClick", body)
     }
 
     suspend fun votePoll(

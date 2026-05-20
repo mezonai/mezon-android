@@ -134,6 +134,7 @@ data class MessageEntity(
     val isNormalMessage: Boolean
         get() = code == CODE_CHAT || code == CODE_CHAT_UPDATE || code == CODE_MESSAGE_BUZZ
                 || code == CODE_TOPIC || code == CODE_SEND_TOKEN || code == CODE_EPHEMERAL
+                || code == CODE_UPDATE_EPHEMERAL
                 || code == CODE_SHARE_CONTACT || code == CODE_LOCATION
 
     val isRenderable: Boolean
@@ -382,6 +383,12 @@ private fun parseAllAttachments(bytes: com.google.protobuf.ByteString): List<Par
         emptyList()
     }
 }
+
+internal fun mergeChannelContentMentionsAndRefs(
+    content: String,
+    mentionsBytes: com.google.protobuf.ByteString,
+    referencesBytes: com.google.protobuf.ByteString
+): String = mergeReferencesIntoContent(mergeMentionsIntoContent(content, mentionsBytes), referencesBytes)
 
 private fun mergeMentionsIntoContent(content: String, mentionsBytes: com.google.protobuf.ByteString): String {
     if (mentionsBytes.isEmpty) return content

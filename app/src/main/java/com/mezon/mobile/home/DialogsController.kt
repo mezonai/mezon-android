@@ -10,6 +10,7 @@ import com.mezon.mobile.data.db.DirectMessageDao
 import com.mezon.mobile.data.db.MessageDao
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
+import com.mezon.mobile.home.chat.MessageEntity
 import com.mezon.mobile.home.messages.DirectMessage
 import com.mezon.mobile.home.messages.DmParticipant
 import com.mezon.mobile.home.messages.extractParticipants
@@ -30,6 +31,7 @@ import com.mezon.mobile.notification.ActiveChannelTracker
 import com.mezon.mobile.notification.NotificationHelper
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.session.StoredSession
+import com.mezon.mobile.util.parseContentPreview
 import com.mezon.mobile.home.call.messagePreviewForDialog
 import dagger.Lazy
 import com.mezon.mezon.api.ChannelDescription
@@ -489,7 +491,10 @@ class DialogsController @Inject constructor(
 
     fun updateOnNewMessage(msg: ChannelMessage, currentUserId: Long) {
         if (msg.mode != STREAM_MODE_DM && msg.mode != STREAM_MODE_GROUP) return
-        val isContentMutation = msg.code == CODE_CHAT_UPDATE || msg.code == CODE_CHAT_REMOVE
+        val isContentMutation = msg.code == CODE_CHAT_UPDATE ||
+            msg.code == CODE_CHAT_REMOVE ||
+            msg.code == MessageEntity.CODE_UPDATE_EPHEMERAL ||
+            msg.code == MessageEntity.CODE_DELETE_EPHEMERAL
         var updatedDm: DirectMessage? = null
         synchronized(this) {
             var dm = dialogsDict[msg.channelId]
@@ -542,7 +547,9 @@ class DialogsController @Inject constructor(
                     isFromMe -> baseDm.unreadCount
                     else -> baseDm.unreadCount + 1
                 }
-                val newPreview = if (!isContentMutation || msg.code == CODE_CHAT_UPDATE)
+                val newPreview = if (!isContentMutation ||
+                    msg.code == CODE_CHAT_UPDATE ||
+                    msg.code == MessageEntity.CODE_UPDATE_EPHEMERAL)
                     messagePreviewForDialog(appContext, msg.content) else baseDm.lastMessageContent
 
                 val newSentMessageId = if (!isContentMutation) msg.messageId else baseDm.lastSentMessageId

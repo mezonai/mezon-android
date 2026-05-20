@@ -1,6 +1,7 @@
 package com.mezon.mobile.di
 
 import android.content.Context
+import android.net.Uri
 import android.util.Log
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -27,6 +28,30 @@ import javax.inject.Singleton
 
 private val Context.dataStore: DataStore<Preferences>
     by preferencesDataStore(name = "mezon_session")
+
+private val httpUrlInLogLine = Regex("https?://\\S+")
+private val sensitiveHeaderInLogLine = Regex(
+    "(?i)^(Authorization|Cookie|Set-Cookie|Proxy-Authorization|X-Api-Key)\\s*:\\s*.+$"
+)
+private val tokenQueryParam = Regex("(?i)(\\?|&)(token|access_token|refresh_token|id_token)=[^&\\s]*")
+
+private fun formatOkHttpLogLine(message: String): String {
+    val redactedHeader = sensitiveHeaderInLogLine.replace(message) { match ->
+        val name = match.value.substringBefore(':').trim()
+        "$name: ***"
+    }
+    return httpUrlInLogLine.replace(redactedHeader) { match ->
+        val scrubbed = tokenQueryParam.replace(match.value) { m -> "${m.groupValues[1]}${m.groupValues[2]}=***" }
+        val uri = runCatching { Uri.parse(scrubbed) }.getOrNull()
+        if (uri != null && (uri.scheme == "http" || uri.scheme == "https")) {
+            val path = uri.encodedPath.orEmpty().ifEmpty { "/" }
+            val host = uri.host?.replace('.', '|') ?: "?"
+            "path=$path host=$host"
+        } else {
+            scrubbed
+        }
+    }
+}
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -65,7 +90,7 @@ object AppModule {
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .addInterceptor(
             okhttp3.logging.HttpLoggingInterceptor { message ->
-                Log.d("OkHttp", message)
+                Log.d("OkHttp", formatOkHttpLogLine(message))
             }.apply {
                 level = if (BuildConfig.DEBUG)
                     okhttp3.logging.HttpLoggingInterceptor.Level.BASIC

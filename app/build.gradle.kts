@@ -176,11 +176,21 @@ android {
 }
 
 dependencies {
-    implementation(project(":core-proto"))
-    implementation(project(":mmn-client-kotlin"))
+    val usePrebuiltLocalModules = providers.gradleProperty("mezon.usePrebuiltLocalModules")
+        .map(String::toBoolean)
+        .getOrElse(false)
+
+    if (usePrebuiltLocalModules) {
+        implementation("com.mezon.local:core-proto:debug")
+        implementation("com.mezon.local:mmn-client-kotlin:debug")
+    } else {
+        implementation(project(":core-proto"))
+        implementation(project(":mmn-client-kotlin"))
+    }
 
     // Hilt
     implementation(libs.hilt.android)
+    ksp(libs.kotlin.metadata.jvm)
     ksp(libs.hilt.compiler)
 
     // Ktor
@@ -244,8 +254,11 @@ dependencies {
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging)
 
+    implementation(libs.sentry.android)
+
     // Test
     testImplementation(libs.junit)
+    testImplementation(libs.mockk)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 }
