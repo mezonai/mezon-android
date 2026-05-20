@@ -66,6 +66,7 @@ import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.ClansController
 import com.mezon.mobile.home.clans.ClanChannelEntity
 import com.mezon.mobile.home.clans.ClanRole
+import com.mezon.mobile.home.clans.PermissionPolicy
 import com.mezon.mobile.home.clans.RoleController
 import com.mezon.mobile.home.chat.input.InputSuggestionItem
 import com.mezon.mobile.home.chat.input.InputSuggestionsAdapter
@@ -203,6 +204,7 @@ class ChatFragment : BaseFragment() {
     private lateinit var channelController: ChannelController
     private lateinit var mediaController: MediaController
     private lateinit var audioPlayerController: AudioPlayerController
+    private lateinit var permissionPolicy: PermissionPolicy
     private lateinit var pinMessageController: com.mezon.mobile.home.PinMessageController
     private lateinit var walletController: WalletController
     private lateinit var callController: com.mezon.mobile.home.call.CallController
@@ -414,7 +416,24 @@ class ChatFragment : BaseFragment() {
             dialogsController.loadDmParticipants(channelId)
         }
         pinMessageController.loadPinMessages(channelId, clanId)
+        refreshPermissionGates()
         Log.d(TAG, "onFragmentCreate: startLoadFromMessageId=$startLoadFromMessageId forceLatest=$forceLatest channelId=$channelId")
+        observe(NotificationCenter.channelPermissionOverridesDidLoad) { _, _, args ->
+            val changedChannelId = args.getOrNull(0) as? Long ?: return@observe
+            if (changedChannelId == channelId) refreshPermissionGates()
+        }
+        observe(NotificationCenter.channelPermissionsDidLoad) { _, _, args ->
+            val changedChannelId = args.getOrNull(0) as? Long ?: return@observe
+            if (changedChannelId == channelId) refreshPermissionGates()
+        }
+        observe(NotificationCenter.clanRolesDidLoad) { _, _, args ->
+            val changedClanId = args.getOrNull(0) as? Long ?: return@observe
+            if (changedClanId == clanId || changedClanId == clansController.selectedClanId.value) refreshPermissionGates()
+        }
+        observe(NotificationCenter.selectedClanChanged) { _, _, _ ->
+            if (isPaused) return@observe
+            if (clanId == 0L) refreshPermissionGates()
+        }
         observe(NotificationCenter.messagesDidLoad) { _, _, args ->
             if (args.size < 5 || args[0] != channelId) return@observe
             @Suppress("UNCHECKED_CAST")
@@ -1035,6 +1054,9 @@ class ChatFragment : BaseFragment() {
         observe(NotificationCenter.dialogsNeedReload) { _, _, _ ->
             Log.d("DmCallMenu", "dialogsNeedReload fired isPaused=$isPaused clanId=$clanId channelType=$channelType actionBar=${actionBar != null}")
             if (isPaused) return@observe
+            if (clanId == 0L && channelType == CHANNEL_TYPE_GROUP) {
+                refreshPermissionGates()
+            }
             if (clanId != 0L || channelType != CHANNEL_TYPE_DM) return@observe
             actionBar?.let { setupDmHeaderCallMenu(it) }
         }
@@ -1064,6 +1086,7 @@ class ChatFragment : BaseFragment() {
         userController = entryPoint.userController()
         memberResolver = entryPoint.memberResolver()
         roleController = entryPoint.roleController()
+        permissionPolicy = entryPoint.permissionPolicy()
         searchController = entryPoint.searchController()
         callController = entryPoint.callController()
         callManager = entryPoint.callManager()
@@ -1859,6 +1882,7 @@ class ChatFragment : BaseFragment() {
 
         fragmentView = rootView
         refreshUI()
+        refreshPermissionGates()
         return rootView
     }
 
@@ -2146,6 +2170,7 @@ class ChatFragment : BaseFragment() {
                 }
 
                 override fun onStickerSelected(sticker: StickerItem, isAudio: Boolean) {
+                    if (!ensureCanSendMessageOrNotify()) return
                     if (sticker.isForSale && sticker.src.isBlank()) return
                     val url = resolveStickerSourceUrl(sticker.id, sticker.src)
                     if (url.isBlank()) return
@@ -2160,6 +2185,7 @@ class ChatFragment : BaseFragment() {
                 }
 
                 override fun onGifSelected(gifUrl: String) {
+                    if (!ensureCanSendMessageOrNotify()) return
                     val references = buildReplyReferences()
                     chatController.sendDirectAttachment(
                         channelId, clanId, channelType, resolveChannelPrivate(),
@@ -3207,8 +3233,13 @@ class ChatFragment : BaseFragment() {
         val rawInput = inputField.text?.toString() ?: ""
         val text = rawInput.trim()
         if (text.isBlank() && pendingAttachments.isEmpty()) return
-
         val editMsg = editingMessage
+        if (editMsg == null && !canSendMessageInCurrentChannel()) {
+            refreshPermissionGates()
+            MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.message_no_send_permission))
+            return
+        }
+
         val isPrivate = resolveChannelPrivate()
         val references = buildReplyReferences()
 
@@ -3349,6 +3380,7 @@ class ChatFragment : BaseFragment() {
 
     private fun tryPasteImageFromClipboard(ctx: Context) {
         dismissPasteImagePopup()
+        if (!ensureCanSendMessageOrNotify()) return
         val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         val uri = imageClipboardCoordinator.resolvePasteImageUri(ctx, cm)
         if (uri == null) {
@@ -3385,6 +3417,7 @@ class ChatFragment : BaseFragment() {
     }
 
     private fun showAttachmentPicker() {
+        if (!ensureCanSendMessageOrNotify()) return
         val activity = getParentActivity() ?: return
         if (activity.isFinishing || activity.isDestroyed) return
 
@@ -3458,11 +3491,13 @@ class ChatFragment : BaseFragment() {
         val alert = ChatAttachAlert(ctx, mediaController, themeColors)
         alert.attachDelegate = object : ChatAttachAlert.ChatAttachAlertDelegate {
             override fun onAttachmentsSelected(items: List<AttachmentPickerItem>) {
+                if (!ensureCanSendMessageOrNotify()) return
                 pendingAttachments.addAll(items)
                 updateAttachmentPreview()
                 updateSendButtonState()
             }
             override fun onFilesRequested() {
+                if (!ensureCanSendMessageOrNotify()) return
                 launchDocumentPicker()
             }
         }
@@ -3472,17 +3507,21 @@ class ChatFragment : BaseFragment() {
 
     private fun showAdvancedFunctionMenu() {
         dismissPasteImagePopup()
+        if (!ensureCanSendMessageOrNotify()) return
         val ctx = getContext() ?: return
         val isAnon = anonymousController.isAnonymous(clanId)
         val alert = AdvancedAttachAlert(ctx, themeColors, clanId, isAnon)
         alert.advancedDelegate = object : AdvancedAttachAlert.AdvancedAttachAlertDelegate {
             override fun onLocationSelected() {
+                if (!ensureCanSendMessageOrNotify()) return
                 requestLocationAndSend()
             }
             override fun onFilesSelected() {
+                if (!ensureCanSendMessageOrNotify()) return
                 launchDocumentPicker()
             }
             override fun onBuzzSelected() {
+                if (!ensureCanSendMessageOrNotify()) return
                 showBuzzConfirmDialog()
             }
             override fun onAnonymousToggled() {
@@ -3494,6 +3533,7 @@ class ChatFragment : BaseFragment() {
     }
 
     private fun launchDocumentPicker() {
+        if (!ensureCanSendMessageOrNotify()) return
         val activity = getParentActivity() ?: return
         if (activity.isFinishing || activity.isDestroyed) return
         val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
@@ -3508,6 +3548,7 @@ class ChatFragment : BaseFragment() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         if (requestCode != REQUEST_CODE_PICK_FILE || resultCode != android.app.Activity.RESULT_OK) return
+        if (!ensureCanSendMessageOrNotify()) return
         val uri = data?.data ?: return
         val ctx = getContext() ?: return
         val item = AttachmentPickerItem.fromDocumentUri(ctx, uri) ?: return
@@ -3529,6 +3570,7 @@ class ChatFragment : BaseFragment() {
     }
 
     private fun requestLocationAndSend() {
+        if (!ensureCanSendMessageOrNotify()) return
         val activity = getParentActivity() ?: return
         val ctx = getContext() ?: return
 
@@ -3622,6 +3664,7 @@ class ChatFragment : BaseFragment() {
             .setTitle(getString(R.string.share_location_title, channelName))
             .setMessage(getString(R.string.share_location_coordinate, latitude, longitude))
             .setPositiveButton(getString(R.string.share_location_send)) { _, _ ->
+                if (!ensureCanSendMessageOrNotify()) return@setPositiveButton
                 chatController.sendLocation(
                     channelId, clanId, channelType, resolveChannelPrivate(), latitude, longitude
                 )
@@ -3660,6 +3703,7 @@ class ChatFragment : BaseFragment() {
             .setTitle(getString(R.string.buzz_dialog_title))
             .setView(inputView)
             .setPositiveButton(getString(R.string.buzz_dialog_send)) { _, _ ->
+                if (!ensureCanSendMessageOrNotify()) return@setPositiveButton
                 val buzzText = inputView.text?.toString()?.trim().orEmpty()
                 if (buzzText.isNotBlank()) {
                     chatController.sendBuzzMessage(
@@ -3675,12 +3719,21 @@ class ChatFragment : BaseFragment() {
     private fun updateSendButtonState() {
         val hasText = inputField.text?.isNotBlank() == true
         val hasAttachments = pendingAttachments.isNotEmpty()
-        val showSend = hasText || hasAttachments
+        val canSend = editingMessage != null || canSendMessageInCurrentChannel()
+        val showSend = canSend && (hasText || hasAttachments)
         sendButton.visibility = if (showSend) View.VISIBLE else View.GONE
+        attachButton.isEnabled = canSend
+        attachButton.alpha = if (canSend) 1f else 0.45f
+        advancedFunctionButton.isEnabled = canSend
+        advancedFunctionButton.alpha = if (canSend) 1f else 0.45f
+        emojiButton.isEnabled = canSend
+        emojiButton.alpha = if (canSend) 1f else 0.45f
+        inputField.isEnabled = canSend
+        inputField.alpha = if (canSend) 1f else 0.6f
         if (voiceIsRecording) {
             micButton.visibility = View.VISIBLE
         } else {
-            micButton.visibility = if (showSend) View.GONE else View.VISIBLE
+            micButton.visibility = if (canSend && !showSend) View.VISIBLE else View.GONE
         }
     }
 
@@ -3760,6 +3813,10 @@ class ChatFragment : BaseFragment() {
 
     private fun onVoiceLongPressFired() {
         voiceLongPressFired = true
+        if (!ensureCanSendMessageOrNotify()) {
+            voiceLongPressFired = false
+            return
+        }
         val ctx = getContext() ?: return
         if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED
@@ -3857,6 +3914,10 @@ class ChatFragment : BaseFragment() {
     }
 
     private fun sendVoiceRecording(file: java.io.File, durationMs: Long) {
+        if (!ensureCanSendMessageOrNotify()) {
+            try { file.delete() } catch (_: Exception) {}
+            return
+        }
         val ctx = getContext() ?: return
         val durationSec = (durationMs / 1000).toInt().coerceAtLeast(1)
         val item = AttachmentPickerItem(
@@ -4252,6 +4313,67 @@ class ChatFragment : BaseFragment() {
         return true
     }
 
+    private fun refreshPermissionGates() {
+        if (channelId != 0L) {
+            permissionPolicy.ensurePermissionChecker(
+                listOf(
+                    PermissionPolicy.CLAN_OWNER,
+                    PermissionPolicy.MANAGE_CHANNEL,
+                    PermissionPolicy.SEND_MESSAGE,
+                    PermissionPolicy.DELETE_MESSAGE,
+                    PermissionPolicy.MANAGE_THREAD
+                ),
+                channelId,
+                clanId
+            )
+        }
+        if (::sendButton.isInitialized) {
+            updateSendButtonState()
+        }
+    }
+
+    private fun canSendMessageInCurrentChannel(): Boolean {
+        if (channelId == 0L) return false
+        if (clanId == 0L || channelType == CHANNEL_TYPE_DM || channelType == CHANNEL_TYPE_GROUP) return true
+        if (!permissionPolicy.hasCachedChannelUserPermissions(channelId)) return true
+        return permissionPolicy.checkPermission(PermissionPolicy.SEND_MESSAGE, channelId, clanId)
+    }
+
+    private fun ensureCanSendMessageOrNotify(): Boolean {
+        if (canSendMessageInCurrentChannel()) return true
+        refreshPermissionGates()
+        MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.message_no_send_permission))
+        return false
+    }
+
+    private fun isProtectedTopicDeleteMessage(msg: MessageEntity): Boolean {
+        if (msg.code == MessageEntity.CODE_TOPIC) return true
+        val hasTopicPayload = runCatching { org.json.JSONObject(msg.content).has("tp") }.getOrDefault(false)
+        if (hasTopicPayload) return true
+        val isThread = channelType == CHANNEL_TYPE_THREAD || routeParentId != 0L
+        if (!isThread) return false
+        val firstMessageId = messages.filterNot { it.isUnreadDivider }.minOfOrNull { it.id } ?: return false
+        return msg.id == firstMessageId
+    }
+
+    private fun canDeleteMessageInCurrentChannel(msg: MessageEntity, isMyMessage: Boolean): Boolean {
+        if (isProtectedTopicDeleteMessage(msg)) return false
+        if (isMyMessage) return true
+        if (clanId == 0L) {
+            if (channelType == CHANNEL_TYPE_GROUP) {
+                val creatorId = dialogsController.getDialog(channelId)?.groupCreatorId ?: 0L
+                if (creatorId != 0L && creatorId == chatController.getCurrentUserId()) return true
+            }
+            return false
+        }
+        return permissionPolicy.checkPermission(PermissionPolicy.DELETE_MESSAGE, channelId, clanId)
+    }
+
+    private fun canManageThreadInCurrentChannel(): Boolean {
+        if (!canShowCreateThreadInMessageMenu()) return false
+        return permissionPolicy.canCreateThreadFromMessage(channelId, clanId)
+    }
+
     private fun showMessageActionSheet(msg: MessageEntity) {
         val ctx = getContext() ?: return
         val activity = getParentActivity() ?: return
@@ -4270,8 +4392,8 @@ class ChatFragment : BaseFragment() {
             isMyMessage = isMyMessage,
             isDM = clanId == 0L,
             isPinned = pinMessageController.isPinned(channelId, msg.id),
-            canDeleteMessage = isMyMessage, // TODO: check permission
-            canManageThread = canShowCreateThreadInMessageMenu(),
+            canDeleteMessage = canDeleteMessageInCurrentChannel(msg, isMyMessage),
+            canManageThread = canManageThreadInCurrentChannel(),
             hasMedia = hasMedia,
             hasImage = hasImage,
             showForwardSingle = allowFwd,
@@ -4510,6 +4632,11 @@ class ChatFragment : BaseFragment() {
                 showDeleteConfirmation(msg)
             }
             MessageActionBottomSheet.ActionType.CreateThread -> {
+                if (!canManageThreadInCurrentChannel()) {
+                    refreshPermissionGates()
+                    MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.channel_permissions_no_access))
+                    return
+                }
                 presentFragment(
                     CreateThreadFragment.newInstance(
                         channelId,

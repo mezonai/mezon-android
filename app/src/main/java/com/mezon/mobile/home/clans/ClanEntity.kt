@@ -41,8 +41,8 @@ fun ClanDesc.mergeOnto(existing: ClanEntity): ClanEntity {
     return p.copy(
         clanId = existing.clanId,
         clanName = p.clanName.ifEmpty { existing.clanName },
-        logo = p.logo.ifEmpty { existing.logo },
-        banner = p.banner.ifEmpty { existing.banner },
+        logo = p.logo,
+        banner = p.banner,
         badgeCount = existing.badgeCount,
         hasUnread = existing.hasUnread,
         clanOrder = existing.clanOrder,

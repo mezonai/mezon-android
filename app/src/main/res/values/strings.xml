@@ -362,7 +362,73 @@
     <string name="clan_settings_enable_community">Enable Community</string>
     <string name="clan_settings_members">Members</string>
     <string name="clan_settings_roles">Roles</string>
-    <string name="clan_settings_invites">Invites</string>   
+    <string name="clan_settings_invites">Invites</string>
+    <string name="clan_roles_description">Use roles to group your clan members and assign permissions</string>
+    <string name="clan_roles_default_role">Default permission for all clan members</string>
+    <string name="clan_roles_header_count">Roles - %1$d</string>
+    <string name="clan_roles_member_count">%1$d - Members</string>
+    <string name="clan_roles_no_roles">There are currently no roles</string>
+    <string name="clan_roles_all_members">All Members</string>
+    <string name="clan_roles_add_content_desc">Add role</string>
+    <string name="clan_roles_create_step_title">Step 1 of 3</string>
+    <string name="clan_roles_create_heading">Create a new role</string>
+    <string name="clan_roles_create_body">Give this role a unique name and color. You can always change this later.</string>
+    <string name="clan_roles_create_name_label">Role Name</string>
+    <string name="clan_roles_create_name_placeholder">New role</string>
+    <string name="clan_roles_create_button">Create</string>
+    <string name="clan_roles_create_success">Created %1$s successfully</string>
+    <string name="clan_roles_perm_step_title">Step 2 of 3</string>
+    <string name="clan_roles_perm_heading">Set up permissions</string>
+    <string name="clan_roles_perm_search">Search Permissions</string>
+    <string name="clan_roles_perm_next">Next</string>
+    <string name="clan_roles_members_step_title">Step 3 of 3</string>
+    <string name="clan_roles_members_heading">Add members</string>
+    <string name="clan_roles_members_body">Assign this role to your members. Members can have more than one role.</string>
+    <string name="clan_roles_members_search">Search Members</string>
+    <string name="clan_roles_members_finish">Finish</string>
+    <string name="clan_roles_members_added">Add member successfully</string>
+    <string name="clan_roles_members_none">No members found</string>
+    <string name="clan_roles_detail_role">Role</string>
+    <string name="clan_roles_detail_role_name">Role Name</string>
+    <string name="clan_roles_detail_permissions">Permissions</string>
+    <string name="clan_roles_detail_members">Members</string>
+    <string name="clan_roles_detail_save">Save</string>
+    <string name="clan_roles_detail_delete">Delete Role</string>
+    <string name="clan_roles_detail_color">Role Color</string>
+    <string name="clan_roles_detail_icon">Role Icon</string>
+    <string name="clan_roles_detail_icon_upload_hint">Choose image</string>
+    <string name="clan_roles_icon_image_set">Custom icon</string>
+    <string name="clan_roles_icon_choose">Choose image</string>
+    <string name="clan_roles_icon_remove">Remove</string>
+    <string name="clan_roles_icon_picker_title">Select image</string>
+    <string name="clan_roles_icon_too_large">Image must be at most 256 KB</string>
+    <string name="clan_roles_changes_saved">Changes Saved</string>
+    <string name="clan_roles_failed">Failed</string>
+    <string name="clan_roles_back_content_desc">Back</string>
+    <string name="clan_roles_confirm_save_title">Save changes?</string>
+    <string name="clan_roles_confirm_save_message">You\'ve made changes. Do you want to save them?</string>
+    <string name="clan_roles_confirm_yes">Yes</string>
+    <string name="clan_roles_confirm_delete_title">Delete role</string>
+    <string name="clan_roles_confirm_delete_message">Are you sure you want to delete this role?</string>
+    <string name="clan_roles_color_picker_title">Pick a Color</string>
+    <string name="clan_roles_color_save">Save</string>
+    <string name="clan_roles_color_reset">Reset</string>
+    <string name="clan_roles_perm_desc_fallback">Permission description not available</string>
+    <string name="clan_roles_perm_title_administrator">Administrator</string>
+    <string name="clan_roles_perm_title_view_channel">View Channels</string>
+    <string name="clan_roles_perm_title_manage_channel">Manage Channels</string>
+    <string name="clan_roles_perm_title_manage_clan">Manage Clan</string>
+    <string name="clan_roles_perm_title_manage_thread">Manage Threads</string>
+    <string name="clan_roles_perm_title_send_message">Send Messages</string>
+    <string name="clan_roles_perm_title_delete_message">Delete Messages</string>
+    <string name="clan_roles_perm_title_clan_owner">Clan Owner</string>
+    <string name="clan_roles_perm_desc_administrator">Allows members to manage entire clan (just lower than owner permission).</string>
+    <string name="clan_roles_perm_desc_view_channel">Allows members to view public channels.</string>
+    <string name="clan_roles_perm_desc_manage_channel">Allows members to create, edit, or delete channels.</string>
+    <string name="clan_roles_perm_desc_manage_clan">Allows members to control clan settings, manage roles and channels, and oversee member activities, ensuring effective administration and a well-organized community.</string>
+    <string name="clan_roles_perm_desc_manage_thread">Allows members to create, edit, delete threads in the channel (including private threads).</string>
+    <string name="clan_roles_perm_desc_send_message">Allow members to send messages in public channels (including threads and topics within those channels).</string>
+    <string name="clan_roles_perm_desc_delete_message">Allows members to delete messages in public channels (including threads and topics within those channels).</string>
     <string name="clan_settings_change_logo">Change clan logo</string>
     <string name="image_crop_choose">Choose</string>
     <string name="image_crop_rotate_left_cd">Rotate left</string>
@@ -1014,6 +1080,7 @@
     <string name="channel_creator_private_description">By making a private channel, only select members and roles will be able to view this channel</string>
     <string name="category_menu_create_channel">Create channel</string>
     <string name="category_menu_create_channel_unavailable">Create channel isn’t available for this category right now.</string>
+    <string name="channel_open_no_view_permission">You don’t have permission to view this channel.</string>
 
     <!-- Channel / thread settings (ChannelSetting RN port) -->
     <string name="channel_settings_title_channel">Channel settings</string>
@@ -1039,12 +1106,23 @@
     <string name="channel_settings_menu_leave_thread">Leave thread</string>
     <string name="channel_settings_delete_confirm_channel_title">Delete channel?</string>
     <string name="channel_settings_delete_confirm_thread_title">Delete thread?</string>
-    <string name="channel_settings_delete_confirm_message">This will permanently delete \"%s\". This cannot be undone.</string>
+    <string name="channel_settings_delete_confirm_message">This will permanently delete "%s". This cannot be undone.</string>
     <string name="channel_settings_leave_confirm_title">Leave thread?</string>
-    <string name="channel_settings_leave_confirm_message">You will no longer see \"%s\" in this clan.</string>
+    <string name="channel_settings_leave_confirm_message">You will no longer see "%s" in this clan.</string>
     <string name="channel_settings_delete_system_channel">This channel is used for system messages and cannot be deleted.</string>
     <string name="channel_settings_delete_failed">Could not delete: %s</string>
     <string name="channel_settings_leave_failed">Could not leave: %s</string>
+
+    <string name="channel_settings_title">Channel Settings</string>
+    <string name="channel_settings_save">Save</string>
+    <string name="channel_settings_channel_topic">Channel Topic</string>
+    <string name="channel_settings_change_category">Change Category</string>
+    <string name="channel_settings_permissions">Channel Permissions</string>
+    <string name="channel_settings_quick_action">Quick Action</string>
+    <string name="channel_settings_ban_list">Ban List</string>
+    <string name="channel_settings_permission_description">Change privacy settings and customize how members can interact with this channel.</string>
+    <string name="channel_settings_webhooks">Webhooks</string>
+    <string name="channel_settings_delete_channel">Delete Channel</string>
 
     <!-- Channel permission (Basic / Advanced) -->
     <string name="channel_permission_title">Channel permissions</string>
@@ -1072,6 +1150,33 @@
     <string name="channel_permission_saved">Permissions saved</string>
     <string name="channel_permission_save_failed">Could not save permissions</string>
     <string name="channel_permission_load_failed">Could not load permissions</string>
+
+    <string name="channel_permissions_title">Permissions</string>
+    <string name="channel_permissions_overrides">Permission Overrides</string>
+    <string name="channel_permissions_save">Save</string>
+    <string name="channel_permissions_general_channel_permissions">GENERAL CHANNEL PERMISSIONS</string>
+    <string name="channel_permissions_basic_view">Basic View</string>
+    <string name="channel_permissions_advanced_view">Advanced View</string>
+    <string name="channel_permissions_roles">Roles</string>
+    <string name="channel_permissions_members">Members</string>
+    <string name="channel_permissions_add">Add</string>
+    <string name="channel_permissions_add_members_or_roles">Add members or roles</string>
+    <string name="channel_permissions_role_member_placeholder">Role/Member</string>
+    <string name="channel_permissions_private_channel">Private Channel</string>
+    <string name="channel_permissions_basic_description">By making a channel private, only select members and roles will be able to view this channel</string>
+    <string name="channel_permissions_who_can_access">Who can access</string>
+    <string name="channel_permissions_creator_badge">Creator</string>
+    <string name="channel_permissions_role_badge">Role</string>
+    <string name="channel_permissions_unsaved_title">You have unsaved settings</string>
+    <string name="channel_permissions_unsaved_content">Do you want to save the changes?</string>
+    <string name="channel_permissions_unsaved_confirm">Yes, Save</string>
+    <string name="channel_permissions_desc_view_channel">Allows members to view this channel by default. Disabling this for \u0040everyone will make this channel private.</string>
+    <string name="channel_permissions_desc_manage_channel">Allows members to change this channel\'s name, description, and text settings. They can also delete the channel.</string>
+    <string name="channel_permissions_toast_success">Save Successfully</string>
+    <string name="channel_permissions_toast_failed">Save Failed</string>
+    <string name="channel_permissions_role_member_empty">There are no roles and members to override permissions</string>
+    <string name="channel_permissions_no_matches">No matching roles or members</string>
+    <string name="channel_permissions_no_access">You don\'t have permission to manage this channel.</string>
 
     <!-- Poll messages -->
     <string name="poll_select_one">Select one answer</string>
@@ -1126,12 +1231,9 @@
 
     <string name="call_busy_status">Busy</string>
     <string name="call_busy_peer_status">%1$s is busy</string>
-
     <string name="call_full_screen_intent_title">Fullscreen incoming calls</string>
     <string name="call_full_screen_intent_message">Allow Mezon to use fullscreen notifications while the device is locked so you won’t miss voice calls.</string>
     <string name="call_full_screen_intent_open_settings">Turn on</string>
     <string name="call_full_screen_intent_start_call_anyway">Start call anyway</string>
     <string name="call_full_screen_intent_incoming_hint">Fullscreen while locked off — tap to turn on</string>
-    <string name="call_busy_status">Busy</string>
-    <string name="call_busy_peer_status">%1$s is busy</string>
 </resources>

@@ -23,6 +23,7 @@ class CategoryMenuBottomSheet(
     private val clanName: String,
     private val clanLogoUrl: String,
     private val categoryId: Long,
+    private val canManageChannel: Boolean,
     private val onCreateChannel: () -> Unit
 ) : BottomSheet(context) {
 
@@ -68,15 +69,15 @@ class CategoryMenuBottomSheet(
         })
         header.addView(title, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f))
 
-        val canCreateInThisCategory = categoryId != 0L
+        val interactiveCreate = canManageChannel && categoryId != 0L
         val rowLabelColor =
-            if (canCreateInThisCategory) themeColors.textStrong else themeColors.onSurfaceVariant
+            if (interactiveCreate) themeColors.textStrong else themeColors.onSurfaceVariant
 
         val createRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(LayoutHelper.dp(14), LayoutHelper.dp(14), LayoutHelper.dp(14), LayoutHelper.dp(14))
-            background = if (canCreateInThisCategory) {
+            background = if (interactiveCreate) {
                 android.graphics.drawable.RippleDrawable(
                     android.content.res.ColorStateList.valueOf(themeColors.onSurface and 0x1AFFFFFF),
                     android.graphics.drawable.ColorDrawable(themeColors.surfaceVariant),
@@ -85,9 +86,9 @@ class CategoryMenuBottomSheet(
             } else {
                 android.graphics.drawable.ColorDrawable(themeColors.surfaceVariant)
             }
-            isClickable = canCreateInThisCategory
-            isFocusable = canCreateInThisCategory
-            if (canCreateInThisCategory) {
+            isClickable = interactiveCreate
+            isFocusable = interactiveCreate
+            if (interactiveCreate) {
                 setOnClickListener {
                     dismiss()
                     onCreateChannel()
@@ -109,7 +110,7 @@ class CategoryMenuBottomSheet(
         }
         createRow.addView(createLabel, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f))
 
-        createRow.contentDescription = if (canCreateInThisCategory) {
+        createRow.contentDescription = if (interactiveCreate) {
             context.getString(R.string.category_menu_create_channel)
         } else {
             "${context.getString(R.string.category_menu_create_channel)}. " +
@@ -126,7 +127,7 @@ class CategoryMenuBottomSheet(
             })
         }
 
-        if (!ClanChannelManagePermissions.canOfferCreateChannelInCategory(clanId)) {
+        if (!canManageChannel) {
             createRow.visibility = View.GONE
         }
 

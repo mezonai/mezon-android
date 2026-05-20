@@ -10,6 +10,7 @@ import com.mezon.mobile.home.extractLastSeenMessageId
 import com.mezon.mobile.home.extractLastSeenMessageTs
 import com.mezon.mobile.home.extractLastSentMessageId
 import com.mezon.mobile.home.extractLastSentMessageTs
+import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.util.parseContentPreview
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
@@ -64,7 +65,8 @@ data class DirectMessage(
     val lastSeenMessageId: Long = 0L,
     val lastSentMessageId: Long = 0L,
     val lastSeenMessageTs: Long = 0L,
-    val lastSentMessageTs: Long = 0L
+    val lastSentMessageTs: Long = 0L,
+    val groupCreatorId: Long = 0L,
 )
 
 
@@ -111,6 +113,8 @@ fun ChannelDescription.toDirectMessage(currentUserId: Long, previewContext: andr
         else parseContentPreview(lastSentMessage.content)
     } else ""
 
+    val groupCreatorId = if (type == CHANNEL_TYPE_GROUP) creatorId else 0L
+
     return DirectMessage(
         channelId = channelId,
         type = type,
@@ -126,7 +130,8 @@ fun ChannelDescription.toDirectMessage(currentUserId: Long, previewContext: andr
         lastSeenMessageId = extractLastSeenMessageId(),
         lastSentMessageId = extractLastSentMessageId(),
         lastSeenMessageTs = extractLastSeenMessageTs(),
-        lastSentMessageTs = extractLastSentMessageTs()
+        lastSentMessageTs = extractLastSentMessageTs(),
+        groupCreatorId = groupCreatorId,
     )
 }
 

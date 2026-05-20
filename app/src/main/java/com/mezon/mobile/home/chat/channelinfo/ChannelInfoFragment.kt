@@ -17,6 +17,7 @@ import android.widget.TextView
 import android.widget.Toast
 
 import androidx.recyclerview.widget.LinearLayoutManager
+import com.mezon.mobile.R
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
@@ -30,6 +31,8 @@ import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.MemberResolver
 import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.clans.ChannelController
+import com.mezon.mobile.home.clans.ChannelPermissionController
+import com.mezon.mobile.home.clans.PermissionPolicy
 import com.mezon.mobile.home.clans.CHANNEL_TYPE_APP
 import com.mezon.mobile.home.clans.CHANNEL_TYPE_STREAMING
 import com.mezon.mobile.home.profile.UserController
@@ -90,6 +93,10 @@ class ChannelInfoFragment : BaseFragment() {
     private lateinit var userController: UserController
     private lateinit var pinMessageController: PinMessageController
     private lateinit var channelController: ChannelController
+    private lateinit var channelPermissionController: ChannelPermissionController
+    private lateinit var permissionPolicy: PermissionPolicy
+    private var settingsActionGap: View? = null
+    private var settingsActionView: View? = null
 
     private lateinit var channelFilesController: ChannelFilesController
     private lateinit var channelGalleryController: ChannelGalleryController
@@ -152,6 +159,21 @@ class ChannelInfoFragment : BaseFragment() {
             val ch = args.firstOrNull() as? Long ?: return@observe
             if (ch == channelId) filesTab?.onRemoteChannelFiles(ch)
         }
+        observe(NotificationCenter.channelPermissionsDidLoad) { _, _, args ->
+            if (isPaused) return@observe
+            val ch = args.firstOrNull() as? Long ?: return@observe
+            if (ch == channelId) updateSettingsActionVisibility()
+        }
+        observe(NotificationCenter.channelPermissionOverridesDidLoad) { _, _, args ->
+            if (isPaused) return@observe
+            val ch = args.firstOrNull() as? Long ?: return@observe
+            if (ch == channelId) updateSettingsActionVisibility()
+        }
+        observe(NotificationCenter.clanRolesDidLoad) { _, _, args ->
+            if (isPaused) return@observe
+            val changedClanId = args.firstOrNull() as? Long ?: return@observe
+            if (changedClanId == clanId) updateSettingsActionVisibility()
+        }
 
         observeGlobal(NotificationCenter.channelGalleryDidLoad) { _, _, args ->
             if (isPaused) return@observeGlobal
@@ -167,6 +189,9 @@ class ChannelInfoFragment : BaseFragment() {
         }
 
         triggerMemberLoad()
+        if (clanId != 0L && channelId != 0L && !isDm) {
+            channelPermissionController.loadChannelPermissionData(clanId, channelId, channelType)
+        }
         return true
     }
 
@@ -177,6 +202,8 @@ class ChannelInfoFragment : BaseFragment() {
         userController = entryPoint.userController()
         pinMessageController = entryPoint.pinMessageController()
         channelController = entryPoint.channelController()
+        channelPermissionController = entryPoint.channelPermissionController()
+        permissionPolicy = entryPoint.permissionPolicy()
         channelFilesController = entryPoint.channelFilesController()
         channelGalleryController = entryPoint.channelGalleryController()
     }
@@ -378,18 +405,29 @@ class ChannelInfoFragment : BaseFragment() {
         }
 
         if (!isDmContext) {
-            addActionGap(row)
-            row.addView(createActionButton(context, MezonIcon.settingIcon, "Settings") {
-                Toast.makeText(context, "Coming soon", Toast.LENGTH_SHORT).show()
-            })
+            settingsActionGap = addActionGap(row)
+            val settingsAction = createActionButton(context, MezonIcon.settingIcon, "Settings") {
+                openChannelSettings(context)
+            }
+            settingsActionView = settingsAction
+            row.addView(settingsAction)
+            updateSettingsActionVisibility()
         }
 
         return row
     }
 
-    private fun addActionGap(row: LinearLayout) {
+    private fun addActionGap(row: LinearLayout): View {
         val gap = View(row.context)
         row.addView(gap, LinearLayout.LayoutParams(LayoutHelper.dp(30), 0))
+        return gap
+    }
+
+    private fun updateSettingsActionVisibility() {
+        val visible = !isDm && permissionPolicy.canOpenChannelSettings(channelId, clanId, channelType, routeParentId)
+        val visibility = if (visible) View.VISIBLE else View.GONE
+        settingsActionGap?.visibility = visibility
+        settingsActionView?.visibility = visibility
     }
 
     private fun createActionButton(
@@ -618,6 +656,28 @@ class ChannelInfoFragment : BaseFragment() {
             (getParentActivity() as? MainActivity)?.openChat(chId, chName, clId, chType)
         }
         presentFragment(fragment)
+    }
+
+    private fun openChannelSettings(context: Context) {
+        if (clanId == 0L || channelId == 0L) {
+            Toast.makeText(context, R.string.feature_coming_soon, Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (!permissionPolicy.canOpenChannelSettings(channelId, clanId, channelType, routeParentId)) {
+            channelPermissionController.loadChannelPermissionData(clanId, channelId, channelType, force = true)
+            Toast.makeText(context, getString(R.string.channel_permissions_no_access), Toast.LENGTH_SHORT).show()
+            return
+        }
+        val channel = channelController.findChannelById(channelId, clanId)
+        presentFragment(
+            ChannelSettingsFragment.newInstance(
+                channelId = channelId,
+                channelName = channelName,
+                clanId = clanId,
+                channelType = channelType,
+                isChannelPrivate = channel?.isPrivate ?: routeChannelPrivate,
+            )
+        )
     }
 
     private fun navigateToDm(member: ClanMember) {

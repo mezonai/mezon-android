@@ -8,12 +8,8 @@ import com.mezon.mobile.ui.theme.ThemeMode
 object CreateClanRnUiTokens {
 
     fun clanSettingDiagonalGradient(theme: ThemeColors): GradientDrawable {
-        val cols = intArrayOf(
-            theme.serverRailBg,
-            theme.primaryContainer,
-            theme.serverRailBg
-        )
-        return GradientDrawable(GradientDrawable.Orientation.TR_BL, cols).apply {
+        val cols = screenGradientColors(theme)
+        return GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(cols[0], cols[1])).apply {
             gradientType = GradientDrawable.LINEAR_GRADIENT
         }
     }
