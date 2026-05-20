@@ -170,6 +170,7 @@ class VoiceRoomFragment : BaseFragment() {
     data class FocusedContent(
         val videoTrack: VideoTrack?,
         val name: String,
+        val username: String,
         val avatarUrl: String?,
         val isMuted: Boolean,
         val isScreenShare: Boolean,
@@ -187,7 +188,7 @@ class VoiceRoomFragment : BaseFragment() {
                     val id = p.identity?.value ?: ""
                     val resolved = resolveMember(id, p.name?.toString() ?: id)
                     val avatar = effectiveAvatarUrl(resolved, p)
-                    return FocusedContent(track, resolved.displayName, avatar, isParticipantMicMuted(p), true, id.toLongOrNull() ?: 0L)
+                    return FocusedContent(track, resolved.displayName, resolved.username, avatar, isParticipantMicMuted(p), true, id.toLongOrNull() ?: 0L)
                 }
             }
         }
@@ -197,7 +198,7 @@ class VoiceRoomFragment : BaseFragment() {
             if (track != null) {
                 val resolved = resolveMember(localId, r.localParticipant.name?.toString() ?: "You")
                 val avatar = effectiveAvatarUrl(resolved, r.localParticipant)
-                return FocusedContent(track, resolved.displayName, avatar, isParticipantMicMuted(r.localParticipant), true, localId.toLongOrNull() ?: 0L)
+                return FocusedContent(track, resolved.displayName, resolved.username, avatar, isParticipantMicMuted(r.localParticipant), true, localId.toLongOrNull() ?: 0L)
             }
         }
 
@@ -208,7 +209,7 @@ class VoiceRoomFragment : BaseFragment() {
                     val id = p.identity?.value ?: ""
                     val resolved = resolveMember(id, p.name?.toString() ?: id)
                     val avatar = effectiveAvatarUrl(resolved, p)
-                    return FocusedContent(track, resolved.displayName, avatar, isParticipantMicMuted(p), false, id.toLongOrNull() ?: 0L)
+                    return FocusedContent(track, resolved.displayName, resolved.username, avatar, isParticipantMicMuted(p), false, id.toLongOrNull() ?: 0L)
                 }
             }
         }
@@ -218,12 +219,12 @@ class VoiceRoomFragment : BaseFragment() {
             if (track != null) {
                 val resolved = resolveMember(localId, r.localParticipant.name?.toString() ?: "You")
                 val avatar = effectiveAvatarUrl(resolved, r.localParticipant)
-                return FocusedContent(track, resolved.displayName, avatar, isParticipantMicMuted(r.localParticipant), false, localId.toLongOrNull() ?: 0L)
+                return FocusedContent(track, resolved.displayName, resolved.username, avatar, isParticipantMicMuted(r.localParticipant), false, localId.toLongOrNull() ?: 0L)
             }
         }
 
         val first = participants.firstOrNull() ?: return null
-        return FocusedContent(null, first.name, first.avatarUrl, first.isMuted, false, first.identity.toLongOrNull() ?: 0L)
+        return FocusedContent(null, first.name, first.username, first.avatarUrl, first.isMuted, false, first.identity.toLongOrNull() ?: 0L)
     }
 
     private fun getMainActivity(): MainActivity? = getParentActivity() as? MainActivity
@@ -271,11 +272,11 @@ class VoiceRoomFragment : BaseFragment() {
         val focused = getFocusedContent()
         if (focused != null) {
             manager.updateMiniContent(
-                room, focused.videoTrack, focused.name,
+                room, focused.videoTrack, focused.name, focused.username,
                 focused.avatarUrl, focused.isMuted, focused.userId
             )
         } else {
-            manager.updateMiniContent(null, null, channelLabel, null, false, 0L)
+            manager.updateMiniContent(null, null, channelLabel, "", null, false, 0L)
         }
     }
 
@@ -325,7 +326,7 @@ class VoiceRoomFragment : BaseFragment() {
             val senderAvatar = findReactionMeta(emojis, SENDER_AVATAR_PREFIX)
             if (senderId != 0L && raiseUpReaction != null) {
                 val resolved = resolveRaiseHandDisplay(senderId, senderName, senderAvatar)
-                raiseHandOverlay?.showRaiseHand(senderId, resolved.first, resolved.second)
+                raiseHandOverlay?.showRaiseHand(senderId, resolved.displayName, resolved.username, resolved.avatarUrl)
             } else if (senderId != 0L && raiseDownReaction != null) {
                 raiseHandOverlay?.removeRaiseHand(senderId)
             }
@@ -1694,13 +1695,23 @@ class VoiceRoomFragment : BaseFragment() {
         return null
     }
 
-    private fun resolveRaiseHandDisplay(senderId: Long, senderName: String, senderAvatar: String): Pair<String, String?> {
+    private data class RaiseHandDisplay(
+        val displayName: String,
+        val username: String,
+        val avatarUrl: String?
+    )
+
+    private fun resolveRaiseHandDisplay(senderId: Long, senderName: String, senderAvatar: String): RaiseHandDisplay {
         if (senderId == userController.userId) {
             val selfName = senderName.ifBlank {
                 userController.displayName.ifBlank { userController.username }
             }
             val selfAvatar = senderAvatar.ifBlank { userController.avatarUrl }
-            return selfName to selfAvatar.ifBlank { null }
+            return RaiseHandDisplay(
+                displayName = selfName,
+                username = userController.username,
+                avatarUrl = selfAvatar.ifBlank { null }
+            )
         }
         val members = userClanController.getClanMembers(clanId)
         val member = members.firstOrNull { it.userId == senderId }
@@ -1713,11 +1724,19 @@ class VoiceRoomFragment : BaseFragment() {
             val avatar = senderAvatar.ifBlank {
                 member.clanAvatar.ifBlank { member.avatarUrl }
             }
-            return name to avatar.ifBlank { null }
+            return RaiseHandDisplay(
+                displayName = name,
+                username = member.username,
+                avatarUrl = avatar.ifBlank { null }
+            )
         }
-        val fallbackName = senderName.ifBlank { "User" }
-        val fallbackAvatar = senderAvatar.ifBlank { null }
-        return fallbackName to fallbackAvatar
+        val user = userClanController.getUserById(senderId)
+        val fallbackName = senderName.ifBlank { user?.username ?: "User" }
+        return RaiseHandDisplay(
+            displayName = fallbackName,
+            username = user?.username.orEmpty(),
+            avatarUrl = senderAvatar.ifBlank { user?.avatarUrl }.orEmpty().ifBlank { null }
+        )
     }
 
 }

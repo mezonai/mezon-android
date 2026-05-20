@@ -13,6 +13,7 @@ sealed class CallState {
 data class CallInfo(
     val peerId: Long,
     val peerName: String,
+    val peerUsername: String = "",
     val peerAvatar: String?,
     val channelId: Long,
     val isVideo: Boolean,

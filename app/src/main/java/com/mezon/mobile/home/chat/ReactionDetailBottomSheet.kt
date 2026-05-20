@@ -298,20 +298,16 @@ class ReactionDetailBottomSheet(
                 if (cached != null) {
                     avatarView.setImageBitmap(cached)
                 } else {
-                    val firstName = name.split(" ").firstOrNull() ?: ""
-                    val lastName = name.split(" ").drop(1).lastOrNull() ?: ""
                     val ad = AvatarDrawable()
-                    ad.setInfo(sender.senderId, firstName, lastName)
+                    ad.setInfo(sender.senderId, member?.username)
                     avatarView.setImageDrawable(ad)
                     loader.load(avatarUrl, size, size, onSuccess = { bmp ->
                         avatarView.setImageBitmap(bmp)
                     })
                 }
             } else {
-                val firstName = name.split(" ").firstOrNull() ?: ""
-                val lastName = name.split(" ").drop(1).lastOrNull() ?: ""
                 val ad = AvatarDrawable()
-                ad.setInfo(sender.senderId, firstName, lastName)
+                ad.setInfo(sender.senderId, member?.username)
                 avatarView.setImageDrawable(ad)
             }
         }

@@ -51,7 +51,7 @@ class MessageSearchCell(context: Context, private val theme: ThemeColors) : Base
     fun update(mask: Int, newDoc: SearchMessageDocument? = null) {
         val doc = newDoc ?: document ?: return
         if (newDoc != null) document = newDoc
-        avatarDrawable.setInfo(doc.senderId.hashCode().toLong(), doc.displayName.ifEmpty { doc.username })
+        avatarDrawable.setInfo(doc.senderId.hashCode().toLong(), doc.username)
         loadAvatar(doc.avatarUrl)
         buildLayouts()
         invalidate()

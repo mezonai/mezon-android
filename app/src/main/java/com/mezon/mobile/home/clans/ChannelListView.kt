@@ -471,7 +471,10 @@ class ChannelListView(
                 }
                 is ChannelRow.VoiceMember -> {
                     (holder as VoiceMemberVH).cell.setUser(
-                        row.member.userId, row.member.displayName, row.member.avatarUrl
+                        row.member.userId,
+                        row.member.displayName,
+                        row.member.username,
+                        row.member.avatarUrl
                     )
                 }
                 is ChannelRow.VoiceCollapsedMembers -> {
@@ -515,6 +518,7 @@ private class RowDiffCallback(
 data class VoiceMemberDisplay(
     val userId: Long,
     val displayName: String,
+    val username: String = "",
     val avatarUrl: String?
 )
 

@@ -25,7 +25,10 @@ class SharingTargetAdapter(
         setHasStableIds(true)
     }
 
-    override fun getItemId(position: Int): Long = items[position].channelId
+    override fun getItemId(position: Int): Long {
+        val item = items[position]
+        return item.channelId * 31L + item.channelType
+    }
 
     override fun getItemCount(): Int = items.size
 
@@ -49,7 +52,7 @@ class SharingTargetAdapter(
         selectedKeys: Set<String> = emptySet()
     ) {
         forwardMode = isForwardMultiSelect
-        forwardSelectedKeys = selectedKeys
+        forwardSelectedKeys = selectedKeys.toSet()
         diffJob?.cancel()
         if (items.size < 50 && newItems.size < 50) {
             val result = DiffUtil.calculateDiff(Callback(items, newItems))
@@ -70,13 +73,14 @@ class SharingTargetAdapter(
 
     fun updateForwardSelection(selectedKeys: Set<String>) {
         val old = forwardSelectedKeys
-        forwardSelectedKeys = selectedKeys
-        if (old == selectedKeys) return
+        val next = selectedKeys.toSet()
+        if (old == next) return
+        forwardSelectedKeys = next
         for (i in items.indices) {
             val t = items[i]
             val key = "${t.channelId}_${t.channelType}"
             val wasSelected = key in old
-            val isSelected = key in selectedKeys
+            val isSelected = key in next
             if (wasSelected != isSelected) {
                 notifyItemChanged(i)
             }

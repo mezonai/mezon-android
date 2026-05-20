@@ -1138,7 +1138,7 @@ class SendTokenFragment : BaseFragment() {
         override fun onBindViewHolder(holder: Holder, position: Int) {
             val item = items[position]
             holder.itemView.tag = position
-            holder.avatar.setInfo(item.friend.user.id, item.displayName)
+            holder.avatar.setInfo(item.friend.user.id, item.username)
             holder.avatar.setImageUrl(item.avatarUrl.ifBlank { null })
             holder.nameTv.text = item.displayName
             holder.userTv.text = "@${item.username}"

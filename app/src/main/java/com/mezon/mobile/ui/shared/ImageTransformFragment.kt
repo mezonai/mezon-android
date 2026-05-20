@@ -658,7 +658,7 @@ open class ImageTransformFragment : BaseFragment() {
         return resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
     }
 
-    protected fun writeJpegUnderCap(bitmap: Bitmap, maxBytes: Int): File? {
+    protected open fun writeJpegUnderCap(bitmap: Bitmap, maxBytes: Int): File? {
         val ctx = getContext() ?: return null
         val file = File(ctx.cacheDir, "${cacheFilePrefix()}_${System.currentTimeMillis()}.jpg")
         var quality = EXPORT_JPEG_QUALITY_START

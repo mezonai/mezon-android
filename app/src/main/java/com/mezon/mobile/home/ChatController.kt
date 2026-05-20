@@ -85,6 +85,7 @@ class ChatController @Inject constructor(
     private val cacheTracker: ApiCacheTracker,
     private val dialogsController: DialogsController,
     private val badgeCoordinator: BadgeCoordinator,
+    private val forwardTargetUsageStore: ForwardTargetUsageStore,
     private val channelController: dagger.Lazy<com.mezon.mobile.home.clans.ChannelController>,
     private val userController: dagger.Lazy<UserController>,
     private val anonymousController: dagger.Lazy<AnonymousController>,
@@ -197,7 +198,12 @@ class ChatController @Inject constructor(
         }
     }
 
-    fun loadMessages(channelId: Long, clanId: Long, forceRefresh: Boolean = false) {
+    fun loadMessages(
+        channelId: Long,
+        clanId: Long,
+        forceRefresh: Boolean = false,
+        preferHttp: Boolean = false
+    ) {
         appScope.launch(ioDispatcher) {
             try {
                 val cacheKey = apiCacheKey("fetchMessages", clanId, channelId)
@@ -221,7 +227,12 @@ class ChatController @Inject constructor(
                 sessionManager.withAutoRefresh { session ->
                     val currentUserId = session.userId.toLongOrNull() ?: 0L
                     val response = api.listChannelMessages(
-                        session.apiUrl, session.token, channelId, clanId, limit = PAGE_SIZE
+                        session.apiUrl,
+                        session.token,
+                        channelId,
+                        clanId,
+                        limit = PAGE_SIZE,
+                        preferHttp = preferHttp
                     )
                     val allMessages = response.messagesList.map { it.toMessageEntity(currentUserId) }
                     val firstMessageReached = allMessages.any { it.code == MessageEntity.CODE_FIRST_MESSAGE }
@@ -257,7 +268,13 @@ class ChatController @Inject constructor(
         }
     }
 
-    fun loadMessagesAround(channelId: Long, clanId: Long, anchorMessageId: Long, requireExactAnchor: Boolean = false) {
+    fun loadMessagesAround(
+        channelId: Long,
+        clanId: Long,
+        anchorMessageId: Long,
+        requireExactAnchor: Boolean = false,
+        preferHttp: Boolean = false
+    ) {
         appScope.launch(ioDispatcher) {
             try {
                 val cacheKey = apiCacheKey("fetchMessages", clanId, channelId)
@@ -303,8 +320,14 @@ class ChatController @Inject constructor(
                 sessionManager.withAutoRefresh { session ->
                     val currentUserId = session.userId.toLongOrNull() ?: 0L
                     val response = api.listChannelMessages(
-                        session.apiUrl, session.token, channelId, clanId,
-                        anchorMessageId, DIRECTION_AROUND, PAGE_SIZE
+                        session.apiUrl,
+                        session.token,
+                        channelId,
+                        clanId,
+                        anchorMessageId,
+                        DIRECTION_AROUND,
+                        PAGE_SIZE,
+                        preferHttp = preferHttp
                     )
                     val allMsgs = response.messagesList.map { it.toMessageEntity(currentUserId) }
                     val firstMessageReached = allMsgs.any { it.code == MessageEntity.CODE_FIRST_MESSAGE }
@@ -507,6 +530,7 @@ class ChatController @Inject constructor(
             channelId = channelId,
             senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
             senderName = optName,
+            senderUsername = if (anon) "Anonymous" else uc.username,
             senderAvatar = optAvatar,
             content = optimisticContent,
             timestampSeconds = System.currentTimeMillis() / 1000,
@@ -542,6 +566,7 @@ class ChatController @Inject constructor(
                         if (anon) this.anonymousMessage = true
                     }
                     val ack = channelSend(session.apiUrl, session.token, request)
+                    markForwardTargetUsed(channelId, channelType)
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
                     )
@@ -572,6 +597,7 @@ class ChatController @Inject constructor(
             channelId = channelId,
             senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
             senderName = optName,
+            senderUsername = if (anon) "Anonymous" else uc.username,
             senderAvatar = optAvatar,
             content = contentJson,
             timestampSeconds = System.currentTimeMillis() / 1000,
@@ -594,6 +620,7 @@ class ChatController @Inject constructor(
                     if (anon) this.anonymousMessage = true
                 }
                 val ack = channelSend(session.apiUrl, session.token, request)
+                markForwardTargetUsed(channelId, channelType)
                 notificationCenter.postNotificationOnMainThread(
                     NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
                 )
@@ -642,6 +669,7 @@ class ChatController @Inject constructor(
             channelId = channelId,
             senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
             senderName = optName,
+            senderUsername = if (anon) "Anonymous" else uc.username,
             senderAvatar = optAvatar,
             content = content,
             timestampSeconds = System.currentTimeMillis() / 1000,
@@ -672,6 +700,7 @@ class ChatController @Inject constructor(
                         if (anon) this.anonymousMessage = true
                     }
                     val ack = channelSend(session.apiUrl, session.token, request)
+                    markForwardTargetUsed(channelId, channelType)
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
                     )
@@ -708,6 +737,7 @@ class ChatController @Inject constructor(
             channelId = channelId,
             senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
             senderName = optName,
+            senderUsername = if (anon) "Anonymous" else uc.username,
             senderAvatar = optAvatar,
             content = content,
             timestampSeconds = System.currentTimeMillis() / 1000,
@@ -733,6 +763,7 @@ class ChatController @Inject constructor(
                         if (anon) this.anonymousMessage = true
                     }
                     val ack = channelSend(session.apiUrl, session.token, request)
+                    markForwardTargetUsed(channelId, channelType)
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
                     )
@@ -767,6 +798,7 @@ class ChatController @Inject constructor(
             channelId = channelId,
             senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
             senderName = optName,
+            senderUsername = if (anon) "Anonymous" else uc.username,
             senderAvatar = optAvatar,
             content = content,
             timestampSeconds = System.currentTimeMillis() / 1000,
@@ -792,6 +824,7 @@ class ChatController @Inject constructor(
                         if (anon) this.anonymousMessage = true
                     }
                     val ack = channelSend(session.apiUrl, session.token, request)
+                    markForwardTargetUsed(channelId, channelType)
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
                     )
@@ -824,6 +857,10 @@ class ChatController @Inject constructor(
     private fun generateTempId(): Long {
         val ts = System.currentTimeMillis()
         return (ts shl 22) or (Thread.currentThread().id and 0x3FFFFF)
+    }
+
+    private fun markForwardTargetUsed(channelId: Long, channelType: Int) {
+        forwardTargetUsageStore.markLastSent(channelId, channelType)
     }
 
     private suspend fun ensureActiveArchivedThreadIfNeeded(
@@ -869,7 +906,9 @@ class ChatController @Inject constructor(
                 item.put("ref_type", ref.refType)
                 item.put("message_sender_id", ref.messageSenderId.toString())
                 item.put("message_sender_username", ref.messageSenderUsername)
+                item.put("message_sender_avatar", ref.messageSenderAvatar)
                 item.put("mesages_sender_avatar", ref.messageSenderAvatar)
+                item.put("message_sender_clan_nick", ref.messageSenderClanNick)
                 item.put("message_sender_display_name", ref.messageSenderDisplayName)
                 item.put("content", ref.content)
                 item.put("has_attachment", ref.hasAttachment)
@@ -945,6 +984,7 @@ class ChatController @Inject constructor(
             channelId = channelId,
             senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
             senderName = optName,
+            senderUsername = if (anon) "Anonymous" else uc.username,
             senderAvatar = optAvatar,
             content = optimisticContent,
             timestampSeconds = System.currentTimeMillis() / 1000,
@@ -1035,6 +1075,7 @@ class ChatController @Inject constructor(
                             if (anon) this.anonymousMessage = true
                         }
                         val ack = channelSend(session.apiUrl, session.token, request)
+                        markForwardTargetUsed(channelId, channelType)
                         notificationCenter.postNotificationOnMainThread(
                             NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
                         )
@@ -1099,6 +1140,7 @@ class ChatController @Inject constructor(
             channelId = channelId,
             senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
             senderName = optName,
+            senderUsername = if (anon) "Anonymous" else uc.username,
             senderAvatar = optAvatar,
             content = baseContent,
             timestampSeconds = System.currentTimeMillis() / 1000,
@@ -1189,6 +1231,7 @@ class ChatController @Inject constructor(
                             if (anon) this.anonymousMessage = true
                         }
                         val ack = channelSend(session.apiUrl, session.token, request)
+                        markForwardTargetUsed(channelId, channelType)
                         notificationCenter.postNotificationOnMainThread(
                             NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
                         )
@@ -1272,7 +1315,8 @@ class ChatController @Inject constructor(
         mentions: List<MentionData>? = null,
         emojiMarkers: List<EmojiMarker>? = null,
         markdownMarkers: List<MarkdownMarker>? = null,
-        hashtags: List<com.mezon.mobile.util.HashtagData>? = null
+        hashtags: List<com.mezon.mobile.util.HashtagData>? = null,
+        existingMessage: MessageEntity? = null
     ) {
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
@@ -1292,12 +1336,24 @@ class ChatController @Inject constructor(
                 e = m.endOffset
             }
         }
+        val protoAttachments = existingMessage?.allAttachmentsInfo?.map { att ->
+            messageAttachment {
+                filename = att.filename
+                size = att.size
+                url = att.url
+                filetype = att.filetype
+                width = att.width
+                height = att.height
+                thumbnail = att.thumb
+            }
+        }
         val request = channelMessageUpdate {
             this.clanId = clanId
             this.channelId = channelId
             this.messageId = messageId
             this.content = content
             protoMentions?.let { this.mentions.addAll(it) }
+            protoAttachments?.let { this.attachments.addAll(it) }
             this.mode = mode
             this.isPublic = isPublic
         }
@@ -1365,11 +1421,12 @@ class ChatController @Inject constructor(
                             entity.channelId, entity.id, entity.content,
                             entity.updateTimeSeconds, entity.hideEditted, entity.code
                         )
+                        val merged = messageDao.getById(entity.channelId, entity.id) ?: entity
+                        notificationCenter.postNotificationOnMainThread(
+                            NotificationCenter.messageDidUpdate, merged.channelId, merged,
+                            NotificationCenter.UPDATE_MASK_MESSAGE_TEXT
+                        )
                     }
-                    notificationCenter.postNotificationOnMainThread(
-                        NotificationCenter.messageDidUpdate, entity.channelId, entity,
-                        NotificationCenter.UPDATE_MASK_MESSAGE_TEXT
-                    )
                 }
                 CODE_CHAT_REMOVE -> {
                     appScope.launch { messageDao.delete(msg.channelId, msg.messageId) }
@@ -1628,6 +1685,7 @@ class ChatController @Inject constructor(
                             dest.clanId,
                             dest.channelType
                         )
+                        var sentToDestination = false
                         for (msg in messages) {
                             val wire = mergeFwdIntoContent(msg.content)
                             val mentionsProto: List<MessageMention>? =
@@ -1670,6 +1728,7 @@ class ChatController @Inject constructor(
                                     if (anon) anonymousMessage = true
                                 }
                                 channelSend(session.apiUrl, session.token, request)
+                                sentToDestination = true
                             } catch (e: Exception) {
                                 allOk = false
                                 val everyone = extractMentionEveryoneFromForwardContent(wire)
@@ -1695,10 +1754,14 @@ class ChatController @Inject constructor(
                                     if (anon) anonymousMessage = true
                                 }
                                 channelSend(session.apiUrl, session.token, requestExtra)
+                                sentToDestination = true
                             } catch (e: Exception) {
                                 allOk = false
                                 Log.e(TAG, "forward REST extra comment failed channel=${dest.channelId}", e)
                             }
+                        }
+                        if (sentToDestination) {
+                            markForwardTargetUsed(dest.channelId, dest.channelType)
                         }
                     }
                 }

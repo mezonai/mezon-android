@@ -65,6 +65,7 @@ class VoiceOverlayManager(
         room: Room?,
         videoTrack: VideoTrack?,
         name: String,
+        username: String,
         avatarUrl: String?,
         isMuted: Boolean,
         userId: Long
@@ -78,7 +79,7 @@ class VoiceOverlayManager(
             it.onTapExpand = { onExpandRequest?.invoke() }
             miniOverlay = it
         }
-        overlay.setContent(room, videoTrack, name, avatarUrl, isMuted, userId)
+        overlay.setContent(room, videoTrack, name, username, avatarUrl, isMuted, userId)
 
         val anim = ValueAnimator.ofFloat(1f, 0f)
         anim.duration = ANIM_DURATION
@@ -151,10 +152,11 @@ class VoiceOverlayManager(
         room: Room?,
         videoTrack: VideoTrack?,
         name: String,
+        username: String,
         avatarUrl: String?,
         isMuted: Boolean,
         userId: Long
     ) {
-        miniOverlay?.setContent(room, videoTrack, name, avatarUrl, isMuted, userId)
+        miniOverlay?.setContent(room, videoTrack, name, username, avatarUrl, isMuted, userId)
     }
 }

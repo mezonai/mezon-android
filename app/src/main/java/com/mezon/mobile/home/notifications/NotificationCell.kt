@@ -63,8 +63,7 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : BaseC
 
         if (mask == 0) {
             if (newEntity != null) entity = newEntity
-            val displayName = n.senderName.ifEmpty { n.subject }
-            avatarDrawable.setInfo(n.id, displayName)
+            avatarDrawable.setInfo(n.senderId.takeIf { it != 0L } ?: n.id, n.senderUsername)
             buildLayouts()
             loadAvatar(n.avatarUrl)
             invalidate()

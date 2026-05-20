@@ -81,6 +81,8 @@ class ChannelAppFragment : BaseFragment() {
         sessionManager = entryPoint.sessionManager()
     }
 
+    override fun isSwipeBackEnabled(): Boolean = false
+
     override fun onFragmentCreate(): Boolean {
         super.onFragmentCreate()
         channelId = arguments?.getLong(ARG_CHANNEL_ID) ?: 0L

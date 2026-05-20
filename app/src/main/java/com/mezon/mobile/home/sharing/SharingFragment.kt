@@ -40,6 +40,7 @@ import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.ChatController
 import com.mezon.mobile.home.DialogsController
+import com.mezon.mobile.home.ForwardTargetUsageStore
 import com.mezon.mobile.home.chat.AttachmentInfo
 import com.mezon.mobile.home.chat.AttachmentPickerItem
 import com.mezon.mobile.home.chat.ForwardDestination
@@ -84,6 +85,7 @@ class SharingFragment(
     private lateinit var channelController: ChannelController
     private lateinit var friendController: FriendController
     private lateinit var permissionPolicy: PermissionPolicy
+    private lateinit var forwardTargetUsageStore: ForwardTargetUsageStore
 
     private val isForwardMode: Boolean
         get() = payload is SharingPayload.ForwardFromChat
@@ -159,6 +161,7 @@ class SharingFragment(
         channelController = entryPoint.channelController()
         friendController = entryPoint.friendController()
         permissionPolicy = entryPoint.permissionPolicy()
+        forwardTargetUsageStore = entryPoint.forwardTargetUsageStore()
     }
 
     override fun onFragmentCreate(): Boolean {
@@ -302,7 +305,7 @@ class SharingFragment(
 
         val listFrame = FrameLayout(context)
         emptyView = TextView(context).apply {
-            text = getString(if (isForwardMode) R.string.forward_empty_destinations else R.string.sharing_no_conversations)
+            text = getString(R.string.common_no_results_found)
             setTextColor(themeColors.onSurfaceVariant)
             textSize = 16f
             gravity = Gravity.CENTER
@@ -355,7 +358,7 @@ class SharingFragment(
         rootView.addView(listFrame, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
 
         chatArea = if (isForwardMode) buildForwardChatArea(context) else buildDeviceChatArea(context)
-        chatArea.visibility = View.GONE
+        chatArea.visibility = if (isForwardMode) View.VISIBLE else View.GONE
         rootView.addView(chatArea, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         adapter = SharingTargetAdapter(themeColors)
@@ -891,9 +894,15 @@ class SharingFragment(
             if (t == CHANNEL_TYPE_DM && dm.otherUserId != 0L && dm.otherUserId in blocked) continue
             allTargets.add(dm.toSharingTarget())
         }
-        allTargets.sortWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.channelLabel.trim().lowercase() })
+        allTargets.sortWith(
+            compareByDescending<SharingTarget> { forwardTargetOwnSentTs(it) }
+        )
         displayLimit = maxOf(allTargets.size, LOCAL_PAGE_SIZE)
         applyFilter(searchEditText.text?.toString() ?: "")
+    }
+
+    private fun forwardTargetOwnSentTs(target: SharingTarget): Long {
+        return forwardTargetUsageStore.getLastSent(target.channelId, target.channelType)
     }
 
     private fun applyFilter(query: String) {
@@ -906,13 +915,13 @@ class SharingFragment(
                     val needle = qTrim.drop(1).trim().lowercase()
                     for (t in allTargets) {
                         if (t.channelType != CHANNEL_TYPE_CHANNEL && t.channelType != CHANNEL_TYPE_THREAD) continue
-                        if (t.channelLabel.lowercase().contains(needle)) filteredTargets.add(t)
+                        if (t.matchesForwardQuery(needle)) filteredTargets.add(t)
                     }
                 }
                 else -> {
                     val needle = qTrim.lowercase()
                     for (t in allTargets) {
-                        if (t.channelLabel.lowercase().contains(needle)) filteredTargets.add(t)
+                        if (t.matchesForwardQuery(needle)) filteredTargets.add(t)
                     }
                 }
             }
@@ -937,7 +946,8 @@ class SharingFragment(
             val lower = query.lowercase()
             for (t in source) {
                 if (t.channelLabel.lowercase().contains(lower) ||
-                    t.clanName.lowercase().contains(lower)
+                    t.clanName.lowercase().contains(lower) ||
+                    t.username.lowercase().contains(lower.removePrefix("@"))
                 ) {
                     filteredTargets.add(t)
                 }
@@ -949,9 +959,15 @@ class SharingFragment(
 
     private fun refreshForwardSelectionUi() {
         if (!isForwardMode) return
-        val has = forwardSelectedKeys.isNotEmpty()
-        chatArea.visibility = if (has) View.VISIBLE else View.GONE
+        chatArea.visibility = View.VISIBLE
         refreshSendButtonEnabled()
+    }
+
+    private fun SharingTarget.matchesForwardQuery(needle: String): Boolean {
+        val cleanNeedle = needle.removePrefix("@")
+        return channelLabel.lowercase().contains(needle) ||
+            clanName.lowercase().contains(needle) ||
+            username.lowercase().contains(cleanNeedle)
     }
 
     private fun refreshSendButtonEnabled() {

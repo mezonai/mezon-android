@@ -748,7 +748,7 @@ private class AuditLogRowCell(
             actor.clanAvatar.isNotEmpty() -> actor.clanAvatar
             else -> actor.avatarUrl
         }
-        avatar.setInfo(log.userId, actorName)
+        avatar.setInfo(log.userId, actor?.username.orEmpty())
         avatar.setImageUrl(avatarUrl.ifEmpty { null })
 
         val action = log.actionLog

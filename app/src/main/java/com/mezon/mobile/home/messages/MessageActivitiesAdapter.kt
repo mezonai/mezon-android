@@ -92,7 +92,7 @@ class MessageActivityStripCell(
 
     fun bind(r: MessageActivityRow) {
         row = r
-        avatarView.setInfo(r.userId, r.displayName)
+        avatarView.setInfo(r.userId, r.username)
         avatarView.setImageUrl(r.avatarUrl.takeIf { it.isNotBlank() })
         titleView.text = r.displayName
         subtitleView.text = r.activityText

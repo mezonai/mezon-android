@@ -35,6 +35,7 @@ data class NotificationEntity(
     val topicId: Long,
     val messageId: Long,
     val senderName: String,
+    val senderUsername: String = "",
     val senderAvatar: String,
     val clanName: String,
     val channelLabel: String,
@@ -46,6 +47,7 @@ fun Notification.toNotificationEntity(): NotificationEntity {
     var clanId = this.clanId
     var channelType = this.channelType
     var senderName = ""
+    var senderUsername = ""
     var senderAvatar = ""
     var clanName = ""
     var channelLabel = if (hasChannel()) this.channel.channelLabel else ""
@@ -62,7 +64,8 @@ fun Notification.toNotificationEntity(): NotificationEntity {
                 val obj = JSONObject(content.toStringUtf8())
                 if (channelId == 0L) channelId = obj.optString("channel_id", "0").toLongOrNull() ?: 0L
                 if (clanId == 0L) clanId = obj.optString("clan_id", "0").toLongOrNull() ?: 0L
-                senderName = obj.optString("display_name", "").ifEmpty { obj.optString("username", "") }
+                senderUsername = obj.optString("username", "")
+                senderName = obj.optString("display_name", "").ifEmpty { senderUsername }
                 senderAvatar = obj.optString("avatar", "")
                 if (createTimeSeconds == 0L) createTimeSeconds = obj.optLong("create_time_seconds", 0L)
                 val innerStr = obj.optString("content", "")
@@ -75,6 +78,7 @@ fun Notification.toNotificationEntity(): NotificationEntity {
                 val fcm = DirectFcmProto.parseFrom(bytes)
                 if (channelId == 0L) channelId = fcm.channelId
                 if (clanId == 0L) clanId = fcm.clanId
+                senderUsername = fcm.username
                 senderName = fcm.displayName.ifEmpty { fcm.username }
                 senderAvatar = fcm.avatar
                 if (createTimeSeconds == 0L) createTimeSeconds = fcm.createTimeSeconds.toLong()
@@ -107,6 +111,7 @@ fun Notification.toNotificationEntity(): NotificationEntity {
         topicId = topicId,
         messageId = messageId,
         senderName = senderName,
+        senderUsername = senderUsername,
         senderAvatar = resolvedAvatar,
         clanName = clanName,
         channelLabel = channelLabel,
@@ -134,7 +139,7 @@ private fun parseNotificationItemJson(item: JSONObject): NotificationEntity {
     var channelId = item.optString("channel_id", "0").toLongOrNull() ?: 0L
     var clanId = item.optString("clan_id", "0").toLongOrNull() ?: 0L
     var channelType = item.optInt("channel_type", 0)
-    var senderName = ""; var senderAvatar = ""; var clanName = ""
+    var senderName = ""; var senderUsername = ""; var senderAvatar = ""; var clanName = ""
     var channelLabel = ""; var messageText = ""; var createTimeSeconds = 0L
     var messageId = item.optString("message_id", "0").toLongOrNull() ?: 0L
 
@@ -144,7 +149,8 @@ private fun parseNotificationItemJson(item: JSONObject): NotificationEntity {
         if (clanId == 0L) clanId = content.optString("clan_id", "0").toLongOrNull() ?: 0L
         if (channelType == 0) channelType = content.optInt("channel_type", 0).takeIf { it != 0 } ?: content.optInt("mode", 0)
         if (messageId == 0L) messageId = content.optString("message_id", "0").toLongOrNull() ?: 0L
-        senderName = content.optString("display_name", "").ifEmpty { content.optString("username", "") }
+        senderUsername = content.optString("username", "")
+        senderName = content.optString("display_name", "").ifEmpty { senderUsername }
         senderAvatar = content.optString("avatar", "")
         clanName = content.optString("clan_name", "")
         channelLabel = content.optString("channel_label", "")
@@ -168,7 +174,7 @@ private fun parseNotificationItemJson(item: JSONObject): NotificationEntity {
         category = item.optInt("category", 0),
         topicId = item.optString("topic_id", "0").toLongOrNull() ?: 0L,
         messageId = messageId,
-        senderName = senderName, senderAvatar = senderAvatar,
+        senderName = senderName, senderUsername = senderUsername, senderAvatar = senderAvatar,
         clanName = clanName, channelLabel = channelLabel, messageText = messageText
     )
 }

@@ -26,7 +26,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -98,8 +98,10 @@ class AccountController @Inject constructor(
             userController.updateFromAccount(boot)
         }
         appScope.launch {
-            sessionManager.sessionFlow.first { it != null }
-            loadAccountInternal()
+            sessionManager.sessionFlow.collectLatest { session ->
+                Log.d(ACCOUNT_LOG, "sessionFlow emitted: session=${if (session != null) "non-null userId=${session.userId}" else "null"}")
+                if (session != null) loadAccountInternal()
+            }
         }
         appScope.launch { observeProfileUpdates() }
         appScope.launch { observeUserStatusEvents() }
@@ -146,9 +148,9 @@ class AccountController @Inject constructor(
         }
     }
 
-    private val cacheKey = apiCacheKey("getAccount")
-
     private companion object {
+        private const val ACCOUNT_CACHE_PREFIX = "getAccount"
+
         private val LINK_SMS_RPC_FAIL_REGEX = Regex(
             """RPC\s+LinkSms\s+failed\s+\((\d+)\):\s*(.*)""",
             setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)
@@ -213,18 +215,25 @@ class AccountController @Inject constructor(
     }
 
     private suspend fun loadAccountInternal(noCache: Boolean = false) {
+        Log.d(ACCOUNT_LOG, "loadAccountInternal called noCache=$noCache")
         try {
-            if (!noCache && _accountInfo.value.userId != 0L &&
-                cacheTracker.shouldCall(cacheKey, noCache = false) == ApiCacheTracker.ShouldCall.SKIP
-            ) return
             sessionManager.withAutoRefresh { session ->
+                val cacheKey = apiCacheKey(ACCOUNT_CACHE_PREFIX, session.userId)
+                if (!noCache &&
+                    cacheTracker.shouldCall(cacheKey, noCache = false) == ApiCacheTracker.ShouldCall.SKIP
+                ) {
+                    Log.d(ACCOUNT_LOG, "loadAccountInternal SKIP (cache valid) cacheKey=$cacheKey")
+                    return@withAutoRefresh
+                }
                 coroutineScope {
+                    Log.d(ACCOUNT_LOG, "loadAccountInternal CALL getAccount + getWalletBalance userId=${session.userId}")
                     val accountDeferred = async(ioDispatcher) { api.getAccount(session.apiUrl, session.token) }
                     val walletDeferred = async(ioDispatcher) {
                         runCatching { mmnApi.getWalletBalance(session.userId) }.getOrNull()
                     }
                     val account = accountDeferred.await()
                     val walletData = walletDeferred.await()
+                    Log.d(ACCOUNT_LOG, "loadAccountInternal API done getAccount userId=${account.user.id} walletBalance=${walletData?.balance ?: "null"}")
                     val user = account.user
 
                     val info = AccountInfo(
@@ -310,7 +319,7 @@ class AccountController @Inject constructor(
                 _accountInfo.value = updated
                 userController.updateFromAccount(updated)
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.accountInfoLoaded)
-                cacheTracker.invalidate(cacheKey)
+                cacheTracker.invalidateByPrefix(ACCOUNT_CACHE_PREFIX)
                 withContext(kotlinx.coroutines.Dispatchers.Main) {
                     onResult(true, "")
                 }
@@ -425,7 +434,7 @@ class AccountController @Inject constructor(
                     logo = logoUrl
                 )
                 _accountInfo.value = updated
-                cacheTracker.invalidate(cacheKey)
+                cacheTracker.invalidateByPrefix(ACCOUNT_CACHE_PREFIX)
                 userController.updateFromAccount(updated)
                 persistAccountScratch(updated)
                 scheduleDmLogoPrefetch(logoUrl)
@@ -551,7 +560,7 @@ class AccountController @Inject constructor(
                 val updated = current.copy(onlineStatus = UserOnlineStatus.fromString(status))
                 _accountInfo.value = updated
                 userController.updateFromAccount(updated)
-                cacheTracker.invalidate(cacheKey)
+                cacheTracker.invalidateByPrefix(ACCOUNT_CACHE_PREFIX)
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.accountInfoLoaded)
             } catch (e: Exception) {
             }

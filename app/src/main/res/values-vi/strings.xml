@@ -17,6 +17,7 @@
     <string name="common_settings">Cài đặt</string>
     <string name="common_loading_data">Đang tải dữ liệu, vui lòng chờ trong giây lát.</string>
     <string name="common_failed_to_load">Không thể tải dữ liệu</string>
+    <string name="common_no_results_found">Không tìm thấy kết quả</string>
     <string name="common_something_went_wrong">Đã xảy ra lỗi</string>
     <string name="common_log_out">Đăng xuất</string>
     <string name="common_confirm_log_out">Bạn có chắc chắn muốn đăng xuất?</string>
@@ -69,12 +70,16 @@
     <string name="qr_share_message">Quét QR để trò chuyện với tôi trên Mezon</string>
     <string name="qr_code_not_valid">Mã QR không hợp lệ</string>
     <string name="qr_select_photo_with_qr">Vui lòng chọn ảnh có mã QR</string>
+    <string name="qr_external_link_title">Mở liên kết?</string>
+    <string name="qr_external_link_message">Mã QR này chứa liên kết chưa được xử lý trong Mezon.</string>
+    <string name="qr_external_link_open">Mở liên kết</string>
+    <string name="qr_external_link_open_failed">Không thể mở liên kết</string>
     <string name="qr_login_title">Đăng nhập trên thiết bị mới</string>
     <string name="qr_login_message">Bạn có muốn xác nhận đăng nhập bằng QR này?</string>
     <string name="qr_login_confirm">Đăng nhập</string>
     <string name="qr_login_success">Xác nhận đăng nhập thành công</string>
     <string name="qr_login_failed">Xác nhận đăng nhập thất bại</string>
-    <string name="qr_login_require_mobile_session">Vui lòng đăng nhập trên thiết bị này trước khi xác nhận đăng nhập QR.</string>
+    <string name="qr_login_require_mobile_session">Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại để xác nhận đăng nhập QR.</string>
     <string name="qr_camera_denied_title">Không có quyền camera</string>
     <string name="qr_camera_denied_message">Vui lòng bật quyền camera trong Cài đặt để quét QR.</string>
     <string name="qr_scan_title_hint">Quét mã QR</string>
@@ -191,6 +196,7 @@
     <string name="message_actions_unpin">Bỏ ghim tin nhắn</string>
     <string name="message_actions_mark_unread">Đánh dấu chưa đọc</string>
     <string name="message_actions_forward">Chuyển tiếp tin nhắn</string>
+    <string name="action_forward_all_nearby">Chuyển tiếp tất cả gần đây</string>
     <string name="action_give_coffee">Tặng một cà phê</string>
     <string name="tokens_sent_title">Biến động số dư: %1$s₫</string>
     <string name="give_coffee_action">Hành động tặng cà phê</string>
@@ -291,7 +297,7 @@
     <string name="clan_template_local_community">Cộng đồng địa phương</string>
     <string name="clan_template_artists_creators">Nghệ sĩ &amp; Nhà sáng tạo</string>
     <string name="clan_upload_label">Tải lên</string>
-    <string name="clan_create_community_guide_prefix">Khi tạo clan, bạn đồng ý với </string>
+    <string name="clan_create_community_guide_prefix">Khi tạo clan, bạn đồng ý với</string>
     <string name="clan_create_community_guide_link">Nguyên tắc cộng đồng của Mezon.</string>
     <string name="clan_image_too_large">Dung lượng ảnh phải nhỏ hơn %1$dMB</string>
     <string name="clan_create_failed">Không thể tạo clan. Vui lòng thử lại.</string>
@@ -384,6 +390,32 @@
     <string name="clan_settings_logo_permission_denied">Bạn không có quyền thay đổi biểu tượng clan.</string>
     <string name="clan_settings_logo_too_large">Ảnh biểu tượng clan tối đa 1 MB.</string>
     <string name="clan_settings_logo_update_failed">Không cập nhật được biểu tượng clan. Thử lại.</string>
+
+    <string name="clan_emoji_upload_button">Tải lên biểu cảm</string>
+    <string name="clan_emoji_description_body">Thêm biểu cảm tùy chỉnh mà mọi người trong clan đều có thể dùng. Biểu cảm GIF động có thể dùng trên Mezon.</string>
+    <string name="clan_emoji_requirements_title">YÊU CẦU TẢI LÊN</string>
+    <string name="clan_emoji_requirements_list">• Loại tệp: JPEG, PNG, GIF\n• Kích thước đề xuất: 256 KB\n• Kích cỡ đề nghị: 128×128\n• Đặt tên: Tên emoji phải có ít nhất 3 ký tự và chỉ gồm chữ cái, chữ số, gạch dưới (_) và gạch ngang (-).</string>
+    <string name="clan_emoji_column_image">HÌNH ẢNH</string>
+    <string name="clan_emoji_column_name">TÊN</string>
+    <string name="clan_emoji_column_uploaded_by">TẢI LÊN BỞI</string>
+    <string name="clan_emoji_preview_dialog_title">Xem trước</string>
+    <string name="clan_emoji_section_label">Emoji</string>
+    <string name="clan_emoji_preview_title">Xem trước</string>
+    <string name="clan_emoji_name_label">Tên emoji</string>
+    <string name="clan_emoji_name_hint">VD: cat_hug</string>
+    <string name="clan_emoji_for_sale">Đây là sản phẩm bán</string>
+    <string name="clan_emoji_confirm_upload">Tải lên</string>
+    <string name="clan_emoji_validate_name">Độ dài phải từ %1$d đến %2$d ký tự. Chỉ cho phép chữ cái, chữ số, _ và -.</string>
+    <string name="clan_emoji_error_size_limit">Kích thước ảnh vượt quá 256 KB</string>
+    <string name="clan_emoji_error_export_too_large">Không thể xuất dưới 256 KB. Hãy thử ảnh đơn giản hơn.</string>
+    <string name="clan_emoji_upload_failed">Không tải lên được emoji. Thử lại.</string>
+    <string name="clan_emoji_saved">Đã lưu</string>
+    <string name="clan_emoji_update_failed">Không cập nhật được emoji.</string>
+    <string name="clan_emoji_delete_title">Xóa emoji</string>
+    <string name="clan_emoji_delete_message">Xóa %1$s khỏi clan này?</string>
+    <string name="clan_emoji_delete_confirm">Xóa</string>
+    <string name="clan_emoji_delete_failed">Không xóa được emoji.</string>
+    <string name="clan_emoji_limit_slots">Đã đạt giới hạn số emoji.</string>
     <string name="clan_menu_action_invite">Lời mời</string>
     <string name="clan_menu_action_notifications">Thông báo</string>
     <string name="clan_menu_action_settings">Cài đặt</string>
@@ -417,9 +449,6 @@
     <string name="clan_audit_log_load_failed">Không tải được nhật ký kiểm tra.</string>
     <string name="audit_log_action_update_clan">Cập nhật clan</string>
     <string name="channel_creator_screen_title">Tạo kênh</string>
-    <string name="category_menu_create_channel">Tạo kênh</string>
-    <string name="category_menu_create_channel_unavailable">Chưa thể tạo kênh cho danh mục này lúc này.</string>
-    <string name="channel_open_no_view_permission">Bạn không có quyền xem kênh này.</string>
     <string name="audit_log_action_create_channel">Tạo kênh</string>
     <string name="audit_log_action_update_channel">Cập nhật kênh</string>
     <string name="audit_log_action_update_channel_private">Cập nhật quyền riêng tư kênh</string>
@@ -687,6 +716,9 @@
     <string name="channel_apps_title_mezon">Mezon</string>
     <string name="channel_apps_title_subtitle"> Ứng dụng kênh</string>
     <string name="channel_apps_empty">Không có ứng dụng kênh nào</string>
+    <string name="channel_app_launch">Khởi chạy ứng dụng</string>
+    <string name="channel_app_help">Trợ giúp</string>
+    <string name="channel_app_launch_unavailable">Không mở được ứng dụng. Hãy thử lại.</string>
     <string name="channel_gallery_empty">Chưa có ảnh hoặc video được chia sẻ.</string>
     <string name="channel_gallery_load_error">Không tải được nội dung media. Hãy thử lại.</string>
     <!-- Edit Profile -->
@@ -867,7 +899,7 @@
     <string name="send_token_copy">Sao chép</string>
     <string name="send_token_address_copied">Đã sao chép địa chỉ</string>
     <string name="send_token_submit">Chuyển khoản</string>
-    <string name="send_token_zk_relogin">Ví cần đăng nhập hợp lệ. Hãy đăng nhập lại (OpenID) để tải ID token và bằng chứng ZK, rồi thử lại.</string>
+    <string name="send_token_zk_relogin">Phiên đăng nhập ví đã hết hạn. Vui lòng đăng nhập lại để tiếp tục.</string>
     <string name="send_token_success_dialog_title">Đã gửi chuyển khoản</string>
     <string name="send_token_success_dialog_message">Số tiền: %1$s %2$s\n\nGhi chú: %3$s\n\n%4$s</string>
     <string name="transfer_success_title">Gửi thành công!</string>
@@ -928,7 +960,9 @@
     <string name="channel_creator_type_stream_desc">Chia sẻ sở thích và hoạt động</string>
     <string name="channel_creator_private_title">Kênh riêng</string>
     <string name="channel_creator_private_description">Khi bật kênh riêng, chỉ thành viên và vai trò được chọn mới xem được kênh này</string>
-
+    <string name="category_menu_create_channel">Tạo kênh</string>
+    <string name="category_menu_create_channel_unavailable">Chưa thể tạo kênh cho danh mục này lúc này.</string>
+    <string name="channel_open_no_view_permission">Bạn không có quyền xem kênh này.</string>
     <!-- Channel / thread settings (ChannelSetting RN port) -->
     <string name="channel_settings_title_channel">Cài đặt kênh</string>
     <string name="channel_settings_title_thread">Cài đặt thread</string>
@@ -1079,4 +1113,6 @@
     <string name="call_full_screen_intent_open_settings">Bật trong cài đặt</string>
     <string name="call_full_screen_intent_start_call_anyway">Vẫn gọi</string>
     <string name="call_full_screen_intent_incoming_hint">Đang tắt toàn màn hình khi khóa — chạm để bật</string>
+    <string name="call_busy_status">Bận</string>
+    <string name="call_busy_peer_status">%1$s đang bận</string>
 </resources>

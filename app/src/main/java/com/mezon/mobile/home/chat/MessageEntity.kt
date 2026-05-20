@@ -11,6 +11,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import android.util.Log
 import com.mezon.mobile.home.chat.poll.isPollContentJson
+import com.mezon.mobile.network.STREAM_MODE_CHANNEL
+import com.mezon.mobile.network.STREAM_MODE_THREAD
 import com.mezon.mobile.util.MENTION_HERE_USER_ID
 
 data class AttachmentInfo(
@@ -43,6 +45,7 @@ data class MessageEntity(
     val channelId: Long,
     val senderId: Long,
     val senderName: String,
+    val senderUsername: String = "",
     val senderAvatar: String,
     val content: String,
     val timestampSeconds: Long,
@@ -108,6 +111,13 @@ data class MessageEntity(
 
     val hasMedia: Boolean
         get() = messageType == TYPE_PHOTO || messageType == TYPE_VIDEO || messageType == TYPE_GIF
+
+    val hasAnyMedia: Boolean
+        get() {
+            if (hasMedia) return true
+            if (attachmentUrl.isNotEmpty() && isMediaAttachment(attachmentFiletype, attachmentUrl)) return true
+            return extraAttachments.any { isMediaAttachment(it.filetype, it.url) }
+        }
 
     val isWelcomeMessage: Boolean
         get() = code == CODE_FIRST_MESSAGE || (
@@ -214,16 +224,37 @@ data class MessageEntity(
             } catch (_: Exception) { emptyList() }
         }
 
-    val allImageAttachments: List<AttachmentInfo>
+    val allAttachmentsInfo: List<AttachmentInfo>
         get() {
-            val first = if (attachmentUrl.isNotEmpty() && hasMedia)
+            val first = if (attachmentUrl.isNotEmpty())
                 listOf(AttachmentInfo(attachmentUrl, attachmentThumb, attachmentWidth, attachmentHeight,
                     attachmentFilename, attachmentFiletype, attachmentSize, attachmentDuration))
             else emptyList()
-            return first + extraAttachments.filter {
-                it.filetype.startsWith("image/") || it.filetype.startsWith("video/") ||
-                    it.filetype.contains("gif", true) || it.url.contains("tenor.com", true)
+            return first + extraAttachments
+        }
+
+    val allFileAttachments: List<AttachmentInfo>
+        get() {
+            val isFile = { ft: String, url: String ->
+                !isMediaAttachment(ft, url) && !ft.startsWith("audio/", true)
             }
+            val first = if (attachmentUrl.isNotEmpty() && isFile(attachmentFiletype, attachmentUrl))
+                listOf(AttachmentInfo(attachmentUrl, attachmentThumb, attachmentWidth, attachmentHeight,
+                    attachmentFilename, attachmentFiletype, attachmentSize, attachmentDuration))
+            else emptyList()
+            return first + extraAttachments.filter { isFile(it.filetype, it.url) }
+        }
+
+    val hasFileAttachments: Boolean
+        get() = allFileAttachments.isNotEmpty()
+
+    val allImageAttachments: List<AttachmentInfo>
+        get() {
+            val first = if (attachmentUrl.isNotEmpty() && isMediaAttachment(attachmentFiletype, attachmentUrl))
+                listOf(AttachmentInfo(attachmentUrl, attachmentThumb, attachmentWidth, attachmentHeight,
+                    attachmentFilename, attachmentFiletype, attachmentSize, attachmentDuration))
+            else emptyList()
+            return first + extraAttachments.filter { isMediaAttachment(it.filetype, it.url) }
         }
 
     fun buildAttachmentJson(): String {
@@ -282,13 +313,22 @@ fun ChannelMessage.toMessageEntity(currentUserId: Long): MessageEntity {
     } else ""
 
     val reactionsJson = parseReactionsToJson(reactions)
+    val useClanPersona = mode == STREAM_MODE_CHANNEL || mode == STREAM_MODE_THREAD ||
+        (mode == 0 && clanId != 0L)
+    val resolvedSenderName = if (useClanPersona) {
+        clanNick.ifBlank { displayName.ifBlank { username } }
+    } else {
+        displayName.ifBlank { username }
+    }
+    val resolvedSenderAvatar = if (useClanPersona) clanAvatar.ifBlank { avatar } else avatar
 
     return MessageEntity(
         id = messageId,
         channelId = channelId,
         senderId = senderId,
-        senderName = displayName.ifBlank { username },
-        senderAvatar = avatar,
+        senderName = resolvedSenderName,
+        senderUsername = username,
+        senderAvatar = resolvedSenderAvatar,
         content = mergedContent,
         timestampSeconds = createTimeSeconds.toLong(),
         code = code,
@@ -381,6 +421,7 @@ private fun mergeReferencesIntoContent(content: String, referencesBytes: com.goo
             item.put("ref_type", ref.refType)
             item.put("message_sender_id", ref.messageSenderId.toString())
             item.put("message_sender_username", ref.messageSenderUsername)
+            item.put("message_sender_avatar", ref.messageSenderAvatar)
             item.put("mesages_sender_avatar", ref.messageSenderAvatar)
             item.put("message_sender_clan_nick", ref.messageSenderClanNick)
             item.put("message_sender_display_name", ref.messageSenderDisplayName)
@@ -395,6 +436,11 @@ private fun mergeReferencesIntoContent(content: String, referencesBytes: com.goo
         content
     }
 }
+
+internal fun isMediaAttachment(filetype: String, url: String): Boolean =
+    filetype.startsWith("image/", true) || filetype.startsWith("video/", true) ||
+        filetype.contains("gif", true) || filetype.equals("sticker", true) ||
+        url.contains("tenor.com", true) || url.contains("/stickers/", true)
 
 private fun resolveMessageType(attachment: ParsedAttachment?): Int {
     if (attachment == null || attachment.url.isEmpty()) return MessageEntity.TYPE_TEXT

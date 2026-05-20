@@ -12,8 +12,10 @@ import com.mezon.mobile.network.TenorApi
 import com.mezon.mobile.network.TenorCategory
 import com.mezon.mobile.network.TenorGif
 import com.mezon.mobile.session.SessionManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -89,6 +91,9 @@ class EmojiController @Inject constructor(
     @Volatile
     private var stickersLoaded = false
 
+    private var emojiLoadJob: Job? = null
+    private var emojiLoadSerial = 0
+
     init {
         appScope.launch { observeEmojiEvents() }
         appScope.launch { observeStickerEvents() }
@@ -147,9 +152,19 @@ class EmojiController @Inject constructor(
         }
     }
 
+    fun invalidateEmojiCacheAndReload() {
+        cacheTracker.invalidate("emojis_by_user")
+        synchronized(this) {
+            emojisLoaded = false
+        }
+        loadEmojis()
+    }
+
     fun loadEmojis() {
         if (emojisLoaded && cacheTracker.shouldCall("emojis_by_user") == ApiCacheTracker.ShouldCall.SKIP) return
-        appScope.launch(ioDispatcher) {
+        val serial = synchronized(this) { ++emojiLoadSerial }
+        emojiLoadJob?.cancel()
+        emojiLoadJob = appScope.launch(ioDispatcher) {
             try {
                 val response = sessionManager.withAutoRefresh { session ->
                     api.listEmojisByUserId(session.apiUrl, session.token)
@@ -168,12 +183,14 @@ class EmojiController @Inject constructor(
                     )
                 }
                 synchronized(this@EmojiController) {
+                    if (serial != emojiLoadSerial) return@synchronized
                     emojis.clear()
                     emojisDict.clear()
                     emojis.addAll(items)
                     for (item in items) emojisDict[item.id] = item
                     emojisLoaded = true
                 }
+                if (serial != emojiLoadSerial) return@launch
                 cacheTracker.markCalled("emojis_by_user")
                 Log.d(TAG, "Loaded ${items.size} emojis")
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.emojisNeedReload)
@@ -268,6 +285,9 @@ class EmojiController @Inject constructor(
     }
 
     fun cleanup() {
+        synchronized(this) { ++emojiLoadSerial }
+        emojiLoadJob?.cancel()
+        emojiLoadJob = null
         synchronized(this) {
             emojis.clear()
             emojisDict.clear()

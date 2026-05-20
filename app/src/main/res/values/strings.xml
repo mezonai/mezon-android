@@ -18,6 +18,7 @@
     <string name="common_settings">Settings</string>
     <string name="common_loading_data">Loading data, please wait a moment!</string>
     <string name="common_failed_to_load">Failed to load</string>
+    <string name="common_no_results_found">No results found</string>
     <string name="common_something_went_wrong">Something went wrong</string>
     <string name="common_log_out">Log Out</string>
     <string name="common_confirm_log_out">Please confirm if you would like to log out?</string>
@@ -64,12 +65,16 @@
     <string name="qr_share_message">Scan QR code to chat with me on Mezon</string>
     <string name="qr_code_not_valid">QR code is not valid</string>
     <string name="qr_select_photo_with_qr">Please select a photo with QR code</string>
+    <string name="qr_external_link_title">Open link?</string>
+    <string name="qr_external_link_message">This QR code contains a link that is not handled in Mezon.</string>
+    <string name="qr_external_link_open">Open link</string>
+    <string name="qr_external_link_open_failed">Could not open link</string>
     <string name="qr_login_title">Log in on new device</string>
     <string name="qr_login_message">Confirm login using this QR code?</string>
     <string name="qr_login_confirm">Log in</string>
     <string name="qr_login_success">Login confirmed</string>
     <string name="qr_login_failed">Failed to confirm login</string>
-    <string name="qr_login_require_mobile_session">Please log in on this mobile device before confirming QR login.</string>
+    <string name="qr_login_require_mobile_session">Your session has expired. Please log in again to confirm QR login.</string>
     <string name="qr_camera_denied_title">Camera permission denied</string>
     <string name="qr_camera_denied_message">Please allow camera access in Settings to scan QR codes.</string>
     <string name="qr_scan_title_hint">Scan QR Code</string>
@@ -240,6 +245,7 @@
     
     <string name="action_reply">Reply</string>
     <string name="action_forward">Forward</string>
+    <string name="action_forward_all_nearby">Forward All Nearby</string>
     <string name="forward_screen_title">Forward to</string>
     <string name="forward_extra_hint">Add a comment (optional)</string>
     <string name="forward_cta_send">Forward</string>
@@ -339,7 +345,7 @@
     <string name="clan_customize_title">Customize Your Clan</string>
     <string name="clan_customize_subtitle">Give your new clan a personality with a name and an icon. You can always change it later.</string>
     <string name="clan_upload_label">Upload</string>
-    <string name="clan_create_community_guide_prefix">By creating a clan, you agree to Mezon\'s </string>
+    <string name="clan_create_community_guide_prefix">By creating a clan, you agree to Mezon\'s</string>
     <string name="clan_create_community_guide_link">Community Guidelines.</string>
     <string name="clan_image_too_large">Image size must be less than %1$dMB</string>
     <string name="clan_create_failed">Unable to create clan. Please try again.</string>
@@ -432,6 +438,32 @@
     <string name="clan_settings_logo_permission_denied">You don\'t have permission to change the clan logo.</string>
     <string name="clan_settings_logo_too_large">Clan logo image must be 1 MB or smaller.</string>
     <string name="clan_settings_logo_update_failed">Couldn\'t update clan logo. Try again.</string>
+
+    <string name="clan_emoji_upload_button">Upload Emoji</string>
+    <string name="clan_emoji_description_body">Add custom emoji that anyone can use in this clan. Animated GIF emoji may be used by members with Mezon.</string>
+    <string name="clan_emoji_requirements_title">UPLOAD REQUIREMENTS</string>
+    <string name="clan_emoji_requirements_list">• File type: JPEG, PNG, GIF\n• Recommended file size: 256 KB\n• Recommended dimensions: 128×128\n• Naming: Emoji names must be at least 3 characters long and can only contain alphanumeric characters, underscores (_), and hyphens (-).</string>
+    <string name="clan_emoji_column_image">IMAGE</string>
+    <string name="clan_emoji_column_name">NAME</string>
+    <string name="clan_emoji_column_uploaded_by">UPLOADED BY</string>
+    <string name="clan_emoji_preview_dialog_title">Preview</string>
+    <string name="clan_emoji_section_label">Emoji</string>
+    <string name="clan_emoji_preview_title">Preview</string>
+    <string name="clan_emoji_name_label">Emoji name</string>
+    <string name="clan_emoji_name_hint">Ex: cat_hug</string>
+    <string name="clan_emoji_for_sale">This is for sale</string>
+    <string name="clan_emoji_confirm_upload">Upload</string>
+    <string name="clan_emoji_validate_name">Length must be %1$d–%2$d characters. Only letters, numbers, _ and - are allowed.</string>
+    <string name="clan_emoji_error_size_limit">Image size limit exceeded 256 KB</string>
+    <string name="clan_emoji_error_export_too_large">Could not export under 256 KB. Try a simpler image.</string>
+    <string name="clan_emoji_upload_failed">Couldn\'t upload emoji. Try again.</string>
+    <string name="clan_emoji_saved">Saved</string>
+    <string name="clan_emoji_update_failed">Couldn\'t update emoji.</string>
+    <string name="clan_emoji_delete_title">Delete emoji</string>
+    <string name="clan_emoji_delete_message">Remove %1$s from this clan?</string>
+    <string name="clan_emoji_delete_confirm">Delete</string>
+    <string name="clan_emoji_delete_failed">Couldn\'t delete emoji.</string>
+    <string name="clan_emoji_limit_slots">Emoji upload limit reached.</string>
     <string name="clan_menu_action_invite">Invite</string>
     <string name="clan_menu_action_notifications">Notifications</string>
     <string name="clan_menu_action_settings">Settings</string>
@@ -635,7 +667,7 @@
     <string name="send_token_copy">Copy</string>
     <string name="send_token_address_copied">Address copied</string>
     <string name="send_token_submit">Transfer Funds</string>
-    <string name="send_token_zk_relogin">Wallet needs a valid sign-in. Sign in again (OpenID) so your ID token and ZK proof can be loaded, then try again.</string>
+    <string name="send_token_zk_relogin">Your wallet session has expired. Please log in again to continue.</string>
     <string name="send_token_success_dialog_title">Transfer sent</string>
     <string name="send_token_success_dialog_message">Amount: %1$s %2$s\n\nNote: %3$s\n\n%4$s</string>
     <string name="transfer_success_title">Transfer successful!</string>
@@ -777,6 +809,9 @@
     <string name="channel_apps_title_mezon">Mezon</string>
     <string name="channel_apps_title_subtitle"> Channel apps</string>
     <string name="channel_apps_empty">No channel apps available</string>
+    <string name="channel_app_launch">Launch App</string>
+    <string name="channel_app_help">Help</string>
+    <string name="channel_app_launch_unavailable">Couldn\'t open this app. Try again.</string>
 
     <!-- Profile -->
     <string name="profile_account_settings">Account Settings</string>
@@ -1194,11 +1229,13 @@
     <string name="message_call_log_start_audio_call">%1$s started an audio call</string>
     <string name="message_call_log_start_video_call">%1$s started a video call</string>
 
-    <string name="call_busy_status">Already in a call</string>
-    <string name="call_busy_peer_status">%1$s is currently on another call</string>
+    <string name="call_busy_status">Busy</string>
+    <string name="call_busy_peer_status">%1$s is busy</string>
     <string name="call_full_screen_intent_title">Fullscreen incoming calls</string>
     <string name="call_full_screen_intent_message">Allow Mezon to use fullscreen notifications while the device is locked so you won’t miss voice calls.</string>
     <string name="call_full_screen_intent_open_settings">Turn on</string>
     <string name="call_full_screen_intent_start_call_anyway">Start call anyway</string>
     <string name="call_full_screen_intent_incoming_hint">Fullscreen while locked off — tap to turn on</string>
+    <string name="call_busy_status">Busy</string>
+    <string name="call_busy_peer_status">%1$s is busy</string>
 </resources>

@@ -130,7 +130,8 @@ class CallController @Inject constructor(
         clanId: Long,
         channelType: Int,
         isChannelPrivate: Boolean,
-        isVideo: Boolean
+        isVideo: Boolean,
+        peerUsername: String = ""
     ) {
         if (isCallSessionActive()) {
             Log.w(TAG, "Cannot start call: already in call state ${callState::class.simpleName}")
@@ -145,6 +146,7 @@ class CallController @Inject constructor(
         val callInfo = CallInfo(
             peerId = peerId,
             peerName = peerName,
+            peerUsername = peerUsername,
             peerAvatar = peerAvatar,
             channelId = channelId,
             isVideo = isVideo,
@@ -343,6 +345,9 @@ class CallController @Inject constructor(
             val callInfo = CallInfo(
                 peerId = callerIdStr.toLongOrNull() ?: 0L,
                 peerName = callerName,
+                peerUsername = parsed.optString("callerUsername", "").ifEmpty {
+                    parsed.optString("username", "")
+                },
                 peerAvatar = callerAvatar.ifEmpty { null },
                 channelId = channelIdStr.toLongOrNull() ?: 0L,
                 isVideo = isVideo,
@@ -404,6 +409,9 @@ class CallController @Inject constructor(
             val callInfo = CallInfo(
                 peerId = peerIdLong,
                 peerName = callerName,
+                peerUsername = parsed.optString("callerUsername", "").ifEmpty {
+                    parsed.optString("username", "")
+                },
                 peerAvatar = callerAvatar.ifEmpty { null },
                 channelId = channelIdLong,
                 isVideo = isVideo,
@@ -814,6 +822,9 @@ class CallController @Inject constructor(
             val callInfo = CallInfo(
                 peerId = callerId,
                 peerName = callerName,
+                peerUsername = parsed.optString("callerUsername", "").ifEmpty {
+                    parsed.optString("username", "")
+                },
                 peerAvatar = callerAvatar.ifEmpty { null },
                 channelId = channelId,
                 isVideo = isVideo,

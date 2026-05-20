@@ -10,6 +10,7 @@ import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
 data class SharingTarget(
     val channelId: Long,
     val channelLabel: String,
+    val username: String,
     val avatarUrl: String,
     val clanId: Long,
     val clanName: String,
@@ -18,6 +19,7 @@ data class SharingTarget(
     val isPrivate: Boolean,
     val parentId: Long,
     val parentChannelLabel: String,
+    val lastSentMessageTs: Long,
     val lastActivityTs: Long
 ) {
     val isDm: Boolean get() = channelType == CHANNEL_TYPE_DM
@@ -35,19 +37,28 @@ fun SharingTarget.toForwardDestination(): ForwardDestination = ForwardDestinatio
     isChannelPrivate = isPrivate
 )
 
-fun DirectMessage.toSharingTarget(): SharingTarget = SharingTarget(
-    channelId = channelId,
-    channelLabel = displayName.ifBlank { label },
-    avatarUrl = avatarUrl,
-    clanId = 0L,
-    clanName = "",
-    clanLogo = "",
-    channelType = type,
-    isPrivate = type == CHANNEL_TYPE_DM || type == CHANNEL_TYPE_GROUP,
-    parentId = 0L,
-    parentChannelLabel = "",
-    lastActivityTs = maxOf(lastSeenMessageTs, lastSentMessageTs)
-)
+fun DirectMessage.toSharingTarget(): SharingTarget {
+    val displayLabel = if (type == CHANNEL_TYPE_GROUP) {
+        label.ifBlank { displayName }
+    } else {
+        displayName.ifBlank { label }
+    }
+    return SharingTarget(
+        channelId = channelId,
+        channelLabel = displayLabel,
+        username = username,
+        avatarUrl = avatarUrl,
+        clanId = 0L,
+        clanName = "",
+        clanLogo = "",
+        channelType = type,
+        isPrivate = type == CHANNEL_TYPE_DM || type == CHANNEL_TYPE_GROUP,
+        parentId = 0L,
+        parentChannelLabel = "",
+        lastSentMessageTs = lastSentMessageTs,
+        lastActivityTs = maxOf(lastSeenMessageTs, lastSentMessageTs)
+    )
+}
 
 fun ClanChannelEntity.toSharingTarget(
     clanName: String,
@@ -57,6 +68,7 @@ fun ClanChannelEntity.toSharingTarget(
     return SharingTarget(
         channelId = channelId,
         channelLabel = channelLabel,
+        username = "",
         avatarUrl = "",
         clanId = clanId,
         clanName = clanName,
@@ -65,6 +77,7 @@ fun ClanChannelEntity.toSharingTarget(
         isPrivate = isPrivate,
         parentId = parentId,
         parentChannelLabel = parentChannelLabel,
+        lastSentMessageTs = lastSentMessageTs,
         lastActivityTs = maxOf(lastSeenMessageTs, lastSentMessageTs)
     )
 }

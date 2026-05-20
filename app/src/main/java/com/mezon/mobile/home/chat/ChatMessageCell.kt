@@ -104,6 +104,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var editedLayout: StaticLayout? = null
     private var fileNameLayout: StaticLayout? = null
     private var fileSizeLayout: StaticLayout? = null
+    private var extraFileLayouts: List<Pair<StaticLayout?, StaticLayout?>> = emptyList()
     private var ephemeralLayout: StaticLayout? = null
     private var errorLayout: StaticLayout? = null
     private var hasReply = false
@@ -287,6 +288,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         editedLayout = null
         fileNameLayout = null
         fileSizeLayout = null
+        extraFileLayouts = emptyList()
         ephemeralLayout = null
         errorLayout = null
         ogpTitleLayout = null
@@ -335,8 +337,11 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         avatarLoadStartTime = 0L
         avatarFallbackVisible = false
         avatarDrawable.setDrawableByInfo(true)
-        videoThumbJob?.cancel()
-        videoThumbJob = null
+        for (i in videoThumbJobs.indices) {
+            videoThumbJobs[i]?.cancel()
+            videoThumbJobs[i] = null
+        }
+        slotIsVideo.fill(false)
         mediaGridCount = 0
         mediaGridTotalH = 0
         gridExtraCount = 0
@@ -375,10 +380,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             if (newMsg != null) messageEntity = newMsg
             parsedContent = parseContentText(msg.content)
             timeText = formatRelativeTime(msg.timestampSeconds)
-            drawPhotoImage = msg.hasMedia
-            val isAudioAtt = msg.isAudioAttachment && !msg.hasMedia
+            drawPhotoImage = msg.hasAnyMedia
+            val isAudioAtt = msg.isAudioAttachment && !msg.hasAnyMedia
             drawAudioAttachment = isAudioAtt
-            drawFileAttachment = msg.isFileAttachment && !msg.hasMedia && !isAudioAtt
+            drawFileAttachment = msg.hasFileAttachments && !isAudioAtt
             audioIsPlaying = false
             audioIsLoading = false
             audioPositionMs = 0L
@@ -403,8 +408,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             buildLayouts(msg)
             if (!isCombined) {
                 val isAnon = msg.senderId == ANONYMOUS_USER_ID
-                val displayName = if (isAnon) "Anonymous" else msg.senderName
-                avatarDrawable.setInfo(msg.senderId, displayName)
+                val avatarUsername = if (isAnon) "Anonymous" else msg.senderUsername
+                avatarDrawable.setInfo(msg.senderId, avatarUsername)
                 if (isAnon) loadAnonymousAvatar() else loadAvatar(msg.senderAvatar)
             }
             if (drawPhotoImage) loadPhotoImage(msg) else clearPhotoReceivers()
@@ -449,20 +454,34 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             if (messageEntity?.senderName != msg.senderName) {
                 rebuildLayout = true
             }
+            val isAnon = msg.senderId == ANONYMOUS_USER_ID
+            val avatarUsername = if (isAnon) "Anonymous" else msg.senderUsername
+            avatarDrawable.setInfo(msg.senderId, avatarUsername)
+            needInvalidate = true
         }
 
         if ((mask and NotificationCenter.UPDATE_MASK_AVATAR) != 0) {
             if (!isCombined && messageEntity?.senderAvatar != msg.senderAvatar) {
                 val isAnon = msg.senderId == ANONYMOUS_USER_ID
-                val displayName = if (isAnon) "Anonymous" else msg.senderName
-                avatarDrawable.setInfo(msg.senderId, displayName)
+                val avatarUsername = if (isAnon) "Anonymous" else msg.senderUsername
+                avatarDrawable.setInfo(msg.senderId, avatarUsername)
                 if (isAnon) loadAnonymousAvatar() else loadAvatar(msg.senderAvatar)
                 needInvalidate = true
             }
         }
 
         if ((mask and NotificationCenter.UPDATE_MASK_REACTIONS) != 0) {
-            rebuildLayout = true
+            val m = newMsg ?: messageEntity ?: return false
+            if (newMsg != null) messageEntity = newMsg
+            Log.d(TAG, "REACTION update id=${m.id} extraAtt=${m.extraAttachmentsJson.length} drawFile=$drawFileAttachment hasFile=${m.hasFileAttachments}")
+            val oldReactionH = reactionRowHeight
+            buildReactionLayouts(m, cachedInnerWidth)
+            if (oldReactionH != reactionRowHeight) {
+                measuredCellHeight = computeHeight(m)
+                requestLayout()
+            }
+            invalidate()
+            return true
         }
 
         if (newMsg != null) messageEntity = newMsg
@@ -470,10 +489,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         if (rebuildLayout) {
             val m = messageEntity ?: return false
             timeText = formatRelativeTime(m.timestampSeconds)
-            drawPhotoImage = m.hasMedia
-            val isAudioAtt = m.isAudioAttachment && !m.hasMedia
+            drawPhotoImage = m.hasAnyMedia
+            val isAudioAtt = m.isAudioAttachment && !m.hasAnyMedia
             drawAudioAttachment = isAudioAtt
-            drawFileAttachment = m.isFileAttachment && !m.hasMedia && !isAudioAtt
+            drawFileAttachment = m.hasFileAttachments && !isAudioAtt
             drawForwardHeader = m.isForwarded
             drawEdited = m.isEdited && !m.hideEditted
             drawEphemeral = m.isEphemeral
@@ -509,8 +528,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val maxW = if (isInPinMode) rawMaxW.coerceAtMost(maxBubbleWidth(width)) else rawMaxW
         val maxH = maxW + LayoutHelper.dp(100)
 
-        var imgW = msg.attachmentWidth
-        var imgH = msg.attachmentHeight
+        val firstMedia = msg.allImageAttachments.firstOrNull()
+        var imgW = firstMedia?.width ?: msg.attachmentWidth
+        var imgH = firstMedia?.height ?: msg.attachmentHeight
         if (imgW <= 0 || imgH <= 0) {
             if (isStickerMsg) {
                 imgW = LayoutHelper.dp(120)
@@ -540,7 +560,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         photoHeight = h.coerceAtLeast(LayoutHelper.dp(100))
     }
 
-    private var videoThumbJob: Job? = null
+    private val videoThumbJobs = arrayOfNulls<Job>(4)
+    private val slotIsVideo = BooleanArray(4)
 
     private fun bubbleDecodeProxySizePx(slotIndex: Int): Pair<Int, Int> {
         val gapPx = LayoutHelper.dp(2)
@@ -575,6 +596,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private fun loadPhotoImage(msg: MessageEntity) {
         val allMedia = msg.allImageAttachments
         mediaGridCount = allMedia.size.coerceAtMost(4)
+        slotIsVideo.fill(false)
 
         if (mediaGridCount == 0) return
 
@@ -591,20 +613,22 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 allReceivers[i].setRoundRadius(MEDIA_RADIUS.toInt())
                 allReceivers[i].setRequestedSize(pw, ph)
                 val isLocalUri = att.url.startsWith("content://") || att.url.startsWith("file://")
-                val isVideo = att.filetype.startsWith("video/")
+                val isVideo = att.filetype.startsWith("video/", true)
+                slotIsVideo[i] = isVideo
                 if (isLocalUri && isVideo) {
                     allReceivers[i].recycle()
-                    if (i == 0) loadLocalVideoThumbnail(att.url)
+                    loadLocalVideoThumbnail(att.url, i)
                 } else if (isLocalUri) {
                     allReceivers[i].setLocalUri(android.net.Uri.parse(att.url), context)
                 } else if (isAnimated || isStickerAttachment) {
                     allReceivers[i].setImage(att.url, att.thumb.ifEmpty { null }, context)
-                } else if (att.filetype.startsWith("video/")) {
+                } else if (isVideo) {
                     val thumb = att.thumb.ifEmpty { null }
+                    Log.d(TAG, "video slot=$i hasThumb=${thumb != null} thumb='${att.thumb}' filetype='${att.filetype}' url=${att.url}")
                     if (thumb != null) {
                         allReceivers[i].setImage(createImgproxyUrl(thumb, pw, ph, "fill"), null, context)
-                    } else if (i == 0) {
-                        loadVideoThumbnail(att.url)
+                    } else {
+                        allReceivers[i].recycle()
                     }
                 } else {
                     val mainUrl = createImgproxyUrl(att.url, pw, ph, "fit")
@@ -638,54 +662,18 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private fun videoThumbCacheKey(videoUrl: String): String = "vthumb:$videoUrl"
 
-    @Suppress("deprecation")
-    private fun loadVideoThumbnail(videoUrl: String) {
-        val pw = photoWidth.coerceAtLeast(1)
-        val ph = photoHeight.coerceAtLeast(1)
-        val loader = MezonImageLoader.getInstance(context)
-        val key = videoThumbCacheKey(videoUrl)
-        loader.getBitmapFromMemory(key, pw, ph)?.let {
-            photoImage.setBitmapDirectly(it)
-            invalidate()
-            return
-        }
-        videoThumbJob?.cancel()
-        videoThumbJob = VIDEO_THUMB_SCOPE.launch {
-            val retriever = android.media.MediaMetadataRetriever()
-            try {
-                kotlinx.coroutines.withTimeout(VIDEO_THUMB_TIMEOUT_MS) {
-                    retriever.setDataSource(videoUrl, HashMap<String, String>())
-                }
-                val frame = retriever.getFrameAtTime(
-                    100_000L,
-                    android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC
-                )
-                if (frame != null) {
-                    loader.cacheBitmap(key, pw, ph, frame)
-                    withContext(Dispatchers.Main) {
-                        photoImage.setBitmapDirectly(frame)
-                        invalidate()
-                    }
-                }
-            } catch (_: Exception) {
-            } finally {
-                runCatching { retriever.release() }
-            }
-        }
-    }
-
-    private fun loadLocalVideoThumbnail(localUrl: String) {
+    private fun loadLocalVideoThumbnail(localUrl: String, slotIndex: Int) {
         val pw = photoWidth.coerceAtLeast(1)
         val ph = photoHeight.coerceAtLeast(1)
         val loader = MezonImageLoader.getInstance(context)
         val key = videoThumbCacheKey(localUrl)
         loader.getBitmapFromMemory(key, pw, ph)?.let {
-            photoImage.setBitmapDirectly(it)
+            allReceivers[slotIndex].setBitmapDirectly(it)
             invalidate()
             return
         }
-        videoThumbJob?.cancel()
-        videoThumbJob = VIDEO_THUMB_SCOPE.launch {
+        videoThumbJobs[slotIndex]?.cancel()
+        videoThumbJobs[slotIndex] = VIDEO_THUMB_SCOPE.launch {
             val retriever = android.media.MediaMetadataRetriever()
             try {
                 val uri = android.net.Uri.parse(localUrl)
@@ -696,14 +684,16 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     100_000L,
                     android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC
                 )
+                Log.d(TAG, "loadLocalVideoThumbnail slot=$slotIndex frame=${if (frame != null) "${frame.width}x${frame.height}" else "NULL"} url=$localUrl")
                 if (frame != null) {
                     loader.cacheBitmap(key, pw, ph, frame)
                     withContext(Dispatchers.Main) {
-                        photoImage.setBitmapDirectly(frame)
+                        allReceivers[slotIndex].setBitmapDirectly(frame)
                         invalidate()
                     }
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                Log.e(TAG, "loadLocalVideoThumbnail FAILED slot=$slotIndex url=$localUrl", e)
             } finally {
                 runCatching { retriever.release() }
             }
@@ -1166,9 +1156,13 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
 
         if (drawFileAttachment) {
-            val textH = (fileNameLayout?.height ?: 0) + (fileSizeLayout?.height ?: 0)
-            val innerH = maxOf(FILE_ICON_SIZE, textH)
-            h += FILE_ROW_V_PAD * 2 + maxOf(innerH, FILE_ROW_MIN_HEIGHT - FILE_ROW_V_PAD * 2) + GAP_V_INNER
+            fun fileCardH(nameL: StaticLayout?, sizeL: StaticLayout?): Int {
+                val textH = (nameL?.height ?: 0) + (sizeL?.height ?: 0)
+                val innerH = maxOf(FILE_ICON_SIZE, textH)
+                return FILE_ROW_V_PAD * 2 + maxOf(innerH, FILE_ROW_MIN_HEIGHT - FILE_ROW_V_PAD * 2) + GAP_V_INNER
+            }
+            h += fileCardH(fileNameLayout, fileSizeLayout)
+            for ((nl, sl) in extraFileLayouts) h += fileCardH(nl, sl)
         }
 
         if (drawAudioAttachment) {
@@ -1198,25 +1192,41 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         if (!drawFileAttachment) {
             fileNameLayout = null
             fileSizeLayout = null
+            extraFileLayouts = emptyList()
             fileIconDrawable = null
             fileRowWidth = 0
             return
         }
         val cardInnerW = ((textWidth * 0.8f).toInt()).coerceAtLeast(FILE_ICON_SIZE + FILE_ICON_GAP + 1)
         val fileTextW = (cardInnerW - FILE_ROW_H_PAD * 2 - FILE_ICON_SIZE - FILE_ICON_GAP).coerceAtLeast(1)
-        val name = msg.attachmentFilename.ifEmpty { "File" }
+
+        val files = msg.allFileAttachments
+        val first = files.firstOrNull()
+        val name = first?.filename?.ifEmpty { "File" } ?: msg.attachmentFilename.ifEmpty { "File" }
         fileNameLayout = StaticLayout.Builder.obtain(name, 0, name.length, theme.chatFileNamePaint, fileTextW)
             .setMaxLines(2)
             .setEllipsize(TextUtils.TruncateAt.END)
             .build()
 
-        val sizeText = FileUtils.formatFileSize(msg.attachmentSize.toLong())
+        val sizeBytes = first?.size?.toLong() ?: msg.attachmentSize.toLong()
+        val sizeText = FileUtils.formatFileSize(sizeBytes)
         fileSizeLayout = StaticLayout.Builder.obtain(sizeText, 0, sizeText.length, currentTimePaint, fileTextW)
             .setMaxLines(1)
             .build()
 
-        fileRowWidth = cardInnerW
+        extraFileLayouts = if (files.size > 1) {
+            files.drop(1).map { att ->
+                val n = att.filename.ifEmpty { "File" }
+                val nl = StaticLayout.Builder.obtain(n, 0, n.length, theme.chatFileNamePaint, fileTextW)
+                    .setMaxLines(2).setEllipsize(TextUtils.TruncateAt.END).build()
+                val s = FileUtils.formatFileSize(att.size.toLong())
+                val sl = StaticLayout.Builder.obtain(s, 0, s.length, currentTimePaint, fileTextW)
+                    .setMaxLines(1).build()
+                Pair<StaticLayout?, StaticLayout?>(nl, sl)
+            }
+        } else emptyList()
 
+        fileRowWidth = cardInnerW
         fileIconDrawable = MezonIcon.fileIconNew.getDrawable(context)
     }
 
@@ -1466,16 +1476,29 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
             if (replyIsDeleted) {
                 replySenderName = ""
+                replySenderUsername = ""
                 replyContent = ""
                 replySenderId = 0L
                 replyHasAttachment = false
                 return true
             }
 
-            val refMatch = REFERENCE_SENDER_REGEX.find(content)
+            val refClanNick = REFERENCE_SENDER_CLAN_NICK_REGEX.find(content)
+                ?.groupValues?.getOrNull(1)
+                ?.replace("\\\"", "\"")
+                ?: ""
+            val refDisplayName = REFERENCE_SENDER_REGEX.find(content)
+                ?.groupValues?.getOrNull(1)
+                ?.replace("\\\"", "\"")
+                ?: ""
             val refContentMatch = REFERENCE_CONTENT_REGEX.find(content)
-            replySenderName = refMatch?.groupValues?.getOrNull(1)
-                ?.replace("\\\"", "\"") ?: ""
+            replySenderUsername = REFERENCE_SENDER_USERNAME_REGEX.find(content)
+                ?.groupValues?.getOrNull(1)
+                ?.replace("\\\"", "\"")
+                ?: ""
+            replySenderName = refClanNick.ifBlank {
+                refDisplayName.ifBlank { replySenderUsername.ifBlank { "Anonymous" } }
+            }
             val rawRefContent = refContentMatch?.groupValues?.getOrNull(1)
                 ?.replace("\\n", " ")
                 ?.replace("\\\"", "\"")
@@ -1484,13 +1507,18 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
             val senderIdMatch = REFERENCE_SENDER_ID_REGEX.find(content)
             replySenderId = senderIdMatch?.groupValues?.getOrNull(1)?.toLongOrNull() ?: 0L
+            val isAnonymousReply = replySenderId == ANONYMOUS_USER_ID
+            if (isAnonymousReply) {
+                replySenderName = "Anonymous"
+                replySenderUsername = "Anonymous"
+            }
             replyHasAttachment = content.contains("\"has_attachment\":true")
 
             val avatarMatch = REFERENCE_AVATAR_REGEX.find(content)
             replySenderAvatarUrl = avatarMatch?.groupValues?.getOrNull(1)?.replace("\\/", "/")
 
-            replyAvatarDrawable.setInfo(replySenderId, replySenderName)
-            loadReplyAvatar(replySenderAvatarUrl ?: "")
+            replyAvatarDrawable.setInfo(replySenderId, replySenderUsername.ifBlank { replySenderName })
+            if (isAnonymousReply) loadReplyAnonymousAvatar() else loadReplyAvatar(replySenderAvatarUrl ?: "")
             replySenderName.isNotEmpty() || replyContent.isNotEmpty()
         } catch (_: Exception) {
             false
@@ -1498,6 +1526,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     }
 
     private var replySenderName = ""
+    private var replySenderUsername = ""
     private var replyContent = ""
     private var replyRefMessageId = 0L
     private var replySenderId = 0L
@@ -1648,6 +1677,16 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }, onError = {
             replyAvatarDrawable.setDrawableByInfo(true)
         })
+    }
+
+    private fun loadReplyAnonymousAvatar() {
+        replyAvatarCancellable?.cancel()
+        replyAvatarCancellable = null
+        val bgColor = theme.colorAvatarDefault
+        val cached = anonymousAvatarBitmaps[bgColor]
+            ?: createAnonymousAvatarBitmap(bgColor).also { anonymousAvatarBitmaps[bgColor] = it }
+        replyAvatarDrawable.setPhoto(cached)
+        replyAvatarDrawable.setDrawableByInfo(true)
     }
 
     private fun checkAvatarFallbackTimeout() {
@@ -1875,7 +1914,15 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                         val imgH = if (mediaGridCount > 1) mediaGridTotalH else photoHeight
                         reacBaseY += imgH + GAP_V_INNER
                     }
-                    if (drawFileAttachment) reacBaseY += FILE_ICON_SIZE + GAP_V_INNER
+                    if (drawFileAttachment) {
+                        fun fileCardH2(nl: StaticLayout?, sl: StaticLayout?): Int {
+                            val th = (nl?.height ?: 0) + (sl?.height ?: 0)
+                            val ih = maxOf(FILE_ICON_SIZE, th)
+                            return FILE_ROW_V_PAD * 2 + maxOf(ih, FILE_ROW_MIN_HEIGHT - FILE_ROW_V_PAD * 2) + GAP_V_INNER
+                        }
+                        reacBaseY += fileCardH2(fileNameLayout, fileSizeLayout).toFloat()
+                        for ((nl, sl) in extraFileLayouts) reacBaseY += fileCardH2(nl, sl).toFloat()
+                    }
                     if (drawAudioAttachment) reacBaseY += AUDIO_PILL_HEIGHT + GAP_V_INNER
                     if (embedData != null) reacBaseY += computeEmbedHeight()
                     if (drawEphemeral) ephemeralLayout?.let { reacBaseY += it.height + GAP_V_INNER }
@@ -2371,15 +2418,29 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private fun drawFileBlock(canvas: Canvas, x: Float, y: Float): Float {
         val iconD = fileIconDrawable ?: return y
+        var yOff = y
+        yOff = drawSingleFileCard(canvas, x, yOff, iconD, fileNameLayout, fileSizeLayout, isFirst = true)
+        for ((nl, sl) in extraFileLayouts) {
+            yOff = drawSingleFileCard(canvas, x, yOff, iconD, nl, sl, isFirst = false)
+        }
+        return yOff
+    }
+
+    private fun drawSingleFileCard(
+        canvas: Canvas, x: Float, y: Float, iconD: Drawable,
+        nameLayout: StaticLayout?, sizeLayout: StaticLayout?, isFirst: Boolean
+    ): Float {
         val cardW = fileRowWidth.toFloat()
-        val textH = (fileNameLayout?.height ?: 0) + (fileSizeLayout?.height ?: 0)
+        val textH = (nameLayout?.height ?: 0) + (sizeLayout?.height ?: 0)
         val innerH = maxOf(FILE_ICON_SIZE, textH)
         val cardH = (FILE_ROW_V_PAD * 2 + maxOf(innerH, FILE_ROW_MIN_HEIGHT - FILE_ROW_V_PAD * 2)).toFloat()
 
-        fileBlockLeft = x
-        fileBlockTop = y
-        fileBlockRight = x + cardW
-        fileBlockBottom = y + cardH
+        if (isFirst) {
+            fileBlockLeft = x
+            fileBlockTop = y
+            fileBlockRight = x + cardW
+            fileBlockBottom = y + cardH
+        }
 
         EMBED_BG_PAINT.color = theme.secondaryLight
         fileRoundRect.set(x, y, x + cardW, y + cardH)
@@ -2397,14 +2458,14 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val textX = innerX + FILE_ICON_SIZE + FILE_ICON_GAP
         val totalTextH = textH.toFloat()
         var textY = innerY + (cardH - FILE_ROW_V_PAD * 2 - totalTextH) / 2f
-        fileNameLayout?.let {
+        nameLayout?.let {
             canvas.save()
             canvas.translate(textX, textY)
             it.draw(canvas)
             canvas.restore()
             textY += it.height
         }
-        fileSizeLayout?.let {
+        sizeLayout?.let {
             canvas.save()
             canvas.translate(textX, textY)
             it.draw(canvas)
@@ -2669,6 +2730,24 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private var gridExtraCount = 0
 
+    private fun drawGridCell(canvas: Canvas, slot: Int, x: Float, y: Float, w: Float, h: Float, isDark: Boolean): Boolean {
+        var needsRedraw = false
+        if (drawSending) {
+            drawAttachmentUploadSpinner(canvas, x, y, w, h, MEDIA_RADIUS)
+        } else if (!allReceivers[slot].hasMainImage()) {
+            if (slotIsVideo[slot]) {
+                drawVideoPlaceholder(canvas, x, y, w, h, MEDIA_RADIUS)
+            } else if (allReceivers[slot].shouldAnimateLoadingPlaceholder()) {
+                shimmerEffect.draw(canvas, x, y, x + w, y + h, MEDIA_RADIUS, isDark)
+                needsRedraw = true
+            }
+        }
+        if (slotIsVideo[slot] && !drawSending) {
+            drawVideoPlayButton(canvas, x, y, w, h)
+        }
+        return needsRedraw
+    }
+
     private fun drawMediaGrid(canvas: Canvas, msg: MessageEntity, startX: Float, startY: Float): Float {
         val gap = GRID_GAP
         val totalW = photoWidth.toFloat()
@@ -2683,12 +2762,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     val x = startX + i * (cellW + gap)
                     allReceivers[i].setImageCoords(x, startY, cellW, cellH)
                     allReceivers[i].draw(canvas)
-                    if (drawSending) {
-                        drawAttachmentUploadSpinner(canvas, x, startY, cellW, cellH, MEDIA_RADIUS)
-                    } else if (!allReceivers[i].hasMainImage() && allReceivers[i].shouldAnimateLoadingPlaceholder()) {
-                        shimmerEffect.draw(canvas, x, startY, x + cellW, startY + cellH, MEDIA_RADIUS, isDark)
-                        needsShimmerRedraw = true
-                    }
+                    if (drawGridCell(canvas, i, x, startY, cellW, cellH, isDark)) needsShimmerRedraw = true
                 }
                 if (needsShimmerRedraw) postInvalidateDelayed(16)
                 return startY + cellH
@@ -2701,24 +2775,14 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
                 allReceivers[0].setImageCoords(startX, startY, leftW, leftH)
                 allReceivers[0].draw(canvas)
-                if (drawSending) {
-                    drawAttachmentUploadSpinner(canvas, startX, startY, leftW, leftH, MEDIA_RADIUS)
-                } else if (!allReceivers[0].hasMainImage() && allReceivers[0].shouldAnimateLoadingPlaceholder()) {
-                    shimmerEffect.draw(canvas, startX, startY, startX + leftW, startY + leftH, MEDIA_RADIUS, isDark)
-                    needsShimmerRedraw = true
-                }
+                if (drawGridCell(canvas, 0, startX, startY, leftW, leftH, isDark)) needsShimmerRedraw = true
 
                 val rx = startX + leftW + gap
                 for (i in 1 until 3) {
                     val ry = startY + (i - 1) * (rightH + gap)
                     allReceivers[i].setImageCoords(rx, ry, rightW, rightH)
                     allReceivers[i].draw(canvas)
-                    if (drawSending) {
-                        drawAttachmentUploadSpinner(canvas, rx, ry, rightW, rightH, MEDIA_RADIUS)
-                    } else if (!allReceivers[i].hasMainImage() && allReceivers[i].shouldAnimateLoadingPlaceholder()) {
-                        shimmerEffect.draw(canvas, rx, ry, rx + rightW, ry + rightH, MEDIA_RADIUS, isDark)
-                        needsShimmerRedraw = true
-                    }
+                    if (drawGridCell(canvas, i, rx, ry, rightW, rightH, isDark)) needsShimmerRedraw = true
                 }
                 if (needsShimmerRedraw) postInvalidateDelayed(16)
                 return startY + leftH
@@ -2733,12 +2797,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     val y = startY + row * (cellH + gap)
                     allReceivers[i].setImageCoords(x, y, cellW, cellH)
                     allReceivers[i].draw(canvas)
-                    if (drawSending) {
-                        drawAttachmentUploadSpinner(canvas, x, y, cellW, cellH, MEDIA_RADIUS)
-                    } else if (!allReceivers[i].hasMainImage() && allReceivers[i].shouldAnimateLoadingPlaceholder()) {
-                        shimmerEffect.draw(canvas, x, y, x + cellW, y + cellH, MEDIA_RADIUS, isDark)
-                        needsShimmerRedraw = true
-                    }
+                    if (drawGridCell(canvas, i, x, y, cellW, cellH, isDark)) needsShimmerRedraw = true
                 }
                 if (gridExtraCount > 0) {
                     val x = startX + (cellW + gap)
@@ -2757,15 +2816,22 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     }
 
     private fun drawMediaOverlays(canvas: Canvas, msg: MessageEntity, imgX: Float, imgY: Float) {
+        val w = photoWidth.toFloat()
+        val h = photoHeight.toFloat()
+        val isVideo = msg.messageType == MessageEntity.TYPE_VIDEO || slotIsVideo[0]
         if (drawSending) {
-            drawAttachmentUploadSpinner(canvas, imgX, imgY, photoWidth.toFloat(), photoHeight.toFloat(), MEDIA_RADIUS)
-        } else if (!photoImage.hasMainImage() && photoImage.shouldAnimateLoadingPlaceholder()) {
-            shimmerEffect.draw(canvas, imgX, imgY, imgX + photoWidth, imgY + photoHeight, MEDIA_RADIUS,
-                theme.resolvedMode != com.mezon.mobile.ui.theme.ThemeMode.LIGHT)
-            postInvalidateDelayed(32)
+            drawAttachmentUploadSpinner(canvas, imgX, imgY, w, h, MEDIA_RADIUS)
+        } else if (!photoImage.hasMainImage()) {
+            if (isVideo) {
+                drawVideoPlaceholder(canvas, imgX, imgY, w, h, MEDIA_RADIUS)
+            } else if (photoImage.shouldAnimateLoadingPlaceholder()) {
+                shimmerEffect.draw(canvas, imgX, imgY, imgX + w, imgY + h, MEDIA_RADIUS,
+                    theme.resolvedMode != com.mezon.mobile.ui.theme.ThemeMode.LIGHT)
+                postInvalidateDelayed(32)
+            }
         }
-        if (msg.messageType == MessageEntity.TYPE_VIDEO) {
-            drawVideoPlayButton(canvas, imgX, imgY)
+        if (isVideo && !drawSending) {
+            drawVideoPlayButton(canvas, imgX, imgY, w, h)
             durationLayout?.let { drawDurationBadge(canvas, it, imgX, imgY) }
         }
         if (msg.messageType == MessageEntity.TYPE_GIF) {
@@ -2773,10 +2839,15 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
     }
 
-    private fun drawVideoPlayButton(canvas: Canvas, imgX: Float, imgY: Float) {
-        val cx = imgX + photoWidth / 2f
-        val cy = imgY + photoHeight / 2f
-        val r = PLAY_BTN_SIZE / 2f
+    private fun drawVideoPlaceholder(canvas: Canvas, x: Float, y: Float, w: Float, h: Float, radius: Float) {
+        tmpRect.set(x, y, x + w, y + h)
+        canvas.drawRoundRect(tmpRect, radius, radius, VIDEO_PLACEHOLDER_PAINT)
+    }
+
+    private fun drawVideoPlayButton(canvas: Canvas, x: Float, y: Float, w: Float, h: Float) {
+        val cx = x + w / 2f
+        val cy = y + h / 2f
+        val r = (min(w, h) * 0.2f).coerceIn(LayoutHelper.dp(14f).toFloat(), PLAY_BTN_SIZE / 2f)
         canvas.drawCircle(cx, cy, r, PLAY_BG_PAINT)
 
         playTriPath.reset()
@@ -3207,11 +3278,13 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         private const val EPHEMERAL_TEXT = "Only visible to you"
         private const val ERROR_TEXT = "Unable to send message"
 
+        private val REFERENCE_SENDER_CLAN_NICK_REGEX = Regex("\"message_sender_clan_nick\"\\s*:\\s*\"([^\"]*?)\"")
         private val REFERENCE_SENDER_REGEX = Regex("\"message_sender_display_name\"\\s*:\\s*\"([^\"]*?)\"")
+        private val REFERENCE_SENDER_USERNAME_REGEX = Regex("\"message_sender_username\"\\s*:\\s*\"([^\"]*?)\"")
         private val REFERENCE_CONTENT_REGEX = Regex("\"references\".*?\"content\"\\s*:\\s*\"(.*?)(?<!\\\\)\"")
         private val REFERENCE_REF_ID_REGEX = Regex("\"message_ref_id\"\\s*:\\s*\"?(\\d+)\"?")
         private val REFERENCE_SENDER_ID_REGEX = Regex("\"message_sender_id\"\\s*:\\s*\"?(\\d+)\"?")
-        private val REFERENCE_AVATAR_REGEX = Regex("\"mesages_sender_avatar\"\\s*:\\s*\"([^\"]+)\"")
+        private val REFERENCE_AVATAR_REGEX = Regex("\"(?:mesages_sender_avatar|message_sender_avatar)\"\\s*:\\s*\"([^\"]+)\"")
 
         private val SPINNER_RADIUS = LayoutHelper.dp(14).toFloat()
         private val SPINNER_STROKE = LayoutHelper.dpf(2.5f)
@@ -3243,6 +3316,11 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
         private val PLAY_BG_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = 0x66000000.toInt()
+            style = Paint.Style.FILL
+        }
+
+        private val VIDEO_PLACEHOLDER_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFF2A2D33.toInt()
             style = Paint.Style.FILL
         }
 
