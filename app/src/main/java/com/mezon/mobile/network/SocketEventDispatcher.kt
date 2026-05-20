@@ -14,6 +14,7 @@ import com.mezon.mezon.rtapi.BannedUserEvent
 import com.mezon.mezon.rtapi.CategoryEvent
 import com.mezon.mezon.rtapi.ChannelAppEvent
 import com.mezon.mezon.rtapi.ChannelCreatedEvent
+import com.mezon.mezon.rtapi.ChannelMessageUpdate
 import com.mezon.mezon.rtapi.ChannelDeletedEvent
 import com.mezon.mezon.rtapi.ChannelPresenceEvent
 import com.mezon.mezon.rtapi.ChannelUpdatedEvent
@@ -71,6 +72,9 @@ class SocketEventDispatcher @Inject constructor(
 ) {
     private val _channelMessages = MutableSharedFlow<ChannelMessage>(extraBufferCapacity = 32)
     val channelMessages: SharedFlow<ChannelMessage> = _channelMessages.asSharedFlow()
+
+    private val _channelMessageUpdates = MutableSharedFlow<ChannelMessageUpdate>(extraBufferCapacity = 32)
+    val channelMessageUpdates: SharedFlow<ChannelMessageUpdate> = _channelMessageUpdates.asSharedFlow()
 
     private val _typingEvents = MutableSharedFlow<MessageTypingEvent>(extraBufferCapacity = 16)
     val typingEvents: SharedFlow<MessageTypingEvent> = _typingEvents.asSharedFlow()
@@ -244,8 +248,16 @@ class SocketEventDispatcher @Inject constructor(
 
     private suspend fun dispatch(envelope: Envelope) {
         when (envelope.messageCase) {
-            Envelope.MessageCase.CHANNEL_MESSAGE ->
+            Envelope.MessageCase.CHANNEL_MESSAGE -> {
                 _channelMessages.emit(envelope.channelMessage)
+            }
+            Envelope.MessageCase.CHANNEL_MESSAGE_UPDATE ->
+                _channelMessageUpdates.emit(envelope.channelMessageUpdate)
+            Envelope.MessageCase.CHANNEL_MESSAGE_SEND ->
+                _channelMessages.emit(envelope.channelMessageSend.toApiChannelMessage())
+            Envelope.MessageCase.EPHEMERAL_MESSAGE_SEND -> {
+                envelope.ephemeralMessageSend.toApiChannelMessage()?.let { _channelMessages.emit(it) }
+            }
             Envelope.MessageCase.MESSAGE_TYPING_EVENT ->
                 _typingEvents.emit(envelope.messageTypingEvent)
             Envelope.MessageCase.MESSAGE_REACTION_EVENT ->
@@ -358,7 +370,6 @@ class SocketEventDispatcher @Inject constructor(
             Envelope.MessageCase.EVENT_EMOJI ->
                 _emojiEvents.emit(envelope.eventEmoji)
             else -> {}
-            
         }
     }
 }

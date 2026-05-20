@@ -1031,7 +1031,6 @@
     <string name="channel_permission_save_failed">Không lưu được quyền</string>
     <string name="channel_permission_load_failed">Không tải được quyền</string>
 
-    <!-- Channel permissions (new structure from other branch) -->
     <string name="channel_permissions_title">Quyền truy cập</string>
     <string name="channel_permissions_overrides">Ghi đè quyền</string>
     <string name="channel_permissions_save">Lưu</string>
@@ -1058,6 +1057,22 @@
     <string name="channel_permissions_role_member_empty">Chưa có vai trò và thành viên để thiết lập quyền riêng</string>
     <string name="channel_permissions_no_matches">Không có vai trò hoặc thành viên phù hợp</string>
     <string name="channel_permissions_no_access">Bạn không có quyền quản lý kênh này.</string>
+
+    <string name="embed_select_one">Chọn 1 mục</string>
+    <string name="embed_select_up_to">Chọn tối đa %d mục</string>
+    <string name="embed_select_at_least">Chọn ít nhất %d mục</string>
+    <string name="embed_select_range">Chọn từ %1$d đến %2$d mục</string>
+    <string name="embed_select_no_results">Không có mục phù hợp</string>
+    <string name="embed_select_one_for">Chọn 1 mục cho %1$s</string>
+    <string name="embed_select_up_to_for">Chọn tối đa %1$d mục cho %2$s</string>
+    <string name="embed_select_at_least_for">Chọn ít nhất %1$d mục cho %2$s</string>
+    <string name="embed_select_range_for">Chọn từ %1$d đến %2$d mục cho %3$s</string>
+    <string name="embed_form_error_required_field">Vui lòng điền đầy đủ các ô bắt buộc.</string>
+    <string name="embed_form_error_select_min">Chọn ít nhất %1$d mục.</string>
+    <string name="embed_form_error_select_max">Chọn tối đa %1$d mục.</string>
+    <string name="embed_form_submit_failed">Không thể gửi biểu mẫu</string>
+    <string name="advanced_ephemeral">Ephemeral</string>
+    <string name="ephemeral_only_visible_to_recipient">Chỉ người nhận mới thấy được</string>
 
     <!-- Poll messages -->
     <string name="poll_select_one">Chọn một đáp án</string>

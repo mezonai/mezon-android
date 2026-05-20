@@ -40,6 +40,7 @@ import com.mezon.mobile.network.NetworkMonitor
 import com.mezon.mobile.notification.FcmRepository
 import com.mezon.mobile.search.SearchController
 import com.mezon.mobile.session.SessionManager
+import com.mezon.mobile.util.SentryReporter
 import com.mezon.mobile.wallet.WalletController
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
@@ -93,6 +94,7 @@ interface FragmentEntryPoint {
     fun callManager(): CallManager
     fun webRtcInfra(): WebRtcInfra
     fun okHttpClient(): OkHttpClient
+    fun sentryReporter(): SentryReporter
 
     @IoDispatcher
     fun ioDispatcher(): CoroutineDispatcher
