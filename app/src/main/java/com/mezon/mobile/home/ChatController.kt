@@ -37,6 +37,8 @@ import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.util.MENTION_HERE_USER_ID
+import com.mezon.mobile.util.MezonSnowflake
+import com.mezon.mobile.util.firstReferenceMessageId
 import com.mezon.mobile.util.SentryReporter
 import com.mezon.mobile.util.MentionData
 import com.mezon.mobile.util.buildTextContent
@@ -65,7 +67,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.withContext
-import java.util.concurrent.atomic.AtomicInteger
 
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -73,7 +74,6 @@ import javax.inject.Singleton
 private const val TAG = "ChatController"
 private const val MAX_FORWARD_COMMENT_CHARS = 2000
 private const val PAGE_SIZE = 50
-private const val LOCAL_PROVISIONAL_MESSAGE_ID_FLOOR = 4_611_686_018_427_387_904L
 private const val DIRECTION_AFTER = 1
 private const val DIRECTION_AROUND = 2
 const val LOAD_TYPE_INITIAL = 0
@@ -108,7 +108,6 @@ class ChatController @Inject constructor(
     private val initialFetchDone = HashSet<Long>()
     private val lastMessageByChannel = LongSparseArray<Long>()
     private val pendingTempMessageByChannel = LongSparseArray<Long>()
-    private val provisionalRealtimeMessageSeq = AtomicInteger(kotlin.random.Random.nextInt(1 shl 18))
 
     private fun isAnonymousSend(clanId: Long): Boolean =
         clanId != 0L && anonymousController.get().isAnonymous(clanId)
@@ -145,14 +144,23 @@ class ChatController @Inject constructor(
     fun getLastMessageId(channelId: Long): Long =
         synchronized(this) { lastMessageByChannel.get(channelId, 0L) }
 
-    private fun allocateProvisionalRealtimeMessageId(): Long {
-        val ms = System.currentTimeMillis()
-        val seq = provisionalRealtimeMessageSeq.incrementAndGet() and 0x3FFFF
-        return (ms shl 22) or seq.toLong()
+    private fun assignMissingMessageId(msg: ChannelMessage): ChannelMessage {
+        if (msg.messageId != 0L) return msg
+        val refId = firstReferenceMessageId(msg.content)
+        if (refId > 0L) {
+            synchronized(this) {
+                val lastKnown = lastMessageByChannel.get(msg.channelId, 0L)
+                var candidate = refId + 1L
+                if (candidate <= refId) candidate = MezonSnowflake.generate()
+                if (candidate <= lastKnown) candidate = lastKnown + 1L
+                return ChannelMessage.newBuilder(msg).setMessageId(candidate).build()
+            }
+        }
+        return ChannelMessage.newBuilder(msg).setMessageId(MezonSnowflake.generate()).build()
     }
 
     private fun MessageEntity.canAdvanceServerTimeline(): Boolean {
-        return id > 0L && !isUnreadDivider && !isEphemeral && !isLocalProvisionalMessageId(id)
+        return id > 0L && !isUnreadDivider && !isEphemeral && !isSending
     }
 
     private fun ChannelMessage.canAdvanceServerTimeline(): Boolean {
@@ -163,11 +171,7 @@ class ChatController @Inject constructor(
     }
 
     private fun ChannelMessageHeader.canAdvanceServerTimeline(): Boolean {
-        return id > 0L && !isLocalProvisionalMessageId(id)
-    }
-
-    private fun isLocalProvisionalMessageId(id: Long): Boolean {
-        return id >= LOCAL_PROVISIONAL_MESSAGE_ID_FLOOR
+        return id > 0L
     }
 
     private fun updateLastMessageByChannel(channelId: Long, messages: List<MessageEntity>, latestIdFromResponse: Long = 0L) {
@@ -177,8 +181,7 @@ class ChatController @Inject constructor(
             .maxOfOrNull { it.id }
         val newestId = fromServer ?: fromMessages ?: return
         synchronized(this) {
-            val current = lastMessageByChannel.get(channelId, 0L)
-            if (newestId > current || (isLocalProvisionalMessageId(current) && !isLocalProvisionalMessageId(newestId))) {
+            if (newestId > lastMessageByChannel.get(channelId, 0L)) {
                 lastMessageByChannel.put(channelId, newestId)
             }
         }
@@ -916,7 +919,7 @@ class ChatController @Inject constructor(
             val lastServerId = lastMessageByChannel.get(channelId, 0L)
             val lastTempId = pendingTempMessageByChannel.get(channelId, 0L)
             val baseId = maxOf(lastServerId, lastTempId)
-            val tempId = if (baseId > 0L) baseId + 1L else allocateProvisionalRealtimeMessageId()
+            val tempId = if (baseId > 0L) baseId + 1L else MezonSnowflake.generate()
             pendingTempMessageByChannel.put(channelId, tempId)
             return tempId
         }
@@ -1475,14 +1478,7 @@ class ChatController @Inject constructor(
             .first { it != null }?.userId?.toLongOrNull() ?: 0L
 
         socketEventDispatcher.channelMessages.collect { raw ->
-            val resolved = resolveEphemeralSender(raw, currentUserId)
-            val msg =
-                if (resolved.messageId == 0L) {
-                    val pid = allocateProvisionalRealtimeMessageId()
-                    ChannelMessage.newBuilder(resolved).setMessageId(pid).build()
-                } else {
-                    resolved
-                }
+            val msg = assignMissingMessageId(resolveEphemeralSender(raw, currentUserId))
             val entity = msg.toMessageEntity(currentUserId)
             if (BuildConfig.DEBUG) {
                 Log.d(

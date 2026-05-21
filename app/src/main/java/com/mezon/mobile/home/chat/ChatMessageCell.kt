@@ -1841,6 +1841,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                         }
                     }
                 }
+                pressedEmbedButtonHit = null
                 val data = ogpData
                 if (data != null && x >= ogpBlockLeft && x <= ogpBlockRight && y >= ogpBlockTop && y <= ogpBlockBottom) {
                     pressedOnOgp = true
