@@ -572,7 +572,6 @@ class ClansFragment : BaseFragment() {
         return root
     }
 
-    /** Re-apply palette to clan header TextViews and rebuild member subtitle (spans hold old colors until rebuild). */
     private fun refreshClanHeaderAfterThemeChange() {
         if (!::clanNameText.isInitialized || !::memberCountText.isInitialized) return
         clanNameText.setTextColor(themeColors.onSurface)
