@@ -806,6 +806,7 @@ class GlobalSearchFragment : BaseFragment() {
             val dmChannelId = dialogsController.getOrCreateDm(member.id)
             if (dmChannelId != 0L) {
                 launch(Dispatchers.Main.immediate) {
+                    com.mezon.mobile.home.chat.ChatFragment.setPendingWelcomePeerUsername(member.username)
                     onOpenChat?.invoke(dmChannelId, member.displayName, 0L, CHANNEL_TYPE_DM)
                 }
             }

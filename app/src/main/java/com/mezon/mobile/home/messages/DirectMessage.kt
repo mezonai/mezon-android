@@ -10,12 +10,10 @@ import com.mezon.mobile.home.extractLastSeenMessageId
 import com.mezon.mobile.home.extractLastSeenMessageTs
 import com.mezon.mobile.home.extractLastSentMessageId
 import com.mezon.mobile.home.extractLastSentMessageTs
-import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
-import com.mezon.mobile.util.parseContentPreview
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
-import com.mezon.mobile.util.parseContentPreview
 import com.mezon.mobile.network.streamModeToChannelType
+import com.mezon.mobile.util.parseContentPreview
 
 data class DmParticipant(
     val userId: Long,
@@ -66,7 +64,8 @@ data class DirectMessage(
     val lastSeenMessageId: Long = 0L,
     val lastSentMessageId: Long = 0L,
     val lastSeenMessageTs: Long = 0L,
-    val lastSentMessageTs: Long = 0L
+    val lastSentMessageTs: Long = 0L,
+    val groupCreatorId: Long = 0L,
 ) {
     fun avatarPlaceholderKey(): String = when (type) {
         CHANNEL_TYPE_GROUP -> displayName.ifEmpty { label }

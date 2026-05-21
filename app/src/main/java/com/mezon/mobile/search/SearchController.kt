@@ -449,7 +449,7 @@ class SearchController @Inject constructor(
 
 private fun DirectMessage.toSearchMember(): SearchMember = SearchMember(
     id = if (type == CHANNEL_TYPE_DM) otherUserId else channelId,
-    username = "",
+    username = username.ifEmpty { displayName.ifEmpty { label } },
     displayName = displayName.ifEmpty { label },
     avatarUrl = avatarUrl,
     isOnline = isOnline,

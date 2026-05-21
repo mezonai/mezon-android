@@ -3,13 +3,20 @@ package com.mezon.mobile.home.chat
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.RectF
 import android.graphics.drawable.Drawable
 import android.text.StaticLayout
 import android.text.TextPaint
 import android.view.View
+import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.home.messages.GroupAvatar
+import com.mezon.mobile.home.messages.isDefaultGroupAvatarUrl
+import com.mezon.mobile.network.CHANNEL_TYPE_DM
+import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.util.avatarImgproxyUrl
 
 class WelcomeMessageCell(context: Context, private val theme: ThemeColors) : View(context) {
 
@@ -18,27 +25,103 @@ class WelcomeMessageCell(context: Context, private val theme: ThemeColors) : Vie
     var clanId = 0L
     var isPrivate = false
 
+    var avatarUserId: Long = 0L
+    var avatarUsername: String = ""
+    var avatarUrl: String = ""
+    var peerUsername: String = ""
+
     private var messageEntity: MessageEntity? = null
     private var titleLayout: StaticLayout? = null
+    private var usernameLayout: StaticLayout? = null
     private var subtitleLayout: StaticLayout? = null
     private var iconDrawable: Drawable? = null
     private var measuredCellHeight = 0
 
+    private val avatarDrawable = AvatarDrawable()
+    private var currentAvatarLoadKey: String? = null
+    private var avatarDisposable: MezonImageLoader.Cancellable? = null
+    private var attachedToWindow = false
+    private val avatarBounds = RectF()
+
     private val isDM: Boolean get() = clanId == 0L
-    private val isGroup: Boolean get() = channelType == 2
-    private val isChannel: Boolean get() = !isDM
+    private val isGroup: Boolean get() = channelType == CHANNEL_TYPE_GROUP
+    private val showDmAvatar: Boolean get() = isDM
 
     fun update(msg: MessageEntity) {
         messageEntity = msg
-        iconDrawable = resolveIcon()
+        iconDrawable = resolveChannelIcon()
+        loadAvatar()
         requestLayout()
         invalidate()
     }
 
-    private fun resolveIcon(): Drawable? {
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        attachedToWindow = true
+        loadAvatar()
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        attachedToWindow = false
+        avatarDisposable?.cancel()
+        avatarDisposable = null
+    }
+
+    private fun resolveChannelIcon(): Drawable? {
         if (isDM) return null
         val icon = if (isPrivate) MezonIcon.channelTextLock else MezonIcon.channelText
         return icon.getDrawable(context)
+    }
+
+    private fun loadAvatar() {
+        if (!showDmAvatar) {
+            avatarDisposable?.cancel()
+            avatarDisposable = null
+            currentAvatarLoadKey = null
+            avatarDrawable.setPhoto(null)
+            return
+        }
+
+        val placeholderKey = avatarUsername.ifEmpty { channelName }
+        val avatarId = avatarUserId
+        avatarDrawable.setInfo(if (avatarId != 0L) avatarId else channelName.hashCode().toLong(), placeholderKey)
+
+        if (isGroup && isDefaultGroupAvatarUrl(avatarUrl)) {
+            if (currentAvatarLoadKey == GroupAvatar.DEFAULT_LOAD_KEY) return
+            currentAvatarLoadKey = GroupAvatar.DEFAULT_LOAD_KEY
+            avatarDisposable?.cancel()
+            avatarDisposable = null
+            avatarDrawable.setPhoto(GroupAvatar.bitmap(context))
+            return
+        }
+
+        val url = avatarUrl
+        if (url == currentAvatarLoadKey && avatarDrawable.hasPhoto()) return
+        currentAvatarLoadKey = url
+        avatarDisposable?.cancel()
+        avatarDisposable = null
+
+        if (url.isEmpty()) {
+            avatarDrawable.setPhoto(null)
+            return
+        }
+
+        if (!attachedToWindow) return
+        val proxyUrl = avatarImgproxyUrl(url, AVATAR_SIZE)
+        avatarDisposable = MezonImageLoader.getInstance(context).load(
+            proxyUrl, AVATAR_SIZE, AVATAR_SIZE,
+            onSuccess = { bmp ->
+                if (currentAvatarLoadKey != url) return@load
+                avatarDrawable.setPhoto(bmp)
+                invalidate()
+            },
+            onError = {
+                if (currentAvatarLoadKey != url) return@load
+                avatarDrawable.setPhoto(null)
+                invalidate()
+            }
+        )
     }
 
     private fun buildLayouts() {
@@ -53,6 +136,14 @@ class WelcomeMessageCell(context: Context, private val theme: ThemeColors) : Vie
             .setLineSpacing(LayoutHelper.dpf(2f), 1f)
             .build()
 
+        val usernameLine = buildUsernameLineText()
+        usernameLayout = if (usernameLine.isNotEmpty()) {
+            StaticLayout.Builder
+                .obtain(usernameLine, 0, usernameLine.length, usernamePaint, contentWidth.coerceAtLeast(1))
+                .setMaxLines(1)
+                .build()
+        } else null
+
         val subtitle = buildSubtitleText()
         subtitleLayout = if (subtitle.isNotEmpty()) {
             StaticLayout.Builder
@@ -63,8 +154,9 @@ class WelcomeMessageCell(context: Context, private val theme: ThemeColors) : Vie
         } else null
 
         var h = PAD_TOP
-        if (iconDrawable != null) h += ICON_CIRCLE_SIZE + ICON_MARGIN_BOTTOM
+        if (iconDrawable != null || showDmAvatar) h += ICON_CIRCLE_SIZE + ICON_MARGIN_BOTTOM
         titleLayout?.let { h += it.height + TITLE_MARGIN_BOTTOM }
+        usernameLayout?.let { h += it.height + USERNAME_MARGIN_BOTTOM }
         subtitleLayout?.let { h += it.height }
         h += PAD_BOTTOM
         measuredCellHeight = h
@@ -74,6 +166,11 @@ class WelcomeMessageCell(context: Context, private val theme: ThemeColors) : Vie
         isDM && isGroup -> channelName.ifEmpty { "Group" }
         isDM -> channelName.ifEmpty { "Direct Message" }
         else -> if (channelName.isNotEmpty()) "Welcome to #$channelName" else "Welcome!"
+    }
+
+    private fun buildUsernameLineText(): String {
+        if (!isDM || channelType != CHANNEL_TYPE_DM) return ""
+        return peerUsername.trim().removePrefix("@")
     }
 
     private fun buildSubtitleText(): String = when {
@@ -96,19 +193,34 @@ class WelcomeMessageCell(context: Context, private val theme: ThemeColors) : Vie
     override fun onDraw(canvas: Canvas) {
         var y = PAD_TOP.toFloat()
 
-        iconDrawable?.let { d ->
-            val cx = PAD_H + ICON_CIRCLE_SIZE / 2
-            val cy = y.toInt() + ICON_CIRCLE_SIZE / 2
-            val radius = ICON_CIRCLE_SIZE / 2
-
-            iconCirclePaint.color = theme.surfaceVariant
-            canvas.drawCircle(cx.toFloat(), cy.toFloat(), radius.toFloat(), iconCirclePaint)
-
-            val iconHalf = ICON_INNER_SIZE / 2
-            d.setBounds(cx - iconHalf, cy - iconHalf, cx + iconHalf, cy + iconHalf)
-            d.draw(canvas)
-
+        if (showDmAvatar) {
+            val cx = PAD_H + ICON_CIRCLE_SIZE / 2f
+            val cy = y + ICON_CIRCLE_SIZE / 2f
+            val radius = ICON_CIRCLE_SIZE / 2f
+            avatarBounds.set(cx - radius, cy - radius, cx + radius, cy + radius)
+            avatarDrawable.setBounds(
+                avatarBounds.left.toInt(),
+                avatarBounds.top.toInt(),
+                avatarBounds.right.toInt(),
+                avatarBounds.bottom.toInt()
+            )
+            avatarDrawable.draw(canvas)
             y += (ICON_CIRCLE_SIZE + ICON_MARGIN_BOTTOM).toFloat()
+        } else {
+            iconDrawable?.let { d ->
+                val cx = PAD_H + ICON_CIRCLE_SIZE / 2
+                val cy = y.toInt() + ICON_CIRCLE_SIZE / 2
+                val radius = ICON_CIRCLE_SIZE / 2
+
+                iconCirclePaint.color = theme.surfaceVariant
+                canvas.drawCircle(cx.toFloat(), cy.toFloat(), radius.toFloat(), iconCirclePaint)
+
+                val iconHalf = ICON_INNER_SIZE / 2
+                d.setBounds(cx - iconHalf, cy - iconHalf, cx + iconHalf, cy + iconHalf)
+                d.draw(canvas)
+
+                y += (ICON_CIRCLE_SIZE + ICON_MARGIN_BOTTOM).toFloat()
+            }
         }
 
         titlePaint.color = theme.onSurface
@@ -118,6 +230,15 @@ class WelcomeMessageCell(context: Context, private val theme: ThemeColors) : Vie
             it.draw(canvas)
             canvas.restore()
             y += it.height + TITLE_MARGIN_BOTTOM
+        }
+
+        usernamePaint.color = theme.onSurfaceVariant
+        usernameLayout?.let {
+            canvas.save()
+            canvas.translate(PAD_H.toFloat(), y)
+            it.draw(canvas)
+            canvas.restore()
+            y += it.height + USERNAME_MARGIN_BOTTOM
         }
 
         subtitlePaint.color = theme.onSurfaceVariant
@@ -136,13 +257,19 @@ class WelcomeMessageCell(context: Context, private val theme: ThemeColors) : Vie
         private val ICON_CIRCLE_SIZE = LayoutHelper.dp(70)
         private val ICON_INNER_SIZE = LayoutHelper.dp(40)
         private val ICON_MARGIN_BOTTOM = LayoutHelper.dp(10)
-        private val TITLE_MARGIN_BOTTOM = LayoutHelper.dp(10)
+        private val TITLE_MARGIN_BOTTOM = LayoutHelper.dp(4)
+        private val USERNAME_MARGIN_BOTTOM = LayoutHelper.dp(10)
+        private val AVATAR_SIZE = LayoutHelper.dp(70)
 
         private val iconCirclePaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
         private val titlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             textSize = LayoutHelper.sp(22f)
             isFakeBoldText = true
+        }
+
+        private val usernamePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = LayoutHelper.sp(14f)
         }
 
         private val subtitlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {

@@ -10,6 +10,9 @@ import com.mezon.mobile.core.BaseCell
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.chat.MezonImageLoader
+import com.mezon.mobile.home.messages.GroupAvatar
+import com.mezon.mobile.home.messages.isDefaultGroupAvatarUrl
+import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.search.SearchMember
 import com.mezon.mobile.util.avatarImgproxyUrl
 
@@ -58,8 +61,10 @@ class ProfileSearchCell(context: Context, private val theme: ThemeColors) : Base
         val m = newMember ?: member ?: return
         if (newMember != null) member = newMember
 
-        avatarDrawable.setInfo(m.id, m.username)
-        loadAvatar(m.avatarUrl)
+        val placeholderKey = m.username.ifEmpty { m.displayName }
+        val avatarId = if (m.isDm && m.channelType == CHANNEL_TYPE_GROUP) m.channelId else m.id
+        avatarDrawable.setInfo(avatarId, placeholderKey)
+        loadAvatar(m)
         buildLayouts()
         invalidate()
     }
@@ -91,8 +96,18 @@ class ProfileSearchCell(context: Context, private val theme: ThemeColors) : Base
         }
     }
 
-    private fun loadAvatar(url: String) {
-        if (url == currentAvatarUrl) return
+    private fun loadAvatar(m: SearchMember) {
+        if (m.isDm && m.channelType == CHANNEL_TYPE_GROUP && isDefaultGroupAvatarUrl(m.avatarUrl)) {
+            if (currentAvatarUrl == GroupAvatar.DEFAULT_LOAD_KEY) return
+            currentAvatarUrl = GroupAvatar.DEFAULT_LOAD_KEY
+            avatarDisposable?.cancel()
+            avatarDisposable = null
+            avatarDrawable.setPhoto(GroupAvatar.bitmap(context))
+            return
+        }
+
+        val url = m.avatarUrl
+        if (url == currentAvatarUrl && avatarDrawable.hasPhoto()) return
         currentAvatarUrl = url
         avatarDisposable?.cancel()
         avatarDisposable = null
@@ -106,6 +121,7 @@ class ProfileSearchCell(context: Context, private val theme: ThemeColors) : Base
         avatarDisposable = MezonImageLoader.getInstance(context).load(
             proxyUrl, AVATAR_SIZE, AVATAR_SIZE,
             onSuccess = { bmp ->
+                if (currentAvatarUrl != url) return@load
                 avatarDrawable.setPhoto(bmp)
                 invalidate()
             }

@@ -121,6 +121,11 @@ class ChatAdapter(
         notifyItemChanged(messagesStartRow + modelIndex)
     }
 
+    fun notifyWelcomeCellChanged() {
+        val idx = messages.indexOfFirst { it.isWelcomeMessage }
+        if (idx >= 0) notifyItemChanged(messagesStartRow + idx)
+    }
+
     fun getMessage(position: Int): MessageEntity? {
         val idx = position - messagesStartRow
         return if (idx in messages.indices) messages[idx] else null
@@ -229,6 +234,10 @@ class ChatAdapter(
                 holder.cell.channelType = channelType
                 holder.cell.clanId = clanId
                 holder.cell.isPrivate = isChannelPrivate
+                holder.cell.avatarUserId = welcomeAvatarUserId
+                holder.cell.avatarUsername = welcomeAvatarUsername
+                holder.cell.avatarUrl = welcomeAvatarUrl
+                holder.cell.peerUsername = welcomePeerUsername
                 holder.cell.update(messages[idx])
             }
             is SystemViewHolder -> {
@@ -266,6 +275,10 @@ class ChatAdapter(
     var channelType = 0
     var clanId = 0L
     var isChannelPrivate = false
+    var welcomeAvatarUserId: Long = 0L
+    var welcomeAvatarUsername: String = ""
+    var welcomeAvatarUrl: String = ""
+    var welcomePeerUsername: String = ""
     var loadLinkInvitePreview: (suspend (Long) -> LinkInvitePreview?)? = null
     var sendTokenDelegate: SendTokenMessageCell.Delegate? = null
     var systemMessageDelegate: SystemMessageCell.Delegate? = null

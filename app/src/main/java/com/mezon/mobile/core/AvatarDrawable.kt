@@ -27,17 +27,20 @@ class AvatarDrawable : Drawable() {
             0xFF22e2b3.toInt()
         )
 
+        fun avatarPlaceholderChar(name: String): Char? {
+            if (name.isEmpty()) return null
+            val first = name.firstOrNull { it.isLetterOrDigit() } ?: name.first()
+            return first.uppercaseChar()
+        }
+
         fun getColorForName(name: String): Int {
-            if (name.isEmpty()) return avatarColors[0]
-            val firstChar = name.trim().firstOrNull()?.uppercaseChar() ?: return avatarColors[0]
-            val index = (firstChar.code % avatarColors.size).toInt()
-            return avatarColors[index]
+            val upper = avatarPlaceholderChar(name) ?: return avatarColors[0]
+            return avatarColors[upper.code % avatarColors.size]
         }
 
         fun getColorIndexForName(name: String): Int {
-            if (name.isEmpty()) return 0
-            val firstChar = name.trim().firstOrNull()?.uppercaseChar() ?: return 0
-            return (firstChar.code % avatarColors.size).toInt()
+            val upper = avatarPlaceholderChar(name) ?: return 0
+            return upper.code % avatarColors.size
         }
 
         fun getColorForId(id: Long): Int {
@@ -125,9 +128,8 @@ class AvatarDrawable : Drawable() {
     }
 
     private fun getAvatarSymbols(username: String): String {
-        if (username.isEmpty()) return "?"
-        val first = username.firstOrNull { it.isLetterOrDigit() } ?: username.first()
-        return first.uppercaseChar().toString()
+        val upper = avatarPlaceholderChar(username) ?: return "?"
+        return upper.toString()
     }
 
     fun setColor(color: Int) {
