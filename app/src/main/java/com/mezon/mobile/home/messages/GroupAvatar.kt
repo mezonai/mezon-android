@@ -25,22 +25,33 @@ object GroupAvatar {
     @Volatile
     private var cached: Bitmap? = null
 
+    fun preload(context: Context) {
+        if (cached != null) return
+        synchronized(this) {
+            if (cached != null) return
+            cached = decodeBitmap(context.applicationContext)
+        }
+    }
+
     fun bitmap(context: Context): Bitmap {
         cached?.let { return it }
         synchronized(this) {
             cached?.let { return it }
-            val decoded = BitmapFactory.decodeResource(context.resources, R.drawable.avatar_group)
-                ?: throw IllegalStateException("Missing R.drawable.avatar_group")
-            val immutable = if (decoded.isMutable) {
-                val copy = decoded.copy(decoded.config ?: Bitmap.Config.ARGB_8888, false)
-                    ?: throw IllegalStateException("Failed to copy avatar_group bitmap")
-                decoded.recycle()
-                copy
-            } else {
-                decoded
-            }
-            cached = immutable
-            return immutable
+            cached = decodeBitmap(context.applicationContext)
+            return cached!!
+        }
+    }
+
+    private fun decodeBitmap(context: Context): Bitmap {
+        val decoded = BitmapFactory.decodeResource(context.resources, R.drawable.avatar_group)
+            ?: throw IllegalStateException("Missing R.drawable.avatar_group")
+        return if (decoded.isMutable) {
+            val copy = decoded.copy(decoded.config ?: Bitmap.Config.ARGB_8888, false)
+                ?: throw IllegalStateException("Failed to copy avatar_group bitmap")
+            decoded.recycle()
+            copy
+        } else {
+            decoded
         }
     }
 }

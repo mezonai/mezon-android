@@ -117,7 +117,7 @@ fun ChannelDescription.toDirectMessage(currentUserId: Long, previewContext: andr
         else parseContentPreview(lastSentMessage.content)
     } else ""
 
-    val groupCreatorId = if (type == CHANNEL_TYPE_GROUP) creatorId else 0L
+    val groupCreatorId = if (isGroup) creatorId else 0L
 
     return DirectMessage(
         channelId = channelId,
