@@ -121,6 +121,14 @@ class MezonSocket @Inject constructor(
     @Volatile private var lastPongTimeoutAtMs = 0L
     private val totalReconnectAttempts = AtomicInteger(0)
 
+    @Volatile var connectGen: Int = 0
+        private set
+    @Volatile var socketTokenFingerprint: String? = null
+        private set
+
+    private fun tokenFp(token: String?): String =
+        if (token.isNullOrEmpty()) "?" else token.takeLast(6)
+
     private val connectLock = Any()
 
     private fun cancelReconnectHealthReset() {
@@ -207,6 +215,27 @@ class MezonSocket @Inject constructor(
             heartbeatJob?.cancel()
             cancelReconnectHealthReset()
             cancelAllPending("Auth failure reconnect")
+            if (!userDisconnected) scheduleReconnect()
+        }
+    }
+
+    fun forceReconnect(reason: String) {
+        if (userDisconnected) return
+        Log.w(TAG, "forceReconnect: $reason")
+        sentryReporter.logSocketWarning("force_reconnect", "reason=$reason gen=$connectGen")
+        val ws = webSocket
+        if (ws == null) {
+            if (currentWsUrl != null && currentToken != null) scheduleReconnect()
+            return
+        }
+        val safeReason = reason.take(100)
+        try {
+            ws.close(4000, safeReason)
+        } catch (_: Exception) {
+            _connectionState.value = ConnectionState.DISCONNECTED
+            heartbeatJob?.cancel()
+            cancelReconnectHealthReset()
+            cancelAllPending("Force reconnect")
             if (!userDisconnected) scheduleReconnect()
         }
     }
@@ -608,6 +637,8 @@ class MezonSocket @Inject constructor(
             webSocket?.close(1000, "Reconnecting")
             webSocket = null
             _connectionState.value = ConnectionState.CONNECTING
+            connectGen++
+            socketTokenFingerprint = tokenFp(token)
 
             val host = if (wsUrl.startsWith("ws://") || wsUrl.startsWith("wss://")) {
                 wsUrl
