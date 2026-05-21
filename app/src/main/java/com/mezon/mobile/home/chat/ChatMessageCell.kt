@@ -292,6 +292,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var senderRoleIconCancellable: MezonImageLoader.Cancellable? = null
     private var cachedSenderNameW = 0f
     private var reserveSenderRoleIcon = false
+    private var lastSenderDisplayRoleColor: Int? = null
+    private var lastSenderDisplayRoleIconUrl: String? = null
 
 
     private var attachedToWindow = false
@@ -374,6 +376,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         clearSenderRoleIcon()
         reserveSenderRoleIcon = false
         cachedSenderNameW = 0f
+        lastSenderDisplayRoleColor = null
+        lastSenderDisplayRoleIconUrl = null
         drawPhotoImage = false
         drawFileAttachment = false
         drawForwardHeader = false
@@ -511,7 +515,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
 
         if ((mask and NotificationCenter.UPDATE_MASK_NAME) != 0) {
-            rebuildLayout = true
+            val nameChanged = messageEntity?.senderName != msg.senderName
+            if (nameChanged || senderDisplayRoleChanged(msg.senderId)) {
+                rebuildLayout = true
+            }
             val isAnon = msg.senderId == ANONYMOUS_USER_ID
             val avatarUsername = if (isAnon) "Anonymous" else msg.senderUsername
             avatarDrawable.setInfo(msg.senderId, avatarUsername)
@@ -770,6 +777,42 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         senderNamePaint.typeface = src.typeface
         senderNamePaint.isFakeBoldText = src.isFakeBoldText
         senderNamePaint.flags = src.flags
+    }
+
+    private fun showSenderDisplayRoleRow(senderId: Long): Boolean {
+        return !isCombined && clanId != 0L &&
+            (channelType == CHANNEL_TYPE_CHANNEL || channelType == CHANNEL_TYPE_THREAD) &&
+            senderId != ANONYMOUS_USER_ID
+    }
+
+    private class SenderRoleAppearance(val color: Int, val iconUrl: String)
+
+    private fun senderDisplayRoleAppearance(senderId: Long): SenderRoleAppearance? {
+        if (!showSenderDisplayRoleRow(senderId)) return null
+        val dr = displayRoleResolver?.invoke(senderId)
+        return SenderRoleAppearance(
+            color = if (dr != null && dr.color != 0) dr.color else theme.chatSenderPaint.color,
+            iconUrl = dr?.iconUrl?.trim().orEmpty()
+        )
+    }
+
+    private fun rememberSenderDisplayRoleAppearance(appearance: SenderRoleAppearance?) {
+        if (appearance == null) {
+            lastSenderDisplayRoleColor = null
+            lastSenderDisplayRoleIconUrl = null
+            return
+        }
+        lastSenderDisplayRoleColor = appearance.color
+        lastSenderDisplayRoleIconUrl = appearance.iconUrl
+    }
+
+    private fun senderDisplayRoleChanged(senderId: Long): Boolean {
+        val appearance = senderDisplayRoleAppearance(senderId)
+        if (appearance == null) {
+            return lastSenderDisplayRoleColor != null || lastSenderDisplayRoleIconUrl != null
+        }
+        return appearance.color != lastSenderDisplayRoleColor ||
+            appearance.iconUrl != lastSenderDisplayRoleIconUrl
     }
 
     private fun clearSenderRoleIcon() {
@@ -1100,18 +1143,25 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         senderLayout = if (!isCombined) {
             val s = if (msg.senderId == ANONYMOUS_USER_ID) "Anonymous" else msg.senderName
             val senderMaxW = (bubbleMaxW * 0.60f).toInt().coerceAtLeast(1)
-            if (showRoleRow && msg.senderId != ANONYMOUS_USER_ID) {
-                val dr = displayRoleResolver?.invoke(msg.senderId)
-                senderNamePaint.color = if (dr != null && dr.color != 0) dr.color else theme.chatSenderPaint.color
-                val iconUrl = dr?.iconUrl?.trim().orEmpty()
-                reserveSenderRoleIcon = iconUrl.isNotEmpty()
-                if (reserveSenderRoleIcon) loadSenderRoleIcon(iconUrl) else clearSenderRoleIcon()
+            if (showRoleRow) {
+                val appearance = senderDisplayRoleAppearance(msg.senderId)
+                if (appearance != null) {
+                    senderNamePaint.color = appearance.color
+                    reserveSenderRoleIcon = appearance.iconUrl.isNotEmpty()
+                    if (reserveSenderRoleIcon) loadSenderRoleIcon(appearance.iconUrl) else clearSenderRoleIcon()
+                    rememberSenderDisplayRoleAppearance(appearance)
+                } else {
+                    senderNamePaint.color = theme.chatSenderPaint.color
+                    clearSenderRoleIcon()
+                    rememberSenderDisplayRoleAppearance(null)
+                }
                 StaticLayout.Builder.obtain(s, 0, s.length, senderNamePaint, senderMaxW)
                     .setMaxLines(1)
                     .setEllipsize(android.text.TextUtils.TruncateAt.END)
                     .build()
             } else {
                 clearSenderRoleIcon()
+                rememberSenderDisplayRoleAppearance(null)
                 StaticLayout.Builder.obtain(s, 0, s.length, senderPaint, senderMaxW)
                     .setMaxLines(1)
                     .setEllipsize(android.text.TextUtils.TruncateAt.END)
@@ -1119,6 +1169,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             }
         } else {
             clearSenderRoleIcon()
+            rememberSenderDisplayRoleAppearance(null)
             null
         }
 
