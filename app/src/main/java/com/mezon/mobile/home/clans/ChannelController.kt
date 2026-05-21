@@ -137,9 +137,23 @@ class ChannelController @Inject constructor(
                 val result = withContext(ioDispatcher) {
                     api.listChannelsByClan(session.apiUrl, session.token, clanId)
                 }
-                val categoryOrderMap = LinkedHashMap<Long, Int>()
-                result.channeldescList.forEach { ch ->
-                    categoryOrderMap.putIfAbsent(ch.categoryId, categoryOrderMap.size)
+                val categoryOrderMap = HashMap<Long, Int>()
+                runCatching {
+                    withContext(ioDispatcher) {
+                        api.listCategoryDescs(session.apiUrl, session.token, clanId)
+                    }
+                }.onSuccess { categoryList ->
+                    categoryList.categorydescList.forEach { cat ->
+                        categoryOrderMap[cat.categoryId] = cat.categoryOrder
+                    }
+                }
+                if (categoryOrderMap.isEmpty()) {
+                    var fallback = 0
+                    result.channeldescList.forEach { ch ->
+                        if (!categoryOrderMap.containsKey(ch.categoryId)) {
+                            categoryOrderMap[ch.categoryId] = fallback++
+                        }
+                    }
                 }
                 val entities = result.channeldescList.map { ch ->
                     withClanIdFromContext(
@@ -725,6 +739,43 @@ class ChannelController @Inject constructor(
         }
     }
 
+    private fun markAsReadTargetIds(clanId: Long, categoryId: Long, channelId: Long): List<Long> {
+        val channels = _channelsByClan.value[clanId] ?: return emptyList()
+        if (channelId != 0L) {
+            val ids = LinkedHashSet<Long>()
+            ids.add(channelId)
+            channels.forEach { ch ->
+                if (ch.parentId == channelId) ids.add(ch.channelId)
+            }
+            return ids.toList()
+        }
+        if (categoryId != 0L) {
+            val baseIds = LinkedHashSet<Long>()
+            channels.forEach { ch ->
+                if (ch.categoryId == categoryId) baseIds.add(ch.channelId)
+            }
+            val ids = LinkedHashSet<Long>()
+            ids.addAll(baseIds)
+            channels.forEach { ch ->
+                if (baseIds.contains(ch.parentId)) ids.add(ch.channelId)
+            }
+            return ids.toList()
+        }
+        return channels.map { it.channelId }
+    }
+
+    private fun markTargetsAsRead(clanId: Long, ids: List<Long>) {
+        if (ids.isEmpty()) return
+        val channels = _channelsByClan.value[clanId] ?: return
+        val byId = channels.associateBy { it.channelId }
+        ids.forEach { id ->
+            val ch = byId[id] ?: return@forEach
+            if (ch.hasUnread || ch.unreadCount > 0) {
+                markChannelAsRead(id)
+            }
+        }
+    }
+
     private fun observeSocketEvents() {
         appScope.launch {
             dispatcher.channelCreatedEvents.collect { event ->
@@ -856,22 +907,8 @@ class ChannelController @Inject constructor(
         appScope.launch {
             dispatcher.markAsRead.collect { event ->
                 if (event.clanId == 0L) return@collect
-                if (event.channelId != 0L) {
-                    markChannelAsRead(event.channelId)
-                } else {
-                    val clanId = event.clanId
-                    val channels = _channelsByClan.value[clanId] ?: return@collect
-                    val toMark = if (event.categoryId != 0L) {
-                        channels.filter { it.categoryId == event.categoryId }
-                    } else {
-                        channels
-                    }
-                    for (ch in toMark) {
-                        if (ch.hasUnread || ch.unreadCount > 0) {
-                            markChannelAsRead(ch.channelId)
-                        }
-                    }
-                }
+                val targetIds = markAsReadTargetIds(event.clanId, event.categoryId, event.channelId)
+                markTargetsAsRead(event.clanId, targetIds)
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, event.clanId)
             }
         }
