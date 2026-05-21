@@ -157,6 +157,7 @@ import kotlinx.coroutines.CompletableDeferred
 import java.io.IOException
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
 class UnauthorizedException(message: String) : RuntimeException(message)
@@ -294,7 +295,8 @@ class MezonApi @Inject constructor(
     companion object {
         private val SERVER_KEY = BuildConfig.MEZON_API_KEY
         private const val DISCOVER_ITEMS_PER_PAGE = 6
-        private const val SOCKET_WAIT_MS = 30_000L
+        private const val SOCKET_WAIT_MS = 5_000L
+        private const val MAX_CONSECUTIVE_SOCKET_TIMEOUTS = 3
         private const val READ_SINGLE_FLIGHT_MAX_AGE_MS = 3_000L
         private val HTTP_RETRY_DELAYS_MS = longArrayOf(300L, 900L)
         private val HTTP_ONLY_API_NAMES = setOf(
@@ -342,6 +344,8 @@ class MezonApi @Inject constructor(
 
     private val linkInvitePreviewCache = android.util.LruCache<Long, LinkInvitePreview>(256)
     private val inFlightReadRpcs = ConcurrentHashMap<String, InFlightReadRpc>()
+
+    private val consecutiveSocketTimeouts = AtomicInteger(0)
 
     private fun logRpcRequest(method: String, url: String) {
         if (!BuildConfig.DEBUG) return
@@ -497,7 +501,7 @@ class MezonApi @Inject constructor(
             return rpcOverHttpWithRetry(apiUrl, token, method, body, retryableRead)
         }
         return try {
-            rpcOverSocket(method, body)
+            rpcOverSocket(method, body, token)
         } catch (e: UnauthorizedException) {
             throw e
         } catch (e: SocketRpcServerException) {
@@ -543,12 +547,21 @@ class MezonApi @Inject constructor(
         return Base64.encodeToString(digest, Base64.NO_WRAP)
     }
 
-    private suspend fun rpcOverSocket(method: String, body: ByteArray): ByteArray {
+    private suspend fun rpcOverSocket(method: String, body: ByteArray, token: String): ByteArray {
         val socket = mezonSocketLazy.get()
         if (!socket.awaitConnected(SOCKET_WAIT_MS)) {
             throw SocketRpcTransportException(
                 "WebSocket unavailable for '$method'",
                 retryOverHttp = true
+            )
+        }
+        val sessionTokenFp = if (token.isEmpty()) "?" else token.takeLast(6)
+        val socketTokenFp = socket.socketTokenFingerprint
+        if (socketTokenFp != null && socketTokenFp != sessionTokenFp) {
+            sentryReporter.logRpcWarning(
+                method,
+                "socket",
+                "TOKEN_MISMATCH session=$sessionTokenFp socket=$socketTokenFp gen=${socket.connectGen}"
             )
         }
         val started = System.currentTimeMillis()
@@ -560,6 +573,7 @@ class MezonApi @Inject constructor(
                     "SOCKET ok method=$method respBytes=${resp.size} elapsedMs=${System.currentTimeMillis() - started}"
                 )
             }
+            consecutiveSocketTimeouts.set(0)
             return resp
         } catch (e: Exception) {
             Log.w(
@@ -570,13 +584,22 @@ class MezonApi @Inject constructor(
                 sentryReporter.logRpcFailure(method, "socket", e)
             }
             if (e is UnauthorizedException) {
+                consecutiveSocketTimeouts.set(0)
                 socket.forceReconnectForAuthFailure("Socket RPC unauthorized for '$method'")
                 throw e
             }
             if (e is SocketRpcServerException || e is IllegalArgumentException) {
+                consecutiveSocketTimeouts.set(0)
                 throw e
             }
             if (isSocketTransportFailure(e)) {
+                val streak = consecutiveSocketTimeouts.incrementAndGet()
+                if (streak >= MAX_CONSECUTIVE_SOCKET_TIMEOUTS) {
+                    consecutiveSocketTimeouts.set(0)
+                    socket.forceReconnect(
+                        "consecutive socket RPC transport failures=$streak (last method='$method')"
+                    )
+                }
                 throw SocketRpcTransportException(
                     "WebSocket transport failed for '$method': ${e.message}",
                     retryOverHttp = true,

@@ -37,6 +37,8 @@ import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.util.MENTION_HERE_USER_ID
+import com.mezon.mobile.util.MezonSnowflake
+import com.mezon.mobile.util.firstReferenceMessageId
 import com.mezon.mobile.util.SentryReporter
 import com.mezon.mobile.util.MentionData
 import com.mezon.mobile.util.buildTextContent
@@ -47,6 +49,7 @@ import com.mezon.mobile.util.mergePendingMentionsIntoContent
 import com.mezon.mezon.api.ChannelMessage
 import com.mezon.mezon.api.CreatePollResponse
 import com.mezon.mobile.home.chat.poll.buildPollMessageContent
+import com.mezon.mezon.api.ChannelMessageHeader
 import com.mezon.mezon.api.MessageAttachment
 import com.mezon.mezon.api.MessageMentionList
 import com.mezon.mezon.api.MessageMention
@@ -113,7 +116,6 @@ class ChatController @Inject constructor(
     private val initialFetchDone = HashSet<Long>()
     private val lastMessageByChannel = LongSparseArray<Long>()
     private val pendingTempMessageByChannel = LongSparseArray<Long>()
-    private val provisionalRealtimeMessageSeq = AtomicInteger(kotlin.random.Random.nextInt(1 shl 18))
 
     private fun isAnonymousSend(clanId: Long): Boolean =
         clanId != 0L && anonymousController.get().isAnonymous(clanId)
@@ -150,21 +152,46 @@ class ChatController @Inject constructor(
     fun getLastMessageId(channelId: Long): Long =
         synchronized(this) { lastMessageByChannel.get(channelId, 0L) }
 
-    private fun allocateProvisionalRealtimeMessageId(): Long {
-        val ms = System.currentTimeMillis()
-        val seq = provisionalRealtimeMessageSeq.incrementAndGet() and 0x3FFFF
-        return (ms shl 22) or seq.toLong()
+    private fun assignMissingMessageId(msg: ChannelMessage): ChannelMessage {
+        if (msg.messageId != 0L) return msg
+        val refId = firstReferenceMessageId(msg.content)
+        if (refId > 0L) {
+            synchronized(this) {
+                val lastKnown = lastMessageByChannel.get(msg.channelId, 0L)
+                var candidate = refId + 1L
+                if (candidate <= refId) candidate = MezonSnowflake.generate()
+                if (candidate <= lastKnown) candidate = lastKnown + 1L
+                return ChannelMessage.newBuilder(msg).setMessageId(candidate).build()
+            }
+        }
+        return ChannelMessage.newBuilder(msg).setMessageId(MezonSnowflake.generate()).build()
+    }
+
+    private fun MessageEntity.canAdvanceServerTimeline(): Boolean {
+        return id > 0L && !isUnreadDivider && !isEphemeral && !isSending
+    }
+
+    private fun ChannelMessage.canAdvanceServerTimeline(): Boolean {
+        return messageId > 0L &&
+            code != MessageEntity.CODE_EPHEMERAL &&
+            code != MessageEntity.CODE_UPDATE_EPHEMERAL &&
+            code != MessageEntity.CODE_DELETE_EPHEMERAL
+    }
+
+    private fun ChannelMessageHeader.canAdvanceServerTimeline(): Boolean {
+        return id > 0L
     }
 
     private fun updateLastMessageByChannel(channelId: Long, messages: List<MessageEntity>, latestIdFromResponse: Long = 0L) {
-        // Prefer the server-provided lastSentMessage (like RN's response.last_sent_message)
-        // Fall back to the max id from the loaded messages batch
         val fromServer = if (latestIdFromResponse > 0L) latestIdFromResponse else null
-        val fromMessages = messages.maxOfOrNull { it.id }
+        val fromMessages = messages.asSequence()
+            .filter { it.canAdvanceServerTimeline() }
+            .maxOfOrNull { it.id }
         val newestId = fromServer ?: fromMessages ?: return
         synchronized(this) {
-            if (newestId > lastMessageByChannel.get(channelId, 0L))
+            if (newestId > lastMessageByChannel.get(channelId, 0L)) {
                 lastMessageByChannel.put(channelId, newestId)
+            }
         }
     }
 
@@ -363,7 +390,10 @@ class ChatController @Inject constructor(
                         .sortedBy { it.id }
 
                     synchronized(this@ChatController) { initialFetchDone.add(channelId) }
-                    val serverLastSentId = if (response.hasLastSentMessage()) response.lastSentMessage.id else 0L
+                    val serverLastSentId = if (
+                        response.hasLastSentMessage() &&
+                        response.lastSentMessage.canAdvanceServerTimeline()
+                    ) response.lastSentMessage.id else 0L
                     updateLastMessageByChannel(channelId, messages, serverLastSentId)
                     val serverLastSeenId = if (response.hasLastSeenMessage()) response.lastSeenMessage.id else 0L
                     notificationCenter.postNotificationOnMainThread(
@@ -462,7 +492,10 @@ class ChatController @Inject constructor(
                         messageDao.upsertAll(msgs)
                         messageDao.trimAround(channelId, anchorMessageId, PAGE_SIZE * 2)
                         synchronized(this@ChatController) { initialFetchDone.add(channelId) }
-                        val serverLastSentId = if (response.hasLastSentMessage()) response.lastSentMessage.id else 0L
+                        val serverLastSentId = if (
+                            response.hasLastSentMessage() &&
+                            response.lastSentMessage.canAdvanceServerTimeline()
+                        ) response.lastSentMessage.id else 0L
                         updateLastMessageByChannel(channelId, msgs, serverLastSentId)
                         Log.d(TAG, "loadMessagesAround: anchor=$anchorMessageId count=${msgs.size} hasMoreTop=$hasMoreTop firstMessageReached=$firstMessageReached hasLastSentMessage=${response.hasLastSentMessage()} serverLastSentId=$serverLastSentId")
                         val serverLastSeenId = if (response.hasLastSeenMessage()) response.lastSeenMessage.id else 0L
@@ -509,7 +542,10 @@ class ChatController @Inject constructor(
                         .sortedBy { it.id }
 
                     val hasMoreBottom = response.messagesList.size >= PAGE_SIZE
-                    val serverLastSentId = if (response.hasLastSentMessage()) response.lastSentMessage.id else 0L
+                    val serverLastSentId = if (
+                        response.hasLastSentMessage() &&
+                        response.lastSentMessage.canAdvanceServerTimeline()
+                    ) response.lastSentMessage.id else 0L
                     updateLastMessageByChannel(channelId, newer, serverLastSentId)
                     if (newer.isNotEmpty()) {
                         messageDao.upsertAll(newer)
@@ -986,7 +1022,7 @@ class ChatController @Inject constructor(
             val lastServerId = lastMessageByChannel.get(channelId, 0L)
             val lastTempId = pendingTempMessageByChannel.get(channelId, 0L)
             val baseId = maxOf(lastServerId, lastTempId)
-            val tempId = if (baseId > 0L) baseId + 1L else allocateProvisionalRealtimeMessageId()
+            val tempId = if (baseId > 0L) baseId + 1L else MezonSnowflake.generate()
             pendingTempMessageByChannel.put(channelId, tempId)
             return tempId
         }
@@ -1545,14 +1581,7 @@ class ChatController @Inject constructor(
             .first { it != null }?.userId?.toLongOrNull() ?: 0L
 
         socketEventDispatcher.channelMessages.collect { raw ->
-            val resolved = resolveEphemeralSender(raw, currentUserId)
-            val msg =
-                if (resolved.messageId == 0L) {
-                    val pid = allocateProvisionalRealtimeMessageId()
-                    ChannelMessage.newBuilder(resolved).setMessageId(pid).build()
-                } else {
-                    resolved
-                }
+            val msg = assignMissingMessageId(resolveEphemeralSender(raw, currentUserId))
             val entity = msg.toMessageEntity(currentUserId)
             if (BuildConfig.DEBUG) {
                 Log.d(
@@ -1588,12 +1617,6 @@ class ChatController @Inject constructor(
                         val existing = messageDao.getById(notifyEntity.channelId, notifyEntity.id)
                         if (existing == null) {
                             messageDao.upsert(notifyEntity)
-                            synchronized(this@ChatController) {
-                                dialogMessage.put(notifyEntity.channelId, notifyEntity)
-                                if (notifyEntity.id > lastMessageByChannel.get(notifyEntity.channelId, 0L)) {
-                                    lastMessageByChannel.put(notifyEntity.channelId, notifyEntity.id)
-                                }
-                            }
                             notificationCenter.postNotificationOnMainThread(
                                 NotificationCenter.didReceiveNewMessages, notifyEntity.channelId, notifyEntity
                             )
@@ -1618,7 +1641,8 @@ class ChatController @Inject constructor(
                     synchronized(this) {
                         if (lastMessageByChannel.get(msg.channelId, 0L) == msg.messageId) {
                             appScope.launch(ioDispatcher) {
-                                val newLast = messageDao.getLatestByChannel(msg.channelId, 1).firstOrNull()
+                                val newLast = messageDao.getLatestByChannel(msg.channelId, PAGE_SIZE)
+                                    .firstOrNull { it.canAdvanceServerTimeline() }
                                 synchronized(this@ChatController) {
                                     if (newLast != null) lastMessageByChannel.put(msg.channelId, newLast.id)
                                     else lastMessageByChannel.delete(msg.channelId)
@@ -1641,10 +1665,12 @@ class ChatController @Inject constructor(
                         return@collect
                     }
                     appScope.launch { messageDao.upsert(entity) }
-                    synchronized(this) {
-                        dialogMessage.put(entity.channelId, entity)
-                        if (entity.id > lastMessageByChannel.get(entity.channelId, 0L))
-                            lastMessageByChannel.put(entity.channelId, entity.id)
+                    if (entity.canAdvanceServerTimeline()) {
+                        synchronized(this) {
+                            dialogMessage.put(entity.channelId, entity)
+                            if (entity.id > lastMessageByChannel.get(entity.channelId, 0L))
+                                lastMessageByChannel.put(entity.channelId, entity.id)
+                        }
                     }
                     if (BuildConfig.DEBUG) {
                         Log.d(

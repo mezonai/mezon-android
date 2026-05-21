@@ -90,6 +90,7 @@ import com.mezon.mobile.MainActivity
 import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
+import com.mezon.mobile.network.sanitizeServerMessageId as sanitizeProvisionalId
 import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.session.SessionManager
@@ -108,8 +109,7 @@ import com.mezon.mobile.util.parseContentText
 import com.mezon.mobile.util.parseMarkdownAndStrip
 import com.mezon.mobile.util.restoreInputFromContent
 import com.mezon.mobile.util.resolveStickerSourceUrl
-import com.mezon.mobile.util.EmbedFormUtil
-import com.mezon.mobile.util.embedFormValidationError
+import com.mezon.mobile.util.firstReferenceMessageId
 import com.mezon.mobile.core.SharedConfig
 import com.mezon.mobile.home.chat.poll.ChatPollBridge
 import com.mezon.mobile.home.chat.poll.CreatePollFragment
@@ -139,6 +139,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.mezon.mobile.core.SizeNotifierFrameLayout
 import com.mezon.mobile.home.chat.emoji.EmojiView
+import com.mezon.mobile.util.EmbedFormUtil
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -181,7 +182,6 @@ class ChatFragment : BaseFragment() {
         private const val REQUEST_CALL_PERMISSIONS = 9002
         private const val MENU_DM_VOICE_CALL = 8801
         private const val DM_HEADER_CALL_ICON_DP = 22f
-        private val REFERENCE_REF_ID_REGEX = Regex("\"message_ref_id\"\\s*:\\s*\"?(\\d+)\"?")
 
         fun newInstance(
             channelId: Long,
@@ -403,6 +403,8 @@ class ChatFragment : BaseFragment() {
             lastSeenMessageId = ch?.lastSeenMessageId ?: 0L
             lastSentMessageId = ch?.lastSentMessageId ?: 0L
         }
+        lastSeenMessageId = sanitizeProvisionalId(lastSeenMessageId)
+        lastSentMessageId = sanitizeProvisionalId(lastSentMessageId)
         dividerSeenMessageId = lastSeenMessageId
         val isSeenUpToDate = lastSentMessageId == 0L || lastSeenMessageId >= lastSentMessageId
         hasUnread = !isSeenUpToDate && lastSeenMessageId != 0L
@@ -476,19 +478,20 @@ class ChatFragment : BaseFragment() {
                         newMessages.add(m)
                     }
                 }
-                newMessages.sortByDescending { it.id }
+                sortMessagesByIdDesc(newMessages)
                 newRowsCount = newMessages.size
 
                 if (direction == 1) {
                     messages.addAll(newMessages)
-                    messages.sortByDescending { it.id }
+                    sortMessagesByIdDesc(messages)
                     hasMoreTop = moreTop
                     trimViewportNewest()
                 } else {
                     messages.addAll(0, newMessages)
-                    messages.sortByDescending { it.id }
-                    hasMoreBottom = if (lastSentMessageId != 0L && messages.isNotEmpty()) {
-                        messages.first().id < lastSentMessageId
+                    sortMessagesByIdDesc(messages)
+                    val newestReadableId = newestReadStateMessageId()
+                    hasMoreBottom = if (lastSentMessageId != 0L && newestReadableId != 0L) {
+                        newestReadableId < lastSentMessageId
                     } else {
                         moreBottom
                     }
@@ -564,8 +567,9 @@ class ChatFragment : BaseFragment() {
                     messages.clear()
                     val all = ArrayList<MessageEntity>(messagesDict.size())
                     for (i in 0 until messagesDict.size()) all.add(messagesDict.valueAt(i))
-                    all.sortByDescending { it.id }
+                    sortMessagesByIdDesc(all)
                     messages.addAll(all)
+                    pruneEmbedFormState()
                 }
                 hasMoreTop = moreTop
                 hasMoreBottom = moreBottom
@@ -593,8 +597,9 @@ class ChatFragment : BaseFragment() {
                     messages.clear()
                     val all = ArrayList<MessageEntity>(messagesDict.size())
                     for (i in 0 until messagesDict.size()) all.add(messagesDict.valueAt(i))
-                    all.sortByDescending { it.id }
+                    sortMessagesByIdDesc(all)
                     messages.addAll(all)
+                    pruneEmbedFormState()
                     hasMoreTop = moreTop
                     hasMoreBottom = moreBottom
 
@@ -603,15 +608,12 @@ class ChatFragment : BaseFragment() {
                 }
             }
 
-            // Reconcile lastSentMessageId with the per-channel newest message store
-            // (equivalent to RN's state.messages.lastMessageByChannel[channelId]).
-            // This is more reliable than the channel list API which can be stale.
             val fromStore = chatController.getLastMessageId(channelId)
             lastSentMessageId = maxOf(lastSentMessageId, fromStore)
 
-            if (messages.isNotEmpty()) {
-                val newestInList = messages.first().id
-                lastSentMessageId = maxOf(lastSentMessageId, newestInList)
+            val newestReadableInList = newestReadStateMessageId()
+            if (newestReadableInList != 0L) {
+                lastSentMessageId = maxOf(lastSentMessageId, newestReadableInList)
             }
 
             if (!jumpingToPresent && !isCache) {
@@ -622,9 +624,8 @@ class ChatFragment : BaseFragment() {
                     Log.d(TAG, "hasUnread re-evaluated to TRUE: lastSeen=$lastSeenMessageId < lastSent=$lastSentMessageId dividerSeen=$dividerSeenMessageId")
                 }
 
-                if (lastSentMessageId != 0L && messages.isNotEmpty()) {
-                    val newestInList = messages.first().id
-                    if (newestInList < lastSentMessageId) {
+                if (lastSentMessageId != 0L && newestReadableInList != 0L) {
+                    if (newestReadableInList < lastSentMessageId) {
                         hasMoreBottom = true
                     }
                 }
@@ -635,7 +636,7 @@ class ChatFragment : BaseFragment() {
             }
 
             if (!hasUnread && lastSeenMessageId != 0L && messages.isNotEmpty()) {
-                val newestInList = messages.first().id
+                val newestInList = newestReadStateMessageId()
                 if (newestInList > lastSeenMessageId && messages.any { it.id == lastSeenMessageId }) {
                     hasUnread = true
                 }
@@ -699,7 +700,7 @@ class ChatFragment : BaseFragment() {
                         val hIdx = messages.indexOfFirst { it.id == highlightId }
                         Log.d(TAG, "pendingHighlight: id=$highlightId idx=$hIdx msgsSize=${messages.size}")
                         if (hIdx >= 0) {
-                            val newestInList = messages.firstOrNull()?.id ?: 0L
+                            val newestInList = newestReadStateMessageId()
                             if (lastSentMessageId != 0L && newestInList < lastSentMessageId) {
                                 isViewingOlder = true
                                 hasMoreBottom = true
@@ -836,26 +837,15 @@ class ChatFragment : BaseFragment() {
                 return@observe
             }
             messagesDict.put(entity.id, entity)
-            val insertIndex: Int
-            val embedResponseInsertIndex = referencedEmbedResponseInsertIndex(entity)
-            if (embedResponseInsertIndex >= 0) {
-                insertIndex = embedResponseInsertIndex
-                messages.add(insertIndex, entity)
-                if (BuildConfig.DEBUG) {
-                    Log.d(
-                        TAG,
-                        "didReceiveNewMessages anchored embed response id=${entity.id} " +
-                            "ref=${referencedMessageId(entity.content)} index=$insertIndex"
-                    )
-                }
-            } else if (messages.isEmpty() || entity.id >= messages.first().id) {
-                insertIndex = 0
-                messages.add(0, entity)
-            } else {
-                val pos = messages.indexOfFirst { entity.id > it.id }
-                insertIndex = if (pos >= 0) pos else messages.size
-                messages.add(insertIndex, entity)
+            val insertIndex = insertIndexForMessage(entity)
+            if (referencedEmbedResponseInsertIndex(entity) >= 0 && BuildConfig.DEBUG) {
+                Log.d(
+                    TAG,
+                    "didReceiveNewMessages anchored embed response id=${entity.id} " +
+                        "ref=${referencedMessageId(entity.content)} index=$insertIndex"
+                )
             }
+            messages.add(insertIndex, entity)
             val trimmed = trimViewportOldest()
             if (fragmentView != null) {
                 if (messages.size == 1 || trimmed) {
@@ -924,6 +914,7 @@ class ChatFragment : BaseFragment() {
                 )
                 messages[idx] = merged
                 messagesDict.put(merged.id, merged)
+                if (!hasEmbedControlPayload(merged.content)) EmbedFormUtil.clearMessage(merged.id)
                 if (merged.isPollMessage) {
                     pollStates[merged.id] = (pollStates[merged.id] ?: PollLocalState()).copy(
                         optimisticMyIndices = null,
@@ -942,6 +933,7 @@ class ChatFragment : BaseFragment() {
             if (idx >= 0) {
                 messages.removeAt(idx)
                 messagesDict.delete(messageId)
+                EmbedFormUtil.clearMessage(messageId)
                 pollStates.remove(messageId)
                 if (fragmentView != null) refreshUI()
                 if (fragmentView != null) {
@@ -1873,7 +1865,8 @@ class ChatFragment : BaseFragment() {
 
                 if (!isLoadingMore && hasMoreBottom && messages.size >= 10) {
                     if (firstVisible <= 3) {
-                        val newest = messages.firstOrNull()?.id ?: return
+                        val newest = newestReadStateMessageId()
+                        if (newest == 0L) return
                         isLoadingMore = true
                         chatController.loadMoreBottom(channelId, clanId, newest)
                     }
@@ -2569,6 +2562,7 @@ class ChatFragment : BaseFragment() {
             jumpingToPresent = true
             messages.clear()
             messagesDict.clear()
+            EmbedFormUtil.clearAll()
             adapter.notifyMessagesUpdated()
             recyclerView.visibility = View.INVISIBLE
             firstLoad = true
@@ -2578,7 +2572,7 @@ class ChatFragment : BaseFragment() {
     }
 
     private fun markAsRead() {
-        val newest = messages.firstOrNull() ?: return
+        val newest = newestReadStateMessage() ?: return
         if (messagesDict[newest.id] == null) return
         if (clanId != 0L) {
             if (channelController.findChannelById(channelId) == null) return
@@ -2602,14 +2596,38 @@ class ChatFragment : BaseFragment() {
         val lm = recyclerView.layoutManager as? LinearLayoutManager ?: return
         val firstPos = lm.findFirstVisibleItemPosition()
         if (firstPos == RecyclerView.NO_POSITION) return
+        val lastPos = lm.findLastVisibleItemPosition()
 
-        val msgIndex = firstPos - adapter.messagesStartRow
-        val visibleMsg = if (msgIndex in messages.indices) messages[msgIndex] else messages.firstOrNull() ?: return
+        val firstMsgIndex = firstPos - adapter.messagesStartRow
+        val rawLastMsgIndex = if (lastPos == RecyclerView.NO_POSITION) firstMsgIndex
+            else lastPos - adapter.messagesStartRow
+        val viewportStart = firstMsgIndex.coerceAtLeast(0)
+        val viewportEnd = rawLastMsgIndex.coerceAtMost(messages.size - 1)
+        val viewportInBounds = firstMsgIndex < messages.size && viewportEnd >= viewportStart
+
+        var candidateIndex = -1
+        val visibleMsg = if (viewportInBounds) {
+            var candidate: MessageEntity? = null
+            var i = viewportStart
+            while (i <= viewportEnd && candidate == null) {
+                val msg = messages[i]
+                if (msg.canAdvanceReadState()) {
+                    candidate = msg
+                    candidateIndex = i
+                }
+                i++
+            }
+            candidate
+        } else {
+            newestReadStateMessage()?.also { found ->
+                candidateIndex = messages.indexOf(found)
+            }
+        } ?: return
         if (visibleMsg.id <= lastSeenMessageId) return
 
         lastSeenMessageId = visibleMsg.id
         val remaining = if (lastSentMessageId != 0L && visibleMsg.id < lastSentMessageId) {
-            messages.count { it.id > visibleMsg.id }
+            countNewerReadable(candidateIndex, visibleMsg.id)
         } else {
             0
         }
@@ -2666,6 +2684,7 @@ class ChatFragment : BaseFragment() {
             hasMoreTop = true
             trimmed = true
         }
+        if (trimmed) pruneEmbedFormState()
         return trimmed
     }
 
@@ -2677,7 +2696,16 @@ class ChatFragment : BaseFragment() {
             hasMoreBottom = true
             trimmed = true
         }
+        if (trimmed) pruneEmbedFormState()
         return trimmed
+    }
+
+    private fun pruneEmbedFormState() {
+        val ids = HashSet<Long>(messages.size)
+        for (msg in messages) {
+            if (msg.isEphemeral || hasEmbedControlPayload(msg.content)) ids.add(msg.id)
+        }
+        EmbedFormUtil.retainMessages(ids)
     }
 
     private fun updateUnreadDividerPosition() {
@@ -2857,15 +2885,6 @@ class ChatFragment : BaseFragment() {
 
     private fun submitEmbedComponentButton(msg: MessageEntity, buttonId: String) {
         if (msg.isSending) return
-        embedFormValidationError(msg.id, msg.content)?.let { err ->
-            val t = if (err.formatArgs.isEmpty()) {
-                getString(err.messageRes)
-            } else {
-                getString(err.messageRes, *err.formatArgs.toTypedArray())
-            }
-            MezonToast.show(this, ToastOverlay.ToastType.ERROR, t)
-            return
-        }
         val uid = currentUserIdLong()
         appScope.launch(Dispatchers.IO) {
             try {
@@ -3097,18 +3116,19 @@ class ChatFragment : BaseFragment() {
         return if (compact.length > 160) compact.take(160) + "..." else compact
     }
 
-    private fun referencedMessageId(content: String): Long {
-        if (!content.contains("\"references\"")) return 0L
-        return REFERENCE_REF_ID_REGEX.find(content)?.groupValues?.getOrNull(1)?.toLongOrNull() ?: 0L
-    }
+    private fun referencedMessageId(content: String): Long = firstReferenceMessageId(content)
 
-    private fun debugReferencedMessageId(content: String): Long {
-        return referencedMessageId(content)
-    }
+    private fun debugReferencedMessageId(content: String): Long = referencedMessageId(content)
 
     private fun referencedEmbedResponseInsertIndex(entity: MessageEntity): Int {
         val refId = referencedMessageId(entity.content)
         if (refId == 0L || refId == entity.id) return -1
+        val formIndex = messages.indexOfFirst {
+            it.id != entity.id &&
+                hasEmbedControlPayload(it.content) &&
+                it.content.contains(refId.toString())
+        }
+        if (formIndex >= 0 && looksLikeEmbedActionResponse(entity.content)) return formIndex
         val refIndex = messages.indexOfFirst { it.id == refId }
         if (refIndex < 0) return -1
         val referenced = messages[refIndex]
@@ -3116,14 +3136,74 @@ class ChatFragment : BaseFragment() {
         return refIndex
     }
 
+    private fun MessageEntity.canAdvanceReadState(): Boolean {
+        return id > 0L &&
+            !isUnreadDivider &&
+            !isEphemeral &&
+            !isSending &&
+            !isError
+    }
+
+    private fun sortMessagesByIdDesc(list: MutableList<MessageEntity>) {
+        list.sortByDescending { it.id }
+    }
+
+    private fun newestReadStateMessage(): MessageEntity? {
+        return messages.firstOrNull { it.canAdvanceReadState() && messagesDict.get(it.id) != null }
+    }
+
+    private fun newestReadStateMessageId(): Long {
+        return newestReadStateMessage()?.id ?: 0L
+    }
+
+    private fun insertIndexForMessage(entity: MessageEntity): Int {
+        referencedEmbedResponseInsertIndex(entity).takeIf { it >= 0 }?.let { return it }
+        if (messages.isEmpty() || entity.id >= messages.first().id) return 0
+        val pos = messages.indexOfFirst { entity.id > it.id }
+        return if (pos >= 0) pos else messages.size
+    }
+
+    private fun countNewerReadable(belowIndex: Int, threshold: Long): Int {
+        if (belowIndex <= 0) return 0
+        val upper = belowIndex.coerceAtMost(messages.size)
+        var count = 0
+        for (i in 0 until upper) {
+            val m = messages[i]
+            if (m.canAdvanceReadState() && m.id > threshold) count++
+        }
+        return count
+    }
+
     private fun hasEmbedControlPayload(content: String): Boolean {
         return content.contains("\"components\"") || (content.contains("\"embed\"") && content.contains("\"fields\""))
     }
 
     private fun looksLikeEmbedActionResponse(content: String): Boolean {
-        return content.contains("\"references\"") &&
-            content.contains("\"message_id\":\"0\"") &&
-            content.contains("\"type\":\"pre\"")
+        if (!content.contains("\"references\"") ||
+            !content.contains("\"message_id\"") ||
+            !content.contains("\"type\":\"pre\"")
+        ) return false
+        return try {
+            val obj = org.json.JSONObject(content)
+            val refs = obj.optJSONArray("references") ?: return false
+            var hasZeroRef = false
+            for (i in 0 until refs.length()) {
+                val r = refs.optJSONObject(i) ?: continue
+                val mid = r.opt("message_id")
+                if (mid == "0" || mid == 0 || mid == 0L) {
+                    hasZeroRef = true
+                    break
+                }
+            }
+            if (!hasZeroRef) return false
+            val mk = obj.optJSONArray("mk") ?: return false
+            for (i in 0 until mk.length()) {
+                if (mk.optJSONObject(i)?.optString("type") == "pre") return true
+            }
+            false
+        } catch (_: Exception) {
+            false
+        }
     }
 
     private fun debugMessageAt(index: Int): String {

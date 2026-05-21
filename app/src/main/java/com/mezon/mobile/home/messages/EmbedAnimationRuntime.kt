@@ -17,7 +17,6 @@ import okhttp3.Request
 import okhttp3.Response
 import org.json.JSONObject
 import java.io.IOException
-import java.util.concurrent.TimeUnit
 import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
@@ -27,6 +26,7 @@ private val ESTIMATED_PLACEHOLDER_HEIGHT = LayoutHelper.dp(133f) + LayoutHelper.
 internal class EmbedAnimationRuntime(
     private val parent: View,
     private val spec: EmbedAnimationSpec,
+    private val httpClient: OkHttpClient = EmbedAnimationHttp.client(),
 ) {
     private data class AtlasFrame(val x: Int, val y: Int, val w: Int, val h: Int)
 
@@ -34,6 +34,7 @@ internal class EmbedAnimationRuntime(
 
     private var jsonCall: Call? = null
     private var bitmapLoad: MezonImageLoader.Cancellable? = null
+    @Volatile private var loadFailed: Boolean = false
 
     private val framesByKey = mutableMapOf<String, AtlasFrame>()
     private var atlasMetaW = 1
@@ -55,6 +56,7 @@ internal class EmbedAnimationRuntime(
         atlas = null
         memoLayouts = null
         memoContentW = -1
+        loadFailed = false
         synchronized(framesByKey) {
             framesByKey.clear()
         }
@@ -142,18 +144,23 @@ internal class EmbedAnimationRuntime(
     }
 
     fun startLoading(context: android.content.Context) {
+        if (loadFailed) return
         synchronized(framesByKey) {
             if (framesByKey.isNotEmpty()) return
         }
         if (jsonCall != null) return
-        val urlJson = spec.urlPosition.trim().ifEmpty { return }
+        val urlJson = spec.urlPosition.trim().ifEmpty {
+            loadFailed = true
+            return
+        }
         val req = Request.Builder().url(urlJson).build()
-        val call = http.newCall(req)
+        val call = httpClient.newCall(req)
         jsonCall = call
         call.enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 if (call != jsonCall) return
                 jsonCall = null
+                loadFailed = true
                 parent.post { invalidateIfAlive() }
             }
 
@@ -162,6 +169,7 @@ internal class EmbedAnimationRuntime(
                     if (call != jsonCall) return
                     jsonCall = null
                     val ok = ingestAtlasBody(response.body?.string())
+                    if (!ok) loadFailed = true
                     parent.post {
                         invalidateIfAlive()
                         if (ok) {
@@ -219,7 +227,10 @@ internal class EmbedAnimationRuntime(
         }
         val reqW = min(mw, 4096).coerceAtLeast(1)
         val reqH = min(mh, 4096).coerceAtLeast(1)
-        val urlBmp = spec.urlImage.trim().ifEmpty { return }
+        val urlBmp = spec.urlImage.trim().ifEmpty {
+            loadFailed = true
+            return
+        }
         bitmapLoad?.cancel()
         bitmapLoad = MezonImageLoader.getInstance(appContext).load(
             url = urlBmp,
@@ -236,6 +247,7 @@ internal class EmbedAnimationRuntime(
                 }
             },
             onError = {
+                loadFailed = true
                 parent.post { invalidateIfAlive() }
             },
         )
@@ -311,7 +323,7 @@ internal class EmbedAnimationRuntime(
         shimmer: ShimmerEffect,
         themeDarkEmbed: Boolean,
     ) {
-        parent.postInvalidateDelayed(32)
+        if (!loadFailed) parent.postInvalidateDelayed(32)
 
         val n = max(1, spec.pool.size)
         val gap = CELL_GAP_X.toFloat()
@@ -342,11 +354,6 @@ internal class EmbedAnimationRuntime(
         private val MIN_PLACEHOLDER_W = LayoutHelper.dp(48f)
         private val PLACEHOLDER_H = LayoutHelper.dp(120f)
         private val PLACEHOLDER_RADIUS = LayoutHelper.dp(8).toFloat()
-
-        private val http = OkHttpClient.Builder()
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(20, TimeUnit.SECONDS)
-            .build()
     }
 }
 

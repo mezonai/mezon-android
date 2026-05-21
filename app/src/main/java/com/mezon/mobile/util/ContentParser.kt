@@ -62,6 +62,37 @@ fun parseThreadInfoFromPlainText(text: String): ParsedThreadInfo? {
     return ParsedThreadInfo(label, id)
 }
 
+fun isEmbedOrComponentsPayload(content: String): Boolean =
+    content.contains("\"embed\"") || content.contains("\"components\"")
+
+private val REFERENCE_REF_ID_REGEX = Regex("\"message_ref_id\"\\s*:\\s*\"?(\\d+)\"?")
+
+fun firstReferenceMessageId(content: String): Long {
+    if (!content.contains("\"references\"")) return 0L
+    return REFERENCE_REF_ID_REGEX.find(content)?.groupValues?.getOrNull(1)?.toLongOrNull() ?: 0L
+}
+
+fun messageHasExplicitTextBody(content: String): Boolean {
+    if (content.isBlank()) return false
+    return try {
+        val trimmed = content.trim()
+        if (!trimmed.startsWith("{")) return true
+        val match = CONTENT_REGEX.find(content)
+        val viaRegex = match?.groupValues?.getOrNull(1)
+            ?.replace("\\/", "/")
+            ?.replace("\\r\\n", "\n")
+            ?.replace("\\r", "\n")
+            ?.replace("\\n", "\n")
+            ?.replace("\\\"", "\"")
+            ?.trim()
+        if (!viaRegex.isNullOrBlank()) return true
+        val t = unescapeJsonText(JSONObject(trimmed).optString("t", ""), singleLine = false)
+        t.isNotBlank()
+    } catch (_: Exception) {
+        true
+    }
+}
+
 fun parseContentText(content: String): String {
     if (content.isBlank()) return ""
     return try {

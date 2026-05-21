@@ -28,8 +28,8 @@ import com.mezon.mobile.util.EmbedRadioSpec
 import com.mezon.mobile.util.EmbedSelectSpec
 import com.mezon.mobile.util.createImgproxyUrl
 import com.mezon.mobile.util.formatEmbedRichText
-import com.mezon.mobile.util.parseEmbedActionRows
-import com.mezon.mobile.util.parseEmbedDataList
+import com.mezon.mobile.util.parseEmbedPayload
+import okhttp3.OkHttpClient
 import kotlin.math.max
 import kotlin.math.min
 
@@ -41,6 +41,8 @@ class EmbedButtonHit {
         private set
     var disabled: Boolean = false
         private set
+    val pressKey: String
+        get() = buttonId.ifEmpty { url.orEmpty() }
 
     fun set(left: Float, top: Float, right: Float, bottom: Float, id: String, link: String?, disabledValue: Boolean) {
         rect.set(left, top, right, bottom)
@@ -157,7 +159,9 @@ private data class LaidOutEmbedCard(
 class EmbedMessageRenderer(
     private val parent: View,
     private val theme: () -> ThemeColors,
+    private val httpClient: OkHttpClient = EmbedAnimationHttp.client(),
 ) {
+    var onAfterDraw: (() -> Unit)? = null
     private var embedSourceList: List<EmbedData> = emptyList()
     private var laidOutCards: List<LaidOutEmbedCard> = emptyList()
     private var actionRows: List<EmbedActionRow> = emptyList()
@@ -184,12 +188,22 @@ class EmbedMessageRenderer(
     private var buttonHitCount = 0
     private var laidOutButtons = emptyList<LaidOutButton>()
     private var buttonsBlockHeight = 0
+    private var pressedButtonKey = ""
+
+    fun setPressedButton(key: String?) {
+        val next = key.orEmpty()
+        if (pressedButtonKey == next) return
+        pressedButtonKey = next
+        parent.invalidate()
+    }
 
     private val embedInteractiveGeometries = mutableListOf<EmbedInteractiveGeometry>()
     private var embedInteractiveGeometryCount = 0
     val lastEmbedInteractiveGeometries: List<EmbedInteractiveGeometry> get() = embedInteractiveGeometries
 
     private var animationRuntimeGrid: List<List<EmbedAnimationRuntime>> = emptyList()
+
+    private val radioOptionHeightCache = HashMap<Long, Int>()
 
     fun containsTouch(x: Float, y: Float): Boolean {
         if (laidOutCards.isEmpty()) return false
@@ -225,18 +239,17 @@ class EmbedMessageRenderer(
     }
 
     fun setDataFromContent(content: String): Boolean {
-        val hasEmbedPayload = content.contains("\"embed\"")
-        val hasComponentPayload = content.contains("\"components\"")
-        if (!hasEmbedPayload && !hasComponentPayload) {
+        if (!content.contains("\"embed\"") && !content.contains("\"components\"")) {
             clear()
             return false
         }
-        embedSourceList = if (hasEmbedPayload) parseEmbedDataList(content) else emptyList()
-        actionRows = if (hasComponentPayload) parseEmbedActionRows(content) else emptyList()
-        if (embedSourceList.isEmpty() && actionRows.isEmpty()) {
+        val payload = parseEmbedPayload(content)
+        if (payload.embeds.isEmpty() && payload.actionRows.isEmpty()) {
             clear()
             return false
         }
+        embedSourceList = payload.embeds
+        actionRows = payload.actionRows
         return true
     }
 
@@ -261,10 +274,12 @@ class EmbedMessageRenderer(
         get() = lastEmbedInteractiveGeometries.filterIsInstance<EmbedInteractiveGeometry.InputField>()
 
     fun clear() {
+        pressedButtonKey = ""
         embedSourceList = emptyList()
         laidOutCards = emptyList()
         actionRows = emptyList()
         disposeAnimationGrid()
+        radioOptionHeightCache.clear()
         syncCardImageBundles(0)
         laidOutButtons = emptyList()
         buttonsBlockHeight = 0
@@ -610,6 +625,7 @@ class EmbedMessageRenderer(
 
     fun rebuildLayouts(textWidth: Int, context: Context) {
         disposeAnimationGrid()
+        radioOptionHeightCache.clear()
         laidOutCards = emptyList()
         if (embedSourceList.isEmpty()) {
             syncCardImageBundles(0)
@@ -630,7 +646,7 @@ class EmbedMessageRenderer(
     private fun rebuildAnimationGrid(context: Context) {
         animationRuntimeGrid = laidOutCards.map { card ->
             card.animationSpecsInOrder.map { spec ->
-                EmbedAnimationRuntime(parent, spec).also { it.startLoading(context) }
+                EmbedAnimationRuntime(parent, spec, httpClient).also { it.startLoading(context) }
             }
         }
     }
@@ -763,6 +779,7 @@ class EmbedMessageRenderer(
             bottom = drawButtons(canvas, left, bottom)
         }
         trimInteractiveGeometries()
+        onAfterDraw?.invoke()
         return bottom
     }
 
@@ -973,6 +990,14 @@ class EmbedMessageRenderer(
             BUTTON_LABEL_PAINT.alpha = alpha
             tmpRect.set(l, tt, l + b.width, tt + b.height)
             canvas.drawRoundRect(tmpRect, BUTTON_RADIUS, BUTTON_RADIUS, BUTTON_BG_PAINT)
+            if (!b.disabled && pressedButtonKey.isNotEmpty() && pressedButtonKey == b.buttonId.ifEmpty { b.url.orEmpty() }) {
+                BUTTON_RIPPLE_PAINT.color = if (t.resolvedMode == ThemeMode.LIGHT) {
+                    0x26000000
+                } else {
+                    0x33FFFFFF
+                }
+                canvas.drawRoundRect(tmpRect, BUTTON_RADIUS, BUTTON_RADIUS, BUTTON_RIPPLE_PAINT)
+            }
             val innerLeft = l + BUTTON_PAD_H
             val innerW = b.width - BUTTON_PAD_H * 2
             var contentW = 0f
@@ -1004,6 +1029,8 @@ class EmbedMessageRenderer(
     }
 
     private fun embedRadioOptionHeight(o: EmbedRadioOptionSpec, colW: Int): Int {
+        val cacheKey = radioOptionCacheKey(o, colW)
+        radioOptionHeightCache[cacheKey]?.let { return it }
         val th = theme()
         var h = RADIO_ROW_PAD_TOP
         if (o.label.isNotEmpty()) {
@@ -1027,8 +1054,12 @@ class EmbedMessageRenderer(
         }
         h += RADIO_CONTROL_ROW_H
         h += RADIO_ROW_PAD_BOTTOM
+        radioOptionHeightCache[cacheKey] = h
         return h
     }
+
+    private fun radioOptionCacheKey(o: EmbedRadioOptionSpec, colW: Int): Long =
+        (o.hashCode().toLong() and 0xFFFFFFFFL) shl 32 or (colW.toLong() and 0xFFFFFFFFL)
 
     private fun buttonBackgroundColor(theme: ThemeColors, style: EmbedButtonStyle): Int = when (style) {
         EmbedButtonStyle.PRIMARY -> theme.primary
@@ -1076,6 +1107,10 @@ class EmbedMessageRenderer(
         }
 
         private val BUTTON_BG_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+        }
+
+        private val BUTTON_RIPPLE_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.FILL
         }
 

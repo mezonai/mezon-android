@@ -50,6 +50,8 @@ class MessagesFragment : BaseFragment() {
     private lateinit var errorView: TextView
     private lateinit var adapter: DmListAdapter
     private lateinit var headerStripAdapter: MessageActivitiesStripHeaderAdapter
+    private lateinit var addMessageFab: FrameLayout
+    private lateinit var addMessageIcon: ImageView
     private var scrollingManually = false
     private var dialogsListFrozen = false
     private var frozenDialogsList: List<DirectMessage>? = null
@@ -75,6 +77,15 @@ class MessagesFragment : BaseFragment() {
             emptyView.setTextColor(themeColors.onSurfaceVariant)
             adapter.notifyDataSetChanged()
             if (::headerStripAdapter.isInitialized) headerStripAdapter.notifyDataSetChanged()
+            if (::addMessageFab.isInitialized) {
+                addMessageFab.background = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.OVAL
+                    setColor(themeColors.blurple)
+                }
+                addMessageIcon.setImageDrawable(MezonIcon.messagePlusIcon.getDrawable(fragmentView!!.context).apply {
+                    colorFilter = PorterDuffColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN)
+                })
+            }
         }
         observe(NotificationCenter.dialogsNeedReload) { _, _, _ ->
             Log.d(TAG, "dialogsNeedReload received: fragmentView=${fragmentView != null} isPaused=$isPaused frozen=$dialogsListFrozen")
@@ -181,6 +192,10 @@ class MessagesFragment : BaseFragment() {
 
         syncMessageActivitiesStrip()
 
+        contentFrame.addView(buildAddMessageFab(context), LayoutHelper.createFrame(
+            50, 50, Gravity.BOTTOM or Gravity.RIGHT, 0f, 0f, 10f, 24f
+        ))
+
         val dialogs = controller.getDialogs()
         if (dialogs.isNotEmpty()) {
             showList(dialogs)
@@ -190,6 +205,27 @@ class MessagesFragment : BaseFragment() {
         }
 
         return root
+    }
+
+    private fun buildAddMessageFab(context: Context): View {
+        addMessageFab = FrameLayout(context).apply {
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL
+                setColor(themeColors.blurple)
+            }
+            isClickable = true
+            isFocusable = true
+            elevation = LayoutHelper.dpf(6f)
+            setOnClickListener { openNewMessage() }
+        }
+        addMessageIcon = ImageView(context).apply {
+            setImageDrawable(MezonIcon.messagePlusIcon.getDrawable(context).apply {
+                colorFilter = PorterDuffColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN)
+            })
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+        }
+        addMessageFab.addView(addMessageIcon, LayoutHelper.createFrame(28, 28, Gravity.CENTER))
+        return addMessageFab
     }
 
     private fun syncMessageActivitiesStrip() {
@@ -390,6 +426,13 @@ class MessagesFragment : BaseFragment() {
 
     private fun onAddFriendClicked() {
         presentFragment(AddFriendFragment())
+    }
+
+    private fun openNewMessage() {
+        val fragment = NewMessageFragment().apply {
+            onOpenChat = this@MessagesFragment.onOpenChat
+        }
+        presentFragment(fragment)
     }
 
     private fun openSearch() {

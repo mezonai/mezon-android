@@ -230,7 +230,17 @@ object EmbedSelectOptionSheet {
             }
         }
 
-        search.onTextChanged = { buildOptionRows(it) }
+        val searchHandler = android.os.Handler(android.os.Looper.getMainLooper())
+        var pendingSearch: Runnable? = null
+        search.onTextChanged = { query ->
+            pendingSearch?.let { searchHandler.removeCallbacks(it) }
+            val r = Runnable { buildOptionRows(query) }
+            pendingSearch = r
+            searchHandler.postDelayed(r, SEARCH_DEBOUNCE_MS)
+        }
+        dialog.setOnDismissListener {
+            pendingSearch?.let { searchHandler.removeCallbacks(it) }
+        }
 
         contentColumn.addView(
             search,
@@ -279,6 +289,8 @@ object EmbedSelectOptionSheet {
         dialog.setCanceledOnTouchOutside(true)
         dialog.show()
     }
+
+    private const val SEARCH_DEBOUNCE_MS = 120L
 
     private fun sheetHeightPx(context: Context): Int {
         val h = when {
