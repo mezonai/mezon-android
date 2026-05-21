@@ -3,6 +3,7 @@ package com.mezon.mobile.home
 import android.content.Context
 import android.util.LongSparseArray
 import android.util.Log
+import com.mezon.mezon.api.AllUsersAddChannelResponse
 import com.mezon.mezon.api.ChannelMessage
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.StartupCache
@@ -19,6 +20,7 @@ import com.mezon.mobile.home.messages.toDirectMessageFromIncoming
 import com.mezon.mobile.network.ApiCacheTracker
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
+import com.mezon.mobile.network.sanitizeServerMessageId as sanitizeProvisionalId
 import com.mezon.mobile.network.CODE_CHAT_REMOVE
 import com.mezon.mobile.network.CODE_CHAT_UPDATE
 import com.mezon.mobile.network.MezonApi
@@ -49,7 +51,6 @@ import javax.inject.Singleton
 import dagger.hilt.android.qualifiers.ApplicationContext
 
 private const val TAG = "DialogsController"
-private const val LOCAL_PROVISIONAL_MESSAGE_ID_FLOOR = 4_611_686_018_427_387_904L
 
 @Singleton
 class DialogsController @Inject constructor(
@@ -258,33 +259,81 @@ class DialogsController @Inject constructor(
     }
 
     fun loadDmParticipants(channelId: Long) {
+        loadDmParticipants(channelId, force = false)
+    }
+
+    fun loadDmParticipants(channelId: Long, force: Boolean) {
         if (channelId == 0L) return
         val hasCache: Boolean
         synchronized(this) { hasCache = participantsByChannel[channelId] != null }
-        if (hasCache) return
+        if (hasCache && !force) return
         appScope.launch(ioDispatcher) {
             try {
                 sessionManager.withAutoRefresh { session ->
                     val response = api.listChannelUsersUC(session.apiUrl, session.token, channelId)
-                    val count = response.userIdsCount
-                    if (count == 0) return@withAutoRefresh
-                    val participants = ArrayList<DmParticipant>(count)
-                    for (i in 0 until count) {
-                        participants.add(DmParticipant(
-                            userId = response.getUserIds(i),
-                            username = response.usernamesList.getOrElse(i) { "" },
-                            displayName = response.displayNamesList.getOrElse(i) { "" },
-                            avatarUrl = response.avatarsList.getOrElse(i) { "" }
-                        ))
-                    }
+                    val participants = response.toDmParticipants()
+                    if (participants.isEmpty()) return@withAutoRefresh
                     synchronized(this@DialogsController) {
                         participantsByChannel.put(channelId, participants)
                     }
                     notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
+                    notificationCenter.postNotificationOnMainThread(NotificationCenter.channelMembersDidLoad, channelId)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "loadDmParticipants failed for channel $channelId", e)
             }
+        }
+    }
+
+    suspend fun createGroup(userIds: List<Long>, participantHints: List<DmParticipant>): DirectMessage? {
+        val ids = userIds.filter { it != 0L }.distinct()
+        if (ids.size < 2) return null
+        return try {
+            sessionManager.withAutoRefresh { session ->
+                val currentUserId = session.userId.toLongOrNull() ?: 0L
+                val response = api.createChannelDesc(
+                    apiUrl = session.apiUrl,
+                    token = session.token,
+                    type = CHANNEL_TYPE_GROUP,
+                    userIds = ids
+                )
+                cacheTracker.invalidateByPrefix("listChannelDescs_")
+                ingestChannelDescForCreatedGroup(response, currentUserId, participantHints)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "createGroup failed userIds=${ids.joinToString(",")}", e)
+            null
+        }
+    }
+
+    suspend fun addMembersToGroup(
+        channelId: Long,
+        userIds: List<Long>,
+        participantHints: List<DmParticipant>
+    ): Boolean {
+        val ids = userIds.filter { it != 0L }.distinct()
+        if (channelId == 0L || ids.isEmpty()) return false
+        return try {
+            sessionManager.withAutoRefresh { session ->
+                api.addChannelUsers(session.apiUrl, session.token, channelId, ids)
+                val participants = runCatching {
+                    api.listChannelUsersUC(session.apiUrl, session.token, channelId).toDmParticipants()
+                }.getOrElse { participantHints }
+                synchronized(this@DialogsController) {
+                    if (participants.isNotEmpty()) {
+                        participantsByChannel.put(channelId, participants)
+                    } else if (participantHints.isNotEmpty()) {
+                        mergeParticipants(channelId, participantHints)
+                    }
+                }
+            }
+            cacheTracker.invalidateByPrefix("listChannelDescs_")
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.channelMembersDidLoad, channelId)
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "addMembersToGroup failed channelId=$channelId users=${ids.joinToString(",")}", e)
+            false
         }
     }
 
@@ -358,6 +407,98 @@ class DialogsController @Inject constructor(
         }
         appScope.launch(ioDispatcher) { directMessageDao.upsert(toPersist) }
         notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
+    }
+
+    private fun ingestChannelDescForCreatedGroup(
+        desc: ChannelDescription,
+        currentUserId: Long,
+        participantHints: List<DmParticipant>
+    ): DirectMessage {
+        val participants = mergeParticipantHints(desc.extractParticipants(), participantHints)
+        val fresh = desc.toDirectMessage(currentUserId, appContext)
+        val fallbackName = desc.channelLabel.ifBlank { groupNameFallbackFromParticipants(participants) }
+        val createdTs = System.currentTimeMillis() / 1000L
+        val row = fresh.copy(
+            type = CHANNEL_TYPE_GROUP,
+            label = fallbackName.ifBlank { fresh.label },
+            displayName = fallbackName.ifBlank { fresh.displayName },
+            username = fallbackName.ifBlank { fresh.username },
+            lastSentMessageTs = if (fresh.lastSentMessageTs == 0L) createdTs else fresh.lastSentMessageTs,
+            groupCreatorId = if (fresh.groupCreatorId != 0L) fresh.groupCreatorId else currentUserId
+        )
+        val toPersist: DirectMessage
+        synchronized(this) {
+            if (participants.isNotEmpty()) {
+                participantsByChannel.put(desc.channelId, participants)
+            }
+            val existing = dialogsDict[row.channelId]
+            val merged = if (existing != null) {
+                existing.copy(
+                    type = CHANNEL_TYPE_GROUP,
+                    label = row.label.ifBlank { existing.label },
+                    avatarUrl = row.avatarUrl.ifBlank { existing.avatarUrl },
+                    displayName = row.displayName.ifBlank { existing.displayName },
+                    username = row.username.ifBlank { existing.username },
+                    lastMessageContent = row.lastMessageContent.ifBlank { existing.lastMessageContent },
+                    isOnline = false,
+                    lastSeenMessageId = maxOf(existing.lastSeenMessageId, row.lastSeenMessageId),
+                    lastSentMessageId = maxOf(existing.lastSentMessageId, row.lastSentMessageId),
+                    lastSeenMessageTs = maxOf(existing.lastSeenMessageTs, row.lastSeenMessageTs),
+                    lastSentMessageTs = maxOf(existing.lastSentMessageTs, row.lastSentMessageTs),
+                    unreadCount = mergeDmUnreadFromList(existing.unreadCount, row),
+                    isMute = existing.isMute,
+                    groupCreatorId = if (row.groupCreatorId != 0L) row.groupCreatorId else existing.groupCreatorId
+                )
+            } else {
+                row
+            }
+            dialogsDict.put(merged.channelId, merged)
+            val oldIdx = dialogs.indexOfFirst { it.channelId == merged.channelId }
+            if (oldIdx >= 0) dialogs.removeAt(oldIdx)
+            var lo = 0
+            var hi = dialogs.size
+            val target = merged.lastSentMessageTs
+            while (lo < hi) {
+                val mid = (lo + hi) ushr 1
+                if (dialogs[mid].lastSentMessageTs > target) lo = mid + 1 else hi = mid
+            }
+            dialogs.add(lo, merged)
+            toPersist = merged
+        }
+        appScope.launch(ioDispatcher) { directMessageDao.upsert(toPersist) }
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.channelMembersDidLoad, desc.channelId)
+        return toPersist
+    }
+
+    private fun mergeParticipantHints(
+        fromDesc: List<DmParticipant>,
+        hints: List<DmParticipant>
+    ): List<DmParticipant> {
+        if (fromDesc.isEmpty() && hints.isEmpty()) return emptyList()
+        val merged = LinkedHashMap<Long, DmParticipant>(fromDesc.size + hints.size)
+        for (p in fromDesc) {
+            if (p.userId != 0L) merged[p.userId] = p
+        }
+        for (p in hints) {
+            if (p.userId != 0L) merged[p.userId] = p
+        }
+        return ArrayList(merged.values)
+    }
+
+    private fun AllUsersAddChannelResponse.toDmParticipants(): List<DmParticipant> {
+        val count = userIdsCount
+        if (count == 0) return emptyList()
+        val participants = ArrayList<DmParticipant>(count)
+        for (i in 0 until count) {
+            participants.add(DmParticipant(
+                userId = getUserIds(i),
+                username = usernamesList.getOrElse(i) { "" },
+                displayName = displayNamesList.getOrElse(i) { "" }.ifBlank { usernamesList.getOrElse(i) { "" } },
+                avatarUrl = avatarsList.getOrElse(i) { "" }
+            ))
+        }
+        return participants
     }
 
     fun loadDialogs(page: Int = 1, limit: Int = 500) {
@@ -496,13 +637,9 @@ class DialogsController @Inject constructor(
             code == MessageEntity.CODE_DELETE_EPHEMERAL
     }
 
-    private fun sanitizeServerMessageId(id: Long): Long {
-        return if (id >= LOCAL_PROVISIONAL_MESSAGE_ID_FLOOR) 0L else id
-    }
-
     private fun DirectMessage.withSanitizedServerMessageIds(): DirectMessage {
-        val sent = sanitizeServerMessageId(lastSentMessageId)
-        val seen = sanitizeServerMessageId(lastSeenMessageId)
+        val sent = sanitizeProvisionalId(lastSentMessageId)
+        val seen = sanitizeProvisionalId(lastSeenMessageId)
         return if (sent == lastSentMessageId && seen == lastSeenMessageId) this else copy(
             lastSentMessageId = sent,
             lastSeenMessageId = seen

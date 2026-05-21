@@ -189,6 +189,16 @@
     <string name="dm_menu_unblock_user">Unblock User</string>
     <string name="dm_wave_welcome">Wave to say hi!</string>
     <string name="dm_no_messages">No messages yet</string>
+    <string name="dm_no_friends">No friends found</string>
+    <string name="dm_new_message_to">To:</string>
+    <string name="dm_new_group">New Group</string>
+    <string name="dm_add_members">Add Members</string>
+    <string name="dm_create">Create</string>
+    <string name="dm_add">Add</string>
+    <string name="dm_group_members">%1$d of %2$d members</string>
+    <string name="dm_new_dm_failed">Could not create conversation. Please try again.</string>
+    <string name="dm_create_group_failed">Could not create group. Please try again.</string>
+    <string name="dm_add_members_failed">Could not add members. Please try again.</string>
 
     <!-- message -->
     <string name="message_actions_edit">Edit Message</string>
@@ -1182,6 +1192,7 @@
     <string name="channel_permissions_no_matches">No matching roles or members</string>
     <string name="channel_permissions_no_access">You don\'t have permission to manage this channel.</string>
 
+    <!-- Embed form: select menus in message embeds -->
     <string name="embed_select_one">Select 1 option</string>
     <string name="embed_select_up_to">Select up to %d options</string>
     <string name="embed_select_at_least">Select at least %d options</string>
