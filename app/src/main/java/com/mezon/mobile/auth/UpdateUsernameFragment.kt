@@ -194,7 +194,7 @@ class UpdateUsernameFragment : BaseFragment() {
     private fun sanitizeUsername(raw: String): String {
         val nfd = Normalizer.normalize(raw, Normalizer.Form.NFD)
         val noMarks = nfd.replace("\\p{Mn}+".toRegex(), "")
-        return noMarks.replace(Regex("[\\s\\p{P}]"), "")
+        return noMarks.replace(Regex("[\\s\\p{P}&&[^.]]"), "")
     }
 
     private fun doSubmit() {
