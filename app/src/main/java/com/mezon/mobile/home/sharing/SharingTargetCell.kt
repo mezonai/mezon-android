@@ -14,6 +14,7 @@ import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.chat.MezonImageLoader
+import com.mezon.mobile.home.messages.GroupAvatar
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.util.avatarImgproxyUrl
 
@@ -45,12 +46,22 @@ class SharingTargetCell(context: Context, private val theme: ThemeColors) : View
         forwardSelected = isForwardSelected
         target = t
         avatarDrawable.setInfo(t.channelId, t.channelLabel)
-        loadAvatar(t.avatarUrl.ifEmpty { t.clanLogo })
+        loadAvatar(t)
         buildLayouts()
         invalidate()
     }
 
-    private fun loadAvatar(url: String) {
+    private fun loadAvatar(t: SharingTarget) {
+        if (t.isGroup && !t.hasCustomAvatar()) {
+            avatarCancellable?.cancel()
+            avatarCancellable = null
+            avatarDrawable.setPhoto(GroupAvatar.bitmap(context))
+            return
+        }
+        loadAvatarFromUrl(t.avatarUrl.ifEmpty { t.clanLogo })
+    }
+
+    private fun loadAvatarFromUrl(url: String) {
         avatarCancellable?.cancel()
         avatarCancellable = null
         if (url.isEmpty()) {

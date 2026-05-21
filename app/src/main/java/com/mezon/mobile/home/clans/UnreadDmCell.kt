@@ -12,7 +12,6 @@ import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.home.messages.DirectMessage
 import com.mezon.mobile.home.messages.GroupAvatar
-import com.mezon.mobile.home.messages.avatarPlaceholderKey
 import com.mezon.mobile.home.messages.hasCustomAvatar
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.util.avatarImgproxyUrl
@@ -41,7 +40,6 @@ class UnreadDmCell(
     private var avatarCancellable: MezonImageLoader.Cancellable? = null
 
     companion object {
-        private const val GROUP_DEFAULT_AVATAR_KEY = "\u0000group_default_avatar"
         private val BADGE_HEIGHT = LayoutHelper.dp(16f).toFloat()
         private val BADGE_PAD_H = LayoutHelper.dp(4f).toFloat()
         private val BADGE_OFFSET_RIGHT = LayoutHelper.dp(2f).toFloat()
@@ -51,7 +49,7 @@ class UnreadDmCell(
 
     fun setData(dm: DirectMessage) {
         directMessage = dm
-        avatar.setInfo(dm.channelId, dm.displayName.ifBlank { dm.label }.ifBlank { dm.username })
+        avatar.setInfo(dm.channelId, dm.avatarPlaceholderKey())
         badgeText = when {
             dm.unreadCount <= 0 -> ""
             dm.unreadCount > 99 -> "99+"
@@ -65,7 +63,7 @@ class UnreadDmCell(
         if (dm.type == CHANNEL_TYPE_GROUP && !dm.hasCustomAvatar()) {
             avatarCancellable?.cancel()
             avatarCancellable = null
-            currentAvatarUrl = GROUP_DEFAULT_AVATAR_KEY
+            currentAvatarUrl = GroupAvatar.DEFAULT_LOAD_KEY
             avatar.setPhoto(GroupAvatar.bitmap(context))
             return
         }
