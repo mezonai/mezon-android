@@ -973,6 +973,13 @@
     <string name="advanced_transfer_funds">Transfer Funds</string>
     <string name="advanced_poll">Poll</string>
     <string name="advanced_share_contact">Share Contact</string>
+    <string name="share_contact_title">Share This Contact</string>
+    <string name="share_contact_message">Message</string>
+    <string name="no_contacts_found">No contacts found</string>
+    <string name="contact_shared_success">Contact shared successfully</string>
+    <string name="contact_shared_error">Failed to share contact</string>
+    <string name="cannot_call_yourself">You cannot call yourself.</string>
+    <string name="no_permission_call_blocked">You cannot perform this action.</string>
     <string name="share_location_title">Send this location to %s</string>
     <string name="share_location_coordinate">Coordinate (%1$.6f, %2$.6f)</string>
     <string name="share_location_cancel">Cancel</string>

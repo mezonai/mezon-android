@@ -16,6 +16,8 @@ class ChatAdapter(
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     var pollBridge: com.mezon.mobile.home.chat.poll.ChatPollBridge? = null
+    var shareContactOnlineResolver: ((Long) -> Boolean)? = null
+    var displayRoleResolver: ((Long) -> UserDisplayRole?)? = null
 
     init { setHasStableIds(true) }
 
@@ -213,6 +215,7 @@ class ChatAdapter(
             is MessageViewHolder -> {
                 holder.cell.delegate = cellDelegate
                 holder.cell.pollBridge = pollBridge
+                holder.cell.shareContactOnlineResolver = shareContactOnlineResolver
                 holder.cell.loadLinkInvitePreview = loadLinkInvitePreview
                 holder.cell.isCombined = computeCombined(idx)
                 holder.cell.currentUserId = currentUserId.toLongOrNull() ?: 0L
