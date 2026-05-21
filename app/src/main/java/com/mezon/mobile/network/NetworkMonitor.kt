@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.os.Build
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,7 +24,7 @@ class NetworkMonitor @Inject constructor(
     private val connectivityManager =
         context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
-    private val _isOnline = MutableStateFlow(readHasInternetCapability())
+    private val _isOnline = MutableStateFlow(readValidatedInternet())
     val isOnline: StateFlow<Boolean> = _isOnline.asStateFlow()
 
     private val connectivityCallback = object : ConnectivityManager.NetworkCallback() {
@@ -50,16 +51,27 @@ class NetworkMonitor @Inject constructor(
     }
 
     private fun publishFromActiveNetwork(force: Boolean = false) {
-        val nextOnline = readHasInternetCapability()
+        val nextOnline = readValidatedInternet()
         if (force || _isOnline.value != nextOnline) {
             Log.d(TAG, "isOnline=$nextOnline")
             _isOnline.value = nextOnline
         }
     }
 
-    private fun readHasInternetCapability(): Boolean {
+    private fun readValidatedInternet(): Boolean {
         val network = connectivityManager.activeNetwork ?: return false
         val caps = connectivityManager.getNetworkCapabilities(network) ?: return false
-        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        return caps.hasValidatedInternet()
+    }
+
+    private fun NetworkCapabilities.hasValidatedInternet(): Boolean {
+        if (!hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) return false
+        if (!hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) return false
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P &&
+            !hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED)
+        ) {
+            return false
+        }
+        return true
     }
 }

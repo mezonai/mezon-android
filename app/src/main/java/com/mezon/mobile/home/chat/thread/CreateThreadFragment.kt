@@ -66,6 +66,7 @@ import com.mezon.mobile.home.chat.input.InputSuggestionsController
 import com.mezon.mobile.home.chat.input.InputSuggestionsPopup
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.ClanChannelEntity
+import com.mezon.mobile.home.clans.PermissionPolicy
 import com.mezon.mobile.home.clans.toClanChannelEntity
 import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
@@ -154,6 +155,7 @@ class CreateThreadFragment : BaseFragment() {
     private lateinit var imageClipboardCoordinator: ImageClipboardCoordinator
     private lateinit var searchController: SearchController
     private lateinit var roleController: RoleController
+    private lateinit var permissionPolicy: PermissionPolicy
     private lateinit var appScope: CoroutineScope
 
     private lateinit var composerField: EditText
@@ -209,6 +211,11 @@ class CreateThreadFragment : BaseFragment() {
         parentLabel = arguments?.getString(ARG_PARENT_LABEL) ?: ""
         clanId = arguments?.getLong(ARG_CLAN_ID) ?: 0L
         seedMessageId = arguments?.getLong(ARG_SEED_MESSAGE_ID) ?: 0L
+        permissionPolicy.ensurePermissionChecker(
+            listOf(PermissionPolicy.CLAN_OWNER, PermissionPolicy.MANAGE_THREAD, PermissionPolicy.MANAGE_CHANNEL),
+            parentChannelId,
+            clanId
+        )
         return true
     }
 
@@ -225,6 +232,7 @@ class CreateThreadFragment : BaseFragment() {
         imageClipboardCoordinator = entryPoint.imageClipboardCoordinator()
         searchController = entryPoint.searchController()
         roleController = entryPoint.roleController()
+        permissionPolicy = entryPoint.permissionPolicy()
         appScope = entryPoint.applicationScope()
     }
 
@@ -1748,8 +1756,20 @@ class CreateThreadFragment : BaseFragment() {
         return ""
     }
 
+    private fun canCreateThreadForCurrentFlow(): Boolean {
+        return if (fromMessageFlow) {
+            permissionPolicy.canCreateThreadFromMessage(parentChannelId, clanId)
+        } else {
+            permissionPolicy.canCreateThreadFromThreadList(parentChannelId, clanId)
+        }
+    }
+
     private fun trySubmit() {
         if (isSubmitting) return
+        if (!canCreateThreadForCurrentFlow()) {
+            MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.channel_permissions_no_access))
+            return
+        }
         val nameErr = validateThreadName(nameField?.text?.toString().orEmpty())
         if (nameErr.isNotEmpty()) {
             errorText?.text = nameErr

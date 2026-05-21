@@ -66,6 +66,7 @@ import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.ClansController
 import com.mezon.mobile.home.clans.ClanChannelEntity
 import com.mezon.mobile.home.clans.ClanRole
+import com.mezon.mobile.home.clans.PermissionPolicy
 import com.mezon.mobile.home.clans.RoleController
 import com.mezon.mobile.home.chat.input.InputSuggestionItem
 import com.mezon.mobile.home.chat.input.InputSuggestionsAdapter
@@ -107,6 +108,8 @@ import com.mezon.mobile.util.parseContentText
 import com.mezon.mobile.util.parseMarkdownAndStrip
 import com.mezon.mobile.util.restoreInputFromContent
 import com.mezon.mobile.util.resolveStickerSourceUrl
+import com.mezon.mobile.util.EmbedFormUtil
+import com.mezon.mobile.util.embedFormValidationError
 import com.mezon.mobile.core.SharedConfig
 import com.mezon.mobile.home.chat.poll.ChatPollBridge
 import com.mezon.mobile.home.chat.poll.ParsedPoll
@@ -172,6 +175,7 @@ class ChatFragment : BaseFragment() {
         private const val REQUEST_CALL_PERMISSIONS = 9002
         private const val MENU_DM_VOICE_CALL = 8801
         private const val DM_HEADER_CALL_ICON_DP = 22f
+        private val REFERENCE_REF_ID_REGEX = Regex("\"message_ref_id\"\\s*:\\s*\"?(\\d+)\"?")
 
         fun newInstance(
             channelId: Long,
@@ -203,6 +207,7 @@ class ChatFragment : BaseFragment() {
     private lateinit var channelController: ChannelController
     private lateinit var mediaController: MediaController
     private lateinit var audioPlayerController: AudioPlayerController
+    private lateinit var permissionPolicy: PermissionPolicy
     private lateinit var pinMessageController: com.mezon.mobile.home.PinMessageController
     private lateinit var walletController: WalletController
     private lateinit var callController: com.mezon.mobile.home.call.CallController
@@ -414,7 +419,24 @@ class ChatFragment : BaseFragment() {
             dialogsController.loadDmParticipants(channelId)
         }
         pinMessageController.loadPinMessages(channelId, clanId)
+        refreshPermissionGates()
         Log.d(TAG, "onFragmentCreate: startLoadFromMessageId=$startLoadFromMessageId forceLatest=$forceLatest channelId=$channelId")
+        observe(NotificationCenter.channelPermissionOverridesDidLoad) { _, _, args ->
+            val changedChannelId = args.getOrNull(0) as? Long ?: return@observe
+            if (changedChannelId == channelId) refreshPermissionGates()
+        }
+        observe(NotificationCenter.channelPermissionsDidLoad) { _, _, args ->
+            val changedChannelId = args.getOrNull(0) as? Long ?: return@observe
+            if (changedChannelId == channelId) refreshPermissionGates()
+        }
+        observe(NotificationCenter.clanRolesDidLoad) { _, _, args ->
+            val changedClanId = args.getOrNull(0) as? Long ?: return@observe
+            if (changedClanId == clanId || changedClanId == clansController.selectedClanId.value) refreshPermissionGates()
+        }
+        observe(NotificationCenter.selectedClanChanged) { _, _, _ ->
+            if (isPaused) return@observe
+            if (clanId == 0L) refreshPermissionGates()
+        }
         observe(NotificationCenter.messagesDidLoad) { _, _, args ->
             if (args.size < 5 || args[0] != channelId) return@observe
             @Suppress("UNCHECKED_CAST")
@@ -702,10 +724,37 @@ class ChatFragment : BaseFragment() {
         }
 
         observe(NotificationCenter.didReceiveNewMessages) { _, _, args ->
-            if (args.size < 2 || args[0] != channelId) return@observe
+            if (args.size < 2) return@observe
+            val eventChannelId = args[0] as? Long ?: return@observe
+            if (eventChannelId != channelId) {
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        TAG,
+                        "didReceiveNewMessages skip channel mismatch current=$channelId event=$eventChannelId"
+                    )
+                }
+                return@observe
+            }
             val entity = args[1] as? MessageEntity ?: return@observe
+            if (BuildConfig.DEBUG) {
+                val refId = debugReferencedMessageId(entity.content)
+                val refIdx = if (refId != 0L) messages.indexOfFirst { it.id == refId } else -1
+                val refMsg = if (refIdx >= 0) messages[refIdx] else if (refId != 0L) messagesDict.get(refId) else null
+                Log.d(
+                    TAG,
+                    "didReceiveNewMessages id=${entity.id} channel=${entity.channelId} code=${entity.code} " +
+                        "ts=${entity.timestampSeconds} ref=$refId refIdx=$refIdx refTs=${refMsg?.timestampSeconds ?: 0L} " +
+                        "dict=${messagesDict.get(entity.id) != null} isMe=${entity.isMe} isSending=${entity.isSending} " +
+                        "isViewingOlder=$isViewingOlder hasMoreBottom=$hasMoreBottom paused=$isPaused " +
+                        "first=${debugMessageAt(0)} last=${debugMessageAt(messages.lastIndex)} " +
+                        "content=${debugMessagePreview(entity.content)}"
+                )
+            }
             if (entity.isSending) {
                 if (isViewingOlder || hasMoreBottom) {
+                    if (BuildConfig.DEBUG) {
+                        Log.d(TAG, "didReceiveNewMessages sending jumpToPresent id=${entity.id}")
+                    }
                     jumpToPresent()
                     return@observe
                 }
@@ -726,9 +775,12 @@ class ChatFragment : BaseFragment() {
                     }
                     forceScrollToBottom()
                 }
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "didReceiveNewMessages inserted sending id=${entity.id}")
+                }
                 return@observe
             }
-            if (messagesDict.get(entity.id) != null) {
+            if (mergeDuplicateIncomingMessage(entity)) {
                 sentByApiRealIds.remove(entity.id)
                 return@observe
             }
@@ -758,12 +810,18 @@ class ChatFragment : BaseFragment() {
                 }
             }
 
-            if (messagesDict.get(entity.id) != null) return@observe
+            if (mergeDuplicateIncomingMessage(entity)) return@observe
             if (entity.id > lastSentMessageId) lastSentMessageId = entity.id
 
             if (isViewingOlder) {
                 newUnreadCount++
                 hasMoreBottom = true
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        TAG,
+                        "didReceiveNewMessages buffer because viewingOlder id=${entity.id} unread=$newUnreadCount"
+                    )
+                }
                 if (::pageDownButton.isInitialized) {
                     pageDownButton.setUnreadCount(newUnreadCount)
                     pageDownButton.show(true)
@@ -772,7 +830,18 @@ class ChatFragment : BaseFragment() {
             }
             messagesDict.put(entity.id, entity)
             val insertIndex: Int
-            if (messages.isEmpty() || entity.id >= messages.first().id) {
+            val embedResponseInsertIndex = referencedEmbedResponseInsertIndex(entity)
+            if (embedResponseInsertIndex >= 0) {
+                insertIndex = embedResponseInsertIndex
+                messages.add(insertIndex, entity)
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        TAG,
+                        "didReceiveNewMessages anchored embed response id=${entity.id} " +
+                            "ref=${referencedMessageId(entity.content)} index=$insertIndex"
+                    )
+                }
+            } else if (messages.isEmpty() || entity.id >= messages.first().id) {
                 insertIndex = 0
                 messages.add(0, entity)
             } else {
@@ -796,9 +865,17 @@ class ChatFragment : BaseFragment() {
                 }
                 if (entity.isMe) forceScrollToBottom() else scrollToBottom()
             }
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                    TAG,
+                    "didReceiveNewMessages inserted id=${entity.id} ts=${entity.timestampSeconds} " +
+                        "ref=${debugReferencedMessageId(entity.content)} index=$insertIndex size=${messages.size} " +
+                        "prev=${debugMessageAt(insertIndex - 1)} self=${debugMessageAt(insertIndex)} " +
+                        "next=${debugMessageAt(insertIndex + 1)}"
+                )
+            }
             if (!isPaused) markAsRead()
         }
-
         observe(NotificationCenter.pendingMessageSent) { _, _, args ->
             if (args.size < 3 || args[0] != channelId) return@observe
             val tempId = args[1] as? Long ?: return@observe
@@ -1035,6 +1112,9 @@ class ChatFragment : BaseFragment() {
         observe(NotificationCenter.dialogsNeedReload) { _, _, _ ->
             Log.d("DmCallMenu", "dialogsNeedReload fired isPaused=$isPaused clanId=$clanId channelType=$channelType actionBar=${actionBar != null}")
             if (isPaused) return@observe
+            if (clanId == 0L && channelType == CHANNEL_TYPE_GROUP) {
+                refreshPermissionGates()
+            }
             if (clanId != 0L || channelType != CHANNEL_TYPE_DM) return@observe
             actionBar?.let { setupDmHeaderCallMenu(it) }
         }
@@ -1064,6 +1144,7 @@ class ChatFragment : BaseFragment() {
         userController = entryPoint.userController()
         memberResolver = entryPoint.memberResolver()
         roleController = entryPoint.roleController()
+        permissionPolicy = entryPoint.permissionPolicy()
         searchController = entryPoint.searchController()
         callController = entryPoint.callController()
         callManager = entryPoint.callManager()
@@ -1646,6 +1727,9 @@ class ChatFragment : BaseFragment() {
                     )
                 }
             }
+            override fun didClickEmbedComponentButton(cell: ChatMessageCell, msg: MessageEntity, buttonId: String) {
+                submitEmbedComponentButton(msg, buttonId)
+            }
         })
 
         adapter.sendTokenDelegate = object : SendTokenMessageCell.Delegate {
@@ -1859,6 +1943,7 @@ class ChatFragment : BaseFragment() {
 
         fragmentView = rootView
         refreshUI()
+        refreshPermissionGates()
         return rootView
     }
 
@@ -2146,6 +2231,7 @@ class ChatFragment : BaseFragment() {
                 }
 
                 override fun onStickerSelected(sticker: StickerItem, isAudio: Boolean) {
+                    if (!ensureCanSendMessageOrNotify()) return
                     if (sticker.isForSale && sticker.src.isBlank()) return
                     val url = resolveStickerSourceUrl(sticker.id, sticker.src)
                     if (url.isBlank()) return
@@ -2160,6 +2246,7 @@ class ChatFragment : BaseFragment() {
                 }
 
                 override fun onGifSelected(gifUrl: String) {
+                    if (!ensureCanSendMessageOrNotify()) return
                     val references = buildReplyReferences()
                     chatController.sendDirectAttachment(
                         channelId, clanId, channelType, resolveChannelPrivate(),
@@ -2219,6 +2306,7 @@ class ChatFragment : BaseFragment() {
         hashtagTrackers.clear()
         suggestionsPopup = null
         suggestionsAdapter = null
+        EmbedFormUtil.clearAll()
         pendingHighlightMessageId = 0L
         chatAdjustPanHelper?.onDetach()
         chatAdjustPanHelper = null
@@ -2753,6 +2841,44 @@ class ChatFragment : BaseFragment() {
         }
     }
 
+    private fun submitEmbedComponentButton(msg: MessageEntity, buttonId: String) {
+        if (msg.isSending) return
+        embedFormValidationError(msg.id, msg.content)?.let { err ->
+            val t = if (err.formatArgs.isEmpty()) {
+                getString(err.messageRes)
+            } else {
+                getString(err.messageRes, *err.formatArgs.toTypedArray())
+            }
+            MezonToast.show(this, ToastOverlay.ToastType.ERROR, t)
+            return
+        }
+        val uid = currentUserIdLong()
+        appScope.launch(Dispatchers.IO) {
+            try {
+                sessionManager.withAutoRefresh { session ->
+                    mezonApi.messageButtonClick(
+                        session.apiUrl,
+                        session.token,
+                        msg.id,
+                        msg.channelId,
+                        buttonId,
+                        msg.senderId,
+                        uid,
+                        EmbedFormUtil.buildExtraDataJson(msg.id),
+                    )
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    MezonToast.show(
+                        this@ChatFragment,
+                        ToastOverlay.ToastType.ERROR,
+                        getString(R.string.embed_form_submit_failed),
+                    )
+                }
+            }
+        }
+    }
+
     private fun requestPollCountsRefresh(messageId: Long, msgChannelId: Long) {
         if (msgChannelId != channelId) return
         val msgEntity = messagesDict.get(messageId) ?: return
@@ -2916,6 +3042,80 @@ class ChatFragment : BaseFragment() {
                 }
             }
         }
+    }
+
+    private fun mergeDuplicateIncomingMessage(entity: MessageEntity): Boolean {
+        val existing = messagesDict.get(entity.id) ?: return false
+        if (existing.content == entity.content &&
+            existing.code == entity.code &&
+            existing.updateTimeSeconds == entity.updateTimeSeconds &&
+            existing.hideEditted == entity.hideEditted &&
+            existing.reactionsJson == entity.reactionsJson &&
+            existing.sendState == entity.sendState
+        ) {
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "didReceiveNewMessages exact duplicate id=${entity.id} code=${entity.code}")
+            }
+            return true
+        }
+        val idx = messages.indexOfFirst { it.id == entity.id }
+        val merged = entity.copy(sendState = MessageEntity.SEND_STATE_SENT, isError = false)
+        messagesDict.put(merged.id, merged)
+        if (idx >= 0) {
+            messages[idx] = merged
+        }
+        if (fragmentView != null) {
+            updateVisibleRows(NotificationCenter.UPDATE_MASK_MESSAGE_TEXT)
+        }
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                TAG,
+                "didReceiveNewMessages merged duplicate id=${entity.id} idx=$idx oldCode=${existing.code} " +
+                    "newCode=${entity.code} oldContent=${debugMessagePreview(existing.content)} " +
+                    "newContent=${debugMessagePreview(entity.content)}"
+            )
+        }
+        return true
+    }
+
+    private fun debugMessagePreview(content: String): String {
+        val compact = content.replace('\n', ' ').replace('\r', ' ')
+        return if (compact.length > 160) compact.take(160) + "..." else compact
+    }
+
+    private fun referencedMessageId(content: String): Long {
+        if (!content.contains("\"references\"")) return 0L
+        return REFERENCE_REF_ID_REGEX.find(content)?.groupValues?.getOrNull(1)?.toLongOrNull() ?: 0L
+    }
+
+    private fun debugReferencedMessageId(content: String): Long {
+        return referencedMessageId(content)
+    }
+
+    private fun referencedEmbedResponseInsertIndex(entity: MessageEntity): Int {
+        val refId = referencedMessageId(entity.content)
+        if (refId == 0L || refId == entity.id) return -1
+        val refIndex = messages.indexOfFirst { it.id == refId }
+        if (refIndex < 0) return -1
+        val referenced = messages[refIndex]
+        if (!hasEmbedControlPayload(referenced.content) && !looksLikeEmbedActionResponse(entity.content)) return -1
+        return refIndex
+    }
+
+    private fun hasEmbedControlPayload(content: String): Boolean {
+        return content.contains("\"components\"") || (content.contains("\"embed\"") && content.contains("\"fields\""))
+    }
+
+    private fun looksLikeEmbedActionResponse(content: String): Boolean {
+        return content.contains("\"references\"") &&
+            content.contains("\"message_id\":\"0\"") &&
+            content.contains("\"type\":\"pre\"")
+    }
+
+    private fun debugMessageAt(index: Int): String {
+        if (index !in messages.indices) return "none"
+        val msg = messages[index]
+        return "${msg.id}/${msg.timestampSeconds}/${msg.code}"
     }
 
     private fun updateCellVisibility(rv: RecyclerView, cell: ChatMessageCell) {
@@ -3207,8 +3407,13 @@ class ChatFragment : BaseFragment() {
         val rawInput = inputField.text?.toString() ?: ""
         val text = rawInput.trim()
         if (text.isBlank() && pendingAttachments.isEmpty()) return
-
         val editMsg = editingMessage
+        if (editMsg == null && !canSendMessageInCurrentChannel()) {
+            refreshPermissionGates()
+            MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.message_no_send_permission))
+            return
+        }
+
         val isPrivate = resolveChannelPrivate()
         val references = buildReplyReferences()
 
@@ -3276,7 +3481,10 @@ class ChatFragment : BaseFragment() {
             clearPendingAttachments()
         } else {
             val emojiMarkers = buildEmojiMarkers(cleanedText)
-            chatController.sendMessage(channelId, clanId, channelType, isPrivate, cleanedText, references, mentions, emojiMarkers, mdMarkers, hashtags)
+            chatController.sendMessage(
+                channelId, clanId, channelType, isPrivate, cleanedText,
+                references, mentions, emojiMarkers, mdMarkers, hashtags
+            )
         }
         inputField.text?.clear()
         emojiObjPicked.clear()
@@ -3349,6 +3557,7 @@ class ChatFragment : BaseFragment() {
 
     private fun tryPasteImageFromClipboard(ctx: Context) {
         dismissPasteImagePopup()
+        if (!ensureCanSendMessageOrNotify()) return
         val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         val uri = imageClipboardCoordinator.resolvePasteImageUri(ctx, cm)
         if (uri == null) {
@@ -3385,6 +3594,7 @@ class ChatFragment : BaseFragment() {
     }
 
     private fun showAttachmentPicker() {
+        if (!ensureCanSendMessageOrNotify()) return
         val activity = getParentActivity() ?: return
         if (activity.isFinishing || activity.isDestroyed) return
 
@@ -3458,11 +3668,13 @@ class ChatFragment : BaseFragment() {
         val alert = ChatAttachAlert(ctx, mediaController, themeColors)
         alert.attachDelegate = object : ChatAttachAlert.ChatAttachAlertDelegate {
             override fun onAttachmentsSelected(items: List<AttachmentPickerItem>) {
+                if (!ensureCanSendMessageOrNotify()) return
                 pendingAttachments.addAll(items)
                 updateAttachmentPreview()
                 updateSendButtonState()
             }
             override fun onFilesRequested() {
+                if (!ensureCanSendMessageOrNotify()) return
                 launchDocumentPicker()
             }
         }
@@ -3472,17 +3684,21 @@ class ChatFragment : BaseFragment() {
 
     private fun showAdvancedFunctionMenu() {
         dismissPasteImagePopup()
+        if (!ensureCanSendMessageOrNotify()) return
         val ctx = getContext() ?: return
         val isAnon = anonymousController.isAnonymous(clanId)
         val alert = AdvancedAttachAlert(ctx, themeColors, clanId, isAnon)
         alert.advancedDelegate = object : AdvancedAttachAlert.AdvancedAttachAlertDelegate {
             override fun onLocationSelected() {
+                if (!ensureCanSendMessageOrNotify()) return
                 requestLocationAndSend()
             }
             override fun onFilesSelected() {
+                if (!ensureCanSendMessageOrNotify()) return
                 launchDocumentPicker()
             }
             override fun onBuzzSelected() {
+                if (!ensureCanSendMessageOrNotify()) return
                 showBuzzConfirmDialog()
             }
             override fun onAnonymousToggled() {
@@ -3494,6 +3710,7 @@ class ChatFragment : BaseFragment() {
     }
 
     private fun launchDocumentPicker() {
+        if (!ensureCanSendMessageOrNotify()) return
         val activity = getParentActivity() ?: return
         if (activity.isFinishing || activity.isDestroyed) return
         val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
@@ -3508,6 +3725,7 @@ class ChatFragment : BaseFragment() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         if (requestCode != REQUEST_CODE_PICK_FILE || resultCode != android.app.Activity.RESULT_OK) return
+        if (!ensureCanSendMessageOrNotify()) return
         val uri = data?.data ?: return
         val ctx = getContext() ?: return
         val item = AttachmentPickerItem.fromDocumentUri(ctx, uri) ?: return
@@ -3529,6 +3747,7 @@ class ChatFragment : BaseFragment() {
     }
 
     private fun requestLocationAndSend() {
+        if (!ensureCanSendMessageOrNotify()) return
         val activity = getParentActivity() ?: return
         val ctx = getContext() ?: return
 
@@ -3622,6 +3841,7 @@ class ChatFragment : BaseFragment() {
             .setTitle(getString(R.string.share_location_title, channelName))
             .setMessage(getString(R.string.share_location_coordinate, latitude, longitude))
             .setPositiveButton(getString(R.string.share_location_send)) { _, _ ->
+                if (!ensureCanSendMessageOrNotify()) return@setPositiveButton
                 chatController.sendLocation(
                     channelId, clanId, channelType, resolveChannelPrivate(), latitude, longitude
                 )
@@ -3660,6 +3880,7 @@ class ChatFragment : BaseFragment() {
             .setTitle(getString(R.string.buzz_dialog_title))
             .setView(inputView)
             .setPositiveButton(getString(R.string.buzz_dialog_send)) { _, _ ->
+                if (!ensureCanSendMessageOrNotify()) return@setPositiveButton
                 val buzzText = inputView.text?.toString()?.trim().orEmpty()
                 if (buzzText.isNotBlank()) {
                     chatController.sendBuzzMessage(
@@ -3675,12 +3896,21 @@ class ChatFragment : BaseFragment() {
     private fun updateSendButtonState() {
         val hasText = inputField.text?.isNotBlank() == true
         val hasAttachments = pendingAttachments.isNotEmpty()
-        val showSend = hasText || hasAttachments
+        val canSend = editingMessage != null || canSendMessageInCurrentChannel()
+        val showSend = canSend && (hasText || hasAttachments)
         sendButton.visibility = if (showSend) View.VISIBLE else View.GONE
+        attachButton.isEnabled = canSend
+        attachButton.alpha = if (canSend) 1f else 0.45f
+        advancedFunctionButton.isEnabled = canSend
+        advancedFunctionButton.alpha = if (canSend) 1f else 0.45f
+        emojiButton.isEnabled = canSend
+        emojiButton.alpha = if (canSend) 1f else 0.45f
+        inputField.isEnabled = canSend
+        inputField.alpha = if (canSend) 1f else 0.6f
         if (voiceIsRecording) {
             micButton.visibility = View.VISIBLE
         } else {
-            micButton.visibility = if (showSend) View.GONE else View.VISIBLE
+            micButton.visibility = if (canSend && !showSend) View.VISIBLE else View.GONE
         }
     }
 
@@ -3760,6 +3990,10 @@ class ChatFragment : BaseFragment() {
 
     private fun onVoiceLongPressFired() {
         voiceLongPressFired = true
+        if (!ensureCanSendMessageOrNotify()) {
+            voiceLongPressFired = false
+            return
+        }
         val ctx = getContext() ?: return
         if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED
@@ -3857,6 +4091,10 @@ class ChatFragment : BaseFragment() {
     }
 
     private fun sendVoiceRecording(file: java.io.File, durationMs: Long) {
+        if (!ensureCanSendMessageOrNotify()) {
+            try { file.delete() } catch (_: Exception) {}
+            return
+        }
         val ctx = getContext() ?: return
         val durationSec = (durationMs / 1000).toInt().coerceAtLeast(1)
         val item = AttachmentPickerItem(
@@ -4252,6 +4490,67 @@ class ChatFragment : BaseFragment() {
         return true
     }
 
+    private fun refreshPermissionGates() {
+        if (channelId != 0L) {
+            permissionPolicy.ensurePermissionChecker(
+                listOf(
+                    PermissionPolicy.CLAN_OWNER,
+                    PermissionPolicy.MANAGE_CHANNEL,
+                    PermissionPolicy.SEND_MESSAGE,
+                    PermissionPolicy.DELETE_MESSAGE,
+                    PermissionPolicy.MANAGE_THREAD
+                ),
+                channelId,
+                clanId
+            )
+        }
+        if (::sendButton.isInitialized) {
+            updateSendButtonState()
+        }
+    }
+
+    private fun canSendMessageInCurrentChannel(): Boolean {
+        if (channelId == 0L) return false
+        if (clanId == 0L || channelType == CHANNEL_TYPE_DM || channelType == CHANNEL_TYPE_GROUP) return true
+        if (!permissionPolicy.hasCachedChannelUserPermissions(channelId)) return true
+        return permissionPolicy.checkPermission(PermissionPolicy.SEND_MESSAGE, channelId, clanId)
+    }
+
+    private fun ensureCanSendMessageOrNotify(): Boolean {
+        if (canSendMessageInCurrentChannel()) return true
+        refreshPermissionGates()
+        MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.message_no_send_permission))
+        return false
+    }
+
+    private fun isProtectedTopicDeleteMessage(msg: MessageEntity): Boolean {
+        if (msg.code == MessageEntity.CODE_TOPIC) return true
+        val hasTopicPayload = runCatching { org.json.JSONObject(msg.content).has("tp") }.getOrDefault(false)
+        if (hasTopicPayload) return true
+        val isThread = channelType == CHANNEL_TYPE_THREAD || routeParentId != 0L
+        if (!isThread) return false
+        val firstMessageId = messages.filterNot { it.isUnreadDivider }.minOfOrNull { it.id } ?: return false
+        return msg.id == firstMessageId
+    }
+
+    private fun canDeleteMessageInCurrentChannel(msg: MessageEntity, isMyMessage: Boolean): Boolean {
+        if (isProtectedTopicDeleteMessage(msg)) return false
+        if (isMyMessage) return true
+        if (clanId == 0L) {
+            if (channelType == CHANNEL_TYPE_GROUP) {
+                val creatorId = dialogsController.getDialog(channelId)?.groupCreatorId ?: 0L
+                if (creatorId != 0L && creatorId == chatController.getCurrentUserId()) return true
+            }
+            return false
+        }
+        return permissionPolicy.checkPermission(PermissionPolicy.DELETE_MESSAGE, channelId, clanId)
+    }
+
+    private fun canManageThreadInCurrentChannel(): Boolean {
+        if (!canShowCreateThreadInMessageMenu()) return false
+        return permissionPolicy.canCreateThreadFromMessage(channelId, clanId)
+    }
+
     private fun showMessageActionSheet(msg: MessageEntity) {
         val ctx = getContext() ?: return
         val activity = getParentActivity() ?: return
@@ -4270,8 +4569,8 @@ class ChatFragment : BaseFragment() {
             isMyMessage = isMyMessage,
             isDM = clanId == 0L,
             isPinned = pinMessageController.isPinned(channelId, msg.id),
-            canDeleteMessage = isMyMessage, // TODO: check permission
-            canManageThread = canShowCreateThreadInMessageMenu(),
+            canDeleteMessage = canDeleteMessageInCurrentChannel(msg, isMyMessage),
+            canManageThread = canManageThreadInCurrentChannel(),
             hasMedia = hasMedia,
             hasImage = hasImage,
             showForwardSingle = allowFwd,
@@ -4510,6 +4809,11 @@ class ChatFragment : BaseFragment() {
                 showDeleteConfirmation(msg)
             }
             MessageActionBottomSheet.ActionType.CreateThread -> {
+                if (!canManageThreadInCurrentChannel()) {
+                    refreshPermissionGates()
+                    MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.channel_permissions_no_access))
+                    return
+                }
                 presentFragment(
                     CreateThreadFragment.newInstance(
                         channelId,
@@ -4851,7 +5155,10 @@ class ChatFragment : BaseFragment() {
     }
 
     private fun applyRealId(tempId: Long, realId: Long) {
-        if (tempId == realId) return
+        if (tempId == realId) {
+            markMessageSent(tempId)
+            return
+        }
         val idx = messages.indexOfFirst { it.id == tempId }
         if (idx < 0) {
             if (messagesDict.get(realId) != null) return

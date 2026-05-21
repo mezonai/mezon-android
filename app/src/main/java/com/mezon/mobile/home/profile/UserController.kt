@@ -6,6 +6,7 @@ import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.session.LocaleManager
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.session.ThemeManager
+import com.mezon.mobile.util.SentryReporter
 import com.mezon.mobile.ui.theme.ThemeMode
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -20,6 +21,7 @@ class UserController @Inject constructor(
     private val sessionManager: SessionManager,
     private val themeManager: ThemeManager,
     private val localeManager: LocaleManager,
+    private val sentryReporter: SentryReporter,
     private val notificationCenter: NotificationCenter,
     @ApplicationScope private val appScope: CoroutineScope,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher
@@ -64,6 +66,7 @@ class UserController @Inject constructor(
             themeMode = mode
             languageTag = lang
         }
+        syncSentryUser()
 
         notificationCenter.postNotificationOnMainThread(NotificationCenter.userDataLoaded)
         notificationCenter.postNotificationOnMainThread(
@@ -91,6 +94,7 @@ class UserController @Inject constructor(
                 userIdStr = info.userId.toString()
             }
         }
+        syncSentryUser()
         notificationCenter.postNotificationOnMainThread(NotificationCenter.userDataLoaded)
         var mask = 0
         if (nameChanged) mask = mask or NotificationCenter.UPDATE_MASK_NAME
@@ -129,5 +133,20 @@ class UserController @Inject constructor(
             createTimeSeconds = 0L
             userStatus = ""
         }
+        sentryReporter.clearUser()
+    }
+
+    private fun syncSentryUser() {
+        val id: Long
+        val idStr: String
+        val name: String
+        val handle: String
+        synchronized(this) {
+            id = userId
+            idStr = userIdStr
+            name = displayName
+            handle = username
+        }
+        sentryReporter.syncUser(id, idStr, name, handle)
     }
 }

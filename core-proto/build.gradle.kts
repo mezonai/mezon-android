@@ -1,9 +1,11 @@
 import com.google.protobuf.gradle.proto
+import org.gradle.api.publish.maven.MavenPublication
 
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.jetbrains.kotlin.android)
     alias(libs.plugins.protobuf)
+    `maven-publish`
 }
 
 android {
@@ -23,12 +25,20 @@ android {
         jvmTarget = "1.8"
     }
 
+    buildFeatures {
+        resValues = false
+    }
+
     sourceSets {
         named("main") {
             proto {
                 srcDir(rootProject.file("mezon-protocol"))
             }
         }
+    }
+
+    publishing {
+        singleVariant("debug")
     }
 }
 
@@ -56,4 +66,26 @@ protobuf {
 dependencies {
     api(libs.protobuf.javalite)
     api(libs.protobuf.kotlin.lite)
+}
+
+publishing {
+    repositories {
+        maven {
+            name = "mezonLocal"
+            url = rootProject.layout.projectDirectory.dir(".gradle/local-maven").asFile.toURI()
+        }
+    }
+    publications {
+        register<MavenPublication>("debug") {
+            groupId = "com.mezon.local"
+            artifactId = "core-proto"
+            version = "debug"
+        }
+    }
+}
+
+afterEvaluate {
+    publishing.publications.named<MavenPublication>("debug") {
+        from(components["debug"])
+    }
 }

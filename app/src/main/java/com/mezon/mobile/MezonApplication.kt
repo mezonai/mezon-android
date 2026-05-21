@@ -9,6 +9,7 @@ import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.data.db.MezonDatabase
 import com.mezon.mobile.session.SessionKeys
+import com.mezon.mobile.util.SentryReporter
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -24,11 +25,13 @@ class MezonApplication : Application() {
     @Inject lateinit var dataStore: DataStore<Preferences>
     @Inject lateinit var database: MezonDatabase
     @Inject lateinit var themeColors: ThemeColors
+    @Inject lateinit var sentryReporter: SentryReporter
 
     private val appStartScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate() {
         super.onCreate()
+        sentryReporter.init(this)
         StartupCache.init(this)
 
         runBlocking(Dispatchers.IO) {

@@ -14,6 +14,13 @@ pluginManagement {
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
+        maven {
+            name = "mezonLocal"
+            url = uri(file(".gradle/local-maven"))
+            content {
+                includeGroup("com.mezon.local")
+            }
+        }
         google()
         mavenCentral()
         maven { url = uri("https://jitpack.io") }
@@ -28,6 +35,5 @@ include(":mmn-client-kotlin")
 buildCache {
     local {
         isEnabled = true
-        removeUnusedEntriesAfterDays = 30
     }
 }

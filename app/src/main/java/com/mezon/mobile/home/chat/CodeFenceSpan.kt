@@ -10,15 +10,20 @@ import com.mezon.mobile.core.LayoutHelper
 class CodeFenceSpan(
     private val bgColor: Int,
     var spanFirstLine: Int = -1,
-    var spanLastLine: Int = -1
+    var spanLastLine: Int = -1,
 ) : LineBackgroundSpan, LeadingMarginSpan {
 
     private val rect = RectF()
     private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val radius = LayoutHelper.dp(4).toFloat()
-    private val paddingH = LayoutHelper.dp(10).toFloat()
+    private val containerInsetH = LayoutHelper.dp(4)
+    private val innerTextPadH = LayoutHelper.dp(12)
 
-    override fun getLeadingMargin(first: Boolean): Int = paddingH.toInt()
+    override fun getLeadingMargin(first: Boolean): Int = innerTextPadH + containerInsetH
+
+    companion object {
+        fun layoutExtraHorizontalShrink(): Int = LayoutHelper.dp(4) * 2
+    }
 
     override fun drawLeadingMargin(
         canvas: Canvas, paint: Paint, x: Int, dir: Int,
@@ -36,9 +41,15 @@ class CodeFenceSpan(
         lineNumber: Int
     ) {
         bgPaint.color = bgColor
-        rect.set(0f, top.toFloat(), right.toFloat(), bottom.toFloat())
         val isFirst = lineNumber == spanFirstLine || spanFirstLine < 0
         val isLast = lineNumber == spanLastLine || spanLastLine < 0
+        val t = top.toFloat()
+        val b = bottom.toFloat()
+        val inset = containerInsetH.toFloat()
+        val l = left + inset
+        val r = right - inset
+        if (l >= r) return
+        rect.set(l, t, r, b)
         if (isFirst || isLast) {
             canvas.drawRoundRect(rect, radius, radius, bgPaint)
         } else {

@@ -17,9 +17,13 @@ import androidx.room.RoomDatabase
         ClanChannelEntity::class,
         NotificationEntity::class,
         FavoriteChannelEntity::class,
-        ChannelAppEntity::class
+        ChannelAppEntity::class,
+        PermissionCatalogEntity::class,
+        ClanUserMaxPermissionEntity::class,
+        ClanRoleListMetaEntity::class,
+        ClanRoleCacheEntity::class,
     ],
-    version = 28,
+    version = 30,
     exportSchema = false
 )
 abstract class MezonDatabase : RoomDatabase() {
@@ -30,4 +34,8 @@ abstract class MezonDatabase : RoomDatabase() {
     abstract fun notificationDao(): NotificationDao
     abstract fun favoriteChannelDao(): FavoriteChannelDao
     abstract fun channelAppDao(): ChannelAppDao
+    abstract fun permissionCatalogDao(): PermissionCatalogDao
+    abstract fun clanUserMaxPermissionDao(): ClanUserMaxPermissionDao
+    abstract fun clanRoleListMetaDao(): ClanRoleListMetaDao
+    abstract fun clanRoleCacheDao(): ClanRoleCacheDao
 }

@@ -37,6 +37,7 @@ import com.mezon.mobile.home.chat.UserProfileBottomSheet
 import com.mezon.mobile.home.clans.CHANNEL_TYPE_VOICE
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.ClansController
+import com.mezon.mobile.home.clans.PermissionPolicy
 import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.ui.cells.MezonIcon
 import io.livekit.android.LiveKit
@@ -95,6 +96,7 @@ class VoiceRoomFragment : BaseFragment() {
     private lateinit var memberResolver: MemberResolver
     private lateinit var emojiController: EmojiController
     private lateinit var userController: UserController
+    private lateinit var permissionPolicy: PermissionPolicy
     private var channelId: Long = 0L
     private var clanId: Long = 0L
     private var channelLabel: String = ""
@@ -286,6 +288,7 @@ class VoiceRoomFragment : BaseFragment() {
         memberResolver = entryPoint.memberResolver()
         emojiController = entryPoint.emojiController()
         userController = entryPoint.userController()
+        permissionPolicy = entryPoint.permissionPolicy()
     }
 
     override fun onFragmentCreate(): Boolean {
@@ -1478,10 +1481,13 @@ class VoiceRoomFragment : BaseFragment() {
 
     private fun canManageVoiceUser(targetUserId: Long): Boolean {
         if (isInPipMode || isGroupCall) return false
-        if (clanId == 0L) return false
+        if (clanId == 0L || channelId == 0L) return false
         if (targetUserId == 0L || targetUserId == userController.userId) return false
-        val selectedClanId = clansController.selectedClanId.value
-        return selectedClanId == clanId
+        return permissionPolicy.checkAnyPermission(
+            listOf(PermissionPolicy.ADMINISTRATOR, PermissionPolicy.MANAGE_CHANNEL),
+            channelId,
+            clanId,
+        )
     }
 
     private fun showMuteParticipantConfirm(identity: String, displayName: String) {

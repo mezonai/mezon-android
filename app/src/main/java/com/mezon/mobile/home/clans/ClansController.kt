@@ -111,6 +111,9 @@ class ClansController @Inject constructor(
         _selectedClanId.value = clanId
         channelController.loadChannelsForClan(clanId)
         channelAppController.loadAppsForClan(clanId)
+        roleController.loadPermissionCatalogIfNeeded()
+        roleController.loadPermissionsUserForClan(clanId, force = true)
+        roleController.loadRolesForClan(clanId)
         appScope.launch {
             sessionManager.saveLastClanId(clanId)
             try {
@@ -265,6 +268,9 @@ class ClansController @Inject constructor(
                 if (sel != 0L) {
                     channelController.loadChannelsForClanNow(sel, force)
                     channelAppController.loadAppsForClan(sel, force)
+                    roleController.loadPermissionCatalogIfNeeded()
+                    roleController.loadPermissionsUserForClan(sel, force = previousSelected == 0L)
+                    roleController.loadRolesForClan(sel)
                     if (previousSelected == 0L && sorted.isNotEmpty()) {
                         notificationCenter.postNotificationOnMainThread(NotificationCenter.selectedClanChanged, sel)
                         appScope.launch {
@@ -581,11 +587,45 @@ class ClansController @Inject constructor(
             return
         }
         appScope.launch {
+            val snapshot = _clans.value.firstOrNull { it.clanId == clanId }
+            if (snapshot == null) {
+                withContext(Dispatchers.Main.immediate) {
+                    onResult(false, appContext.getString(R.string.clan_settings_logo_update_failed))
+                }
+                return@launch
+            }
             _clanLogoUpdateInFlight.update { it + clanId }
             try {
                 val desc = sessionManager.withAutoRefresh { session ->
                     withContext(ioDispatcher) {
-                        api.updateClanDesc(session.apiUrl, session.token, clanId, logo = logoUrl)
+                        if (logoUrl.isBlank()) {
+                            api.updateClanDesc(
+                                session.apiUrl,
+                                session.token,
+                                clanId,
+                                clanName = snapshot.clanName,
+                                banner = snapshot.banner,
+                                logo = null,
+                                clearLogo = true,
+                                welcomeChannelId = snapshot.welcomeChannelId.takeIf { it != 0L },
+                                isOnboarding = snapshot.isOnboarding,
+                                preventAnonymous = snapshot.preventAnonymous,
+                                isCommunity = snapshot.isCommunity,
+                            )
+                        } else {
+                            api.updateClanDesc(
+                                session.apiUrl,
+                                session.token,
+                                clanId,
+                                clanName = snapshot.clanName,
+                                banner = snapshot.banner,
+                                logo = logoUrl,
+                                welcomeChannelId = snapshot.welcomeChannelId.takeIf { it != 0L },
+                                isOnboarding = snapshot.isOnboarding,
+                                preventAnonymous = snapshot.preventAnonymous,
+                                isCommunity = snapshot.isCommunity,
+                            )
+                        }
                     }
                 }
                 val list = _clans.value
@@ -597,8 +637,14 @@ class ClansController @Inject constructor(
                     return@launch
                 }
                 val existing = list[idx]
-                // Server reply may omit `logo`; always persist the URL we just uploaded.
-                val merged = desc.mergeOnto(existing).copy(logo = logoUrl)
+                val clearedLogo = logoUrl.isBlank()
+                val merged = desc.mergeOnto(existing).copy(
+                    logo = when {
+                        clearedLogo -> ""
+                        desc.logo.isNotEmpty() -> desc.logo
+                        else -> logoUrl
+                    }
+                )
                 _clans.value = list.toMutableList().also { it[idx] = merged }
                 appScope.launch(ioDispatcher) { clanDao.upsert(merged) }
                 cacheTracker.invalidate(apiCacheKey("listClanDescs"))
@@ -742,6 +788,32 @@ class ClansController @Inject constructor(
             withContext(ioDispatcher) {
                 val ts = System.currentTimeMillis() / 1000
                 val name = "${ts}_wh.jpg"
+                val presign = api.uploadAttachmentFile(
+                    session.apiUrl,
+                    session.token,
+                    name,
+                    mimeType,
+                    bytes.size,
+                    512,
+                    512,
+                )
+                api.putFileToPresignedUrl(presign.url, bytes, mimeType)
+                "${BuildConfig.MEZON_BASE_IMG_URL}/${presign.filename}"
+            }
+        }
+    }
+
+    suspend fun uploadRoleIconImage(bytes: ByteArray, mimeType: String): String {
+        require(bytes.isNotEmpty())
+        return sessionManager.withAutoRefresh { session ->
+            withContext(ioDispatcher) {
+                val ts = System.currentTimeMillis() / 1000
+                val ext = when {
+                    mimeType.contains("png", ignoreCase = true) -> "png"
+                    mimeType.contains("webp", ignoreCase = true) -> "webp"
+                    else -> "jpg"
+                }
+                val name = "${ts}_role.$ext"
                 val presign = api.uploadAttachmentFile(
                     session.apiUrl,
                     session.token,
