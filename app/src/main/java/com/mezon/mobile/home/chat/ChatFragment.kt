@@ -404,6 +404,10 @@ class ChatFragment : BaseFragment() {
 
         if (clanId != 0L) {
             userClanController.loadClanMembers(clanId)
+            roleController.loadRolesForClan(clanId)
+            appScope.launch(ioDispatcher) {
+                roleController.hydrateLocalPermissionSnapshotForClan(clanId)
+            }
             val ch = channelController.findChannelById(channelId)
             val effectiveParentId = ch?.parentId ?: routeParentId
             val effectivePrivate = ch?.isPrivate ?: routeChannelPrivate
@@ -434,6 +438,10 @@ class ChatFragment : BaseFragment() {
         observe(NotificationCenter.clanRolesDidLoad) { _, _, args ->
             val changedClanId = args.getOrNull(0) as? Long ?: return@observe
             if (changedClanId == clanId || changedClanId == clansController.selectedClanId.value) refreshPermissionGates()
+            if (changedClanId == clanId) {
+                roleController.invalidateDisplayRoleCache(clanId)
+                if (fragmentView != null) updateVisibleRows(NotificationCenter.UPDATE_MASK_NAME)
+            }
         }
         observe(NotificationCenter.selectedClanChanged) { _, _, _ ->
             if (isPaused) return@observe
@@ -1087,6 +1095,8 @@ class ChatFragment : BaseFragment() {
             val loadedClanId = args.firstOrNull() as? Long ?: return@observe
             if (loadedClanId == clanId) {
                 checkSuggestionTrigger()
+                roleController.invalidateDisplayRoleCache(clanId)
+                if (fragmentView != null) updateVisibleRows(NotificationCenter.UPDATE_MASK_NAME)
             }
         }
 
@@ -1779,6 +1789,13 @@ class ChatFragment : BaseFragment() {
         adapter.clanId = clanId
         adapter.isChannelPrivate = resolveChannelPrivate()
         adapter.currentUserId = StartupCache.userId
+        adapter.displayRoleResolver = { userId ->
+            if (clanId == 0L) null
+            else {
+                val creatorId = clansController.clans.value.firstOrNull { it.clanId == clanId }?.creatorId ?: 0L
+                roleController.resolveHighestDisplayRole(clanId, userId, creatorId)
+            }
+        }
         adapter.pollBridge = object : ChatPollBridge {
             override fun getLocalState(messageId: Long): PollLocalState {
                 val base = pollStates[messageId] ?: PollLocalState()
