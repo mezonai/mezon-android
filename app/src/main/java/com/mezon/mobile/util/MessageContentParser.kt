@@ -172,13 +172,15 @@ private fun stripMarkdownFenceLanguage(body: String): String {
     val lines = trimmed.split("\n")
     if (lines.size >= 2) {
         val first = lines.first()
-        if (first.isNotEmpty() && first.matches(Regex("^[a-zA-Z0-9+#.-]{0,24}$"))) {
+        if (first.isNotEmpty() && first.matches(FENCE_LANGUAGE_REGEX)) {
             return lines.drop(1).joinToString("\n").trim('\n')
         }
     }
     return trimmed
 }
 
+private val FENCE_LANGUAGE_REGEX = Regex("^[a-zA-Z0-9+#.-]{0,24}$")
+private val CODE_BLOCK_EDGE_REGEX = Regex("^\\n+|\\n+$")
 private val MULTILINE_FENCE_REGEX = Regex("```([\\s\\S]*?)```")
 private val EMBED_INLINE_CODE_REGEX = Regex("`([^`\n]+)`")
 private val EMBED_INLINE_BOLD_REGEX = Regex("\\*\\*([^*\n]+)\\*\\*")
@@ -265,7 +267,7 @@ private fun stripDelimiterAndSpan(
     regex: Regex,
     apply: (SpannableStringBuilder, Int, Int) -> Unit,
 ) {
-    for (m in regex.findAll(sb.toString()).toList().asReversed()) {
+    for (m in regex.findAll(sb).toList().asReversed()) {
         val inner = m.groupValues[1]
         if (inner.isEmpty()) continue
         val start = m.range.first
@@ -349,6 +351,7 @@ fun parseContentToSpannable(
     elements.sortBy { it.s }
     var last = 0
     val viewRef = view?.let { java.lang.ref.WeakReference(it) }
+    val richPlainMarkdown = isEmbedOrComponentsPayload(content)
 
     for (el in elements) {
         var nextLast = el.e
@@ -367,7 +370,12 @@ fun parseContentToSpannable(
         if (el.s > last && last < text.length) {
             val plainEnd = (minOf(el.s, text.length) - schemeMergeLen).coerceIn(last, text.length)
             if (plainEnd > last) {
-                appendRichMarkdownWithFences(sb, text.substring(last, plainEnd), theme)
+                val plain = text.substring(last, plainEnd)
+                if (richPlainMarkdown) {
+                    appendRichMarkdownWithFences(sb, plain, theme)
+                } else {
+                    applyPlainTextWithHeadings(sb, plain, theme)
+                }
             }
         }
         val spanStart = sb.length
@@ -445,7 +453,7 @@ fun parseContentToSpannable(
                 "pre", "t" -> {
                     val stripped = segText
                         .removeSurrounding("```")
-                        .replace(Regex("^\\n+|\\n+$"), "")
+                        .replace(CODE_BLOCK_EDGE_REGEX, "")
                         .trim()
                     if (sb.isNotEmpty() && sb.last() != '\n') sb.append("\n")
                     val fenceStart = sb.length
@@ -506,9 +514,16 @@ fun parseContentToSpannable(
         last = nextLast
     }
     if (last < text.length) {
-        appendRichMarkdownWithFences(sb, text.substring(last), theme)
+        val tail = text.substring(last)
+        if (richPlainMarkdown) {
+            appendRichMarkdownWithFences(sb, tail, theme)
+        } else {
+            applyPlainTextWithHeadings(sb, tail, theme)
+        }
     }
-    applyAutoDetectedHttpLinks(sb, linkColor)
+    if (richPlainMarkdown) {
+        applyAutoDetectedHttpLinks(sb, linkColor)
+    }
     return sb
 }
 
@@ -841,108 +856,6 @@ private fun extractSelectValueSelectedStrings(comp: JSONObject): List<String> {
     return emptyList()
 }
 
-fun fillEmbedSelectValuesFromMessageIfEmpty(messageId: Long, content: String) {
-    if (content.isBlank()) return
-    try {
-        val obj = JSONObject(content)
-        val embeds = obj.optJSONArray("embed") ?: return
-        for (e in 0 until embeds.length()) {
-            val embed = embeds.optJSONObject(e) ?: continue
-            val fieldsArr = embed.optJSONArray("fields") ?: continue
-            for (i in 0 until fieldsArr.length()) {
-                val f = fieldsArr.optJSONObject(i) ?: continue
-                val inputsObj = f.optJSONObject("inputs") ?: continue
-                if (inputsObj.optInt("type", -1) != MESSAGE_COMPONENT_TYPE_SELECT) continue
-                val id = inputsObj.optString("id", "")
-                if (id.isEmpty()) continue
-                if (!EmbedFormUtil.isComponentEmpty(messageId, id)) continue
-                val comp = inputsObj.optJSONObject("component") ?: continue
-                val vsVals = extractSelectValueSelectedStrings(comp)
-                if (vsVals.isEmpty()) continue
-                val minO = comp.optInt("min_options", 0)
-                val hasMaxKey = comp.has("max_options") && !comp.isNull("max_options")
-                val maxO = if (hasMaxKey) comp.optInt("max_options", 1).coerceAtLeast(1) else 1
-                val isMulti = (minO > 1) || (hasMaxKey && maxO >= 2)
-                if (isMulti) EmbedFormUtil.setMultiValues(messageId, id, vsVals)
-                else EmbedFormUtil.setValue(messageId, id, vsVals.first())
-            }
-        }
-    } catch (_: Exception) {}
-}
-
-data class EmbedFormValidationError(
-    val messageRes: Int,
-    val formatArgs: List<Any> = emptyList(),
-)
-
-fun embedFormValidationError(messageId: Long, content: String): EmbedFormValidationError? {
-    if (content.isBlank()) return null
-    fillEmbedSelectValuesFromMessageIfEmpty(messageId, content)
-    for (embed in parseEmbedDataList(content)) {
-        for (field in embed.fields) {
-            val iv = field.interactive ?: continue
-            when (iv) {
-                is EmbedFieldInteractive.Input -> {
-                    val spec = iv.input
-                    if (spec.disabled || !spec.required) continue
-                    val v = EmbedFormUtil.getValue(messageId, iv.componentId).orEmpty().trim()
-                    if (v.isEmpty()) {
-                        return EmbedFormValidationError(R.string.embed_form_error_required_field)
-                    }
-                }
-                is EmbedFieldInteractive.Select -> {
-                    val spec = iv.input
-                    if (spec.disabled) continue
-                    val n = EmbedFormUtil.getValuesForComponent(messageId, iv.componentId).size
-                    if (spec.isMulti) {
-                        if (spec.minPick > 0 && n < spec.minPick) {
-                            return EmbedFormValidationError(
-                                R.string.embed_form_error_select_min,
-                                listOf(spec.minPick),
-                            )
-                        }
-                        if (n > spec.maxPick) {
-                            return EmbedFormValidationError(
-                                R.string.embed_form_error_select_max,
-                                listOf(spec.maxPick),
-                            )
-                        }
-                    } else {
-                        if (spec.minPick > 0 && n < 1) {
-                            return EmbedFormValidationError(
-                                R.string.embed_form_error_select_min,
-                                listOf(spec.minPick),
-                            )
-                        }
-                        if (n > spec.maxPick) {
-                            return EmbedFormValidationError(
-                                R.string.embed_form_error_select_max,
-                                listOf(spec.maxPick),
-                            )
-                        }
-                    }
-                }
-                is EmbedFieldInteractive.Radio -> {
-                    val spec = iv.input
-                    if (spec.disabled || spec.options.none { !it.disabled }) continue
-                    val n = EmbedFormUtil.getValuesForComponent(messageId, iv.componentId).size
-                    if (spec.multi) {
-                        val max = spec.maxOptions
-                        if (max != null && n > max) {
-                            return EmbedFormValidationError(
-                                R.string.embed_form_error_select_max,
-                                listOf(max),
-                            )
-                        }
-                    }
-                }
-                is EmbedFieldInteractive.Animation -> {}
-            }
-        }
-    }
-    return null
-}
-
 data class EmbedField(
     val name: String,
     val value: String,
@@ -1173,15 +1086,22 @@ private fun parseEmbedJsonObject(embed: JSONObject): EmbedData? {
                                     comp.opt("default_value")?.toString() ?: ""
                                 else -> ""
                             }
+                            val inputTypeName = comp.optString("type", "").lowercase()
+                            val isTextarea = comp.optBoolean("textarea", false) ||
+                                inputTypeName == "textarea" ||
+                                comp.optBoolean("multiline", false)
                             EmbedFieldInteractive.Input(
                                 componentId = idResolved,
                                 input = EmbedInputComponentSpec(
                                     placeholder = comp.optString("placeholder", ""),
                                     defaultValue = defaultStr,
-                                    textarea = comp.optBoolean("textarea", false),
+                                    textarea = isTextarea,
                                     disabled = comp.optBoolean("disabled", false) ||
                                         comp.optBoolean("disable", false),
-                                    numberInput = comp.optString("type", "") == "number",
+                                    numberInput = inputTypeName == "number",
+                                    dateInput = inputTypeName == "date" ||
+                                        inputTypeName == "datetime" ||
+                                        inputTypeName == "datetime-local",
                                     required = comp.optBoolean("required", false),
                                 ),
                             )

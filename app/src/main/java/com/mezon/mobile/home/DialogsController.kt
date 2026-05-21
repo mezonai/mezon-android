@@ -49,6 +49,7 @@ import javax.inject.Singleton
 import dagger.hilt.android.qualifiers.ApplicationContext
 
 private const val TAG = "DialogsController"
+private const val LOCAL_PROVISIONAL_MESSAGE_ID_FLOOR = 4_611_686_018_427_387_904L
 
 @Singleton
 class DialogsController @Inject constructor(
@@ -489,8 +490,28 @@ class DialogsController @Inject constructor(
         }
     }
 
+    private fun ChannelMessage.isEphemeralControlMessage(): Boolean {
+        return code == MessageEntity.CODE_EPHEMERAL ||
+            code == MessageEntity.CODE_UPDATE_EPHEMERAL ||
+            code == MessageEntity.CODE_DELETE_EPHEMERAL
+    }
+
+    private fun sanitizeServerMessageId(id: Long): Long {
+        return if (id >= LOCAL_PROVISIONAL_MESSAGE_ID_FLOOR) 0L else id
+    }
+
+    private fun DirectMessage.withSanitizedServerMessageIds(): DirectMessage {
+        val sent = sanitizeServerMessageId(lastSentMessageId)
+        val seen = sanitizeServerMessageId(lastSeenMessageId)
+        return if (sent == lastSentMessageId && seen == lastSeenMessageId) this else copy(
+            lastSentMessageId = sent,
+            lastSeenMessageId = seen
+        )
+    }
+
     fun updateOnNewMessage(msg: ChannelMessage, currentUserId: Long) {
         if (msg.mode != STREAM_MODE_DM && msg.mode != STREAM_MODE_GROUP) return
+        val isEphemeralControl = msg.isEphemeralControlMessage()
         val isContentMutation = msg.code == CODE_CHAT_UPDATE ||
             msg.code == CODE_CHAT_REMOVE ||
             msg.code == MessageEntity.CODE_UPDATE_EPHEMERAL ||
@@ -499,7 +520,7 @@ class DialogsController @Inject constructor(
         synchronized(this) {
             var dm = dialogsDict[msg.channelId]
             if (dm == null) {
-                if (isContentMutation) return
+                if (isContentMutation || isEphemeralControl) return
                 dm = msg.toDirectMessageFromIncoming(currentUserId, appContext, currentChannelId)
                 if (msg.mode == STREAM_MODE_DM && msg.senderId != currentUserId) {
                     participantsByChannel.put(
@@ -527,11 +548,11 @@ class DialogsController @Inject constructor(
             } else {
                 val isFromMe = msg.senderId == currentUserId
                 val isCurrentlyOpen = currentChannelId == msg.channelId
-                var baseDm = dm
+                var baseDm = dm.withSanitizedServerMessageIds()
                 if (msg.mode == STREAM_MODE_DM && !isFromMe && dm.otherUserId == 0L) {
                     val senderName = msg.displayName.ifBlank { msg.username }
                     if (senderName.isNotBlank()) {
-                        baseDm = dm.copy(
+                        baseDm = baseDm.copy(
                             label = senderName,
                             displayName = senderName,
                             username = msg.username.ifBlank { senderName },
@@ -543,6 +564,7 @@ class DialogsController @Inject constructor(
 
                 val newUnread = when {
                     isContentMutation -> baseDm.unreadCount
+                    isEphemeralControl -> baseDm.unreadCount
                     isCurrentlyOpen -> 0
                     isFromMe -> baseDm.unreadCount
                     else -> baseDm.unreadCount + 1
@@ -552,12 +574,14 @@ class DialogsController @Inject constructor(
                     msg.code == MessageEntity.CODE_UPDATE_EPHEMERAL)
                     messagePreviewForDialog(appContext, msg.content) else baseDm.lastMessageContent
 
-                val newSentMessageId = if (!isContentMutation) msg.messageId else baseDm.lastSentMessageId
+                val canAdvanceTimeline = !isContentMutation && !isEphemeralControl && msg.messageId > 0L
 
-                val newLastSeenId = if (isFromMe && !isContentMutation && msg.messageId > baseDm.lastSeenMessageId)
+                val newSentMessageId = if (canAdvanceTimeline) msg.messageId else baseDm.lastSentMessageId
+
+                val newLastSeenId = if (isFromMe && canAdvanceTimeline && msg.messageId > baseDm.lastSeenMessageId)
                     msg.messageId else baseDm.lastSeenMessageId
 
-                val newSentTs = if (!isContentMutation && msg.createTimeSeconds > 0) {
+                val newSentTs = if (canAdvanceTimeline && msg.createTimeSeconds > 0) {
                     maxOf(baseDm.lastSentMessageTs, msg.createTimeSeconds.toLong() and 0xFFFF_FFFFL)
                 } else baseDm.lastSentMessageTs
                 val result = baseDm.copy(
@@ -569,7 +593,7 @@ class DialogsController @Inject constructor(
                 )
                 updatedDm = result
                 dialogsDict.put(msg.channelId, result)
-                reorderDialogInPlace(msg.channelId, result, isContentMutation)
+                reorderDialogInPlace(msg.channelId, result, isContentMutation || isEphemeralControl)
             }
         }
         updatedDm?.let { dm ->

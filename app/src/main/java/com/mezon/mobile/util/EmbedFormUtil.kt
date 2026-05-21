@@ -16,6 +16,16 @@ object EmbedFormUtil {
         messageForm.clear()
     }
 
+    fun clearMessage(messageId: Long) {
+        messageForm.remove(messageId)
+    }
+
+    fun retainMessages(messageIds: Set<Long>) {
+        for (id in messageForm.keys) {
+            if (!messageIds.contains(id)) messageForm.remove(id)
+        }
+    }
+
     fun setValue(messageId: Long, componentId: String, value: String) {
         if (componentId.isEmpty()) return
         val row = messageForm.getOrPut(messageId) { ConcurrentHashMap() }
@@ -73,6 +83,7 @@ data class EmbedInputComponentSpec(
     val textarea: Boolean,
     val disabled: Boolean,
     val numberInput: Boolean,
+    val dateInput: Boolean,
     val required: Boolean,
 )
 

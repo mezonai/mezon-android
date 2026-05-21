@@ -9,8 +9,10 @@ import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.data.db.MezonDatabase
 import com.mezon.mobile.session.SessionKeys
+import com.mezon.mobile.home.messages.EmbedAnimationHttp
 import com.mezon.mobile.util.SentryReporter
 import dagger.hilt.android.HiltAndroidApp
+import okhttp3.OkHttpClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -26,11 +28,13 @@ class MezonApplication : Application() {
     @Inject lateinit var database: MezonDatabase
     @Inject lateinit var themeColors: ThemeColors
     @Inject lateinit var sentryReporter: SentryReporter
+    @Inject lateinit var okHttpClient: OkHttpClient
 
     private val appStartScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate() {
         super.onCreate()
+        EmbedAnimationHttp.install(okHttpClient)
         sentryReporter.init(this)
         StartupCache.init(this)
 
