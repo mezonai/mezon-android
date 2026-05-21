@@ -34,6 +34,7 @@ internal class EmbedAnimationRuntime(
 
     private var jsonCall: Call? = null
     private var bitmapLoad: MezonImageLoader.Cancellable? = null
+    @Volatile private var loadFailed: Boolean = false
 
     private val framesByKey = mutableMapOf<String, AtlasFrame>()
     private var atlasMetaW = 1
@@ -55,6 +56,7 @@ internal class EmbedAnimationRuntime(
         atlas = null
         memoLayouts = null
         memoContentW = -1
+        loadFailed = false
         synchronized(framesByKey) {
             framesByKey.clear()
         }
@@ -142,11 +144,15 @@ internal class EmbedAnimationRuntime(
     }
 
     fun startLoading(context: android.content.Context) {
+        if (loadFailed) return
         synchronized(framesByKey) {
             if (framesByKey.isNotEmpty()) return
         }
         if (jsonCall != null) return
-        val urlJson = spec.urlPosition.trim().ifEmpty { return }
+        val urlJson = spec.urlPosition.trim().ifEmpty {
+            loadFailed = true
+            return
+        }
         val req = Request.Builder().url(urlJson).build()
         val call = httpClient.newCall(req)
         jsonCall = call
@@ -154,6 +160,7 @@ internal class EmbedAnimationRuntime(
             override fun onFailure(call: Call, e: IOException) {
                 if (call != jsonCall) return
                 jsonCall = null
+                loadFailed = true
                 parent.post { invalidateIfAlive() }
             }
 
@@ -162,6 +169,7 @@ internal class EmbedAnimationRuntime(
                     if (call != jsonCall) return
                     jsonCall = null
                     val ok = ingestAtlasBody(response.body?.string())
+                    if (!ok) loadFailed = true
                     parent.post {
                         invalidateIfAlive()
                         if (ok) {
@@ -219,7 +227,10 @@ internal class EmbedAnimationRuntime(
         }
         val reqW = min(mw, 4096).coerceAtLeast(1)
         val reqH = min(mh, 4096).coerceAtLeast(1)
-        val urlBmp = spec.urlImage.trim().ifEmpty { return }
+        val urlBmp = spec.urlImage.trim().ifEmpty {
+            loadFailed = true
+            return
+        }
         bitmapLoad?.cancel()
         bitmapLoad = MezonImageLoader.getInstance(appContext).load(
             url = urlBmp,
@@ -236,6 +247,7 @@ internal class EmbedAnimationRuntime(
                 }
             },
             onError = {
+                loadFailed = true
                 parent.post { invalidateIfAlive() }
             },
         )
@@ -311,7 +323,7 @@ internal class EmbedAnimationRuntime(
         shimmer: ShimmerEffect,
         themeDarkEmbed: Boolean,
     ) {
-        parent.postInvalidateDelayed(32)
+        if (!loadFailed) parent.postInvalidateDelayed(32)
 
         val n = max(1, spec.pool.size)
         val gap = CELL_GAP_X.toFloat()

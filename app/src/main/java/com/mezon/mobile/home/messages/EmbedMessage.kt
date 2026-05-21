@@ -28,8 +28,7 @@ import com.mezon.mobile.util.EmbedRadioSpec
 import com.mezon.mobile.util.EmbedSelectSpec
 import com.mezon.mobile.util.createImgproxyUrl
 import com.mezon.mobile.util.formatEmbedRichText
-import com.mezon.mobile.util.parseEmbedActionRows
-import com.mezon.mobile.util.parseEmbedDataList
+import com.mezon.mobile.util.parseEmbedPayload
 import okhttp3.OkHttpClient
 import kotlin.math.max
 import kotlin.math.min
@@ -204,6 +203,8 @@ class EmbedMessageRenderer(
 
     private var animationRuntimeGrid: List<List<EmbedAnimationRuntime>> = emptyList()
 
+    private val radioOptionHeightCache = HashMap<Long, Int>()
+
     fun containsTouch(x: Float, y: Float): Boolean {
         if (laidOutCards.isEmpty()) return false
         for (i in 0 until embedInteractiveGeometryCount) {
@@ -238,18 +239,17 @@ class EmbedMessageRenderer(
     }
 
     fun setDataFromContent(content: String): Boolean {
-        val hasEmbedPayload = content.contains("\"embed\"")
-        val hasComponentPayload = content.contains("\"components\"")
-        if (!hasEmbedPayload && !hasComponentPayload) {
+        if (!content.contains("\"embed\"") && !content.contains("\"components\"")) {
             clear()
             return false
         }
-        embedSourceList = if (hasEmbedPayload) parseEmbedDataList(content) else emptyList()
-        actionRows = if (hasComponentPayload) parseEmbedActionRows(content) else emptyList()
-        if (embedSourceList.isEmpty() && actionRows.isEmpty()) {
+        val payload = parseEmbedPayload(content)
+        if (payload.embeds.isEmpty() && payload.actionRows.isEmpty()) {
             clear()
             return false
         }
+        embedSourceList = payload.embeds
+        actionRows = payload.actionRows
         return true
     }
 
@@ -279,6 +279,7 @@ class EmbedMessageRenderer(
         laidOutCards = emptyList()
         actionRows = emptyList()
         disposeAnimationGrid()
+        radioOptionHeightCache.clear()
         syncCardImageBundles(0)
         laidOutButtons = emptyList()
         buttonsBlockHeight = 0
@@ -624,6 +625,7 @@ class EmbedMessageRenderer(
 
     fun rebuildLayouts(textWidth: Int, context: Context) {
         disposeAnimationGrid()
+        radioOptionHeightCache.clear()
         laidOutCards = emptyList()
         if (embedSourceList.isEmpty()) {
             syncCardImageBundles(0)
@@ -1027,6 +1029,8 @@ class EmbedMessageRenderer(
     }
 
     private fun embedRadioOptionHeight(o: EmbedRadioOptionSpec, colW: Int): Int {
+        val cacheKey = radioOptionCacheKey(o, colW)
+        radioOptionHeightCache[cacheKey]?.let { return it }
         val th = theme()
         var h = RADIO_ROW_PAD_TOP
         if (o.label.isNotEmpty()) {
@@ -1050,8 +1054,12 @@ class EmbedMessageRenderer(
         }
         h += RADIO_CONTROL_ROW_H
         h += RADIO_ROW_PAD_BOTTOM
+        radioOptionHeightCache[cacheKey] = h
         return h
     }
+
+    private fun radioOptionCacheKey(o: EmbedRadioOptionSpec, colW: Int): Long =
+        (o.hashCode().toLong() and 0xFFFFFFFFL) shl 32 or (colW.toLong() and 0xFFFFFFFFL)
 
     private fun buttonBackgroundColor(theme: ThemeColors, style: EmbedButtonStyle): Int = when (style) {
         EmbedButtonStyle.PRIMARY -> theme.primary

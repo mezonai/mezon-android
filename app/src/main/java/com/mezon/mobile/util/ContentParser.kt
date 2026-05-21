@@ -65,6 +65,13 @@ fun parseThreadInfoFromPlainText(text: String): ParsedThreadInfo? {
 fun isEmbedOrComponentsPayload(content: String): Boolean =
     content.contains("\"embed\"") || content.contains("\"components\"")
 
+private val REFERENCE_REF_ID_REGEX = Regex("\"message_ref_id\"\\s*:\\s*\"?(\\d+)\"?")
+
+fun firstReferenceMessageId(content: String): Long {
+    if (!content.contains("\"references\"")) return 0L
+    return REFERENCE_REF_ID_REGEX.find(content)?.groupValues?.getOrNull(1)?.toLongOrNull() ?: 0L
+}
+
 fun messageHasExplicitTextBody(content: String): Boolean {
     if (content.isBlank()) return false
     return try {
