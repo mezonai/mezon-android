@@ -26,7 +26,7 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
     var hasBuzz = false
 
     private val avatarDrawable = AvatarDrawable()
-    private val groupAvatarPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFF97316.toInt() }
+    private val groupAvatarPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val groupAvatarIcon = MezonIcon.groupIcon.getDrawable(context).apply {
         colorFilter = PorterDuffColorFilter(0xFFFFFFFF.toInt(), PorterDuff.Mode.SRC_IN)
     }
@@ -242,6 +242,7 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
 
         if (dm.type == CHANNEL_TYPE_GROUP && dm.avatarUrl.isBlank() && !avatarDrawable.hasPhoto()) {
             tmpRect.set(cx.toFloat(), cy.toFloat(), (cx + AVATAR_SIZE).toFloat(), (cy + AVATAR_SIZE).toFloat())
+            groupAvatarPaint.color = theme.getColor(ThemeColors.key_avatar_backgroundOrange)
             canvas.drawOval(tmpRect, groupAvatarPaint)
             MezonIcon.drawIcon(canvas, groupAvatarIcon, cx + AVATAR_SIZE / 2, cy + AVATAR_SIZE / 2, GROUP_ICON_SIZE)
         } else {

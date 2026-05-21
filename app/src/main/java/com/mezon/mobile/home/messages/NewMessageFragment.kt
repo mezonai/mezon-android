@@ -17,6 +17,7 @@ import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -61,6 +62,8 @@ class NewMessageFragment : BaseFragment() {
     private var friendsDisplayLimit = LOCAL_PAGE_SIZE
     private var isLoadingMoreFriends = false
     private var creatingDm = false
+    private lateinit var loadingOverlay: FrameLayout
+    private lateinit var rootFrame: FrameLayout
 
     var onOpenChat: ((channelId: Long, channelName: String, clanId: Long, channelType: Int) -> Unit)? = null
 
@@ -72,10 +75,11 @@ class NewMessageFragment : BaseFragment() {
     override fun onFragmentCreate(): Boolean {
         super.onFragmentCreate()
         observe(NotificationCenter.friendsLoaded) { _, _, _ ->
-            if (fragmentView == null) return@observe
+            if (isPaused || fragmentView == null) return@observe
             reloadFriends()
         }
         observe(NotificationCenter.themeChanged) { _, _, _ ->
+            if (isPaused || fragmentView == null) return@observe
             fragmentView?.setBackgroundColor(themeColors.serverRailBg)
             if (::adapter.isInitialized) adapter.notifyDataSetChanged()
         }
@@ -84,10 +88,12 @@ class NewMessageFragment : BaseFragment() {
     }
 
     override fun createView(context: Context): View {
+        rootFrame = FrameLayout(context)
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(themeColors.serverRailBg)
         }
+        rootFrame.addView(root, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
         actionBar = ActionBarView(context, themeColors).apply {
             setBackClickListener { finishFragment() }
@@ -149,9 +155,20 @@ class NewMessageFragment : BaseFragment() {
         }
         listFrame.addView(emptyView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
+        loadingOverlay = FrameLayout(context).apply {
+            setBackgroundColor(0x66000000)
+            visibility = View.GONE
+            isClickable = true
+            isFocusable = true
+            addView(ProgressBar(context), LayoutHelper.createFrame(
+                LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER
+            ))
+        }
+        rootFrame.addView(loadingOverlay, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
+
         reloadFriends()
-        fragmentView = root
-        return root
+        fragmentView = rootFrame
+        return rootFrame
     }
 
     private fun buildSearchRow(context: Context): View {
@@ -291,19 +308,30 @@ class NewMessageFragment : BaseFragment() {
     private fun openDm(friend: Friend) {
         if (creatingDm) return
         creatingDm = true
+        setCreatingLoading(true)
         fragmentScope.launch {
             val channelId = dialogsController.getOrCreateDm(friend.user.id)
             withContext(Dispatchers.Main) {
                 creatingDm = false
+                setCreatingLoading(false)
                 if (channelId == 0L) {
-                    val ctx = fragmentView?.context ?: return@withContext
-                    Toast.makeText(ctx, getString(R.string.dm_new_dm_failed), Toast.LENGTH_SHORT).show()
+                    showToast(R.string.dm_new_dm_failed)
                     return@withContext
                 }
                 val name = friend.user.displayName.ifBlank { friend.user.username }
-                onOpenChat?.invoke(channelId, name, 0L, CHANNEL_TYPE_DM)
+                openChatFromPicker(channelId, name, 0L, CHANNEL_TYPE_DM, onOpenChat = onOpenChat)
             }
         }
+    }
+
+    private fun setCreatingLoading(loading: Boolean) {
+        if (!::loadingOverlay.isInitialized) return
+        loadingOverlay.visibility = if (loading) View.VISIBLE else View.GONE
+    }
+
+    private fun showToast(messageRes: Int) {
+        val ctx = fragmentView?.context ?: return
+        Toast.makeText(ctx, getString(messageRes), Toast.LENGTH_SHORT).show()
     }
 
     private fun reloadFriends() {

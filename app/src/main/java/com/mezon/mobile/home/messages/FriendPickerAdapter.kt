@@ -85,44 +85,69 @@ class FriendPickerAdapter(
         return if (viewType == VIEW_TYPE_HEADER) {
             HeaderHolder(HeaderRowView(parent.context, themeColors))
         } else {
-            FriendHolder(FriendPickerCell(parent.context, themeColors))
+            FriendHolder(this, FriendPickerCell(parent.context, themeColors))
         }
+    }
+
+    override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int, payloads: MutableList<Any>) {
+        if (payloads.contains(PAYLOAD_SELECTION) && holder is FriendHolder) {
+            bindFriendRow(holder, position)
+            return
+        }
+        onBindViewHolder(holder, position)
     }
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         when (val row = rows[position]) {
             is Row.Header -> (holder as HeaderHolder).view.bind(row.title, row.uppercase, row.separated)
-            is Row.FriendRow -> {
-                val userId = row.friend.user.id
-                val selected = selectedIds.contains(userId)
-                val disabled = defaultSelectedIds.contains(userId) ||
-                    (!selected && selectedIds.size >= maxMembers)
-                (holder as FriendHolder).cell.bind(
-                    friend = row.friend,
-                    checked = selected,
-                    disabled = disabled,
-                    selectMode = selectMode,
-                    divider = row.divider,
-                    onClick = { handleFriendPressed(row.friend, disabled) }
-                )
-            }
+            is Row.FriendRow -> bindFriendRow(holder as FriendHolder, position)
         }
     }
 
-    private fun handleFriendPressed(friend: Friend, disabled: Boolean) {
+    internal fun onFriendRowClicked(position: Int) {
+        val row = rows.getOrNull(position) as? Row.FriendRow ?: return
+        handleFriendPressed(row.friend)
+    }
+
+    private fun bindFriendRow(holder: FriendHolder, position: Int) {
+        val row = rows[position] as Row.FriendRow
+        val userId = row.friend.user.id
+        val selected = selectedIds.contains(userId)
+        val disabled = isFriendDisabled(userId, selected)
+        holder.cell.bind(
+            friend = row.friend,
+            checked = selected,
+            disabled = disabled,
+            selectMode = selectMode,
+            divider = row.divider
+        )
+    }
+
+    private fun isFriendDisabled(userId: Long, selected: Boolean): Boolean =
+        defaultSelectedIds.contains(userId) || (!selected && selectedIds.size >= maxMembers)
+
+    private fun handleFriendPressed(friend: Friend) {
         if (!selectMode) {
             onFriendClick(friend)
             return
         }
-        if (disabled) return
         val userId = friend.user.id
+        if (isFriendDisabled(userId, selectedIds.contains(userId))) return
         if (selectedIds.contains(userId)) {
             selectedIds.remove(userId)
         } else {
             selectedIds.add(userId)
         }
-        notifyDataSetChanged()
+        refreshSelectionUi()
         onSelectionChanged(ArrayList(selectedIds))
+    }
+
+    private fun refreshSelectionUi() {
+        for (i in rows.indices) {
+            if (rows[i] is Row.FriendRow) {
+                notifyItemChanged(i, PAYLOAD_SELECTION)
+            }
+        }
     }
 
     private fun buildRows(friends: List<Friend>, searching: Boolean): List<Row> {
@@ -156,7 +181,18 @@ class FriendPickerAdapter(
     }
 
     private class HeaderHolder(val view: HeaderRowView) : RecyclerView.ViewHolder(view)
-    private class FriendHolder(val cell: FriendPickerCell) : RecyclerView.ViewHolder(cell)
+
+    private class FriendHolder(
+        private val adapter: FriendPickerAdapter,
+        val cell: FriendPickerCell
+    ) : RecyclerView.ViewHolder(cell) {
+        init {
+            cell.setOnClickListener {
+                val pos = bindingAdapterPosition
+                if (pos != RecyclerView.NO_POSITION) adapter.onFriendRowClicked(pos)
+            }
+        }
+    }
 
     private class RowDiffCallback(
         private val oldRows: List<Row>,
@@ -198,6 +234,7 @@ class FriendPickerAdapter(
         const val GROUP_CHAT_MAX_MEMBERS = 20
         private const val VIEW_TYPE_HEADER = 0
         private const val VIEW_TYPE_FRIEND = 1
+        private const val PAYLOAD_SELECTION = "selection"
     }
 }
 
@@ -212,12 +249,20 @@ private class HeaderRowView(context: Context, private val themeColors: ThemeColo
         text = if (uppercase) title.uppercase(Locale.getDefault()) else title
         setTextColor(themeColors.colorText)
         val topPadding = when {
-            !uppercase -> LayoutHelper.dp(18)
-            separated -> LayoutHelper.dp(14)
-            else -> LayoutHelper.dp(6)
+            !uppercase -> PAD_TOP_SEARCH
+            separated -> PAD_TOP_SEPARATED
+            else -> PAD_TOP_LETTER
         }
-        val bottomPadding = if (uppercase) LayoutHelper.dp(6) else LayoutHelper.dp(18)
+        val bottomPadding = if (uppercase) PAD_BOTTOM_LETTER else PAD_BOTTOM_SEARCH
         setPadding(0, topPadding, 0, bottomPadding)
+    }
+
+    companion object {
+        private val PAD_TOP_SEARCH = LayoutHelper.dp(18)
+        private val PAD_TOP_SEPARATED = LayoutHelper.dp(14)
+        private val PAD_TOP_LETTER = LayoutHelper.dp(6)
+        private val PAD_BOTTOM_LETTER = LayoutHelper.dp(6)
+        private val PAD_BOTTOM_SEARCH = LayoutHelper.dp(18)
     }
 }
 
@@ -314,8 +359,7 @@ private class FriendPickerCell(
         checked: Boolean,
         disabled: Boolean,
         selectMode: Boolean,
-        divider: Boolean,
-        onClick: () -> Unit
+        divider: Boolean
     ) {
         val user = friend.user
         val displayName = user.displayName.ifBlank { user.username }
@@ -339,7 +383,6 @@ private class FriendPickerCell(
         checkView.setState(checked, disabled)
         alpha = if (disabled && !checked) 0.45f else 1f
         drawDivider = divider
-        setOnClickListener { onClick() }
         invalidate()
     }
 

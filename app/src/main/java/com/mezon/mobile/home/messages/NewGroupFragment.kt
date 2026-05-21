@@ -17,6 +17,7 @@ import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.ContextCompat
@@ -76,6 +77,8 @@ class NewGroupFragment : BaseFragment() {
     private lateinit var emptyView: TextView
     private lateinit var actionText: TextView
     private lateinit var subtitleText: TextView
+    private lateinit var loadingOverlay: FrameLayout
+    private lateinit var rootFrame: FrameLayout
 
     private var mode = MODE_CREATE
     private var channelId = 0L
@@ -105,23 +108,20 @@ class NewGroupFragment : BaseFragment() {
         channelName = arguments?.getString(ARG_CHANNEL_NAME).orEmpty()
 
         observe(NotificationCenter.friendsLoaded) { _, _, _ ->
-            if (fragmentView == null) return@observe
+            if (isPaused || fragmentView == null) return@observe
             reloadFriends()
         }
         observe(NotificationCenter.userDataLoaded) { _, _, _ ->
-            if (fragmentView == null || mode != MODE_CREATE) return@observe
+            if (isPaused || fragmentView == null || mode != MODE_CREATE) return@observe
             syncDefaultSelectedIds()
         }
         observe(NotificationCenter.channelMembersDidLoad) { _, _, args ->
-            if (fragmentView == null || mode != MODE_ADD_MEMBERS) return@observe
+            if (isPaused || fragmentView == null || mode != MODE_ADD_MEMBERS) return@observe
             val changedChannelId = args.firstOrNull() as? Long ?: return@observe
             if (changedChannelId == channelId) syncDefaultSelectedIds()
         }
-        observe(NotificationCenter.dialogsNeedReload) { _, _, _ ->
-            if (fragmentView == null || mode != MODE_ADD_MEMBERS) return@observe
-            syncDefaultSelectedIds()
-        }
         observe(NotificationCenter.themeChanged) { _, _, _ ->
+            if (isPaused || fragmentView == null) return@observe
             fragmentView?.setBackgroundColor(themeColors.serverRailBg)
             if (::adapter.isInitialized) adapter.notifyDataSetChanged()
         }
@@ -132,10 +132,12 @@ class NewGroupFragment : BaseFragment() {
     }
 
     override fun createView(context: Context): View {
+        rootFrame = FrameLayout(context)
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(themeColors.serverRailBg)
         }
+        rootFrame.addView(root, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
         root.addView(buildHeader(context), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         val content = LinearLayout(context).apply {
@@ -188,8 +190,20 @@ class NewGroupFragment : BaseFragment() {
 
         reloadFriends()
         syncDefaultSelectedIds()
-        fragmentView = root
-        return root
+
+        loadingOverlay = FrameLayout(context).apply {
+            setBackgroundColor(0x66000000)
+            visibility = View.GONE
+            isClickable = true
+            isFocusable = true
+            addView(ProgressBar(context), LayoutHelper.createFrame(
+                LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER
+            ))
+        }
+        rootFrame.addView(loadingOverlay, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
+
+        fragmentView = rootFrame
+        return rootFrame
     }
 
     private fun buildHeader(context: Context): View {
@@ -377,12 +391,14 @@ class NewGroupFragment : BaseFragment() {
         val ids = newMemberIds()
         if (ids.isEmpty()) return
         submitting = true
+        setSubmittingLoading(true)
         updateHeaderState()
         fragmentScope.launch {
             if (mode == MODE_ADD_MEMBERS) {
                 val success = dialogsController.addMembersToGroup(channelId, ids, buildParticipantHints(ids))
                 withContext(Dispatchers.Main) {
                     submitting = false
+                    setSubmittingLoading(false)
                     updateHeaderState()
                     if (success) {
                         finishFragment()
@@ -398,13 +414,20 @@ class NewGroupFragment : BaseFragment() {
                 val dmChannelId = dialogsController.getOrCreateDm(ids.first())
                 withContext(Dispatchers.Main) {
                     submitting = false
+                    setSubmittingLoading(false)
                     updateHeaderState()
                     if (dmChannelId == 0L || friend == null) {
                         showToast(R.string.dm_new_dm_failed)
                     } else {
                         val name = friend.user.displayName.ifBlank { friend.user.username }
-                        finishFragment()
-                        onOpenChat?.invoke(dmChannelId, name, 0L, CHANNEL_TYPE_DM)
+                        openChatFromPicker(
+                            dmChannelId,
+                            name,
+                            0L,
+                            CHANNEL_TYPE_DM,
+                            popSelfBeforeOpen = true,
+                            onOpenChat = onOpenChat
+                        )
                     }
                 }
                 return@launch
@@ -413,20 +436,27 @@ class NewGroupFragment : BaseFragment() {
             val group = dialogsController.createGroup(ids, buildParticipantHints(selectedIds.toList()))
             withContext(Dispatchers.Main) {
                 submitting = false
+                setSubmittingLoading(false)
                 updateHeaderState()
                 if (group == null) {
                     showToast(R.string.dm_create_group_failed)
                 } else {
-                    finishFragment()
-                    onOpenChat?.invoke(
+                    openChatFromPicker(
                         group.channelId,
                         group.displayName.ifBlank { group.label },
                         0L,
-                        CHANNEL_TYPE_GROUP
+                        CHANNEL_TYPE_GROUP,
+                        popSelfBeforeOpen = true,
+                        onOpenChat = onOpenChat
                     )
                 }
             }
         }
+    }
+
+    private fun setSubmittingLoading(loading: Boolean) {
+        if (!::loadingOverlay.isInitialized) return
+        loadingOverlay.visibility = if (loading) View.VISIBLE else View.GONE
     }
 
     private fun buildParticipantHints(ids: List<Long>): List<DmParticipant> {

@@ -276,7 +276,6 @@ class DialogsController @Inject constructor(
                     synchronized(this@DialogsController) {
                         participantsByChannel.put(channelId, participants)
                     }
-                    notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
                     notificationCenter.postNotificationOnMainThread(NotificationCenter.channelMembersDidLoad, channelId)
                 }
             } catch (e: Exception) {
