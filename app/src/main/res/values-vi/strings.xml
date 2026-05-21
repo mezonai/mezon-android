@@ -940,6 +940,9 @@
     <string name="create_thread_failed_title">Tạo Thread thất bại</string>
     <string name="create_thread_failed_message">Không tìm thấy Thread hoặc bạn không có quyền cập nhật</string>
     <string name="create_thread_empty_cta">Tạo Thread</string>
+    <string name="thread_list_joined_threads">Chủ đề đã tham gia</string>
+    <string name="thread_list_active_threads">Chủ đề đang hoạt động</string>
+    <string name="thread_list_archived_threads">Chủ đề cũ hơn</string>
     <string name="system_msg_started_thread_lead">Đã tạo thread:</string>
     <string name="system_msg_thread_sentence_see">Xem</string>
     <string name="system_msg_all_threads">tất cả thread</string>

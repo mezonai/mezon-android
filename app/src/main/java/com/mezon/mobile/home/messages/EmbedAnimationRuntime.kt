@@ -17,7 +17,6 @@ import okhttp3.Request
 import okhttp3.Response
 import org.json.JSONObject
 import java.io.IOException
-import java.util.concurrent.TimeUnit
 import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
@@ -27,6 +26,7 @@ private val ESTIMATED_PLACEHOLDER_HEIGHT = LayoutHelper.dp(133f) + LayoutHelper.
 internal class EmbedAnimationRuntime(
     private val parent: View,
     private val spec: EmbedAnimationSpec,
+    private val httpClient: OkHttpClient = EmbedAnimationHttp.client(),
 ) {
     private data class AtlasFrame(val x: Int, val y: Int, val w: Int, val h: Int)
 
@@ -148,7 +148,7 @@ internal class EmbedAnimationRuntime(
         if (jsonCall != null) return
         val urlJson = spec.urlPosition.trim().ifEmpty { return }
         val req = Request.Builder().url(urlJson).build()
-        val call = http.newCall(req)
+        val call = httpClient.newCall(req)
         jsonCall = call
         call.enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
@@ -342,11 +342,6 @@ internal class EmbedAnimationRuntime(
         private val MIN_PLACEHOLDER_W = LayoutHelper.dp(48f)
         private val PLACEHOLDER_H = LayoutHelper.dp(120f)
         private val PLACEHOLDER_RADIUS = LayoutHelper.dp(8).toFloat()
-
-        private val http = OkHttpClient.Builder()
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(20, TimeUnit.SECONDS)
-            .build()
     }
 }
 
