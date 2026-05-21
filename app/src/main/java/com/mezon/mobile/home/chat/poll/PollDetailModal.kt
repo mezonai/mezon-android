@@ -224,7 +224,7 @@ class PollDetailModal(
                         loaded.totalVotes.coerceAtLeast(0),
                         loaded.totalVotes.coerceAtLeast(0)
                     )
-                    subtitleView.text = "$base Â· ${context.getString(R.string.poll_detail_refresh_failed)}"
+                    subtitleView.text = "$base - ${context.getString(R.string.poll_detail_refresh_failed)}"
                     return@withContext
                 }
                 loaded = p

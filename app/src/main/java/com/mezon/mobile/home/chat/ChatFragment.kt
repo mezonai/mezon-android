@@ -3710,7 +3710,7 @@ class ChatFragment : BaseFragment() {
     private suspend fun submitCreatePoll(payload: PollSubmitPayload): Boolean {
         if (!createPollInFlight.compareAndSet(false, true)) return false
         return try {
-            withContext(ioDispatcher) {
+            val response = withContext(ioDispatcher) {
                 sessionManager.withAutoRefresh { session ->
                     mezonApi.createPoll(
                         session.apiUrl,
@@ -3723,6 +3723,29 @@ class ChatFragment : BaseFragment() {
                         payload.pollType
                     )
                 }
+            }
+            if (response.messageId == 0L) {
+                Log.e(TAG, "createPoll: missing message_id pollId=${response.pollId}")
+                withContext(mainDispatcher) {
+                    MezonToast.show(
+                        this@ChatFragment,
+                        ToastOverlay.ToastType.ERROR,
+                        getString(R.string.poll_create_failed)
+                    )
+                }
+                return false
+            }
+            withContext(mainDispatcher) {
+                chatController.publishCreatedPollMessage(channelId, clanId, channelType, response)
+            }
+            var confirmed = chatController.awaitChannelMessage(channelId, response.messageId)
+            if (!confirmed) {
+                confirmed = chatController.reloadChannelMessageIfMissing(
+                    channelId, clanId, response.messageId
+                )
+            }
+            if (!confirmed) {
+                Log.w(TAG, "createPoll: no ChannelMessage yet id=${response.messageId}; optimistic shown")
             }
             true
         } catch (e: Exception) {
@@ -3750,7 +3773,6 @@ class ChatFragment : BaseFragment() {
             themeColors,
             clanId,
             isAnon,
-            // Poll menu: web hides only 1:1 DM (canCreatePoll), not clanId != 0.
             showCreatePoll = canCreatePoll(channelType)
         )
         alert.advancedDelegate = object : AdvancedAttachAlert.AdvancedAttachAlertDelegate {

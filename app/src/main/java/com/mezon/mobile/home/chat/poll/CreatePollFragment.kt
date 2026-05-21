@@ -1,6 +1,7 @@
 package com.mezon.mobile.home.chat.poll
 
 import android.content.Context
+import android.graphics.Rect
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.Typeface
@@ -21,6 +22,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import com.mezon.mobile.R
+import com.mezon.mobile.core.AdjustPanLayoutHelper
 import com.mezon.mobile.core.AlertDialog
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BaseFragment
@@ -72,7 +74,9 @@ class CreatePollFragment : BaseFragment() {
     private lateinit var scrollView: ScrollView
     private lateinit var formContainer: LinearLayout
     private lateinit var rootFrame: FrameLayout
+    private lateinit var pollHeader: View
 
+    private var adjustPanHelper: AdjustPanLayoutHelper? = null
     private var emojiPickerSheet: PollAnswerEmojiPickerSheet? = null
 
     private val fieldRadiusPx by lazy { LayoutHelper.dpf(8f) }
@@ -114,7 +118,7 @@ class CreatePollFragment : BaseFragment() {
         val sectionGap = LayoutHelper.dp(14)
         val labelGap = LayoutHelper.dp(6)
 
-        val pollHeader = buildPollHeader(context, contentPadDp)
+        pollHeader = buildPollHeader(context, contentPadDp)
 
         formContainer = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -227,7 +231,20 @@ class CreatePollFragment : BaseFragment() {
         updateDurationLabel()
         rebuildAnswerRows(context)
         refreshPostButton()
+
+        adjustPanHelper = object : AdjustPanLayoutHelper(root) {
+            override fun onTransitionStart(keyboardVisible: Boolean, contentHeight: Int) {
+                if (keyboardVisible) scrollFocusedFieldIntoView()
+            }
+        }
+
         return root
+    }
+
+    override fun onFragmentDestroy() {
+        adjustPanHelper?.onDetach()
+        adjustPanHelper = null
+        super.onFragmentDestroy()
     }
 
     override fun onBackPressed(): Boolean {
@@ -298,6 +315,7 @@ class CreatePollFragment : BaseFragment() {
                     refreshPostButton()
                 }
             })
+            registerEditorFocusScroll(this)
         }
 
         val trashIconPx = LayoutHelper.dp(10)
@@ -364,6 +382,7 @@ class CreatePollFragment : BaseFragment() {
                     refreshPostButton()
                 }
             })
+            registerEditorFocusScroll(this)
         }
         return FrameLayout(context).apply {
             background = fieldBackground()
@@ -531,6 +550,33 @@ class CreatePollFragment : BaseFragment() {
                 refreshPostButton()
             }
         }
+    }
+
+    private fun registerEditorFocusScroll(editText: EditText) {
+        editText.setOnFocusChangeListener { view, hasFocus ->
+            if (hasFocus) scrollEditorIntoView(view)
+        }
+    }
+
+    private fun scrollEditorIntoView(editor: View) {
+        scrollView.post {
+            scrollView.requestChildRectangleOnScreen(
+                editor,
+                Rect(0, 0, editor.width, editor.height),
+                true
+            )
+        }
+    }
+
+    private fun scrollFocusedFieldIntoView() {
+        val focused = fragmentView?.findFocus() ?: return
+        var target: View = focused
+        var parent = target.parent as? View
+        while (parent != null && parent !== formContainer) {
+            target = parent
+            parent = parent.parent as? View
+        }
+        scrollEditorIntoView(target)
     }
 
     private fun buildPollHeader(context: Context, contentPadDp: Int): View {

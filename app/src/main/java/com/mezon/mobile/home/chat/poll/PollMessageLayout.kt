@@ -25,10 +25,10 @@ private data class OptionLine(
     val percentage: Int
 )
 
-/** Cached [StaticLayout] + spannable source per answer; layout width depends on vote % row. */
 private data class OptionLabelCacheEntry(
     val label: String,
     val layoutWidth: Int,
+    val hostViewId: Int,
     val spannable: CharSequence,
     val layout: StaticLayout,
 )
@@ -302,11 +302,16 @@ class PollMessageLayout(private val context: Context) {
         labelMaxW: Int,
         hostView: View,
     ): StaticLayout {
+        val hostViewId = System.identityHashCode(hostView)
         val hit = optionLabelCache[answerIndex]
-        if (hit != null && hit.label == rawLabel && hit.layoutWidth == labelMaxW) {
+        if (hit != null &&
+            hit.label == rawLabel &&
+            hit.layoutWidth == labelMaxW &&
+            hit.hostViewId == hostViewId
+        ) {
             return hit.layout
         }
-        val spannable = if (hit != null && hit.label == rawLabel) {
+        val spannable = if (hit != null && hit.label == rawLabel && hit.hostViewId == hostViewId) {
             hit.spannable
         } else {
             buildPollAnswerSpannable(rawLabel, hostView)
@@ -320,6 +325,7 @@ class PollMessageLayout(private val context: Context) {
         optionLabelCache[answerIndex] = OptionLabelCacheEntry(
             label = rawLabel,
             layoutWidth = labelMaxW,
+            hostViewId = hostViewId,
             spannable = spannable,
             layout = layout
         )

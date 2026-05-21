@@ -45,6 +45,8 @@ import com.mezon.mobile.util.MarkdownMarker
 import com.mezon.mobile.util.buildTextContentWithEmojis
 import com.mezon.mobile.util.mergePendingMentionsIntoContent
 import com.mezon.mezon.api.ChannelMessage
+import com.mezon.mezon.api.CreatePollResponse
+import com.mezon.mobile.home.chat.poll.buildPollMessageContent
 import com.mezon.mezon.api.MessageAttachment
 import com.mezon.mezon.api.MessageMentionList
 import com.mezon.mezon.api.MessageMention
@@ -63,8 +65,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.coroutines.resume
 
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -78,6 +83,8 @@ const val LOAD_TYPE_INITIAL = 0
 const val LOAD_TYPE_MORE_TOP = 1
 const val LOAD_TYPE_MORE_BOTTOM = 2
 private const val DIRECTION_BEFORE = 3
+/** Wait for poll message over websocket after CreatePoll REST. */
+private const val POLL_MESSAGE_WAIT_MS = 8_000L
 
 @Singleton
 class ChatController @Inject constructor(
@@ -175,6 +182,101 @@ class ChatController @Inject constructor(
 
     suspend fun getMessageById(channelId: Long, messageId: Long): MessageEntity? =
         withContext(ioDispatcher) { messageDao.getById(channelId, messageId) }
+
+    /** Optimistic poll row so chat shows the new message before websocket catches up. */
+    fun publishCreatedPollMessage(
+        channelId: Long,
+        clanId: Long,
+        channelType: Int,
+        response: CreatePollResponse
+    ) {
+        val messageId = response.messageId
+        if (messageId == 0L) return
+        val uc = userController.get()
+        val anon = isAnonymousSend(clanId)
+        val (optName, optAvatar) = optimisticSenderPresentation(uc, clanId, channelType, anon)
+        val content = buildPollMessageContent(response)
+        val optimistic = MessageEntity(
+            id = messageId,
+            channelId = channelId,
+            senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
+            senderName = optName,
+            senderUsername = if (anon) "Anonymous" else uc.username,
+            senderAvatar = optAvatar,
+            content = content,
+            timestampSeconds = System.currentTimeMillis() / 1000,
+            code = MessageEntity.CODE_CHAT,
+            isMe = true,
+            sendState = MessageEntity.SEND_STATE_SENDING
+        )
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.didReceiveNewMessages, channelId, optimistic
+        )
+    }
+
+    /** Wait until server pushes the poll message, or timeout. */
+    suspend fun awaitChannelMessage(
+        channelId: Long,
+        messageId: Long,
+        timeoutMs: Long = POLL_MESSAGE_WAIT_MS
+    ): Boolean {
+        if (messageId == 0L) return false
+        if (withContext(ioDispatcher) { messageDao.getById(channelId, messageId) } != null) {
+            return true
+        }
+        return withTimeoutOrNull(timeoutMs) {
+            suspendCancellableCoroutine { cont ->
+                val delegate = object : NotificationCenter.NotificationCenterDelegate {
+                    override fun didReceivedNotification(id: Int, account: Int, vararg args: Any?) {
+                        if (id != NotificationCenter.didReceiveNewMessages || args.size < 2) return
+                        val ch = args[0] as? Long ?: return
+                        val entity = args[1] as? MessageEntity ?: return
+                        if (ch != channelId || entity.id != messageId || entity.isSending) return
+                        notificationCenter.removeObserver(this, NotificationCenter.didReceiveNewMessages)
+                        if (cont.isActive) cont.resume(true)
+                    }
+                }
+                notificationCenter.addObserver(delegate, NotificationCenter.didReceiveNewMessages)
+                cont.invokeOnCancellation {
+                    notificationCenter.removeObserver(delegate, NotificationCenter.didReceiveNewMessages)
+                }
+            }
+        } == true
+    }
+
+    /** Fallback when websocket is slow: fetch latest page and publish the poll message if present. */
+    suspend fun reloadChannelMessageIfMissing(channelId: Long, clanId: Long, messageId: Long): Boolean {
+        if (messageId == 0L) return false
+        return try {
+            withContext(ioDispatcher) {
+                sessionManager.withAutoRefresh { session ->
+                    val currentUserId = session.userId.toLongOrNull() ?: 0L
+                    val response = api.listChannelMessages(
+                        session.apiUrl,
+                        session.token,
+                        channelId,
+                        clanId,
+                        limit = PAGE_SIZE
+                    )
+                    val entity = response.messagesList
+                        .map { it.toMessageEntity(currentUserId) }
+                        .firstOrNull { it.id == messageId }
+                    if (entity != null) {
+                        messageDao.upsert(entity)
+                        notificationCenter.postNotificationOnMainThread(
+                            NotificationCenter.didReceiveNewMessages, channelId, entity
+                        )
+                        true
+                    } else {
+                        false
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "reloadChannelMessageIfMissing failed channel=$channelId message=$messageId", e)
+            false
+        }
+    }
 
     fun openChannel(
         channelId: Long,

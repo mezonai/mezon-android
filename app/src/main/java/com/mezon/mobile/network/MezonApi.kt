@@ -1549,6 +1549,8 @@ class MezonApi @Inject constructor(
             this.extraData = extraData
         }.toByteArray()
         rpc(apiUrl, token, "MessageButtonClick", body)
+    }
+
     suspend fun createPoll(
         apiUrl: String,
         token: String,
