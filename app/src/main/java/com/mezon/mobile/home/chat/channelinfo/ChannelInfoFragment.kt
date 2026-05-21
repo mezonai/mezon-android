@@ -44,6 +44,7 @@ import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import com.mezon.mobile.home.chat.thread.ThreadListFragment
+import com.mezon.mobile.home.messages.NewGroupFragment
 import com.mezon.mobile.home.PinMessageController
 import com.mezon.mobile.MainActivity
 import com.mezon.mobile.search.GlobalSearchFragment
@@ -589,6 +590,8 @@ class ChannelInfoFragment : BaseFragment() {
             if (clanId != 0L) {
                 val sheet = InviteMembersBottomSheet(context, clanId, channelId, channelName)
                 showDialog(sheet)
+            } else if (channelType == CHANNEL_TYPE_GROUP) {
+                presentFragment(NewGroupFragment.newAddMembers(channelId, channelName))
             } else {
                 Toast.makeText(context, "Coming soon", Toast.LENGTH_SHORT).show()
             }

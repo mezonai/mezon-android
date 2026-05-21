@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.chat
 
+import android.app.DatePickerDialog
 import android.content.Context
 import android.content.Intent
 import android.graphics.Canvas
@@ -39,6 +40,8 @@ import com.mezon.mobile.util.OgpData
 import com.mezon.mobile.util.formatRelativeTime
 import com.mezon.mobile.util.isRawMessage
 import com.mezon.mobile.util.parseContentPreview
+import com.mezon.mobile.util.isEmbedOrComponentsPayload
+import com.mezon.mobile.util.messageHasExplicitTextBody
 import com.mezon.mobile.util.parseContentText
 import com.mezon.mobile.util.parseContentToSpannable
 import com.mezon.mobile.home.chat.poll.ChatPollBridge
@@ -89,12 +92,16 @@ import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.TextView
 import androidx.core.content.ContextCompat
+import java.util.Calendar
+import java.util.Locale
 import kotlin.math.ceil
 import kotlin.math.min
 import kotlin.math.max
 
 class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCell(context) {
-    private val embedMessage = EmbedMessageRenderer(this) { theme }
+    private val embedMessage = EmbedMessageRenderer(this, { theme }).also {
+        it.onAfterDraw = { scheduleEmbedInteractiveSync() }
+    }
     private val embedInputSlots = mutableListOf<EmbedInputSlot>()
     private val embedSelectSlots = mutableListOf<EmbedSelectSlot>()
     private val embedRadioSlots = mutableListOf<EmbedRadioSlot>()
@@ -104,6 +111,20 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var embedInteractiveAppliedMessageId = 0L
     private var embedInteractivePostedHash = 0
     private var embedInteractivePostedMessageId = 0L
+
+    private val ephemeralIndicatorPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = LayoutHelper.sp(12f)
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.ITALIC)
+    }
+    private val embedInputBackground = GradientDrawable()
+    private val embedSelectBackground = GradientDrawable()
+    private val embedSelectChevronDrawable: Drawable
+
+    init {
+        val chevronSz = LayoutHelper.dp(18)
+        embedSelectChevronDrawable = MezonIcon.chevronDownSmallIcon.getDrawable(context).mutate()
+        embedSelectChevronDrawable.setBounds(0, 0, chevronSz, chevronSz)
+    }
 
     var hasMentionHighlight: Boolean = false
     private var highlightProgress = 0f
@@ -953,8 +974,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
 
         pollParsed = if (msg.isPollMessage) parsePollContent(msg.content) else null
+        val hasEmbedPayload = !hasCallLogCard && isEmbedOrComponentsPayload(msg.content)
         val hasText = !hasCallLogCard && !msg.isPollMessage &&
-            parsedContent.isNotBlank() && parsedContent != "[file]" && parsedContent != "[embed]"
+            parsedContent.isNotBlank() && parsedContent != "[file]" && parsedContent != "[embed]" &&
+            (!hasEmbedPayload || messageHasExplicitTextBody(msg.content))
         contentLayout = if (hasText) {
             val content = msg.content
             val linkColor = theme.blurple
@@ -1041,7 +1064,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             ogpImage.setImage(null, null, context)
         }
 
-        val hasEmbedPayload = msg.content.contains("\"embed\"") || msg.content.contains("\"components\"")
         if (hasEmbedPayload) {
             hasEmbedContent = embedMessage.setDataFromContent(msg.content)
             if (hasEmbedContent) {
@@ -1191,9 +1213,13 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private fun mainContentStackHeight(): Int {
         var h = 0
-        contentLayout?.let {
-            h += it.height
-            h += if (ogpData != null || linkInviteBlock.isVisible) LINK_INVITE_V_MARGIN else GAP_V_INNER
+        if (hasCallLogCard) {
+            h += callLogCardHeight + GAP_V_INNER
+        } else {
+            contentLayout?.let {
+                h += it.height
+                h += if (ogpData != null || linkInviteBlock.isVisible) LINK_INVITE_V_MARGIN else GAP_V_INNER
+            }
         }
         if (ogpData != null) {
             h += GAP_V_INNER
@@ -1378,12 +1404,12 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             ephemeralIconDrawable = null
             return
         }
-        val paint = EphemeralMessageUi.indicatorTextPaint(theme)
+        ephemeralIndicatorPaint.color = theme.textDisabled
         val iconW = EphemeralMessageUi.indicatorIconSize()
         val gap = EphemeralMessageUi.INDICATOR_ICON_GAP
         val label = context.getString(R.string.ephemeral_only_visible_to_recipient)
         val textAvail = (textWidth - iconW - gap).coerceAtLeast(1)
-        ephemeralLayout = EphemeralMessageUi.buildIndicatorLayout(label, textAvail, paint)
+        ephemeralLayout = EphemeralMessageUi.buildIndicatorLayout(label, textAvail, ephemeralIndicatorPaint)
         val d = ContextCompat.getDrawable(context, R.drawable.ic_ephemeral_icon_gray)?.mutate()
         d?.setTint(theme.textDisabled)
         ephemeralIconDrawable = d
@@ -1635,6 +1661,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private var cachedMeasuredWidth = 0
 
+    override fun allowCaching(): Boolean = !embedInteractiveViewsVisible
+
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val w = MeasureSpec.getSize(widthMeasureSpec)
         val msg = messageEntity
@@ -1715,6 +1743,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         pressedOnCallLogCallback = false
         pressedOnInviteJoin = false
         pressedEmbedButtonHit = null
+        embedMessage.setPressedButton(null)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -1734,6 +1763,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 pressedOnCallLogCallback = false
                 pressedOnInviteJoin = false
                 pressedReactionIndex = -1
+                pressedEmbedButtonHit = null
+                embedMessage.setPressedButton(null)
                 longPressHandled = false
                 startX = x
                 startY = y
@@ -1810,7 +1841,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                         }
                     }
                 }
-                pressedEmbedButtonHit = null
                 val data = ogpData
                 if (data != null && x >= ogpBlockLeft && x <= ogpBlockRight && y >= ogpBlockTop && y <= ogpBlockBottom) {
                     pressedOnOgp = true
@@ -1821,6 +1851,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     embedMessage.hitTestButton(x, y)?.let { hit ->
                         if (!hit.disabled) {
                             pressedEmbedButtonHit = hit
+                            embedMessage.setPressedButton(hit.pressKey)
                             scheduleLongPress()
                             return true
                         }
@@ -1924,6 +1955,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     val slop = AndroidUtilities.touchSlop.toFloat()
                     if (dx * dx + dy * dy > slop * slop) {
                         cancelScheduledLongPress()
+                        if (pressedEmbedButtonHit != null) {
+                            pressedEmbedButtonHit = null
+                            embedMessage.setPressedButton(null)
+                        }
                     }
                 }
             }
@@ -1943,6 +1978,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     pressedOnInviteJoin = false
                     pressedReactionIndex = -1
                     pressedEmbedButtonHit = null
+                    embedMessage.setPressedButton(null)
                     return true
                 }
                 val pollMsg = messageEntity
@@ -2013,6 +2049,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 }
                 pressedEmbedButtonHit?.let { hit ->
                     pressedEmbedButtonHit = null
+                    embedMessage.setPressedButton(null)
                     if (!hit.disabled) {
                         val url = hit.url
                         if (!url.isNullOrEmpty()) onLinkClicked(url)
@@ -2056,6 +2093,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 pressedOnCallLogCallback = false
                 pressedOnInviteJoin = false
                 pressedEmbedButtonHit = null
+                embedMessage.setPressedButton(null)
             }
         }
         return super.onTouchEvent(event)
@@ -2157,13 +2195,14 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
         if (isSticker && contentLayout == null && !hasReply && !drawForwardHeader) {
             drawStickerOnly(canvas, msg)
-            if (hasEmbedContent) embedMessage.discardInteractiveGeometry()
+            if (hasEmbedContent) {
+                embedMessage.discardInteractiveGeometry()
+                hideEmbedInteractiveViews()
+            }
         } else {
             drawMessageBubble(canvas, msg)
         }
-        if (hasEmbedContent) {
-            syncEmbedInteractiveViews()
-        } else {
+        if (!hasEmbedContent) {
             hideEmbedInteractiveViews()
         }
         if (alpha < 1f) {
@@ -2303,18 +2342,22 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             pollCardDrawTopY = Float.NaN
         }
 
-        if (hasEphemeralDecor) {
-            EphemeralMessageUi.drawBubbleBackground(canvas, theme, ephemeralDecorRect)
-        }
+        if (hasCallLogCard) {
+            yOff = drawCallLogCard(canvas, contentLeft.toFloat(), yOff) + GAP_V_INNER
+        } else {
+            if (hasEphemeralDecor) {
+                EphemeralMessageUi.drawBubbleBackground(canvas, theme, ephemeralDecorRect)
+            }
 
-        contentLayout?.let {
-            contentLayoutLeft = contentLeft
-            contentLayoutTop = yOff.toInt()
-            canvas.save()
-            canvas.translate(contentLeft.toFloat(), yOff)
-            it.draw(canvas)
-            canvas.restore()
-            yOff += it.height + (if (ogpData != null || linkInviteBlock.isVisible) LINK_INVITE_V_MARGIN else GAP_V_INNER)
+            contentLayout?.let {
+                contentLayoutLeft = contentLeft
+                contentLayoutTop = yOff.toInt()
+                canvas.save()
+                canvas.translate(contentLeft.toFloat(), yOff)
+                it.draw(canvas)
+                canvas.restore()
+                yOff += it.height + (if (ogpData != null || linkInviteBlock.isVisible) LINK_INVITE_V_MARGIN else GAP_V_INNER)
+            }
         }
 
         if (ogpData != null) {
@@ -3014,28 +3057,15 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
     }
 
-    private fun buildEmbedInputBg(): GradientDrawable {
-        return GradientDrawable().apply {
-            cornerRadius = LayoutHelper.dpf(12f)
-            setColor(theme.secondaryLight)
-            setStroke(LayoutHelper.dp(1), theme.outline)
-        }
-    }
-
-    private fun buildEmbedSelectBg(): GradientDrawable {
-        return GradientDrawable().apply {
-            cornerRadius = LayoutHelper.dpf(4f)
-            setColor(theme.surface)
-            setStroke(LayoutHelper.dp(1), theme.outline)
-        }
-    }
-
-    private fun embedSelectChevronDrawable(): android.graphics.drawable.Drawable {
-        val d = MezonIcon.chevronDownSmallIcon.getDrawable(context).mutate()
-        val sz = LayoutHelper.dp(18)
-        d.setBounds(0, 0, sz, sz)
-        d.colorFilter = PorterDuffColorFilter(theme.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
-        return d
+    private fun refreshEmbedInteractiveChrome() {
+        embedInputBackground.cornerRadius = LayoutHelper.dpf(12f)
+        embedInputBackground.setColor(theme.secondaryLight)
+        embedInputBackground.setStroke(LayoutHelper.dp(1), theme.outline)
+        embedSelectBackground.cornerRadius = LayoutHelper.dpf(4f)
+        embedSelectBackground.setColor(theme.surface)
+        embedSelectBackground.setStroke(LayoutHelper.dp(1), theme.outline)
+        embedSelectChevronDrawable.colorFilter =
+            PorterDuffColorFilter(theme.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
     }
 
     private fun embedSelectRowForeground(): Drawable? {
@@ -3147,9 +3177,28 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val l = r.left.toInt()
         val t = r.top.toInt()
         val rgt = r.right.toInt()
-        val btm = r.bottom.toInt()
+        var btm = r.bottom.toInt()
+        if (v is EditTextBoldCursor) {
+            val fixed = v.getFixedSize()
+            if (fixed > 0) btm = t + fixed
+        }
+        val unchanged = v.left == l && v.top == t && v.right == rgt && v.bottom == btm
+        if (unchanged) {
+            if (v.isLayoutRequested) v.layout(l, t, rgt, btm)
+            return
+        }
         val w = (rgt - l).coerceAtLeast(1)
         val h = (btm - t).coerceAtLeast(1)
+        if (BuildConfig.DEBUG && v is EditTextBoldCursor) {
+            val geomH = (r.bottom - r.top).toInt()
+            if (geomH != h) {
+                Log.d(
+                    EMBED_INPUT_TAG,
+                    "layoutEmbeddedChild geomH=$geomH fixedH=$h fixedSize=${v.getFixedSize()} " +
+                        "component=${v.tag}",
+                )
+            }
+        }
         val ws = View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY)
         val hs = View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY)
         v.measure(ws, hs)
@@ -3169,8 +3218,12 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         invalidate()
     }
 
-    private fun syncEmbedInteractiveViews() {
+    private fun scheduleEmbedInteractiveSync() {
         val msg = messageEntity ?: run {
+            hideEmbedInteractiveViews()
+            return
+        }
+        if (!hasEmbedContent) {
             hideEmbedInteractiveViews()
             return
         }
@@ -3230,6 +3283,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             hideEmbedInteractiveViews()
             return
         }
+        refreshEmbedInteractiveChrome()
         val geoms = embedMessage.lastEmbedInteractiveGeometries
         if (geoms.isEmpty()) {
             hideEmbedInteractiveViews()
@@ -3312,11 +3366,11 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 rippleInstalled = true
             }
 
-            row.background = buildEmbedSelectBg()
+            row.background = embedSelectBackground
             row.isEnabled = !spec.disabled
             row.alpha = if (spec.disabled) 0.5f else 1f
 
-            label.setCompoundDrawablesRelative(null, null, embedSelectChevronDrawable(), null)
+            label.setCompoundDrawablesRelative(null, null, embedSelectChevronDrawable, null)
             label.compoundDrawablePadding = LayoutHelper.dp(6)
 
             if (identityChanged && spec.initialSelection.isNotEmpty() &&
@@ -3495,6 +3549,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     }
 
     private inner class EmbedInputSlot {
+        private val inputBackground = GradientDrawable()
         val edit = EditTextBoldCursor(context).apply {
             includeFontPadding = false
             setPadding(LayoutHelper.dp(12), LayoutHelper.dp(8), LayoutHelper.dp(12), LayoutHelper.dp(8))
@@ -3502,8 +3557,18 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                 importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO
             }
+            setOnTouchListener { v, event ->
+                if (v is EditTextBoldCursor && v.isEmbedScrollable()) {
+                    when (event.actionMasked) {
+                        MotionEvent.ACTION_DOWN,
+                        MotionEvent.ACTION_MOVE -> v.parent?.requestDisallowInterceptTouchEvent(true)
+                    }
+                }
+                false
+            }
         }
         private var suppressWatch = false
+        private var datePickerShowing = false
         private val watcher = object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
@@ -3514,62 +3579,194 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 if (mid != 0L && cid.isNotEmpty()) {
                     EmbedFormUtil.setValue(mid, cid, s?.toString() ?: "")
                 }
+                edit.post { edit.scrollCursorIntoView() }
             }
         }
         private var boundMessageId = 0L
         private var boundComponentId = ""
         private var boundSpecKey = ""
+        private var boundDateInput = false
 
         init {
             edit.addTextChangedListener(watcher)
         }
 
         fun bind(messageId: Long, componentId: String, spec: EmbedInputComponentSpec) {
-            val specKey = "${spec.textarea}|${spec.numberInput}|${spec.disabled}|${spec.placeholder}|${spec.defaultValue}"
+            val specKey = "${spec.textarea}|${spec.numberInput}|${spec.dateInput}|${spec.disabled}|${spec.placeholder}|${spec.defaultValue}"
             val identityChanged =
                 boundMessageId != messageId || boundComponentId != componentId || boundSpecKey != specKey
             boundMessageId = messageId
             boundComponentId = componentId
             boundSpecKey = specKey
+            boundDateInput = spec.dateInput
+            edit.tag = componentId
 
-            edit.background = buildEmbedInputBg()
+            inputBackground.cornerRadius = LayoutHelper.dpf(12f)
+            inputBackground.setColor(theme.secondaryLight)
+            inputBackground.setStroke(LayoutHelper.dp(1), theme.outline)
+            edit.background = inputBackground
             edit.setHintTextColor(theme.onSurfaceVariant)
             edit.setTextColor(theme.onSurface)
             edit.hint = spec.placeholder.takeIf { it.isNotEmpty() }
             edit.isEnabled = !spec.disabled
             edit.alpha = if (spec.disabled) 0.5f else 1f
-            edit.gravity = if (spec.textarea) Gravity.TOP or Gravity.START
-            else Gravity.CENTER_VERTICAL or Gravity.START
-            edit.inputType = if (spec.numberInput) {
-                InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
-            } else {
-                val base = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
-                if (spec.textarea) base or InputType.TYPE_TEXT_FLAG_MULTI_LINE else base
+            edit.isCursorVisible = !spec.dateInput
+            edit.showSoftInputOnFocus = !spec.dateInput
+
+            val targetHeight = if (spec.textarea) EMBED_TEXTAREA_HEIGHT else EMBED_INPUT_HEIGHT
+            edit.setFixedSize(targetHeight)
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                    EMBED_INPUT_TAG,
+                    "bind component=$componentId textarea=${spec.textarea} targetH=$targetHeight " +
+                        "identityChanged=$identityChanged",
+                )
             }
-            edit.minLines = if (spec.textarea) 3 else 1
-            edit.maxLines = if (spec.textarea) 8 else 1
-            edit.isSingleLine = !spec.textarea
+            if (spec.textarea) {
+                edit.gravity = Gravity.TOP or Gravity.START
+                edit.inputType = InputType.TYPE_CLASS_TEXT or
+                    InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or
+                    InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                edit.setSingleLine(false)
+                edit.minLines = 1
+                edit.maxLines = Int.MAX_VALUE
+                edit.scrollBarStyle = View.SCROLLBARS_INSIDE_INSET
+                edit.overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+                edit.setVerticalScrollEnabled(true)
+                edit.setHorizontalScrollEnabled(false)
+                edit.setAutoScrollToCursor(true)
+            } else {
+                edit.gravity = Gravity.CENTER_VERTICAL or Gravity.START
+                if (identityChanged) {
+                    edit.inputType = if (spec.dateInput) {
+                        InputType.TYPE_NULL
+                    } else if (spec.numberInput) {
+                        InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+                    } else {
+                        InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+                    }
+                }
+                edit.setSingleLine(false)
+                edit.minLines = 1
+                edit.maxLines = 1
+                if (spec.dateInput) {
+                    edit.setVerticalScrollEnabled(false)
+                    edit.setHorizontalScrollEnabled(false)
+                    edit.setAutoScrollToCursor(false)
+                } else {
+                    edit.scrollBarStyle = View.SCROLLBARS_INSIDE_INSET
+                    edit.overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+                    edit.setVerticalScrollEnabled(false)
+                    edit.setHorizontalScrollEnabled(true)
+                    edit.setAutoScrollToCursor(true)
+                }
+            }
+
+            if (identityChanged) {
+                if (spec.dateInput && !spec.disabled) {
+                    edit.setOnClickListener { showDatePicker() }
+                    edit.onFocusChangeListener = View.OnFocusChangeListener { _, hasFocus ->
+                        if (BuildConfig.DEBUG) {
+                            logEmbedInputFocus(componentId, hasFocus, targetHeight)
+                        }
+                        if (hasFocus) showDatePicker()
+                    }
+                } else {
+                    edit.setOnClickListener(null)
+                    edit.onFocusChangeListener = View.OnFocusChangeListener { _, hasFocus ->
+                        if (BuildConfig.DEBUG) {
+                            logEmbedInputFocus(componentId, hasFocus, targetHeight)
+                        }
+                    }
+                }
+            }
 
             if (identityChanged) {
                 val stored = EmbedFormUtil.getValue(messageId, componentId)
                 suppressWatch = true
                 edit.setText(stored ?: spec.defaultValue)
                 suppressWatch = false
+                edit.scrollTo(0, 0)
                 if (stored == null && spec.defaultValue.isNotEmpty()) {
                     EmbedFormUtil.setValue(messageId, componentId, spec.defaultValue)
                 }
             }
         }
+
+        private fun showDatePicker() {
+            if (!boundDateInput || boundMessageId == 0L || boundComponentId.isEmpty() || datePickerShowing) return
+            datePickerShowing = true
+            val cal = calendarFromDateValue(edit.text?.toString()?.takeIf { it.isNotBlank() })
+            DatePickerDialog(
+                context,
+                { _, year, month, day ->
+                    val value = String.format(Locale.US, "%04d-%02d-%02d", year, month + 1, day)
+                    suppressWatch = true
+                    edit.setText(value)
+                    suppressWatch = false
+                    EmbedFormUtil.setValue(boundMessageId, boundComponentId, value)
+                    edit.clearFocus()
+                },
+                cal.get(Calendar.YEAR),
+                cal.get(Calendar.MONTH),
+                cal.get(Calendar.DAY_OF_MONTH),
+            ).apply {
+                setOnDismissListener { datePickerShowing = false }
+                show()
+            }
+        }
+
+        private fun calendarFromDateValue(value: String?): Calendar {
+            val cal = Calendar.getInstance()
+            val parts = value
+                ?.take(10)
+                ?.split('-', '/')
+                ?.mapNotNull { it.toIntOrNull() }
+            if (parts != null && parts.size == 3) {
+                val y = parts[0]
+                val m = parts[1]
+                val d = parts[2]
+                if (y in 1900..9999 && m in 1..12 && d in 1..31) {
+                    cal.set(y, m - 1, d)
+                }
+            }
+            return cal
+        }
+    }
+
+    private fun logEmbedInputFocus(componentId: String, hasFocus: Boolean, targetHeight: Int) {
+        Log.d(
+            EMBED_INPUT_TAG,
+            "focus component=$componentId hasFocus=$hasFocus targetH=$targetHeight " +
+                "measuredH=${focusedEmbedInputHeight()} layoutH=${focusedEmbedInputLayoutHeight()}",
+        )
+    }
+
+    private fun focusedEmbedInputHeight(): Int {
+        for (slot in embedInputSlots) {
+            if (slot.edit.isFocused) return slot.edit.measuredHeight
+        }
+        return -1
+    }
+
+    private fun focusedEmbedInputLayoutHeight(): Int {
+        for (slot in embedInputSlots) {
+            if (slot.edit.isFocused) return slot.edit.height
+        }
+        return -1
     }
 
     companion object {
         const val COMBINE_TIME_THRESHOLD = 2 * 60L
         private const val TAG = "ChatMessageCell"
+        private const val EMBED_INPUT_TAG = "EmbedFormInput"
         private val ANONYMOUS_USER_ID = BuildConfig.MEZON_ANONYMOUS_USER_ID.toLongOrNull() ?: 0L
         private val anonymousAvatarBitmaps = HashMap<Int, Bitmap>(2)
 
         private const val VIDEO_THUMB_TIMEOUT_MS = 8_000L
         private val VIDEO_THUMB_SCOPE = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        private val EMBED_INPUT_HEIGHT = LayoutHelper.dp(40)
+        private val EMBED_TEXTAREA_HEIGHT = LayoutHelper.dp(80)
         private val BUBBLE_RIGHT_INSET = LayoutHelper.dp(28)
         private val TIME_GAP_LEFT = LayoutHelper.dp(6)
         private val TIME_GAP_RIGHT = LayoutHelper.dp(4)

@@ -109,7 +109,6 @@ import com.mezon.mobile.util.parseMarkdownAndStrip
 import com.mezon.mobile.util.restoreInputFromContent
 import com.mezon.mobile.util.resolveStickerSourceUrl
 import com.mezon.mobile.util.EmbedFormUtil
-import com.mezon.mobile.util.embedFormValidationError
 import com.mezon.mobile.core.SharedConfig
 import com.mezon.mobile.home.chat.poll.ChatPollBridge
 import com.mezon.mobile.home.chat.poll.ParsedPoll
@@ -138,6 +137,7 @@ import java.util.concurrent.ConcurrentHashMap
 
 private const val TAG = "ChatFragment"
 private const val FORWARD_NEARBY_WINDOW_SECONDS = 10 * 60L
+private const val LOCAL_PROVISIONAL_MESSAGE_ID_FLOOR = 4_611_686_018_427_387_904L
 
 /** Soft realtime when BE does not push ChatUpdate for every poll vote — GetPoll on visible rows. */
 private const val POLL_TALLY_TICK_MS = 15_000L
@@ -406,6 +406,8 @@ class ChatFragment : BaseFragment() {
             lastSeenMessageId = ch?.lastSeenMessageId ?: 0L
             lastSentMessageId = ch?.lastSentMessageId ?: 0L
         }
+        lastSeenMessageId = sanitizeServerMessageId(lastSeenMessageId)
+        lastSentMessageId = sanitizeServerMessageId(lastSentMessageId)
         dividerSeenMessageId = lastSeenMessageId
         val isSeenUpToDate = lastSentMessageId == 0L || lastSeenMessageId >= lastSentMessageId
         hasUnread = !isSeenUpToDate && lastSeenMessageId != 0L
@@ -479,19 +481,20 @@ class ChatFragment : BaseFragment() {
                         newMessages.add(m)
                     }
                 }
-                newMessages.sortByDescending { it.id }
+                sortMessagesForDisplay(newMessages)
                 newRowsCount = newMessages.size
 
                 if (direction == 1) {
                     messages.addAll(newMessages)
-                    messages.sortByDescending { it.id }
+                    sortMessagesForDisplay(messages)
                     hasMoreTop = moreTop
                     trimViewportNewest()
                 } else {
                     messages.addAll(0, newMessages)
-                    messages.sortByDescending { it.id }
-                    hasMoreBottom = if (lastSentMessageId != 0L && messages.isNotEmpty()) {
-                        messages.first().id < lastSentMessageId
+                    sortMessagesForDisplay(messages)
+                    val newestReadableId = newestReadStateMessageId()
+                    hasMoreBottom = if (lastSentMessageId != 0L && newestReadableId != 0L) {
+                        newestReadableId < lastSentMessageId
                     } else {
                         moreBottom
                     }
@@ -567,8 +570,9 @@ class ChatFragment : BaseFragment() {
                     messages.clear()
                     val all = ArrayList<MessageEntity>(messagesDict.size())
                     for (i in 0 until messagesDict.size()) all.add(messagesDict.valueAt(i))
-                    all.sortByDescending { it.id }
+                    sortMessagesForDisplay(all)
                     messages.addAll(all)
+                    pruneEmbedFormState()
                 }
                 hasMoreTop = moreTop
                 hasMoreBottom = moreBottom
@@ -596,8 +600,9 @@ class ChatFragment : BaseFragment() {
                     messages.clear()
                     val all = ArrayList<MessageEntity>(messagesDict.size())
                     for (i in 0 until messagesDict.size()) all.add(messagesDict.valueAt(i))
-                    all.sortByDescending { it.id }
+                    sortMessagesForDisplay(all)
                     messages.addAll(all)
+                    pruneEmbedFormState()
                     hasMoreTop = moreTop
                     hasMoreBottom = moreBottom
 
@@ -606,15 +611,12 @@ class ChatFragment : BaseFragment() {
                 }
             }
 
-            // Reconcile lastSentMessageId with the per-channel newest message store
-            // (equivalent to RN's state.messages.lastMessageByChannel[channelId]).
-            // This is more reliable than the channel list API which can be stale.
             val fromStore = chatController.getLastMessageId(channelId)
             lastSentMessageId = maxOf(lastSentMessageId, fromStore)
 
-            if (messages.isNotEmpty()) {
-                val newestInList = messages.first().id
-                lastSentMessageId = maxOf(lastSentMessageId, newestInList)
+            val newestReadableInList = newestReadStateMessageId()
+            if (newestReadableInList != 0L) {
+                lastSentMessageId = maxOf(lastSentMessageId, newestReadableInList)
             }
 
             if (!jumpingToPresent && !isCache) {
@@ -625,9 +627,8 @@ class ChatFragment : BaseFragment() {
                     Log.d(TAG, "hasUnread re-evaluated to TRUE: lastSeen=$lastSeenMessageId < lastSent=$lastSentMessageId dividerSeen=$dividerSeenMessageId")
                 }
 
-                if (lastSentMessageId != 0L && messages.isNotEmpty()) {
-                    val newestInList = messages.first().id
-                    if (newestInList < lastSentMessageId) {
+                if (lastSentMessageId != 0L && newestReadableInList != 0L) {
+                    if (newestReadableInList < lastSentMessageId) {
                         hasMoreBottom = true
                     }
                 }
@@ -638,7 +639,7 @@ class ChatFragment : BaseFragment() {
             }
 
             if (!hasUnread && lastSeenMessageId != 0L && messages.isNotEmpty()) {
-                val newestInList = messages.first().id
+                val newestInList = newestReadStateMessageId()
                 if (newestInList > lastSeenMessageId && messages.any { it.id == lastSeenMessageId }) {
                     hasUnread = true
                 }
@@ -702,7 +703,7 @@ class ChatFragment : BaseFragment() {
                         val hIdx = messages.indexOfFirst { it.id == highlightId }
                         Log.d(TAG, "pendingHighlight: id=$highlightId idx=$hIdx msgsSize=${messages.size}")
                         if (hIdx >= 0) {
-                            val newestInList = messages.firstOrNull()?.id ?: 0L
+                            val newestInList = newestReadStateMessageId()
                             if (lastSentMessageId != 0L && newestInList < lastSentMessageId) {
                                 isViewingOlder = true
                                 hasMoreBottom = true
@@ -851,11 +852,8 @@ class ChatFragment : BaseFragment() {
                             "ref=${referencedMessageId(entity.content)} index=$insertIndex"
                     )
                 }
-            } else if (messages.isEmpty() || entity.id >= messages.first().id) {
-                insertIndex = 0
-                messages.add(0, entity)
             } else {
-                val pos = messages.indexOfFirst { entity.id > it.id }
+                val pos = messages.indexOfFirst { compareMessageForDisplay(entity, it) < 0 }
                 insertIndex = if (pos >= 0) pos else messages.size
                 messages.add(insertIndex, entity)
             }
@@ -927,6 +925,7 @@ class ChatFragment : BaseFragment() {
                 )
                 messages[idx] = merged
                 messagesDict.put(merged.id, merged)
+                if (!hasEmbedControlPayload(merged.content)) EmbedFormUtil.clearMessage(merged.id)
                 if (merged.isPollMessage) {
                     pollStates[merged.id] = (pollStates[merged.id] ?: PollLocalState()).copy(
                         optimisticMyIndices = null,
@@ -945,6 +944,7 @@ class ChatFragment : BaseFragment() {
             if (idx >= 0) {
                 messages.removeAt(idx)
                 messagesDict.delete(messageId)
+                EmbedFormUtil.clearMessage(messageId)
                 pollStates.remove(messageId)
                 if (fragmentView != null) refreshUI()
                 if (fragmentView != null) {
@@ -1880,7 +1880,8 @@ class ChatFragment : BaseFragment() {
 
                 if (!isLoadingMore && hasMoreBottom && messages.size >= 10) {
                     if (firstVisible <= 3) {
-                        val newest = messages.firstOrNull()?.id ?: return
+                        val newest = newestReadStateMessageId()
+                        if (newest == 0L) return
                         isLoadingMore = true
                         chatController.loadMoreBottom(channelId, clanId, newest)
                     }
@@ -2577,6 +2578,7 @@ class ChatFragment : BaseFragment() {
             jumpingToPresent = true
             messages.clear()
             messagesDict.clear()
+            EmbedFormUtil.clearAll()
             adapter.notifyMessagesUpdated()
             recyclerView.visibility = View.INVISIBLE
             firstLoad = true
@@ -2586,7 +2588,7 @@ class ChatFragment : BaseFragment() {
     }
 
     private fun markAsRead() {
-        val newest = messages.firstOrNull() ?: return
+        val newest = newestReadStateMessage() ?: return
         if (messagesDict[newest.id] == null) return
         if (clanId != 0L) {
             if (channelController.findChannelById(channelId) == null) return
@@ -2612,12 +2614,23 @@ class ChatFragment : BaseFragment() {
         if (firstPos == RecyclerView.NO_POSITION) return
 
         val msgIndex = firstPos - adapter.messagesStartRow
-        val visibleMsg = if (msgIndex in messages.indices) messages[msgIndex] else messages.firstOrNull() ?: return
+        val visibleMsg = if (msgIndex in messages.indices) {
+            var candidate: MessageEntity? = null
+            var i = msgIndex
+            while (i < messages.size && candidate == null) {
+                val msg = messages[i]
+                if (msg.canAdvanceReadState()) candidate = msg
+                i++
+            }
+            candidate
+        } else {
+            newestReadStateMessage()
+        } ?: return
         if (visibleMsg.id <= lastSeenMessageId) return
 
         lastSeenMessageId = visibleMsg.id
         val remaining = if (lastSentMessageId != 0L && visibleMsg.id < lastSentMessageId) {
-            messages.count { it.id > visibleMsg.id }
+            messages.count { it.canAdvanceReadState() && it.id > visibleMsg.id }
         } else {
             0
         }
@@ -2674,6 +2687,7 @@ class ChatFragment : BaseFragment() {
             hasMoreTop = true
             trimmed = true
         }
+        if (trimmed) pruneEmbedFormState()
         return trimmed
     }
 
@@ -2685,7 +2699,16 @@ class ChatFragment : BaseFragment() {
             hasMoreBottom = true
             trimmed = true
         }
+        if (trimmed) pruneEmbedFormState()
         return trimmed
+    }
+
+    private fun pruneEmbedFormState() {
+        val ids = HashSet<Long>(messages.size)
+        for (msg in messages) {
+            if (msg.isEphemeral || hasEmbedControlPayload(msg.content)) ids.add(msg.id)
+        }
+        EmbedFormUtil.retainMessages(ids)
     }
 
     private fun updateUnreadDividerPosition() {
@@ -2858,15 +2881,6 @@ class ChatFragment : BaseFragment() {
 
     private fun submitEmbedComponentButton(msg: MessageEntity, buttonId: String) {
         if (msg.isSending) return
-        embedFormValidationError(msg.id, msg.content)?.let { err ->
-            val t = if (err.formatArgs.isEmpty()) {
-                getString(err.messageRes)
-            } else {
-                getString(err.messageRes, *err.formatArgs.toTypedArray())
-            }
-            MezonToast.show(this, ToastOverlay.ToastType.ERROR, t)
-            return
-        }
         val uid = currentUserIdLong()
         appScope.launch(Dispatchers.IO) {
             try {
@@ -3110,11 +3124,58 @@ class ChatFragment : BaseFragment() {
     private fun referencedEmbedResponseInsertIndex(entity: MessageEntity): Int {
         val refId = referencedMessageId(entity.content)
         if (refId == 0L || refId == entity.id) return -1
+        val formIndex = messages.indexOfFirst {
+            it.id != entity.id &&
+                hasEmbedControlPayload(it.content) &&
+                it.content.contains(refId.toString())
+        }
+        if (formIndex >= 0 && looksLikeEmbedActionResponse(entity.content)) return formIndex
         val refIndex = messages.indexOfFirst { it.id == refId }
         if (refIndex < 0) return -1
         val referenced = messages[refIndex]
         if (!hasEmbedControlPayload(referenced.content) && !looksLikeEmbedActionResponse(entity.content)) return -1
         return refIndex
+    }
+
+    private fun MessageEntity.canAdvanceReadState(): Boolean {
+        return id > 0L &&
+            !isUnreadDivider &&
+            !isEphemeral &&
+            !isSending &&
+            !isError &&
+            !isLocalProvisionalMessageId(id)
+    }
+
+    private fun MessageEntity.needsTimestampDisplaySort(): Boolean {
+        return isEphemeral || isLocalProvisionalMessageId(id)
+    }
+
+    private fun compareMessageForDisplay(a: MessageEntity, b: MessageEntity): Int {
+        if (a.needsTimestampDisplaySort() || b.needsTimestampDisplaySort()) {
+            val timeCompare = b.timestampSeconds.compareTo(a.timestampSeconds)
+            if (timeCompare != 0) return timeCompare
+        }
+        return b.id.compareTo(a.id)
+    }
+
+    private fun sortMessagesForDisplay(list: MutableList<MessageEntity>) {
+        list.sortWith(::compareMessageForDisplay)
+    }
+
+    private fun newestReadStateMessage(): MessageEntity? {
+        return messages.firstOrNull { it.canAdvanceReadState() && messagesDict.get(it.id) != null }
+    }
+
+    private fun newestReadStateMessageId(): Long {
+        return newestReadStateMessage()?.id ?: 0L
+    }
+
+    private fun isLocalProvisionalMessageId(id: Long): Boolean {
+        return id >= LOCAL_PROVISIONAL_MESSAGE_ID_FLOOR
+    }
+
+    private fun sanitizeServerMessageId(id: Long): Long {
+        return if (isLocalProvisionalMessageId(id)) 0L else id
     }
 
     private fun hasEmbedControlPayload(content: String): Boolean {

@@ -62,6 +62,9 @@ open class EditTextBoldCursor(context: Context) : EditText(context) {
     }
 
     private var fixedSize = 0
+    private var autoScrollToCursor = false
+    private var horizontalScrollEnabled = false
+    private var verticalScrollEnabled = false
     private var transformHintToHeader = false
     private var windowView: View? = null
     private var ignoreTopCount = 0
@@ -150,8 +153,98 @@ open class EditTextBoldCursor(context: Context) : EditText(context) {
         invalidate()
     }
 
+    fun getFixedSize(): Int = fixedSize
+
     fun setFixedSize(size: Int) {
+        if (fixedSize == size) return
         fixedSize = size
+        requestLayout()
+    }
+
+    fun setAutoScrollToCursor(enabled: Boolean) {
+        autoScrollToCursor = enabled
+    }
+
+    fun setHorizontalScrollEnabled(enabled: Boolean) {
+        horizontalScrollEnabled = enabled
+        isHorizontalScrollBarEnabled = enabled
+        setHorizontallyScrolling(enabled)
+    }
+
+    fun setVerticalScrollEnabled(enabled: Boolean) {
+        verticalScrollEnabled = enabled
+        isVerticalScrollBarEnabled = enabled
+    }
+
+    fun isEmbedScrollable(): Boolean = verticalScrollEnabled || horizontalScrollEnabled
+
+    fun scrollCursorIntoView() {
+        if (!autoScrollToCursor) return
+        val textLayout = layout ?: return
+        val len = text?.length ?: 0
+        if (len == 0) {
+            if (scrollX != 0 || scrollY != 0) scrollTo(0, 0)
+            return
+        }
+        val sel = selectionStart.coerceIn(0, len)
+        val line = textLayout.getLineForOffset(sel)
+        val lineTop = textLayout.getLineTop(line)
+        val lineBottom = textLayout.getLineBottom(line)
+        val cursorX = textLayout.getPrimaryHorizontal(sel)
+        val innerHeight = height - totalPaddingTop - totalPaddingBottom
+        val innerWidth = width - totalPaddingLeft - totalPaddingRight
+        if (innerHeight <= 0 || innerWidth <= 0) return
+
+        var newScrollY = scrollY
+        if (verticalScrollEnabled) {
+            val contentHeight = textLayout.height
+            if (contentHeight <= innerHeight) {
+                newScrollY = 0
+            } else {
+                val maxScrollY = (contentHeight - innerHeight).coerceAtLeast(0)
+                if (lineTop < scrollY) {
+                    newScrollY = lineTop
+                } else if (lineBottom > scrollY + innerHeight) {
+                    newScrollY = lineBottom - innerHeight
+                }
+                newScrollY = newScrollY.coerceIn(0, maxScrollY)
+            }
+        }
+
+        var newScrollX = scrollX
+        if (horizontalScrollEnabled) {
+            val contentWidth = (
+                (0 until textLayout.lineCount).maxOfOrNull { textLayout.getLineWidth(it) } ?: 0f
+            ).toInt()
+            if (contentWidth <= innerWidth) {
+                newScrollX = 0
+            } else {
+                val maxScrollX = (contentWidth - innerWidth).coerceAtLeast(0)
+                val cursorRight = cursorX + cursorWidth
+                if (cursorX < scrollX) {
+                    newScrollX = cursorX.toInt().coerceAtLeast(0)
+                } else if (cursorRight > scrollX + innerWidth) {
+                    newScrollX = (cursorRight - innerWidth).toInt().coerceAtLeast(0)
+                }
+                newScrollX = newScrollX.coerceIn(0, maxScrollX)
+            }
+        }
+
+        if (newScrollX != scrollX || newScrollY != scrollY) {
+            scrollTo(newScrollX, newScrollY)
+        }
+    }
+
+    override fun onSelectionChanged(selStart: Int, selEnd: Int) {
+        super.onSelectionChanged(selStart, selEnd)
+        if (autoScrollToCursor) {
+            post { scrollCursorIntoView() }
+        }
+    }
+
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        val h = if (fixedSize > 0) fixedSize else bottom - top
+        super.onLayout(changed, left, top, right, top + h)
     }
 
     fun setTextWatcherLambda(callback: (CharSequence?) -> Unit) {
