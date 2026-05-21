@@ -2,6 +2,9 @@ package com.mezon.mobile.home.messages
 
 import android.content.Context
 import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffColorFilter
 import android.graphics.RectF
 import android.text.StaticLayout
 import android.text.TextUtils
@@ -11,6 +14,8 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.chat.MezonImageLoader
+import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
+import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.util.avatarImgproxyUrl
 import com.mezon.mobile.util.formatRelativeTime
 
@@ -21,6 +26,10 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
     var hasBuzz = false
 
     private val avatarDrawable = AvatarDrawable()
+    private val groupAvatarPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val groupAvatarIcon = MezonIcon.groupIcon.getDrawable(context).apply {
+        colorFilter = PorterDuffColorFilter(0xFFFFFFFF.toInt(), PorterDuff.Mode.SRC_IN)
+    }
     private var currentAvatarUrl: String? = null
     private var currentAvatarLoadUrl: String? = null
     private var avatarDisposable: MezonImageLoader.Cancellable? = null
@@ -231,8 +240,15 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         val cy = (height - AVATAR_SIZE) / 2
         val isUnread = dm.unreadCount > 0
 
-        avatarDrawable.setBounds(cx, cy, cx + AVATAR_SIZE, cy + AVATAR_SIZE)
-        avatarDrawable.draw(canvas)
+        if (dm.type == CHANNEL_TYPE_GROUP && dm.avatarUrl.isBlank() && !avatarDrawable.hasPhoto()) {
+            tmpRect.set(cx.toFloat(), cy.toFloat(), (cx + AVATAR_SIZE).toFloat(), (cy + AVATAR_SIZE).toFloat())
+            groupAvatarPaint.color = theme.getColor(ThemeColors.key_avatar_backgroundOrange)
+            canvas.drawOval(tmpRect, groupAvatarPaint)
+            MezonIcon.drawIcon(canvas, groupAvatarIcon, cx + AVATAR_SIZE / 2, cy + AVATAR_SIZE / 2, GROUP_ICON_SIZE)
+        } else {
+            avatarDrawable.setBounds(cx, cy, cx + AVATAR_SIZE, cy + AVATAR_SIZE)
+            avatarDrawable.draw(canvas)
+        }
 
         val textLeft = (cx + AVATAR_SIZE + GAP_H).toFloat()
         var textTop = PADDING_V.toFloat()
@@ -300,6 +316,7 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
 
     companion object {
         private val AVATAR_SIZE = LayoutHelper.dp(48)
+        private val GROUP_ICON_SIZE = LayoutHelper.dp(24)
         private val PADDING_H = LayoutHelper.dp(16)
         private val PADDING_V = LayoutHelper.dp(12)
         private val GAP_H = LayoutHelper.dp(12)

@@ -185,6 +185,16 @@
     <string name="dm_menu_unblock_user">Bỏ chặn người dùng</string>
     <string name="dm_wave_welcome">Vẫy tay để chào!</string>
     <string name="dm_no_messages">Chưa có tin nhắn</string>
+    <string name="dm_no_friends">Không tìm thấy bạn bè</string>
+    <string name="dm_new_message_to">Đến:</string>
+    <string name="dm_new_group">Nhóm mới</string>
+    <string name="dm_add_members">Thêm thành viên</string>
+    <string name="dm_create">Tạo</string>
+    <string name="dm_add">Thêm</string>
+    <string name="dm_group_members">%1$d trên %2$d thành viên</string>
+    <string name="dm_new_dm_failed">Không thể tạo cuộc trò chuyện. Vui lòng thử lại.</string>
+    <string name="dm_create_group_failed">Không thể tạo nhóm. Vui lòng thử lại.</string>
+    <string name="dm_add_members_failed">Không thể thêm thành viên. Vui lòng thử lại.</string>
 
     <!-- message -->
     <string name="message_actions_edit">Chỉnh sửa tin nhắn</string>
@@ -1061,6 +1071,7 @@
     <string name="channel_permissions_no_matches">Không có vai trò hoặc thành viên phù hợp</string>
     <string name="channel_permissions_no_access">Bạn không có quyền quản lý kênh này.</string>
 
+    <!-- Embed form: select menus in message embeds -->
     <string name="embed_select_one">Chọn 1 mục</string>
     <string name="embed_select_up_to">Chọn tối đa %d mục</string>
     <string name="embed_select_at_least">Chọn ít nhất %d mục</string>
