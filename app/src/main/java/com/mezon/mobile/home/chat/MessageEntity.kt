@@ -11,6 +11,11 @@ import org.json.JSONArray
 import org.json.JSONObject
 import android.util.Log
 import com.mezon.mobile.home.chat.poll.isPollContentJson
+import com.mezon.mobile.core.AvatarDrawable
+import com.mezon.mobile.home.DialogsController
+import com.mezon.mobile.home.messages.DmParticipant
+import com.mezon.mobile.home.profile.UserController
+import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.STREAM_MODE_CHANNEL
 import com.mezon.mobile.network.STREAM_MODE_THREAD
 import com.mezon.mobile.util.MENTION_HERE_USER_ID
@@ -328,7 +333,7 @@ fun ChannelMessage.toMessageEntity(currentUserId: Long): MessageEntity {
         channelId = channelId,
         senderId = senderId,
         senderName = resolvedSenderName,
-        senderUsername = username,
+        senderUsername = resolveChannelSenderUsername(username, displayName),
         senderAvatar = resolvedSenderAvatar,
         content = mergedContent,
         timestampSeconds = createTimeSeconds.toLong(),
@@ -349,6 +354,89 @@ fun ChannelMessage.toMessageEntity(currentUserId: Long): MessageEntity {
         extraAttachmentsJson = extraJson,
         reactionsJson = reactionsJson
     )
+}
+
+fun resolveChannelSenderUsername(rawUsername: String, rawDisplayName: String): String {
+    val username = AvatarDrawable.normalizeUsername(rawUsername)
+    if (username.isEmpty()) return ""
+    val display = rawDisplayName.trim()
+    if (display.isNotEmpty() && username.equals(display, ignoreCase = true)) return ""
+    return username
+}
+
+data class DmSenderHydrationContext(
+    val currentUserId: Long,
+    val participantsByUserId: Map<Long, DmParticipant>,
+    val peerUsername: String,
+    val selfUsername: String,
+)
+
+fun buildDmSenderHydrationContext(
+    channelId: Long,
+    currentUserId: Long,
+    dialogsController: DialogsController,
+    userController: UserController,
+): DmSenderHydrationContext {
+    val dm = dialogsController.getDialog(channelId)
+    val peerUsername = if (dm?.type == CHANNEL_TYPE_DM) {
+        resolveChannelSenderUsername(dm.username, dm.displayName)
+    } else {
+        ""
+    }
+    return DmSenderHydrationContext(
+        currentUserId = currentUserId,
+        participantsByUserId = dialogsController.getParticipants(channelId).associateBy { it.userId },
+        peerUsername = peerUsername,
+        selfUsername = AvatarDrawable.normalizeUsername(userController.username),
+    )
+}
+
+private fun resolveDmSenderUsername(msg: MessageEntity, ctx: DmSenderHydrationContext): String {
+    val fromPayload = resolveChannelSenderUsername(msg.senderUsername, msg.senderName)
+    if (fromPayload.isNotEmpty()) return fromPayload
+
+    ctx.participantsByUserId[msg.senderId]?.username?.let { participantUsername ->
+        val normalized = resolveChannelSenderUsername(
+            participantUsername,
+            ctx.participantsByUserId[msg.senderId]?.displayName.orEmpty()
+        )
+        if (normalized.isNotEmpty()) return normalized
+    }
+
+    if (msg.senderId == ctx.currentUserId && ctx.selfUsername.isNotEmpty()) {
+        return ctx.selfUsername
+    }
+
+    if (ctx.peerUsername.isNotEmpty() && msg.senderId != ctx.currentUserId) {
+        val peerIds = ctx.participantsByUserId.keys.filter { it != ctx.currentUserId }
+        if (peerIds.isEmpty() || msg.senderId in peerIds) return ctx.peerUsername
+    }
+
+    return ""
+}
+
+fun MessageEntity.hydrateDmSender(ctx: DmSenderHydrationContext): MessageEntity {
+    val resolvedUsername = resolveDmSenderUsername(this, ctx)
+    val participantAvatar = ctx.participantsByUserId[senderId]?.avatarUrl.orEmpty()
+    val resolvedAvatar = senderAvatar.ifBlank { participantAvatar }
+    if (resolvedUsername == senderUsername && resolvedAvatar == senderAvatar) return this
+    return copy(senderUsername = resolvedUsername, senderAvatar = resolvedAvatar)
+}
+
+fun List<MessageEntity>.hydrateDmSenders(ctx: DmSenderHydrationContext): List<MessageEntity> =
+    map { it.hydrateDmSender(ctx) }
+
+fun hydrateDmMessagesIfNeeded(
+    messages: List<MessageEntity>,
+    channelId: Long,
+    clanId: Long,
+    currentUserId: Long,
+    dialogsController: DialogsController,
+    userController: UserController,
+): List<MessageEntity> {
+    if (clanId != 0L || messages.isEmpty()) return messages
+    val ctx = buildDmSenderHydrationContext(channelId, currentUserId, dialogsController, userController)
+    return messages.hydrateDmSenders(ctx)
 }
 
 private data class ParsedAttachment(

@@ -77,9 +77,8 @@ data class DirectMessage(
     val groupCreatorId: Long = 0L,
 ) {
     fun avatarPlaceholderKey(): String = when (type) {
-        CHANNEL_TYPE_GROUP -> displayName.ifEmpty { label }
-        CHANNEL_TYPE_DM -> label.ifEmpty { username }
-        else -> displayName.ifEmpty { label }.ifEmpty { username }
+        CHANNEL_TYPE_GROUP -> label.ifEmpty { displayName }
+        else -> username
     }
 }
 
@@ -147,7 +146,7 @@ fun ChannelDescription.toDirectMessage(currentUserId: Long, previewContext: andr
         label = channelLabel.ifBlank { displayName },
         avatarUrl = avatarUrl,
         displayName = displayName,
-        username = if (isGroup) displayName else username,
+        username = username,
         lastMessageContent = lastMsgContent,
         unreadCount = countMessUnread,
         isOnline = false,
@@ -189,7 +188,7 @@ fun ChannelMessage.toDirectMessageFromIncoming(
         label = name,
         avatarUrl = if (type == CHANNEL_TYPE_DM) avatar else "",
         displayName = name,
-        username = if (type == CHANNEL_TYPE_GROUP) name else username,
+        username = username,
         lastMessageContent = preview,
         unreadCount = unread,
         isOnline = false,

@@ -16,6 +16,7 @@ import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.messages.ChannelAvatarLoadState
 import com.mezon.mobile.home.messages.ChannelAvatarRequest
 import com.mezon.mobile.home.messages.loadChannelAvatar
+import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.ui.cells.MezonIcon
 
 class SharingTargetCell(context: Context, private val theme: ThemeColors) : View(context) {
@@ -65,10 +66,10 @@ class SharingTargetCell(context: Context, private val theme: ThemeColors) : View
 
     private fun loadAvatar(t: SharingTarget) {
         val url = t.avatarUrl.ifEmpty { t.clanLogo }
-        val placeholderKey = if (t.isGroup || t.isDm) {
-            t.channelLabel.ifEmpty { t.username }
-        } else {
-            t.channelLabel
+        val placeholderKey = when {
+            t.channelType == CHANNEL_TYPE_DM -> t.username
+            t.isGroup -> t.channelLabel.ifEmpty { t.username }
+            else -> t.channelLabel
         }
         loadChannelAvatar(
             context,

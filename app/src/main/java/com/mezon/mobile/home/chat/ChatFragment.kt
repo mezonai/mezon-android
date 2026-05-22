@@ -144,7 +144,6 @@ import java.util.concurrent.ConcurrentHashMap
 private const val TAG = "ChatFragment"
 private const val FORWARD_NEARBY_WINDOW_SECONDS = 10 * 60L
 
-/** Soft realtime when BE does not push ChatUpdate for every poll vote — GetPoll on visible rows. */
 private const val POLL_TALLY_TICK_MS = 15_000L
 private const val POLL_TALLY_MIN_GAP_MS = 12_000L
 private const val POLL_TALLY_MAX_PER_TICK = 8
@@ -434,7 +433,7 @@ class ChatFragment : BaseFragment() {
                 userClanController.loadChannelMembers(clanId, channelId, CHANNEL_TYPE_CHANNEL)
                 Log.d(TAG, "onFragmentCreate loadChannelMembers channel clanId=$clanId channelId=$channelId")
             }
-        } else if (channelType == CHANNEL_TYPE_GROUP) {
+        } else if (channelType == CHANNEL_TYPE_DM || channelType == CHANNEL_TYPE_GROUP) {
             dialogsController.loadDmParticipants(channelId)
         }
         pinMessageController.loadPinMessages(channelId, clanId)
@@ -1094,6 +1093,9 @@ class ChatFragment : BaseFragment() {
             if (loadedChannelId == targetChannelId) {
                 checkSuggestionTrigger()
             }
+            if (clanId == 0L && loadedChannelId == channelId) {
+                rehydrateDmMessageSenders()
+            }
         }
 
         observe(NotificationCenter.closeChats) { _, _, args ->
@@ -1129,6 +1131,9 @@ class ChatFragment : BaseFragment() {
             }
             if (clanId == 0L && (channelType == CHANNEL_TYPE_DM || channelType == CHANNEL_TYPE_GROUP)) {
                 refreshWelcomeFromDialog()
+                if (channelType == CHANNEL_TYPE_DM) {
+                    rehydrateDmMessageSenders()
+                }
             }
             if (clanId != 0L || channelType != CHANNEL_TYPE_DM) return@observe
             actionBar?.let { setupDmHeaderCallMenu(it) }
@@ -2853,11 +2858,6 @@ class ChatFragment : BaseFragment() {
         val now = System.currentTimeMillis() / 1000L
         return parsed.expireAtSeconds > 0 && parsed.expireAtSeconds < now
     }
-
-    /**
-     * Session optimistic indices, else JSON [voter_details], else [PollVotePersistence].
-     * Must match [ChatPollBridge.getLocalState] so the poll card UI keeps "voted" after leaving chat.
-     */
     private fun effectivePollMyAnswerIndices(messageId: Long): List<Int> {
         val st = pollStates[messageId] ?: PollLocalState()
         if (st.optimisticMyIndices != null) return st.optimisticMyIndices!!
@@ -2981,7 +2981,6 @@ class ChatFragment : BaseFragment() {
         }
     }
 
-    /** After re-opening chat or loading history, refill tallies for polls we voted on locally. */
     private fun refreshPollSnapshotsForStoredVotes() {
         if (fragmentView == null || messages.isEmpty()) return
         val seen = mutableSetOf<Long>()
@@ -2994,10 +2993,6 @@ class ChatFragment : BaseFragment() {
         }
     }
 
-    /**
-     * Other users' votes often do not arrive as a WebSocket message with full poll JSON.
-     * Refresh [GetPoll] for items on screen on an interval and after scroll settles (soft realtime).
-     */
     private fun startVisiblePollTallyRefreshLoop() {
         pollTallyRefreshJob?.cancel()
         pollTallyRefreshJob = appScope.launch {
@@ -3348,6 +3343,25 @@ class ChatFragment : BaseFragment() {
         val dm = dialogsController.getDialog(channelId) ?: return false
         if (dm.otherUserId == 0L) return false
         return dm.otherUserId == myId
+    }
+
+    private fun rehydrateDmMessageSenders() {
+        if (clanId != 0L || channelType != CHANNEL_TYPE_DM || !::adapter.isInitialized) return
+        val currentUserId = chatController.getCurrentUserId()
+        val ctx = buildDmSenderHydrationContext(channelId, currentUserId, dialogsController, userController)
+        var changed = false
+        for (i in messages.indices) {
+            val updated = messages[i].hydrateDmSender(ctx)
+            if (updated === messages[i]) continue
+            messages[i] = updated
+            messagesDict.put(updated.id, updated)
+            changed = true
+        }
+        if (!changed || fragmentView == null) return
+        updateVisibleRows(
+            NotificationCenter.UPDATE_MASK_NAME or NotificationCenter.UPDATE_MASK_AVATAR
+        )
+        adapter.updateRowsSafe()
     }
 
     private fun refreshWelcomeFromDialog() {
@@ -5218,7 +5232,7 @@ class ChatFragment : BaseFragment() {
                         messageId = msg.id,
                         senderAvatar = msg.senderAvatar,
                         senderId = msg.senderId.toString(),
-                        senderUsername = msg.senderName,
+                        senderUsername = msg.senderUsername,
                         messageContent = content,
                         messageAttachment = attachment,
                         messageCreatedTime = createdTime
@@ -5518,7 +5532,7 @@ class ChatFragment : BaseFragment() {
             messageRefId = target.id
             refType = 0
             messageSenderId = target.senderId
-            messageSenderUsername = target.senderUsername.ifBlank { target.senderName }
+            messageSenderUsername = target.senderUsername
             messageSenderAvatar = target.senderAvatar
             messageSenderClanNick = if (clanId != 0L) target.senderName else ""
             messageSenderDisplayName = target.senderName

@@ -489,7 +489,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             buildLayouts(msg)
             if (!isCombined) {
                 val isAnon = msg.senderId == ANONYMOUS_USER_ID
-                val avatarUsername = if (isAnon) "Anonymous" else msg.senderName.ifBlank { msg.senderUsername }
+                val avatarUsername = if (isAnon) "Anonymous" else msg.senderUsername
                 avatarDrawable.setInfo(msg.senderId, avatarUsername)
                 if (isAnon) loadAnonymousAvatar() else loadAvatar(msg.senderAvatar)
             }
@@ -538,7 +538,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 rebuildLayout = true
             }
             val isAnon = msg.senderId == ANONYMOUS_USER_ID
-            val avatarUsername = if (isAnon) "Anonymous" else msg.senderName.ifBlank { msg.senderUsername }
+            val avatarUsername = if (isAnon) "Anonymous" else msg.senderUsername
             avatarDrawable.setInfo(msg.senderId, avatarUsername)
             needInvalidate = true
         }
@@ -546,7 +546,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         if ((mask and NotificationCenter.UPDATE_MASK_AVATAR) != 0) {
             if (!isCombined && messageEntity?.senderAvatar != msg.senderAvatar) {
                 val isAnon = msg.senderId == ANONYMOUS_USER_ID
-                val avatarUsername = if (isAnon) "Anonymous" else msg.senderName.ifBlank { msg.senderUsername }
+                val avatarUsername = if (isAnon) "Anonymous" else msg.senderUsername
                 avatarDrawable.setInfo(msg.senderId, avatarUsername)
                 if (isAnon) loadAnonymousAvatar() else loadAvatar(msg.senderAvatar)
                 needInvalidate = true
@@ -1696,7 +1696,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             val avatarMatch = REFERENCE_AVATAR_REGEX.find(content)
             replySenderAvatarUrl = avatarMatch?.groupValues?.getOrNull(1)?.replace("\\/", "/")
 
-            replyAvatarDrawable.setInfo(replySenderId, replySenderUsername.ifBlank { replySenderName })
+            replyAvatarDrawable.setInfo(replySenderId, replySenderUsername)
             if (isAnonymousReply) loadReplyAnonymousAvatar() else loadReplyAvatar(replySenderAvatarUrl ?: "")
             replySenderName.isNotEmpty() || replyContent.isNotEmpty()
         } catch (_: Exception) {

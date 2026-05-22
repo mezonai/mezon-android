@@ -13,6 +13,7 @@ import com.mezon.mobile.home.chat.MessageEntity
 import com.mezon.mobile.home.chat.ForwardDestination
 import com.mezon.mobile.home.chat.applyReactionEvent
 import com.mezon.mobile.home.chat.mergeChannelContentMentionsAndRefs
+import com.mezon.mobile.home.chat.hydrateDmMessagesIfNeeded
 import com.mezon.mobile.home.chat.toMessageEntity
 import com.mezon.mobile.network.ApiCacheTracker
 import com.mezon.mobile.network.CODE_CHAT_REMOVE
@@ -116,6 +117,20 @@ class ChatController @Inject constructor(
     private fun isAnonymousSend(clanId: Long): Boolean =
         clanId != 0L && anonymousController.get().isAnonymous(clanId)
 
+    private fun hydrateDmMessages(
+        messages: List<MessageEntity>,
+        channelId: Long,
+        clanId: Long,
+        currentUserId: Long,
+    ): List<MessageEntity> = hydrateDmMessagesIfNeeded(
+        messages,
+        channelId,
+        clanId,
+        currentUserId,
+        dialogsController,
+        userController.get()
+    )
+
     private fun optimisticSenderPresentation(uc: UserController, clanId: Long, channelType: Int, anon: Boolean): Pair<String, String> {
         if (anon) return Pair("Anonymous", "")
         val mode = channelTypeToStreamMode(channelType)
@@ -144,7 +159,6 @@ class ChatController @Inject constructor(
         }
     }
 
-    /** Returns the newest known messageId for [channelId], 0 if unknown. */
     fun getLastMessageId(channelId: Long): Long =
         synchronized(this) { lastMessageByChannel.get(channelId, 0L) }
 
@@ -258,8 +272,15 @@ class ChatController @Inject constructor(
                 if (forceRefresh) cacheTracker.invalidate(cacheKey)
                 val isOnlineNow = networkMonitor.isOnline.value
 
+                val currentUserId = sessionManager.sessionFlow.first()?.userId?.toLongOrNull() ?: 0L
+
                 if (!isOnlineNow) {
-                    val fromDb = messageDao.getLatestByChannel(channelId, PAGE_SIZE)
+                    val fromDb = hydrateDmMessages(
+                        messageDao.getLatestByChannel(channelId, PAGE_SIZE),
+                        channelId,
+                        clanId,
+                        currentUserId
+                    )
                     if (fromDb.isNotEmpty()) {
                         notificationCenter.postNotificationOnMainThread(
                             NotificationCenter.messagesDidLoad, channelId, ArrayList(fromDb), true, false, true
@@ -286,9 +307,12 @@ class ChatController @Inject constructor(
                     val firstMessageReached = allMessages.any { it.code == MessageEntity.CODE_FIRST_MESSAGE }
                     val hasMoreTop = !firstMessageReached
 
-                    val messages = allMessages
-                        .filter { it.isRenderable }
-                        .sortedBy { it.id }
+                    val messages = hydrateDmMessages(
+                        allMessages.filter { it.isRenderable }.sortedBy { it.id },
+                        channelId,
+                        clanId,
+                        currentUserId
+                    )
 
                     synchronized(this@ChatController) { initialFetchDone.add(channelId) }
                     val serverLastSentId = if (
@@ -306,7 +330,13 @@ class ChatController @Inject constructor(
             } catch (e: Exception) {
                 Log.e(TAG, "loadMessages failed for channel $channelId", e)
                 sentryReporter.logChatFailure("loadMessages", channelId, clanId, e)
-                val fromDb = messageDao.getLatestByChannel(channelId, PAGE_SIZE)
+                val currentUserId = sessionManager.sessionFlow.first()?.userId?.toLongOrNull() ?: 0L
+                val fromDb = hydrateDmMessages(
+                    messageDao.getLatestByChannel(channelId, PAGE_SIZE),
+                    channelId,
+                    clanId,
+                    currentUserId
+                )
                 if (fromDb.isNotEmpty()) {
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.messagesDidLoad, channelId, ArrayList(fromDb), true, false, true
@@ -333,7 +363,13 @@ class ChatController @Inject constructor(
                 val isOnlineNow = networkMonitor.isOnline.value
 
                 if (!isOnlineNow) {
-                    val fromDb = messageDao.getMessagesAround(channelId, anchorMessageId, PAGE_SIZE)
+                    val currentUserId = sessionManager.sessionFlow.first()?.userId?.toLongOrNull() ?: 0L
+                    val fromDb = hydrateDmMessages(
+                        messageDao.getMessagesAround(channelId, anchorMessageId, PAGE_SIZE),
+                        channelId,
+                        clanId,
+                        currentUserId
+                    )
                     var anchorInDb = false
                     if (fromDb.isNotEmpty()) {
                         val dbMinId = fromDb.minOf { it.id }
@@ -357,7 +393,12 @@ class ChatController @Inject constructor(
 
                     if (!anchorInDb && fromDb.isNotEmpty()) {
                         Log.d(TAG, "Offline — anchor not in DB, showing latest cached as fallback")
-                        val fallback = messageDao.getLatestByChannel(channelId, PAGE_SIZE * 4)
+                        val fallback = hydrateDmMessages(
+                            messageDao.getLatestByChannel(channelId, PAGE_SIZE * 4),
+                            channelId,
+                            clanId,
+                            currentUserId
+                        )
                         if (fallback.isNotEmpty()) {
                             notificationCenter.postNotificationOnMainThread(
                                 NotificationCenter.messagesDidLoad, channelId, ArrayList(fallback), true, false, true
@@ -385,9 +426,12 @@ class ChatController @Inject constructor(
                     val firstMessageReached = allMsgs.any { it.code == MessageEntity.CODE_FIRST_MESSAGE }
                     val hasMoreTop = !firstMessageReached
 
-                    val msgs = allMsgs
-                        .filter { it.isRenderable }
-                        .sortedBy { it.id }
+                    val msgs = hydrateDmMessages(
+                        allMsgs.filter { it.isRenderable }.sortedBy { it.id },
+                        channelId,
+                        clanId,
+                        currentUserId
+                    )
 
                     if (msgs.isNotEmpty()) {
                         messageDao.upsertAll(msgs)
@@ -420,8 +464,15 @@ class ChatController @Inject constructor(
         Log.d(TAG, "loadMoreBottom channelId=$channelId newestMessageId=$newestMessageId")
         appScope.launch(ioDispatcher) {
             try {
+                val currentUserId = sessionManager.sessionFlow.first()?.userId?.toLongOrNull() ?: 0L
+
                 if (!networkMonitor.isOnline.value) {
-                    val fromDb = messageDao.getMessagesAfter(channelId, newestMessageId, PAGE_SIZE)
+                    val fromDb = hydrateDmMessages(
+                        messageDao.getMessagesAfter(channelId, newestMessageId, PAGE_SIZE),
+                        channelId,
+                        clanId,
+                        currentUserId
+                    )
                     val hasMoreBottom = fromDb.size >= PAGE_SIZE
                     Log.d(TAG, "loadMoreBottom offline fallback: ${fromDb.size} from DB")
                     notificationCenter.postNotificationOnMainThread(
@@ -437,10 +488,15 @@ class ChatController @Inject constructor(
                         session.apiUrl, session.token, channelId, clanId,
                         newestMessageId, DIRECTION_AFTER, PAGE_SIZE
                     )
-                    val newer = response.messagesList
-                        .map { it.toMessageEntity(currentUserId) }
-                        .filter { it.isRenderable }
-                        .sortedBy { it.id }
+                    val newer = hydrateDmMessages(
+                        response.messagesList
+                            .map { it.toMessageEntity(currentUserId) }
+                            .filter { it.isRenderable }
+                            .sortedBy { it.id },
+                        channelId,
+                        clanId,
+                        currentUserId
+                    )
 
                     val hasMoreBottom = response.messagesList.size >= PAGE_SIZE
                     val serverLastSentId = if (
@@ -470,8 +526,15 @@ class ChatController @Inject constructor(
         Log.d(TAG, "loadMoreTop channelId=$channelId oldestMessageId=$oldestMessageId")
         appScope.launch(ioDispatcher) {
             try {
+                val currentUserId = sessionManager.sessionFlow.first()?.userId?.toLongOrNull() ?: 0L
+
                 if (!networkMonitor.isOnline.value) {
-                    val fromDb = messageDao.getMessagesBefore(channelId, oldestMessageId, PAGE_SIZE)
+                    val fromDb = hydrateDmMessages(
+                        messageDao.getMessagesBefore(channelId, oldestMessageId, PAGE_SIZE),
+                        channelId,
+                        clanId,
+                        currentUserId
+                    )
                     val hasMoreTop = fromDb.size >= PAGE_SIZE
                     Log.d(TAG, "loadMoreTop offline fallback: ${fromDb.size} from DB")
                     notificationCenter.postNotificationOnMainThread(
@@ -491,9 +554,12 @@ class ChatController @Inject constructor(
                     val firstMessageReached = allOlder.any { it.code == MessageEntity.CODE_FIRST_MESSAGE }
                     val hasMoreTop = !firstMessageReached
 
-                    val older = allOlder
-                        .filter { it.isRenderable }
-                        .sortedBy { it.timestampSeconds }
+                    val older = hydrateDmMessages(
+                        allOlder.filter { it.isRenderable }.sortedBy { it.timestampSeconds },
+                        channelId,
+                        clanId,
+                        currentUserId
+                    )
                     if (older.isNotEmpty()) {
                         messageDao.upsertAll(older)
                         messageDao.trimAround(channelId, oldestMessageId, PAGE_SIZE * 2)
@@ -1549,7 +1615,12 @@ class ChatController @Inject constructor(
 
         socketEventDispatcher.channelMessages.collect { raw ->
             val msg = assignMissingMessageId(resolveEphemeralSender(raw, currentUserId))
-            val entity = msg.toMessageEntity(currentUserId)
+            val entity = hydrateDmMessages(
+                listOf(msg.toMessageEntity(currentUserId)),
+                msg.channelId,
+                msg.clanId,
+                currentUserId
+            ).first()
             if (BuildConfig.DEBUG) {
                 Log.d(
                     TAG,

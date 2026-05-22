@@ -998,7 +998,8 @@ class EmojiSettingFragment : BaseFragment() {
             val creatorId = item.creatorId.toLongOrNull() ?: 0L
             val m = resolveMember(creatorId)
             val avUrl = m?.clanAvatar.orEmpty().ifBlank { m?.avatarUrl.orEmpty() }
-            holder.avatarView.setInfo(creatorId, displayAuthor(item))
+            val creatorUsername = resolveMember(item.creatorId.toLongOrNull() ?: 0L)?.username.orEmpty()
+            holder.avatarView.setInfo(creatorId, creatorUsername)
             if (avUrl.isNotBlank()) holder.avatarView.setImageUrl(avUrl) else holder.avatarView.setImageUrl(null)
 
             val del = MezonIcon.closeSmallBold.getDrawable(holder.deleteBtn.context, themeColors.error)

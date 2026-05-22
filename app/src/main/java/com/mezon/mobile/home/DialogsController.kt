@@ -691,7 +691,7 @@ class DialogsController @Inject constructor(
                         baseDm = baseDm.copy(
                             label = senderName,
                             displayName = senderName,
-                            username = msg.username.ifBlank { senderName },
+                            username = msg.username,
                             avatarUrl = msg.avatar.ifBlank { dm.avatarUrl },
                             otherUserId = msg.senderId
                         )

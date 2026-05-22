@@ -1653,7 +1653,7 @@ class CreateThreadFragment : BaseFragment() {
                 messageRefId = s.id
                 refType = 0
                 messageSenderId = s.senderId
-                messageSenderUsername = s.senderName
+                messageSenderUsername = s.senderUsername
                 messageSenderAvatar = s.senderAvatar
                 messageSenderDisplayName = s.senderName
                 content = s.content

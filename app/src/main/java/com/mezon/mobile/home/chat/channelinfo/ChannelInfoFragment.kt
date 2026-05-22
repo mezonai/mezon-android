@@ -327,9 +327,11 @@ class ChannelInfoFragment : BaseFragment() {
             }
             avatarContainer.addView(av, LayoutHelper.createFrame(avatarSize, avatarSize, Gravity.CENTER))
         } else {
+            val userId = dm?.otherUserId?.takeIf { it != 0L } ?: channelId
+            val placeholderUsername = dm?.username.orEmpty()
             val av = AvatarView(context).apply {
                 setSizeDp(avatarSize)
-                setInfo(channelId, displayName)
+                setInfo(userId, placeholderUsername)
                 setImageUrl(avatarUrl)
             }
             avatarContainer.addView(av, LayoutHelper.createFrame(avatarSize, avatarSize, Gravity.CENTER))

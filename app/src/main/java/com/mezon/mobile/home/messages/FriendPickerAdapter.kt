@@ -373,7 +373,7 @@ private class FriendPickerCell(
         } else {
             fallbackAvatar.visibility = View.GONE
             avatarView.visibility = View.VISIBLE
-            avatarView.setInfo(user.id, displayName)
+            avatarView.setInfo(user.id, user.username)
             avatarView.setImageUrl(user.avatarUrl)
         }
         titleView.text = displayName
