@@ -1167,4 +1167,13 @@
     <string name="call_full_screen_intent_open_settings">Bật trong cài đặt</string>
     <string name="call_full_screen_intent_start_call_anyway">Vẫn gọi</string>
     <string name="call_full_screen_intent_incoming_hint">Đang tắt toàn màn hình khi khóa — chạm để bật</string>
+
+    <string name="advanced_share_contact">Chia sẻ danh thiếp</string>
+    <string name="share_contact_title">Chia sẻ danh thiếp</string>
+    <string name="share_contact_message">Nhắn tin</string>
+    <string name="no_contacts_found">Không tìm thấy liên hệ</string>
+    <string name="contact_shared_success">Chia sẻ danh thiếp thành công</string>
+    <string name="contact_shared_error">Không thể chia sẻ danh thiếp</string>
+    <string name="cannot_call_yourself">Bạn không thể gọi chính mình.</string>
+    <string name="no_permission_call_blocked">Bạn không thể thực hiện hành động này.</string>
 </resources>

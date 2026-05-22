@@ -44,8 +44,12 @@ import com.mezon.mobile.util.MentionData
 import com.mezon.mobile.util.buildTextContent
 import com.mezon.mobile.util.EmojiMarker
 import com.mezon.mobile.util.MarkdownMarker
+import com.mezon.mobile.util.ShareContactData
+import com.mezon.mobile.util.buildShareContactContent
 import com.mezon.mobile.util.buildTextContentWithEmojis
 import com.mezon.mobile.util.mergePendingMentionsIntoContent
+import com.mezon.mobile.util.mergeShareContactEmbedIntoContent
+import com.mezon.mobile.util.isShareContactMessage
 import com.mezon.mezon.api.ChannelMessage
 import com.mezon.mezon.api.CreatePollResponse
 import com.mezon.mobile.home.chat.poll.buildPollMessageContent
@@ -941,6 +945,67 @@ class ChatController @Inject constructor(
         }
     }
 
+    fun sendShareContact(
+        channelId: Long,
+        clanId: Long,
+        channelType: Int,
+        isChannelPrivate: Boolean,
+        data: ShareContactData
+    ) {
+        val mode = channelTypeToStreamMode(channelType)
+        val isPublic = !isChannelPrivate
+        val content = buildShareContactContent(data)
+
+        val tempId = generateTempId(channelId)
+        val uc = userController.get()
+        val anon = isAnonymousSend(clanId)
+        val (optName, optAvatar) = optimisticSenderPresentation(uc, clanId, channelType, anon)
+        val optimistic = MessageEntity(
+            id = tempId,
+            channelId = channelId,
+            senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
+            senderName = optName,
+            senderUsername = if (anon) "Anonymous" else uc.username,
+            senderAvatar = optAvatar,
+            content = content,
+            timestampSeconds = System.currentTimeMillis() / 1000,
+            code = MessageEntity.CODE_SHARE_CONTACT,
+            isMe = true,
+            sendState = MessageEntity.SEND_STATE_SENDING
+        )
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.didReceiveNewMessages, channelId, optimistic
+        )
+
+        appScope.launch {
+            try {
+                sessionManager.withAutoRefresh { session ->
+                    ensureActiveArchivedThreadIfNeeded(session.apiUrl, session.token, channelId, clanId, channelType)
+                    val request = channelMessageSend {
+                        this.clanId = clanId
+                        this.channelId = channelId
+                        this.mode = mode
+                        this.isPublic = isPublic
+                        this.content = content
+                        this.code = MessageEntity.CODE_SHARE_CONTACT
+                        if (anon) this.anonymousMessage = true
+                    }
+                    val ack = channelSend(session.apiUrl, session.token, request)
+                    markForwardTargetUsed(channelId, channelType)
+                    notificationCenter.postNotificationOnMainThread(
+                        NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
+                    )
+                    Log.d(TAG, "Share contact sent: channelId=$channelId userId=${data.userId}")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to send share contact", e)
+                notificationCenter.postNotificationOnMainThread(
+                    NotificationCenter.pendingMessageError, channelId, tempId
+                )
+            }
+        }
+    }
+
     fun sendBuzzMessage(
         channelId: Long,
         clanId: Long,
@@ -1491,10 +1556,15 @@ class ChatController @Inject constructor(
         val isPublic = !isChannelPrivate
         val hasExtras = !mentions.isNullOrEmpty() || !emojiMarkers.isNullOrEmpty() ||
             !markdownMarkers.isNullOrEmpty() || !hashtags.isNullOrEmpty()
-        val content = if (hasExtras) {
+        val baseContent = if (hasExtras) {
             buildTextContentWithEmojis(newText, mentions, emojiMarkers, markdownMarkers, hashtags)
         } else {
             buildTextContent(newText)
+        }
+        val content = if (existingMessage != null && isShareContactMessage(existingMessage.code, existingMessage.content)) {
+            mergeShareContactEmbedIntoContent(baseContent, existingMessage.content)
+        } else {
+            baseContent
         }
         val protoMentions = mentions?.map { m ->
             messageMention {

@@ -45,6 +45,7 @@ class AdvancedAttachAlert(
         fun onBuzzSelected()
         fun onAnonymousToggled()
         fun onCreatePollRequested() {}
+        fun onShareContactSelected() {}
     }
 
     var advancedDelegate: AdvancedAttachAlertDelegate? = null
@@ -134,6 +135,7 @@ class AdvancedAttachAlert(
             "buzz" -> advancedDelegate?.onBuzzSelected()
             "anonymous" -> advancedDelegate?.onAnonymousToggled()
             "poll" -> advancedDelegate?.onCreatePollRequested()
+            "share_contact" -> advancedDelegate?.onShareContactSelected()
             else -> Toast.makeText(context, R.string.feature_coming_soon, Toast.LENGTH_SHORT).show()
         }
     }
