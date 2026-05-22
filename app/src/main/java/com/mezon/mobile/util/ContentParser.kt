@@ -2,12 +2,12 @@ package com.mezon.mobile.util
 
 import android.content.Context
 import com.mezon.mobile.R
+import com.mezon.mobile.util.SHARE_CONTACT_KEY
 import org.json.JSONArray
 import org.json.JSONObject
 
 private val CONTENT_REGEX = Regex("\"t\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"")
 
-private const val SHARE_CONTACT_KEY = "share_contact"
 
 private fun unescapeJsonText(text: String, singleLine: Boolean): String {
     var s = text.replace("\\/", "/").replace("\\\"", "\"")
