@@ -10,6 +10,7 @@ import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.home.chat.AttachmentPickerItem
 import com.mezon.mobile.home.chat.AttachmentInfo
 import com.mezon.mobile.home.chat.MessageEntity
+import com.mezon.mobile.home.chat.canEditMessage
 import com.mezon.mobile.home.chat.ForwardDestination
 import com.mezon.mobile.home.chat.applyReactionEvent
 import com.mezon.mobile.home.chat.mergeChannelContentMentionsAndRefs
@@ -1449,6 +1450,7 @@ class ChatController @Inject constructor(
         hashtags: List<com.mezon.mobile.util.HashtagData>? = null,
         existingMessage: MessageEntity? = null
     ) {
+        if (existingMessage != null && !existingMessage.canEditMessage(getCurrentUserId())) return
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
         val hasExtras = !mentions.isNullOrEmpty() || !emojiMarkers.isNullOrEmpty() ||

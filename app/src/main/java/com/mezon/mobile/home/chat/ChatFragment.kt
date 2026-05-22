@@ -1660,6 +1660,7 @@ class ChatFragment : BaseFragment() {
                 }
             }
             override fun didLongPress(cell: ChatMessageCell, msg: MessageEntity) {
+                if (msg.isCallLogMessage()) return
                 showMessageActionSheet(msg)
             }
             override fun didClickAvatar(cell: ChatMessageCell, msg: MessageEntity) {
@@ -4771,6 +4772,7 @@ class ChatFragment : BaseFragment() {
         if (activity.isFinishing || activity.isDestroyed) return
         val userId = chatController.getCurrentUserId()
         val isMyMessage = msg.senderId == userId
+        val showEditMessage = msg.canEditMessage(userId)
         val allMedia = msg.allImageAttachments
         val hasMedia = allMedia.isNotEmpty() ||
             msg.attachmentUrl.isNotEmpty() && (msg.attachmentFiletype.startsWith("image/") || msg.attachmentFiletype.startsWith("video/"))
@@ -4789,6 +4791,7 @@ class ChatFragment : BaseFragment() {
             hasImage = hasImage,
             showForwardSingle = allowFwd,
             showForwardAllNearby = allowFwd && collectForwardNearbyMessages(msg).size > 1,
+            showEditMessage = showEditMessage,
             listener = object : MessageActionBottomSheet.MessageActionListener {
                 override fun onActionSelected(action: MessageActionBottomSheet.ActionType, message: MessageEntity) {
                     handleMessageAction(action, message)
