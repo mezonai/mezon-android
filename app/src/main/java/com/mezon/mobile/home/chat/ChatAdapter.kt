@@ -5,6 +5,7 @@ import android.widget.ProgressBar
 import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.home.clans.UserDisplayRole
 import com.mezon.mobile.network.LinkInvitePreview
 
 class ChatAdapter(
@@ -16,6 +17,8 @@ class ChatAdapter(
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     var pollBridge: com.mezon.mobile.home.chat.poll.ChatPollBridge? = null
+    var shareContactOnlineResolver: ((Long) -> Boolean)? = null
+    var displayRoleResolver: ((Long) -> UserDisplayRole?)? = null
 
     init { setHasStableIds(true) }
 
@@ -218,6 +221,7 @@ class ChatAdapter(
             is MessageViewHolder -> {
                 holder.cell.delegate = cellDelegate
                 holder.cell.pollBridge = pollBridge
+                holder.cell.shareContactOnlineResolver = shareContactOnlineResolver
                 holder.cell.loadLinkInvitePreview = loadLinkInvitePreview
                 holder.cell.isCombined = computeCombined(idx)
                 holder.cell.currentUserId = currentUserId.toLongOrNull() ?: 0L
@@ -225,6 +229,7 @@ class ChatAdapter(
                 holder.cell.clanId = clanId
                 holder.cell.isChannelPrivate = isChannelPrivate
                 val msg = messages[idx]
+                holder.cell.displayRoleResolver = displayRoleResolver
                 holder.cell.hasMentionHighlight = currentUserId.isNotEmpty() &&
                     msg.hasMention(currentUserId)
                 holder.cell.update(0, msg)

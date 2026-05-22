@@ -160,7 +160,8 @@ class MemberResolver @Inject constructor(
                 displayName = m.displayName.ifBlank { clanMember?.displayName ?: global?.displayName.orEmpty() },
                 avatarUrl = m.avatarUrl.ifBlank { clanMember?.avatarUrl ?: global?.avatarUrl.orEmpty() },
                 clanNick = m.clanNick.ifBlank { clanMember?.clanNick.orEmpty() },
-                clanAvatar = m.clanAvatar.ifBlank { clanMember?.clanAvatar?.ifBlank { clanMember.avatarUrl }.orEmpty() }
+                clanAvatar = m.clanAvatar.ifBlank { clanMember?.clanAvatar?.ifBlank { clanMember.avatarUrl }.orEmpty() },
+                roleIds = if (m.roleIds.isNotEmpty()) m.roleIds else clanMember?.roleIds.orEmpty()
             )
             enriched.add(next)
         }

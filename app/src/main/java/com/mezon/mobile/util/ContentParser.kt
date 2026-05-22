@@ -2,12 +2,12 @@ package com.mezon.mobile.util
 
 import android.content.Context
 import com.mezon.mobile.R
+import com.mezon.mobile.util.SHARE_CONTACT_KEY
 import org.json.JSONArray
 import org.json.JSONObject
 
 private val CONTENT_REGEX = Regex("\"t\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"")
 
-private const val SHARE_CONTACT_KEY = "share_contact"
 
 private fun unescapeJsonText(text: String, singleLine: Boolean): String {
     var s = text.replace("\\/", "/").replace("\\\"", "\"")
@@ -64,6 +64,13 @@ fun parseThreadInfoFromPlainText(text: String): ParsedThreadInfo? {
 
 fun isEmbedOrComponentsPayload(content: String): Boolean =
     content.contains("\"embed\"") || content.contains("\"components\"")
+
+private val REFERENCE_REF_ID_REGEX = Regex("\"message_ref_id\"\\s*:\\s*\"?(\\d+)\"?")
+
+fun firstReferenceMessageId(content: String): Long {
+    if (!content.contains("\"references\"")) return 0L
+    return REFERENCE_REF_ID_REGEX.find(content)?.groupValues?.getOrNull(1)?.toLongOrNull() ?: 0L
+}
 
 fun messageHasExplicitTextBody(content: String): Boolean {
     if (content.isBlank()) return false

@@ -904,37 +904,55 @@ data class EmbedComponentButton(
 
 data class EmbedActionRow(val buttons: List<EmbedComponentButton>)
 
-fun parseEmbedActionRows(content: String): List<EmbedActionRow> {
+data class EmbedPayload(
+    val embeds: List<EmbedData>,
+    val actionRows: List<EmbedActionRow>,
+)
+
+private val EMPTY_EMBED_PAYLOAD = EmbedPayload(emptyList(), emptyList())
+
+fun parseEmbedPayload(content: String): EmbedPayload {
+    if (content.isBlank()) return EMPTY_EMBED_PAYLOAD
     return try {
         val obj = JSONObject(content)
-        val rows = obj.optJSONArray("components") ?: return emptyList()
-        val out = mutableListOf<EmbedActionRow>()
-        for (r in 0 until rows.length()) {
-            val rowObj = rows.optJSONObject(r) ?: continue
-            val comps = rowObj.optJSONArray("components") ?: continue
-            val buttons = mutableListOf<EmbedComponentButton>()
-            for (c in 0 until comps.length()) {
-                val comp = comps.optJSONObject(c) ?: continue
-                if (comp.optInt("type", -1) != MESSAGE_COMPONENT_TYPE_BUTTON) continue
-                val id = comp.optString("id", "")
-                if (id.isEmpty()) continue
-                val inner = comp.optJSONObject("component") ?: continue
-                val label = inner.optString("label", "")
-                if (label.isEmpty()) continue
-                val url = inner.optString("url", "").takeIf { it.isNotEmpty() }
-                val style = EmbedButtonStyle.fromInt(inner.optInt("style", EmbedButtonStyle.PRIMARY.value))
-                val disabled = inner.optBoolean("disable", false) ||
-                    inner.optBoolean("disabled", false) ||
-                    inner.optBoolean("isDisabled", false)
-                buttons.add(EmbedComponentButton(id, label, url, style, disabled))
-            }
-            if (buttons.isNotEmpty()) out.add(EmbedActionRow(buttons))
-        }
-        out
+        val embeds = parseEmbedDataListFromObject(obj)
+        val rows = parseEmbedActionRowsFromObject(obj)
+        if (embeds.isEmpty() && rows.isEmpty()) EMPTY_EMBED_PAYLOAD
+        else EmbedPayload(embeds, rows)
     } catch (_: Exception) {
-        emptyList()
+        EMPTY_EMBED_PAYLOAD
     }
 }
+
+private fun parseEmbedActionRowsFromObject(obj: JSONObject): List<EmbedActionRow> {
+    val rows = obj.optJSONArray("components") ?: return emptyList()
+    val out = ArrayList<EmbedActionRow>(rows.length())
+    for (r in 0 until rows.length()) {
+        val rowObj = rows.optJSONObject(r) ?: continue
+        val comps = rowObj.optJSONArray("components") ?: continue
+        val buttons = ArrayList<EmbedComponentButton>(comps.length())
+        for (c in 0 until comps.length()) {
+            val comp = comps.optJSONObject(c) ?: continue
+            if (comp.optInt("type", -1) != MESSAGE_COMPONENT_TYPE_BUTTON) continue
+            val id = comp.optString("id", "")
+            if (id.isEmpty()) continue
+            val inner = comp.optJSONObject("component") ?: continue
+            val label = inner.optString("label", "")
+            if (label.isEmpty()) continue
+            val url = inner.optString("url", "").takeIf { it.isNotEmpty() }
+            val style = EmbedButtonStyle.fromInt(inner.optInt("style", EmbedButtonStyle.PRIMARY.value))
+            val disabled = inner.optBoolean("disable", false) ||
+                inner.optBoolean("disabled", false) ||
+                inner.optBoolean("isDisabled", false)
+            buttons.add(EmbedComponentButton(id, label, url, style, disabled))
+        }
+        if (buttons.isNotEmpty()) out.add(EmbedActionRow(buttons))
+    }
+    return out
+}
+
+fun parseEmbedActionRows(content: String): List<EmbedActionRow> =
+    parseEmbedPayload(content).actionRows
 
 private fun parseDiscordEmbedColor(embed: JSONObject, colorStr: String): Int {
     if (colorStr.isNotEmpty()) {
@@ -944,32 +962,32 @@ private fun parseDiscordEmbedColor(embed: JSONObject, colorStr: String): Int {
             } catch (_: Exception) {}
         } else {
             try {
-                return 0xFFFFFF and colorStr.toDouble().toInt()
+                return opaqueRgb(colorStr.toDouble().toInt())
             } catch (_: Exception) {}
         }
     }
     if (!embed.has("color") || embed.isNull("color")) return 0
     return try {
-        0xFFFFFF and embed.getDouble("color").toInt()
+        opaqueRgb(embed.getDouble("color").toInt())
     } catch (_: Exception) {
         0
     }
 }
 
-fun parseEmbedDataList(content: String): List<EmbedData> {
-    return try {
-        val obj = JSONObject(content)
-        val embeds = obj.optJSONArray("embed") ?: return emptyList()
-        val out = ArrayList<EmbedData>(embeds.length())
-        for (i in 0 until embeds.length()) {
-            val embed = embeds.optJSONObject(i) ?: continue
-            parseEmbedJsonObject(embed)?.let { out.add(it) }
-        }
-        out
-    } catch (_: Exception) {
-        emptyList()
+private fun opaqueRgb(raw: Int): Int = (raw and 0x00FFFFFF) or 0xFF000000.toInt()
+
+private fun parseEmbedDataListFromObject(obj: JSONObject): List<EmbedData> {
+    val embeds = obj.optJSONArray("embed") ?: return emptyList()
+    val out = ArrayList<EmbedData>(embeds.length())
+    for (i in 0 until embeds.length()) {
+        val embed = embeds.optJSONObject(i) ?: continue
+        parseEmbedJsonObject(embed)?.let { out.add(it) }
     }
+    return out
 }
+
+fun parseEmbedDataList(content: String): List<EmbedData> =
+    parseEmbedPayload(content).embeds
 
 fun parseEmbedData(content: String): EmbedData? = parseEmbedDataList(content).firstOrNull()
 
