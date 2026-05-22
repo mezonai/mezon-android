@@ -23,7 +23,7 @@ import androidx.room.RoomDatabase
         ClanRoleListMetaEntity::class,
         ClanRoleCacheEntity::class,
     ],
-    version = 30,
+    version = 31,
     exportSchema = false
 )
 abstract class MezonDatabase : RoomDatabase() {

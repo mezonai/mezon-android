@@ -687,6 +687,14 @@ class ClansController @Inject constructor(
         }
     }
 
+    suspend fun fetchChannelWebhooks(channelId: Long, clanId: Long): WebhookListResponse {
+        return sessionManager.withAutoRefresh { session ->
+            withContext(ioDispatcher) {
+                api.listWebhooksByChannelId(session.apiUrl, session.token, channelId, clanId)
+            }
+        }
+    }
+
     suspend fun generateChannelWebhook(
         webhookName: String,
         channelId: Long,

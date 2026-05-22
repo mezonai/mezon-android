@@ -10,6 +10,7 @@ import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.os.Bundle
 import android.text.Editable
+import android.text.InputFilter
 import android.text.InputType
 import android.text.TextUtils
 import android.text.TextWatcher
@@ -21,22 +22,37 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import android.widget.Toast
 import androidx.core.widget.NestedScrollView
+import com.mezon.mobile.MainActivity
 import com.mezon.mobile.R
+import com.mezon.mobile.core.AlertDialog
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.FragmentEntryPoint
+import com.mezon.mobile.home.clans.CHANNEL_TYPE_APP
+import com.mezon.mobile.home.clans.CHANNEL_TYPE_STREAMING
+import com.mezon.mobile.home.clans.CHANNEL_TYPE_VOICE
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.ChannelPermissionController
-import com.mezon.mobile.home.clans.PermissionPolicy
 import com.mezon.mobile.home.clans.ClanChannelEntity
+import com.mezon.mobile.home.clans.ClansController
+import com.mezon.mobile.home.clans.PermissionPolicy
 import com.mezon.mobile.home.clans.settings.ClanSettingsUiHelpers
+import com.mezon.mobile.home.clans.settings.WebhooksListFragment
 import com.mezon.mobile.home.chat.channelinfo.permissions.ChannelPermissionsFragment
 import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
+import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
+import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.ui.cells.ToastOverlay
+import com.mezon.mobile.util.ChannelSettingsNameValidator
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class ChannelSettingsFragment : BaseFragment() {
 
@@ -46,6 +62,7 @@ class ChannelSettingsFragment : BaseFragment() {
         private const val ARG_CLAN_ID = "clanId"
         private const val ARG_CHANNEL_TYPE = "channelType"
         private const val ARG_CHANNEL_PRIVATE = "channelPrivate"
+        private const val DUPLICATE_DEBOUNCE_MS = 300L
 
         fun newInstance(
             channelId: Long,
@@ -74,16 +91,33 @@ class ChannelSettingsFragment : BaseFragment() {
     private lateinit var channelController: ChannelController
     private lateinit var permissionController: ChannelPermissionController
     private lateinit var permissionPolicy: PermissionPolicy
+    private lateinit var clansController: ClansController
+
     private var nameField: EditText? = null
     private var topicField: EditText? = null
+    private var nameErrorView: TextView? = null
     private var saveText: TextView? = null
+    private var contentLayout: LinearLayout? = null
+    private var permissionDescView: View? = null
+
     private var originalName = ""
     private var originalTopic = ""
+    private var nameValidationError: String? = null
+    private var isDuplicateName = false
+    private var duplicateCheckJob: Job? = null
+    private var saving = false
+
+    private val isThread: Boolean
+        get() {
+            val ch = currentChannel()
+            return channelType == CHANNEL_TYPE_THREAD || (ch?.parentId ?: 0L) != 0L
+        }
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
         channelController = entryPoint.channelController()
         permissionController = entryPoint.channelPermissionController()
         permissionPolicy = entryPoint.permissionPolicy()
+        clansController = entryPoint.clansController()
     }
 
     override fun onFragmentCreate(): Boolean {
@@ -122,44 +156,15 @@ class ChannelSettingsFragment : BaseFragment() {
             overScrollMode = View.OVER_SCROLL_NEVER
             clipToPadding = false
         }
-        val content = LinearLayout(context).apply {
+        contentLayout = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(LayoutHelper.dp(20f), LayoutHelper.dp(8f), LayoutHelper.dp(20f), LayoutHelper.dp(28f))
         }
-        scroll.addView(content, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        scroll.addView(contentLayout, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         root.addView(scroll, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
 
         bindInitialValues()
-        content.addView(
-            buildInput(context, originalName, multiline = false),
-            LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 56, 0f, Gravity.NO_GRAVITY, 0f, 0f, 0f, 28f)
-        )
-
-        content.addView(sectionLabel(context, getString(R.string.channel_settings_channel_topic)))
-        content.addView(
-            buildInput(context, originalTopic, multiline = true),
-            LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 150, 0f, Gravity.NO_GRAVITY, 0f, 10f, 0f, 40f)
-        )
-
-        content.addView(
-            ClanSettingsUiHelpers.buildMezonSection(context, themeColors, null, buildTopRows(context)),
-            LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT)
-        )
-
-        content.addView(
-            TextView(context).apply {
-                text = getString(R.string.channel_settings_permission_description)
-                textSize = 14f
-                setTextColor(themeColors.textDisabled)
-                setLineSpacing(LayoutHelper.dpf(2f), 1f)
-            },
-            LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 18f, 0f, 28f)
-        )
-
-        content.addView(
-            ClanSettingsUiHelpers.buildMezonSection(context, themeColors, null, buildBottomRows(context)),
-            LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT)
-        )
+        rebuildContent(context)
 
         fragmentView = root
         updateSaveState()
@@ -174,7 +179,73 @@ class ChannelSettingsFragment : BaseFragment() {
         syncFieldsFromChannel()
     }
 
+    private fun rebuildContent(context: Context) {
+        val content = contentLayout ?: return
+        content.removeAllViews()
+
+        if (isThread) {
+            content.addView(sectionLabel(context, getString(R.string.channel_settings_thread_name_title)))
+        }
+        val nameWrap = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        nameWrap.addView(
+            buildInput(context, originalName, multiline = false, isName = true),
+            LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 56)
+        )
+        nameErrorView = TextView(context).apply {
+            textSize = 13f
+            setTextColor(themeColors.redStrong)
+            visibility = View.GONE
+            setPadding(LayoutHelper.dp(4f), LayoutHelper.dp(6f), 0, 0)
+        }
+        nameWrap.addView(nameErrorView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+        content.addView(nameWrap, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 0f, 0f, if (isThread) 28f else 28f))
+
+        if (!isThread) {
+            content.addView(sectionLabel(context, getString(R.string.channel_settings_channel_topic)))
+            content.addView(
+                buildInput(context, originalTopic, multiline = true, isName = false),
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 150, 0f, Gravity.NO_GRAVITY, 0f, 10f, 0f, 40f)
+            )
+        } else {
+            content.addView(sectionLabel(context, getString(R.string.channel_settings_topic_title)))
+            content.addView(
+                buildInput(context, originalTopic, multiline = true, isName = false),
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 120, 0f, Gravity.NO_GRAVITY, 0f, 10f, 0f, 40f)
+            )
+        }
+
+        val topRows = buildTopRows(context)
+        if (topRows.isNotEmpty()) {
+            content.addView(
+                ClanSettingsUiHelpers.buildMezonSection(context, themeColors, null, topRows),
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 0f, 0f, 20f)
+            )
+        }
+
+        if (showPermissionDescription()) {
+            permissionDescView = TextView(context).apply {
+                text = getString(R.string.channel_settings_permission_description)
+                textSize = 14f
+                setTextColor(themeColors.textDisabled)
+                setLineSpacing(LayoutHelper.dpf(2f), 1f)
+            }
+            content.addView(
+                permissionDescView,
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 18f, 0f, 28f)
+            )
+        }
+
+        val bottomRows = buildBottomRows(context)
+        if (bottomRows.isNotEmpty()) {
+            content.addView(
+                ClanSettingsUiHelpers.buildMezonSection(context, themeColors, null, bottomRows),
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT)
+            )
+        }
+    }
+
     private fun buildHeader(context: Context): FrameLayout {
+        val titleRes = if (isThread) R.string.channel_settings_title_thread else R.string.channel_settings_title
         return FrameLayout(context).apply {
             setBackgroundColor(themeColors.serverRailBg)
 
@@ -185,7 +256,7 @@ class ChannelSettingsFragment : BaseFragment() {
 
             addView(
                 TextView(context).apply {
-                    text = getString(R.string.channel_settings_title)
+                    text = getString(titleRes)
                     textSize = 18f
                     typeface = Typeface.DEFAULT_BOLD
                     gravity = Gravity.CENTER
@@ -204,11 +275,7 @@ class ChannelSettingsFragment : BaseFragment() {
                 textSize = 16f
                 gravity = Gravity.CENTER
                 setPadding(LayoutHelper.dp(12f), 0, LayoutHelper.dp(12f), 0)
-                setOnClickListener {
-                    if (isEnabled) {
-                        Toast.makeText(context, R.string.feature_coming_soon, Toast.LENGTH_SHORT).show()
-                    }
-                }
+                setOnClickListener { if (isEnabled) onSavePressed() }
             }
             addView(
                 saveText,
@@ -250,7 +317,7 @@ class ChannelSettingsFragment : BaseFragment() {
             setTextColor(themeColors.textStrong)
         }
 
-    private fun buildInput(context: Context, value: String, multiline: Boolean): EditText {
+    private fun buildInput(context: Context, value: String, multiline: Boolean, isName: Boolean): EditText {
         val field = EditText(context).apply {
             setText(value)
             setTextColor(themeColors.textStrong)
@@ -268,87 +335,242 @@ class ChannelSettingsFragment : BaseFragment() {
                 InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
             }
             imeOptions = if (multiline) EditorInfo.IME_ACTION_NONE else EditorInfo.IME_ACTION_DONE
+            if (multiline) {
+                filters = arrayOf(InputFilter.LengthFilter(ChannelSettingsNameValidator.TOPIC_MAX_LENGTH))
+            }
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = updateSaveState()
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                    if (isName) scheduleDuplicateCheck(s?.toString().orEmpty())
+                    updateSaveState()
+                }
                 override fun afterTextChanged(s: Editable?) = Unit
             })
         }
-        if (multiline) {
-            topicField = field
-        } else {
-            nameField = field
-        }
+        if (multiline) topicField = field else nameField = field
         return field
     }
 
     private fun buildTopRows(context: Context): List<View> {
-        return listOf(
-            ClanSettingsUiHelpers.buildMezonChevronRow(
-                context,
-                themeColors,
-                MezonIcon.clipboardIcon,
-                getString(R.string.channel_settings_change_category),
-                null,
-                Runnable { showComingSoon(context) }
-            ),
-            ClanSettingsUiHelpers.buildMezonChevronRow(
-                context,
-                themeColors,
-                MezonIcon.bravePermission,
-                getString(R.string.channel_settings_permissions),
-                null,
-                Runnable { openChannelPermissions(context) }
-            ),
-            ClanSettingsUiHelpers.buildMezonChevronRow(
-                context,
-                themeColors,
-                MezonIcon.quickAction,
-                getString(R.string.channel_settings_quick_action),
-                null,
-                Runnable { showComingSoon(context) }
-            ),
-            ClanSettingsUiHelpers.buildMezonChevronRow(
-                context,
-                themeColors,
-                MezonIcon.hammerIcon,
-                getString(R.string.channel_settings_ban_list),
-                null,
-                Runnable { showComingSoon(context) }
+        val rows = ArrayList<View>()
+        if (!isThread && showChangeCategory()) {
+            rows.add(
+                ClanSettingsUiHelpers.buildMezonChevronRow(
+                    context, themeColors, MezonIcon.clipboardIcon,
+                    getString(R.string.channel_settings_change_category), null,
+                    Runnable { openChangeCategory(context) }
+                )
             )
-        )
+        }
+        if (showPermissions()) {
+            rows.add(
+                ClanSettingsUiHelpers.buildMezonChevronRow(
+                    context, themeColors, MezonIcon.bravePermission,
+                    getString(R.string.channel_settings_permissions), null,
+                    Runnable { openChannelPermissions(context) }
+                )
+            )
+        }
+        if (showQuickAction()) {
+            rows.add(
+                ClanSettingsUiHelpers.buildMezonChevronRow(
+                    context, themeColors, MezonIcon.quickAction,
+                    getString(R.string.channel_settings_quick_action), null,
+                    Runnable { openQuickAction() }
+                )
+            )
+        }
+        if (!isThread && showBanList()) {
+            rows.add(
+                ClanSettingsUiHelpers.buildMezonChevronRow(
+                    context, themeColors, MezonIcon.hammerIcon,
+                    getString(R.string.channel_settings_ban_list), null,
+                    Runnable { openBanList() }
+                )
+            )
+        }
+        return rows
     }
 
     private fun buildBottomRows(context: Context): List<View> {
-        return listOf(
-            ClanSettingsUiHelpers.buildMezonChevronRow(
-                context,
-                themeColors,
-                MezonIcon.webhookIcon,
-                getString(R.string.channel_settings_webhooks),
-                null,
-                Runnable { showComingSoon(context) }
-            ),
-            ClanSettingsUiHelpers.buildMezonChevronRow(
-                context,
-                themeColors,
-                MezonIcon.trashIcon,
-                getString(R.string.channel_settings_delete_channel),
-                themeColors.redStrong,
-                Runnable { showComingSoon(context) }
+        val rows = ArrayList<View>()
+        if (!isThread && showWebhooks()) {
+            rows.add(
+                ClanSettingsUiHelpers.buildMezonChevronRow(
+                    context, themeColors, MezonIcon.webhookIcon,
+                    getString(R.string.channel_settings_webhooks), null,
+                    Runnable { openWebhooks() }
+                )
             )
-        )
+        }
+        if (isThread) {
+            rows.add(
+                ClanSettingsUiHelpers.buildMezonChevronRow(
+                    context, themeColors, MezonIcon.doorExitIcon,
+                    getString(R.string.channel_settings_menu_leave_thread), null,
+                    Runnable { confirmLeaveThread() }
+                )
+            )
+        }
+        if (showDelete()) {
+            val deleteLabel = if (isThread) R.string.channel_settings_menu_delete_thread
+            else R.string.channel_settings_delete_channel
+            rows.add(
+                ClanSettingsUiHelpers.buildMezonChevronRow(
+                    context, themeColors, MezonIcon.trashIcon,
+                    getString(deleteLabel), themeColors.redStrong,
+                    Runnable { confirmDelete() }
+                )
+            )
+        }
+        return rows
+    }
+
+    private fun showChangeCategory(): Boolean = !isRestrictedChannelType()
+    private fun showPermissions(): Boolean = !isThread && !isRestrictedChannelType()
+    private fun showQuickAction(): Boolean = !isThread && channelType != CHANNEL_TYPE_VOICE && channelType != CHANNEL_TYPE_STREAMING && channelType != CHANNEL_TYPE_APP
+    private fun showBanList(): Boolean = !isRestrictedChannelType()
+    private fun showWebhooks(): Boolean = channelType != CHANNEL_TYPE_VOICE && channelType != CHANNEL_TYPE_STREAMING
+    private fun showPermissionDescription(): Boolean = showPermissions()
+    private fun isRestrictedChannelType(): Boolean =
+        channelType == CHANNEL_TYPE_VOICE || channelType == CHANNEL_TYPE_STREAMING || channelType == CHANNEL_TYPE_APP
+
+    private fun showDelete(): Boolean {
+        if (isWelcomeChannel()) return false
+        return true
+    }
+
+    private fun isWelcomeChannel(): Boolean {
+        val welcomeId = clansController.clans.value.firstOrNull { it.clanId == clanId }?.welcomeChannelId ?: 0L
+        return welcomeId != 0L && welcomeId == channelId
+    }
+
+    private fun scheduleDuplicateCheck(raw: String) {
+        duplicateCheckJob?.cancel()
+        val trimmed = raw.trim()
+        nameValidationError = validateNameLocal(trimmed)
+        updateNameErrorUi()
+        updateSaveState()
+        if (nameValidationError != null || trimmed == originalName.trim()) {
+            isDuplicateName = false
+            return
+        }
+        val ch = currentChannel() ?: return
+        val checkType = if (isThread) ChannelSettingsNameValidator.TYPE_THREAD else ChannelSettingsNameValidator.TYPE_CHANNEL
+        val conditionId = if (isThread) ch.parentId else ch.categoryId
+        duplicateCheckJob = fragmentScope.launch {
+            delay(DUPLICATE_DEBOUNCE_MS)
+            val duplicate = channelController.checkDuplicateChannelName(trimmed, checkType, conditionId)
+                .getOrDefault(false)
+            if (isFinished) return@launch
+            isDuplicateName = duplicate
+            if (duplicate) {
+                nameValidationError = getString(
+                    if (isThread) R.string.channel_settings_name_duplicate_thread
+                    else R.string.channel_settings_name_duplicate_channel
+                )
+            } else {
+                nameValidationError = validateNameLocal(trimmed)
+            }
+            updateNameErrorUi()
+            updateSaveState()
+        }
+    }
+
+    private fun validateNameLocal(trimmed: String): String? {
+        if (trimmed.isEmpty()) {
+            return getString(if (isThread) R.string.channel_settings_name_invalid_thread else R.string.channel_settings_name_invalid_channel)
+        }
+        if (!ChannelSettingsNameValidator.isValidName(trimmed)) {
+            return getString(if (isThread) R.string.channel_settings_name_invalid_thread else R.string.channel_settings_name_invalid_channel)
+        }
+        return null
+    }
+
+    private fun updateNameErrorUi() {
+        val err = nameValidationError
+        nameErrorView?.let { v ->
+            if (err.isNullOrBlank()) {
+                v.visibility = View.GONE
+            } else {
+                v.text = err
+                v.visibility = View.VISIBLE
+            }
+        }
+    }
+
+    private fun onSavePressed() {
+        if (saving) return
+        val label = nameField?.text?.toString()?.trim().orEmpty()
+        val topic = topicField?.text?.toString().orEmpty()
+        nameValidationError = validateNameLocal(label)
+        if (nameValidationError != null || isDuplicateName) {
+            updateNameErrorUi()
+            updateSaveState()
+            return
+        }
+        val ch = currentChannel() ?: return
+        saving = true
+        saveText?.isEnabled = false
+        fragmentScope.launch {
+            val result = channelController.updateChannelDescSettings(
+                clanId = clanId,
+                channelId = channelId,
+                channelLabel = label,
+                categoryId = ch.categoryId,
+                topic = topic,
+                appId = 0L,
+            )
+            withContext(Dispatchers.Main.immediate) {
+                saving = false
+                if (result.isSuccess) {
+                    originalName = label
+                    originalTopic = topic
+                    isDuplicateName = false
+                    nameValidationError = null
+                    updateNameErrorUi()
+                    updateSaveState()
+                    MezonToast.show(this@ChannelSettingsFragment, ToastOverlay.ToastType.SUCCESS, getString(R.string.channel_settings_updated))
+                } else {
+                    MezonToast.show(this@ChannelSettingsFragment, ToastOverlay.ToastType.ERROR, getString(R.string.common_something_went_wrong))
+                    updateSaveState()
+                }
+            }
+        }
+    }
+
+    private fun openChangeCategory(context: Context) {
+        val ch = currentChannel() ?: return
+        val categories = channelController.categoriesForPicker(clanId, ch.categoryId)
+        if (categories.isEmpty()) {
+            MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.channel_category_picker_empty))
+            return
+        }
+        ChannelCategoryPickerSheet(
+            context,
+            themeColors,
+            categories,
+            getString(R.string.channel_category_picker_title),
+        ) { newId, newName ->
+            fragmentScope.launch {
+                val result = channelController.changeChannelCategory(clanId, channelId, newId, newName)
+                withContext(Dispatchers.Main.immediate) {
+                    if (result.isSuccess) {
+                        MezonToast.show(this@ChannelSettingsFragment, ToastOverlay.ToastType.SUCCESS, getString(R.string.channel_settings_updated))
+                    } else {
+                        MezonToast.show(this@ChannelSettingsFragment, ToastOverlay.ToastType.ERROR, getString(R.string.common_something_went_wrong))
+                    }
+                }
+            }
+        }.show()
     }
 
     private fun openChannelPermissions(context: Context) {
-        if (clanId == 0L || channelId == 0L) {
-            showComingSoon(context)
-            return
-        }
+        if (clanId == 0L || channelId == 0L) return
         val parentId = currentChannel()?.parentId ?: 0L
         if (!permissionPolicy.canOpenChannelSettings(channelId, clanId, channelType, parentId)) {
             permissionController.loadChannelPermissionData(clanId, channelId, channelType, force = true)
-            Toast.makeText(context, R.string.channel_permissions_no_access, Toast.LENGTH_SHORT).show()
+            MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.channel_permissions_no_access))
             return
         }
         presentFragment(
@@ -362,8 +584,106 @@ class ChannelSettingsFragment : BaseFragment() {
         )
     }
 
-    private fun showComingSoon(context: Context) {
-        Toast.makeText(context, R.string.feature_coming_soon, Toast.LENGTH_SHORT).show()
+    private fun openQuickAction() {
+        presentFragment(
+            ChannelQuickActionFragment.newInstance(
+                channelId = channelId,
+                channelName = currentChannel()?.channelLabel ?: channelName,
+                clanId = clanId,
+            )
+        )
+    }
+
+    private fun openBanList() {
+        presentFragment(
+            ChannelBanListFragment.newInstance(
+                channelId = channelId,
+                channelName = currentChannel()?.channelLabel ?: channelName,
+                clanId = clanId,
+            )
+        )
+    }
+
+    private fun openWebhooks() {
+        presentFragment(WebhooksListFragment.newInstanceForChannel(clanId, channelId))
+    }
+
+    private fun confirmDelete() {
+        val act = getParentActivity() ?: return
+        val label = currentChannel()?.channelLabel ?: channelName
+        if (isWelcomeChannel()) {
+            MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.channel_settings_delete_system_channel))
+            return
+        }
+        val titleRes = if (isThread) R.string.channel_settings_delete_confirm_thread_title
+        else R.string.channel_settings_delete_confirm_channel_title
+        AlertDialog.Builder(act)
+            .setTitle(getString(titleRes))
+            .setMessage(getString(R.string.channel_settings_delete_confirm_message, label))
+            .setNegativeButton(getString(R.string.common_cancel), null)
+            .setPositiveButton(getString(R.string.common_delete)) { _, _ -> performDelete() }
+            .show()
+    }
+
+    private fun performDelete() {
+        val parentId = currentChannel()?.parentId ?: 0L
+        val parentLabel = channelController.findChannelById(parentId, clanId)?.channelLabel.orEmpty()
+        fragmentScope.launch {
+            val result = channelController.deleteChannelDesc(clanId, channelId, channelType)
+            withContext(Dispatchers.Main.immediate) {
+                if (result.isSuccess) {
+                    finishFragment()
+                    if (isThread && parentId != 0L) {
+                        (getParentActivity() as? MainActivity)?.openChat(
+                            parentId,
+                            parentLabel,
+                            clanId,
+                            CHANNEL_TYPE_CHANNEL,
+                        )
+                    }
+                } else {
+                    val msg = result.exceptionOrNull()?.message?.takeIf { it.length < 200 }
+                        ?: getString(R.string.common_something_went_wrong)
+                    MezonToast.show(this@ChannelSettingsFragment, ToastOverlay.ToastType.ERROR, getString(R.string.channel_settings_delete_failed, msg))
+                }
+            }
+        }
+    }
+
+    private fun confirmLeaveThread() {
+        val act = getParentActivity() ?: return
+        val label = currentChannel()?.channelLabel ?: channelName
+        AlertDialog.Builder(act)
+            .setTitle(getString(R.string.channel_settings_leave_confirm_title))
+            .setMessage(getString(R.string.channel_settings_leave_confirm_message, label))
+            .setNegativeButton(getString(R.string.common_cancel), null)
+            .setPositiveButton(getString(R.string.channel_settings_menu_leave_thread)) { _, _ -> performLeaveThread() }
+            .show()
+    }
+
+    private fun performLeaveThread() {
+        val parentId = currentChannel()?.parentId ?: 0L
+        val parentLabel = channelController.findChannelById(parentId, clanId)?.channelLabel.orEmpty()
+        fragmentScope.launch {
+            val result = channelController.leaveThread(clanId, channelId, parentId)
+            withContext(Dispatchers.Main.immediate) {
+                if (result.isSuccess) {
+                    finishFragment()
+                    if (parentId != 0L) {
+                        (getParentActivity() as? MainActivity)?.openChat(
+                            parentId,
+                            parentLabel,
+                            clanId,
+                            CHANNEL_TYPE_CHANNEL,
+                        )
+                    }
+                } else {
+                    val msg = result.exceptionOrNull()?.message?.takeIf { it.length < 200 }
+                        ?: getString(R.string.common_something_went_wrong)
+                    MezonToast.show(this@ChannelSettingsFragment, ToastOverlay.ToastType.ERROR, getString(R.string.channel_settings_leave_failed, msg))
+                }
+            }
+        }
     }
 
     private fun bindInitialValues() {
@@ -387,8 +707,9 @@ class ChannelSettingsFragment : BaseFragment() {
     private fun updateSaveState() {
         val changed = nameField?.text?.toString().orEmpty() != originalName ||
             topicField?.text?.toString().orEmpty() != originalTopic
-        saveText?.isEnabled = changed
-        saveText?.setTextColor(if (changed) themeColors.blurple else themeColors.textDisabled)
+        val canSave = changed && nameValidationError == null && !isDuplicateName && !saving
+        saveText?.isEnabled = canSave
+        saveText?.setTextColor(if (canSave) themeColors.blurple else themeColors.textDisabled)
     }
 
     private fun rounded(color: Int, radiusDp: Float): GradientDrawable =

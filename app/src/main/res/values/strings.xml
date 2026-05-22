@@ -1145,6 +1145,25 @@
     <string name="channel_settings_webhooks">Webhooks</string>
     <string name="channel_settings_delete_channel">Delete Channel</string>
 
+    <string name="channel_category_picker_title">Change category</string>
+    <string name="channel_category_picker_empty">No other categories available</string>
+    <string name="channel_quick_action_title">Quick Action</string>
+    <string name="channel_quick_action_flash_tab">Flash Message</string>
+    <string name="channel_quick_action_menu_tab">Quick Menu</string>
+    <string name="channel_quick_action_empty">No quick actions yet</string>
+    <string name="channel_quick_action_add">Add quick action</string>
+    <string name="channel_quick_action_name_hint">Name</string>
+    <string name="channel_quick_action_msg_hint_flash">Message content</string>
+    <string name="channel_quick_action_msg_hint_menu">Action (leave empty for bot event)</string>
+    <string name="channel_quick_action_create_title">New quick action</string>
+    <string name="channel_quick_action_edit_title">Edit quick action</string>
+    <string name="channel_ban_list_title">Ban List</string>
+    <string name="channel_ban_list_empty">No banned users</string>
+    <string name="channel_ban_unban">Unban</string>
+    <string name="channel_ban_unban_confirm_title">Unban user?</string>
+    <string name="channel_ban_unban_confirm_message">Remove ban for %s?</string>
+    <string name="channel_ban_unban_success">User unbanned</string>
+
     <!-- Channel permission (Basic / Advanced) -->
     <string name="channel_permission_title">Channel permissions</string>
     <string name="channel_permission_tab_basic">Basic</string>

@@ -249,6 +249,108 @@ class ChannelController @Inject constructor(
         }
     }
 
+    suspend fun updateChannelDescSettings(
+        clanId: Long,
+        channelId: Long,
+        channelLabel: String,
+        categoryId: Long,
+        topic: String,
+        appId: Long = 0L,
+    ): Result<ChannelDescription> = runCatching {
+        sessionManager.withAutoRefresh { session ->
+            val desc = withContext(ioDispatcher) {
+                api.updateChannelDesc(
+                    apiUrl = session.apiUrl,
+                    token = session.token,
+                    clanId = clanId,
+                    channelId = channelId,
+                    channelLabel = channelLabel.trim(),
+                    categoryId = categoryId,
+                    topic = topic,
+                    appId = appId,
+                )
+            }
+            upsertChannel(desc.toClanChannelEntity())
+            desc
+        }
+    }
+
+    suspend fun checkDuplicateChannelName(
+        name: String,
+        type: Int,
+        conditionId: Long,
+    ): Result<Boolean> = runCatching {
+        sessionManager.withAutoRefresh { session ->
+            withContext(ioDispatcher) {
+                api.checkDuplicateName(session.apiUrl, session.token, name, type, conditionId)
+            }
+        }
+    }
+
+    suspend fun changeChannelCategory(
+        clanId: Long,
+        channelId: Long,
+        newCategoryId: Long,
+        newCategoryName: String,
+    ): Result<Unit> = runCatching {
+        sessionManager.withAutoRefresh { session ->
+            withContext(ioDispatcher) {
+                api.changeChannelCategory(session.apiUrl, session.token, clanId, channelId, newCategoryId)
+            }
+            findChannelById(channelId, clanId)?.let { ch ->
+                upsertChannel(ch.copy(categoryId = newCategoryId, categoryName = newCategoryName))
+            }
+        }
+    }
+
+    suspend fun deleteChannelDesc(clanId: Long, channelId: Long, channelType: Int): Result<Unit> = runCatching {
+        sessionManager.withAutoRefresh { session ->
+            withContext(ioDispatcher) {
+                api.deleteChannelDesc(session.apiUrl, session.token, clanId, channelId)
+            }
+            removeChannelLocally(clanId, channelId, channelType)
+        }
+    }
+
+    suspend fun leaveThread(clanId: Long, threadId: Long, parentChannelId: Long): Result<Unit> = runCatching {
+        sessionManager.withAutoRefresh { session ->
+            withContext(ioDispatcher) {
+                api.leaveThread(session.apiUrl, session.token, clanId, threadId)
+            }
+            removeChannelLocally(clanId, threadId, com.mezon.mobile.network.CHANNEL_TYPE_THREAD)
+        }
+    }
+
+    fun categoriesForPicker(clanId: Long, excludeCategoryId: Long): List<Pair<Long, String>> {
+        return getChannels(clanId)
+            .asSequence()
+            .filter { it.parentId == 0L && !it.isThread }
+            .map { it.categoryId to it.categoryName }
+            .filter { (id, name) -> id != 0L && id != excludeCategoryId && id != FAVORITE_CATEGORY_ID && name.isNotBlank() }
+            .distinctBy { it.first }
+            .sortedBy { (id, _) ->
+                getChannels(clanId).firstOrNull { it.categoryId == id }?.categoryOrder ?: 0
+            }
+            .toList()
+    }
+
+    private fun removeChannelLocally(clanId: Long, channelId: Long, channelType: Int) {
+        val existing = _channelsByClan.value[clanId] ?: emptyList()
+        updateCache(clanId, existing.filter { it.channelId != channelId })
+        favoritesByClan[clanId]?.remove(channelId)
+        appScope.launch(ioDispatcher) {
+            clanChannelDao.delete(clanId, channelId)
+            favoriteChannelDao.delete(clanId, channelId)
+            messageDao.deleteByChannel(channelId)
+        }
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
+        if (channelId == currentOpenChannelId) {
+            currentOpenChannelId = 0L
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.closeChats, channelId, channelType)
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.navigateToClansTab)
+        }
+    }
+
     suspend fun findOrFetchChannelLabel(channelId: Long, clanId: Long = 0L): String {
         findChannelById(channelId)?.let { return it.channelLabel }
         val fromDb = withContext(ioDispatcher) { clanChannelDao.getByChannelId(channelId) }
@@ -836,7 +938,8 @@ class ChannelController @Inject constructor(
                     if (ch.channelId != event.channelId) ch
                     else ch.copy(
                         channelLabel = event.channelLabel.ifEmpty { ch.channelLabel },
-                        topic = event.topic.ifEmpty { ch.topic },
+                        topic = if (event.topic.isNotEmpty()) event.topic else ch.topic,
+                        categoryId = if (event.categoryId != 0L) event.categoryId else ch.categoryId,
                         isPrivate = event.channelPrivate
                     )
                 }
