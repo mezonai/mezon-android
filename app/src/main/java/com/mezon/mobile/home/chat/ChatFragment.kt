@@ -71,6 +71,7 @@ import com.mezon.mobile.home.clans.ClanChannelEntity
 import com.mezon.mobile.home.clans.ClanRole
 import com.mezon.mobile.home.clans.PermissionPolicy
 import com.mezon.mobile.home.clans.RoleController
+import com.mezon.mobile.home.clans.UserDisplayRole
 import com.mezon.mobile.home.chat.input.InputSuggestionItem
 import com.mezon.mobile.home.chat.input.InputSuggestionsAdapter
 import com.mezon.mobile.home.chat.input.InputSuggestionsController
@@ -263,6 +264,9 @@ class ChatFragment : BaseFragment() {
     private var channelId = 0L
     private var channelName = ""
     private var clanId = 0L
+    private var chatCachedCreatorId: Long? = null
+    private var displayRoleCacheRefreshJob: Job? = null
+    private var pendingDisplayRoleUiRefresh = false
     private var channelType = 0
     private var routeChannelPrivate = false
     private var routeParentId = 0L
@@ -381,6 +385,7 @@ class ChatFragment : BaseFragment() {
         channelId = arguments?.getLong(ARG_CHANNEL_ID) ?: 0L
         channelName = arguments?.getString(ARG_CHANNEL_NAME) ?: ""
         clanId = arguments?.getLong(ARG_CLAN_ID) ?: 0L
+        chatCachedCreatorId = null
         channelType = arguments?.getInt(ARG_CHANNEL_TYPE) ?: 0
         routeChannelPrivate = arguments?.getBoolean(ARG_CHANNEL_PRIVATE) ?: false
         routeParentId = arguments?.getLong(ARG_PARENT_ID) ?: 0L
@@ -407,6 +412,10 @@ class ChatFragment : BaseFragment() {
 
         if (clanId != 0L) {
             userClanController.loadClanMembers(clanId)
+            roleController.loadRolesForClan(clanId)
+            appScope.launch(ioDispatcher) {
+                roleController.hydrateLocalPermissionSnapshotForClan(clanId)
+            }
             val ch = channelController.findChannelById(channelId)
             val effectiveParentId = ch?.parentId ?: routeParentId
             val effectivePrivate = ch?.isPrivate ?: routeChannelPrivate
@@ -437,6 +446,9 @@ class ChatFragment : BaseFragment() {
         observe(NotificationCenter.clanRolesDidLoad) { _, _, args ->
             val changedClanId = args.getOrNull(0) as? Long ?: return@observe
             if (changedClanId == clanId || changedClanId == clansController.selectedClanId.value) refreshPermissionGates()
+            if (changedClanId == clanId) {
+                refreshChatDisplayRoleCache(refreshUi = !isPaused)
+            }
         }
         observe(NotificationCenter.selectedClanChanged) { _, _, _ ->
             if (isPaused) return@observe
@@ -1086,10 +1098,10 @@ class ChatFragment : BaseFragment() {
         }
 
         observe(NotificationCenter.clanMembersDidLoad) { _, _, args ->
-            if (isPaused) return@observe
             val loadedClanId = args.firstOrNull() as? Long ?: return@observe
             if (loadedClanId == clanId) {
-                checkSuggestionTrigger()
+                if (!isPaused) checkSuggestionTrigger()
+                refreshChatDisplayRoleCache(refreshUi = !isPaused)
             }
         }
 
@@ -1791,6 +1803,8 @@ class ChatFragment : BaseFragment() {
         adapter.clanId = clanId
         adapter.isChannelPrivate = resolveChannelPrivate()
         adapter.currentUserId = StartupCache.userId
+        adapter.displayRoleResolver = chatDisplayRoleResolver()
+        refreshChatDisplayRoleCache()
         adapter.pollBridge = object : ChatPollBridge {
             override fun getLocalState(messageId: Long): PollLocalState {
                 val base = pollStates[messageId] ?: PollLocalState()
@@ -1963,6 +1977,10 @@ class ChatFragment : BaseFragment() {
 
     override fun onBecomeFullyVisible() {
         super.onBecomeFullyVisible()
+        if (pendingDisplayRoleUiRefresh) {
+            pendingDisplayRoleUiRefresh = false
+            refreshChatSenderRoleRows()
+        }
         refreshSystemMessageMemberGateCache()
         if (emojiViewVisible || (emojiView != null && emojiView!!.visibility == View.VISIBLE)) {
             dismissEmojiSilently()
@@ -2298,6 +2316,9 @@ class ChatFragment : BaseFragment() {
         notificationCenter.onAnimationFinish(transitionAnimationIndex)
         if (::recyclerView.isInitialized) cancelPendingScroll()
         cancelPendingLoading()
+        displayRoleCacheRefreshJob?.cancel()
+        displayRoleCacheRefreshJob = null
+        pendingDisplayRoleUiRefresh = false
         mainHandler.removeCallbacks(markVisibleRunnable)
         markVisibleAsRead()
         flushPendingSeen()
@@ -3048,6 +3069,43 @@ class ChatFragment : BaseFragment() {
                 break
             }
         }
+    }
+
+    private fun chatClanCreatorId(): Long {
+        if (clanId == 0L) return 0L
+        val cached = chatCachedCreatorId
+        if (cached != null) return cached
+        val id = clansController.clans.value.firstOrNull { it.clanId == clanId }?.creatorId ?: 0L
+        chatCachedCreatorId = id
+        return id
+    }
+
+    private fun chatDisplayRoleResolver(): (Long) -> UserDisplayRole? = { userId ->
+        if (clanId == 0L) null
+        else roleController.resolveHighestDisplayRole(clanId, userId, chatClanCreatorId())
+    }
+
+    private fun refreshChatDisplayRoleCache(refreshUi: Boolean = true) {
+        if (clanId == 0L) return
+        displayRoleCacheRefreshJob?.cancel()
+        roleController.invalidateDisplayRoleCache(clanId)
+        val creatorId = chatClanCreatorId()
+        displayRoleCacheRefreshJob = appScope.launch(ioDispatcher) {
+            roleController.refreshDisplayRoleCache(clanId, creatorId)
+            withContext(mainDispatcher) {
+                displayRoleCacheRefreshJob = null
+                if (refreshUi) {
+                    refreshChatSenderRoleRows()
+                } else {
+                    pendingDisplayRoleUiRefresh = true
+                }
+            }
+        }
+    }
+
+    private fun refreshChatSenderRoleRows() {
+        if (isPaused || fragmentView == null) return
+        updateVisibleRows(NotificationCenter.UPDATE_MASK_NAME)
     }
 
     private fun updateVisibleRows(mask: Int = 0) {

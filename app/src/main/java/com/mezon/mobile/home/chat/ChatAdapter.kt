@@ -5,6 +5,7 @@ import android.widget.ProgressBar
 import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.home.clans.UserDisplayRole
 import com.mezon.mobile.network.LinkInvitePreview
 
 class ChatAdapter(
@@ -223,6 +224,7 @@ class ChatAdapter(
                 holder.cell.clanId = clanId
                 holder.cell.isChannelPrivate = isChannelPrivate
                 val msg = messages[idx]
+                holder.cell.displayRoleResolver = displayRoleResolver
                 holder.cell.hasMentionHighlight = currentUserId.isNotEmpty() &&
                     msg.hasMention(currentUserId)
                 holder.cell.update(0, msg)

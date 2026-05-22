@@ -55,12 +55,15 @@ import com.mezon.mobile.home.chat.poll.parsePollContent
 import com.mezon.mobile.home.call.CallLogMessageType
 import com.mezon.mobile.home.call.ParsedCallLogMessage
 import com.mezon.mobile.home.call.parseCallLogMessage
+import com.mezon.mobile.home.clans.UserDisplayRole
 import com.mezon.mobile.home.messages.EmbedButtonHit
 import com.mezon.mobile.home.messages.EmbedInteractiveGeometry
 import com.mezon.mobile.home.messages.EmbedMessageRenderer
 import com.mezon.mobile.home.messages.EmbedSelectOptionSheet
 import com.mezon.mobile.home.messages.EphemeralMessageUi
+import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
+import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
 import com.mezon.mobile.ui.cells.EditTextBoldCursor
 import com.mezon.mobile.util.EmbedFormUtil
 import com.mezon.mobile.util.EmbedInputComponentSpec
@@ -186,6 +189,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     var channelType: Int = 0
     var clanId: Long = 0L
     var isChannelPrivate: Boolean = false
+    var displayRoleResolver: ((Long) -> UserDisplayRole?)? = null
 
     private var hasCallLogCard = false
     private var callLogParsed: ParsedCallLogMessage? = null
@@ -290,6 +294,18 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var currentContentPaint = theme.chatContentPaint
     private var currentTimePaint = theme.chatTimePaint
     private val senderPaint get() = theme.chatSenderPaint
+    private val senderNamePaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
+    private val roleIconBitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        isFilterBitmap = true
+        isDither = true
+    }
+    private var senderRoleIconUrl: String? = null
+    private var senderRoleIconBitmap: Bitmap? = null
+    private var senderRoleIconCancellable: MezonImageLoader.Cancellable? = null
+    private var cachedSenderNameW = 0f
+    private var reserveSenderRoleIcon = false
+    private var lastSenderDisplayRoleColor: Int? = null
+    private var lastSenderDisplayRoleIconUrl: String? = null
 
 
     private var attachedToWindow = false
@@ -321,6 +337,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         embedMessage.onDetachedFromWindow()
         avatarCancellable?.cancel()
         avatarCancellable = null
+        senderRoleIconCancellable?.cancel()
+        senderRoleIconCancellable = null
         reactionEmojiCancellables.forEach { it?.cancel() }
         cancelEmojiLoads()
     }
@@ -367,6 +385,11 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         embedMessage.clear()
         hasEmbedContent = false
         hideEmbedInteractiveViews(force = true)
+        clearSenderRoleIcon()
+        reserveSenderRoleIcon = false
+        cachedSenderNameW = 0f
+        lastSenderDisplayRoleColor = null
+        lastSenderDisplayRoleIconUrl = null
         drawPhotoImage = false
         drawFileAttachment = false
         drawForwardHeader = false
@@ -510,7 +533,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
 
         if ((mask and NotificationCenter.UPDATE_MASK_NAME) != 0) {
-            if (messageEntity?.senderName != msg.senderName) {
+            val nameChanged = messageEntity?.senderName != msg.senderName
+            if (nameChanged || senderDisplayRoleChanged(msg.senderId)) {
                 rebuildLayout = true
             }
             val isAnon = msg.senderId == ANONYMOUS_USER_ID
@@ -763,6 +787,96 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         currentContentPaint = if (msg.code == MessageEntity.CODE_MESSAGE_BUZZ) theme.chatBuzzTextPaint
             else theme.chatContentPaint
         currentTimePaint = theme.chatTimePaint
+    }
+
+    private fun syncSenderNamePaintFromTheme() {
+        val src = theme.chatSenderPaint
+        senderNamePaint.textSize = src.textSize
+        senderNamePaint.typeface = src.typeface
+        senderNamePaint.isFakeBoldText = src.isFakeBoldText
+        senderNamePaint.flags = src.flags
+    }
+
+    private fun showSenderDisplayRoleRow(senderId: Long): Boolean {
+        return !isCombined && clanId != 0L &&
+            (channelType == CHANNEL_TYPE_CHANNEL || channelType == CHANNEL_TYPE_THREAD) &&
+            senderId != ANONYMOUS_USER_ID
+    }
+
+    private class SenderRoleAppearance(val color: Int, val iconUrl: String)
+
+    private fun senderDisplayRoleAppearance(senderId: Long): SenderRoleAppearance? {
+        if (!showSenderDisplayRoleRow(senderId)) return null
+        val dr = displayRoleResolver?.invoke(senderId)
+        return SenderRoleAppearance(
+            color = if (dr != null && dr.color != 0) dr.color else theme.chatSenderPaint.color,
+            iconUrl = dr?.iconUrl?.trim().orEmpty()
+        )
+    }
+
+    private fun rememberSenderDisplayRoleAppearance(appearance: SenderRoleAppearance?) {
+        if (appearance == null) {
+            lastSenderDisplayRoleColor = null
+            lastSenderDisplayRoleIconUrl = null
+            return
+        }
+        lastSenderDisplayRoleColor = appearance.color
+        lastSenderDisplayRoleIconUrl = appearance.iconUrl
+    }
+
+    private fun senderDisplayRoleChanged(senderId: Long): Boolean {
+        val appearance = senderDisplayRoleAppearance(senderId)
+        if (appearance == null) {
+            return lastSenderDisplayRoleColor != null || lastSenderDisplayRoleIconUrl != null
+        }
+        return appearance.color != lastSenderDisplayRoleColor ||
+            appearance.iconUrl != lastSenderDisplayRoleIconUrl
+    }
+
+    private fun clearSenderRoleIcon() {
+        senderRoleIconCancellable?.cancel()
+        senderRoleIconCancellable = null
+        senderRoleIconUrl = null
+        senderRoleIconBitmap = null
+    }
+
+    private fun loadSenderRoleIcon(url: String) {
+        if (url.isBlank()) {
+            clearSenderRoleIcon()
+            return
+        }
+        if (url == senderRoleIconUrl && senderRoleIconBitmap != null) return
+        senderRoleIconCancellable?.cancel()
+        senderRoleIconCancellable = null
+        senderRoleIconUrl = url
+        senderRoleIconBitmap = null
+        val sz = ROLE_ICON_SIZE
+        val loader = MezonImageLoader.getInstance(context)
+        val cached = loader.getBitmapFromMemory(url, sz, sz)
+        if (cached != null) {
+            senderRoleIconBitmap = cached
+            invalidate()
+            return
+        }
+        senderRoleIconCancellable = loader.load(url, sz, sz, onSuccess = { bmp ->
+            if (senderRoleIconUrl == url) {
+                senderRoleIconBitmap = bmp
+                invalidate()
+            }
+        }, onError = {
+            if (senderRoleIconUrl == url) {
+                senderRoleIconBitmap = null
+                invalidate()
+            }
+        })
+    }
+
+    private fun drawSenderRoleIconAfterName(canvas: Canvas, contentLeft: Int, yOff: Float, sender: StaticLayout) {
+        if (!reserveSenderRoleIcon || senderRoleIconBitmap == null) return
+        val ix = contentLeft + cachedSenderNameW + ROLE_ICON_GAP
+        val iy = yOff + (sender.height - ROLE_ICON_SIZE) / 2f
+        tmpRect.set(ix.toFloat(), iy, (ix + ROLE_ICON_SIZE).toFloat(), (iy + ROLE_ICON_SIZE).toFloat())
+        canvas.drawBitmap(senderRoleIconBitmap!!, null, tmpRect, roleIconBitmapPaint)
     }
 
     private fun currentWidth(): Int {
@@ -1054,14 +1168,44 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             layout
         } else null
 
+        reserveSenderRoleIcon = false
+        cachedSenderNameW = 0f
+        syncSenderNamePaintFromTheme()
+        val showRoleRow = !isCombined && clanId != 0L &&
+            (channelType == CHANNEL_TYPE_CHANNEL || channelType == CHANNEL_TYPE_THREAD)
+
         senderLayout = if (!isCombined) {
             val s = if (msg.senderId == ANONYMOUS_USER_ID) "Anonymous" else msg.senderName
-            val senderMaxW = (bubbleMaxW * 0.60f).toInt().coerceAtLeast(1) 
-            StaticLayout.Builder.obtain(s, 0, s.length, senderPaint, senderMaxW)
-                .setMaxLines(1)
-                .setEllipsize(android.text.TextUtils.TruncateAt.END)
-                .build()
-        } else null
+            val senderMaxW = (bubbleMaxW * 0.60f).toInt().coerceAtLeast(1)
+            if (showRoleRow) {
+                val appearance = senderDisplayRoleAppearance(msg.senderId)
+                if (appearance != null) {
+                    senderNamePaint.color = appearance.color
+                    reserveSenderRoleIcon = appearance.iconUrl.isNotEmpty()
+                    if (reserveSenderRoleIcon) loadSenderRoleIcon(appearance.iconUrl) else clearSenderRoleIcon()
+                    rememberSenderDisplayRoleAppearance(appearance)
+                } else {
+                    senderNamePaint.color = theme.chatSenderPaint.color
+                    clearSenderRoleIcon()
+                    rememberSenderDisplayRoleAppearance(null)
+                }
+                StaticLayout.Builder.obtain(s, 0, s.length, senderNamePaint, senderMaxW)
+                    .setMaxLines(1)
+                    .setEllipsize(android.text.TextUtils.TruncateAt.END)
+                    .build()
+            } else {
+                clearSenderRoleIcon()
+                rememberSenderDisplayRoleAppearance(null)
+                StaticLayout.Builder.obtain(s, 0, s.length, senderPaint, senderMaxW)
+                    .setMaxLines(1)
+                    .setEllipsize(android.text.TextUtils.TruncateAt.END)
+                    .build()
+            }
+        } else {
+            clearSenderRoleIcon()
+            rememberSenderDisplayRoleAppearance(null)
+            null
+        }
 
         buildReplyLayouts(textWidth)
         buildFileLayouts(msg, textWidth)
@@ -1136,7 +1280,14 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             hasCodeFence -> textWidth.toFloat()
             else -> contentLayout?.let { maxLineWidth(it) } ?: 0f
         }
-        cachedSenderW = senderLayout?.let { maxLineWidth(it) } ?: 0f
+        cachedSenderW = if (senderLayout != null) {
+            val nw = maxLineWidth(senderLayout!!)
+            cachedSenderNameW = nw
+            if (reserveSenderRoleIcon) nw + ROLE_ICON_GAP + ROLE_ICON_SIZE else nw
+        } else {
+            cachedSenderNameW = 0f
+            0f
+        }
         cachedTimeW = timeLayout?.let { it.getLineWidth(0) } ?: 0f
         cachedReplyNameW = replyNameLayout?.let { maxLineWidth(it) } ?: 0f
         cachedReplyTextW = replyTextLayout?.let { maxLineWidth(it) } ?: 0f
@@ -2394,6 +2545,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 canvas.translate(contentLeft.toFloat(), yOff)
                 sender.draw(canvas)
                 canvas.restore()
+                drawSenderRoleIconAfterName(canvas, contentLeft, yOff, sender)
 
                 timeLayout?.let { time ->
                     val timeX = (contentLeft + cachedSenderW + TIME_GAP_LEFT).toFloat()
@@ -2445,6 +2597,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             canvas.translate(contentLeft.toFloat(), yOff)
             sender.draw(canvas)
             canvas.restore()
+            drawSenderRoleIconAfterName(canvas, contentLeft, yOff, sender)
 
             timeLayout?.let { time ->
                 val timeX = (contentLeft + cachedSenderW + TIME_GAP_LEFT).toFloat()
@@ -3947,6 +4100,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             style = android.graphics.Paint.Style.FILL
         }
         private val GAP_V_INNER = LayoutHelper.dp(6)
+        private val ROLE_ICON_SIZE = LayoutHelper.dp(20f)
+        private val ROLE_ICON_GAP = LayoutHelper.dp(4f)
         private val LINK_INVITE_V_MARGIN = LayoutHelper.dp(12) 
         private val MEDIA_RADIUS = LayoutHelper.dp(12).toFloat()
         private val OGP_RADIUS = LayoutHelper.dp(8).toFloat()

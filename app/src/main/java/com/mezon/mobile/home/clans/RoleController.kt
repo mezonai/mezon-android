@@ -14,7 +14,9 @@ import com.mezon.mobile.data.db.toClanRole
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.di.MainDispatcher
+import android.util.LongSparseArray
 import com.mezon.mobile.home.ClanMember
+import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.network.SocketEventDispatcher
@@ -33,11 +35,17 @@ import javax.inject.Singleton
 
 private const val TAG = "RoleController"
 
+data class UserDisplayRole(
+    val color: Int,
+    val iconUrl: String,
+)
+
 @Singleton
 class RoleController @Inject constructor(
     private val api: MezonApi,
     private val sessionManager: SessionManager,
     private val userController: UserController,
+    private val userClanController: UserClanController,
     private val notificationCenter: NotificationCenter,
     private val socketEventDispatcher: SocketEventDispatcher,
     private val permissionCatalogDao: PermissionCatalogDao,
@@ -63,6 +71,9 @@ class RoleController @Inject constructor(
     private var permissionCatalog: List<PermissionCatalogEntry> = emptyList()
     private var permissionCatalogLoading = false
     private val permissionCatalogLoadMutex = Mutex()
+    private val displayRoleCacheLock = Any()
+    private val displayRoleCacheByClan = HashMap<Long, LongSparseArray<UserDisplayRole>>()
+    private val displayRoleCacheBuilt = HashSet<Long>()
 
     init {
         appScope.launch {
@@ -77,8 +88,11 @@ class RoleController @Inject constructor(
         appScope.launch {
             socketEventDispatcher.roleAssignEvents.collect { ev ->
                 val cid = ev.clanId.toLongOrNull() ?: 0L
+                if (cid == 0L) return@collect
+                invalidateDisplayRoleCache(cid)
+                userClanController.loadClanMembers(cid, noCache = true)
                 val selfId = userController.userId
-                if (cid == 0L || selfId == 0L) return@collect
+                if (selfId == 0L) return@collect
                 val affectsSelf = selfId in ev.userIdsAssignedList || selfId in ev.userIdsRemovedList
                 if (affectsSelf) {
                     if (activePermissionsUserClanId() == cid) {
@@ -233,8 +247,104 @@ class RoleController @Inject constructor(
         return bestRoleId
     }
 
+    fun invalidateDisplayRoleCache(clanId: Long) {
+        if (clanId <= 0L) return
+        synchronized(displayRoleCacheLock) {
+            displayRoleCacheByClan.remove(clanId)
+            displayRoleCacheBuilt.remove(clanId)
+        }
+    }
+
+    fun refreshDisplayRoleCache(clanId: Long, clanCreatorId: Long) {
+        if (clanId <= 0L) return
+        val allRoles = synchronized(lock) { rolesByClan[clanId]?.toList().orEmpty() }
+        val members = userClanController.getClanMembers(clanId)
+        val byUser = LongSparseArray<UserDisplayRole>()
+        if (allRoles.isNotEmpty()) {
+            val byId = HashMap<Long, ClanRole>(allRoles.size)
+            for (role in allRoles) {
+                byId[role.roleId] = role
+            }
+            if (clanCreatorId != 0L) {
+                val top = allRoles.maxByOrNull { it.maxLevelPermission }
+                if (top != null) {
+                    byUser.put(clanCreatorId, UserDisplayRole(top.color, top.iconUrl))
+                }
+            }
+            for (member in members) {
+                if (member.userId == 0L) continue
+                if (clanCreatorId != 0L && member.userId == clanCreatorId) continue
+                byUser.put(member.userId, computeDisplayRoleForMember(member, byId))
+            }
+        }
+        synchronized(displayRoleCacheLock) {
+            displayRoleCacheByClan[clanId] = byUser
+            displayRoleCacheBuilt.add(clanId)
+        }
+    }
+
+    fun scheduleRefreshDisplayRoleCache(
+        clanId: Long,
+        clanCreatorId: Long,
+        onComplete: (() -> Unit)? = null
+    ) {
+        if (clanId <= 0L) return
+        appScope.launch(ioDispatcher) {
+            refreshDisplayRoleCache(clanId, clanCreatorId)
+            if (onComplete != null) {
+                withContext(mainDispatcher) { onComplete() }
+            }
+        }
+    }
+
+    fun resolveHighestDisplayRole(clanId: Long, userId: Long, clanCreatorId: Long): UserDisplayRole? {
+        if (clanId <= 0L || userId == 0L) return null
+        val needsBuild = synchronized(displayRoleCacheLock) {
+            !displayRoleCacheBuilt.contains(clanId)
+        }
+        if (needsBuild) {
+            scheduleRefreshDisplayRoleCache(clanId, clanCreatorId)
+            return null
+        }
+        synchronized(displayRoleCacheLock) {
+            val byUser = displayRoleCacheByClan[clanId] ?: return null
+            val ix = byUser.indexOfKey(userId)
+            if (ix < 0) return null
+            return byUser.valueAt(ix)
+        }
+    }
+
+    private fun computeDisplayRoleForMember(
+        member: ClanMember,
+        rolesById: Map<Long, ClanRole>
+    ): UserDisplayRole {
+        if (member.roleIds.isEmpty()) return UserDisplayRole(0, "")
+        var bestLevel = -1
+        var bestRole: ClanRole? = null
+        for (rid in member.roleIds) {
+            val role = rolesById[rid] ?: continue
+            if (role.maxLevelPermission > bestLevel) {
+                bestLevel = role.maxLevelPermission
+                bestRole = role
+            }
+        }
+        if (bestRole == null) return UserDisplayRole(0, "")
+        var iconUrl = bestRole.iconUrl
+        if (iconUrl.isBlank()) {
+            for (rid in member.roleIds) {
+                val role = rolesById[rid] ?: continue
+                if (role.iconUrl.isNotBlank()) {
+                    iconUrl = role.iconUrl
+                    break
+                }
+            }
+        }
+        return UserDisplayRole(bestRole.color, iconUrl)
+    }
+
     fun forgetClanRoles(clanId: Long) {
         if (clanId == 0L) return
+        invalidateDisplayRoleCache(clanId)
         synchronized(lock) {
             rolesByClan.remove(clanId)
             listRolesSelfMaxLevelByClan.remove(clanId)
@@ -316,6 +426,10 @@ class RoleController @Inject constructor(
     }
 
     fun cleanup() {
+        synchronized(displayRoleCacheLock) {
+            displayRoleCacheByClan.clear()
+            displayRoleCacheBuilt.clear()
+        }
         synchronized(lock) {
             rolesByClan.clear()
             listRolesSelfMaxLevelByClan.clear()
@@ -465,6 +579,7 @@ class RoleController @Inject constructor(
                 listRolesSelfMaxLevelByClan[clanId] = meta.listRolesSelfMaxLevel
             }
         }
+        invalidateDisplayRoleCache(clanId)
         notificationCenter.postNotificationOnMainThread(NotificationCenter.clanRolesDidLoad, clanId)
     }
 
@@ -595,6 +710,7 @@ class RoleController @Inject constructor(
                         }
                     }
                     for (cid in hydratedClanIds) {
+                        invalidateDisplayRoleCache(cid)
                         notificationCenter.postNotificationOnMainThread(NotificationCenter.clanRolesDidLoad, cid)
                     }
                 }
@@ -812,6 +928,7 @@ class RoleController @Inject constructor(
                 }
                 userMaxFromGetRoleByClan[clanId] ?: 0
             }
+            invalidateDisplayRoleCache(clanId)
             try {
                 clanRoleListMetaDao.upsert(
                     ClanRoleListMetaEntity(clanId, roleList.maxLevelPermission),
