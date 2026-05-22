@@ -1189,7 +1189,7 @@ class MezonApi @Inject constructor(
             this.clanId = clanId
             this.page = page
             this.limit = limit
-            this.state = 1
+            this.state = 0
         }
         val bytes = rpc(apiUrl, token, "ListThreadDescs", request.toByteArray())
         return ChannelDescList.parseFrom(bytes)
