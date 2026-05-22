@@ -156,7 +156,13 @@ class AuthRepository @Inject constructor(
                     idToken = response.idToken.ifBlank { currentSession.idToken },
                     isRemember = currentSession.isRemember
                 )
-                walletCacheStore.clear()
+                val identityOrTokensChanged =
+                    response.token.isNotBlank() ||
+                        response.refreshToken.isNotBlank() ||
+                        (response.userId.isNotBlank() && response.userId != currentSession.userId)
+                if (identityOrTokensChanged) {
+                    walletCacheStore.clear()
+                }
                 sessionManager.saveSession(merged)
                 Unit
             }.onFailure { e ->

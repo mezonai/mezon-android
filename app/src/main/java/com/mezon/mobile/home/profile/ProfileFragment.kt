@@ -606,7 +606,7 @@ class ProfileFragment : BaseFragment() {
         val name = info.displayName.ifEmpty { info.username.ifEmpty { userController.displayName.ifEmpty { userController.username } } }
         val user = info.username.ifEmpty { userController.username }
 
-        avatarView.setInfo(userController.userId, name)
+        avatarView.setInfo(userController.userId, info.username.ifEmpty { userController.username })
         if (info.avatarUrl.isNotEmpty()) avatarView.setImageUrl(info.avatarUrl)
         else if (userController.avatarUrl.isNotEmpty()) avatarView.setImageUrl(userController.avatarUrl)
 
@@ -676,7 +676,7 @@ class ProfileFragment : BaseFragment() {
             if (i < displayCount) {
                 val friendUser = friendsList[i].user
                 val slotAvatar = slot.getChildAt(0) as AvatarView
-                slotAvatar.setInfo(friendUser.id, friendUser.displayName.ifEmpty { friendUser.username })
+                slotAvatar.setInfo(friendUser.id, friendUser.username)
                 if (friendUser.avatarUrl.isNotEmpty()) slotAvatar.setImageUrl(friendUser.avatarUrl)
                 if (slot.visibility != View.VISIBLE) slot.visibility = View.VISIBLE
             } else {

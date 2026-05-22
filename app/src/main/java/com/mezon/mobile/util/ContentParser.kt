@@ -2,10 +2,53 @@ package com.mezon.mobile.util
 
 import android.content.Context
 import com.mezon.mobile.R
+import com.mezon.mobile.util.SHARE_CONTACT_KEY
 import org.json.JSONArray
 import org.json.JSONObject
 
 private val CONTENT_REGEX = Regex("\"t\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"")
+
+
+private fun unescapeJsonText(text: String, singleLine: Boolean): String {
+    var s = text.replace("\\/", "/").replace("\\\"", "\"")
+    s = if (singleLine) s.replace("\\n", " ") else s.replace("\\n", "\n")
+    return s.trim()
+}
+
+private fun parseEmbedPreview(obj: JSONObject): String {
+    val embedArr = obj.optJSONArray("embed") ?: return ""
+    if (embedArr.length() == 0) return ""
+    val embed = embedArr.optJSONObject(0) ?: return ""
+    val title = embed.optString("title", "").trim()
+    if (title.isNotBlank()) return title
+    val description = embed.optString("description", "").trim()
+    if (description.isNotBlank()) return description
+    val fields = embed.optJSONArray("fields") ?: return ""
+    if (fields.length() == 0) return ""
+    val firstVal = fields.optJSONObject(0)?.optString("value", "")?.trim().orEmpty()
+    if (firstVal == SHARE_CONTACT_KEY) return "[contact]"
+    return ""
+}
+
+private fun parseStructuredContentText(obj: JSONObject): String {
+    val t = unescapeJsonText(obj.optString("t", ""), singleLine = false)
+    if (t.isNotBlank()) return t
+    val embedPreview = parseEmbedPreview(obj)
+    if (embedPreview.isNotBlank()) return embedPreview
+    if (obj.has("lk")) return "[link]"
+    if (obj.has("attachments")) return "[file]"
+    return ""
+}
+
+private fun parseStructuredContentPreview(obj: JSONObject): String {
+    val t = unescapeJsonText(obj.optString("t", ""), singleLine = true)
+    if (t.isNotBlank()) return t
+    val embedPreview = parseEmbedPreview(obj)
+    if (embedPreview.isNotBlank()) return embedPreview
+    if (obj.has("lk")) return "[link]"
+    if (obj.has("attachments")) return "[file]"
+    return ""
+}
 
 private val THREAD_INFO_REGEX = Regex("\\(([^,]+),\\s*([^)]+)\\)")
 
@@ -19,40 +62,78 @@ fun parseThreadInfoFromPlainText(text: String): ParsedThreadInfo? {
     return ParsedThreadInfo(label, id)
 }
 
+fun isEmbedOrComponentsPayload(content: String): Boolean =
+    content.contains("\"embed\"") || content.contains("\"components\"")
+
+private val REFERENCE_REF_ID_REGEX = Regex("\"message_ref_id\"\\s*:\\s*\"?(\\d+)\"?")
+
+fun firstReferenceMessageId(content: String): Long {
+    if (!content.contains("\"references\"")) return 0L
+    return REFERENCE_REF_ID_REGEX.find(content)?.groupValues?.getOrNull(1)?.toLongOrNull() ?: 0L
+}
+
+fun messageHasExplicitTextBody(content: String): Boolean {
+    if (content.isBlank()) return false
+    return try {
+        val trimmed = content.trim()
+        if (!trimmed.startsWith("{")) return true
+        val match = CONTENT_REGEX.find(content)
+        val viaRegex = match?.groupValues?.getOrNull(1)
+            ?.replace("\\/", "/")
+            ?.replace("\\r\\n", "\n")
+            ?.replace("\\r", "\n")
+            ?.replace("\\n", "\n")
+            ?.replace("\\\"", "\"")
+            ?.trim()
+        if (!viaRegex.isNullOrBlank()) return true
+        val t = unescapeJsonText(JSONObject(trimmed).optString("t", ""), singleLine = false)
+        t.isNotBlank()
+    } catch (_: Exception) {
+        true
+    }
+}
+
 fun parseContentText(content: String): String {
     if (content.isBlank()) return ""
     return try {
+        val trimmed = content.trim()
         val match = CONTENT_REGEX.find(content)
         val text = match?.groupValues?.getOrNull(1)
             ?.replace("\\/", "/")
+            ?.replace("\\r\\n", "\n")
+            ?.replace("\\r", "\n")
             ?.replace("\\n", "\n")
             ?.replace("\\\"", "\"")
             ?.trim()
         if (!text.isNullOrBlank()) return text
-        if (content.contains("\"lk\"")) return "[link]"
-        if (content.contains("\"embed\"")) return "[embed]"
-        ""
+        if (trimmed.startsWith("{")) {
+            return parseStructuredContentText(JSONObject(trimmed))
+        }
+        trimmed
     } catch (_: Exception) {
-        content
+        content.trim()
     }
 }
 
 fun parseContentPreview(content: String): String {
     if (content.isBlank()) return ""
     return try {
+        val trimmed = content.trim()
         val match = CONTENT_REGEX.find(content)
         val text = match?.groupValues?.getOrNull(1)
             ?.replace("\\/", "/")
+            ?.replace("\\r\\n", " ")
+            ?.replace("\\r", " ")
             ?.replace("\\n", " ")
             ?.replace("\\\"", "\"")
             ?.trim()
         if (!text.isNullOrBlank()) return text
-        if (content.contains("\"lk\"")) return "[link]"
-        if (content.contains("\"attachments\"")) return "[file]"
-        if (content.contains("\"embed\"")) return "[embed]"
-        ""
+        if (trimmed.startsWith("{")) {
+            return parseStructuredContentPreview(JSONObject(trimmed))
+        }
+        trimmed.replace("\n", " ").take(200)
     } catch (_: Exception) {
-        content.take(100)
+        content.trim().replace("\n", " ").take(200)
     }
 }
 

@@ -375,7 +375,7 @@ class PollDetailModal(
             cancel?.cancel()
             cancel = null
             val ad = AvatarDrawable()
-            ad.setInfo(item.userId, item.display)
+            ad.setInfo(item.userId, item.username)
             avatar.setImageDrawable(ad)
             if (item.avatarUrl.isNotEmpty()) {
                 val url = avatarImgproxyUrl(item.avatarUrl, LayoutHelper.dp(40))

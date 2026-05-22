@@ -21,6 +21,7 @@ import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.ui.cells.ActionButton
+import com.mezon.mobile.util.NetworkErrorMessages
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -296,7 +297,15 @@ class OTPVerificationFragment : BaseFragment() {
                     onVerifySuccess?.invoke()
                 }
                 .onFailure { err ->
-                    showError(err.message ?: getString(R.string.otp_verify_failed))
+                    hideLoading()
+                    val ctx = getContext() ?: return@onFailure
+                    showError(
+                        NetworkErrorMessages.userMessage(
+                            ctx,
+                            err,
+                            err.message ?: getString(R.string.otp_verify_failed)
+                        )
+                    )
                     setOtpErrorState()
                     clearOtpFields()
                 }
@@ -319,7 +328,15 @@ class OTPVerificationFragment : BaseFragment() {
                     startCountdown()
                 }
                 .onFailure { err ->
-                    showError(err.message ?: getString(R.string.otp_resend_failed))
+                    hideLoading()
+                    val ctx = getContext() ?: return@onFailure
+                    showError(
+                        NetworkErrorMessages.userMessage(
+                            ctx,
+                            err,
+                            err.message ?: getString(R.string.otp_resend_failed)
+                        )
+                    )
                 }
         }
     }

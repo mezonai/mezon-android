@@ -101,10 +101,10 @@ class CallControlBar(
 
     private fun applySpeakerUi() {
         if (isSpeakerActive) {
-            speakerBtn.updateIcon(MezonIcon.channelVoice)
+            speakerBtn.updateIcon(MezonIcon.voiceWaveDoubleIcon)
             speakerBtn.updateIconTint(themeColors.tabIconActivePrimary)
         } else {
-            speakerBtn.updateIcon(MezonIcon.voiceLowIcon)
+            speakerBtn.updateIcon(MezonIcon.voiceWaveIcon)
             speakerBtn.updateIconTint(themeColors.tabLabelActive)
         }
     }

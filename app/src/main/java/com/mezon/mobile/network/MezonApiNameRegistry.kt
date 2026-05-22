@@ -2,7 +2,15 @@ package com.mezon.mobile.network
 
 object MezonApiNameRegistry {
 
-    fun indexOf(apiName: String): Int = nameToIndex[apiName] ?: -1
+    fun indexOf(apiName: String): Int {
+        val normalized = aliases[apiName] ?: apiName
+        return nameToIndex[normalized]
+            ?: throw IllegalArgumentException("Unknown Mezon API name: $apiName")
+    }
+
+    private val aliases: Map<String, String> = mapOf(
+        "LinkSms" to "LinkSMS"
+    )
 
     private val orderedNames: List<String> = listOf(
         "ListChannelDescs",

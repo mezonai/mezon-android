@@ -39,6 +39,7 @@ class InputSuggestionCell(
     private var leadingBitmap: Bitmap? = null
     private var leadingMode = LEADING_NONE
     private var leadingEffectiveDp = 0
+    private var showLeadingSlot = true
 
     private var imageDisposable: MezonImageLoader.Cancellable? = null
     private var currentImageUrl: String? = null
@@ -96,7 +97,7 @@ class InputSuggestionCell(
 
         drawLeading(canvas, h)
 
-        val textLeft = (PAD_H + SLOT + TEXT_GAP).toFloat()
+        val textLeft = textStartX().toFloat()
         nameLayout?.let { layout ->
             val nameTop = (h - layout.height) / 2f
             canvas.save()
@@ -162,7 +163,7 @@ class InputSuggestionCell(
         val nameText = nameTextFor(it)
         val subText = subTextFor(it)
 
-        val leftPad = PAD_H + SLOT + TEXT_GAP
+        val leftPad = textStartX()
         val rightPad = PAD_H
 
         val subMax = if (subText.isEmpty()) 0 else minOf(LayoutHelper.dp(160f), width / 2)
@@ -206,22 +207,22 @@ class InputSuggestionCell(
 
     private fun configureHere() {
         cancelImage()
-        leadingMode = LEADING_AVATAR
+        leadingMode = LEADING_NONE
         leadingDrawable = null
-        avatarDrawable.setInfo(0L, "@")
-        avatarDrawable.setPhoto(null)
+        showLeadingSlot = false
         namePaint.color = theme.onSurface
         subPaint.color = theme.textDisabled
     }
 
     private fun configureMember(member: ClanMember) {
         cancelImage()
+        showLeadingSlot = true
         leadingMode = LEADING_AVATAR
         leadingDrawable = null
         val displayName = member.clanNick.ifBlank {
             member.displayName.ifBlank { member.username }
         }
-        avatarDrawable.setInfo(member.userId, displayName)
+        avatarDrawable.setInfo(member.userId, member.username)
         avatarDrawable.setPhoto(null)
         namePaint.color = theme.onSurface
         subPaint.color = theme.textDisabled
@@ -231,6 +232,7 @@ class InputSuggestionCell(
 
     private fun configureRole(role: ClanRole) {
         cancelImage()
+        showLeadingSlot = true
         val color = if (role.color != 0) role.color else theme.textRoleLink
         namePaint.color = color
         subPaint.color = theme.textDisabled
@@ -252,6 +254,7 @@ class InputSuggestionCell(
 
     private fun configureChannel(entity: ClanChannelEntity) {
         cancelImage()
+        showLeadingSlot = true
         leadingMode = LEADING_ICON
         leadingEffectiveDp = 16
         val iconEnum = resolveChannelIcon(entity)
@@ -268,6 +271,7 @@ class InputSuggestionCell(
 
     private fun configureEmoji(emoji: EmojiItem) {
         cancelImage()
+        showLeadingSlot = true
         leadingMode = LEADING_BITMAP
         leadingEffectiveDp = 22
         leadingDrawable = null
@@ -327,6 +331,9 @@ class InputSuggestionCell(
             }
         })
     }
+
+    private fun textStartX(): Int =
+        if (showLeadingSlot) PAD_H + SLOT + TEXT_GAP else PAD_H
 
     private fun cancelImage() {
         imageDisposable?.cancel()

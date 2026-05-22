@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="132"
+    android:viewportHeight="133">
+
+    <!-- Scale down so visual weight matches ic_speaker_double_wave when both are shown at the same dp (double uses a wider viewport, so the same path coordinates read smaller there). -->
+    <group
+        android:pivotX="66"
+        android:pivotY="66.5"
+        android:scaleX="0.81"
+        android:scaleY="0.81">
+
+        <path
+            android:fillColor="#5E5E63"
+            android:pathData="M75.69,130.25C43.69,105.82 3.54,74.24 2,72.27C-0.81,68.71 -0.57,63.83 2.6,60.07C5.99,56.03 74.95,2.35 78.44,1.02C83.51,-0.9 86.98,-0.22 90.6,3.4L94,6.8L94,34.15C94,49.19 93.7,76.12 93.34,94L92.68,126.5L89.44,129.75C85.24,133.96 80.77,134.12 75.69,130.25Z" />
+
+        <path
+            android:fillColor="#E0E0E0"
+            android:pathData="M107.79,103.25C102.52,95.26 102.55,95.64 106.87,88.47C111.83,80.25 113.37,73.92 112.79,64.15C112.3,55.89 109.82,48.95 105.52,43.84C102.27,39.98 102.34,38.68 106.17,32.37C110.35,25.47 112.11,25.13 117.61,30.21C125.28,37.28 131.93,54.21 131.98,66.79C132,72.09 129.48,84.59 127.36,89.7C125.29,94.69 117.51,105.59 115.45,106.38C112.1,107.67 110.19,106.89 107.79,103.25Z" />
+
+    </group>
+
+</vector>

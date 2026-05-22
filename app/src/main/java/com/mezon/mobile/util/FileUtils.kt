@@ -3,9 +3,16 @@ package com.mezon.mobile.util
 import android.content.ContentResolver
 import android.net.Uri
 import android.provider.OpenableColumns
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.InputStream
+
+class ContentUriTooLargeException(val maxAllowedBytes: Int) : RuntimeException()
 
 object FileUtils {
+
+    private const val STREAM_READ_CHUNK_BYTES = 8192
+
 
     fun getFileColor(filename: String, fallbackColor: Int): Int {
         val ext = filename.substringAfterLast('.', "").lowercase()
@@ -50,5 +57,27 @@ object FileUtils {
                 if (idx >= 0 && cursor.moveToFirst() && !cursor.isNull(idx)) cursor.getLong(idx) else -1L
             } ?: -1L
         }.getOrDefault(-1L)
+    }
+
+    fun readContentUriBytesCapped(cr: ContentResolver, uri: Uri, maxBytes: Int): ByteArray {
+        require(maxBytes > 0)
+        val input = cr.openInputStream(uri) ?: error("cannot open uri")
+        return input.use { readStreamCappedIntoByteArray(it, maxBytes) }
+    }
+
+    private fun readStreamCappedIntoByteArray(input: InputStream, maxBytes: Int): ByteArray {
+        val chunk = ByteArray(STREAM_READ_CHUNK_BYTES)
+        val out = ByteArrayOutputStream(chunk.size.coerceAtMost(maxBytes))
+        var total = 0
+        while (true) {
+            val n = input.read(chunk)
+            if (n <= 0) break
+            if (total > maxBytes - n) {
+                throw ContentUriTooLargeException(maxBytes)
+            }
+            out.write(chunk, 0, n)
+            total += n
+        }
+        return out.toByteArray()
     }
 }

@@ -23,7 +23,9 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.mezon.mobile.auth.LoginFragment
 import com.mezon.mobile.auth.OTPVerificationFragment
 import com.mezon.mobile.auth.UpdateUsernameFragment
@@ -57,18 +59,21 @@ import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
+import com.mezon.mobile.network.NetworkMonitor
 import com.mezon.mobile.notification.NotificationHelper
 import com.mezon.mobile.session.AutoNightConfig
 import com.mezon.mobile.session.LocaleManager
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.session.ThemeManager
 import com.mezon.mobile.ui.theme.ThemeMode
+import com.mezon.mobile.ui.OfflineNetworkBannerView
 import com.mezon.mobile.update.AppUpdateGateManager
 import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.EntryPointAccessors
 import javax.inject.Inject
 import kotlin.math.max
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -118,6 +123,7 @@ class MainActivity : BasePermissionsActivity(),
     @Inject lateinit var appUpdateGateManager: AppUpdateGateManager
     @Inject lateinit var incomingCallFcmHandler: IncomingCallFcmHandler
     @Inject lateinit var callController: CallController
+    @Inject lateinit var networkMonitor: NetworkMonitor
 
     lateinit var actionBarLayout: ActionBarLayout
     lateinit var drawerLayoutContainer: DrawerLayoutContainer
@@ -136,6 +142,7 @@ class MainActivity : BasePermissionsActivity(),
     private var splashContentObserver: NotificationCenter.NotificationCenterDelegate? = null
     private var appUpdateGateRunnable: Runnable? = null
     private var callingOverlay: CallingOverlay? = null
+    private var offlineNetworkBanner: OfflineNetworkBannerView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
@@ -180,6 +187,8 @@ class MainActivity : BasePermissionsActivity(),
             actionBarLayout,
             ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         )
+
+        setupOfflineNetworkBanner()
 
         voiceOverlayManager = VoiceOverlayManager(drawerLayoutContainer, themeColors).also { manager ->
             manager.onExpandRequest = { expandVoiceRoom() }
@@ -399,6 +408,7 @@ class MainActivity : BasePermissionsActivity(),
             }
             NotificationCenter.languageChanged -> {
                 applyLocaleToActivity()
+                offlineNetworkBanner?.refreshLabel()
                 rebuildAllFragments(true)
             }
             NotificationCenter.autoNightModeChanged -> {
@@ -432,6 +442,29 @@ class MainActivity : BasePermissionsActivity(),
         }
     }
 
+    private fun setupOfflineNetworkBanner() {
+        val banner = OfflineNetworkBannerView(this)
+        banner.tag = DrawerLayoutContainer.CHILD_TAG_TOP_END_OVERLAY
+        offlineNetworkBanner = banner
+        val lp = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.END
+        }
+        drawerLayoutContainer.addView(banner, lp)
+        ViewCompat.requestApplyInsets(banner)
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                networkMonitor.isOnline.collect { online ->
+                    banner.post {
+                        banner.visibility = if (online) View.GONE else View.VISIBLE
+                    }
+                }
+            }
+        }
+    }
+
     private fun requestIncomingCallPermissionsEagerly() {
         val needed = mutableListOf<String>()
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
@@ -454,7 +487,7 @@ class MainActivity : BasePermissionsActivity(),
             overlay = CallingOverlay(this)
             callingOverlay = overlay
         }
-        overlay.setCallerInfo(callInfo.peerName, callInfo.peerAvatar)
+        overlay.setCallerInfo(callInfo.peerName, callInfo.peerUsername, callInfo.peerAvatar)
         overlay.delegate = object : CallingOverlay.Delegate {
             override fun onAcceptClicked() {
                 Log.d(TAG, "incoming overlay accept: state=${callController.callState::class.simpleName}")
@@ -510,6 +543,12 @@ class MainActivity : BasePermissionsActivity(),
             (o.parent as? ViewGroup)?.removeView(o)
             callingOverlay = null
         }
+    }
+
+    fun bringIncomingCallingOverlayToFront() {
+        val o = callingOverlay ?: return
+        if (o.parent !== drawerLayoutContainer || o.visibility != View.VISIBLE) return
+        drawerLayoutContainer.bringChildToFront(o)
     }
 
     // ── INavigationLayoutDelegate ───────────────────────────────────────────
@@ -648,12 +687,14 @@ class MainActivity : BasePermissionsActivity(),
         val entryPoint = EntryPointAccessors.fromApplication(
             applicationContext, FragmentEntryPoint::class.java
         )
+        entryPoint.messagesController().disconnect()
         entryPoint.voiceController().cleanup()
         entryPoint.dialogsController().cleanup()
         entryPoint.chatController().cleanup()
         entryPoint.clansController().cleanup()
         entryPoint.channelController().cleanup()
         entryPoint.channelAppController().cleanup()
+        entryPoint.channelPermissionController().cleanup()
         entryPoint.userClanController().cleanup()
         entryPoint.roleController().cleanup()
         entryPoint.notificationStore().cleanup()
@@ -666,7 +707,6 @@ class MainActivity : BasePermissionsActivity(),
         entryPoint.pinMessageController().cleanup()
         entryPoint.emojiController().cleanup()
         entryPoint.audioPlayerController().stop()
-        entryPoint.messagesController().clearCachedUsersAndChannels()
         entryPoint.apiCacheTracker().invalidateAll()
         com.mezon.mobile.home.chat.MezonImageLoader.getInstance(this).also {
             it.cancelAll()
@@ -690,6 +730,7 @@ class MainActivity : BasePermissionsActivity(),
         entryPoint.clansController().cleanup()
         entryPoint.channelController().cleanup()
         entryPoint.channelAppController().cleanup()
+        entryPoint.channelPermissionController().cleanup()
         entryPoint.userClanController().cleanup()
         entryPoint.roleController().cleanup()
         entryPoint.notificationStore().cleanup()
@@ -741,10 +782,10 @@ class MainActivity : BasePermissionsActivity(),
         if (focused != null) {
             manager.minimize(
                 fragment.getRoom(), focused.videoTrack,
-                focused.name, focused.avatarUrl, focused.isMuted, focused.userId
+                focused.name, focused.username, focused.avatarUrl, focused.isMuted, focused.userId
             )
         } else {
-            manager.minimize(null, null, fragment.getChannelLabel(), null, false, 0L)
+            manager.minimize(null, null, fragment.getChannelLabel(), "", null, false, 0L)
         }
     }
 
@@ -800,7 +841,8 @@ class MainActivity : BasePermissionsActivity(),
             channelType = routeMeta.channelType,
             messageId = messageId,
             isChannelPrivate = routeMeta.isPrivate,
-            parentId = routeMeta.parentId
+            parentId = routeMeta.parentId,
+            openedFromNotification = fromNotification
         )
         val params = INavigationLayout.NavigationParams(fragment)
             .setNoAnimation(noAnimation)

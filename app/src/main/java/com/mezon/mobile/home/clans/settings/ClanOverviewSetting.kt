@@ -20,13 +20,12 @@ import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.FragmentEntryPoint
-import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.ClanEntity
-import com.mezon.mobile.home.clans.ClanRole
 import com.mezon.mobile.home.clans.ClansController
+import com.mezon.mobile.home.clans.PermissionPolicy
 import com.mezon.mobile.home.clans.RoleController
 import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
@@ -77,6 +76,7 @@ class ClanOverviewSettingFragment : BaseFragment() {
     private lateinit var userClanController: UserClanController
     private lateinit var roleController: RoleController
     private lateinit var userController: UserController
+    private lateinit var permissionPolicy: PermissionPolicy
 
     private lateinit var scrollContent: LinearLayout
     private lateinit var nameInput: InputCell
@@ -91,8 +91,6 @@ class ClanOverviewSettingFragment : BaseFragment() {
     private var saveButton: TextView? = null
 
     private var clanSnapshot: ClanEntity? = null
-    private var members: List<ClanMember> = emptyList()
-    private var roles: List<ClanRole> = emptyList()
     private var perm: ClanSettingsPermissionState = ClanSettingsPermissionState(false, false, false)
 
     private var sourceName = ""
@@ -126,12 +124,15 @@ class ClanOverviewSettingFragment : BaseFragment() {
         userClanController = entryPoint.userClanController()
         roleController = entryPoint.roleController()
         userController = entryPoint.userController()
+        permissionPolicy = entryPoint.permissionPolicy()
     }
 
     override fun onFragmentCreate(): Boolean {
         super.onFragmentCreate()
         clanId = arguments?.getLong(ARG_CLAN_ID) ?: 0L
         if (clanId != 0L) {
+            roleController.loadPermissionCatalogIfNeeded()
+            roleController.loadUserMaxPermissionForClan(clanId, force = true)
             roleController.loadRolesForClan(clanId, force = true)
             userClanController.loadClanMembers(clanId)
         }
@@ -159,6 +160,8 @@ class ClanOverviewSettingFragment : BaseFragment() {
     override fun onBecomeFullyVisible() {
         super.onBecomeFullyVisible()
         if (clanId != 0L) {
+            roleController.loadPermissionCatalogIfNeeded()
+            roleController.loadUserMaxPermissionForClan(clanId, force = true)
             roleController.loadRolesForClan(clanId, force = true)
             userClanController.loadClanMembers(clanId)
         }
@@ -248,15 +251,7 @@ class ClanOverviewSettingFragment : BaseFragment() {
         if (clanId == 0L) return
         val clan = clansController.clans.value.firstOrNull { it.clanId == clanId } ?: return
         clanSnapshot = clan
-        members = userClanController.getClanMembers(clanId)
-        roles = roleController.getRoles(clanId)
-        perm = ClanSettingsPermissionState.evaluateForClanSettings(
-            userController,
-            clanId,
-            members,
-            roles,
-            clan.creatorId,
-        )
+        perm = permissionPolicy.clanSettingsPermissionState(clanId)
         val preserveNameDraft = draftName.trim() != sourceName.trim()
         val hadUnsavedBanner = draftBanner.trim() != sourceBanner.trim()
         val preservePreventDraft = draftPrevent != sourcePrevent

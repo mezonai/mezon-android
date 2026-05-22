@@ -3,7 +3,6 @@ package com.mezon.mobile.home.call
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
 import org.webrtc.AudioSource
 import org.webrtc.AudioTrack
 import org.webrtc.Camera2Enumerator
@@ -23,16 +22,6 @@ import org.webrtc.VideoSource
 import org.webrtc.VideoTrack
 
 private const val TAG = "PeerConnectionWrapper"
-
-private fun iceCandidateKindForLog(sdp: String): String = when {
-    sdp.contains(" typ relay ") -> "relay"
-    sdp.contains(" typ srflx ") -> "srflx"
-    sdp.contains(" typ host ") -> "host"
-    sdp.contains(" typ prflx ") -> "prflx"
-    sdp.contains("end-of-candidates", ignoreCase = true) -> "eoc"
-    sdp.isBlank() -> "empty"
-    else -> "other"
-}
 
 class PeerConnectionWrapper(
     private val context: Context,
@@ -79,12 +68,9 @@ class PeerConnectionWrapper(
     }
 
     private val peerConnectionObserver = object : PeerConnection.Observer {
-        override fun onSignalingChange(state: PeerConnection.SignalingState?) {
-            android.util.Log.d(TAG, "[WEBRTC:HANDSHAKE] signaling=$state")
-        }
+        override fun onSignalingChange(state: PeerConnection.SignalingState?) {}
 
         override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) {
-            android.util.Log.d(TAG, "[WEBRTC:HANDSHAKE] iceConn=$state")
             mainHandler.post {
                 if (disposed) return@post
                 when (state) {
@@ -105,13 +91,9 @@ class PeerConnectionWrapper(
             }
         }
 
-        override fun onIceConnectionReceivingChange(receiving: Boolean) {
-            android.util.Log.d(TAG, "[WEBRTC:HANDSHAKE] iceReceiving=$receiving")
-        }
+        override fun onIceConnectionReceivingChange(receiving: Boolean) {}
 
-        override fun onIceGatheringChange(state: PeerConnection.IceGatheringState?) {
-            android.util.Log.d(TAG, "[WEBRTC:HANDSHAKE] iceGathering=$state")
-        }
+        override fun onIceGatheringChange(state: PeerConnection.IceGatheringState?) {}
 
         override fun onIceCandidate(candidate: IceCandidate?) {
             candidate ?: return
@@ -121,10 +103,6 @@ class PeerConnectionWrapper(
                     synchronized(pendingLocalIceBeforeAccept) {
                         pendingLocalIceBeforeAccept.add(candidate)
                     }
-                    android.util.Log.d(
-                        TAG,
-                        "[WEBRTC:HANDSHAKE] local ICE hold pre-accept kind=${iceCandidateKindForLog(candidate.sdp)} buf=${pendingLocalIceBeforeAccept.size}"
-                    )
                 } else {
                     listener.onLocalIceCandidate(candidate)
                 }
@@ -179,7 +157,6 @@ class PeerConnectionWrapper(
         }
 
         peerConnection = factory.createPeerConnection(rtcConfig, peerConnectionObserver)
-        android.util.Log.d(TAG, "[WEBRTC:HANDSHAKE] createPeerConnection iceServerCount=${iceServers.size}")
     }
 
     fun createOffer(isVideo: Boolean, callback: (SessionDescription) -> Unit) {
@@ -193,15 +170,7 @@ class PeerConnectionWrapper(
             override fun onCreateSuccess(sdp: SessionDescription?) {
                 sdp?.let { offer ->
                     val preferredSdp = preferVp8Codec(offer)
-                    peerConnection?.setLocalDescription(object : SimpleSdpObserver() {
-                        override fun onSetSuccess() {
-                            android.util.Log.d(TAG, "[WEBRTC:HANDSHAKE] setLocalDescription OFFER ok")
-                        }
-
-                        override fun onSetFailure(error: String?) {
-                            android.util.Log.e(TAG, "[WEBRTC:HANDSHAKE] setLocalDescription OFFER fail: $error")
-                        }
-                    }, preferredSdp)
+                    peerConnection?.setLocalDescription(SimpleSdpObserver(), preferredSdp)
                     mainHandler.post { callback(preferredSdp) }
                 }
             }
@@ -219,7 +188,7 @@ class PeerConnectionWrapper(
 
         peerConnection?.setRemoteDescription(object : SimpleSdpObserver() {
             override fun onSetSuccess() {
-                android.util.Log.d(TAG, "[WEBRTC:HANDSHAKE] setRemoteDescription OFFER ok (incoming lazy path)")
+                android.util.Log.d(TAG, "handleRemoteOffer: setRemoteDescription SUCCESS")
                 remoteDescriptionSet = true
                 flushPendingIce()
 
@@ -228,19 +197,8 @@ class PeerConnectionWrapper(
                         android.util.Log.d(TAG, "handleRemoteOffer: createAnswer SUCCESS, answer=${answer != null}")
                         answer?.let {
                             val preferredAnswer = preferVp8Codec(it)
-                            peerConnection?.setLocalDescription(object : SimpleSdpObserver() {
-                                override fun onSetSuccess() {
-                                    android.util.Log.d(TAG, "[WEBRTC:HANDSHAKE] setLocalDescription ANSWER ok (callee lazy path)")
-                                    mainHandler.post { callback(preferredAnswer) }
-                                }
-
-                                override fun onSetFailure(error: String?) {
-                                    android.util.Log.e(TAG, "[WEBRTC:HANDSHAKE] setLocalDescription ANSWER fail: $error")
-                                    mainHandler.post {
-                                        listener.onInboundSignalingSetupFailed(error ?: "setLocalDescription ANSWER failed")
-                                    }
-                                }
-                            }, preferredAnswer)
+                            peerConnection?.setLocalDescription(SimpleSdpObserver(), preferredAnswer)
+                            mainHandler.post { callback(preferredAnswer) }
                         }
                     }
                 }, MediaConstraints())
@@ -263,6 +221,9 @@ class PeerConnectionWrapper(
         createPeerConnection()
         if (peerConnection == null) {
             android.util.Log.e(TAG, "handleRemoteOfferEager: createPeerConnection returned null")
+            mainHandler.post {
+                listener.onInboundSignalingSetupFailed("createPeerConnection returned null")
+            }
             return
         }
         holdLocalCandidates = true
@@ -271,7 +232,7 @@ class PeerConnectionWrapper(
 
         peerConnection?.setRemoteDescription(object : SimpleSdpObserver() {
             override fun onSetSuccess() {
-                android.util.Log.d(TAG, "[WEBRTC:HANDSHAKE] setRemoteDescription OFFER ok (incoming eager path)")
+                android.util.Log.d(TAG, "handleRemoteOfferEager: setRemoteDescription SUCCESS")
                 remoteDescriptionSet = true
                 flushPendingIce()
                 drainPendingAnswerAfterRemoteSet()
@@ -290,27 +251,20 @@ class PeerConnectionWrapper(
     }
 
     fun requestAnswerWhenRemoteReady(callback: (SessionDescription) -> Unit) {
-        if (disposed) {
-            android.util.Log.w(TAG, "requestAnswerWhenRemoteReady: disposed, skip")
-            return
-        }
-        val (runNow, remoteSet) = synchronized(answerLock) {
+        if (disposed) return
+        val runNow = synchronized(answerLock) {
             if (remoteDescriptionSet) {
-                true to true
+                true
             } else {
                 pendingAnswerCallback = callback
-                false to false
+                false
             }
         }
-        android.util.Log.d(TAG, "requestAnswerWhenRemoteReady: runNow=$runNow remoteDescriptionSet=$remoteSet")
         if (runNow) {
             if (localAudioTrack == null) {
                 addLocalAudioTrackIfPermitted()
             }
-            android.util.Log.d(TAG, "requestAnswerWhenRemoteReady: immediate createAnswerAndFlush")
             createAnswerAndFlush(callback)
-        } else {
-            android.util.Log.d(TAG, "requestAnswerWhenRemoteReady: deferred until setRemoteDescription completes (eager path)")
         }
     }
 
@@ -319,12 +273,7 @@ class PeerConnectionWrapper(
             val p = pendingAnswerCallback
             pendingAnswerCallback = null
             p
-        }
-        if (cb == null) {
-            android.util.Log.d(TAG, "drainPendingAnswerAfterRemoteSet: no pending callback")
-            return
-        }
-        android.util.Log.d(TAG, "drainPendingAnswerAfterRemoteSet: invoke createAnswerAndFlush for deferred accept")
+        } ?: return
         if (disposed) return
         if (localAudioTrack == null) {
             addLocalAudioTrackIfPermitted()
@@ -350,22 +299,11 @@ class PeerConnectionWrapper(
                     return
                 }
                 val preferredAnswer = preferVp8Codec(answer)
-                pc.setLocalDescription(object : SimpleSdpObserver() {
-                    override fun onSetSuccess() {
-                        android.util.Log.d(TAG, "[WEBRTC:HANDSHAKE] setLocalDescription ANSWER ok (callee eager/flush)")
-                        mainHandler.post {
-                            callback(preferredAnswer)
-                            flushPendingLocalIce()
-                        }
-                    }
-
-                    override fun onSetFailure(err: String?) {
-                        android.util.Log.e(TAG, "[WEBRTC:HANDSHAKE] setLocalDescription ANSWER fail: $err")
-                        mainHandler.post {
-                            listener.onInboundSignalingSetupFailed(err ?: "setLocalDescription ANSWER failed")
-                        }
-                    }
-                }, preferredAnswer)
+                pc.setLocalDescription(SimpleSdpObserver(), preferredAnswer)
+                mainHandler.post {
+                    callback(preferredAnswer)
+                    flushPendingLocalIce()
+                }
             }
 
             override fun onCreateFailure(error: String?) {
@@ -385,11 +323,8 @@ class PeerConnectionWrapper(
             copy
         }
         if (toFlush.isEmpty()) return
-        android.util.Log.d(TAG, "[WEBRTC:HANDSHAKE] flushPendingLocalIce count=${toFlush.size} → emit to signaling")
-        var idx = 0
+        android.util.Log.d(TAG, "flushPendingLocalIce: flushing ${toFlush.size} buffered local candidates")
         for (candidate in toFlush) {
-            idx++
-            android.util.Log.d(TAG, "[WEBRTC:HANDSHAKE] flush local[$idx/${toFlush.size}] kind=${iceCandidateKindForLog(candidate.sdp)}")
             if (disposed) return
             listener.onLocalIceCandidate(candidate)
         }
@@ -406,18 +341,8 @@ class PeerConnectionWrapper(
                     override fun onCreateSuccess(answer: SessionDescription?) {
                         answer?.let {
                             val preferredAnswer = preferVp8Codec(it)
-                            pc.setLocalDescription(object : SimpleSdpObserver() {
-                                override fun onSetSuccess() {
-                                    mainHandler.post { callback(preferredAnswer) }
-                                }
-
-                                override fun onSetFailure(error: String?) {
-                                    android.util.Log.e(
-                                        TAG,
-                                        "handleRenegotiationRemoteOffer: setLocalDescription ANSWER fail: $error"
-                                    )
-                                }
-                            }, preferredAnswer)
+                            pc.setLocalDescription(SimpleSdpObserver(), preferredAnswer)
+                            mainHandler.post { callback(preferredAnswer) }
                         }
                     }
                 }, MediaConstraints())
@@ -435,16 +360,8 @@ class PeerConnectionWrapper(
             override fun onCreateSuccess(sdp: SessionDescription?) {
                 sdp?.let { offer ->
                     val preferredSdp = preferVp8Codec(offer)
-                    peerConnection?.setLocalDescription(object : SimpleSdpObserver() {
-                        override fun onSetSuccess() {
-                            android.util.Log.d(TAG, "[WEBRTC:HANDSHAKE] setLocalDescription OFFER ok (renegotiate)")
-                            mainHandler.post { callback(preferredSdp) }
-                        }
-
-                        override fun onSetFailure(error: String?) {
-                            android.util.Log.e(TAG, "[WEBRTC:HANDSHAKE] setLocalDescription OFFER fail: $error")
-                        }
-                    }, preferredSdp)
+                    peerConnection?.setLocalDescription(SimpleSdpObserver(), preferredSdp)
+                    mainHandler.post { callback(preferredSdp) }
                 }
             }
         }, constraints)
@@ -459,45 +376,27 @@ class PeerConnectionWrapper(
     fun hasLocalVideoTrack(): Boolean = localVideoTrack != null
 
     fun handleRemoteAnswer(sdp: SessionDescription) {
-        android.util.Log.d(TAG, "[WEBRTC:HANDSHAKE] setRemoteDescription ANSWER start len=${sdp.description.length}")
         peerConnection?.setRemoteDescription(object : SimpleSdpObserver() {
             override fun onSetSuccess() {
-                android.util.Log.d(TAG, "[WEBRTC:HANDSHAKE] setRemoteDescription ANSWER ok pendingRemoteFlush=${pendingRemoteIce.size}")
                 remoteDescriptionSet = true
                 flushPendingIce()
-                mainHandler.post { flushPendingLocalIce() } 
-            }
-
-            override fun onSetFailure(error: String?) {
-                android.util.Log.e(TAG, "[WEBRTC:HANDSHAKE] setRemoteDescription ANSWER fail: $error")
-                mainHandler.post {
-                    listener.onInboundSignalingSetupFailed(error ?: "setRemoteDescription ANSWER failed")
-                }
+                mainHandler.post { flushPendingLocalIce() }
             }
         }, sdp)
     }
 
     fun addRemoteIceCandidate(candidate: IceCandidate) {
-        val kind = iceCandidateKindForLog(candidate.sdp)
         if (remoteDescriptionSet) {
-            android.util.Log.d(TAG, "[WEBRTC:HANDSHAKE] addIceCandidate pc kind=$kind")
             peerConnection?.addIceCandidate(candidate)
         } else {
             synchronized(pendingRemoteIce) {
                 pendingRemoteIce.add(candidate)
-                android.util.Log.d(
-                    TAG,
-                    "[WEBRTC:HANDSHAKE] addIceCandidate defer kind=$kind pending=${pendingRemoteIce.size}"
-                )
             }
         }
     }
 
     private fun flushPendingIce() {
         synchronized(pendingRemoteIce) {
-            val cnt = pendingRemoteIce.size
-            if (cnt == 0) return
-            android.util.Log.d(TAG, "[WEBRTC:HANDSHAKE] flushPendingIce wiring $cnt deferred remote candidates to PC")
             for (candidate in pendingRemoteIce) {
                 peerConnection?.addIceCandidate(candidate)
             }
@@ -744,7 +643,7 @@ class PeerConnectionWrapper(
 
     companion object {
         private const val ICE_RECONNECT_TIMEOUT_MS = 3000L
-            }
+    }
 }
 
 open class SimpleSdpObserver : SdpObserver {

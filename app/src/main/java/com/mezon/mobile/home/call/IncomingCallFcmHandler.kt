@@ -74,28 +74,49 @@ class IncomingCallFcmHandler @Inject constructor(
             }
         }
         if (innerOffer == "CANCEL_CALL") {
+            val answeredElsewhere = parsed.optBoolean("isConnected", false)
+            val ctrl = CallController.instance
+            val stateLabel = ctrl?.callState?.let { it::class.simpleName } ?: "null"
+            Log.d(
+                TAG,
+                "CANCEL_CALL FCM: answeredElsewhere=$answeredElsewhere controller=${ctrl != null} callState=$stateLabel"
+            )
             CallNotificationManager(appContext).dismissIncomingNotification()
+            if (answeredElsewhere && ctrl?.shouldIgnoreCancelCallFcmAnsweredElsewhere() == true) {
+                Log.i(
+                    TAG,
+                    "CANCEL_CALL FCM: ignored — local session active ($stateLabel), do not endCall"
+                )
+                return
+            }
             MezonCallConnection.activeConnection?.let {
                 it.setDisconnected(DisconnectCause(DisconnectCause.CANCELED))
                 it.destroy()
                 MezonCallConnection.activeConnection = null
             }
-            CallController.instance?.endCall(CallEndReason.CANCELLED)
+            if (answeredElsewhere) {
+                if (ctrl?.callState is CallState.Idle) {
+                    ctrl.clearIdleIncomingArtifactsAfterAnsweredElsewhere()
+                    Log.d(TAG, "CANCEL_CALL FCM: answeredElsewhere + Idle → cleared stale incoming artifacts")
+                } else {
+                    ctrl?.endCall(CallEndReason.CLEAR_CALL)
+                    Log.d(TAG, "CANCEL_CALL FCM: answeredElsewhere → endCall(CLEAR_CALL)")
+                }
+            } else {
+                ctrl?.endCall(CallEndReason.CANCELLED)
+                Log.d(TAG, "CANCEL_CALL FCM: real cancel → endCall(CANCELLED)")
+            }
             return
         }
         if (callController.callState !is CallState.Idle) {
             Log.d(TAG, "skip offer, callState=${callController.callState::class.simpleName}")
             return
         }
-        StartupCache.suppressHomeListApiForIncomingCallWake = true
         val callerName = parsed.optString("callerName", "Unknown")
         val callerAvatar = parsed.optString("callerAvatar", "")
         val callerId = parsed.optString("callerId", "")
         val channelId = parsed.optString("channelId", "")
-        appContext.getSharedPreferences("call_data", Context.MODE_PRIVATE).edit()
-            .putString("incoming_call", offerJson)
-            .commit()
-        Log.i(TAG, "dispatchOffer: offer filters passed (not cancel, idle, session ok) → reconnect socket for signaling")
+        Log.i(TAG, "dispatchOffer: offer filters passed (not cancel, session ok) → reconnect socket for signaling")
         connectionController.reconnectSocketForOfferSignaling()
         webRtcInfra.ensureFactoryReady()
         Log.d(TAG, "feeding offer to CallController")
@@ -106,6 +127,14 @@ class IncomingCallFcmHandler @Inject constructor(
             channelId,
             offerJson
         )
+        if (callController.callState !is CallState.Incoming) {
+            Log.d(TAG, "dispatchOffer: offer consumed without incoming UI, state=${callController.callState::class.simpleName}")
+            return
+        }
+        StartupCache.suppressHomeListApiForIncomingCallWake = true
+        appContext.getSharedPreferences("call_data", Context.MODE_PRIVATE).edit()
+            .putString("incoming_call", offerJson)
+            .commit()
         mainHandler.post {
             if (MainActivity.isResumed) {
                 return@post

@@ -38,6 +38,8 @@ class CallFragment : BaseFragment() {
     private var contentContainer: FrameLayout? = null
     private var dmHeader: DmCallHeaderView? = null
     private var lastConnectedMainVideoMode: Boolean? = null
+    private var showingBusyEnd = false
+    private val finishAfterBusyRunnable = Runnable { finishFragment() }
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
         callController = entryPoint.callController()
@@ -153,8 +155,14 @@ class CallFragment : BaseFragment() {
         observe(NotificationCenter.callMediaChanged) { _, _, _ ->
             updateMediaUI()
         }
-        observe(NotificationCenter.callEnded) { _, _, _ ->
-            finishFragment()
+        observe(NotificationCenter.callEnded) { _, _, args ->
+            val reason = args.firstOrNull() as? CallEndReason
+            val callInfo = args.getOrNull(1) as? CallInfo
+            if (reason == CallEndReason.BUSY) {
+                showBusyAndFinish(callInfo)
+            } else {
+                finishFragment()
+            }
         }
         return super.onFragmentCreate()
     }
@@ -201,6 +209,8 @@ class CallFragment : BaseFragment() {
     }
 
     override fun onFragmentDestroy() {
+        fragmentView?.removeCallbacks(finishAfterBusyRunnable)
+        showingBusyEnd = false
         durationView?.stopTimer()
         releaseLocalPipOverlay()
         releaseVideoView()
@@ -304,6 +314,7 @@ class CallFragment : BaseFragment() {
     }
 
     private fun updateUI() {
+        if (showingBusyEnd) return
         val state = callController.callState
         val callInfo = callController.currentCallInfo()
 
@@ -361,6 +372,28 @@ class CallFragment : BaseFragment() {
         }
     }
 
+    private fun showBusyAndFinish(callInfo: CallInfo?) {
+        showingBusyEnd = true
+        lastConnectedMainVideoMode = null
+        hideLocalPipOverlay()
+        hideVideoView()
+        showAvatarView(callInfo)
+        avatarView?.setConnectingLoading(false)
+        avatarView?.setConnected(false)
+        avatarView?.stopRingAnimation()
+        avatarView?.setStatus(getString(R.string.call_busy_status))
+        val peerName = callInfo?.peerName?.takeIf { it.isNotBlank() }
+        val toastText = if (peerName != null) {
+            getString(R.string.call_busy_peer_status, peerName)
+        } else {
+            getString(R.string.call_busy_status)
+        }
+        MezonToast.show(this, ToastOverlay.ToastType.ERROR, toastText)
+        durationView?.visibility = View.GONE
+        fragmentView?.removeCallbacks(finishAfterBusyRunnable)
+        fragmentView?.postDelayed(finishAfterBusyRunnable, 2000L)
+    }
+
     private fun updateMediaUI() {
         controlBar?.isSpeakerActive = callController.isSpeakerOn
         controlBar?.isMicActive = callController.isLocalAudioEnabled
@@ -409,7 +442,7 @@ class CallFragment : BaseFragment() {
         }
         avatarView?.visibility = View.VISIBLE
         callInfo?.let {
-            avatarView?.setData(it.peerName, it.peerAvatar)
+            avatarView?.setData(it.peerName, it.peerUsername, it.peerAvatar)
         }
         avatarView?.let { contentContainer?.bringChildToFront(it) }
     }

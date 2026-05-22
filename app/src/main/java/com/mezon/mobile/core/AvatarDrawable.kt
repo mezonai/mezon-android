@@ -18,10 +18,27 @@ class AvatarDrawable : Drawable() {
 
     companion object {
         private val avatarColors = intArrayOf(
-            0xFFE57373.toInt(), 0xFF81C784.toInt(), 0xFF64B5F6.toInt(),
-            0xFFFFB74D.toInt(), 0xFFBA68C8.toInt(), 0xFF4DB6AC.toInt(),
-            0xFFFF8A65.toInt(), 0xFFA1887F.toInt(), 0xFF90A4AE.toInt()
+            0xFFade603.toInt(),
+            0xFF00b2cc.toInt(),
+            0xFFfda63c.toInt(),
+            0xFFe16dcc.toInt(),
+            0xFFe8467b.toInt(),
+            0xFF9c7cfd.toInt(),
+            0xFF22e2b3.toInt()
         )
+
+        fun getColorForName(name: String): Int {
+            if (name.isEmpty()) return avatarColors[0]
+            val firstChar = name.trim().firstOrNull()?.uppercaseChar() ?: return avatarColors[0]
+            val index = (firstChar.code % avatarColors.size).toInt()
+            return avatarColors[index]
+        }
+
+        fun getColorIndexForName(name: String): Int {
+            if (name.isEmpty()) return 0
+            val firstChar = name.trim().firstOrNull()?.uppercaseChar() ?: return 0
+            return (firstChar.code % avatarColors.size).toInt()
+        }
 
         fun getColorForId(id: Long): Int {
             if (id == 0L) return 0xFFBDBDBD.toInt()
@@ -34,6 +51,11 @@ class AvatarDrawable : Drawable() {
         }
 
         fun getNameColorNameForId(id: Long): Int = getColorIndex(id)
+
+        fun normalizeUsername(username: String?): String {
+            if (username.isNullOrBlank()) return ""
+            return username.trim().removePrefix("@")
+        }
     }
 
     private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -67,17 +89,18 @@ class AvatarDrawable : Drawable() {
     private var lastBoundsWidth = -1
     private var lastBoundsHeight = -1
 
-    fun setInfo(id: Long, firstName: String?, lastName: String?) {
+    fun setInfo(id: Long, username: String?) {
+        val normalized = normalizeUsername(username)
         if (id == currentUserId && photoBitmap != null) {
-            initial = getAvatarSymbols(firstName, lastName)
+            initial = getAvatarSymbols(normalized)
             invalidateSelf()
             return
         }
         currentUserId = id
-        bgColor = getColorForId(id)
+        bgColor = getColorForName(normalized)
         bgColor2 = bgColor
         hasGradient = false
-        initial = getAvatarSymbols(firstName, lastName)
+        initial = getAvatarSymbols(normalized)
         photoBitmap = null
         cachedShader = null
         cachedShaderBitmap = null
@@ -85,39 +108,26 @@ class AvatarDrawable : Drawable() {
         invalidateSelf()
     }
 
-    fun setInfo(id: Long, name: String) {
-        setInfo(id, name, null)
-    }
-
     fun setInfo(account: Int, user: Any?) {
         if (user == null) return
-        val map = user as? Map<*, *>
-        if (map != null) {
-            val id = (map["id"] as? Number)?.toLong() ?: 0L
-            val first = map["first_name"] as? String
-            val last = map["last_name"] as? String
-            setInfo(id, first, last)
-        }
+        val map = user as? Map<*, *> ?: return
+        val id = (map["id"] as? Number)?.toLong() ?: 0L
+        val username = map["username"] as? String
+        setInfo(id, username)
     }
 
     fun setInfo(chat: Any?) {
         if (chat == null) return
-        val map = chat as? Map<*, *>
-        if (map != null) {
-            val id = (map["id"] as? Number)?.toLong() ?: 0L
-            val title = map["title"] as? String ?: (map["name"] as? String)
-            setInfo(id, title, null)
-        }
+        val map = chat as? Map<*, *> ?: return
+        val id = (map["id"] as? Number)?.toLong() ?: 0L
+        val title = map["title"] as? String ?: (map["name"] as? String)
+        setInfo(id, title)
     }
 
-    private fun getAvatarSymbols(firstName: String?, lastName: String?): String {
-        val sb = StringBuilder()
-        if (!firstName.isNullOrEmpty()) sb.append(firstName.first().uppercaseChar())
-        if (!lastName.isNullOrEmpty()) {
-            val lastWord = lastName.substringAfterLast(" ", lastName)
-            if (lastWord.isNotEmpty()) sb.append(lastWord.first().uppercaseChar())
-        }
-        return if (sb.isEmpty()) "?" else sb.toString()
+    private fun getAvatarSymbols(username: String): String {
+        if (username.isEmpty()) return "?"
+        val first = username.firstOrNull { it.isLetterOrDigit() } ?: username.first()
+        return first.uppercaseChar().toString()
     }
 
     fun setColor(color: Int) {

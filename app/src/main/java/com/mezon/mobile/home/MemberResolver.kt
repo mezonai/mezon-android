@@ -97,7 +97,7 @@ class MemberResolver @Inject constructor(
         if (ch != null && (ch.isPrivate || ch.parentId != 0L)) {
             val targetChannelId = if (ch.parentId != 0L) ch.parentId else channelId
             val channelMembers = userClanController.getChannelMembers(targetChannelId)
-            if (channelMembers.isNotEmpty()) return channelMembers
+            if (channelMembers.isNotEmpty()) return enrichMembers(clanId, channelMembers)
         }
         return userClanController.getClanMembers(clanId)
     }
@@ -160,7 +160,8 @@ class MemberResolver @Inject constructor(
                 displayName = m.displayName.ifBlank { clanMember?.displayName ?: global?.displayName.orEmpty() },
                 avatarUrl = m.avatarUrl.ifBlank { clanMember?.avatarUrl ?: global?.avatarUrl.orEmpty() },
                 clanNick = m.clanNick.ifBlank { clanMember?.clanNick.orEmpty() },
-                clanAvatar = m.clanAvatar.ifBlank { clanMember?.clanAvatar?.ifBlank { clanMember.avatarUrl }.orEmpty() }
+                clanAvatar = m.clanAvatar.ifBlank { clanMember?.clanAvatar?.ifBlank { clanMember.avatarUrl }.orEmpty() },
+                roleIds = if (m.roleIds.isNotEmpty()) m.roleIds else clanMember?.roleIds.orEmpty()
             )
             enriched.add(next)
         }

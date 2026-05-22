@@ -4,16 +4,12 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
-import android.net.NetworkRequest
+import android.os.Build
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.flow.distinctUntilChanged
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -28,54 +24,54 @@ class NetworkMonitor @Inject constructor(
     private val connectivityManager =
         context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
-    private val _isOnline = MutableStateFlow(checkCurrentConnectivity())
+    private val _isOnline = MutableStateFlow(readValidatedInternet())
     val isOnline: StateFlow<Boolean> = _isOnline.asStateFlow()
 
-    val onlineEvents: Flow<Boolean> = callbackFlow {
-        val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
-                Log.d(TAG, "Network available")
-                _isOnline.value = true
-                trySend(true)
-            }
-
-            override fun onLost(network: Network) {
-                val stillConnected = checkCurrentConnectivity()
-                Log.d(TAG, "Network lost, still connected=$stillConnected")
-                _isOnline.value = stillConnected
-                trySend(stillConnected)
-            }
-
-            override fun onCapabilitiesChanged(
-                network: Network,
-                capabilities: NetworkCapabilities
-            ) {
-                val hasInternet = capabilities.hasCapability(
-                    NetworkCapabilities.NET_CAPABILITY_INTERNET
-                ) && capabilities.hasCapability(
-                    NetworkCapabilities.NET_CAPABILITY_VALIDATED
-                )
-                _isOnline.value = hasInternet
-                trySend(hasInternet)
-            }
+    private val connectivityCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            publishFromActiveNetwork()
         }
 
-        val request = NetworkRequest.Builder()
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            .build()
-
-        connectivityManager.registerNetworkCallback(request, callback)
-        trySend(checkCurrentConnectivity())
-
-        awaitClose {
-            connectivityManager.unregisterNetworkCallback(callback)
+        override fun onLost(network: Network) {
+            publishFromActiveNetwork()
         }
-    }.distinctUntilChanged()
 
-    private fun checkCurrentConnectivity(): Boolean {
+        override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+            publishFromActiveNetwork()
+        }
+
+        override fun onBlockedStatusChanged(network: Network, blocked: Boolean) {
+            publishFromActiveNetwork()
+        }
+    }
+
+    init {
+        connectivityManager.registerDefaultNetworkCallback(connectivityCallback)
+        publishFromActiveNetwork(force = true)
+    }
+
+    private fun publishFromActiveNetwork(force: Boolean = false) {
+        val nextOnline = readValidatedInternet()
+        if (force || _isOnline.value != nextOnline) {
+            Log.d(TAG, "isOnline=$nextOnline")
+            _isOnline.value = nextOnline
+        }
+    }
+
+    private fun readValidatedInternet(): Boolean {
         val network = connectivityManager.activeNetwork ?: return false
         val caps = connectivityManager.getNetworkCapabilities(network) ?: return false
-        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        return caps.hasValidatedInternet()
+    }
+
+    private fun NetworkCapabilities.hasValidatedInternet(): Boolean {
+        if (!hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) return false
+        if (!hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) return false
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P &&
+            !hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED)
+        ) {
+            return false
+        }
+        return true
     }
 }

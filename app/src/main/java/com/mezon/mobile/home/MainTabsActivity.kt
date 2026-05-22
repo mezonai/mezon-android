@@ -16,6 +16,9 @@ import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.ChannelFilesController
 import com.mezon.mobile.home.chat.EmojiController
 import com.mezon.mobile.home.clans.ClansFragment
+import com.mezon.mobile.home.clans.ChannelPermissionController
+import com.mezon.mobile.home.clans.PermissionPolicy
+import com.mezon.mobile.home.clans.RoleController
 import com.mezon.mobile.home.messages.MessagesFragment
 import com.mezon.mobile.home.friends.FriendController
 import com.mezon.mobile.home.notifications.NotificationStore
@@ -34,6 +37,7 @@ class MainTabsActivity : ViewPagerActivity() {
     }
 
     private lateinit var connectionController: ConnectionController
+    @Suppress("unused")
     private lateinit var messagesController: MessagesController
     private lateinit var friendController: FriendController
     @Suppress("unused")
@@ -43,6 +47,12 @@ class MainTabsActivity : ViewPagerActivity() {
     private lateinit var pinMessageController: PinMessageController
     @Suppress("unused")
     private lateinit var channelGalleryController: ChannelGalleryController
+    @Suppress("unused")
+    private lateinit var roleController: RoleController
+    @Suppress("unused")
+    private lateinit var channelPermissionController: ChannelPermissionController
+    @Suppress("unused")
+    private lateinit var permissionPolicy: PermissionPolicy
     @Suppress("unused")
     private lateinit var channelFilesController: ChannelFilesController
     private lateinit var emojiController: EmojiController
@@ -81,7 +91,6 @@ class MainTabsActivity : ViewPagerActivity() {
         }
         TAB_PROFILE -> ProfileFragment().also { f ->
             f.onLogout = {
-                messagesController.disconnect()
                 onLogout?.invoke()
             }
         }
@@ -97,6 +106,9 @@ class MainTabsActivity : ViewPagerActivity() {
         pinMessageController = entryPoint.pinMessageController()
         channelFilesController = entryPoint.channelFilesController()
         channelGalleryController = entryPoint.channelGalleryController()
+        roleController = entryPoint.roleController()
+        channelPermissionController = entryPoint.channelPermissionController()
+        permissionPolicy = entryPoint.permissionPolicy()
         emojiController = entryPoint.emojiController()
         searchController = entryPoint.searchController()
         accountController = entryPoint.accountController()

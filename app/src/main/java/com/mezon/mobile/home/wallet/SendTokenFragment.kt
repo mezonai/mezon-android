@@ -728,7 +728,7 @@ class SendTokenFragment : BaseFragment() {
             text = amountText
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
             setTypeface(null, Typeface.BOLD)
-            setTextColor(0xFFFFFFFF.toInt())
+            setTextColor(themeColors.onSurface)
             gravity = Gravity.END
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
@@ -923,10 +923,11 @@ class SendTokenFragment : BaseFragment() {
         )
         row.addView(
             TextView(context).apply {
-                text = ">"
+                text = "\u25BE"
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
                 setTextColor(themeColors.onSurfaceVariant)
                 includeFontPadding = false
+                gravity = Gravity.CENTER_VERTICAL
             }
         )
         return row
@@ -943,7 +944,7 @@ class SendTokenFragment : BaseFragment() {
             )
             return
         }
-        val sheet = BottomSheet(act)
+        val sheet = BottomSheet(act, needFocusable = true)
         val content = LinearLayout(act).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(LayoutHelper.dp(16f), LayoutHelper.dp(10f), LayoutHelper.dp(16f), LayoutHelper.dp(16f))
@@ -1028,6 +1029,15 @@ class SendTokenFragment : BaseFragment() {
             }
         )
         sheet.setCustomView(content)
+        sheet.delegate = object : BottomSheet.BottomSheetDelegateInterface {
+            override fun onOpenAnimationEnd() {
+                searchField.post {
+                    if (!sheet.isShowing) return@post
+                    searchField.requestFocus()
+                    AndroidUtilities.showKeyboard(searchField)
+                }
+            }
+        }
         sheet.show()
     }
 
@@ -1107,11 +1117,6 @@ class SendTokenFragment : BaseFragment() {
                 maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
             }
-            val chevron = TextView(ctx).apply {
-                text = ">"
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-                setTextColor(themeColors.onSurfaceVariant)
-            }
             row.addView(
                 avatar,
                 LinearLayout.LayoutParams(LayoutHelper.dp(36f), LayoutHelper.dp(36f))
@@ -1122,7 +1127,6 @@ class SendTokenFragment : BaseFragment() {
                 textWrap,
                 LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             )
-            row.addView(chevron)
             row.setOnClickListener {
                 val pos = (it.tag as? Int) ?: return@setOnClickListener
                 val chosen = items.getOrNull(pos) ?: return@setOnClickListener
@@ -1134,7 +1138,7 @@ class SendTokenFragment : BaseFragment() {
         override fun onBindViewHolder(holder: Holder, position: Int) {
             val item = items[position]
             holder.itemView.tag = position
-            holder.avatar.setInfo(item.friend.user.id, item.displayName)
+            holder.avatar.setInfo(item.friend.user.id, item.username)
             holder.avatar.setImageUrl(item.avatarUrl.ifBlank { null })
             holder.nameTv.text = item.displayName
             holder.userTv.text = "@${item.username}"
@@ -1457,14 +1461,6 @@ class SendTokenFragment : BaseFragment() {
                             val amountShow = amountField?.text?.toString().orEmpty()
                             val sym = getString(R.string.send_token_currency_symbol)
                             val recipientDisplay = buildRecipientDisplay()
-                            if (!toUserId.isNullOrBlank()) {
-                                sendTransferDmNotification(
-                                    receiverId = toUserId,
-                                    amountDisplay = amountShow,
-                                    symbol = sym,
-                                    note = note
-                                )
-                            }
                             val successFrag = TransferSuccessFragment.newInstance(
                                 amount = amountShow,
                                 symbol = sym,
@@ -1476,6 +1472,16 @@ class SendTokenFragment : BaseFragment() {
                             successFrag.onDone = { shouldFinishOnResume = true }
                             successFrag.onNewTransfer = { shouldFinishOnResume = true; pendingNewTransfer = true }
                             presentFragment(successFrag)
+                            if (!toUserId.isNullOrBlank()) {
+                                fragmentScope.launch(Dispatchers.IO) {
+                                    sendTransferDmNotification(
+                                        receiverId = toUserId,
+                                        amountDisplay = amountShow,
+                                        symbol = sym,
+                                        note = note
+                                    )
+                                }
+                            }
               
                             return@launch
                         } else {

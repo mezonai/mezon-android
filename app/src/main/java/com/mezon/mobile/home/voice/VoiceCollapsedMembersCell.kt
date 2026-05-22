@@ -55,7 +55,7 @@ class VoiceCollapsedMembersCell(
         for (i in 0 until MAX_VISIBLE_AVATARS) {
             if (i < visibleCount) {
                 val m = members[i]
-                avatarDrawables[i].setInfo(m.userId, m.displayName)
+                avatarDrawables[i].setInfo(m.userId, m.username)
                 loadAvatar(m.avatarUrl, i)
             } else {
                 cancelAvatarLoad(i)

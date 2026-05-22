@@ -1,6 +1,7 @@
 package com.mezon.mobile.home.clans
 
 import android.content.Context
+import android.util.Log
 import android.content.res.ColorStateList
 import android.graphics.Canvas
 import android.graphics.Outline
@@ -51,19 +52,20 @@ import com.mezon.mobile.MainActivity
 import com.mezon.mobile.home.voice.JoinVoiceBottomSheet
 import com.mezon.mobile.home.voice.VoiceController
 import com.mezon.mobile.home.voice.VoiceRoomFragment
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import com.mezon.mobile.home.clans.discover.DiscoverClansListSection
 import com.mezon.mobile.home.clans.discover.buildDiscoverCommunitySearchToolbar
 import com.mezon.mobile.home.clans.discover.DiscoverRailCell
 import com.mezon.mobile.home.clans.CreateClanRnUiTokens
+import com.mezon.mobile.home.clans.PermissionPolicy
 import com.mezon.mobile.home.clans.settings.ClanSettingFragment
 import com.mezon.mobile.home.clans.settings.AuditLogSettingFragment
-import com.mezon.mobile.home.clans.settings.ClanSettingsPermissionState
 import com.mezon.mobile.search.GlobalSearchFragment
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.home.qr.QrScanFragment
 import com.mezon.mobile.home.profile.UserController
+
+private const val TAG_CHANNEL_OPEN = "ClansFragment"
+
 class ClansFragment : BaseFragment() {
 
     private lateinit var clansController: ClansController
@@ -77,6 +79,7 @@ class ClansFragment : BaseFragment() {
     private lateinit var channelCategoryExpandStore: ChannelCategoryExpandStore
     private lateinit var userController: UserController
     private lateinit var roleController: RoleController
+    private lateinit var permissionPolicy: PermissionPolicy
     private var clanMenuSheet: ClanMenuBottomSheet? = null
 
     var onOpenChat: ((channelId: Long, channelName: String, clanId: Long, channelType: Int) -> Unit)? = null
@@ -123,6 +126,7 @@ class ClansFragment : BaseFragment() {
         channelCategoryExpandStore = entryPoint.channelCategoryExpandStore()
         userController = entryPoint.userController()
         roleController = entryPoint.roleController()
+        permissionPolicy = entryPoint.permissionPolicy()
     }
 
     override fun onFragmentCreate(): Boolean {
@@ -291,7 +295,12 @@ class ClansFragment : BaseFragment() {
                         context,
                         clan.clanId,
                         clan.clanName,
-                        clan.logo
+                        clan.logo,
+                        catId,
+                        canManageChannel = permissionPolicy.canManageChannelForClan(clan.clanId),
+                        onCreateChannel = {
+                            presentFragment(CreateChannelFragment.newInstance(catId))
+                        }
                     ).show()
                 }
             }
@@ -815,22 +824,28 @@ class ClansFragment : BaseFragment() {
         clanMenuSheet = null
     }
 
+    private fun dismissClanMenuThen(action: Runnable) {
+        val sheet = clanMenuSheet
+        clanMenuSheet = null
+        if (sheet != null) {
+            sheet.setOnDismissListener { action.run() }
+            sheet.dismiss()
+        } else {
+            action.run()
+        }
+    }
+
     private fun presentClanMenuBottomSheetIfPossible() {
         val ctx = fragmentView?.context ?: return
         val clanId = clansController.selectedClanId.value
         if (clanId == 0L) return
         val clan = clansController.clans.value.firstOrNull { it.clanId == clanId } ?: return
         userClanController.loadClanMembers(clanId)
+        roleController.loadPermissionCatalogIfNeeded()
+        roleController.loadUserMaxPermissionForClan(clanId)
         roleController.loadRolesForClanThen(clanId, force = true, Runnable {
             val members = userClanController.getClanMembers(clanId)
-            val roles = roleController.getRoles(clanId)
-            val permissionState = ClanSettingsPermissionState.evaluateForClanSettings(
-                userController,
-                clanId,
-                members,
-                roles,
-                clan.creatorId,
-            )
+            val permissionState = permissionPolicy.clanSettingsPermissionState(clanId)
             val expandState = channelCategoryExpandStore.load(clanId)
             dismissClanMenuSheet()
             val sheet = ClanMenuBottomSheet(
@@ -845,12 +860,14 @@ class ClansFragment : BaseFragment() {
                 permissionState,
                 expandState.allExpanded,
                 Runnable {
-                    dismissClanMenuSheet()
-                    presentFragment(ClanSettingFragment.newInstance(clanId))
+                    dismissClanMenuThen(Runnable {
+                        presentFragment(ClanSettingFragment.newInstance(clanId))
+                    })
                 },
                 Runnable {
-                    dismissClanMenuSheet()
-                    presentFragment(AuditLogSettingFragment.newInstance(clanId))
+                    dismissClanMenuThen(Runnable {
+                        presentFragment(AuditLogSettingFragment.newInstance(clanId))
+                    })
                 },
             )
             clanMenuSheet = sheet
@@ -915,8 +932,9 @@ class ClansFragment : BaseFragment() {
                     ?: member?.displayName?.ifEmpty { null }
                     ?: member?.username
                     ?: "User"
+                val username = member?.username.orEmpty()
                 val avatar = member?.clanAvatar?.ifEmpty { null } ?: member?.avatarUrl
-                VoiceMemberDisplay(uid, name, avatar)
+                VoiceMemberDisplay(uid, name, username, avatar)
             }
             if (displays.isNotEmpty()) result[vc.channelId] = displays
         }
@@ -955,6 +973,21 @@ class ClansFragment : BaseFragment() {
     private fun onChannelSelected(channel: ClanChannelEntity) {
         val clanIdForJoin = if (channel.clanId != 0L) channel.clanId else clansController.selectedClanId.value
 
+        if (clanIdForJoin != 0L && channel.isPrivate) {
+            val selectedClan = clansController.selectedClanId.value
+            Log.d(
+                TAG_CHANNEL_OPEN,
+                "onChannelSelected private channelId=${channel.channelId} clanIdForJoin=$clanIdForJoin selectedClan=$selectedClan label=${channel.channelLabel}",
+            )
+            if (selectedClan == clanIdForJoin) {
+                permissionPolicy.ensurePrivateChannelAccessPrefetch(clanIdForJoin, channel.channelId, channel.type)
+            }
+        }
+
+        continueChannelOpenAfterPrivateGate(channel, clanIdForJoin)
+    }
+
+    private fun continueChannelOpenAfterPrivateGate(channel: ClanChannelEntity, clanIdForJoin: Long) {
         if (channel.type == CHANNEL_TYPE_VOICE) {
             val inRoom = voiceController.isJoined || voiceController.isConnecting
             if (inRoom && voiceController.currentVoiceInfo?.channelId == channel.channelId) {
@@ -982,6 +1015,10 @@ class ClansFragment : BaseFragment() {
         }
 
         onOpenChat?.invoke(channel.channelId, channel.channelLabel, clanIdForJoin, channel.type)
+        Log.d(
+            TAG_CHANNEL_OPEN,
+            "onChannelSelected openChat channelId=${channel.channelId} clanId=$clanIdForJoin type=${channel.type}",
+        )
     }
 
     private fun showJoinVoiceBottomSheet(channel: ClanChannelEntity, clanId: Long) {
@@ -994,8 +1031,9 @@ class ClansFragment : BaseFragment() {
         val displays = members.map { uid ->
             val m = memberMap[uid]
             val name = m?.clanNick?.ifEmpty { null } ?: m?.displayName?.ifEmpty { null } ?: m?.username ?: "User"
+            val username = m?.username.orEmpty()
             val avatar = m?.clanAvatar?.ifEmpty { null } ?: m?.avatarUrl
-            VoiceMemberDisplay(uid, name, avatar)
+            VoiceMemberDisplay(uid, name, username, avatar)
         }
 
         val sheet = JoinVoiceBottomSheet(

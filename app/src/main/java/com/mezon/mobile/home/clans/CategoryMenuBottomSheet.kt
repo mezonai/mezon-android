@@ -9,7 +9,6 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import android.widget.Toast
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BottomSheet
@@ -22,14 +21,13 @@ class CategoryMenuBottomSheet(
     context: android.content.Context,
     private val clanId: Long,
     private val clanName: String,
-    private val clanLogoUrl: String
+    private val clanLogoUrl: String,
+    private val categoryId: Long,
+    private val canManageChannel: Boolean,
+    private val onCreateChannel: () -> Unit
 ) : BottomSheet(context) {
 
     private val themeColors = ThemeColors.instance
-
-    private fun showComingSoon() {
-        Toast.makeText(context, context.getString(R.string.feature_coming_soon), Toast.LENGTH_SHORT).show()
-    }
 
     init {
         containerHeight = (AndroidUtilities.displaySize.y * 0.45f).toInt()
@@ -71,35 +69,53 @@ class CategoryMenuBottomSheet(
         })
         header.addView(title, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f))
 
+        val interactiveCreate = canManageChannel && categoryId != 0L
+        val rowLabelColor =
+            if (interactiveCreate) themeColors.textStrong else themeColors.onSurfaceVariant
+
         val createRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(LayoutHelper.dp(14), LayoutHelper.dp(14), LayoutHelper.dp(14), LayoutHelper.dp(14))
-            background = android.graphics.drawable.RippleDrawable(
-                android.content.res.ColorStateList.valueOf(themeColors.onSurface and 0x1AFFFFFF),
-                android.graphics.drawable.ColorDrawable(themeColors.surfaceVariant),
-                android.graphics.drawable.ColorDrawable(0xFFFFFFFF.toInt())
-            )
-            isClickable = true
-            isFocusable = true
-            setOnClickListener {
-                showComingSoon()
+            background = if (interactiveCreate) {
+                android.graphics.drawable.RippleDrawable(
+                    android.content.res.ColorStateList.valueOf(themeColors.onSurface and 0x1AFFFFFF),
+                    android.graphics.drawable.ColorDrawable(themeColors.surfaceVariant),
+                    android.graphics.drawable.ColorDrawable(0xFFFFFFFF.toInt())
+                )
+            } else {
+                android.graphics.drawable.ColorDrawable(themeColors.surfaceVariant)
+            }
+            isClickable = interactiveCreate
+            isFocusable = interactiveCreate
+            if (interactiveCreate) {
+                setOnClickListener {
+                    dismiss()
+                    onCreateChannel()
+                }
             }
         }
 
         val plusIcon = ImageView(context).apply {
-            setImageDrawable(MezonIcon.plusLargeIcon.getDrawable(context, themeColors.textStrong))
+            setImageDrawable(MezonIcon.plusLargeIcon.getDrawable(context, rowLabelColor))
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
         createRow.addView(plusIcon, LayoutHelper.createLinear(20, 20).apply { rightMargin = LayoutHelper.dp(12) })
 
         val createLabel = TextView(context).apply {
             text = context.getString(R.string.category_menu_create_channel)
-            setTextColor(themeColors.textStrong)
+            setTextColor(rowLabelColor)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             typeface = Typeface.DEFAULT_BOLD
         }
         createRow.addView(createLabel, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f))
+
+        createRow.contentDescription = if (interactiveCreate) {
+            context.getString(R.string.category_menu_create_channel)
+        } else {
+            "${context.getString(R.string.category_menu_create_channel)}. " +
+                context.getString(R.string.category_menu_create_channel_unavailable)
+        }
 
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -111,7 +127,7 @@ class CategoryMenuBottomSheet(
             })
         }
 
-        if (!ClanChannelManagePermissions.canOfferCreateChannelInCategory(clanId)) {
+        if (!canManageChannel) {
             createRow.visibility = View.GONE
         }
 

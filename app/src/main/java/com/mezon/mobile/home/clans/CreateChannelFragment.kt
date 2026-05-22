@@ -13,6 +13,7 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
+import android.widget.Space
 import android.widget.TextView
 import com.mezon.mobile.MainActivity
 import com.mezon.mobile.R
@@ -24,7 +25,7 @@ import com.mezon.mobile.ui.cells.ActionBarView
 import com.mezon.mobile.ui.cells.InputCell
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.RadioCell
-import com.mezon.mobile.ui.cells.TextCheckCell
+import com.mezon.mobile.ui.cells.SwitchView
 import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.util.CreateChannelNameValidator
 import kotlinx.coroutines.Dispatchers
@@ -51,8 +52,8 @@ class CreateChannelFragment : BaseFragment() {
 
     private lateinit var saveButtonText: TextView
     private lateinit var nameCell: InputCell
-    private lateinit var privateBlock: LinearLayout
-    private lateinit var privateCell: TextCheckCell
+    private lateinit var privateSectionRoot: LinearLayout
+    private lateinit var privateSwitch: SwitchView
     private lateinit var loadingOverlay: FrameLayout
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
@@ -66,7 +67,11 @@ class CreateChannelFragment : BaseFragment() {
     }
 
     override fun createView(context: Context): View {
-        val pad = LayoutHelper.dp(20)
+        val screenPadH = LayoutHelper.dp(16)
+        val sectionCaptionToFieldSpacing = LayoutHelper.dp(8)
+        val majorSectionVerticalGap = LayoutHelper.dp(24)
+        val typeAndPrivateCardInnerPadding = LayoutHelper.dp(16)
+        val cardRadius = LayoutHelper.dpf(12f)
 
         saveButtonText = TextView(context).apply {
             text = getString(R.string.channel_creator_action_create)
@@ -74,14 +79,15 @@ class CreateChannelFragment : BaseFragment() {
             textSize = 16f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(LayoutHelper.dp(20), 0, LayoutHelper.dp(20), 0)
+            setPadding(LayoutHelper.dp(16), 0, LayoutHelper.dp(16), 0)
             setOnClickListener { submitCreate() }
         }
 
         actionBar = ActionBarView(context, themeColors).apply {
             occupyStatusBar = false
             setBackButtonImage(MezonIcon.closeLargeIcon.resId)
-            setTitle("")
+            setTitle(getString(R.string.channel_creator_screen_title))
+            setTitleColor(themeColors.textStrong)
             createMenu().addItem(1, "").also { cell ->
                 cell.addView(
                     saveButtonText,
@@ -105,15 +111,26 @@ class CreateChannelFragment : BaseFragment() {
                 }
             })
             getBackButtonView()?.apply {
-                val px = LayoutHelper.dp(20)
+                val px = LayoutHelper.dp(16)
                 setPadding(px, px, px, px)
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
             }
         }
 
+        fun mutedBoldSectionCaption(textRes: Int): TextView = TextView(context).apply {
+            text = getString(textRes)
+            setTextColor(themeColors.onSurfaceVariant)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            typeface = Typeface.DEFAULT_BOLD
+        }
+
+        val nameHeading = mutedBoldSectionCaption(R.string.channel_creator_channel_name_title).apply {
+            setPadding(0, 0, 0, sectionCaptionToFieldSpacing)
+        }
+
         nameCell = InputCell(context, themeColors).apply {
+            setLabel(null, false, false)
             setMaxCharacter(64)
-            setLabel(getString(R.string.channel_creator_channel_name_title), false, false)
             setHint(getString(R.string.channel_creator_channel_name_placeholder))
             onTextChanged = {
                 refreshCreateOpacity()
@@ -123,66 +140,63 @@ class CreateChannelFragment : BaseFragment() {
                 android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
         }
 
-        val typeHeading = TextView(context).apply {
-            text = getString(R.string.channel_creator_channel_type_title)
-            setTextColor(themeColors.onSurfaceVariant)
-            textSize = 12f
-            typeface = Typeface.DEFAULT_BOLD
-            setPadding(0, LayoutHelper.dp(18), 0, LayoutHelper.dp(8))
+        val typeHeading = mutedBoldSectionCaption(R.string.channel_creator_channel_type_title).apply {
+            setPadding(0, 0, 0, sectionCaptionToFieldSpacing)
         }
 
         val typeBox = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(LayoutHelper.dp(10), LayoutHelper.dp(10), LayoutHelper.dp(10), LayoutHelper.dp(10))
             background = GradientDrawable().apply {
                 setColor(themeColors.surfaceVariant)
-                cornerRadius = LayoutHelper.dp(12f).toFloat()
+                cornerRadius = cardRadius
             }
         }
 
         addTypeOption(context, typeBox, CHANNEL_TYPE_CHANNEL, MezonIcon.channelText,
-            R.string.channel_creator_type_text_title, R.string.channel_creator_type_text_desc)
+            R.string.channel_creator_type_text_title, R.string.channel_creator_type_text_desc,
+            showTopDivider = false, rowPad = typeAndPrivateCardInnerPadding)
         addTypeOption(context, typeBox, CHANNEL_TYPE_VOICE, MezonIcon.channelVoice,
-            R.string.channel_creator_type_voice_title, R.string.channel_creator_type_voice_desc)
+            R.string.channel_creator_type_voice_title, R.string.channel_creator_type_voice_desc,
+            showTopDivider = true, rowPad = typeAndPrivateCardInnerPadding)
         addTypeOption(context, typeBox, CHANNEL_TYPE_STREAMING, MezonIcon.channelStream,
-            R.string.channel_creator_type_stream_title, R.string.channel_creator_type_stream_desc)
+            R.string.channel_creator_type_stream_title, R.string.channel_creator_type_stream_desc,
+            showTopDivider = true, rowPad = typeAndPrivateCardInnerPadding)
 
         refreshTypeRadios()
 
-        privateCell = TextCheckCell(context, themeColors).apply {
-            setTextAndCheck(
-                getString(R.string.channel_creator_private_title),
-                getString(R.string.channel_creator_private_description),
-                false,
-                false
-            )
-            subtitleTextView.visibility = View.VISIBLE
-        }
-
-        privateBlock = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            addView(
-                privateCell,
-                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT)
-            )
-        }
+        privateSectionRoot = buildPrivateChannelSection(context, cardRadius, typeAndPrivateCardInnerPadding)
 
         val body = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(pad, pad, pad, pad)
+            setPadding(screenPadH, LayoutHelper.dp(16), screenPadH, LayoutHelper.dp(28))
+            addView(nameHeading, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
             addView(nameCell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
-            addView(typeHeading, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+            addView(
+                typeHeading,
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
+                    topMargin = majorSectionVerticalGap
+                }
+            )
             addView(typeBox, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
-            addView(privateBlock, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
-                topMargin = LayoutHelper.dp(8)
-            })
+            addView(
+                privateSectionRoot,
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
+                    topMargin = majorSectionVerticalGap
+                }
+            )
+            addView(Space(context), LinearLayout.LayoutParams(
+                LayoutHelper.MATCH_PARENT,
+                0,
+                1f
+            ))
         }
 
         val scroll = ScrollView(context).apply {
             overScrollMode = View.OVER_SCROLL_NEVER
+            isFillViewport = true
             addView(body, ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
+                ViewGroup.LayoutParams.MATCH_PARENT
             ))
         }
 
@@ -209,11 +223,51 @@ class CreateChannelFragment : BaseFragment() {
         }
 
         fragmentView = rootWithBar
-        privateCell.onCheckedChange = { refreshPrivateBlock() }
         refreshPrivateBlock()
         refreshCreateOpacity()
 
         return rootWithBar
+    }
+
+    private fun buildPrivateChannelSection(context: Context, cardRadius: Float, rowPad: Int): LinearLayout {
+        val titleView = TextView(context).apply {
+            text = getString(R.string.channel_creator_private_title)
+            setTextColor(themeColors.textStrong)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            typeface = Typeface.DEFAULT_BOLD
+        }
+        privateSwitch = SwitchView(context, themeColors).apply {
+            setChecked(false, animated = false)
+        }
+        val lock = ImageView(context).apply {
+            setImageDrawable(MezonIcon.lockIcon.getDrawable(context, themeColors.textStrong))
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        val row = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(rowPad, rowPad, rowPad, rowPad)
+            background = GradientDrawable().apply {
+                setColor(themeColors.surfaceVariant)
+                cornerRadius = cardRadius
+            }
+            addView(lock, LayoutHelper.createLinear(22, 22).apply { rightMargin = LayoutHelper.dp(12) })
+            addView(titleView, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f))
+            addView(privateSwitch, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT))
+        }
+        val helper = TextView(context).apply {
+            text = getString(R.string.channel_creator_private_description)
+            setTextColor(themeColors.onSurfaceVariant)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setLineSpacing(LayoutHelper.dp(2).toFloat(), 1f)
+            setPadding(0, LayoutHelper.dp(12), 0, 0)
+        }
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(row, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+            addView(helper, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+        }
     }
 
     private fun addTypeOption(
@@ -222,9 +276,18 @@ class CreateChannelFragment : BaseFragment() {
         typeConst: Int,
         icon: MezonIcon,
         titleRes: Int,
-        descRes: Int
+        descRes: Int,
+        showTopDivider: Boolean,
+        rowPad: Int
     ) {
-        val radio = RadioCell(context, themeColors)
+        if (showTopDivider) {
+            val div = View(context).apply { setBackgroundColor(themeColors.outlineVariant) }
+            parent.addView(div, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.dp(1)))
+        }
+
+        val radio = RadioCell(context, themeColors).apply {
+            drawSelectionAsCheckmark = false
+        }
         rowRadioCells.add(radio)
 
         val row = LinearLayout(context).apply {
@@ -232,7 +295,7 @@ class CreateChannelFragment : BaseFragment() {
             gravity = Gravity.CENTER_VERTICAL
             isClickable = true
             isFocusable = true
-            setPadding(LayoutHelper.dp(8), LayoutHelper.dp(10), LayoutHelper.dp(8), LayoutHelper.dp(10))
+            setPadding(rowPad, rowPad, rowPad, rowPad)
             setOnClickListener {
                 selectedType = typeConst
                 refreshTypeRadios()
@@ -245,21 +308,21 @@ class CreateChannelFragment : BaseFragment() {
             setImageDrawable(icon.getDrawable(context, themeColors.textStrong))
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
-        row.addView(iconView, LayoutHelper.createLinear(20, 20).apply { rightMargin = LayoutHelper.dp(12) })
+        row.addView(iconView, LayoutHelper.createLinear(24, 24).apply { rightMargin = LayoutHelper.dp(12) })
 
         val texts = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             addView(TextView(context).apply {
                 text = getString(titleRes)
                 setTextColor(themeColors.textStrong)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
                 typeface = Typeface.DEFAULT_BOLD
             }, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
             addView(TextView(context).apply {
                 text = getString(descRes)
                 setTextColor(themeColors.onSurfaceVariant)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-                setPadding(0, LayoutHelper.dp(2), 0, 0)
+                setPadding(0, LayoutHelper.dp(4), 0, 0)
             }, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
         }
         row.addView(texts, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f))
@@ -281,14 +344,12 @@ class CreateChannelFragment : BaseFragment() {
 
     private fun refreshPrivateBlock() {
         val show = selectedType == CHANNEL_TYPE_CHANNEL
-        privateBlock.visibility = if (show) View.VISIBLE else View.GONE
-        privateCell.subtitleTextView.visibility = if (show) View.VISIBLE else View.GONE
+        privateSectionRoot.visibility = if (show) View.VISIBLE else View.GONE
     }
 
     private fun refreshCreateOpacity() {
-        val raw = nameCell.getText()
-        val ok = raw.trim().isNotEmpty()
-        saveButtonText.alpha = if (ok) 1f else 0.5f
+        val ok = nameCell.getText().trim().isNotEmpty()
+        saveButtonText.alpha = if (ok) 1f else 0.45f
     }
 
     private fun submitCreate() {
@@ -304,7 +365,7 @@ class CreateChannelFragment : BaseFragment() {
             return
         }
         val privateFlag = when (selectedType) {
-            CHANNEL_TYPE_CHANNEL -> if (privateCell.isChecked()) 1 else 0
+            CHANNEL_TYPE_CHANNEL -> if (privateSwitch.isChecked()) 1 else 0
             else -> 0
         }
 

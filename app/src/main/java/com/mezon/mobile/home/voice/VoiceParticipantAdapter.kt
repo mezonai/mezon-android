@@ -55,6 +55,7 @@ class VoiceParticipantAdapter(
         holder.cell.setParticipant(
             participant.identity.toLongOrNull() ?: 0L,
             participant.name,
+            participant.username,
             participant.avatarUrl,
             participant.isMuted,
             participant.isSpeaking,

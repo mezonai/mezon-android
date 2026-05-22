@@ -44,7 +44,7 @@ class CallingOverlay(context: Context) : FrameLayout(context) {
                 outline.setRoundRect(0, 0, view.width, view.height, corner)
             }
         }
-        elevation = LayoutHelper.dp(4).toFloat()
+        elevation = LayoutHelper.dpf(24f)
 
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -119,9 +119,9 @@ class CallingOverlay(context: Context) : FrameLayout(context) {
         addView(row, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
     }
 
-    fun setCallerInfo(name: String, avatarUrl: String?) {
+    fun setCallerInfo(name: String, username: String, avatarUrl: String?) {
         nameTv.text = name
-        avatarView.setInfo(0L, name)
+        avatarView.setInfo(0L, username)
         avatarView.setImageUrl(avatarUrl)
     }
 

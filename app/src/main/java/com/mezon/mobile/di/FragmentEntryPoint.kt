@@ -16,6 +16,7 @@ import com.mezon.mobile.home.call.WebRtcInfra
 import com.mezon.mobile.home.chat.EmojiController
 import com.mezon.mobile.home.chat.ImageClipboardCoordinator
 import com.mezon.mobile.home.DialogsController
+import com.mezon.mobile.home.ForwardTargetUsageStore
 import com.mezon.mobile.home.messages.MessageActivitiesController
 import com.mezon.mobile.home.voice.VoiceController
 import com.mezon.mobile.home.UserClanController
@@ -23,7 +24,9 @@ import com.mezon.mobile.home.chat.MediaController
 import com.mezon.mobile.home.MessagesController
 import com.mezon.mobile.home.clans.ChannelCategoryExpandStore
 import com.mezon.mobile.home.clans.ChannelController
+import com.mezon.mobile.home.clans.ChannelPermissionController
 import com.mezon.mobile.home.clans.ClansController
+import com.mezon.mobile.home.clans.PermissionPolicy
 import com.mezon.mobile.home.clans.channelapp.ChannelAppController
 import com.mezon.mobile.home.friends.FriendController
 import com.mezon.mobile.home.clans.RoleController
@@ -33,9 +36,11 @@ import com.mezon.mobile.home.profile.DeviceController
 import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.network.ApiCacheTracker
 import com.mezon.mobile.network.MezonApi
+import com.mezon.mobile.network.NetworkMonitor
 import com.mezon.mobile.notification.FcmRepository
 import com.mezon.mobile.search.SearchController
 import com.mezon.mobile.session.SessionManager
+import com.mezon.mobile.util.SentryReporter
 import com.mezon.mobile.wallet.WalletController
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
@@ -52,10 +57,13 @@ interface FragmentEntryPoint {
     fun chatController(): ChatController
     fun clansController(): ClansController
     fun channelController(): ChannelController
+    fun channelPermissionController(): ChannelPermissionController
+    fun permissionPolicy(): PermissionPolicy
     fun channelAppController(): ChannelAppController
     fun channelCategoryExpandStore(): ChannelCategoryExpandStore
     fun connectionController(): ConnectionController
     fun dialogsController(): DialogsController
+    fun forwardTargetUsageStore(): ForwardTargetUsageStore
     fun messageActivitiesController(): MessageActivitiesController
     fun messagesController(): MessagesController
     fun notificationStore(): NotificationStore
@@ -64,6 +72,7 @@ interface FragmentEntryPoint {
     fun friendController(): FriendController
     fun userController(): UserController
     fun mezonApi(): MezonApi
+    fun networkMonitor(): NetworkMonitor
     fun fcmRepository(): FcmRepository
     fun mediaController(): MediaController
     fun searchController(): SearchController
@@ -85,6 +94,7 @@ interface FragmentEntryPoint {
     fun callManager(): CallManager
     fun webRtcInfra(): WebRtcInfra
     fun okHttpClient(): OkHttpClient
+    fun sentryReporter(): SentryReporter
 
     @IoDispatcher
     fun ioDispatcher(): CoroutineDispatcher

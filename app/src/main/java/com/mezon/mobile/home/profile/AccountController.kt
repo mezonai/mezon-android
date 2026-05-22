@@ -4,6 +4,7 @@ import android.content.ContentResolver
 import android.net.Uri
 import android.util.Log
 import com.mezon.mobile.BuildConfig
+import com.mezon.mobile.R
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.StartupCache
@@ -14,6 +15,7 @@ import com.mezon.mobile.network.ApiCacheTracker
 import com.mezon.mobile.network.MmnApi
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.network.SocketEventDispatcher
+import com.mezon.mobile.network.UnauthorizedException
 import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.util.avatarImgproxyUrl
@@ -24,9 +26,10 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import java.math.BigInteger
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -95,8 +98,10 @@ class AccountController @Inject constructor(
             userController.updateFromAccount(boot)
         }
         appScope.launch {
-            sessionManager.sessionFlow.first { it != null }
-            loadAccountInternal()
+            sessionManager.sessionFlow.collectLatest { session ->
+                Log.d(ACCOUNT_LOG, "sessionFlow emitted: session=${if (session != null) "non-null userId=${session.userId}" else "null"}")
+                if (session != null) loadAccountInternal()
+            }
         }
         appScope.launch { observeProfileUpdates() }
         appScope.launch { observeUserStatusEvents() }
@@ -143,7 +148,64 @@ class AccountController @Inject constructor(
         }
     }
 
-    private val cacheKey = apiCacheKey("getAccount")
+    private companion object {
+        private const val ACCOUNT_CACHE_PREFIX = "getAccount"
+
+        private val LINK_SMS_RPC_FAIL_REGEX = Regex(
+            """RPC\s+LinkSms\s+failed\s+\((\d+)\):\s*(.*)""",
+            setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)
+        )
+    }
+
+    private fun extractLinkSmsErrorDetail(body: String): String {
+        val t = body.trim()
+        if (t.isEmpty()) return ""
+        return try {
+            val o = JSONObject(t)
+            o.optString("message", "").trim()
+                .ifEmpty { o.optString("error", "").trim() }
+                .ifEmpty { o.optString("msg", "").trim() }
+        } catch (_: Exception) {
+            if (t.length <= 240 && !t.startsWith("<") && t.lines().size <= 3) t else ""
+        }
+    }
+
+    private fun humanizeLinkPhoneFailure(e: Exception): String {
+        if (e is UnauthorizedException) {
+            return appContext.getString(R.string.phone_link_error_session)
+        }
+        when (e) {
+            is java.net.UnknownHostException,
+            is java.net.SocketTimeoutException,
+            is java.net.ConnectException,
+            is javax.net.ssl.SSLException -> return appContext.getString(R.string.common_error_connection_failed)
+        }
+        val raw = e.message?.trim().orEmpty()
+        if (raw.isEmpty()) return appContext.getString(R.string.phone_link_failed)
+
+        if (Regex("""RPC\s+LinkSms\s*:\s*401\s+Unauthorized""", RegexOption.IGNORE_CASE).containsMatchIn(raw)) {
+            return appContext.getString(R.string.phone_link_error_session)
+        }
+
+        val match = LINK_SMS_RPC_FAIL_REGEX.find(raw)
+        if (match != null) {
+            val code = match.groupValues[1].toIntOrNull()
+                ?: return appContext.getString(R.string.phone_link_failed)
+            val detail = extractLinkSmsErrorDetail(match.groupValues[2])
+            if (detail.isNotEmpty()) return detail
+
+            return when (code) {
+                400 -> appContext.getString(R.string.phone_link_error_bad_request)
+                403 -> appContext.getString(R.string.phone_link_error_forbidden)
+                404 -> appContext.getString(R.string.phone_link_error_not_found)
+                429 -> appContext.getString(R.string.phone_link_error_rate_limit)
+                in 500..599 -> appContext.getString(R.string.phone_link_error_server)
+                else -> appContext.getString(R.string.phone_link_failed)
+            }
+        }
+
+        return appContext.getString(R.string.phone_link_failed)
+    }
 
     private fun scheduleDmLogoPrefetch(logoRaw: String) {
         if (logoRaw.isEmpty()) return
@@ -153,18 +215,25 @@ class AccountController @Inject constructor(
     }
 
     private suspend fun loadAccountInternal(noCache: Boolean = false) {
+        Log.d(ACCOUNT_LOG, "loadAccountInternal called noCache=$noCache")
         try {
-            if (!noCache && _accountInfo.value.userId != 0L &&
-                cacheTracker.shouldCall(cacheKey, noCache = false) == ApiCacheTracker.ShouldCall.SKIP
-            ) return
             sessionManager.withAutoRefresh { session ->
+                val cacheKey = apiCacheKey(ACCOUNT_CACHE_PREFIX, session.userId)
+                if (!noCache &&
+                    cacheTracker.shouldCall(cacheKey, noCache = false) == ApiCacheTracker.ShouldCall.SKIP
+                ) {
+                    Log.d(ACCOUNT_LOG, "loadAccountInternal SKIP (cache valid) cacheKey=$cacheKey")
+                    return@withAutoRefresh
+                }
                 coroutineScope {
+                    Log.d(ACCOUNT_LOG, "loadAccountInternal CALL getAccount + getWalletBalance userId=${session.userId}")
                     val accountDeferred = async(ioDispatcher) { api.getAccount(session.apiUrl, session.token) }
                     val walletDeferred = async(ioDispatcher) {
                         runCatching { mmnApi.getWalletBalance(session.userId) }.getOrNull()
                     }
                     val account = accountDeferred.await()
                     val walletData = walletDeferred.await()
+                    Log.d(ACCOUNT_LOG, "loadAccountInternal API done getAccount userId=${account.user.id} walletBalance=${walletData?.balance ?: "null"}")
                     val user = account.user
 
                     val info = AccountInfo(
@@ -250,7 +319,7 @@ class AccountController @Inject constructor(
                 _accountInfo.value = updated
                 userController.updateFromAccount(updated)
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.accountInfoLoaded)
-                cacheTracker.invalidate(cacheKey)
+                cacheTracker.invalidateByPrefix(ACCOUNT_CACHE_PREFIX)
                 withContext(kotlinx.coroutines.Dispatchers.Main) {
                     onResult(true, "")
                 }
@@ -284,8 +353,10 @@ class AccountController @Inject constructor(
                     onResult(true, reqId, "")
                 }
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                val errorMsg = withContext(ioDispatcher) { humanizeLinkPhoneFailure(e) }
                 withContext(kotlinx.coroutines.Dispatchers.Main) {
-                    onResult(false, "", e.message ?: "")
+                    onResult(false, "", errorMsg)
                 }
             } finally {
                 _isLoading.value = false
@@ -363,7 +434,7 @@ class AccountController @Inject constructor(
                     logo = logoUrl
                 )
                 _accountInfo.value = updated
-                cacheTracker.invalidate(cacheKey)
+                cacheTracker.invalidateByPrefix(ACCOUNT_CACHE_PREFIX)
                 userController.updateFromAccount(updated)
                 persistAccountScratch(updated)
                 scheduleDmLogoPrefetch(logoUrl)
@@ -489,7 +560,7 @@ class AccountController @Inject constructor(
                 val updated = current.copy(onlineStatus = UserOnlineStatus.fromString(status))
                 _accountInfo.value = updated
                 userController.updateFromAccount(updated)
-                cacheTracker.invalidate(cacheKey)
+                cacheTracker.invalidateByPrefix(ACCOUNT_CACHE_PREFIX)
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.accountInfoLoaded)
             } catch (e: Exception) {
             }

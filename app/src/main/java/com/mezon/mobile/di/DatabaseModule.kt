@@ -3,11 +3,15 @@ package com.mezon.mobile.di
 import com.mezon.mobile.data.db.ChannelAppDao
 import com.mezon.mobile.data.db.ClanChannelDao
 import com.mezon.mobile.data.db.ClanDao
+import com.mezon.mobile.data.db.ClanRoleCacheDao
+import com.mezon.mobile.data.db.ClanRoleListMetaDao
+import com.mezon.mobile.data.db.ClanUserMaxPermissionDao
 import com.mezon.mobile.data.db.DirectMessageDao
 import com.mezon.mobile.data.db.FavoriteChannelDao
 import com.mezon.mobile.data.db.MezonDatabase
 import com.mezon.mobile.data.db.MessageDao
 import com.mezon.mobile.data.db.NotificationDao
+import com.mezon.mobile.data.db.PermissionCatalogDao
 import android.content.Context
 import androidx.room.Room
 import androidx.room.RoomDatabase
@@ -57,4 +61,23 @@ object DatabaseModule {
     @Provides
     @Singleton
     fun provideChannelAppDao(db: MezonDatabase): ChannelAppDao = db.channelAppDao()
+
+    @Provides
+    @Singleton
+    fun providePermissionCatalogDao(db: MezonDatabase): PermissionCatalogDao = db.permissionCatalogDao()
+
+    @Provides
+    @Singleton
+    fun provideClanUserMaxPermissionDao(db: MezonDatabase): ClanUserMaxPermissionDao =
+        db.clanUserMaxPermissionDao()
+
+    @Provides
+    @Singleton
+    fun provideClanRoleListMetaDao(db: MezonDatabase): ClanRoleListMetaDao =
+        db.clanRoleListMetaDao()
+
+    @Provides
+    @Singleton
+    fun provideClanRoleCacheDao(db: MezonDatabase): ClanRoleCacheDao =
+        db.clanRoleCacheDao()
 }

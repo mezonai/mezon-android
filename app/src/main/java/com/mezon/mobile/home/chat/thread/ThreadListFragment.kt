@@ -19,17 +19,21 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
+import android.widget.Toast
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.mezon.mobile.MainActivity
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
+import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.MemberResolver
 import com.mezon.mobile.home.clans.ChannelController
+import com.mezon.mobile.home.clans.PermissionPolicy
 import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.session.SessionManager
+import com.mezon.mobile.ui.cells.ActionBarMenuItem
 import com.mezon.mobile.ui.cells.ActionBarView
 import com.mezon.mobile.ui.cells.MezonIcon
 import android.util.Log
@@ -71,9 +75,12 @@ class ThreadListFragment : BaseFragment() {
     private lateinit var sessionManager: SessionManager
     private lateinit var memberResolver: MemberResolver
     private lateinit var channelController: ChannelController
+    private lateinit var permissionPolicy: PermissionPolicy
     private lateinit var ioDispatcher: CoroutineDispatcher
 
     private var adapter: ThreadListAdapter? = null
+    private var createMenuItem: ActionBarMenuItem? = null
+    private var emptyCreateButton: TextView? = null
     private var recyclerView: RecyclerListView? = null
     private var emptyView: View? = null
     private var loadingView: ProgressBar? = null
@@ -88,6 +95,7 @@ class ThreadListFragment : BaseFragment() {
     private var isPaginationVisible = false
     private var isSearchMode = false
     private var searchJob: Job? = null
+    private var fetchJob: Job? = null
     private var allThreads = ArrayList<ThreadInfo>()
 
     override fun onFragmentCreate(): Boolean {
@@ -95,6 +103,23 @@ class ThreadListFragment : BaseFragment() {
         channelId = arguments?.getLong(ARG_CHANNEL_ID) ?: 0L
         channelName = arguments?.getString(ARG_CHANNEL_NAME) ?: ""
         clanId = arguments?.getLong(ARG_CLAN_ID) ?: 0L
+        permissionPolicy.ensurePermissionChecker(
+            listOf(PermissionPolicy.CLAN_OWNER, PermissionPolicy.MANAGE_THREAD, PermissionPolicy.MANAGE_CHANNEL),
+            channelId,
+            clanId
+        )
+        observe(NotificationCenter.channelPermissionOverridesDidLoad) { _, _, args ->
+            val changedChannelId = args.firstOrNull() as? Long ?: return@observe
+            if (changedChannelId == channelId) updateCreateThreadActions()
+        }
+        observe(NotificationCenter.channelPermissionsDidLoad) { _, _, args ->
+            val changedChannelId = args.firstOrNull() as? Long ?: return@observe
+            if (changedChannelId == channelId) updateCreateThreadActions()
+        }
+        observe(NotificationCenter.clanRolesDidLoad) { _, _, args ->
+            val changedClanId = args.firstOrNull() as? Long ?: return@observe
+            if (changedClanId == clanId) updateCreateThreadActions()
+        }
         return true
     }
 
@@ -103,6 +128,7 @@ class ThreadListFragment : BaseFragment() {
         sessionManager = entryPoint.sessionManager()
         memberResolver = entryPoint.memberResolver()
         channelController = entryPoint.channelController()
+        permissionPolicy = entryPoint.permissionPolicy()
         ioDispatcher = entryPoint.ioDispatcher()
     }
 
@@ -122,6 +148,7 @@ class ThreadListFragment : BaseFragment() {
         val createMenuItem = actionBarView.createMenu().addItem(1, MezonIcon.plusLargeIcon.getDrawable(context).apply {
             colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
         })
+        this.createMenuItem = createMenuItem
         val createIconPx = LayoutHelper.dp(CREATE_MENU_ICON_DP)
         createMenuItem.iconView.scaleType = ImageView.ScaleType.FIT_CENTER
         createMenuItem.iconView.layoutParams = FrameLayout.LayoutParams(createIconPx, createIconPx, Gravity.CENTER)
@@ -129,7 +156,7 @@ class ThreadListFragment : BaseFragment() {
             override fun onItemClick(id: Int) {
                 if (id == -1) finishFragment()
                 else if (id == 1) {
-                    presentFragment(CreateThreadFragment.newInstance(channelId, channelName, clanId))
+                    openCreateThread()
                 }
             }
         })
@@ -147,6 +174,7 @@ class ThreadListFragment : BaseFragment() {
             layoutManager = LinearLayoutManager(context)
             clipToPadding = false
             setPadding(0, LayoutHelper.dp(10), 0, LayoutHelper.dp(60))
+            itemAnimator = null
         }
 
         adapter = ThreadListAdapter(
@@ -180,8 +208,24 @@ class ThreadListFragment : BaseFragment() {
         ))
 
         fragmentView = root
+        updateCreateThreadActions()
         fetchThreads(1)
         return root
+    }
+
+    private fun updateCreateThreadActions() {
+        val visibility = if (permissionPolicy.canCreateThreadFromThreadList(channelId, clanId)) View.VISIBLE else View.GONE
+        createMenuItem?.visibility = visibility
+        emptyCreateButton?.visibility = visibility
+    }
+
+    private fun openCreateThread() {
+        if (!permissionPolicy.canCreateThreadFromThreadList(channelId, clanId)) {
+            val ctx = getContext() ?: return
+            Toast.makeText(ctx, R.string.channel_permissions_no_access, Toast.LENGTH_SHORT).show()
+            return
+        }
+        presentFragment(CreateThreadFragment.newInstance(channelId, channelName, clanId))
     }
 
     private fun buildSearchBar(context: Context): View {
@@ -296,8 +340,14 @@ class ThreadListFragment : BaseFragment() {
             val padV = LayoutHelper.dp(2)
             setPadding(padH, padV, padH, padV)
             setOnClickListener {
-                presentFragment(CreateThreadFragment.newInstance(channelId, channelName, clanId))
+                openCreateThread()
             }
+        }
+        emptyCreateButton = createButton
+        createButton.visibility = if (permissionPolicy.canCreateThreadFromThreadList(channelId, clanId)) {
+            View.VISIBLE
+        } else {
+            View.GONE
         }
         container.addView(createButton, LayoutHelper.createLinear(150, 50, 0f, Gravity.CENTER_HORIZONTAL, 0f, 20f, 0f, 0f))
 
@@ -379,12 +429,19 @@ class ThreadListFragment : BaseFragment() {
 
     private fun fetchThreads(page: Int) {
         Log.d(TAG, "fetchThreads page=$page channelId=$channelId clanId=$clanId")
-        loadingView?.visibility = View.VISIBLE
-        emptyView?.visibility = View.GONE
-        recyclerView?.visibility = View.GONE
-        paginationBar?.visibility = View.GONE
+        fetchJob?.cancel()
+        val showBlockingLoad = allThreads.isEmpty() && !isSearchMode
+        if (showBlockingLoad) {
+            loadingView?.visibility = View.VISIBLE
+            emptyView?.visibility = View.GONE
+            recyclerView?.visibility = View.GONE
+            paginationBar?.visibility = View.GONE
+        } else {
+            loadingView?.visibility = View.GONE
+            setPaginationLoading(true)
+        }
 
-        fragmentScope.launch(Dispatchers.Main) {
+        fetchJob = fragmentScope.launch(Dispatchers.Main) {
             try {
                 val response = withContext(ioDispatcher) {
                     sessionManager.withAutoRefresh { session ->
@@ -405,22 +462,37 @@ class ThreadListFragment : BaseFragment() {
                 isPaginationVisible = !(page == 1 && threads.size < LIMIT)
 
                 loadingView?.visibility = View.GONE
+                setPaginationLoading(false)
 
                 if (threads.isEmpty()) {
                     emptyView?.visibility = View.VISIBLE
                     recyclerView?.visibility = View.GONE
                     paginationBar?.visibility = View.GONE
                 } else {
-                    showThreadList(threads)
+                    showThreadList(threads, scrollToTop = !showBlockingLoad)
                 }
 
                 updatePaginationState()
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) return@launch
                 Log.e(TAG, "fetchThreads failed", e)
                 loadingView?.visibility = View.GONE
-                emptyView?.visibility = View.VISIBLE
+                setPaginationLoading(false)
+                if (allThreads.isEmpty()) {
+                    emptyView?.visibility = View.VISIBLE
+                    recyclerView?.visibility = View.GONE
+                }
             }
         }
+    }
+
+    private fun setPaginationLoading(loading: Boolean) {
+        val alpha = if (loading) 0.45f else 1f
+        prevButton?.alpha = if (loading) alpha else if (currentPage <= 1) 0.3f else 1f
+        nextButton?.alpha = if (loading) alpha else if (isNextDisabled) 0.3f else 1f
+        pageText?.alpha = alpha
+        prevButton?.isEnabled = !loading && currentPage > 1
+        nextButton?.isEnabled = !loading && !isNextDisabled
     }
 
     private fun searchThreads(label: String) {
@@ -439,12 +511,21 @@ class ThreadListFragment : BaseFragment() {
             recyclerView?.visibility = View.VISIBLE
             paginationBar?.visibility = View.GONE
             val title = if (filtered.size > 1) "${filtered.size} Search Results" else "1 Search Result"
-            adapter?.setData(listOf(ThreadSection(title, filtered)))
+            adapter?.setData(listOf(ThreadSection(title, filtered)), animateChanges = false)
         }
     }
 
-    private fun showThreadList(threads: List<ThreadInfo>) {
-        val sections = buildThreadSections(threads)
+    private fun showThreadList(
+        threads: List<ThreadInfo>,
+        animateChanges: Boolean = false,
+        scrollToTop: Boolean = false
+    ) {
+        val sections = buildThreadSections(
+            getString(R.string.thread_list_joined_threads),
+            getString(R.string.thread_list_active_threads),
+            getString(R.string.thread_list_archived_threads),
+            threads
+        )
         Log.d(TAG, "showThreadList threads=${threads.size} sections=${sections.size}")
         sections.forEach { s -> Log.d(TAG, "section '${s.title}' count=${s.threads.size}") }
         if (sections.isEmpty()) {
@@ -454,7 +535,10 @@ class ThreadListFragment : BaseFragment() {
         } else {
             emptyView?.visibility = View.GONE
             recyclerView?.visibility = View.VISIBLE
-            adapter?.setData(sections)
+            adapter?.setData(sections, animateChanges)
+            if (scrollToTop) {
+                recyclerView?.scrollToPosition(0)
+            }
         }
     }
 

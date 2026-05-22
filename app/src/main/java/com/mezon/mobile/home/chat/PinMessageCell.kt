@@ -80,7 +80,7 @@ class PinMessageCell(context: Context, private val theme: ThemeColors) : FrameLa
     fun setData(data: PinMessageData, displayName: String?, avatarUrl: String?) {
         pinData = data
         val name = displayName?.takeIf { it.isNotBlank() } ?: data.username.ifBlank { "Unknown" }
-        headerView.setInfo(name, avatarUrl ?: data.avatar, data.messageId)
+        headerView.setInfo(name, avatarUrl ?: data.avatar, data.messageId, data.username)
 
         val entity = data.toMessageEntity()
         messageCell.update(0, entity)
@@ -150,9 +150,9 @@ private class PinHeaderView(context: Context, private val theme: ThemeColors) : 
         isFakeBoldText = true
     }
 
-    fun setInfo(name: String, avatarUrl: String, fallbackId: Long) {
+    fun setInfo(name: String, avatarUrl: String, fallbackId: Long, username: String) {
         nameText = name
-        avatarDrawable.setInfo(fallbackId, name)
+        avatarDrawable.setInfo(fallbackId, username)
         loadAvatar(avatarUrl)
         namePaint.color = nameColor()
         lastLayoutWidth = 0
@@ -264,6 +264,7 @@ private fun PinMessageData.toMessageEntity(): MessageEntity {
         channelId = channelId,
         senderId = senderId,
         senderName = username,
+        senderUsername = username,
         senderAvatar = avatar,
         content = content,
         timestampSeconds = createTimeSeconds.toLong(),

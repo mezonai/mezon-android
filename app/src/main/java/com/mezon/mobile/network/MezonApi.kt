@@ -2,6 +2,7 @@
 package com.mezon.mobile.network
 
 import com.mezon.mobile.BuildConfig
+import com.mezon.mobile.util.SentryReporter
 import android.net.Uri
 import android.util.Base64
 import com.mezon.mezon.api.Account
@@ -9,6 +10,7 @@ import com.mezon.mezon.api.AllUsersAddChannelResponse
 import com.mezon.mezon.api.AllUserClans
 import com.mezon.mezon.api.allUsersAddChannelRequest
 import com.mezon.mezon.api.addChannelUsersRequest
+import com.mezon.mezon.api.addRoleChannelDescRequest
 import com.mezon.mezon.api.CategoryDesc
 import com.mezon.mezon.api.ClanDesc
 import com.mezon.mezon.api.EmojiListedResponse
@@ -41,6 +43,7 @@ import com.mezon.mezon.api.accountEmail
 import com.mezon.mezon.api.AddFriendsResponse
 import com.mezon.mezon.api.addFriendsRequest
 import com.mezon.mezon.api.blockFriendsRequest
+import com.mezon.mezon.api.changeChannelPrivateRequest
 import com.mezon.mezon.api.createCategoryDescRequest
 import com.mezon.mezon.api.createClanDescRequest
 import com.mezon.mezon.api.deleteClanDescRequest
@@ -55,6 +58,7 @@ import com.mezon.mezon.api.linkAccountConfirmRequest
 import com.mezon.mezon.api.listClanDescRequest
 import com.mezon.mezon.api.listChannelUsersRequest
 import com.mezon.mezon.api.listClanUsersRequest
+import com.mezon.mezon.api.removeChannelUsersRequest
 import com.mezon.mezon.api.removeClanUsersRequest
 import com.mezon.mezon.api.removeChannelUsersRequest
 import com.mezon.mezon.api.changeChannelPrivateRequest
@@ -115,10 +119,14 @@ import com.mezon.mezon.api.InviteUserRes
 import com.mezon.mezon.api.inviteUserRequest
 import com.mezon.mezon.api.clanDiscover as clanDiscoverProto
 import com.mezon.mezon.api.listClanDiscover
+import com.mezon.mezon.api.clanEmojiCreateRequest
+import com.mezon.mezon.api.clanEmojiDeleteRequest
+import com.mezon.mezon.api.clanEmojiUpdateRequest
 import com.mezon.mezon.api.listAuditLogRequest
 import com.mezon.mezon.rtapi.ActiveArchivedThread
 import com.mezon.mezon.rtapi.ChannelMessageSend
 import com.mezon.mezon.rtapi.ListActivity
+import com.mezon.mezon.rtapi.messageButtonClicked
 import android.util.Log
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -135,14 +143,52 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import org.json.JSONObject
 import com.google.protobuf.BoolValue
 import com.google.protobuf.StringValue
+import com.mezon.mezon.api.PermissionList
+import com.mezon.mezon.api.PermissionRoleChannelListEventResponse
+import com.mezon.mezon.api.PermissionUpdate
+import com.mezon.mezon.api.Role
+import com.mezon.mezon.api.RoleUserList
+import com.mezon.mezon.api.UserPermissionInChannelListResponse
+import com.mezon.mezon.api.createRoleRequest
+import com.mezon.mezon.api.deleteRoleRequest
+import com.mezon.mezon.api.listRoleUsersRequest
+import com.mezon.mezon.api.permissionRoleChannelListEventRequest
+import com.mezon.mezon.api.updateRoleRequest
+import com.mezon.mezon.api.updateRoleChannelRequest
+import com.mezon.mezon.api.userPermissionInChannelListRequest
+import kotlinx.coroutines.CompletableDeferred
+import java.io.IOException
+import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
 class UnauthorizedException(message: String) : RuntimeException(message)
+
+class SocketRpcTransportException(
+    message: String,
+    val retryOverHttp: Boolean = true,
+    cause: Throwable? = null
+) : RuntimeException(message, cause)
+
+class SocketRpcServerException(
+    message: String,
+    val code: Int,
+    cause: Throwable? = null
+) : RuntimeException(message, cause)
+
+class HttpRpcStatusException(
+    message: String,
+    val code: Int,
+    cause: Throwable? = null
+) : RuntimeException(message, cause)
 
 @Serializable
 data class AuthEmailBody(
@@ -243,20 +289,73 @@ private data class ClanDiscoverJson(
 @Singleton
 class MezonApi @Inject constructor(
     private val httpClient: HttpClient,
-    private val mezonSocketLazy: dagger.Lazy<MezonSocket>
+    private val mezonSocketLazy: dagger.Lazy<MezonSocket>,
+    private val sentryReporter: SentryReporter
 ) {
+    private data class InFlightReadRpc(
+        val startedAtMs: Long,
+        val deferred: CompletableDeferred<ByteArray>
+    )
+
+    private data class ReadRpcFlight(
+        val entry: InFlightReadRpc,
+        val owner: Boolean
+    )
+
     companion object {
         private val SERVER_KEY = BuildConfig.MEZON_API_KEY
         private const val DISCOVER_ITEMS_PER_PAGE = 6
-        private const val SOCKET_WAIT_MS = 30_000L
+        private const val SOCKET_WAIT_MS = 5_000L
+        private const val MAX_CONSECUTIVE_SOCKET_TIMEOUTS = 3
+        private const val READ_SINGLE_FLIGHT_MAX_AGE_MS = 3_000L
+        private val HTTP_RETRY_DELAYS_MS = longArrayOf(300L, 900L)
         private val HTTP_ONLY_API_NAMES = setOf(
             "SessionRefresh",
             "RegistFCMDeviceToken",
             "SendChannelMessage"
         )
+        private val SOCKET_RPC_API_NAMES = setOf(
+            "GetAccount",
+            "GetListEmojisByUserId",
+            "GetListFavoriteChannel",
+            "GetListStickersByUserId",
+            "GetNotificationClan",
+            "GetPinMessagesList",
+            "GetPoll",
+            "GetSystemMessageByClanId",
+            "GetUserProfileOnClan",
+            "GetUserStatus",
+            "ListActivity",
+            "ListAuditLog",
+            "ListChannelApps",
+            "ListChannelAttachment",
+            "ListChannelBadgeCount",
+            "ListChannelByUserId",
+            "ListChannelDescs",
+            "ListChannelMessages",
+            "ListChannelUsers",
+            "ListChannelUsersUC",
+            "ListChannelVoiceUsers",
+            "ListClanBadgeCount",
+            "ListClanDescs",
+            "ListClanUsers",
+            "ListClanWebhook",
+            "ListFriends",
+            "ListLogedDevice",
+            "ListNotifications",
+            "ListRoles",
+            "ListThreadDescs",
+            "ListUserClansByUserId",
+            "ListWebhookByChannelId",
+            "SearchMessage"
+        )
+        private val READ_RETRYABLE_API_NAMES = SOCKET_RPC_API_NAMES
     }
 
     private val linkInvitePreviewCache = android.util.LruCache<Long, LinkInvitePreview>(256)
+    private val inFlightReadRpcs = ConcurrentHashMap<String, InFlightReadRpc>()
+
+    private val consecutiveSocketTimeouts = AtomicInteger(0)
 
     private fun logRpcRequest(method: String, url: String) {
         if (!BuildConfig.DEBUG) return
@@ -286,6 +385,12 @@ class MezonApi @Inject constructor(
         Log.w(
             "MezonApi",
             "rpcFail method=$method http=${response.status.value} reqBytes=$requestByteSize errLen=${errorBody.length} err=$errPreview meta=$meta"
+        )
+        sentryReporter.logRpcFailure(
+            method = method,
+            transport = "http",
+            detail = errPreview,
+            httpCode = response.status.value
         )
     }
 
@@ -372,18 +477,102 @@ class MezonApi @Inject constructor(
         apiUrl: String,
         token: String,
         method: String,
-        body: ByteArray
+        body: ByteArray,
+        preferHttp: Boolean = false
     ): ByteArray {
-        if (method !in HTTP_ONLY_API_NAMES) {
-            return rpcOverSocket(method, body)
+        val retryableRead = method in READ_RETRYABLE_API_NAMES
+        if (retryableRead) {
+            val key = readRpcKey(apiUrl, token, method, body, preferHttp)
+            val flight = startOrJoinReadRpc(key)
+            if (!flight.owner) return flight.entry.deferred.await()
+            try {
+                val bytes = executeRpc(apiUrl, token, method, body, preferHttp, retryableRead)
+                flight.entry.deferred.complete(bytes)
+                return bytes
+            } catch (e: Throwable) {
+                flight.entry.deferred.completeExceptionally(e)
+                throw e
+            } finally {
+                inFlightReadRpcs.remove(key, flight.entry)
+            }
         }
-        return rpcOverHttp(apiUrl, token, method, body)
+        return executeRpc(apiUrl, token, method, body, preferHttp, retryableRead)
     }
 
-    private suspend fun rpcOverSocket(method: String, body: ByteArray): ByteArray {
+    private suspend fun executeRpc(
+        apiUrl: String,
+        token: String,
+        method: String,
+        body: ByteArray,
+        preferHttp: Boolean,
+        retryableRead: Boolean
+    ): ByteArray {
+        if (preferHttp || method in HTTP_ONLY_API_NAMES || method !in SOCKET_RPC_API_NAMES) {
+            return rpcOverHttpWithRetry(apiUrl, token, method, body, retryableRead)
+        }
+        return try {
+            rpcOverSocket(method, body, token)
+        } catch (e: UnauthorizedException) {
+            throw e
+        } catch (e: SocketRpcServerException) {
+            throw e
+        } catch (e: SocketRpcTransportException) {
+            if (!retryableRead || !e.retryOverHttp) throw e
+            Log.w("MezonApi", "SOCKET unavailable method=$method, falling back to HTTP: ${e.message}")
+            sentryReporter.logRpcWarning(method, "socket", "fallback to HTTP: ${e.message}")
+            rpcOverHttpWithRetry(apiUrl, token, method, body, true)
+        } catch (e: IllegalArgumentException) {
+            throw e
+        }
+    }
+
+    private fun startOrJoinReadRpc(key: String): ReadRpcFlight {
+        val now = System.currentTimeMillis()
+        synchronized(inFlightReadRpcs) {
+            val existing = inFlightReadRpcs[key]
+            if (existing != null && now - existing.startedAtMs <= READ_SINGLE_FLIGHT_MAX_AGE_MS) {
+                return ReadRpcFlight(existing, false)
+            }
+            val entry = InFlightReadRpc(now, CompletableDeferred())
+            inFlightReadRpcs[key] = entry
+            return ReadRpcFlight(entry, true)
+        }
+    }
+
+    private fun readRpcKey(
+        apiUrl: String,
+        token: String,
+        method: String,
+        body: ByteArray,
+        preferHttp: Boolean
+    ): String {
+        val base = apiUrl.trimEnd('/')
+        val tokenHash = sha256Base64(token.toByteArray(Charsets.UTF_8))
+        val bodyHash = sha256Base64(body)
+        return "$base|$method|$preferHttp|$tokenHash|$bodyHash"
+    }
+
+    private fun sha256Base64(bytes: ByteArray): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
+        return Base64.encodeToString(digest, Base64.NO_WRAP)
+    }
+
+    private suspend fun rpcOverSocket(method: String, body: ByteArray, token: String): ByteArray {
         val socket = mezonSocketLazy.get()
         if (!socket.awaitConnected(SOCKET_WAIT_MS)) {
-            throw IllegalStateException("WebSocket unavailable for '$method'")
+            throw SocketRpcTransportException(
+                "WebSocket unavailable for '$method'",
+                retryOverHttp = true
+            )
+        }
+        val sessionTokenFp = if (token.isEmpty()) "?" else token.takeLast(6)
+        val socketTokenFp = socket.socketTokenFingerprint
+        if (socketTokenFp != null && socketTokenFp != sessionTokenFp) {
+            sentryReporter.logRpcWarning(
+                method,
+                "socket",
+                "TOKEN_MISMATCH session=$sessionTokenFp socket=$socketTokenFp gen=${socket.connectGen}"
+            )
         }
         val started = System.currentTimeMillis()
         try {
@@ -394,13 +583,70 @@ class MezonApi @Inject constructor(
                     "SOCKET ok method=$method respBytes=${resp.size} elapsedMs=${System.currentTimeMillis() - started}"
                 )
             }
+            consecutiveSocketTimeouts.set(0)
             return resp
         } catch (e: Exception) {
             Log.w(
                 "MezonApi",
                 "SOCKET fail method=$method elapsedMs=${System.currentTimeMillis() - started} err=${e.message}"
             )
+            if (e !is UnauthorizedException && e !is SocketRpcServerException && e !is IllegalArgumentException) {
+                sentryReporter.logRpcFailure(method, "socket", e)
+            }
+            if (e is UnauthorizedException) {
+                consecutiveSocketTimeouts.set(0)
+                socket.forceReconnectForAuthFailure("Socket RPC unauthorized for '$method'")
+                throw e
+            }
+            if (e is SocketRpcServerException || e is IllegalArgumentException) {
+                consecutiveSocketTimeouts.set(0)
+                throw e
+            }
+            if (isSocketTransportFailure(e)) {
+                val streak = consecutiveSocketTimeouts.incrementAndGet()
+                if (streak >= MAX_CONSECUTIVE_SOCKET_TIMEOUTS) {
+                    consecutiveSocketTimeouts.set(0)
+                    socket.forceReconnect(
+                        "consecutive socket RPC transport failures=$streak (last method='$method')"
+                    )
+                }
+                throw SocketRpcTransportException(
+                    "WebSocket transport failed for '$method': ${e.message}",
+                    retryOverHttp = true,
+                    cause = e
+                )
+            }
             throw e
+        }
+    }
+
+    private suspend fun rpcOverHttpWithRetry(
+        apiUrl: String,
+        token: String,
+        method: String,
+        body: ByteArray,
+        retryable: Boolean
+    ): ByteArray {
+        var attempt = 0
+        while (true) {
+            try {
+                return rpcOverHttp(apiUrl, token, method, body)
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                if (!retryable || !isHttpRetryableFailure(e) || attempt >= HTTP_RETRY_DELAYS_MS.size) {
+                    if (e !is HttpRpcStatusException) {
+                        sentryReporter.logRpcFailure(method, "http", e)
+                    }
+                    throw e
+                }
+                val delayMs = HTTP_RETRY_DELAYS_MS[attempt]
+                Log.w(
+                    "MezonApi",
+                    "HTTP retry method=$method attempt=${attempt + 1}/${HTTP_RETRY_DELAYS_MS.size} delayMs=$delayMs err=${e.message}"
+                )
+                attempt++
+                delay(delayMs)
+            }
         }
     }
 
@@ -431,7 +677,10 @@ class MezonApi @Inject constructor(
             if (response.status == HttpStatusCode.Unauthorized) {
                 throw UnauthorizedException("RPC $method: 401 Unauthorized")
             }
-            throw RuntimeException("RPC $method failed (${response.status.value}): $errorBody")
+            throw HttpRpcStatusException(
+                "RPC $method failed (${response.status.value}): $errorBody",
+                response.status.value
+            )
         }
 
         val bytes = response.readBytes()
@@ -442,6 +691,40 @@ class MezonApi @Inject constructor(
             )
         }
         return bytes
+    }
+
+    private fun isSocketTransportFailure(e: Throwable): Boolean {
+        if (e is SocketRpcTransportException) return true
+        if (e is SocketRpcServerException || e is UnauthorizedException || e is IllegalArgumentException) return false
+        val message = e.message.orEmpty()
+        if (message.startsWith("Server error")) return false
+        if (message.contains("WebSocket not connected") ||
+            message.contains("Connection closed") ||
+            message.contains("Connection failed") ||
+            message.contains("Failed to enqueue WebSocket") ||
+            message.contains("timed out", ignoreCase = true) ||
+            message.contains("timeout", ignoreCase = true)
+        ) {
+            return true
+        }
+        return hasCause<IOException>(e)
+    }
+
+    private fun isHttpRetryableFailure(e: Throwable): Boolean {
+        if (e is UnauthorizedException) return false
+        if (e is HttpRpcStatusException) {
+            return e.code == 408 || e.code == 429 || e.code in 500..599
+        }
+        return hasCause<IOException>(e)
+    }
+
+    private inline fun <reified T : Throwable> hasCause(e: Throwable): Boolean {
+        var current: Throwable? = e
+        while (current != null) {
+            if (current is T) return true
+            current = current.cause
+        }
+        return false
     }
 
     private suspend fun rpcNoAuth(
@@ -971,7 +1254,7 @@ class MezonApi @Inject constructor(
             this.clanId = clanId
             this.page = page
             this.limit = limit
-            this.state = 1
+            this.state = 0
         }
         val bytes = rpc(apiUrl, token, "ListThreadDescs", request.toByteArray())
         return ChannelDescList.parseFrom(bytes)
@@ -1139,7 +1422,9 @@ class MezonApi @Inject constructor(
         return try {
             rpc(apiUrl, token, "LinkSMS", requestBytes)
         } catch (e: RuntimeException) {
-            if (e.message?.contains("(404)") == true) {
+            if (e.message?.contains("(404)") == true ||
+                (e as? SocketRpcServerException)?.code == 404
+            ) {
                 rpc(apiUrl, token, "LinkSms", requestBytes)
             } else {
                 throw e
@@ -1331,6 +1616,27 @@ class MezonApi @Inject constructor(
         rpc(apiUrl, token, "ActiveArchivedThread", body)
     }
 
+    suspend fun messageButtonClick(
+        apiUrl: String,
+        token: String,
+        messageId: Long,
+        channelId: Long,
+        buttonId: String,
+        senderId: Long,
+        userId: Long,
+        extraData: String,
+    ) {
+        val body = messageButtonClicked {
+            this.messageId = messageId
+            this.channelId = channelId
+            this.buttonId = buttonId
+            this.senderId = senderId
+            this.userId = userId
+            this.extraData = extraData
+        }.toByteArray()
+        rpc(apiUrl, token, "MessageButtonClick", body)
+    }
+
     suspend fun votePoll(
         apiUrl: String,
         token: String,
@@ -1372,7 +1678,8 @@ class MezonApi @Inject constructor(
         clanId: Long = 0L,
         messageId: Long = 0L,
         direction: Int = 0,
-        limit: Int = 50
+        limit: Int = 50,
+        preferHttp: Boolean = false
     ): ChannelMessageList {
         val request = listChannelMessagesRequest {
             this.channelId = channelId
@@ -1381,7 +1688,13 @@ class MezonApi @Inject constructor(
             if (direction != 0) this.direction = direction
             this.limit = limit
         }
-        val bytes = rpc(apiUrl, token, "ListChannelMessages", request.toByteArray())
+        val bytes = rpc(
+            apiUrl,
+            token,
+            "ListChannelMessages",
+            request.toByteArray(),
+            preferHttp = preferHttp
+        )
         val result = ChannelMessageList.parseFrom(bytes)
         return result
     }
@@ -1569,6 +1882,137 @@ class MezonApi @Inject constructor(
         return com.mezon.mezon.api.RoleListEventResponse.parseFrom(bytes)
     }
 
+    suspend fun getRoleOfUserInTheClan(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+    ): com.mezon.mezon.api.RoleList {
+        val request = com.mezon.mezon.api.roleListEventRequest {
+            this.clanId = clanId
+            this.limit = 500
+            this.state = 1
+            this.cursor = ""
+        }
+        val bytes = rpc(apiUrl, token, "GetRoleOfUserInTheClan", request.toByteArray())
+        return try {
+            com.mezon.mezon.api.RoleList.parseFrom(bytes)
+        } catch (_: com.google.protobuf.InvalidProtocolBufferException) {
+            com.mezon.mezon.api.RoleListEventResponse.parseFrom(bytes).roles
+        }
+    }
+
+    suspend fun getListPermission(
+        apiUrl: String,
+        token: String
+    ): PermissionList {
+        val bytes = rpc(apiUrl, token, "GetListPermission", ByteArray(0))
+        return PermissionList.parseFrom(bytes)
+    }
+
+    suspend fun listUserPermissionInChannel(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        channelId: Long
+    ): UserPermissionInChannelListResponse {
+        val request = userPermissionInChannelListRequest {
+            this.clanId = clanId
+            this.channelId = channelId
+        }
+        val bytes = rpc(apiUrl, token, "ListUserPermissionInChannel", request.toByteArray())
+        return UserPermissionInChannelListResponse.parseFrom(bytes)
+    }
+
+    suspend fun listRoleUsers(
+        apiUrl: String,
+        token: String,
+        roleId: Long,
+        limit: Int = 100,
+        cursor: String = ""
+    ): RoleUserList {
+        val request = listRoleUsersRequest {
+            this.roleId = roleId
+            this.limit = limit
+            this.cursor = cursor
+        }
+        val bytes = rpc(apiUrl, token, "ListRoleUsers", request.toByteArray())
+        return RoleUserList.parseFrom(bytes)
+    }
+
+    suspend fun createRole(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        title: String,
+        color: String,
+        maxPermissionRoleId: Long,
+        addUserIds: List<Long>,
+        activePermissionIds: List<Long>
+    ): Role {
+        val request = createRoleRequest {
+            this.clanId = clanId
+            this.title = title
+            this.color = color
+            this.description = ""
+            this.displayOnline = 0
+            this.allowMention = 0
+            this.maxPermissionId = maxPermissionRoleId
+            this.addUserIds.addAll(addUserIds)
+            this.activePermissionIds.addAll(activePermissionIds)
+        }
+        val bytes = rpc(apiUrl, token, "CreateRole", request.toByteArray())
+        return Role.parseFrom(bytes)
+    }
+
+    suspend fun updateRole(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        roleId: Long,
+        title: String?,
+        color: String?,
+        roleIcon: String?,
+        addUserIds: List<Long>,
+        removeUserIds: List<Long>,
+        activePermissionIds: List<Long>,
+        removePermissionIds: List<Long>,
+        maxPermissionRoleId: Long
+    ) {
+        val request = updateRoleRequest {
+            this.roleId = roleId
+            this.clanId = clanId
+            title?.let { this.title = StringValue.of(it) }
+            color?.let { this.color = StringValue.of(it) }
+            roleIcon?.let { this.roleIcon = StringValue.of(it) }
+            this.displayOnline = 0
+            this.allowMention = 0
+            this.maxPermissionId = maxPermissionRoleId
+            this.addUserIds.addAll(addUserIds)
+            this.removeUserIds.addAll(removeUserIds)
+            this.activePermissionIds.addAll(activePermissionIds)
+            this.removePermissionIds.addAll(removePermissionIds)
+        }
+        if (BuildConfig.DEBUG) {
+            Log.d("MezonApi", "UpdateRole payload bytes=${request.serializedSize} $request")
+        }
+        rpc(apiUrl, token, "UpdateRole", request.toByteArray())
+    }
+
+    suspend fun deleteRole(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        roleId: Long,
+        roleLabel: String
+    ) {
+        val request = deleteRoleRequest {
+            this.roleId = roleId
+            this.clanId = clanId
+            this.roleLabel = roleLabel
+        }
+        rpc(apiUrl, token, "DeleteRole", request.toByteArray())
+    }
+
     suspend fun listChannelUsers(
         apiUrl: String,
         token: String,
@@ -1613,11 +2057,6 @@ class MezonApi @Inject constructor(
         }
         rpc(apiUrl, token, "AddChannelUsers", request.toByteArray())
     }
-
-    /**
-     * Same convention as [createChannelDesc] / [ChannelDescription]: `channel_private = 1` means **private**,
-     * `0` means **public**.
-     */
     suspend fun changeChannelPrivate(
         apiUrl: String,
         token: String,
@@ -1660,23 +2099,7 @@ class MezonApi @Inject constructor(
         rpc(apiUrl, token, "RemoveChannelUsers", request.toByteArray())
     }
 
-    /** RN `deleteRoleChannelDesc` — removes a role assignment from a channel. */
-    suspend fun deleteRoleChannelDesc(
-        apiUrl: String,
-        token: String,
-        clanId: Long,
-        channelId: Long,
-        roleId: Long
-    ) {
-        val request = deleteRoleRequest {
-            this.clanId = clanId
-            this.channelId = channelId
-            this.roleId = roleId
-        }
-        rpc(apiUrl, token, "DeleteRoleChannelDesc", request.toByteArray())
-    }
-
-    suspend fun addRolesChannelDesc(
+    suspend fun addRoleChannelDesc(
         apiUrl: String,
         token: String,
         channelId: Long,
@@ -1686,35 +2109,69 @@ class MezonApi @Inject constructor(
             this.channelId = channelId
             this.roleIds.addAll(roleIds)
         }
-        rpc(apiUrl, token, "AddRoleChannelDesc", request.toByteArray())
+        rpc(apiUrl, token, "AddRolesChannelDesc", request.toByteArray())
     }
 
-    /** RN `getPermissionByRoleIdChannelId` — pass roleId **or** userId (other zero). */
-    suspend fun permissionRoleChannelList(
+    suspend fun deleteRoleChannelDesc(
         apiUrl: String,
         token: String,
+        clanId: Long,
         channelId: Long,
         roleId: Long,
+        roleLabel: String
+    ) {
+        val request = deleteRoleRequest {
+            this.roleId = roleId
+            this.channelId = channelId
+            this.clanId = clanId
+            this.roleLabel = roleLabel
+        }
+        rpc(apiUrl, token, "DeleteRoleChannelDesc", request.toByteArray())
+    }
+
+    suspend fun updateChannelPrivate(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        channelId: Long,
+        channelPrivate: Int,
+        userIds: List<Long>,
+        roleIds: List<Long>
+    ) {
+        val request = changeChannelPrivateRequest {
+            this.clanId = clanId
+            this.channelId = channelId
+            this.channelPrivate = channelPrivate
+            this.userIds.addAll(userIds)
+            this.roleIds.addAll(roleIds)
+        }
+        rpc(apiUrl, token, "UpdateChannelPrivate", request.toByteArray())
+    }
+
+    suspend fun getPermissionByRoleIdChannelId(
+        apiUrl: String,
+        token: String,
+        roleId: Long,
+        channelId: Long,
         userId: Long
     ): PermissionRoleChannelListEventResponse {
         val request = permissionRoleChannelListEventRequest {
-            this.channelId = channelId
             this.roleId = roleId
+            this.channelId = channelId
             this.userId = userId
         }
-        val bytes = rpc(apiUrl, token, "PermissionRoleChannelList", request.toByteArray())
+        val bytes = rpc(apiUrl, token, "GetPermissionByRoleIdChannelId", request.toByteArray())
         return PermissionRoleChannelListEventResponse.parseFrom(bytes)
     }
 
-    /** RN `setRoleChannelPermission`. */
-    suspend fun updateRoleChannelPermission(
+    suspend fun setRoleChannelPermission(
         apiUrl: String,
         token: String,
         channelId: Long,
         roleId: Long,
         userId: Long,
         maxPermissionId: Long,
-        permissionUpdates: List<com.mezon.mezon.api.PermissionUpdate>
+        permissionUpdates: List<PermissionUpdate>
     ) {
         val request = updateRoleChannelRequest {
             this.channelId = channelId
@@ -1723,18 +2180,7 @@ class MezonApi @Inject constructor(
             this.maxPermissionId = maxPermissionId
             this.permissionUpdate.addAll(permissionUpdates)
         }
-        rpc(apiUrl, token, "UpdateRoleChannel", request.toByteArray())
-    }
-
-    /** Full permission catalog for labels (optional; RPC name must match gateway). */
-    suspend fun listPermissionsCatalog(
-        apiUrl: String,
-        token: String,
-        roleId: Long = 0L
-    ): PermissionList {
-        val request = listPermissionsRequest { this.roleId = roleId }
-        val bytes = rpc(apiUrl, token, "ListPermissions", request.toByteArray())
-        return PermissionList.parseFrom(bytes)
+        rpc(apiUrl, token, "SetRoleChannelPermission", request.toByteArray())
     }
 
     suspend fun listChannelByUserId(
@@ -1780,6 +2226,57 @@ class MezonApi @Inject constructor(
     ): EmojiListedResponse {
         val bytes = rpc(apiUrl, token, "GetListEmojisByUserId", ByteArray(0))
         return EmojiListedResponse.parseFrom(bytes)
+    }
+
+    suspend fun createClanEmoji(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        emojiId: Long,
+        sourceUrl: String,
+        shortname: String,
+        category: String,
+        isForSale: Boolean,
+    ) {
+        val request = clanEmojiCreateRequest {
+            this.clanId = clanId
+            this.id = emojiId
+            this.source = sourceUrl
+            this.shortname = shortname
+            this.category = category
+            this.isForSale = isForSale
+        }
+        rpc(apiUrl, token, "CreateClanEmoji", request.toByteArray())
+    }
+
+    suspend fun updateClanEmojiById(
+        apiUrl: String,
+        token: String,
+        emojiId: Long,
+        clanId: Long,
+        shortname: String,
+    ) {
+        val request = clanEmojiUpdateRequest {
+            this.id = emojiId
+            this.clanId = clanId
+            this.shortname = shortname
+        }
+        rpc(apiUrl, token, "UpdateClanEmojiById", request.toByteArray())
+    }
+
+    suspend fun deleteByIdClanEmoji(
+        apiUrl: String,
+        token: String,
+        emojiId: Long,
+        clanId: Long,
+        emojiLabel: String,
+    ) {
+        val request = clanEmojiDeleteRequest {
+            this.id = emojiId
+            this.clanId = clanId
+            this.emojiLabel = emojiLabel
+        }
+        rpc(apiUrl, token, "DeleteByIdClanEmoji", request.toByteArray())
     }
 
     suspend fun listStickersByUserId(

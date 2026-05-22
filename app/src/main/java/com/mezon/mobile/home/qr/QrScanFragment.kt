@@ -297,9 +297,45 @@ class QrScanFragment : BaseFragment() {
                 presentFragment(SendTokenFragment.newInstance(action.rawJson))
             }
             else -> {
-                showToast(getString(R.string.qr_code_not_valid))
-                resumeScanLater()
+                handleUnsupportedQr(value)
             }
+        }
+    }
+
+    private fun handleUnsupportedQr(value: String) {
+        val link = QrPayloadParser.parseOpenableLink(value)
+        if (link == null) {
+            showToast(getString(R.string.qr_code_not_valid))
+            resumeScanLater()
+            return
+        }
+        showExternalLinkSheet(link)
+    }
+
+    private fun showExternalLinkSheet(url: String) {
+        val activity = getParentActivity()
+        if (activity == null) {
+            resumeScanLater()
+            return
+        }
+        QrExternalLinkBottomSheet(
+            sheetContext = activity,
+            themeColors = themeColors,
+            url = url,
+            onOpenLink = { openExternalLink(url) },
+            onClosed = { resumeScanLater() }
+        ).show()
+    }
+
+    private fun openExternalLink(url: String): Boolean {
+        val activity = getParentActivity() ?: return false
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+        return try {
+            activity.startActivity(intent)
+            true
+        } catch (_: Exception) {
+            showToast(getString(R.string.qr_external_link_open_failed), ToastOverlay.ToastType.ERROR)
+            false
         }
     }
 

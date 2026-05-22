@@ -39,6 +39,7 @@ class AdvancedAttachAlert(
         fun onFilesSelected()
         fun onBuzzSelected()
         fun onAnonymousToggled()
+        fun onShareContactSelected() {}
     }
 
     var advancedDelegate: AdvancedAttachAlertDelegate? = null
@@ -126,6 +127,7 @@ class AdvancedAttachAlert(
             "files" -> advancedDelegate?.onFilesSelected()
             "buzz" -> advancedDelegate?.onBuzzSelected()
             "anonymous" -> advancedDelegate?.onAnonymousToggled()
+            "share_contact" -> advancedDelegate?.onShareContactSelected()
             else -> Toast.makeText(context, R.string.feature_coming_soon, Toast.LENGTH_SHORT).show()
         }
     }

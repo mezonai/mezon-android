@@ -42,6 +42,7 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
     private var callAudioManager: CallAudioManager? = null
     private var offerJson: String? = null
     private var callerName: String = "Unknown"
+    private var callerUsername: String = ""
     private var callerAvatar: String? = null
     private var dismissed = false
     private var connecting = false
@@ -120,6 +121,7 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
 
         if (callInfo != null) {
             callerName = callInfo.peerName
+            callerUsername = callInfo.peerUsername
             callerAvatar = callInfo.peerAvatar
         }
 
@@ -510,7 +512,7 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
         nameView?.text = callerName
         statusView?.text = "Incoming voice call..."
         titleView?.text = "Incoming Call"
-        ringingAvatarView?.setInfo(0L, callerName)
+        ringingAvatarView?.setInfo(0L, callerUsername)
         ringingAvatarView?.setImageUrl(callerAvatar)
     }
 
@@ -573,6 +575,9 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
         if (!json.isNullOrBlank()) {
             rootJsonForIncomingOffer(json)?.let { parsed ->
                 callerName = parsed.optString("callerName", callerName)
+                callerUsername = parsed.optString("callerUsername", "").ifEmpty {
+                    parsed.optString("username", callerUsername)
+                }
                 val parsedAvatar = parsed.optString("callerAvatar", "")
                 if (parsedAvatar.isNotBlank()) {
                     callerAvatar = parsedAvatar
@@ -858,7 +863,7 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
             ))
         }
         connectedAvatarView?.visibility = View.VISIBLE
-        connectedAvatarView?.setData(callInfo.peerName, callInfo.peerAvatar)
+        connectedAvatarView?.setData(callInfo.peerName, callInfo.peerUsername, callInfo.peerAvatar)
         connectedAvatarView?.setConnected(true)
         connectedAvatarView?.setStatus("")
         connectedAvatarView?.stopRingAnimation()

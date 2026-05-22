@@ -40,6 +40,7 @@ class VideoPlayerDialog(context: Context) : Dialog(context, android.R.style.Them
         playerView = PlayerView(context).apply {
             setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
             setBackgroundColor(Color.BLACK)
+            controllerAutoShow = false
         }
         root.addView(playerView, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
@@ -105,6 +106,7 @@ class VideoPlayerDialog(context: Context) : Dialog(context, android.R.style.Them
             exo.playWhenReady = true
         }
         show()
+        playerView.hideController()
     }
 
     private fun releasePlayer() {

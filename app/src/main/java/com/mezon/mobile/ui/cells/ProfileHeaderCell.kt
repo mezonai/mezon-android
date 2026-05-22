@@ -83,8 +83,8 @@ class ProfileHeaderCell(context: Context, private val theme: ThemeColors) : Fram
         ))
     }
 
-    fun setInfo(userId: Long, name: String, subtitle: String) {
-        avatarView.setInfo(userId, name)
+    fun setInfo(userId: Long, name: String, username: String, subtitle: String) {
+        avatarView.setInfo(userId, username)
         nameTextView.text = name
         subtitleTextView.text = subtitle
         subtitleTextView.visibility = if (subtitle.isNotEmpty()) VISIBLE else GONE

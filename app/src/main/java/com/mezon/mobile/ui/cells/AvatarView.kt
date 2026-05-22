@@ -21,8 +21,8 @@ class AvatarView(context: Context) : View(context) {
         requestLayout()
     }
 
-    fun setInfo(id: Long, name: String) {
-        avatarDrawable.setInfo(id, name)
+    fun setInfo(id: Long, username: String) {
+        avatarDrawable.setInfo(id, username)
         invalidate()
     }
 

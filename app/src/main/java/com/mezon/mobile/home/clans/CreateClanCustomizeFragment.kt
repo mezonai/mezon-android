@@ -376,20 +376,21 @@ class CreateClanCustomizeFragment : BaseFragment() {
     }
 
     private fun buildGuidelineText(context: Context): View {
-        val prefix = getString(R.string.clan_create_community_guide_prefix)
+        val prefix = getString(R.string.clan_create_community_guide_prefix).trimEnd()
         val linkText = getString(R.string.clan_create_community_guide_link)
         val builder = SpannableStringBuilder()
         val bodyColor = CreateClanRnUiTokens.menuText(themeColors)
         val linkColor = CreateClanRnUiTokens.communityGuidelinesLinkAzureBlue
         builder.append(prefix)
+        builder.append(' ')
+        val linkStart = builder.length
+        builder.append(linkText)
         builder.setSpan(
             ForegroundColorSpan(bodyColor),
             0,
-            prefix.length,
+            linkStart,
             Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
         )
-        val linkStart = builder.length
-        builder.append(linkText)
         builder.setSpan(
             ForegroundColorSpan(linkColor),
             linkStart,

@@ -3,6 +3,8 @@ package com.mezon.mobile.ui.cells
 import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.Path
 import android.view.View
 import android.view.accessibility.AccessibilityNodeInfo
@@ -12,6 +14,8 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 
 class RadioCell(context: Context, private val theme: ThemeColors) : BaseCell(context) {
+
+    var drawSelectionAsCheckmark: Boolean = true
 
     private var checked = false
     private var progress = 0f
@@ -24,6 +28,8 @@ class RadioCell(context: Context, private val theme: ThemeColors) : BaseCell(con
         minimumWidth = LayoutHelper.dp(22)
         minimumHeight = LayoutHelper.dp(22)
     }
+
+    private fun baseRadiusPx(): Float = minOf(width, height) / 2f
 
     fun isChecked(): Boolean = checked
 
@@ -48,7 +54,8 @@ class RadioCell(context: Context, private val theme: ThemeColors) : BaseCell(con
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        setMeasuredDimension(LayoutHelper.dp(22), LayoutHelper.dp(22))
+        val side = if (drawSelectionAsCheckmark) LayoutHelper.dp(22) else LayoutHelper.dp(24)
+        setMeasuredDimension(side, side)
     }
 
     override fun onInitializeAccessibilityNodeInfo(info: AccessibilityNodeInfo) {
@@ -61,7 +68,41 @@ class RadioCell(context: Context, private val theme: ThemeColors) : BaseCell(con
     override fun onDraw(canvas: Canvas) {
         val cx = width / 2f
         val cy = height / 2f
+        if (!drawSelectionAsCheckmark) {
+            drawRingOrFilledPrimaryWithCenterDot(canvas, cx, cy)
+            return
+        }
+        drawOuterRingAndOptionalCheckmarkSelection(canvas, cx, cy)
+    }
 
+    private fun drawRingOrFilledPrimaryWithCenterDot(canvas: Canvas, cx: Float, cy: Float) {
+        val ringStrokeWidth = LayoutHelper.dpf(2f)
+        val prevStyle = theme.radioPaint.style
+        val prevStroke = theme.radioPaint.strokeWidth
+        val maxR = baseRadiusPx()
+        try {
+            if (progress <= 0f) {
+                theme.radioPaint.style = Paint.Style.STROKE
+                theme.radioPaint.strokeWidth = ringStrokeWidth
+                theme.radioPaint.color = theme.outline
+                val ringR = (maxR - ringStrokeWidth / 2f).coerceAtLeast(ringStrokeWidth)
+                canvas.drawCircle(cx, cy, ringR, theme.radioPaint)
+            } else {
+                theme.radioPaint.style = Paint.Style.FILL
+                theme.radioPaint.strokeWidth = 0f
+                theme.radioPaint.color = theme.primary
+                canvas.drawCircle(cx, cy, maxR, theme.radioPaint)
+                theme.radioFillPaint.color = Color.WHITE
+                val dotR = (maxR * 0.36f) * progress
+                canvas.drawCircle(cx, cy, dotR, theme.radioFillPaint)
+            }
+        } finally {
+            theme.radioPaint.style = prevStyle
+            theme.radioPaint.strokeWidth = prevStroke
+        }
+    }
+
+    private fun drawOuterRingAndOptionalCheckmarkSelection(canvas: Canvas, cx: Float, cy: Float) {
         theme.radioPaint.color = if (progress > 0f) theme.primary else theme.outline
         canvas.drawCircle(cx, cy, outerRadius, theme.radioPaint)
 

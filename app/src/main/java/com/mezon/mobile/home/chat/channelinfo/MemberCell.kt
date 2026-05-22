@@ -53,8 +53,7 @@ class MemberCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         if (newMember != null) member = newMember
 
         if (mask == 0) {
-            val displayName = resolveName(m)
-            avatarDrawable.setInfo(m.userId, displayName)
+            avatarDrawable.setInfo(m.userId, m.username)
             loadAvatar(resolveAvatar(m))
             isOwner = creatorId != 0L && m.userId == creatorId
             buildLayouts()

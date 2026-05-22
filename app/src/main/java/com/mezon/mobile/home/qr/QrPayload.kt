@@ -67,6 +67,22 @@ object QrPayloadParser {
         return QrAction.Invalid
     }
 
+    fun parseOpenableLink(value: String): String? {
+        val trimmed = value.trim()
+        if (trimmed.isEmpty() || trimmed.any { it.isWhitespace() }) return null
+        val candidate = when {
+            trimmed.startsWith("http://", ignoreCase = true) -> trimmed
+            trimmed.startsWith("https://", ignoreCase = true) -> trimmed
+            trimmed.startsWith("www.", ignoreCase = true) -> "https://$trimmed"
+            else -> return null
+        }
+        val uri = runCatching { Uri.parse(candidate) }.getOrNull() ?: return null
+        val scheme = uri.scheme?.lowercase()
+        if (scheme != "http" && scheme != "https") return null
+        if (uri.host.isNullOrBlank()) return null
+        return candidate
+    }
+
     fun decodeProfilePayload(encoded: String?): ProfilePayload? {
         if (encoded.isNullOrBlank()) return null
         return runCatching {
@@ -84,7 +100,6 @@ object QrPayloadParser {
     private fun parseLoginId(raw: String?): Long? {
         val value = raw?.trim().orEmpty()
         if (value.isEmpty()) return null
-        if (value.length !in 10..22) return null
         if (!value.all { it.isDigit() }) return null
         return runCatching { value.toLong() }.getOrNull()
     }

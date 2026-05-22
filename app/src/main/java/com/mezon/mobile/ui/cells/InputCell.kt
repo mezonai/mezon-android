@@ -2,6 +2,8 @@ package com.mezon.mobile.ui.cells
 
 import android.content.Context
 import android.graphics.Canvas
+import android.graphics.PorterDuff
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.text.Editable
 import android.text.InputType
@@ -14,6 +16,9 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.appcompat.content.res.AppCompatResources
+import androidx.core.widget.TextViewCompat
+import com.mezon.mobile.R
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 
@@ -102,6 +107,7 @@ class InputCell(context: Context, private val theme: ThemeColors) : LinearLayout
             setTextColor(theme.error)
             textSize = 12f
             visibility = View.GONE
+            gravity = Gravity.CENTER_VERTICAL or Gravity.START
         }
         addView(errorView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.START, 0f, 4f, 0f, 0f))
 
@@ -159,14 +165,33 @@ class InputCell(context: Context, private val theme: ThemeColors) : LinearLayout
         maxCharacter = max
     }
 
+    fun setInputContainerMinHeightDp(heightDp: Int) {
+        inputContainer.minimumHeight = LayoutHelper.dp(heightDp)
+        requestLayout()
+    }
+
 
     fun setError(message: String?) {
         if (message != null) {
             errorView.text = message
             errorView.visibility = View.VISIBLE
+            val iconPx = LayoutHelper.dp(16)
+            val icon = AppCompatResources.getDrawable(context, R.drawable.ic_circle_information)
+                ?.mutate()
+                ?.also {
+                    it.setBounds(0, 0, iconPx, iconPx)
+                    it.setTint(theme.error)
+                    it.setTintMode(PorterDuff.Mode.SRC_IN)
+                }
+            TextViewCompat.setCompoundDrawablesRelative(errorView, icon, null, null, null)
+            errorView.compoundDrawablePadding = LayoutHelper.dp(6)
+            errorView.setTypeface(Typeface.DEFAULT, Typeface.ITALIC)
             bgDrawable.setStroke(LayoutHelper.dp(1), theme.error)
         } else {
             errorView.visibility = View.GONE
+            TextViewCompat.setCompoundDrawablesRelative(errorView, null, null, null, null)
+            errorView.compoundDrawablePadding = 0
+            errorView.setTypeface(Typeface.DEFAULT, Typeface.NORMAL)
             bgDrawable.setStroke(LayoutHelper.dp(1), strokeWhenValid ?: theme.outlineVariant)
         }
     }
@@ -192,6 +217,20 @@ class InputCell(context: Context, private val theme: ThemeColors) : LinearLayout
         editText.setTextColor(text)
         editText.setHintTextColor(hint)
         clearButton.setColorFilter(clearIcon)
+    }
+
+    fun refreshThemeColors() {
+        labelView.setTextColor(theme.onSurfaceVariant)
+        requiredMark.setTextColor(theme.error)
+        bgDrawable.setColor(theme.surfaceVariant)
+        val stroke = if (errorView.visibility == View.VISIBLE) theme.error else (strokeWhenValid ?: theme.outlineVariant)
+        bgDrawable.setStroke(LayoutHelper.dp(1), stroke)
+        editText.setTextColor(theme.onSurface)
+        editText.setHintTextColor(theme.onSurfaceVariant and 0x80FFFFFF.toInt())
+        clearButton.setColorFilter(theme.onSurfaceVariant)
+        charCountView.setTextColor(theme.onSurfaceVariant)
+        errorView.setTextColor(theme.error)
+        invalidate()
     }
 
     override fun setEnabled(enabled: Boolean) {

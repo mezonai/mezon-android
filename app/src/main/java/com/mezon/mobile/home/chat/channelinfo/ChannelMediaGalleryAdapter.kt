@@ -285,18 +285,10 @@ internal class ChannelMediaGalleryAdapter(
                 else ->
                     (m?.clanAvatar?.ifBlank { null } ?: m?.avatarUrl) ?: ""
             }
-        val nick =
-            when {
-                isDm ->
-                    m?.displayName?.ifBlank { null } ?: m?.username ?: ""
-                else ->
-                    m?.clanNick?.ifBlank { null }
-                        ?: m?.displayName?.ifBlank { null }
-                        ?: m?.username ?: ""
-            }
+        val avatarUsername = m?.username.orEmpty()
 
         slot.av.setVisibility(View.VISIBLE)
-        slot.av.setInfo(item.uploaderId, nick.ifEmpty { "_" })
+        slot.av.setInfo(item.uploaderId, avatarUsername.ifEmpty { "_" })
         slot.av.setImageUrl(avatarUrl)
 
         val showVideo = item.isVideo
