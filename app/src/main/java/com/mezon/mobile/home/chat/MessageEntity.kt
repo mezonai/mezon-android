@@ -10,6 +10,7 @@ import com.mezon.mezon.api.MessageRefList
 import org.json.JSONArray
 import org.json.JSONObject
 import android.util.Log
+import com.mezon.mobile.home.call.parseCallLogMessage
 import com.mezon.mobile.home.chat.poll.isPollContentJson
 import com.mezon.mobile.network.STREAM_MODE_CHANNEL
 import com.mezon.mobile.network.STREAM_MODE_THREAD
@@ -519,4 +520,17 @@ fun applyReactionEvent(
         arr.put(obj)
     }
     return arr.toString()
+}
+
+fun MessageEntity.isCallLogMessage(): Boolean = parseCallLogMessage(content) != null
+
+fun MessageEntity.canEditMessage(currentUserId: Long): Boolean {
+    if (senderId != currentUserId) return false
+    if (isCallLogMessage()) return false
+    if (code == MessageEntity.CODE_SEND_TOKEN) return false
+    if (isPollMessage) return false
+    if (isForwarded) return false
+    if (code == MessageEntity.CODE_TOPIC) return false
+    if (runCatching { JSONObject(content).has("tp") }.getOrDefault(false)) return false
+    return true
 }
