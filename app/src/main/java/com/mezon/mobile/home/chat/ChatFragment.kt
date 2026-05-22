@@ -429,7 +429,7 @@ class ChatFragment : BaseFragment() {
                 userClanController.loadChannelMembers(clanId, channelId, CHANNEL_TYPE_CHANNEL)
                 Log.d(TAG, "onFragmentCreate loadChannelMembers channel clanId=$clanId channelId=$channelId")
             }
-        } else if (channelType == CHANNEL_TYPE_GROUP) {
+        } else if (channelType == CHANNEL_TYPE_GROUP || channelType == CHANNEL_TYPE_DM) {
             dialogsController.loadDmParticipants(channelId)
         }
         pinMessageController.loadPinMessages(channelId, clanId)
@@ -1122,6 +1122,9 @@ class ChatFragment : BaseFragment() {
             if (clanId == 0L && channelType == CHANNEL_TYPE_GROUP) {
                 refreshPermissionGates()
             }
+            if (clanId == 0L && (channelType == CHANNEL_TYPE_DM || channelType == CHANNEL_TYPE_GROUP)) {
+                refreshWelcomeFromDialog()
+            }
             if (clanId != 0L || channelType != CHANNEL_TYPE_DM) return@observe
             actionBar?.let { setupDmHeaderCallMenu(it) }
         }
@@ -1804,6 +1807,7 @@ class ChatFragment : BaseFragment() {
         adapter.isChannelPrivate = resolveChannelPrivate()
         adapter.currentUserId = StartupCache.userId
         adapter.displayRoleResolver = chatDisplayRoleResolver()
+        refreshWelcomeFromDialog()
         refreshChatDisplayRoleCache()
         adapter.pollBridge = object : ChatPollBridge {
             override fun getLocalState(messageId: Long): PollLocalState {
@@ -3339,6 +3343,25 @@ class ChatFragment : BaseFragment() {
         val dm = dialogsController.getDialog(channelId) ?: return false
         if (dm.otherUserId == 0L) return false
         return dm.otherUserId == myId
+    }
+
+    private fun refreshWelcomeFromDialog() {
+        if (clanId != 0L || !::adapter.isInitialized) return
+        if (channelType != CHANNEL_TYPE_DM && channelType != CHANNEL_TYPE_GROUP) return
+        val dm = dialogsController.getDialog(channelId)
+        if (channelType == CHANNEL_TYPE_DM) {
+            val displayName = dm?.displayName?.ifBlank { dm.label }?.ifBlank { channelName } ?: channelName
+            if (displayName.isNotEmpty()) adapter.channelName = displayName
+        }
+        adapter.welcomeAvatarUrl = dm?.avatarUrl.orEmpty()
+        adapter.welcomeAvatarId = if (channelType == CHANNEL_TYPE_DM) {
+            dm?.otherUserId?.takeIf { it != 0L } ?: channelId
+        } else {
+            channelId
+        }
+        adapter.welcomePlaceholderKey = dm?.avatarPlaceholderKey() ?: channelName
+        adapter.welcomePeerUsername = if (channelType == CHANNEL_TYPE_DM) dm?.username.orEmpty() else ""
+        adapter.notifyWelcomeCellChanged()
     }
 
     private fun dmHeaderCallOtherUserId(): Long? {

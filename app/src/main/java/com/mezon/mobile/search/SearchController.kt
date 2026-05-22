@@ -16,6 +16,7 @@ import com.mezon.mobile.home.clans.toClanChannelEntity
 import com.mezon.mobile.home.messages.DirectMessage
 import com.mezon.mobile.network.ApiCacheTracker
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
+import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.session.SessionManager
@@ -449,7 +450,11 @@ class SearchController @Inject constructor(
 
 private fun DirectMessage.toSearchMember(): SearchMember = SearchMember(
     id = if (type == CHANNEL_TYPE_DM) otherUserId else channelId,
-    username = "",
+    username = when (type) {
+        CHANNEL_TYPE_DM -> username
+        CHANNEL_TYPE_GROUP -> displayName.ifEmpty { label }
+        else -> username.ifEmpty { displayName.ifEmpty { label } }
+    },
     displayName = displayName.ifEmpty { label },
     avatarUrl = avatarUrl,
     isOnline = isOnline,

@@ -10,11 +10,10 @@ import com.mezon.mobile.home.extractLastSeenMessageId
 import com.mezon.mobile.home.extractLastSeenMessageTs
 import com.mezon.mobile.home.extractLastSentMessageId
 import com.mezon.mobile.home.extractLastSentMessageTs
-import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
-import com.mezon.mobile.util.parseContentPreview
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.network.streamModeToChannelType
+import com.mezon.mobile.util.parseContentPreview
 
 data class DmParticipant(
     val userId: Long,
@@ -67,7 +66,13 @@ data class DirectMessage(
     val lastSeenMessageTs: Long = 0L,
     val lastSentMessageTs: Long = 0L,
     val groupCreatorId: Long = 0L,
-)
+) {
+    fun avatarPlaceholderKey(): String = when (type) {
+        CHANNEL_TYPE_GROUP -> displayName.ifEmpty { label }
+        CHANNEL_TYPE_DM -> label.ifEmpty { username }
+        else -> displayName.ifEmpty { label }.ifEmpty { username }
+    }
+}
 
 
 fun ChannelDescription.toDirectMessage(currentUserId: Long, previewContext: android.content.Context? = null): DirectMessage {
@@ -97,6 +102,16 @@ fun ChannelDescription.toDirectMessage(currentUserId: Long, previewContext: andr
         }
         avatarUrl = if (channelAvatar.isNotEmpty()) channelAvatar else ""
         otherUserId = 0L
+    } else if (usernamesCount > 0 || userIdsCount > 0) {
+        val idx = 0
+        username = usernamesList.getOrElse(idx) { "" }
+        participantName = displayNamesList.getOrElse(idx) { "" }
+            .ifBlank { username.ifBlank { channelLabel } }
+        avatarUrl = when {
+            channelAvatar.isNotEmpty() -> channelAvatar
+            else -> avatarsList.getOrElse(idx) { "" }
+        }
+        otherUserId = if (userIdsCount > idx) getUserIds(idx) else 0L
     } else {
         username = ""
         participantName = channelLabel

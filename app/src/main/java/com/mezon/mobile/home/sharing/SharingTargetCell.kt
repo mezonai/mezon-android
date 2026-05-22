@@ -13,14 +13,16 @@ import android.view.View
 import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
-import com.mezon.mobile.home.chat.MezonImageLoader
+import com.mezon.mobile.home.messages.ChannelAvatarLoadState
+import com.mezon.mobile.home.messages.ChannelAvatarRequest
+import com.mezon.mobile.home.messages.loadChannelAvatar
 import com.mezon.mobile.ui.cells.MezonIcon
-import com.mezon.mobile.util.avatarImgproxyUrl
 
 class SharingTargetCell(context: Context, private val theme: ThemeColors) : View(context) {
 
     private val avatarDrawable = AvatarDrawable()
-    private var avatarCancellable: MezonImageLoader.Cancellable? = null
+    private val avatarLoadState = ChannelAvatarLoadState()
+    private var attachedToWindow = false
 
     var target: SharingTarget? = null
         private set
@@ -40,37 +42,47 @@ class SharingTargetCell(context: Context, private val theme: ThemeColors) : View
     }
     private val checkMarkDrawable = MezonIcon.checkmarkSmallIcon.getDrawable(context).mutate()
 
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        attachedToWindow = true
+        target?.let { loadAvatar(it) }
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        attachedToWindow = false
+        avatarLoadState.cancel()
+    }
+
     fun setData(t: SharingTarget, forwardCheckbox: Boolean = false, isForwardSelected: Boolean = false) {
         showForwardCheckbox = forwardCheckbox
         forwardSelected = isForwardSelected
         target = t
-        avatarDrawable.setInfo(t.channelId, t.channelLabel)
-        loadAvatar(t.avatarUrl.ifEmpty { t.clanLogo })
+        loadAvatar(t)
         buildLayouts()
         invalidate()
     }
 
-    private fun loadAvatar(url: String) {
-        avatarCancellable?.cancel()
-        avatarCancellable = null
-        if (url.isEmpty()) {
-            avatarDrawable.setPhoto(null)
-            return
+    private fun loadAvatar(t: SharingTarget) {
+        val url = t.avatarUrl.ifEmpty { t.clanLogo }
+        val placeholderKey = if (t.isGroup || t.isDm) {
+            t.channelLabel.ifEmpty { t.username }
+        } else {
+            t.channelLabel
         }
-        val proxyUrl = avatarImgproxyUrl(url, AVATAR_SIZE)
-        avatarCancellable = MezonImageLoader.getInstance(context).load(
-            proxyUrl, AVATAR_SIZE, AVATAR_SIZE,
-            onSuccess = { bmp ->
-                avatarCancellable = null
-                avatarDrawable.setPhoto(bmp)
-                invalidate()
-            },
-            onError = {
-                avatarCancellable = null
-                avatarDrawable.setPhoto(null)
-                invalidate()
-            }
-        )
+        loadChannelAvatar(
+            context,
+            avatarDrawable,
+            ChannelAvatarRequest(
+                channelType = t.channelType,
+                avatarUrl = url,
+                avatarId = t.channelId,
+                placeholderKey = placeholderKey,
+                sizePx = AVATAR_SIZE
+            ),
+            avatarLoadState,
+            attachedToWindow
+        ) { invalidate() }
     }
 
     private fun buildLayouts() {
@@ -159,12 +171,6 @@ class SharingTargetCell(context: Context, private val theme: ThemeColors) : View
                 canvas.drawRoundRect(checkBoxRect, CHECK_CORNER, CHECK_CORNER, checkPaint)
             }
         }
-    }
-
-    override fun onDetachedFromWindow() {
-        super.onDetachedFromWindow()
-        avatarCancellable?.cancel()
-        avatarCancellable = null
     }
 
     companion object {
