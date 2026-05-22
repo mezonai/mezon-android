@@ -14,7 +14,13 @@ internal fun BaseFragment.openChatFromPicker(
     if (popSelfBeforeOpen) finishFragment()
     val main = getParentActivity() as? MainActivity
     if (main != null) {
-        main.openChat(channelId, channelName, clanId, channelType, replaceLastFragment = true)
+        main.openChat(
+            channelId,
+            channelName,
+            clanId,
+            channelType,
+            replaceLastFragment = true
+        )
     } else {
         onOpenChat?.invoke(channelId, channelName, clanId, channelType)
     }

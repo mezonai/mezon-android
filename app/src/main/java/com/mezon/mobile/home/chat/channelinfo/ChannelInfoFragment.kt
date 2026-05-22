@@ -33,6 +33,8 @@ import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.ChannelPermissionController
 import com.mezon.mobile.home.clans.PermissionPolicy
+import com.mezon.mobile.home.messages.GroupAvatar
+import com.mezon.mobile.home.messages.isDefaultGroupAvatarUrl
 import com.mezon.mobile.home.clans.CHANNEL_TYPE_APP
 import com.mezon.mobile.home.clans.CHANNEL_TYPE_STREAMING
 import com.mezon.mobile.home.profile.UserController
@@ -314,29 +316,16 @@ class ChannelInfoFragment : BaseFragment() {
         val displayName = dm?.displayName?.ifBlank { dm.label } ?: channelName
 
         if (channelType == CHANNEL_TYPE_GROUP) {
-            val hasCustomAvatar = avatarUrl.isNotEmpty() && !avatarUrl.contains("avatar-group.png")
-            if (hasCustomAvatar) {
-                val av = AvatarView(context).apply {
-                    setSizeDp(avatarSize)
-                    setInfo(channelId, channelName)
+            val av = AvatarView(context).apply {
+                setSizeDp(avatarSize)
+                setInfo(channelId, channelName)
+                if (!isDefaultGroupAvatarUrl(avatarUrl)) {
                     setImageUrl(avatarUrl)
+                } else {
+                    setPhoto(GroupAvatar.bitmap(context))
                 }
-                avatarContainer.addView(av, LayoutHelper.createFrame(avatarSize, avatarSize, Gravity.CENTER))
-            } else {
-                val groupCircle = FrameLayout(context).apply {
-                    background = GradientDrawable().apply {
-                        shape = GradientDrawable.OVAL
-                        setColor(0xFFF97316.toInt())
-                    }
-                }
-                val groupIconView = ImageView(context).apply {
-                    val d = MezonIcon.groupIcon.getDrawable(context)
-                    d.colorFilter = PorterDuffColorFilter(0xFFFFFFFF.toInt(), PorterDuff.Mode.SRC_IN)
-                    setImageDrawable(d)
-                }
-                groupCircle.addView(groupIconView, LayoutHelper.createFrame(24, 24, Gravity.CENTER))
-                avatarContainer.addView(groupCircle, LayoutHelper.createFrame(avatarSize, avatarSize, Gravity.CENTER))
             }
+            avatarContainer.addView(av, LayoutHelper.createFrame(avatarSize, avatarSize, Gravity.CENTER))
         } else {
             val av = AvatarView(context).apply {
                 setSizeDp(avatarSize)

@@ -10,11 +10,10 @@ import com.mezon.mobile.home.extractLastSeenMessageId
 import com.mezon.mobile.home.extractLastSeenMessageTs
 import com.mezon.mobile.home.extractLastSentMessageId
 import com.mezon.mobile.home.extractLastSentMessageTs
-import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
-import com.mezon.mobile.util.parseContentPreview
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.network.streamModeToChannelType
+import com.mezon.mobile.util.parseContentPreview
 
 data class DmParticipant(
     val userId: Long,
@@ -46,6 +45,15 @@ fun ChannelDescription.resolveOtherParticipantIndex(currentUserId: Long): Int {
     return -1
 }
 
+fun ChannelDescription.resolveParticipantFallbackIndex(currentUserId: Long): Int {
+    val other = resolveOtherParticipantIndex(currentUserId)
+    if (other >= 0) return other
+    if (userIdsCount == 0 && (usernamesCount > 0 || displayNamesCount > 0 || avatarsCount > 0)) {
+        return 0
+    }
+    return -1
+}
+
 @Entity(
     tableName = "direct_messages",
     indices = [Index(value = ["lastSentMessageTs"])]
@@ -67,7 +75,13 @@ data class DirectMessage(
     val lastSeenMessageTs: Long = 0L,
     val lastSentMessageTs: Long = 0L,
     val groupCreatorId: Long = 0L,
-)
+) {
+    fun avatarPlaceholderKey(): String = when (type) {
+        CHANNEL_TYPE_GROUP -> displayName.ifEmpty { label }
+        CHANNEL_TYPE_DM -> label.ifEmpty { username }
+        else -> displayName.ifEmpty { label }.ifEmpty { username }
+    }
+}
 
 
 fun ChannelDescription.toDirectMessage(currentUserId: Long, previewContext: android.content.Context? = null): DirectMessage {
@@ -98,10 +112,22 @@ fun ChannelDescription.toDirectMessage(currentUserId: Long, previewContext: andr
         avatarUrl = if (channelAvatar.isNotEmpty()) channelAvatar else ""
         otherUserId = 0L
     } else {
-        username = ""
-        participantName = channelLabel
-        avatarUrl = if (channelAvatar.isNotEmpty()) channelAvatar else ""
-        otherUserId = 0L
+        val fallbackIndex = resolveParticipantFallbackIndex(currentUserId)
+        if (fallbackIndex >= 0) {
+            username = usernamesList.getOrElse(fallbackIndex) { "" }
+            participantName = displayNamesList.getOrElse(fallbackIndex) { "" }
+                .ifBlank { username.ifBlank { channelLabel } }
+            avatarUrl = when {
+                channelAvatar.isNotEmpty() -> channelAvatar
+                else -> avatarsList.getOrElse(fallbackIndex) { "" }
+            }
+            otherUserId = if (userIdsCount > fallbackIndex) getUserIds(fallbackIndex) else 0L
+        } else {
+            username = ""
+            participantName = channelLabel
+            avatarUrl = if (channelAvatar.isNotEmpty()) channelAvatar else ""
+            otherUserId = 0L
+        }
     }
     val displayName = if (isGroup) {
         channelLabel.ifBlank { participantName }

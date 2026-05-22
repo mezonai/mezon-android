@@ -319,7 +319,13 @@ class NewMessageFragment : BaseFragment() {
                     return@withContext
                 }
                 val name = friend.user.displayName.ifBlank { friend.user.username }
-                openChatFromPicker(channelId, name, 0L, CHANNEL_TYPE_DM, onOpenChat = onOpenChat)
+                openChatFromPicker(
+                    channelId,
+                    name,
+                    0L,
+                    CHANNEL_TYPE_DM,
+                    onOpenChat = onOpenChat
+                )
             }
         }
     }

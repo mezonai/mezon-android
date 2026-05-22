@@ -2,9 +2,6 @@ package com.mezon.mobile.home.messages
 
 import android.content.Context
 import android.graphics.Canvas
-import android.graphics.Paint
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.RectF
 import android.text.StaticLayout
 import android.text.TextUtils
@@ -13,10 +10,6 @@ import com.mezon.mobile.core.BaseCell
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
-import com.mezon.mobile.home.chat.MezonImageLoader
-import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
-import com.mezon.mobile.ui.cells.MezonIcon
-import com.mezon.mobile.util.avatarImgproxyUrl
 import com.mezon.mobile.util.formatRelativeTime
 
 class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(context) {
@@ -26,13 +19,7 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
     var hasBuzz = false
 
     private val avatarDrawable = AvatarDrawable()
-    private val groupAvatarPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val groupAvatarIcon = MezonIcon.groupIcon.getDrawable(context).apply {
-        colorFilter = PorterDuffColorFilter(0xFFFFFFFF.toInt(), PorterDuff.Mode.SRC_IN)
-    }
-    private var currentAvatarUrl: String? = null
-    private var currentAvatarLoadUrl: String? = null
-    private var avatarDisposable: MezonImageLoader.Cancellable? = null
+    private val avatarLoadState = ChannelAvatarLoadState()
     private var attachedToWindow = false
     private var needsLayout = false
     private var visibleOnScreen = true
@@ -53,13 +40,13 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
             buildLayouts()
             invalidate()
         }
+        directMessage?.let { loadAvatar(it) }
     }
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         attachedToWindow = false
-        avatarDisposable?.cancel()
-        avatarDisposable = null
+        avatarLoadState.cancel()
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -101,23 +88,29 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         if (mask == 0) {
             val changed = newDm != null && newDm != directMessage
             if (newDm != null) directMessage = newDm
-            avatarDrawable.setInfo(dm.channelId, dm.displayName.ifBlank { dm.label }.ifBlank { dm.username })
             buildLayouts()
-            loadAvatar(dm.avatarUrl)
+            loadAvatar(dm)
             invalidate()
             return changed
         }
 
         if ((mask and NotificationCenter.UPDATE_MASK_NAME) != 0) {
-            val oldName = directMessage?.displayName ?: ""
-            if (oldName != dm.displayName) {
+            val oldDm = directMessage
+            val nameChanged = oldDm?.displayName != dm.displayName ||
+                oldDm?.label != dm.label ||
+                oldDm?.username != dm.username
+            if (nameChanged) {
                 rebuildLayout = true
+                if (oldDm?.avatarPlaceholderKey() != dm.avatarPlaceholderKey()) {
+                    loadAvatar(dm)
+                    needInvalidate = true
+                }
             }
         }
 
         if ((mask and NotificationCenter.UPDATE_MASK_AVATAR) != 0) {
             if (directMessage?.avatarUrl != dm.avatarUrl) {
-                loadAvatar(dm.avatarUrl)
+                loadAvatar(dm)
                 needInvalidate = true
             }
         }
@@ -209,28 +202,20 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
             .build()
     }
 
-    private fun loadAvatar(url: String) {
-        val loadUrl = avatarImgproxyUrl(url, AVATAR_SIZE).ifEmpty { url }
-        if (loadUrl == currentAvatarLoadUrl && avatarDrawable.hasPhoto()) return
-        currentAvatarUrl = url
-        currentAvatarLoadUrl = loadUrl
-        avatarDrawable.setPhoto(null)
-        avatarDisposable?.cancel()
-        avatarDisposable = null
-
-        if (loadUrl.isNotEmpty()) {
-            val expectedLoadUrl = loadUrl
-            avatarDisposable = MezonImageLoader.getInstance(context).load(
-                loadUrl, AVATAR_SIZE, AVATAR_SIZE,
-                onSuccess = { bmp ->
-                    if (currentAvatarLoadUrl != expectedLoadUrl) return@load
-                    avatarDrawable.setPhoto(bmp)
-                    invalidate()
-                }
-            )
-        } else {
-            currentAvatarLoadUrl = null
-        }
+    private fun loadAvatar(dm: DirectMessage) {
+        loadChannelAvatar(
+            context,
+            avatarDrawable,
+            ChannelAvatarRequest(
+                channelType = dm.type,
+                avatarUrl = dm.avatarUrl,
+                avatarId = dm.channelId,
+                placeholderKey = dm.avatarPlaceholderKey(),
+                sizePx = AVATAR_SIZE
+            ),
+            avatarLoadState,
+            attachedToWindow
+        ) { invalidate() }
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -240,15 +225,8 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         val cy = (height - AVATAR_SIZE) / 2
         val isUnread = dm.unreadCount > 0
 
-        if (dm.type == CHANNEL_TYPE_GROUP && dm.avatarUrl.isBlank() && !avatarDrawable.hasPhoto()) {
-            tmpRect.set(cx.toFloat(), cy.toFloat(), (cx + AVATAR_SIZE).toFloat(), (cy + AVATAR_SIZE).toFloat())
-            groupAvatarPaint.color = theme.getColor(ThemeColors.key_avatar_backgroundOrange)
-            canvas.drawOval(tmpRect, groupAvatarPaint)
-            MezonIcon.drawIcon(canvas, groupAvatarIcon, cx + AVATAR_SIZE / 2, cy + AVATAR_SIZE / 2, GROUP_ICON_SIZE)
-        } else {
-            avatarDrawable.setBounds(cx, cy, cx + AVATAR_SIZE, cy + AVATAR_SIZE)
-            avatarDrawable.draw(canvas)
-        }
+        avatarDrawable.setBounds(cx, cy, cx + AVATAR_SIZE, cy + AVATAR_SIZE)
+        avatarDrawable.draw(canvas)
 
         val textLeft = (cx + AVATAR_SIZE + GAP_H).toFloat()
         var textTop = PADDING_V.toFloat()
@@ -316,7 +294,6 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
 
     companion object {
         private val AVATAR_SIZE = LayoutHelper.dp(48)
-        private val GROUP_ICON_SIZE = LayoutHelper.dp(24)
         private val PADDING_H = LayoutHelper.dp(16)
         private val PADDING_V = LayoutHelper.dp(12)
         private val GAP_H = LayoutHelper.dp(12)
