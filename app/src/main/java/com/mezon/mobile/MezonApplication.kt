@@ -10,7 +10,6 @@ import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.data.db.MezonDatabase
 import com.mezon.mobile.session.SessionKeys
 import com.mezon.mobile.home.messages.EmbedAnimationHttp
-import com.mezon.mobile.home.messages.GroupAvatar
 import com.mezon.mobile.util.SentryReporter
 import dagger.hilt.android.HiltAndroidApp
 import okhttp3.OkHttpClient
@@ -54,8 +53,6 @@ class MezonApplication : Application() {
             (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
                 Configuration.UI_MODE_NIGHT_YES
         themeColors.setTheme(StartupCache.themeMode, systemDark)
-
-        appStartScope.launch { GroupAvatar.preload(this@MezonApplication) }
 
         if (StartupCache.hasSession) {
             appStartScope.launch { database.openHelper.writableDatabase }

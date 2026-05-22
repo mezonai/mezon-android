@@ -95,6 +95,8 @@ class AvatarDrawable : Drawable() {
     fun setInfo(id: Long, username: String?) {
         val normalized = normalizeUsername(username)
         if (id == currentUserId && photoBitmap != null) {
+            bgColor = getColorForName(normalized)
+            bgColor2 = bgColor
             initial = getAvatarSymbols(normalized)
             invalidateSelf()
             return

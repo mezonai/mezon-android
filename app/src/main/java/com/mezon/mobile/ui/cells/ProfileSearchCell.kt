@@ -13,8 +13,9 @@ import com.mezon.mobile.home.messages.ChannelAvatarLoadState
 import com.mezon.mobile.home.messages.ChannelAvatarRequest
 import com.mezon.mobile.home.messages.loadChannelAvatar
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
-import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.search.SearchMember
+import com.mezon.mobile.search.avatarEntityId
+import com.mezon.mobile.search.avatarPlaceholderKey
 
 class ProfileSearchCell(context: Context, private val theme: ThemeColors) : BaseCell(context) {
 
@@ -32,15 +33,7 @@ class ProfileSearchCell(context: Context, private val theme: ThemeColors) : Base
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         attachedToWindow = true
-        member?.let { m ->
-            val placeholderKey = when {
-            m.isDm && m.channelType == CHANNEL_TYPE_DM -> m.displayName.ifEmpty { m.username }
-            m.isDm -> m.displayName.ifEmpty { m.username }
-            else -> m.username.ifEmpty { m.displayName }
-        }
-            val avatarId = if (m.isDm && m.channelType == CHANNEL_TYPE_GROUP) m.channelId else m.id
-            loadAvatar(m, avatarId, placeholderKey)
-        }
+        member?.let { bindAvatar(it) }
     }
 
     override fun onDetachedFromWindow() {
@@ -67,16 +60,13 @@ class ProfileSearchCell(context: Context, private val theme: ThemeColors) : Base
     fun update(mask: Int, newMember: SearchMember? = null) {
         val m = newMember ?: member ?: return
         if (newMember != null) member = newMember
-
-        val placeholderKey = when {
-            m.isDm && m.channelType == CHANNEL_TYPE_DM -> m.displayName.ifEmpty { m.username }
-            m.isDm -> m.displayName.ifEmpty { m.username }
-            else -> m.username.ifEmpty { m.displayName }
-        }
-        val avatarId = if (m.isDm && m.channelType == CHANNEL_TYPE_GROUP) m.channelId else m.id
-        loadAvatar(m, avatarId, placeholderKey)
+        bindAvatar(m)
         buildLayouts()
         invalidate()
+    }
+
+    private fun bindAvatar(m: SearchMember) {
+        loadAvatar(m, m.avatarEntityId(), m.avatarPlaceholderKey())
     }
 
     private fun buildLayouts() {

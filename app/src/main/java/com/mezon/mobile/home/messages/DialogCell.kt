@@ -88,7 +88,6 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         if (mask == 0) {
             val changed = newDm != null && newDm != directMessage
             if (newDm != null) directMessage = newDm
-            avatarDrawable.setInfo(dm.channelId, dm.avatarPlaceholderKey())
             buildLayouts()
             loadAvatar(dm)
             invalidate()
@@ -96,9 +95,16 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         }
 
         if ((mask and NotificationCenter.UPDATE_MASK_NAME) != 0) {
-            val oldName = directMessage?.displayName ?: ""
-            if (oldName != dm.displayName) {
+            val oldDm = directMessage
+            val nameChanged = oldDm?.displayName != dm.displayName ||
+                oldDm?.label != dm.label ||
+                oldDm?.username != dm.username
+            if (nameChanged) {
                 rebuildLayout = true
+                if (oldDm?.avatarPlaceholderKey() != dm.avatarPlaceholderKey()) {
+                    loadAvatar(dm)
+                    needInvalidate = true
+                }
             }
         }
 

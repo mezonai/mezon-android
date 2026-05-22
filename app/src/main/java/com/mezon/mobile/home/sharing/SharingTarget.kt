@@ -3,7 +3,6 @@ package com.mezon.mobile.home.sharing
 import com.mezon.mobile.home.chat.ForwardDestination
 import com.mezon.mobile.home.clans.ClanChannelEntity
 import com.mezon.mobile.home.messages.DirectMessage
-import com.mezon.mobile.home.messages.isDefaultGroupAvatarUrl
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
@@ -27,12 +26,6 @@ data class SharingTarget(
     val isGroup: Boolean get() = channelType == CHANNEL_TYPE_GROUP
     val isThread: Boolean get() = channelType == CHANNEL_TYPE_THREAD || parentId != 0L
     val isClanChannel: Boolean get() = !isDm && !isGroup && clanId != 0L
-
-    fun hasCustomAvatar(): Boolean {
-        val url = avatarUrl.ifEmpty { clanLogo }
-        if (!isGroup) return url.isNotBlank()
-        return url.isNotBlank() && !isDefaultGroupAvatarUrl(url)
-    }
 }
 
 fun SharingTarget.toForwardDestination(): ForwardDestination = ForwardDestination(

@@ -4,34 +4,17 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import com.mezon.mobile.R
-import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 
 const val DEFAULT_GROUP_AVATAR_URL_MARKER = "avatar-group.png"
 
 fun isDefaultGroupAvatarUrl(url: String): Boolean =
     url.isBlank() || url.contains(DEFAULT_GROUP_AVATAR_URL_MARKER, ignoreCase = true)
 
-fun DirectMessage.hasCustomAvatar(): Boolean {
-    if (avatarUrl.isBlank()) return false
-    if (type == CHANNEL_TYPE_GROUP) {
-        return !isDefaultGroupAvatarUrl(avatarUrl)
-    }
-    return true
-}
-
 object GroupAvatar {
     const val DEFAULT_LOAD_KEY = "\u0000group_default_avatar"
 
     @Volatile
     private var cached: Bitmap? = null
-
-    fun preload(context: Context) {
-        if (cached != null) return
-        synchronized(this) {
-            if (cached != null) return
-            cached = decodeBitmap(context.applicationContext)
-        }
-    }
 
     fun bitmap(context: Context): Bitmap {
         cached?.let { return it }

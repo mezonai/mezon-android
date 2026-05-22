@@ -45,6 +45,15 @@ fun ChannelDescription.resolveOtherParticipantIndex(currentUserId: Long): Int {
     return -1
 }
 
+fun ChannelDescription.resolveParticipantFallbackIndex(currentUserId: Long): Int {
+    val other = resolveOtherParticipantIndex(currentUserId)
+    if (other >= 0) return other
+    if (userIdsCount == 0 && (usernamesCount > 0 || displayNamesCount > 0 || avatarsCount > 0)) {
+        return 0
+    }
+    return -1
+}
+
 @Entity(
     tableName = "direct_messages",
     indices = [Index(value = ["lastSentMessageTs"])]
@@ -102,21 +111,23 @@ fun ChannelDescription.toDirectMessage(currentUserId: Long, previewContext: andr
         }
         avatarUrl = if (channelAvatar.isNotEmpty()) channelAvatar else ""
         otherUserId = 0L
-    } else if (usernamesCount > 0 || userIdsCount > 0) {
-        val idx = 0
-        username = usernamesList.getOrElse(idx) { "" }
-        participantName = displayNamesList.getOrElse(idx) { "" }
-            .ifBlank { username.ifBlank { channelLabel } }
-        avatarUrl = when {
-            channelAvatar.isNotEmpty() -> channelAvatar
-            else -> avatarsList.getOrElse(idx) { "" }
-        }
-        otherUserId = if (userIdsCount > idx) getUserIds(idx) else 0L
     } else {
-        username = ""
-        participantName = channelLabel
-        avatarUrl = if (channelAvatar.isNotEmpty()) channelAvatar else ""
-        otherUserId = 0L
+        val fallbackIndex = resolveParticipantFallbackIndex(currentUserId)
+        if (fallbackIndex >= 0) {
+            username = usernamesList.getOrElse(fallbackIndex) { "" }
+            participantName = displayNamesList.getOrElse(fallbackIndex) { "" }
+                .ifBlank { username.ifBlank { channelLabel } }
+            avatarUrl = when {
+                channelAvatar.isNotEmpty() -> channelAvatar
+                else -> avatarsList.getOrElse(fallbackIndex) { "" }
+            }
+            otherUserId = if (userIdsCount > fallbackIndex) getUserIds(fallbackIndex) else 0L
+        } else {
+            username = ""
+            participantName = channelLabel
+            avatarUrl = if (channelAvatar.isNotEmpty()) channelAvatar else ""
+            otherUserId = 0L
+        }
     }
     val displayName = if (isGroup) {
         channelLabel.ifBlank { participantName }
