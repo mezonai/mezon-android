@@ -19,12 +19,17 @@ import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.ui.cells.ActionButton
-import java.text.Normalizer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class UpdateUsernameFragment : BaseFragment() {
+
+    companion object {
+        private const val MIN_USERNAME_LENGTH = 1
+        private const val MAX_USERNAME_LENGTH = 32
+        private val USERNAME_DISALLOWED_CHARS = Regex("[^a-z0-9._\\-+]")
+    }
 
     var onComplete: (() -> Unit)? = null
 
@@ -115,13 +120,15 @@ class UpdateUsernameFragment : BaseFragment() {
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
                 override fun afterTextChanged(s: android.text.Editable?) {
                     errorText.visibility = View.GONE
-                    val sanitized = sanitizeUsername(s?.toString().orEmpty())
-                    if (sanitized.isNotEmpty()) {
-                        previewView.text = getString(R.string.update_username_preview, sanitized)
-                        previewView.visibility = View.VISIBLE
-                    } else {
-                        previewView.visibility = View.GONE
+                    val raw = s?.toString().orEmpty()
+                    val sanitized = sanitizeUsername(raw)
+                    if (raw != sanitized) {
+                        val cursor = input.selectionStart.coerceAtLeast(0)
+                        val newCursor = sanitizeUsername(raw.take(cursor)).length
+                        input.setText(sanitized)
+                        input.setSelection(newCursor.coerceIn(0, sanitized.length))
                     }
+                    updateUsernameUi(sanitized)
                 }
             })
         }
@@ -155,6 +162,7 @@ class UpdateUsernameFragment : BaseFragment() {
         submitButton = ActionButton(context, themeColors).apply {
             useGradient = true
             setText(getString(R.string.update_username_button))
+            isEnabled = false
             setOnClickListener { doSubmit() }
         }
         buttonFrame.addView(submitButton, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
@@ -192,14 +200,27 @@ class UpdateUsernameFragment : BaseFragment() {
     }
 
     private fun sanitizeUsername(raw: String): String {
-        val nfd = Normalizer.normalize(raw, Normalizer.Form.NFD)
-        val noMarks = nfd.replace("\\p{Mn}+".toRegex(), "")
-        return noMarks.replace(Regex("[\\s\\p{P}&&[^.]]"), "")
+        return raw.lowercase()
+            .replace(USERNAME_DISALLOWED_CHARS, "")
+            .take(MAX_USERNAME_LENGTH)
+    }
+
+    private fun isUsernameValid(username: String): Boolean =
+        username.length in MIN_USERNAME_LENGTH..MAX_USERNAME_LENGTH
+
+    private fun updateUsernameUi(username: String) {
+        if (username.isNotEmpty()) {
+            previewView.text = getString(R.string.update_username_preview, username)
+            previewView.visibility = View.VISIBLE
+        } else {
+            previewView.visibility = View.GONE
+        }
+        submitButton.isEnabled = isUsernameValid(username)
     }
 
     private fun doSubmit() {
         val sanitized = sanitizeUsername(input.text?.toString().orEmpty())
-        if (sanitized.isEmpty()) return
+        if (!isUsernameValid(sanitized)) return
 
         AndroidUtilities.hideKeyboard(fragmentView)
         submitButton.isEnabled = false
