@@ -1,12 +1,11 @@
 package com.mezon.mobile.home.chat.thread
 
 object ThreadStatus {
+    const val ARCHIVED = 0
     const val JOINED = 1
     const val ACTIVE_PUBLIC = 2
     const val ACTIVE_PRIVATE = 3
 }
-
-private const val THIRTY_DAYS_SECONDS = 30L * 24 * 60 * 60
 
 const val THREAD_ARCHIVE_DURATION_SECONDS = 7L * 24 * 60 * 60
 
@@ -15,37 +14,42 @@ data class ThreadSection(
     val threads: List<ThreadInfo>
 )
 
-fun getJoinedThreads(threads: List<ThreadInfo>): List<ThreadInfo> {
-    val cutoff = System.currentTimeMillis() / 1000 - THIRTY_DAYS_SECONDS
-    return threads.filter { it.active == ThreadStatus.JOINED && it.lastMessageTs > cutoff }
+data class ThreadListBuckets(
+    val joined: List<ThreadInfo>,
+    val other: List<ThreadInfo>,
+    val archived: List<ThreadInfo>
+)
+
+fun filterThreadList(threads: List<ThreadInfo>): ThreadListBuckets {
+    val joined = ArrayList<ThreadInfo>()
+    val other = ArrayList<ThreadInfo>()
+    val archived = ArrayList<ThreadInfo>()
+    for (thread in threads) {
+        when (thread.active) {
+            ThreadStatus.JOINED -> joined.add(thread)
+            ThreadStatus.ARCHIVED -> archived.add(thread)
+            else -> other.add(thread)
+        }
+    }
+    return ThreadListBuckets(joined, other, archived)
 }
 
-fun getActiveThreads(threads: List<ThreadInfo>): List<ThreadInfo> {
-    val cutoff = System.currentTimeMillis() / 1000 - THIRTY_DAYS_SECONDS
-    return threads.filter { it.active == ThreadStatus.ACTIVE_PUBLIC && it.lastMessageTs > cutoff }
-}
-
-fun getOlderThreads(threads: List<ThreadInfo>): List<ThreadInfo> {
-    val cutoff = System.currentTimeMillis() / 1000 - THIRTY_DAYS_SECONDS
-    return threads.filter { it.lastMessageTs > 0 && it.lastMessageTs <= cutoff }
-}
-
-fun buildThreadSections(threads: List<ThreadInfo>): List<ThreadSection> {
+fun buildThreadSections(
+    joinedTitle: String,
+    activeTitle: String,
+    archivedTitle: String,
+    threads: List<ThreadInfo>
+): List<ThreadSection> {
+    val buckets = filterThreadList(threads)
     val sections = mutableListOf<ThreadSection>()
-    val joined = getJoinedThreads(threads)
-    if (joined.isNotEmpty()) {
-        val label = if (joined.size > 1) "${joined.size} Joined Threads" else "1 Joined Thread"
-        sections.add(ThreadSection(label, joined))
+    if (buckets.joined.isNotEmpty()) {
+        sections.add(ThreadSection(joinedTitle, buckets.joined))
     }
-    val active = getActiveThreads(threads)
-    if (active.isNotEmpty()) {
-        val label = if (active.size > 1) "${active.size} Other Active Threads" else "1 Other Active Thread"
-        sections.add(ThreadSection(label, active))
+    if (buckets.other.isNotEmpty()) {
+        sections.add(ThreadSection(activeTitle, buckets.other))
     }
-    val older = getOlderThreads(threads)
-    if (older.isNotEmpty()) {
-        val label = if (older.size > 1) "${older.size} Older Threads" else "1 Older Thread"
-        sections.add(ThreadSection(label, older))
+    if (buckets.archived.isNotEmpty()) {
+        sections.add(ThreadSection(archivedTitle, buckets.archived))
     }
     return sections
 }

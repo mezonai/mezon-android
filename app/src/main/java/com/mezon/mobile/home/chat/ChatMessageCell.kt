@@ -43,6 +43,9 @@ import com.mezon.mobile.util.parseContentPreview
 import com.mezon.mobile.util.isEmbedOrComponentsPayload
 import com.mezon.mobile.util.messageHasExplicitTextBody
 import com.mezon.mobile.util.parseContentText
+import com.mezon.mobile.util.ShareContactData
+import com.mezon.mobile.util.isShareContactMessage
+import com.mezon.mobile.util.parseShareContactData
 import com.mezon.mobile.util.parseContentToSpannable
 import com.mezon.mobile.home.chat.poll.ChatPollBridge
 import com.mezon.mobile.home.chat.poll.ParsedPoll
@@ -141,6 +144,15 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var pollCardDrawTopY = Float.NaN
     private var hasPollCard = false
     var pollBridge: ChatPollBridge? = null
+    var shareContactOnlineResolver: ((Long) -> Boolean)? = null
+    private val shareContactLayout = ShareContactCardLayout(context).also {
+        it.invalidateCallback = { invalidate() }
+    }
+    private var shareContactParsed: ShareContactData? = null
+    private var hasShareContactCard = false
+    private val shareContactHitRect = RectF()
+    private var shareContactCardDrawTopY = Float.NaN
+    private var pressedShareContactAction = ShareContactHit.None
     var loadLinkInvitePreview: (suspend (Long) -> com.mezon.mobile.network.LinkInvitePreview?)?
         get() = linkInviteBlock.loadLinkInvitePreview
         set(v) {
@@ -417,6 +429,12 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         hasPollCard = false
         pollHitRect.setEmpty()
         pollCardDrawTopY = Float.NaN
+        shareContactParsed = null
+        hasShareContactCard = false
+        shareContactHitRect.setEmpty()
+        shareContactCardDrawTopY = Float.NaN
+        clearShareContactActionPress()
+        shareContactLayout.clear()
     }
 
     private var lastBoundId = 0L
@@ -1088,9 +1106,25 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
 
         pollParsed = if (msg.isPollMessage) parsePollContent(msg.content) else null
-        val hasEmbedPayload = !hasCallLogCard && isEmbedOrComponentsPayload(msg.content)
-        val hasText = !hasCallLogCard && !msg.isPollMessage &&
+        shareContactParsed = if (!hasCallLogCard && !msg.isPollMessage &&
+            isShareContactMessage(msg.code, msg.content)
+        ) {
+            parseShareContactData(msg.content)
+        } else {
+            null
+        }
+        hasShareContactCard = shareContactParsed != null
+        if (hasShareContactCard) {
+            val scData = shareContactParsed!!
+            val isOnline = shareContactOnlineResolver?.invoke(scData.userId) == true
+            shareContactLayout.prepare(scData, theme, bubbleMaxW, isOnline)
+        } else {
+            shareContactLayout.clear()
+        }
+        val hasEmbedPayload = !hasCallLogCard && !hasShareContactCard && isEmbedOrComponentsPayload(msg.content)
+        val hasText = !hasCallLogCard && !msg.isPollMessage && !hasShareContactCard &&
             parsedContent.isNotBlank() && parsedContent != "[file]" && parsedContent != "[embed]" &&
+            parsedContent != "[contact]" &&
             (!hasEmbedPayload || messageHasExplicitTextBody(msg.content))
         contentLayout = if (hasText) {
             val content = msg.content
@@ -1208,7 +1242,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             ogpImage.setImage(null, null, context)
         }
 
-        if (hasEmbedPayload) {
+        if (hasEmbedPayload && !hasShareContactCard) {
             hasEmbedContent = embedMessage.setDataFromContent(msg.content)
             if (hasEmbedContent) {
                 resetEmbedInteractiveSync()
@@ -1280,15 +1314,19 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val audioW = if (drawAudioAttachment) audioPillWidth.toFloat() else 0f
         val embedW = if (hasEmbedContent) (bubbleMaxW).toFloat() else 0f
         val inviteW = if (linkInviteBlock.isVisible) linkInviteBlock.cachedWidth else 0f
+        val shareContactW = if (hasShareContactCard) shareContactLayout.cardWidth.toFloat() else 0f
         cachedInnerWidth = if (drawPhotoImage) {
             photoWidth
         } else if (hasCodeFence) {
             bubbleMaxW
         } else {
-            val allW = maxOf(cachedSenderW, cachedContentW, cachedTimeW, replyW, ogpW, cachedForwardW, fileW, audioW, cachedEphW, embedW, inviteW)
+            val allW = maxOf(cachedSenderW, cachedContentW, cachedTimeW, replyW, ogpW, cachedForwardW, fileW, audioW, cachedEphW, embedW, inviteW, shareContactW)
             var w = allW.toInt().coerceAtMost(bubbleMaxW)
             if (msg.isPollMessage && pollParsed != null) {
                 w = maxOf(w, pollLayoutHelper.cardWidth)
+            }
+            if (hasShareContactCard) {
+                w = maxOf(w, shareContactLayout.cardWidth)
             }
             w
         }
@@ -1329,6 +1367,28 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private fun pollHitTestOriginTop(): Float =
         if (!pollCardDrawTopY.isNaN()) pollCardDrawTopY else verticalOffsetBeforePollCard()
 
+    private fun clearShareContactActionPress() {
+        if (pressedShareContactAction == ShareContactHit.None) return
+        pressedShareContactAction = ShareContactHit.None
+        shareContactLayout.setPressedAction(ShareContactHit.None)
+    }
+
+    private fun shareContactContentLeft(): Int =
+        if (isInPinMode) PIN_PAD_H else PAD_H + AVATAR_SIZE + GAP_AVATAR
+
+    private fun syncShareContactHitRect(contentLeft: Int) {
+        if (!hasShareContactCard || shareContactParsed == null || shareContactCardDrawTopY.isNaN()) {
+            shareContactHitRect.setEmpty()
+            return
+        }
+        shareContactHitRect.set(
+            contentLeft.toFloat(),
+            shareContactCardDrawTopY,
+            contentLeft + shareContactLayout.cardWidth.toFloat(),
+            shareContactCardDrawTopY + shareContactLayout.blockHeight
+        )
+    }
+
     private fun syncPollHitRect() {
         val msg = messageEntity
         if (msg == null || !msg.isPollMessage || pollParsed == null) {
@@ -1358,6 +1418,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         forwardLayout?.let { y += it.height + GAP_V_INNER }
         if (msg.isPollMessage && pollParsed != null) {
             y += pollLayoutHelper.blockHeight + GAP_V_INNER
+        }
+        if (hasShareContactCard) {
+            y += shareContactLayout.blockHeight + GAP_V_INNER
         }
         return y
     }
@@ -1419,6 +1482,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
         if (msg.isPollMessage && pollParsed != null) {
             h += pollLayoutHelper.blockHeight + GAP_V_INNER
+        }
+
+        if (hasShareContactCard) {
+            h += shareContactLayout.blockHeight + GAP_V_INNER
         }
 
         h += mainContentStackHeight()
@@ -1844,6 +1911,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         fun didChangeEmbedSelect(cell: ChatMessageCell, msg: MessageEntity, componentId: String, value: String) {}
         fun isDmPeerBlockedForCallLog(): Boolean = false
         fun didTapCallLogCallBack(cell: ChatMessageCell, msg: MessageEntity) {}
+        fun didTapShareContactProfile(cell: ChatMessageCell, msg: MessageEntity, data: ShareContactData) {}
+        fun didTapShareContactMessage(cell: ChatMessageCell, msg: MessageEntity, data: ShareContactData) {}
+        fun didTapShareContactCall(cell: ChatMessageCell, msg: MessageEntity, data: ShareContactData) {}
     }
 
     private var pressedLink: ClickableSpan? = null
@@ -1916,6 +1986,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 pressedReactionIndex = -1
                 pressedEmbedButtonHit = null
                 embedMessage.setPressedButton(null)
+                clearShareContactActionPress()
                 longPressHandled = false
                 startX = x
                 startY = y
@@ -1924,6 +1995,29 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     syncPollHitRect()
                     if (!pollHitRect.isEmpty && pollHitRect.contains(x, y)) {
                         return true
+                    }
+                }
+                if (hasShareContactCard && shareContactParsed != null) {
+                    if (!shareContactCardDrawTopY.isNaN()) {
+                        val cl = shareContactContentLeft()
+                        syncShareContactHitRect(cl)
+                        if (!shareContactHitRect.isEmpty && shareContactHitRect.contains(x, y)) {
+                            val localX = x - shareContactHitRect.left
+                            val localY = y - shareContactHitRect.top
+                            val actionHit = shareContactLayout.hitTest(localX, localY)
+                            when (actionHit) {
+                                ShareContactHit.Call, ShareContactHit.Message -> {
+                                    pressedShareContactAction = actionHit
+                                    shareContactLayout.setPressedAction(actionHit)
+                                    return true
+                                }
+                                ShareContactHit.Profile -> {
+                                    scheduleLongPress()
+                                    return true
+                                }
+                                ShareContactHit.None -> Unit
+                            }
+                        }
                     }
                 }
 
@@ -2101,6 +2195,23 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
+                if (pressedShareContactAction == ShareContactHit.Call ||
+                    pressedShareContactAction == ShareContactHit.Message
+                ) {
+                    if (!shareContactCardDrawTopY.isNaN()) {
+                        syncShareContactHitRect(shareContactContentLeft())
+                        val stillPressed = if (!shareContactHitRect.isEmpty &&
+                            shareContactHitRect.contains(x, y)
+                        ) {
+                            val localX = x - shareContactHitRect.left
+                            val localY = y - shareContactHitRect.top
+                            shareContactLayout.hitTest(localX, localY) == pressedShareContactAction
+                        } else {
+                            false
+                        }
+                        if (!stillPressed) clearShareContactActionPress()
+                    }
+                }
                 if (longPressScheduled) {
                     val dx = x - startX
                     val dy = y - startY
@@ -2131,6 +2242,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     pressedReactionIndex = -1
                     pressedEmbedButtonHit = null
                     embedMessage.setPressedButton(null)
+                    clearShareContactActionPress()
                     return true
                 }
                 val pollMsg = messageEntity
@@ -2144,6 +2256,28 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                         }
                     }
                 }
+                val scMsg = messageEntity
+                val scData = shareContactParsed
+                if (!longPressHandled && scMsg != null && scData != null && hasShareContactCard &&
+                    !shareContactHitRect.isEmpty && shareContactHitRect.contains(x, y)
+                ) {
+                    val localX = x - shareContactHitRect.left
+                    val localY = y - shareContactHitRect.top
+                    val actionHit = if (pressedShareContactAction != ShareContactHit.None) {
+                        pressedShareContactAction
+                    } else {
+                        shareContactLayout.hitTest(localX, localY)
+                    }
+                    clearShareContactActionPress()
+                    when (actionHit) {
+                        ShareContactHit.Profile -> delegate?.didTapShareContactProfile(this, scMsg, scData)
+                        ShareContactHit.Message -> delegate?.didTapShareContactMessage(this, scMsg, scData)
+                        ShareContactHit.Call -> delegate?.didTapShareContactCall(this, scMsg, scData)
+                        ShareContactHit.None -> Unit
+                    }
+                    return true
+                }
+                clearShareContactActionPress()
                 if (pressedReactionIndex >= 0) {
                     val idx = pressedReactionIndex
                     pressedReactionIndex = -1
@@ -2246,6 +2380,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 pressedOnInviteJoin = false
                 pressedEmbedButtonHit = null
                 embedMessage.setPressedButton(null)
+                clearShareContactActionPress()
             }
         }
         return super.onTouchEvent(event)
@@ -2496,9 +2631,20 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             pollCardDrawTopY = Float.NaN
         }
 
+        if (hasShareContactCard && shareContactParsed != null) {
+            val xCard = contentLeft.toFloat()
+            shareContactCardDrawTopY = yOff
+            shareContactLayout.draw(canvas, xCard, yOff)
+            syncShareContactHitRect(contentLeft)
+            yOff += shareContactLayout.blockHeight + GAP_V_INNER
+        } else if (!hasShareContactCard) {
+            shareContactHitRect.setEmpty()
+            shareContactCardDrawTopY = Float.NaN
+        }
+
         if (hasCallLogCard) {
             yOff = drawCallLogCard(canvas, contentLeft.toFloat(), yOff) + GAP_V_INNER
-        } else {
+        } else if (!hasShareContactCard) {
             if (hasEphemeralDecor) {
                 EphemeralMessageUi.drawBubbleBackground(canvas, theme, ephemeralDecorRect)
             }
