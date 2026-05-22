@@ -9,9 +9,13 @@ import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.BaseCell
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
-import com.mezon.mobile.home.chat.MezonImageLoader
+import com.mezon.mobile.home.messages.ChannelAvatarLoadState
+import com.mezon.mobile.home.messages.ChannelAvatarRequest
+import com.mezon.mobile.home.messages.loadChannelAvatar
+import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.search.SearchMember
-import com.mezon.mobile.util.avatarImgproxyUrl
+import com.mezon.mobile.search.avatarEntityId
+import com.mezon.mobile.search.avatarPlaceholderKey
 
 class ProfileSearchCell(context: Context, private val theme: ThemeColors) : BaseCell(context) {
 
@@ -19,8 +23,7 @@ class ProfileSearchCell(context: Context, private val theme: ThemeColors) : Base
         private set
 
     private val avatarDrawable = AvatarDrawable()
-    private var currentAvatarUrl: String? = null
-    private var avatarDisposable: MezonImageLoader.Cancellable? = null
+    private val avatarLoadState = ChannelAvatarLoadState()
     private var attachedToWindow = false
     private val tmpRect = RectF()
 
@@ -30,13 +33,13 @@ class ProfileSearchCell(context: Context, private val theme: ThemeColors) : Base
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         attachedToWindow = true
+        member?.let { bindAvatar(it) }
     }
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         attachedToWindow = false
-        avatarDisposable?.cancel()
-        avatarDisposable = null
+        avatarLoadState.cancel()
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -57,11 +60,13 @@ class ProfileSearchCell(context: Context, private val theme: ThemeColors) : Base
     fun update(mask: Int, newMember: SearchMember? = null) {
         val m = newMember ?: member ?: return
         if (newMember != null) member = newMember
-
-        avatarDrawable.setInfo(m.id, m.username)
-        loadAvatar(m.avatarUrl)
+        bindAvatar(m)
         buildLayouts()
         invalidate()
+    }
+
+    private fun bindAvatar(m: SearchMember) {
+        loadAvatar(m, m.avatarEntityId(), m.avatarPlaceholderKey())
     }
 
     private fun buildLayouts() {
@@ -80,7 +85,11 @@ class ProfileSearchCell(context: Context, private val theme: ThemeColors) : Base
             .setEllipsize(TextUtils.TruncateAt.END)
             .build()
 
-        val status = if (m.username.isNotEmpty()) "@${m.username}" else ""
+        val status = if (m.username.isNotEmpty() && m.channelType == CHANNEL_TYPE_DM) {
+            "@${m.username}"
+        } else {
+            ""
+        }
         if (status.isNotEmpty()) {
             statusLayout = StaticLayout.Builder.obtain(status, 0, status.length, theme.dialogMessagePaint, textWidth)
                 .setMaxLines(1)
@@ -91,25 +100,20 @@ class ProfileSearchCell(context: Context, private val theme: ThemeColors) : Base
         }
     }
 
-    private fun loadAvatar(url: String) {
-        if (url == currentAvatarUrl) return
-        currentAvatarUrl = url
-        avatarDisposable?.cancel()
-        avatarDisposable = null
-
-        if (url.isEmpty()) {
-            avatarDrawable.setPhoto(null)
-            return
-        }
-
-        val proxyUrl = avatarImgproxyUrl(url, AVATAR_SIZE)
-        avatarDisposable = MezonImageLoader.getInstance(context).load(
-            proxyUrl, AVATAR_SIZE, AVATAR_SIZE,
-            onSuccess = { bmp ->
-                avatarDrawable.setPhoto(bmp)
-                invalidate()
-            }
-        )
+    private fun loadAvatar(m: SearchMember, avatarId: Long, placeholderKey: String) {
+        loadChannelAvatar(
+            context,
+            avatarDrawable,
+            ChannelAvatarRequest(
+                channelType = if (m.isDm) m.channelType else 0,
+                avatarUrl = m.avatarUrl,
+                avatarId = avatarId,
+                placeholderKey = placeholderKey,
+                sizePx = AVATAR_SIZE
+            ),
+            avatarLoadState,
+            attachedToWindow
+        ) { invalidate() }
     }
 
     override fun onDraw(canvas: Canvas) {

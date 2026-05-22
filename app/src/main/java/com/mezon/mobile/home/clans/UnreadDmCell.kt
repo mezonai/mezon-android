@@ -9,9 +9,10 @@ import android.text.TextPaint
 import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
-import com.mezon.mobile.home.chat.MezonImageLoader
+import com.mezon.mobile.home.messages.ChannelAvatarLoadState
+import com.mezon.mobile.home.messages.ChannelAvatarRequest
 import com.mezon.mobile.home.messages.DirectMessage
-import com.mezon.mobile.util.avatarImgproxyUrl
+import com.mezon.mobile.home.messages.loadChannelAvatar
 import android.view.View
 
 class UnreadDmCell(
@@ -24,6 +25,8 @@ class UnreadDmCell(
 
     private val avatar = AvatarDrawable()
     private val avatarSizePx = LayoutHelper.dp(42)
+    private val avatarLoadState = ChannelAvatarLoadState()
+    private var attachedToWindow = false
     private val badgeBgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val badgeTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = LayoutHelper.sp(9f)
@@ -33,8 +36,6 @@ class UnreadDmCell(
     }
     private val badgeRect = RectF()
     private var badgeText = ""
-    private var currentAvatarUrl: String? = null
-    private var avatarCancellable: MezonImageLoader.Cancellable? = null
 
     companion object {
         private val BADGE_HEIGHT = LayoutHelper.dp(16f).toFloat()
@@ -44,53 +45,44 @@ class UnreadDmCell(
         private val EXTRA_HEIGHT = LayoutHelper.dp(16)
     }
 
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        attachedToWindow = true
+        directMessage?.let { loadAvatar(it) }
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        attachedToWindow = false
+        avatarLoadState.cancel()
+    }
+
     fun setData(dm: DirectMessage) {
         directMessage = dm
-        avatar.setInfo(dm.channelId, dm.displayName.ifBlank { dm.label }.ifBlank { dm.username })
+        avatar.setInfo(dm.channelId, dm.avatarPlaceholderKey())
         badgeText = when {
             dm.unreadCount <= 0 -> ""
             dm.unreadCount > 99 -> "99+"
             else -> dm.unreadCount.toString()
         }
-        loadAvatar(dm.avatarUrl)
+        loadAvatar(dm)
         invalidate()
     }
 
-    private fun loadAvatar(url: String) {
-        if (url.isEmpty()) {
-            avatar.setPhoto(null)
-            currentAvatarUrl = null
-            avatarCancellable?.cancel()
-            avatarCancellable = null
-            return
-        }
-        val imgUrl = avatarImgproxyUrl(url, avatarSizePx)
-        if (imgUrl == currentAvatarUrl && avatar.hasPhoto()) return
-        currentAvatarUrl = imgUrl
-
-        avatarCancellable?.cancel()
-        avatarCancellable = null
-
-        val loader = MezonImageLoader.getInstance(context)
-        val cached = loader.getBitmapFromMemory(imgUrl, avatarSizePx, avatarSizePx)
-        if (cached != null) {
-            avatar.setPhoto(cached)
-            return
-        }
-
-        avatarCancellable = loader.load(
-            imgUrl, avatarSizePx, avatarSizePx,
-            onSuccess = { bmp ->
-                avatar.setPhoto(bmp)
-                invalidate()
-            }
-        )
-    }
-
-    override fun onDetachedFromWindow() {
-        super.onDetachedFromWindow()
-        avatarCancellable?.cancel()
-        avatarCancellable = null
+    private fun loadAvatar(dm: DirectMessage) {
+        loadChannelAvatar(
+            context,
+            avatar,
+            ChannelAvatarRequest(
+                channelType = dm.type,
+                avatarUrl = dm.avatarUrl,
+                avatarId = dm.channelId,
+                placeholderKey = dm.avatarPlaceholderKey(),
+                sizePx = avatarSizePx
+            ),
+            avatarLoadState,
+            attachedToWindow
+        ) { invalidate() }
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
