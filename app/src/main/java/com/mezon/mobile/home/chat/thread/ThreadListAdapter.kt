@@ -25,13 +25,19 @@ class ThreadListAdapter(
         setHasStableIds(true)
     }
 
-    fun setData(sections: List<ThreadSection>) {
+    fun setData(sections: List<ThreadSection>, animateChanges: Boolean = true) {
         val newItems = ArrayList<Any>()
         for (section in sections) {
             newItems.add(section.title)
             newItems.addAll(section.threads)
         }
         diffJob?.cancel()
+        if (!animateChanges) {
+            items.clear()
+            items.addAll(newItems)
+            notifyDataSetChanged()
+            return
+        }
         if (items.size > 50 || newItems.size > 50) {
             diffJob = adapterScope.launch {
                 val result = withContext(Dispatchers.Default) {

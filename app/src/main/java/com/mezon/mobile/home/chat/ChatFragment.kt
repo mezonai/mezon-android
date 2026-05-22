@@ -60,7 +60,10 @@ import com.mezon.mobile.home.LOAD_TYPE_INITIAL
 import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.MemberResolver
 import com.mezon.mobile.home.UserClanController
+import com.mezon.mobile.home.friends.FRIEND_STATE_BLOCKED
 import com.mezon.mobile.home.friends.FriendController
+import com.mezon.mobile.util.ShareContactData
+import com.mezon.mobile.util.isShareContactMessage
 import com.mezon.mobile.home.clans.CLAN_CREATE_LIMIT
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.ClansController
@@ -68,6 +71,7 @@ import com.mezon.mobile.home.clans.ClanChannelEntity
 import com.mezon.mobile.home.clans.ClanRole
 import com.mezon.mobile.home.clans.PermissionPolicy
 import com.mezon.mobile.home.clans.RoleController
+import com.mezon.mobile.home.clans.UserDisplayRole
 import com.mezon.mobile.home.chat.input.InputSuggestionItem
 import com.mezon.mobile.home.chat.input.InputSuggestionsAdapter
 import com.mezon.mobile.home.chat.input.InputSuggestionsController
@@ -260,6 +264,9 @@ class ChatFragment : BaseFragment() {
     private var channelId = 0L
     private var channelName = ""
     private var clanId = 0L
+    private var chatCachedCreatorId: Long? = null
+    private var displayRoleCacheRefreshJob: Job? = null
+    private var pendingDisplayRoleUiRefresh = false
     private var channelType = 0
     private var routeChannelPrivate = false
     private var routeParentId = 0L
@@ -378,6 +385,7 @@ class ChatFragment : BaseFragment() {
         channelId = arguments?.getLong(ARG_CHANNEL_ID) ?: 0L
         channelName = arguments?.getString(ARG_CHANNEL_NAME) ?: ""
         clanId = arguments?.getLong(ARG_CLAN_ID) ?: 0L
+        chatCachedCreatorId = null
         channelType = arguments?.getInt(ARG_CHANNEL_TYPE) ?: 0
         routeChannelPrivate = arguments?.getBoolean(ARG_CHANNEL_PRIVATE) ?: false
         routeParentId = arguments?.getLong(ARG_PARENT_ID) ?: 0L
@@ -404,6 +412,10 @@ class ChatFragment : BaseFragment() {
 
         if (clanId != 0L) {
             userClanController.loadClanMembers(clanId)
+            roleController.loadRolesForClan(clanId)
+            appScope.launch(ioDispatcher) {
+                roleController.hydrateLocalPermissionSnapshotForClan(clanId)
+            }
             val ch = channelController.findChannelById(channelId)
             val effectiveParentId = ch?.parentId ?: routeParentId
             val effectivePrivate = ch?.isPrivate ?: routeChannelPrivate
@@ -434,6 +446,9 @@ class ChatFragment : BaseFragment() {
         observe(NotificationCenter.clanRolesDidLoad) { _, _, args ->
             val changedClanId = args.getOrNull(0) as? Long ?: return@observe
             if (changedClanId == clanId || changedClanId == clansController.selectedClanId.value) refreshPermissionGates()
+            if (changedClanId == clanId) {
+                refreshChatDisplayRoleCache(refreshUi = !isPaused)
+            }
         }
         observe(NotificationCenter.selectedClanChanged) { _, _, _ ->
             if (isPaused) return@observe
@@ -1083,10 +1098,10 @@ class ChatFragment : BaseFragment() {
         }
 
         observe(NotificationCenter.clanMembersDidLoad) { _, _, args ->
-            if (isPaused) return@observe
             val loadedClanId = args.firstOrNull() as? Long ?: return@observe
             if (loadedClanId == clanId) {
-                checkSuggestionTrigger()
+                if (!isPaused) checkSuggestionTrigger()
+                refreshChatDisplayRoleCache(refreshUi = !isPaused)
             }
         }
 
@@ -1722,6 +1737,15 @@ class ChatFragment : BaseFragment() {
             override fun didClickEmbedComponentButton(cell: ChatMessageCell, msg: MessageEntity, buttonId: String) {
                 submitEmbedComponentButton(msg, buttonId)
             }
+            override fun didTapShareContactProfile(cell: ChatMessageCell, msg: MessageEntity, data: com.mezon.mobile.util.ShareContactData) {
+                showShareContactProfile(data)
+            }
+            override fun didTapShareContactMessage(cell: ChatMessageCell, msg: MessageEntity, data: com.mezon.mobile.util.ShareContactData) {
+                openShareContactDm(data)
+            }
+            override fun didTapShareContactCall(cell: ChatMessageCell, msg: MessageEntity, data: com.mezon.mobile.util.ShareContactData) {
+                startShareContactCall(data)
+            }
         })
 
         adapter.sendTokenDelegate = object : SendTokenMessageCell.Delegate {
@@ -1779,6 +1803,8 @@ class ChatFragment : BaseFragment() {
         adapter.clanId = clanId
         adapter.isChannelPrivate = resolveChannelPrivate()
         adapter.currentUserId = StartupCache.userId
+        adapter.displayRoleResolver = chatDisplayRoleResolver()
+        refreshChatDisplayRoleCache()
         adapter.pollBridge = object : ChatPollBridge {
             override fun getLocalState(messageId: Long): PollLocalState {
                 val base = pollStates[messageId] ?: PollLocalState()
@@ -1801,6 +1827,10 @@ class ChatFragment : BaseFragment() {
             override fun onPollTap(msg: MessageEntity, parsed: ParsedPoll, tap: PollTap) {
                 handleChatPollTap(msg, parsed, tap)
             }
+        }
+        adapter.shareContactOnlineResolver = { userId ->
+            friendController.friends.value.find { it.user.id == userId }?.user?.online == true ||
+                userClanController.getUserById(userId)?.isOnline == true
         }
         refreshSystemMessageMemberGateCache()
         recyclerView.adapter = adapter
@@ -1947,6 +1977,10 @@ class ChatFragment : BaseFragment() {
 
     override fun onBecomeFullyVisible() {
         super.onBecomeFullyVisible()
+        if (pendingDisplayRoleUiRefresh) {
+            pendingDisplayRoleUiRefresh = false
+            refreshChatSenderRoleRows()
+        }
         refreshSystemMessageMemberGateCache()
         if (emojiViewVisible || (emojiView != null && emojiView!!.visibility == View.VISIBLE)) {
             dismissEmojiSilently()
@@ -2282,6 +2316,9 @@ class ChatFragment : BaseFragment() {
         notificationCenter.onAnimationFinish(transitionAnimationIndex)
         if (::recyclerView.isInitialized) cancelPendingScroll()
         cancelPendingLoading()
+        displayRoleCacheRefreshJob?.cancel()
+        displayRoleCacheRefreshJob = null
+        pendingDisplayRoleUiRefresh = false
         mainHandler.removeCallbacks(markVisibleRunnable)
         markVisibleAsRead()
         flushPendingSeen()
@@ -3034,6 +3071,43 @@ class ChatFragment : BaseFragment() {
         }
     }
 
+    private fun chatClanCreatorId(): Long {
+        if (clanId == 0L) return 0L
+        val cached = chatCachedCreatorId
+        if (cached != null) return cached
+        val id = clansController.clans.value.firstOrNull { it.clanId == clanId }?.creatorId ?: 0L
+        chatCachedCreatorId = id
+        return id
+    }
+
+    private fun chatDisplayRoleResolver(): (Long) -> UserDisplayRole? = { userId ->
+        if (clanId == 0L) null
+        else roleController.resolveHighestDisplayRole(clanId, userId, chatClanCreatorId())
+    }
+
+    private fun refreshChatDisplayRoleCache(refreshUi: Boolean = true) {
+        if (clanId == 0L) return
+        displayRoleCacheRefreshJob?.cancel()
+        roleController.invalidateDisplayRoleCache(clanId)
+        val creatorId = chatClanCreatorId()
+        displayRoleCacheRefreshJob = appScope.launch(ioDispatcher) {
+            roleController.refreshDisplayRoleCache(clanId, creatorId)
+            withContext(mainDispatcher) {
+                displayRoleCacheRefreshJob = null
+                if (refreshUi) {
+                    refreshChatSenderRoleRows()
+                } else {
+                    pendingDisplayRoleUiRefresh = true
+                }
+            }
+        }
+    }
+
+    private fun refreshChatSenderRoleRows() {
+        if (isPaused || fragmentView == null) return
+        updateVisibleRows(NotificationCenter.UPDATE_MASK_NAME)
+    }
+
     private fun updateVisibleRows(mask: Int = 0) {
         if (isPaused) return
         if (scrollingManually && mask != 0) {
@@ -3486,8 +3560,10 @@ class ChatFragment : BaseFragment() {
         dismissPasteImagePopup()
         val rawInput = inputField.text?.toString() ?: ""
         val text = rawInput.trim()
-        if (text.isBlank() && pendingAttachments.isEmpty()) return
         val editMsg = editingMessage
+        val preservingShareContactEmbed = editMsg != null &&
+            isShareContactMessage(editMsg.code, editMsg.content)
+        if (text.isBlank() && pendingAttachments.isEmpty() && !preservingShareContactEmbed) return
         if (editMsg == null && !canSendMessageInCurrentChannel()) {
             refreshPermissionGates()
             MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.message_no_send_permission))
@@ -3783,6 +3859,12 @@ class ChatFragment : BaseFragment() {
             }
             override fun onAnonymousToggled() {
                 anonymousController.toggleAnonymous(clanId)
+            }
+            override fun onShareContactSelected() {
+                if (!ensureCanSendMessageOrNotify()) return
+                presentFragment(
+                    ShareContactFragment.newInstance(channelId, clanId, channelType, resolveChannelPrivate())
+                )
             }
         }
         alert.setDrawNavigationBar(true)
@@ -4707,6 +4789,96 @@ class ChatFragment : BaseFragment() {
         if (newer.isPollMessage || older.isPollMessage) return false
         if (newer.timestampSeconds <= 0L || older.timestampSeconds <= 0L) return false
         return kotlin.math.abs(newer.timestampSeconds - older.timestampSeconds) <= FORWARD_NEARBY_WINDOW_SECONDS
+    }
+
+    private fun showShareContactProfile(data: ShareContactData) {
+        val ctx = getContext() ?: return
+        val activity = getParentActivity() ?: return
+        if (activity.isFinishing || activity.isDestroyed) return
+        val currentUserId = chatController.getCurrentUserId()
+        val sheet = UserProfileBottomSheet(
+            context = ctx,
+            userId = data.userId,
+            displayName = data.displayName,
+            username = data.username,
+            avatarUrl = data.avatarUrl,
+            aboutMe = null,
+            memberSince = null,
+            isOwnProfile = data.userId == currentUserId,
+            isDM = true,
+            listener = object : UserProfileBottomSheet.UserProfileListener {
+                override fun onSendMessage(userId: Long) {
+                    openShareContactDm(data)
+                }
+                override fun onVoiceCall(userId: Long) {
+                    startShareContactCall(data)
+                }
+                override fun onAddFriend(userId: Long) {
+                    showAddFriendBottomSheet()
+                }
+            }
+        )
+        sheet.setDrawNavigationBar(true)
+        sheet.show()
+    }
+
+    private fun openShareContactDm(data: ShareContactData) {
+        fragmentScope.launch {
+            val dmId = dialogsController.getOrCreateDm(data.userId)
+            withContext(mainDispatcher) {
+                if (dmId == 0L) {
+                    MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.ERROR, getString(R.string.contact_shared_error))
+                    return@withContext
+                }
+                (getParentActivity() as? MainActivity)?.openChat(
+                    dmId,
+                    data.displayName.ifBlank { data.username },
+                    0L,
+                    CHANNEL_TYPE_DM
+                )
+            }
+        }
+    }
+
+    private fun startShareContactCall(data: ShareContactData) {
+        val myId = chatController.getCurrentUserId()
+        if (data.userId == myId) {
+            MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.cannot_call_yourself))
+            return
+        }
+        val blocked = friendController.allFriendRelations.value.any {
+            it.user.id == data.userId && it.state == FRIEND_STATE_BLOCKED
+        }
+        if (blocked) {
+            MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.no_permission_call_blocked))
+            return
+        }
+        if (callController.isCallSessionActive()) return
+        requestCallPermissions(needsCamera = false, reason = "shareContactCall") {
+            runOutgoingCallAfterFullScreenIntentPrompt {
+                fragmentScope.launch {
+                    val dmId = dialogsController.getOrCreateDm(data.userId)
+                    withContext(mainDispatcher) {
+                        if (dmId == 0L) {
+                            MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.ERROR, getString(R.string.contact_shared_error))
+                            return@withContext
+                        }
+                        callController.startCall(
+                            data.userId,
+                            data.displayName,
+                            data.avatarUrl.ifBlank { null },
+                            dmId,
+                            0L,
+                            CHANNEL_TYPE_DM,
+                            true,
+                            isVideo = false,
+                            peerUsername = data.username
+                        )
+                        presentFragment(com.mezon.mobile.home.call.CallFragment())
+                    }
+                }
+            }
+        }
     }
 
     private fun showUserProfile(msg: MessageEntity) {
