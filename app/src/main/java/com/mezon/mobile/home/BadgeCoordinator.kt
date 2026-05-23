@@ -23,6 +23,9 @@ private const val DEBOUNCE_LAST_SEEN_MS = 100L
 private const val DEDUP_FULL_READ_MS = 3000L
 private const val BATCH_CHANNEL_ACTIVITY_MS = 50L
 private const val CLAN_RECONCILE_MS = 500L
+private const val RETRY_LAST_SEEN_MS = 1000L
+private const val RETRY_LAST_SEEN_MAX_MS = 30_000L
+private const val RETRY_LAST_SEEN_MAX_ATTEMPTS = 8
 private const val TS_MASK = 0xFFFF_FFFFL
 
 private data class PendingLastSeen(
@@ -41,6 +44,12 @@ private data class ChannelActivityTick(
     val ts: Long
 )
 
+private data class QueuedLastSeenWrite(
+    val pending: PendingLastSeen,
+    val socketBadgeCount: Int,
+    val attempt: Int = 0
+)
+
 @Singleton
 class BadgeCoordinator @Inject constructor(
     private val channelController: dagger.Lazy<ChannelController>,
@@ -55,6 +64,8 @@ class BadgeCoordinator @Inject constructor(
     private val lastSeenJobs = ConcurrentHashMap<String, Job>()
     private val pendingLastSeen = ConcurrentHashMap<String, PendingLastSeen>()
     private val deferredLastSeenByKey = ConcurrentHashMap<String, PendingLastSeen>()
+    private val retryLastSeenByKey = ConcurrentHashMap<String, QueuedLastSeenWrite>()
+    private val retryLastSeenJobs = ConcurrentHashMap<String, Job>()
     private val fullReadDedupAt = ConcurrentHashMap<String, Long>()
     private val reconcileJobs = ConcurrentHashMap<Long, Job>()
 
@@ -67,6 +78,8 @@ class BadgeCoordinator @Inject constructor(
         lastSeenJobs.clear()
         pendingLastSeen.clear()
         deferredLastSeenByKey.clear()
+        retryLastSeenJobs.values.forEach { it.cancel() }
+        retryLastSeenJobs.clear()
         fullReadDedupAt.clear()
         reconcileJobs.values.forEach { it.cancel() }
         reconcileJobs.clear()
@@ -78,6 +91,7 @@ class BadgeCoordinator @Inject constructor(
 
     fun cleanup() {
         onReconnect()
+        retryLastSeenByKey.clear()
     }
 
     fun scheduleLastSeenWrite(
@@ -124,6 +138,11 @@ class BadgeCoordinator @Inject constructor(
                     )
                 }
             }
+            for ((key, queued) in retryLastSeenByKey) {
+                if (!shouldDeferLastSeen(queued.pending)) {
+                    scheduleLastSeenRetry(key, delayMs = 0L)
+                }
+            }
         }
     }
 
@@ -139,6 +158,8 @@ class BadgeCoordinator @Inject constructor(
     private fun flushLastSeen(key: String) {
         lastSeenJobs.remove(key)
         val p = pendingLastSeen.remove(key) ?: return
+        retryLastSeenJobs.remove(key)?.cancel()
+        retryLastSeenByKey.remove(key)
         if (shouldSkipDuplicateFullRead(key, p)) {
             Log.d(TAG, "flushLastSeen: skip dedup key=$key")
             return
@@ -168,22 +189,66 @@ class BadgeCoordinator @Inject constructor(
                 )
             }
         }
-        val mode = channelTypeToStreamMode(p.channelType)
+        sendLastSeenToSocket(key, p, socketBadgeCount)
+        if (p.clanId != 0L) {
+            scheduleClanReconcile(p.clanId)
+        }
+    }
+
+    private fun sendLastSeenToSocket(key: String, p: PendingLastSeen, socketBadgeCount: Int) {
         appScope.launch {
             try {
+                val mode = channelTypeToStreamMode(p.channelType)
                 mezonSocket.writeLastSeenMessage(
                     p.clanId, p.channelId, mode, p.messageId, p.timestampSeconds, socketBadgeCount
                 )
+                retryLastSeenByKey.remove(key)
+                retryLastSeenJobs.remove(key)
                 Log.d(
                     TAG,
                     "writeLastSeen: ch=${p.channelId} clan=${p.clanId} mid=${p.messageId} socketBadge=$socketBadgeCount argBadge=${p.badgeCount}"
                 )
             } catch (e: Exception) {
                 Log.e(TAG, "writeLastSeenMessage failed", e)
+                queueLastSeenRetry(key, p, socketBadgeCount)
             }
         }
-        if (p.clanId != 0L) {
-            scheduleClanReconcile(p.clanId)
+    }
+
+    private fun queueLastSeenRetry(key: String, p: PendingLastSeen, socketBadgeCount: Int) {
+        val prevAttempt = retryLastSeenByKey[key]?.attempt ?: 0
+        val nextAttempt = prevAttempt + 1
+        if (nextAttempt > RETRY_LAST_SEEN_MAX_ATTEMPTS) {
+            Log.w(TAG, "writeLastSeen retry: giving up after $prevAttempt attempts key=$key")
+            retryLastSeenByKey.remove(key)
+            retryLastSeenJobs.remove(key)?.cancel()
+            return
+        }
+        retryLastSeenByKey[key] = QueuedLastSeenWrite(p, socketBadgeCount, nextAttempt)
+        val backoff = (RETRY_LAST_SEEN_MS shl minOf(nextAttempt - 1, 5))
+            .coerceAtMost(RETRY_LAST_SEEN_MAX_MS)
+        scheduleLastSeenRetry(key, backoff)
+    }
+
+    private fun scheduleLastSeenRetry(
+        key: String,
+        delayMs: Long = RETRY_LAST_SEEN_MS
+    ) {
+        retryLastSeenJobs[key]?.cancel()
+        retryLastSeenJobs[key] = appScope.launch {
+            delay(delayMs)
+            val latest = retryLastSeenByKey[key] ?: return@launch
+            if (shouldDeferLastSeen(latest.pending)) {
+                retryLastSeenJobs.remove(key)
+                return@launch
+            }
+            if (!mezonSocket.awaitConnected()) {
+                retryLastSeenJobs.remove(key)
+                queueLastSeenRetry(key, latest.pending, latest.socketBadgeCount)
+                return@launch
+            }
+            retryLastSeenJobs.remove(key)
+            sendLastSeenToSocket(key, latest.pending, latest.socketBadgeCount)
         }
     }
 

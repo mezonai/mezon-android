@@ -1021,6 +1021,7 @@ class DialogsController @Inject constructor(
 
     private suspend fun observeMarkAsRead() {
         socketEventDispatcher.markAsRead.collect { event ->
+            if (event.clanId != 0L) return@collect
             if (event.channelId == 0L) return@collect
             markDialogAsRead(event.channelId)
         }

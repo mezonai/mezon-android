@@ -12,6 +12,8 @@ import com.mezon.mezon.api.allUsersAddChannelRequest
 import com.mezon.mezon.api.addChannelUsersRequest
 import com.mezon.mezon.api.addRoleChannelDescRequest
 import com.mezon.mezon.api.CategoryDesc
+import com.mezon.mezon.api.CategoryDescList
+import com.mezon.mezon.api.categoryDesc
 import com.mezon.mezon.api.ClanDesc
 import com.mezon.mezon.api.EmojiListedResponse
 import com.mezon.mezon.api.StickerListedResponse
@@ -317,6 +319,7 @@ class MezonApi @Inject constructor(
             "ListAuditLog",
             "ListChannelApps",
             "ListChannelAttachment",
+            "ListCategoryDescs",
             "ListChannelBadgeCount",
             "ListChannelByUserId",
             "ListChannelDescs",
@@ -966,6 +969,18 @@ class MezonApi @Inject constructor(
         }
         val bytes = rpc(apiUrl, token, "CreateCategoryDesc", request.toByteArray())
         return CategoryDesc.parseFrom(bytes)
+    }
+
+    suspend fun listCategoryDescs(
+        apiUrl: String,
+        token: String,
+        clanId: Long
+    ): CategoryDescList {
+        val request = categoryDesc {
+            this.clanId = clanId
+        }
+        val bytes = rpc(apiUrl, token, "ListCategoryDescs", request.toByteArray())
+        return CategoryDescList.parseFrom(bytes)
     }
 
     suspend fun listChannelBadgeCount(
