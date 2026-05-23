@@ -24,6 +24,8 @@ private const val DEDUP_FULL_READ_MS = 3000L
 private const val BATCH_CHANNEL_ACTIVITY_MS = 50L
 private const val CLAN_RECONCILE_MS = 500L
 private const val RETRY_LAST_SEEN_MS = 1000L
+private const val RETRY_LAST_SEEN_MAX_MS = 30_000L
+private const val RETRY_LAST_SEEN_MAX_ATTEMPTS = 8
 private const val TS_MASK = 0xFFFF_FFFFL
 
 private data class PendingLastSeen(
@@ -44,7 +46,8 @@ private data class ChannelActivityTick(
 
 private data class QueuedLastSeenWrite(
     val pending: PendingLastSeen,
-    val socketBadgeCount: Int
+    val socketBadgeCount: Int,
+    val attempt: Int = 0
 )
 
 @Singleton
@@ -155,6 +158,8 @@ class BadgeCoordinator @Inject constructor(
     private fun flushLastSeen(key: String) {
         lastSeenJobs.remove(key)
         val p = pendingLastSeen.remove(key) ?: return
+        retryLastSeenJobs.remove(key)?.cancel()
+        retryLastSeenByKey.remove(key)
         if (shouldSkipDuplicateFullRead(key, p)) {
             Log.d(TAG, "flushLastSeen: skip dedup key=$key")
             return
@@ -211,9 +216,18 @@ class BadgeCoordinator @Inject constructor(
     }
 
     private fun queueLastSeenRetry(key: String, p: PendingLastSeen, socketBadgeCount: Int) {
-        val queued = QueuedLastSeenWrite(p, socketBadgeCount)
-        retryLastSeenByKey[key] = queued
-        scheduleLastSeenRetry(key)
+        val prevAttempt = retryLastSeenByKey[key]?.attempt ?: 0
+        val nextAttempt = prevAttempt + 1
+        if (nextAttempt > RETRY_LAST_SEEN_MAX_ATTEMPTS) {
+            Log.w(TAG, "writeLastSeen retry: giving up after $prevAttempt attempts key=$key")
+            retryLastSeenByKey.remove(key)
+            retryLastSeenJobs.remove(key)?.cancel()
+            return
+        }
+        retryLastSeenByKey[key] = QueuedLastSeenWrite(p, socketBadgeCount, nextAttempt)
+        val backoff = (RETRY_LAST_SEEN_MS shl minOf(nextAttempt - 1, 5))
+            .coerceAtMost(RETRY_LAST_SEEN_MAX_MS)
+        scheduleLastSeenRetry(key, backoff)
     }
 
     private fun scheduleLastSeenRetry(
@@ -230,7 +244,7 @@ class BadgeCoordinator @Inject constructor(
             }
             if (!mezonSocket.awaitConnected()) {
                 retryLastSeenJobs.remove(key)
-                scheduleLastSeenRetry(key)
+                queueLastSeenRetry(key, latest.pending, latest.socketBadgeCount)
                 return@launch
             }
             retryLastSeenJobs.remove(key)

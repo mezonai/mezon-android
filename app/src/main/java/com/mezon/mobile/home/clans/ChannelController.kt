@@ -24,6 +24,8 @@ import com.mezon.mezon.rtapi.UserChannelAdded
 import com.mezon.mezon.rtapi.UserChannelRemoved
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -112,13 +114,26 @@ class ChannelController @Inject constructor(
             }
             notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
         } else {
-            val (cached, cachedFavs) = withContext(ioDispatcher) {
+            val (cachedRaw, cachedFavs) = withContext(ioDispatcher) {
                 clanChannelDao.getByClan(clanId) to favoriteChannelDao.getByClan(clanId)
             }
             favoritesByClan[clanId] = LinkedHashSet(cachedFavs)
+            val cached = cachedRaw.filter {
+                it.clanId == clanId && it.type != CHANNEL_TYPE_DM && it.type != CHANNEL_TYPE_GROUP
+            }
             if (cached.isNotEmpty()) {
                 updateCache(clanId, cached)
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
+            }
+            if (cachedRaw.size != cached.size) {
+                appScope.launch(ioDispatcher) {
+                    val toDelete = cachedRaw.filter {
+                        it.clanId != clanId || it.type == CHANNEL_TYPE_DM || it.type == CHANNEL_TYPE_GROUP
+                    }
+                    for (ch in toDelete) {
+                        clanChannelDao.delete(ch.clanId, ch.channelId)
+                    }
+                }
             }
         }
         if (StartupCache.suppressHomeListApiForIncomingCallWake && !force) {
@@ -134,20 +149,32 @@ class ChannelController @Inject constructor(
         channelListLoading[clanId] = true
         try {
             val entitiesList = sessionManager.withAutoRefresh { session ->
-                val result = withContext(ioDispatcher) {
-                    api.listChannelsByClan(session.apiUrl, session.token, clanId)
+                val (result, categoryListResult) = coroutineScope {
+                    val channelsAsync = async(ioDispatcher) {
+                        api.listChannelsByClan(session.apiUrl, session.token, clanId)
+                    }
+                    val categoriesAsync = async(ioDispatcher) {
+                        runCatching { api.listCategoryDescs(session.apiUrl, session.token, clanId) }
+                    }
+                    channelsAsync.await() to categoriesAsync.await()
                 }
                 val categoryOrderMap = HashMap<Long, Int>()
-                runCatching {
-                    withContext(ioDispatcher) {
-                        api.listCategoryDescs(session.apiUrl, session.token, clanId)
-                    }
-                }.onSuccess { categoryList ->
+                categoryListResult.onSuccess { categoryList ->
                     categoryList.categorydescList.forEach { cat ->
                         categoryOrderMap[cat.categoryId] = cat.categoryOrder
                     }
                 }
-                if (categoryOrderMap.isEmpty()) {
+                val cachedOrderByCategory = _channelsByClan.value[clanId]
+                    ?.asSequence()
+                    ?.filter { it.categoryOrder != 0 }
+                    ?.associate { it.categoryId to it.categoryOrder }
+                    ?: emptyMap()
+                val resolvedOrderFor: (Long) -> Int = { categoryId ->
+                    categoryOrderMap[categoryId]
+                        ?: cachedOrderByCategory[categoryId]
+                        ?: 0
+                }
+                if (categoryOrderMap.isEmpty() && cachedOrderByCategory.isEmpty()) {
                     var fallback = 0
                     result.channeldescList.forEach { ch ->
                         if (!categoryOrderMap.containsKey(ch.categoryId)) {
@@ -158,7 +185,7 @@ class ChannelController @Inject constructor(
                 val entities = result.channeldescList.map { ch ->
                     withClanIdFromContext(
                         clanId,
-                        ch.toClanChannelEntity().copy(categoryOrder = categoryOrderMap[ch.categoryId] ?: 0)
+                        ch.toClanChannelEntity().copy(categoryOrder = resolvedOrderFor(ch.categoryId))
                     )
                 }
                 mergeCache(clanId, entities)
@@ -229,6 +256,7 @@ class ChannelController @Inject constructor(
     fun upsertChannel(channel: ClanChannelEntity) {
         val clanId = channel.clanId
         if (clanId == 0L) return
+        if (isDirectChannelType(channel.type)) return
         val existing = _channelsByClan.value[clanId] ?: emptyList()
         val merged = sortChannels(existing.filter { it.channelId != channel.channelId } + channel)
         updateCache(clanId, merged)
@@ -268,7 +296,7 @@ class ChannelController @Inject constructor(
         val fromDb = withContext(ioDispatcher) { clanChannelDao.getByChannelId(channelId) }
         if (fromDb != null) {
             val existing = _channelsByClan.value[fromDb.clanId] ?: emptyList()
-            updateCache(fromDb.clanId, existing.filter { it.channelId != fromDb.channelId } + fromDb)
+            updateCache(fromDb.clanId, sortChannels(existing.filter { it.channelId != fromDb.channelId } + fromDb))
             return fromDb.channelLabel
         }
         if (clanId != 0L) {
@@ -277,10 +305,18 @@ class ChannelController @Inject constructor(
                     withContext(ioDispatcher) { api.listChannelsByClan(session.apiUrl, session.token, clanId) }
                 }
             }.getOrNull() ?: return ""
+            val cachedOrderByCategory = _channelsByClan.value[clanId]
+                ?.asSequence()
+                ?.filter { it.categoryOrder != 0 }
+                ?.associate { it.categoryId to it.categoryOrder }
+                ?: emptyMap()
             val entities = result.channeldescList.map { ch ->
-                withClanIdFromContext(clanId, ch.toClanChannelEntity())
+                withClanIdFromContext(
+                    clanId,
+                    ch.toClanChannelEntity().copy(categoryOrder = cachedOrderByCategory[ch.categoryId] ?: 0)
+                )
             }
-            updateCache(clanId, entities)
+            updateCache(clanId, sortChannels(entities))
             withContext(ioDispatcher) { clanChannelDao.upsertAll(entities) }
         }
         return findChannelById(channelId)?.channelLabel.orEmpty()
@@ -325,19 +361,31 @@ class ChannelController @Inject constructor(
 
     fun getChannelSections(clanId: Long): List<ChannelSection> {
         val channels = getChannels(clanId)
-        val threads = channels.filter { it.isThread }.groupBy { it.parentId }
-        val nonThreads = channels.filter { !it.isThread }.sortedBy { it.channelId }
+        val threadsByParent = HashMap<Long, MutableList<ClanChannelEntity>>()
+        val nonThreads = ArrayList<ClanChannelEntity>(channels.size)
+        for (ch in channels) {
+            if (ch.isThread) {
+                threadsByParent.getOrPut(ch.parentId) { ArrayList() }.add(ch)
+            } else {
+                nonThreads.add(ch)
+            }
+        }
+        nonThreads.sortBy { it.channelId }
+        for ((_, list) in threadsByParent) list.sortBy { it.channelId }
 
-        val categorySections = nonThreads
-            .groupBy { it.categoryId }
-            .entries
-            .sortedBy { (_, items) -> items.first().categoryOrder }
-            .map { (_, items) ->
-                val categoryId = items.first().categoryId
+        val grouped = LinkedHashMap<Long, MutableList<ClanChannelEntity>>()
+        for (ch in nonThreads) {
+            grouped.getOrPut(ch.categoryId) { ArrayList() }.add(ch)
+        }
+        val categorySections = grouped.entries
+            .sortedWith(compareBy({ it.value.first().categoryOrder }, { it.key }))
+            .map { (categoryId, items) ->
                 val categoryName = items.first().categoryName
-                val channelsWithThreads = items.flatMap { ch ->
-                    val childThreads = threads[ch.channelId]?.sortedBy { it.channelId } ?: emptyList()
-                    listOf(ch) + childThreads
+                val channelsWithThreads = ArrayList<ClanChannelEntity>(items.size)
+                for (ch in items) {
+                    channelsWithThreads.add(ch)
+                    val children = threadsByParent[ch.channelId]
+                    if (children != null) channelsWithThreads.addAll(children)
                 }
                 ChannelSection(
                     categoryId = categoryId,
@@ -466,6 +514,7 @@ class ChannelController @Inject constructor(
                     parentId = if (apiNorm.parentId != 0L) apiNorm.parentId else cached.parentId,
                     categoryId = if (apiNorm.categoryId != 0L) apiNorm.categoryId else cached.categoryId,
                     isPrivate = if (apiNorm.type != 0) apiNorm.isPrivate else cached.isPrivate,
+                    categoryOrder = if (apiNorm.categoryOrder != 0) apiNorm.categoryOrder else cached.categoryOrder,
                     lastSeenMessageId = maxOf(cached.lastSeenMessageId, apiNorm.lastSeenMessageId),
                     lastSentMessageId = maxOf(cached.lastSentMessageId, apiNorm.lastSentMessageId),
                     lastSeenMessageTs = maxOf(cached.lastSeenMessageTs, apiNorm.lastSeenMessageTs),
@@ -474,7 +523,16 @@ class ChannelController @Inject constructor(
                 )
             }
         }
-        updateCache(clanId, merged)
+        val mergedIds = HashSet<Long>(merged.size)
+        for (ch in merged) mergedIds.add(ch.channelId)
+        val preservedExtras = existing.filter { cached ->
+            cached.channelId !in mergedIds &&
+                cached.clanId == clanId &&
+                cached.type != CHANNEL_TYPE_DM &&
+                cached.type != CHANNEL_TYPE_GROUP
+        }
+        val finalList = if (preservedExtras.isEmpty()) merged else merged + preservedExtras
+        updateCache(clanId, sortChannels(finalList))
     }
 
     private fun sortChannels(channels: List<ClanChannelEntity>): List<ClanChannelEntity> {
@@ -780,6 +838,8 @@ class ChannelController @Inject constructor(
         appScope.launch {
             dispatcher.channelCreatedEvents.collect { event ->
                 val clanId = event.clanId
+                if (clanId == 0L) return@collect
+                if (isDirectChannelType(event.channelType)) return@collect
                 val newChannel = ClanChannelEntity(
                     clanId = clanId,
                     channelId = event.channelId,
@@ -794,8 +854,12 @@ class ChannelController @Inject constructor(
                     isMuted = false
                 )
                 val existing = _channelsByClan.value[clanId] ?: emptyList()
-                updateCache(clanId, existing + newChannel)
-                appScope.launch(ioDispatcher) { clanChannelDao.upsert(newChannel) }
+                val inheritedOrder = existing.firstOrNull {
+                    it.categoryId == newChannel.categoryId && it.categoryOrder != 0
+                }?.categoryOrder ?: 0
+                val placed = if (inheritedOrder != 0) newChannel.copy(categoryOrder = inheritedOrder) else newChannel
+                updateCache(clanId, sortChannels(existing + placed))
+                appScope.launch(ioDispatcher) { clanChannelDao.upsert(placed) }
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
             }
         }
