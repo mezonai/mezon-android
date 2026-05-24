@@ -3,6 +3,8 @@ package com.mezon.mobile.home.chat
 import androidx.room.Entity
 import androidx.room.Index
 import com.mezon.mezon.api.ChannelMessage
+import com.mezon.mezon.api.ListChannelTimelineAttachment
+import com.mezon.mezon.api.MessageAttachment
 import com.mezon.mezon.api.MessageAttachmentList
 import com.mezon.mezon.api.MessageMentionList
 import com.mezon.mezon.api.MessageReactionList
@@ -365,25 +367,118 @@ private data class ParsedAttachment(
 
 private fun parseAllAttachments(bytes: com.google.protobuf.ByteString): List<ParsedAttachment> {
     if (bytes.isEmpty) return emptyList()
-    return try {
+    val raw = bytes.toByteArray()
+    val first = raw[0]
+    if (first == '['.code.toByte() || first == '{'.code.toByte()) {
+        parseAttachmentsFromLegacyBytes(bytes)?.let { if (it.isNotEmpty()) return it }
+    }
+    parseAttachmentsFromProto(bytes)?.let { if (it.isNotEmpty()) return it }
+    parseAttachmentsFromLegacyBytes(bytes)?.let { if (it.isNotEmpty()) return it }
+    return emptyList()
+}
+
+private fun parseAttachmentsFromProto(bytes: com.google.protobuf.ByteString): List<ParsedAttachment>? {
+    try {
         val list = MessageAttachmentList.parseFrom(bytes)
-        if (list.attachmentsCount == 0) return emptyList()
-        list.attachmentsList.map { a ->
+        if (list.attachmentsCount > 0) {
+            return list.attachmentsList.map { it.toParsedAttachment() }
+        }
+    } catch (_: Exception) {
+    }
+    try {
+        val single = MessageAttachment.parseFrom(bytes)
+        if (single.url.isNotEmpty()) return listOf(single.toParsedAttachment())
+    } catch (_: Exception) {
+    }
+    try {
+        val list = ListChannelTimelineAttachment.parseFrom(bytes)
+        if (list.attachmentsCount == 0) return null
+        return list.attachmentsList.mapNotNull { a ->
+            val url = a.fileUrl
+            if (url.isBlank()) return@mapNotNull null
             ParsedAttachment(
-                url = a.url,
-                filename = a.filename,
-                filetype = a.filetype,
+                url = url,
+                filename = a.fileName,
+                filetype = a.fileType,
                 width = a.width,
                 height = a.height,
                 thumbnail = a.thumbnail,
-                size = a.size,
+                size = a.fileSize.toInt(),
                 duration = a.duration
             )
         }
     } catch (_: Exception) {
-        emptyList()
+    }
+    return null
+}
+
+private fun parseAttachmentsFromLegacyBytes(bytes: com.google.protobuf.ByteString): List<ParsedAttachment>? {
+    val jsonStr = try {
+        bytes.toStringUtf8()
+    } catch (_: Exception) {
+        return null
+    }
+    if (jsonStr.isBlank() || jsonStr == "[]") return emptyList()
+    return parseAttachmentsFromJsonString(jsonStr)
+}
+
+private fun parseAttachmentsFromJsonString(jsonStr: String): List<ParsedAttachment>? {
+    val arr = try {
+        val obj = JSONObject(jsonStr)
+        obj.optJSONArray("attachments") ?: JSONArray().apply { put(obj) }
+    } catch (_: Exception) {
+        try {
+            JSONArray(jsonStr)
+        } catch (_: Exception) {
+            return tryAlternateAttachmentJson(jsonStr)
+        }
+    }
+    val parsed = (0 until arr.length()).mapNotNull { i ->
+        val item = arr.optJSONObject(i) ?: return@mapNotNull null
+        parsedAttachmentFromJson(item)
+    }.filter { it.url.isNotEmpty() }
+    return parsed
+}
+
+private fun tryAlternateAttachmentJson(jsonStr: String): List<ParsedAttachment>? {
+    return try {
+        val normalized = jsonStr.replace("\n", "\\n").replace("\r", "\\r")
+        parseAttachmentsFromJsonString(normalized)
+    } catch (_: Exception) {
+        null
     }
 }
+
+private fun parsedAttachmentFromJson(obj: JSONObject): ParsedAttachment {
+    val url = obj.optString("url").ifBlank { obj.optString("file_url") }
+    val thumb = obj.optString("thumbnail").ifBlank { obj.optString("thumb") }
+    val size = when {
+        obj.has("size") -> obj.optInt("size")
+        obj.has("file_size") -> obj.optInt("file_size")
+        else -> 0
+    }
+    return ParsedAttachment(
+        url = url,
+        filename = obj.optString("filename").ifBlank { obj.optString("file_name") },
+        filetype = obj.optString("filetype").ifBlank { obj.optString("file_type") },
+        width = obj.optInt("width"),
+        height = obj.optInt("height"),
+        thumbnail = thumb,
+        size = size,
+        duration = obj.optInt("duration")
+    )
+}
+
+private fun MessageAttachment.toParsedAttachment() = ParsedAttachment(
+    url = url,
+    filename = filename,
+    filetype = filetype,
+    width = width,
+    height = height,
+    thumbnail = thumbnail,
+    size = size,
+    duration = duration
+)
 
 internal fun mergeChannelContentMentionsAndRefs(
     content: String,

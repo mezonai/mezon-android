@@ -440,6 +440,7 @@ class ChatController @Inject constructor(
                     )
                     val newer = response.messagesList
                         .map { it.toMessageEntity(currentUserId) }
+                    val newerRenderable = newer
                         .filter { it.isRenderable }
                         .sortedBy { it.id }
 
@@ -448,14 +449,14 @@ class ChatController @Inject constructor(
                         response.hasLastSentMessage() &&
                         response.lastSentMessage.canAdvanceServerTimeline()
                     ) response.lastSentMessage.id else 0L
-                    updateLastMessageByChannel(channelId, newer, serverLastSentId)
-                    if (newer.isNotEmpty()) {
-                        messageDao.upsertAll(newer)
+                    updateLastMessageByChannel(channelId, newerRenderable, serverLastSentId)
+                    if (newerRenderable.isNotEmpty()) {
+                        messageDao.upsertAll(newerRenderable)
                         messageDao.trimAround(channelId, newestMessageId, PAGE_SIZE * 2)
                     }
-                    Log.d(TAG, "loadMoreBottom: count=${newer.size} hasMoreBottom=$hasMoreBottom hasLastSentMessage=${response.hasLastSentMessage()} serverLastSentId=$serverLastSentId rawCount=${response.messagesList.size} newerRange=${newer.minOfOrNull { it.id }}..${newer.maxOfOrNull { it.id }}")
+                    Log.d(TAG, "loadMoreBottom: count=${newerRenderable.size} hasMoreBottom=$hasMoreBottom hasLastSentMessage=${response.hasLastSentMessage()} serverLastSentId=$serverLastSentId rawCount=${response.messagesList.size} newerRange=${newerRenderable.minOfOrNull { it.id }}..${newerRenderable.maxOfOrNull { it.id }}")
                     notificationCenter.postNotificationOnMainThread(
-                        NotificationCenter.messagesDidLoad, channelId, ArrayList(newer), false, hasMoreBottom, false, 0L, LOAD_TYPE_MORE_BOTTOM
+                        NotificationCenter.messagesDidLoad, channelId, ArrayList(newerRenderable), false, hasMoreBottom, false, 0L, LOAD_TYPE_MORE_BOTTOM
                     )
                 }
             } catch (e: Exception) {
