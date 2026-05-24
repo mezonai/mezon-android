@@ -418,13 +418,11 @@ class ChatController @Inject constructor(
     }
 
     fun loadMoreBottom(channelId: Long, clanId: Long, newestMessageId: Long) {
-        Log.d(TAG, "loadMoreBottom channelId=$channelId newestMessageId=$newestMessageId")
         appScope.launch(ioDispatcher) {
             try {
                 if (!networkMonitor.isOnline.value) {
                     val fromDb = messageDao.getMessagesAfter(channelId, newestMessageId, PAGE_SIZE)
                     val hasMoreBottom = fromDb.size >= PAGE_SIZE
-                    Log.d(TAG, "loadMoreBottom offline fallback: ${fromDb.size} from DB")
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.messagesDidLoad, channelId, ArrayList(fromDb),
                         false, hasMoreBottom, false, 0L, LOAD_TYPE_MORE_BOTTOM
@@ -454,7 +452,6 @@ class ChatController @Inject constructor(
                         messageDao.upsertAll(newerRenderable)
                         messageDao.trimAround(channelId, newestMessageId, PAGE_SIZE * 2)
                     }
-                    Log.d(TAG, "loadMoreBottom: count=${newerRenderable.size} hasMoreBottom=$hasMoreBottom hasLastSentMessage=${response.hasLastSentMessage()} serverLastSentId=$serverLastSentId rawCount=${response.messagesList.size} newerRange=${newerRenderable.minOfOrNull { it.id }}..${newerRenderable.maxOfOrNull { it.id }}")
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.messagesDidLoad, channelId, ArrayList(newerRenderable), false, hasMoreBottom, false, 0L, LOAD_TYPE_MORE_BOTTOM
                     )
