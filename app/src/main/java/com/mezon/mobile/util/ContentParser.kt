@@ -108,7 +108,7 @@ fun messageHasExplicitTextBody(content: String): Boolean {
     if (content.isBlank()) return false
     val trimmed = content.trim()
     if (!trimmed.startsWith("{")) return true
-    parseContentObject(trimmed)?.let { return textFromContentObject(it, preview = false).isNotBlank() }
+    parseContentObject(trimmed)?.let { return it.optString("t").isNotBlank() }
     return extractTopLevelTextFromRegex(trimmed).isNotBlank()
 }
 
