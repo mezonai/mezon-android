@@ -11,7 +11,6 @@ import com.mezon.mezon.api.MessageReactionList
 import com.mezon.mezon.api.MessageRefList
 import org.json.JSONArray
 import org.json.JSONObject
-import android.util.Log
 import com.mezon.mobile.home.call.parseCallLogMessage
 import com.mezon.mobile.home.chat.poll.isPollContentJson
 import com.mezon.mobile.network.STREAM_MODE_CHANNEL
