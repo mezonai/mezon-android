@@ -8,66 +8,63 @@ import org.json.JSONObject
 
 private val CONTENT_REGEX = Regex("\"t\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"")
 
-
-private fun unescapeJsonText(text: String, singleLine: Boolean): String {
-    var s = text.replace("\\/", "/").replace("\\\"", "\"")
-    s = if (singleLine) s.replace("\\n", " ") else s.replace("\\n", "\n")
-    return s.trim()
+private fun parseContentObject(raw: String): JSONObject? {
+    if (raw.isEmpty() || raw == "[]" || !raw.startsWith("{")) return null
+    return try {
+        JSONObject(raw)
+    } catch (_: Exception) {
+        try {
+            JSONObject(raw.replace("\n", "\\n").replace("\r", "\\r"))
+        } catch (_: Exception) {
+            null
+        }
+    }
 }
 
-private fun parseStructuredContentText(obj: JSONObject): String {
-    val t = unescapeJsonText(obj.optString("t", ""), singleLine = false)
-    if (t.isNotBlank()) return t
+private fun textFromContentObject(obj: JSONObject, preview: Boolean): String {
+    val t = obj.optString("t", "").trim()
+    if (t.isNotBlank()) {
+        return if (preview) t.replace("\n", " ").take(200) else t
+    }
     val embedPreview = parseEmbedPreview(obj)
-    if (embedPreview.isNotBlank()) return embedPreview
+    if (embedPreview.isNotBlank()) {
+        return if (preview) embedPreview.replace("\n", " ").take(200) else embedPreview
+    }
     if (obj.has("lk")) return "[link]"
     if (obj.has("attachments")) return "[file]"
     return ""
-}
-
-private fun parseStructuredContentPreview(obj: JSONObject): String {
-    val t = unescapeJsonText(obj.optString("t", ""), singleLine = true)
-    if (t.isNotBlank()) return t
-    val embedPreview = parseEmbedPreview(obj)
-    if (embedPreview.isNotBlank()) return embedPreview
-    if (obj.has("lk")) return "[link]"
-    if (obj.has("attachments")) return "[file]"
-    return ""
-}
-
-private fun extractLegacyContentText(trimmed: String): String {
-    if (trimmed.startsWith("{")) {
-        return try {
-            parseStructuredContentText(JSONObject(trimmed))
-        } catch (_: Exception) {
-            extractTopLevelTextFromRegex(trimmed)
-        }
-    }
-    val match = CONTENT_REGEX.find(trimmed)
-    val fromRegex = match?.groupValues?.getOrNull(1)?.let { unescapeJsonText(it, singleLine = false) }
-    if (!fromRegex.isNullOrBlank()) return fromRegex
-    if (trimmed.contains("\"references\"")) return ""
-    return trimmed
-}
-
-private fun extractLegacyContentPreview(trimmed: String): String {
-    if (trimmed.startsWith("{")) {
-        return try {
-            parseStructuredContentPreview(JSONObject(trimmed))
-        } catch (_: Exception) {
-            extractTopLevelTextFromRegex(trimmed).replace("\n", " ").take(200)
-        }
-    }
-    val match = CONTENT_REGEX.find(trimmed)
-    val fromRegex = match?.groupValues?.getOrNull(1)?.let { unescapeJsonText(it, singleLine = true) }
-    if (!fromRegex.isNullOrBlank()) return fromRegex
-    if (trimmed.contains("\"references\"")) return ""
-    return trimmed.replace("\n", " ").take(200)
 }
 
 private fun extractTopLevelTextFromRegex(trimmed: String): String {
     val match = CONTENT_REGEX.find(trimmed) ?: return ""
-    return unescapeJsonText(match.groupValues.getOrNull(1).orEmpty(), singleLine = false)
+    return match.groupValues.getOrNull(1).orEmpty().trim()
+}
+
+private fun extractContentText(trimmed: String, preview: Boolean): String {
+    parseContentObject(trimmed)?.let { return textFromContentObject(it, preview) }
+    if (trimmed.startsWith("{")) {
+        val fromRegex = extractTopLevelTextFromRegex(trimmed)
+        if (fromRegex.isNotBlank()) {
+            return if (preview) fromRegex.replace("\n", " ").take(200) else fromRegex
+        }
+        return ""
+    }
+    val match = CONTENT_REGEX.find(trimmed)
+    val fromRegex = match?.groupValues?.getOrNull(1)?.trim()
+    if (!fromRegex.isNullOrBlank()) {
+        return if (preview) fromRegex.replace("\n", " ").take(200) else fromRegex
+    }
+    if (isStructuralJsonPayload(trimmed)) return ""
+    return if (preview) trimmed.replace("\n", " ").take(200) else trimmed
+}
+
+private fun isStructuralJsonPayload(trimmed: String): Boolean {
+    if (!trimmed.startsWith("[")) return false
+    return try {
+        JSONArray(trimmed).length() >= 0
+    } catch (_: Exception) {
+        false
+    }
 }
 
 private fun parseEmbedPreview(obj: JSONObject): String {
@@ -109,23 +106,20 @@ fun firstReferenceMessageId(content: String): Long {
 
 fun messageHasExplicitTextBody(content: String): Boolean {
     if (content.isBlank()) return false
-    return try {
-        val trimmed = content.trim()
-        if (!trimmed.startsWith("{")) return true
-        parseStructuredContentText(JSONObject(trimmed)).isNotBlank()
-    } catch (_: Exception) {
-        true
-    }
+    val trimmed = content.trim()
+    if (!trimmed.startsWith("{")) return true
+    parseContentObject(trimmed)?.let { return textFromContentObject(it, preview = false).isNotBlank() }
+    return extractTopLevelTextFromRegex(trimmed).isNotBlank()
 }
 
 fun parseContentText(content: String): String {
     if (content.isBlank()) return ""
-    return extractLegacyContentText(content.trim())
+    return extractContentText(content.trim(), preview = false)
 }
 
 fun parseContentPreview(content: String): String {
     if (content.isBlank()) return ""
-    return extractLegacyContentPreview(content.trim())
+    return extractContentText(content.trim(), preview = true)
 }
 
 const val MENTION_HERE_USER_ID = "1775731111020111321"

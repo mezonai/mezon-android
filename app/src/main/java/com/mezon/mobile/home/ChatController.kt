@@ -436,9 +436,8 @@ class ChatController @Inject constructor(
                         session.apiUrl, session.token, channelId, clanId,
                         newestMessageId, DIRECTION_AFTER, PAGE_SIZE
                     )
-                    val newer = response.messagesList
+                    val newerRenderable = response.messagesList
                         .map { it.toMessageEntity(currentUserId) }
-                    val newerRenderable = newer
                         .filter { it.isRenderable }
                         .sortedBy { it.id }
 
