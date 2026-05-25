@@ -1,16 +1,22 @@
 package com.mezon.mobile.home.chat.channelinfo
 
 import android.content.Context
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffColorFilter
 import android.graphics.Typeface
+import android.text.TextUtils
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
+import androidx.core.widget.NestedScrollView
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AlertDialog
 import com.mezon.mobile.core.BaseFragment
@@ -21,6 +27,7 @@ import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.ui.cells.ActionBarView
+import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.util.MezonSnowflake
 import com.mezon.mezon.api.QuickMenuAccess
@@ -35,6 +42,7 @@ class ChannelQuickActionFragment : BaseFragment() {
         private const val ARG_CHANNEL_ID = "channelId"
         private const val ARG_CHANNEL_NAME = "channelName"
         private const val ARG_CLAN_ID = "clanId"
+        private const val BOT_EVENT_ACTION = "bot_event"
 
         const val MENU_TYPE_FLASH = 1
         const val MENU_TYPE_QUICK_MENU = 2
@@ -60,6 +68,9 @@ class ChannelQuickActionFragment : BaseFragment() {
     private lateinit var tabFlash: TextView
     private lateinit var tabQuickMenu: TextView
     private lateinit var listWrap: LinearLayout
+    private lateinit var emptyWrap: LinearLayout
+    private lateinit var emptyTitleView: TextView
+    private lateinit var emptySubtitleView: TextView
     private lateinit var contentFrame: FrameLayout
     private var loadingBar: ProgressBar? = null
     private val menuItems = ArrayList<QuickMenuAccess>()
@@ -83,47 +94,54 @@ class ChannelQuickActionFragment : BaseFragment() {
     }
 
     override fun createView(context: Context): View {
-        val root = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
-        ClanRolesUiTheme.applyPrimaryFlowRoot(root, themeColors)
+        val root = FrameLayout(context)
+
+        val column = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        ClanRolesUiTheme.applyPrimaryFlowRoot(column, themeColors)
 
         actionBar = ActionBarView(context, themeColors).apply {
             setTitle(getString(R.string.channel_quick_action_title))
-            setSubtitle(channelName)
             setBackButtonImage(R.drawable.ic_arrow_back)
             setCenterTitle(true)
+            ClanRolesUiTheme.applyPrimaryFlowActionBar(this, themeColors)
             setMenuOnItemClick(object : ActionBarView.ActionBarMenuOnItemClick() {
                 override fun onItemClick(id: Int) {
                     if (id == -1) finishFragment()
                 }
             })
         }
-        root.addView(actionBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+        column.addView(actionBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         val inner = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(LayoutHelper.dp(16f), LayoutHelper.dp(8f), LayoutHelper.dp(16f), LayoutHelper.dp(24f))
+            setPadding(LayoutHelper.dp(16f), LayoutHelper.dp(12f), LayoutHelper.dp(16f), LayoutHelper.dp(88f))
         }
-        inner.addView(buildTabs(context), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 44, 0f, Gravity.NO_GRAVITY, 0f, 0f, 0f, 12f))
+        inner.addView(buildTabs(context), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 44, 0f, Gravity.NO_GRAVITY, 0f, 0f, 0f, 16f))
 
         contentFrame = FrameLayout(context)
-        listWrap = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
-        loadingBar = ProgressBar(context)
-        contentFrame.addView(listWrap, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
-        contentFrame.addView(loadingBar, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER))
-        inner.addView(contentFrame, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
-
-        val addBtn = TextView(context).apply {
-            text = getString(R.string.channel_quick_action_add)
-            textSize = 15f
-            typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
-            setTextColor(themeColors.blurple)
-            setPadding(0, LayoutHelper.dp(14f), 0, 0)
-            setOnClickListener { showEditDialog(context, null) }
+        val scroll = NestedScrollView(context).apply {
+            overScrollMode = View.OVER_SCROLL_NEVER
+            isFillViewport = true
         }
-        inner.addView(addBtn, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+        listWrap = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        scroll.addView(listWrap, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+        contentFrame.addView(scroll, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
-        root.addView(inner, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
+        emptyWrap = buildEmptyState(context)
+        contentFrame.addView(
+            emptyWrap,
+            LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER),
+        )
+
+        loadingBar = ProgressBar(context)
+        contentFrame.addView(loadingBar, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER))
+
+        inner.addView(contentFrame, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
+        column.addView(inner, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
+
+        root.addView(column, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
+        root.addView(buildFab(context), LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.BOTTOM or Gravity.END, 0f, 0f, 20f, 24f))
+
         fragmentView = root
         return root
     }
@@ -133,12 +151,12 @@ class ChannelQuickActionFragment : BaseFragment() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             setPadding(LayoutHelper.dp(4f), LayoutHelper.dp(4f), LayoutHelper.dp(4f), LayoutHelper.dp(4f))
-            background = rounded(themeColors.tertiary, 16f)
+            background = rounded(themeColors.channelPanelBg, 22f)
         }
         tabFlash = tabLabel(context, getString(R.string.channel_quick_action_flash_tab), MENU_TYPE_FLASH)
         tabQuickMenu = tabLabel(context, getString(R.string.channel_quick_action_menu_tab), MENU_TYPE_QUICK_MENU)
-        tabs.addView(tabFlash, LayoutHelper.createLinear(0, LayoutHelper.MATCH_PARENT, 1f, Gravity.CENTER_VERTICAL, 0f, 0f, 3f, 0f))
-        tabs.addView(tabQuickMenu, LayoutHelper.createLinear(0, LayoutHelper.MATCH_PARENT, 1f, Gravity.CENTER_VERTICAL, 3f, 0f, 0f, 0f))
+        tabs.addView(tabFlash, LayoutHelper.createLinear(0, LayoutHelper.MATCH_PARENT, 1f, Gravity.CENTER_VERTICAL, 0f, 0f, 4f, 0f))
+        tabs.addView(tabQuickMenu, LayoutHelper.createLinear(0, LayoutHelper.MATCH_PARENT, 1f, Gravity.CENTER_VERTICAL, 4f, 0f, 0f, 0f))
         updateTabs()
         return tabs
     }
@@ -149,11 +167,15 @@ class ChannelQuickActionFragment : BaseFragment() {
             textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
+            setPadding(LayoutHelper.dp(8f), LayoutHelper.dp(10f), LayoutHelper.dp(8f), LayoutHelper.dp(10f))
             isClickable = true
+            isFocusable = true
             setOnClickListener {
-                activeMenuType = type
-                updateTabs()
-                reloadMenus()
+                if (activeMenuType != type) {
+                    activeMenuType = type
+                    updateTabs()
+                    reloadMenus()
+                }
             }
         }
 
@@ -161,14 +183,95 @@ class ChannelQuickActionFragment : BaseFragment() {
         if (!::tabFlash.isInitialized) return
         listOf(tabFlash to MENU_TYPE_FLASH, tabQuickMenu to MENU_TYPE_QUICK_MENU).forEach { (view, type) ->
             val selected = activeMenuType == type
-            view.setTextColor(if (selected) 0xFFFFFFFF.toInt() else themeColors.colorText)
-            view.background = rounded(if (selected) themeColors.blurple else themeColors.tertiary, 14f)
+            view.setTextColor(if (selected) 0xFFFFFFFF.toInt() else themeColors.textStrong)
+            view.background = rounded(if (selected) themeColors.blurple else android.graphics.Color.TRANSPARENT, 18f)
+        }
+    }
+
+    private fun buildEmptyState(context: Context): LinearLayout {
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            visibility = View.GONE
+            setPadding(LayoutHelper.dp(24f), LayoutHelper.dp(48f), LayoutHelper.dp(24f), LayoutHelper.dp(48f))
+
+            val iconCircle = FrameLayout(context).apply {
+                background = rounded(themeColors.channelPanelBg, 48f)
+            }
+            val iconSize = LayoutHelper.dp(40f)
+            iconCircle.addView(
+                ImageView(context).apply {
+                    val d = MezonIcon.quickAction.getDrawable(context).mutate()
+                    d.colorFilter = PorterDuffColorFilter(themeColors.textDisabled, PorterDuff.Mode.SRC_IN)
+                    setImageDrawable(d)
+                    scaleType = ImageView.ScaleType.CENTER_INSIDE
+                },
+                FrameLayout.LayoutParams(iconSize, iconSize, Gravity.CENTER).apply {
+                    val pad = LayoutHelper.dp(28f)
+                    setMargins(pad, pad, pad, pad)
+                },
+            )
+            addView(iconCircle, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT))
+
+            emptyTitleView = TextView(context).apply {
+                textSize = 18f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(themeColors.textStrong)
+                gravity = Gravity.CENTER
+                setPadding(0, LayoutHelper.dp(20f), 0, LayoutHelper.dp(8f))
+            }
+            addView(emptyTitleView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+            emptySubtitleView = TextView(context).apply {
+                textSize = 14f
+                setTextColor(themeColors.textDisabled)
+                gravity = Gravity.CENTER
+                setLineSpacing(LayoutHelper.dpf(2f), 1f)
+            }
+            addView(emptySubtitleView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+        }
+    }
+
+    private fun updateEmptyCopy() {
+        if (!::emptyTitleView.isInitialized) return
+        if (activeMenuType == MENU_TYPE_FLASH) {
+            emptyTitleView.text = getString(R.string.channel_quick_action_empty_flash_title)
+            emptySubtitleView.text = getString(R.string.channel_quick_action_empty_flash_subtitle)
+        } else {
+            emptyTitleView.text = getString(R.string.channel_quick_action_empty_menu_title)
+            emptySubtitleView.text = getString(R.string.channel_quick_action_empty_menu_subtitle)
+        }
+    }
+
+    private fun buildFab(context: Context): View {
+        val size = LayoutHelper.dp(52f)
+        return FrameLayout(context).apply {
+            minimumWidth = size
+            minimumHeight = size
+            background = rounded(0xFF000000.toInt(), 12f)
+            elevation = LayoutHelper.dp(6f).toFloat()
+            setOnClickListener { showCreateDialog(context) }
+            addView(
+                TextView(context).apply {
+                    text = "+"
+                    textSize = 24f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(0xFFFFFFFF.toInt())
+                    gravity = Gravity.CENTER
+                },
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    Gravity.CENTER,
+                ),
+            )
         }
     }
 
     private fun reloadMenus() {
         if (channelId == 0L || !::listWrap.isInitialized) return
         loadingBar?.visibility = View.VISIBLE
+        listWrap.visibility = View.INVISIBLE
+        emptyWrap.visibility = View.GONE
         fragmentScope.launch {
             val result = runCatching {
                 sessionManager.withAutoRefresh { session ->
@@ -188,122 +291,283 @@ class ChannelQuickActionFragment : BaseFragment() {
     }
 
     private fun renderMenus() {
+        if (!::listWrap.isInitialized) return
+        updateEmptyCopy()
         listWrap.removeAllViews()
         val ctx = getContext() ?: return
         if (menuItems.isEmpty()) {
-            listWrap.addView(
-                TextView(ctx).apply {
-                    text = getString(R.string.channel_quick_action_empty)
-                    textSize = 14f
-                    gravity = Gravity.CENTER
-                    setTextColor(themeColors.textDisabled)
-                    setPadding(0, LayoutHelper.dp(32f), 0, LayoutHelper.dp(32f))
-                },
-                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT)
-            )
+            listWrap.visibility = View.INVISIBLE
+            emptyWrap.visibility = View.VISIBLE
             return
         }
+        listWrap.visibility = View.VISIBLE
+        emptyWrap.visibility = View.GONE
         for (item in menuItems) {
-            val row = LinearLayout(ctx).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(LayoutHelper.dp(14f), LayoutHelper.dp(12f), LayoutHelper.dp(14f), LayoutHelper.dp(12f))
-                background = rounded(themeColors.channelPanelBg, 14f)
-                isClickable = true
-                setOnClickListener { showEditDialog(ctx, item) }
-            }
-            row.addView(
-                TextView(ctx).apply {
-                    text = item.menuName
-                    textSize = 15f
-                    typeface = Typeface.DEFAULT_BOLD
-                    setTextColor(themeColors.textStrong)
-                },
-                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT)
+            listWrap.addView(
+                buildMenuRow(ctx, item),
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 0f, 0f, 10f),
             )
-            row.addView(
-                TextView(ctx).apply {
-                    text = item.actionMsg
-                    textSize = 13f
-                    setTextColor(themeColors.textDisabled)
-                    maxLines = 2
-                },
-                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 4f, 0f, 0f)
-            )
-            listWrap.addView(row, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 0f, 0f, 8f))
         }
     }
 
+    private fun buildMenuRow(context: Context, item: QuickMenuAccess): View {
+        val isFlash = activeMenuType == MENU_TYPE_FLASH
+        val badgeLabel = if (isFlash) "/${item.menuName}" else item.menuName
+        val subtitle = if (isFlash) item.actionMsg else getString(R.string.channel_quick_action_triggers_bot)
+
+        val row = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(LayoutHelper.dp(14f), LayoutHelper.dp(14f), LayoutHelper.dp(14f), LayoutHelper.dp(14f))
+            background = rounded(themeColors.channelPanelBg, 14f)
+        }
+
+        val textCol = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        textCol.addView(
+            TextView(context).apply {
+                text = badgeLabel
+                textSize = 13f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(0xFF2E7D32.toInt())
+                setPadding(LayoutHelper.dp(10f), LayoutHelper.dp(4f), LayoutHelper.dp(10f), LayoutHelper.dp(4f))
+                background = rounded(0xFFE8F5E9.toInt(), 8f)
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+            },
+            LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT),
+        )
+        textCol.addView(
+            TextView(context).apply {
+                text = subtitle
+                textSize = 14f
+                setTextColor(themeColors.textStrong)
+                if (!isFlash) {
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.ITALIC)
+                }
+                maxLines = 4
+                setPadding(0, LayoutHelper.dp(8f), 0, 0)
+            },
+            LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT),
+        )
+        row.addView(textCol, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL))
+
+        row.addView(iconActionButton(context, MezonIcon.pencilIcon) { showEditDialog(context, item) })
+        row.addView(iconActionButton(context, MezonIcon.trashIcon, tintRed = true) { confirmDelete(context, item) })
+        return row
+    }
+
+    private fun iconActionButton(context: Context, icon: MezonIcon, tintRed: Boolean = false, onClick: () -> Unit): View {
+        return FrameLayout(context).apply {
+            setPadding(LayoutHelper.dp(6f), LayoutHelper.dp(6f), LayoutHelper.dp(6f), LayoutHelper.dp(6f))
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { onClick() }
+            addView(
+                ImageView(context).apply {
+                    val d = icon.getDrawable(context).mutate()
+                    val tint = if (tintRed) themeColors.redStrong else themeColors.textStrong
+                    d.colorFilter = PorterDuffColorFilter(tint, PorterDuff.Mode.SRC_IN)
+                    setImageDrawable(d)
+                    scaleType = ImageView.ScaleType.CENTER_INSIDE
+                },
+                LayoutHelper.createFrame(22, 22, Gravity.CENTER),
+            )
+        }
+    }
+
+    private fun confirmDelete(context: Context, item: QuickMenuAccess) {
+        val act = getParentActivity() ?: return
+        val commandLabel = if (activeMenuType == MENU_TYPE_FLASH) "/${item.menuName}" else item.menuName
+        AlertDialog.Builder(act)
+            .setTitle(getString(R.string.common_delete))
+            .setMessage(getString(R.string.channel_quick_action_delete_message, commandLabel))
+            .setNegativeButton(getString(R.string.common_cancel), null)
+            .setPositiveButton(getString(R.string.common_delete)) { _, _ -> deleteMenu(item) }
+            .show()
+    }
+
+    private fun normalizeMenuName(raw: String): String =
+        raw.trim().removePrefix("/").trim()
+
+    private fun showCreateDialog(context: Context) {
+        showEditDialog(context, null)
+    }
+
     private fun showEditDialog(context: Context, existing: QuickMenuAccess?) {
+        if (activeMenuType == MENU_TYPE_FLASH) {
+            showFlashDialog(context, existing)
+        } else {
+            showQuickMenuDialog(context, existing)
+        }
+    }
+
+    private fun showFlashDialog(context: Context, existing: QuickMenuAccess?) {
         val act = getParentActivity() ?: return
         val body = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(LayoutHelper.dp(8f), LayoutHelper.dp(4f), LayoutHelper.dp(8f), 0)
+            setPadding(LayoutHelper.dp(4f), LayoutHelper.dp(8f), LayoutHelper.dp(4f), 0)
         }
-        val nameField = EditText(context).apply {
-            hint = getString(R.string.channel_quick_action_name_hint)
-            setText(existing?.menuName.orEmpty())
-            inputType = InputType.TYPE_CLASS_TEXT
-        }
-        val msgField = EditText(context).apply {
-            hint = getString(
-                if (activeMenuType == MENU_TYPE_QUICK_MENU) R.string.channel_quick_action_msg_hint_menu
-                else R.string.channel_quick_action_msg_hint_flash
-            )
-            setText(
-                if (existing != null && activeMenuType == MENU_TYPE_QUICK_MENU && existing.actionMsg == "bot_event") ""
-                else existing?.actionMsg.orEmpty()
-            )
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
-            minLines = 2
-        }
-        body.addView(nameField, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 0f, 0f, 12f))
-        body.addView(msgField, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+        val keyField = dialogField(context, getString(R.string.channel_quick_action_flash_key_hint), existing?.menuName.orEmpty(), singleLine = true)
+        val contentField = dialogField(
+            context,
+            getString(R.string.channel_quick_action_flash_content_hint),
+            existing?.actionMsg.orEmpty(),
+            singleLine = false,
+        )
+        body.addView(keyField, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 0f, 0f, 12f))
+        body.addView(contentField, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
-        val title = if (existing == null) getString(R.string.channel_quick_action_create_title)
-        else getString(R.string.channel_quick_action_edit_title)
+        val titleRes = if (existing == null) R.string.channel_quick_action_create_flash_title
+        else R.string.channel_quick_action_edit_flash_title
 
         val builder = AlertDialog.Builder(act)
-            .setTitle(title)
+            .setTitle(getString(titleRes))
             .setView(body, LayoutHelper.WRAP_CONTENT)
             .setNegativeButton(getString(R.string.common_cancel), null)
-            .setPositiveButton(getString(R.string.common_save), null)
+            .setPositiveButton(
+                if (existing == null) getString(R.string.common_create) else getString(R.string.common_save),
+                null,
+            )
 
         if (existing != null) {
-            builder.setNeutralButton(getString(R.string.common_delete)) { _, _ ->
-                deleteMenu(existing)
-            }
+            builder.setNeutralButton(getString(R.string.common_delete)) { _, _ -> deleteMenu(existing) }
         }
 
         val dialog = builder.create()
         dialog.setOnShowListener {
             dialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE)?.setOnClickListener {
-                val name = nameField.text.toString().trim()
-                val msg = msgField.text.toString().trim()
-                if (name.isEmpty()) return@setOnClickListener
-                val actionMsg = when {
-                    activeMenuType == MENU_TYPE_QUICK_MENU && msg.isEmpty() -> "bot_event"
-                    msg.isEmpty() -> return@setOnClickListener
-                    else -> msg
-                }
+                val key = normalizeMenuName(keyField.text.toString())
+                val content = contentField.text.toString().trim()
+                if (key.isEmpty() || content.isEmpty()) return@setOnClickListener
                 dialog.dismiss()
-                if (existing == null) createMenu(name, actionMsg) else updateMenu(existing, name, actionMsg)
+                if (existing == null) createMenu(key, content) else updateMenu(existing, key, content)
             }
         }
         dialog.show()
     }
 
+    private fun showQuickMenuDialog(context: Context, existing: QuickMenuAccess?) {
+        val act = getParentActivity() ?: return
+        val body = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(LayoutHelper.dp(4f), LayoutHelper.dp(8f), LayoutHelper.dp(4f), 0)
+        }
+
+        body.addView(
+            TextView(context).apply {
+                text = getString(R.string.channel_quick_action_menu_name_label)
+                textSize = 14f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(themeColors.textStrong)
+            },
+            LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 0f, 0f, 8f),
+        )
+        val nameField = dialogField(context, getString(R.string.channel_quick_action_menu_name_hint), existing?.menuName.orEmpty(), singleLine = true)
+        body.addView(nameField, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 0f, 0f, 6f))
+        body.addView(
+            TextView(context).apply {
+                text = getString(R.string.channel_quick_action_menu_name_desc)
+                textSize = 13f
+                setTextColor(themeColors.textDisabled)
+            },
+            LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 0f, 0f, 14f),
+        )
+
+        val infoBox = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(LayoutHelper.dp(14f), LayoutHelper.dp(12f), LayoutHelper.dp(14f), LayoutHelper.dp(12f))
+            background = rounded(0x1A5865F2.toInt(), 12f)
+        }
+        infoBox.addView(
+            TextView(context).apply {
+                text = getString(R.string.channel_quick_action_bot_event_title)
+                textSize = 14f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(themeColors.blurple)
+            },
+            LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT),
+        )
+        infoBox.addView(
+            TextView(context).apply {
+                text = getString(R.string.channel_quick_action_bot_event_desc)
+                textSize = 13f
+                setTextColor(themeColors.textDisabled)
+                setPadding(0, LayoutHelper.dp(6f), 0, 0)
+            },
+            LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT),
+        )
+        body.addView(infoBox, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+
+        val titleRes = if (existing == null) R.string.channel_quick_action_create_menu_title
+        else R.string.channel_quick_action_edit_menu_title
+
+        val builder = AlertDialog.Builder(act)
+            .setTitle(getString(titleRes))
+            .setView(body, LayoutHelper.WRAP_CONTENT)
+            .setNegativeButton(getString(R.string.common_cancel), null)
+            .setPositiveButton(
+                if (existing == null) getString(R.string.common_create) else getString(R.string.common_save),
+                null,
+            )
+
+        if (existing != null) {
+            builder.setNeutralButton(getString(R.string.common_delete)) { _, _ -> deleteMenu(existing) }
+        }
+
+        val dialog = builder.create()
+        dialog.setOnShowListener {
+            dialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE)?.setOnClickListener {
+                val name = normalizeMenuName(nameField.text.toString())
+                if (name.isEmpty()) return@setOnClickListener
+                dialog.dismiss()
+                if (existing == null) createMenu(name, BOT_EVENT_ACTION) else updateMenu(existing, name, BOT_EVENT_ACTION)
+            }
+        }
+        dialog.show()
+    }
+
+    private fun dialogField(context: Context, hint: String, value: String, singleLine: Boolean): EditText {
+        return EditText(context).apply {
+            setText(value)
+            this.hint = hint
+            textSize = 15f
+            setTextColor(themeColors.textStrong)
+            setHintTextColor(themeColors.textDisabled)
+            setPadding(LayoutHelper.dp(14f), LayoutHelper.dp(12f), LayoutHelper.dp(14f), LayoutHelper.dp(12f))
+            background = rounded(themeColors.channelPanelBg, 12f)
+            inputType = if (singleLine) {
+                InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            } else {
+                InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            }
+            if (!singleLine) {
+                minLines = 3
+                gravity = Gravity.TOP or Gravity.START
+            }
+        }
+    }
+
     private fun createMenu(name: String, actionMsg: String) {
+        if (channelId == 0L || clanId == 0L) {
+            MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.common_something_went_wrong))
+            return
+        }
+        val targetChannelId = channelId
+        val targetClanId = clanId
+        val menuType = activeMenuType
         fragmentScope.launch {
             val result = runCatching {
                 sessionManager.withAutoRefresh { session ->
                     val item = quickMenuAccess {
                         id = MezonSnowflake.generate()
                         botId = 0L
-                        channelId = channelId
-                        clanId = clanId
+                        channelId = targetChannelId
+                        clanId = targetClanId
                         menuName = name
                         this.actionMsg = actionMsg
-                        menuType = activeMenuType
+                        this.menuType = menuType
                     }
                     withContext(Dispatchers.IO) {
                         api.addQuickMenuAccess(session.apiUrl, session.token, item)
@@ -315,20 +579,28 @@ class ChannelQuickActionFragment : BaseFragment() {
                     MezonToast.show(this@ChannelQuickActionFragment, ToastOverlay.ToastType.SUCCESS, getString(R.string.channel_settings_updated))
                     reloadMenus()
                 } else {
-                    MezonToast.show(this@ChannelQuickActionFragment, ToastOverlay.ToastType.ERROR, getString(R.string.common_something_went_wrong))
+                    showApiError(result.exceptionOrNull())
                 }
             }
         }
     }
 
     private fun updateMenu(existing: QuickMenuAccess, name: String, actionMsg: String) {
+        val targetChannelId = channelId
+        val targetClanId = clanId
+        val menuType = activeMenuType
         fragmentScope.launch {
             val result = runCatching {
                 sessionManager.withAutoRefresh { session ->
-                    val item = existing.toBuilder()
-                        .setMenuName(name)
-                        .setActionMsg(actionMsg)
-                        .build()
+                    val item = quickMenuAccess {
+                        id = existing.id
+                        botId = if (existing.botId != 0L) existing.botId else 0L
+                        channelId = if (existing.channelId != 0L) existing.channelId else targetChannelId
+                        clanId = if (existing.clanId != 0L) existing.clanId else targetClanId
+                        menuName = name
+                        this.actionMsg = actionMsg
+                        this.menuType = menuType
+                    }
                     withContext(Dispatchers.IO) {
                         api.updateQuickMenuAccess(session.apiUrl, session.token, item)
                     }
@@ -339,10 +611,16 @@ class ChannelQuickActionFragment : BaseFragment() {
                     MezonToast.show(this@ChannelQuickActionFragment, ToastOverlay.ToastType.SUCCESS, getString(R.string.channel_settings_updated))
                     reloadMenus()
                 } else {
-                    MezonToast.show(this@ChannelQuickActionFragment, ToastOverlay.ToastType.ERROR, getString(R.string.common_something_went_wrong))
+                    showApiError(result.exceptionOrNull())
                 }
             }
         }
+    }
+
+    private fun showApiError(error: Throwable?) {
+        val detail = error?.message?.takeIf { it.isNotBlank() }?.take(120)
+        val msg = detail ?: getString(R.string.common_something_went_wrong)
+        MezonToast.show(this@ChannelQuickActionFragment, ToastOverlay.ToastType.ERROR, msg)
     }
 
     private fun deleteMenu(existing: QuickMenuAccess) {
@@ -355,14 +633,18 @@ class ChannelQuickActionFragment : BaseFragment() {
                 }
             }
             withContext(Dispatchers.Main.immediate) {
-                if (result.isSuccess) reloadMenus()
-                else MezonToast.show(this@ChannelQuickActionFragment, ToastOverlay.ToastType.ERROR, getString(R.string.common_something_went_wrong))
+                if (result.isSuccess) {
+                    MezonToast.show(this@ChannelQuickActionFragment, ToastOverlay.ToastType.SUCCESS, getString(R.string.channel_settings_updated))
+                    reloadMenus()
+                } else {
+                    showApiError(result.exceptionOrNull())
+                }
             }
         }
     }
 
-    private fun rounded(color: Int, radiusDp: Float) =
-        android.graphics.drawable.GradientDrawable().apply {
+    private fun rounded(color: Int, radiusDp: Float): GradientDrawable =
+        GradientDrawable().apply {
             cornerRadius = LayoutHelper.dpf(radiusDp)
             setColor(color)
         }

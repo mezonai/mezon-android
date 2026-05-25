@@ -36,8 +36,10 @@ data class ClanChannelEntity(
     val lastSeenMessageTs: Long = 0L,
     val lastSentMessageTs: Long = 0L,
     val active: Int = 0,
-    val categoryOrder: Int = 0
+    val categoryOrder: Int = 0,
+    val ageRestricted: Int = 0,
 ) {
+    val isAgeRestricted: Boolean get() = ageRestricted == 1
     val isThread: Boolean get() = type == 7 && parentId != 0L
     val hasUnread: Boolean get() {
         if (unreadCount > 0) return true
@@ -65,5 +67,6 @@ fun ChannelDescription.toClanChannelEntity(): ClanChannelEntity = ClanChannelEnt
     lastSentMessageId = extractLastSentMessageId(),
     lastSeenMessageTs = extractLastSeenMessageTs(),
     lastSentMessageTs = extractLastSentMessageTs(fallbackToCreateTime = false),
-    active = active
+    active = active,
+    ageRestricted = ageRestricted,
 )

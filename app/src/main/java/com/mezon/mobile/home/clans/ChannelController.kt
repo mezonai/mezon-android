@@ -18,7 +18,9 @@ import com.mezon.mobile.network.STREAM_MODE_DM
 import com.mezon.mobile.network.SocketEventDispatcher
 import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.session.SessionManager
+import com.mezon.mezon.api.CategoryDescList
 import com.mezon.mezon.api.ChannelDescription
+import com.mezon.mezon.rtapi.CategoryEvent
 import com.mezon.mezon.rtapi.LastSeenMessageEvent
 import com.mezon.mezon.rtapi.UserChannelAdded
 import com.mezon.mezon.rtapi.UserChannelRemoved
@@ -68,6 +70,7 @@ class ChannelController @Inject constructor(
     private val channelListLoading = ConcurrentHashMap<Long, Boolean>()
     private val channelListNetworkFetchInflight = ConcurrentHashMap.newKeySet<Long>()
     private val favoritesByClan = ConcurrentHashMap<Long, MutableSet<Long>>()
+    private val categoriesByClan = ConcurrentHashMap<Long, List<ClanCategoryItem>>()
 
     init {
         observeSocketEvents()
@@ -82,10 +85,15 @@ class ChannelController @Inject constructor(
         channelListLoading.clear()
         channelListNetworkFetchInflight.clear()
         favoritesByClan.clear()
+        categoriesByClan.clear()
     }
 
     fun loadChannelsForClan(clanId: Long, force: Boolean = false) {
         appScope.launch { loadChannelsForClanNow(clanId, force) }
+    }
+
+    suspend fun loadChannelsForClanSuspend(clanId: Long, force: Boolean = false) {
+        loadChannelsForClanNow(clanId, force)
     }
 
     fun purgeClanChannelsCache(clanId: Long) {
@@ -94,6 +102,7 @@ class ChannelController @Inject constructor(
         m.remove(clanId)
         _channelsByClan.value = m
         favoritesByClan.remove(clanId)
+        categoriesByClan.remove(clanId)
         channelListLoading.remove(clanId)
         channelListNetworkFetchInflight.remove(clanId)
         appScope.launch(ioDispatcher) {
@@ -256,6 +265,8 @@ class ChannelController @Inject constructor(
         categoryId: Long,
         topic: String,
         appId: Long = 0L,
+        ageRestricted: Int = 0,
+        e2ee: Int = 0,
     ): Result<ChannelDescription> = runCatching {
         sessionManager.withAutoRefresh { session ->
             val desc = withContext(ioDispatcher) {
@@ -268,6 +279,8 @@ class ChannelController @Inject constructor(
                     categoryId = categoryId,
                     topic = topic,
                     appId = appId,
+                    ageRestricted = ageRestricted,
+                    e2ee = e2ee,
                 )
             }
             upsertChannel(desc.toClanChannelEntity())
@@ -287,19 +300,128 @@ class ChannelController @Inject constructor(
         }
     }
 
+    suspend fun loadCategoriesForClan(clanId: Long, force: Boolean = false): List<ClanCategoryItem> {
+        if (clanId == 0L) return emptyList()
+        if (!force) {
+            val cached = categoriesByClan[clanId]
+            if (!cached.isNullOrEmpty()) return cached
+        }
+        return sessionManager.withAutoRefresh { session ->
+            val fromApi = withContext(ioDispatcher) {
+                runCatching { fetchAllCategoriesFromApi(session.apiUrl, session.token, clanId) }.getOrElse { emptyList() }
+            }
+            val merged = mergeAllCategoriesForClan(clanId, fromApi)
+            categoriesByClan[clanId] = merged
+            merged
+        }
+    }
+
+    private suspend fun fetchAllCategoriesFromApi(apiUrl: String, token: String, clanId: Long): List<ClanCategoryItem> {
+        val collected = LinkedHashMap<Long, ClanCategoryItem>()
+        var cursor = ""
+        repeat(MAX_CATEGORY_API_PAGES) {
+            val page = api.listCategoryDescs(apiUrl, token, limit = 100, cursor = cursor)
+            val rawList = page.categorydescList
+            if (rawList.isEmpty()) return collected.values.toList()
+            val batch = rawList.mapNotNull { desc ->
+                normalizeCategoryItem(desc.toClanCategoryItem(), clanId)
+            }
+            for (item in batch) collected[item.categoryId] = item
+            if (rawList.size < 100) return collected.values.toList()
+            cursor = rawList.last().categoryId.toString()
+        }
+        return collected.values.toList()
+    }
+
+    private fun categoriesDerivedFromChannels(clanId: Long): List<ClanCategoryItem> {
+        return getChannels(clanId)
+            .asSequence()
+            .filter { !it.isThread }
+            .groupBy { it.categoryId }
+            .mapNotNull { (categoryId, channels) ->
+                if (categoryId == 0L || categoryId == FAVORITE_CATEGORY_ID) return@mapNotNull null
+                val name = channels
+                    .map { it.categoryName.trim() }
+                    .firstOrNull { it.isNotEmpty() }
+                    ?: return@mapNotNull null
+                val order = channels.minOfOrNull { it.categoryOrder } ?: 0
+                ClanCategoryItem(categoryId, name, order, clanId)
+            }
+            .toList()
+    }
+
+    private fun categoriesFromChannelSections(clanId: Long): List<ClanCategoryItem> =
+        getChannelSections(clanId)
+            .asSequence()
+            .filter { it.categoryId != 0L && it.categoryId != FAVORITE_CATEGORY_ID }
+            .mapNotNull { section ->
+                normalizeCategoryItem(
+                    ClanCategoryItem(section.categoryId, section.categoryName, 0, clanId),
+                    clanId,
+                )
+            }
+            .toList()
+
+    private fun mergeAllCategoriesForClan(clanId: Long, fromApi: List<ClanCategoryItem> = emptyList()): List<ClanCategoryItem> {
+        val merged = LinkedHashMap<Long, ClanCategoryItem>()
+        fun absorb(item: ClanCategoryItem) {
+            normalizeCategoryItem(item, clanId)?.let { normalized ->
+                val existing = merged[normalized.categoryId]
+                merged[normalized.categoryId] = when {
+                    existing == null -> normalized
+                    existing.categoryOrder == 0 && normalized.categoryOrder != 0 -> normalized
+                    else -> existing
+                }
+            }
+        }
+        fromApi.forEach(::absorb)
+        categoriesDerivedFromChannels(clanId).forEach(::absorb)
+        categoriesFromChannelSections(clanId).forEach(::absorb)
+        return merged.values
+            .sortedWith(compareBy<ClanCategoryItem> { it.categoryOrder }.thenBy { it.categoryName.lowercase() })
+    }
+
+    private fun normalizeCategoryItem(item: ClanCategoryItem, clanId: Long): ClanCategoryItem? {
+        if (item.categoryId == 0L || item.categoryId == FAVORITE_CATEGORY_ID) return null
+        if (item.clanId != 0L && item.clanId != clanId) return null
+        val name = item.categoryName.trim()
+        if (name.isEmpty()) return null
+        return item.copy(clanId = clanId, categoryName = name)
+    }
+
+    fun getCachedCategories(clanId: Long): List<ClanCategoryItem> =
+        categoriesByClan[clanId] ?: emptyList()
+
+    fun resolveCategoryDisplayName(clanId: Long, channel: ClanChannelEntity): String {
+        if (channel.categoryName.isNotBlank()) return channel.categoryName
+        return mergeAllCategoriesForClan(clanId)
+            .firstOrNull { it.categoryId == channel.categoryId }
+            ?.categoryName
+            .orEmpty()
+    }
+
+    fun categoriesForMove(clanId: Long, excludeCategoryId: Long, @Suppress("UNUSED_PARAMETER") channel: ClanChannelEntity? = null): List<ClanCategoryItem> =
+        mergeAllCategoriesForClan(clanId, getCachedCategories(clanId))
+            .filter { it.categoryId != excludeCategoryId }
+
     suspend fun changeChannelCategory(
         clanId: Long,
         channelId: Long,
-        newCategoryId: Long,
-        newCategoryName: String,
+        target: ClanCategoryItem,
     ): Result<Unit> = runCatching {
         sessionManager.withAutoRefresh { session ->
             withContext(ioDispatcher) {
-                api.changeChannelCategory(session.apiUrl, session.token, clanId, channelId, newCategoryId)
+                api.changeChannelCategory(session.apiUrl, session.token, clanId, channelId, target.categoryId)
             }
             findChannelById(channelId, clanId)?.let { ch ->
-                upsertChannel(ch.copy(categoryId = newCategoryId, categoryName = newCategoryName))
+                upsertChannel(
+                    ch.copy(
+                        categoryId = target.categoryId,
+                        categoryName = target.categoryName,
+                    )
+                )
             }
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
         }
     }
 
@@ -319,19 +441,6 @@ class ChannelController @Inject constructor(
             }
             removeChannelLocally(clanId, threadId, com.mezon.mobile.network.CHANNEL_TYPE_THREAD)
         }
-    }
-
-    fun categoriesForPicker(clanId: Long, excludeCategoryId: Long): List<Pair<Long, String>> {
-        return getChannels(clanId)
-            .asSequence()
-            .filter { it.parentId == 0L && !it.isThread }
-            .map { it.categoryId to it.categoryName }
-            .filter { (id, name) -> id != 0L && id != excludeCategoryId && id != FAVORITE_CATEGORY_ID && name.isNotBlank() }
-            .distinctBy { it.first }
-            .sortedBy { (id, _) ->
-                getChannels(clanId).firstOrNull { it.categoryId == id }?.categoryOrder ?: 0
-            }
-            .toList()
     }
 
     private fun removeChannelLocally(clanId: Long, channelId: Long, channelType: Int) {
@@ -558,7 +667,8 @@ class ChannelController @Inject constructor(
                     lastSentMessageId = maxOf(cached.lastSentMessageId, apiNorm.lastSentMessageId),
                     lastSeenMessageTs = maxOf(cached.lastSeenMessageTs, apiNorm.lastSeenMessageTs),
                     lastSentMessageTs = maxOf(cached.lastSentMessageTs, apiNorm.lastSentMessageTs),
-                    unreadCount = mergeUnreadFromChannelList(cached.unreadCount, apiNorm)
+                    unreadCount = mergeUnreadFromChannelList(cached.unreadCount, apiNorm),
+                    ageRestricted = apiNorm.ageRestricted,
                 )
             }
         }
@@ -931,17 +1041,34 @@ class ChannelController @Inject constructor(
         }
 
         appScope.launch {
+            dispatcher.categoryEvents.collect { event ->
+                applyCategorySocketEvent(event)
+            }
+        }
+
+        appScope.launch {
             dispatcher.channelUpdatedEvents.collect { event ->
                 val clanId = event.clanId
                 val existing = _channelsByClan.value[clanId] ?: return@collect
                 val updated = existing.map { ch ->
                     if (ch.channelId != event.channelId) ch
-                    else ch.copy(
-                        channelLabel = event.channelLabel.ifEmpty { ch.channelLabel },
-                        topic = if (event.topic.isNotEmpty()) event.topic else ch.topic,
-                        categoryId = if (event.categoryId != 0L) event.categoryId else ch.categoryId,
-                        isPrivate = event.channelPrivate
-                    )
+                    else {
+                        val newCategoryId = if (event.categoryId != 0L) event.categoryId else ch.categoryId
+                        val categoryName = if (newCategoryId != ch.categoryId) {
+                            getCachedCategories(clanId).firstOrNull { it.categoryId == newCategoryId }?.categoryName
+                                ?: ch.categoryName
+                        } else {
+                            ch.categoryName
+                        }
+                        ch.copy(
+                            channelLabel = event.channelLabel.ifEmpty { ch.channelLabel },
+                            topic = if (event.topic.isNotEmpty()) event.topic else ch.topic,
+                            categoryId = newCategoryId,
+                            categoryName = categoryName,
+                            isPrivate = event.channelPrivate,
+                            ageRestricted = event.ageRestricted,
+                        )
+                    }
                 }
                 updateCache(clanId, updated)
                 val entity = updated.find { it.channelId == event.channelId } ?: return@collect
@@ -978,5 +1105,43 @@ class ChannelController @Inject constructor(
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, event.clanId)
             }
         }
+    }
+
+    private fun applyCategorySocketEvent(event: CategoryEvent) {
+        val clanId = event.clanId
+        val categoryId = event.id
+        if (clanId == 0L || categoryId == 0L) return
+        when (event.status) {
+            CATEGORY_EVENT_DELETE -> {
+                categoriesByClan[clanId] = getCachedCategories(clanId).filter { it.categoryId != categoryId }
+            }
+            CATEGORY_EVENT_CREATE, CATEGORY_EVENT_UPDATE -> {
+                val item = ClanCategoryItem(categoryId, event.categoryName, 0, clanId)
+                val list = getCachedCategories(clanId).toMutableList()
+                val idx = list.indexOfFirst { it.categoryId == categoryId }
+                if (idx >= 0) list[idx] = item else list.add(item)
+                categoriesByClan[clanId] = list
+                if (event.categoryName.isNotBlank()) {
+                    val channels = _channelsByClan.value[clanId] ?: return
+                    val updated = channels.map { ch ->
+                        if (ch.categoryId == categoryId) ch.copy(categoryName = event.categoryName) else ch
+                    }
+                    if (updated != channels) {
+                        updateCache(clanId, updated)
+                        appScope.launch(ioDispatcher) {
+                            updated.filter { it.categoryId == categoryId }.forEach { clanChannelDao.upsert(it) }
+                        }
+                        notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
+                    }
+                }
+            }
+        }
+    }
+
+    companion object {
+        private const val CATEGORY_EVENT_CREATE = 1
+        private const val CATEGORY_EVENT_UPDATE = 2
+        private const val CATEGORY_EVENT_DELETE = 3
+        private const val MAX_CATEGORY_API_PAGES = 20
     }
 }

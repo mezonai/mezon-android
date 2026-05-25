@@ -31,6 +31,7 @@ class ChannelCategoryPickerSheet(
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
         val list = RecyclerListView(context).apply {
             layoutManager = LinearLayoutManager(context)
             adapter = CategoryAdapter()

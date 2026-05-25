@@ -2433,10 +2433,13 @@ class MezonApi @Inject constructor(
         apiUrl: String,
         token: String,
         limit: Int = 100,
+        state: Int = 1,
+        cursor: String = "",
     ): CategoryDescList {
         val request = listCategoryDescsRequest {
             this.limit = limit
-            this.state = 1
+            this.state = state
+            this.cursor = cursor
         }
         val bytes = rpc(apiUrl, token, "ListCategoryDescs", request.toByteArray())
         return CategoryDescList.parseFrom(bytes)

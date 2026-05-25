@@ -46,6 +46,7 @@ import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
 import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
 import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.ui.cells.TextCheckCell
 import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.util.ChannelSettingsNameValidator
 import kotlinx.coroutines.Dispatchers
@@ -102,6 +103,8 @@ class ChannelSettingsFragment : BaseFragment() {
 
     private var originalName = ""
     private var originalTopic = ""
+    private var originalAgeRestricted = 0
+    private var ageRestrictedCell: TextCheckCell? = null
     private var nameValidationError: String? = null
     private var isDuplicateName = false
     private var duplicateCheckJob: Job? = null
@@ -136,6 +139,9 @@ class ChannelSettingsFragment : BaseFragment() {
         if (clanId != 0L) {
             channelController.loadChannelsForClan(clanId)
             permissionController.loadChannelPermissionData(clanId, channelId, channelType)
+            if (!isThread) {
+                fragmentScope.launch { channelController.loadCategoriesForClan(clanId) }
+            }
         }
         return true
     }
@@ -211,6 +217,18 @@ class ChannelSettingsFragment : BaseFragment() {
             content.addView(
                 buildInput(context, originalTopic, multiline = true, isName = false),
                 LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 120, 0f, Gravity.NO_GRAVITY, 0f, 10f, 0f, 40f)
+            )
+        }
+
+        if (showAgeRestrictedToggle()) {
+            content.addView(
+                ClanSettingsUiHelpers.buildMezonSection(
+                    context,
+                    themeColors,
+                    null,
+                    listOf(buildAgeRestrictedRow(context)),
+                ),
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 0f, 0f, 28f),
             )
         }
 
@@ -426,6 +444,25 @@ class ChannelSettingsFragment : BaseFragment() {
         return rows
     }
 
+    private fun showAgeRestrictedToggle(): Boolean =
+        !isThread &&
+            channelType != CHANNEL_TYPE_VOICE &&
+            channelType != CHANNEL_TYPE_STREAMING
+
+    private fun buildAgeRestrictedRow(context: Context): View {
+        val cell = TextCheckCell(context, themeColors).apply {
+            setTextAndCheck(
+                getString(R.string.channel_settings_age_restricted_title),
+                getString(R.string.channel_settings_age_restricted_description),
+                originalAgeRestricted == 1,
+                divider = false,
+            )
+            onCheckedChange = { updateSaveState() }
+        }
+        ageRestrictedCell = cell
+        return cell
+    }
+
     private fun showChangeCategory(): Boolean = !isRestrictedChannelType()
     private fun showPermissions(): Boolean = !isThread && !isRestrictedChannelType()
     private fun showQuickAction(): Boolean = !isThread && channelType != CHANNEL_TYPE_VOICE && channelType != CHANNEL_TYPE_STREAMING && channelType != CHANNEL_TYPE_APP
@@ -510,6 +547,11 @@ class ChannelSettingsFragment : BaseFragment() {
             return
         }
         val ch = currentChannel() ?: return
+        val ageRestricted = if (ageRestrictedCell != null) {
+            if (ageRestrictedCell?.isChecked() == true) 1 else 0
+        } else {
+            ch.ageRestricted
+        }
         saving = true
         saveText?.isEnabled = false
         fragmentScope.launch {
@@ -520,12 +562,15 @@ class ChannelSettingsFragment : BaseFragment() {
                 categoryId = ch.categoryId,
                 topic = topic,
                 appId = 0L,
+                ageRestricted = ageRestricted,
             )
             withContext(Dispatchers.Main.immediate) {
                 saving = false
                 if (result.isSuccess) {
                     originalName = label
                     originalTopic = topic
+                    originalAgeRestricted = ageRestricted
+                    ageRestrictedCell?.setChecked(ageRestricted == 1)
                     isDuplicateName = false
                     nameValidationError = null
                     updateNameErrorUi()
@@ -539,30 +584,21 @@ class ChannelSettingsFragment : BaseFragment() {
         }
     }
 
-    private fun openChangeCategory(context: Context) {
-        val ch = currentChannel() ?: return
-        val categories = channelController.categoriesForPicker(clanId, ch.categoryId)
-        if (categories.isEmpty()) {
-            MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.channel_category_picker_empty))
-            return
-        }
-        ChannelCategoryPickerSheet(
-            context,
-            themeColors,
-            categories,
-            getString(R.string.channel_category_picker_title),
-        ) { newId, newName ->
-            fragmentScope.launch {
-                val result = channelController.changeChannelCategory(clanId, channelId, newId, newName)
-                withContext(Dispatchers.Main.immediate) {
-                    if (result.isSuccess) {
-                        MezonToast.show(this@ChannelSettingsFragment, ToastOverlay.ToastType.SUCCESS, getString(R.string.channel_settings_updated))
-                    } else {
-                        MezonToast.show(this@ChannelSettingsFragment, ToastOverlay.ToastType.ERROR, getString(R.string.common_something_went_wrong))
-                    }
-                }
-            }
-        }.show()
+    private fun openChangeCategory(@Suppress("UNUSED_PARAMETER") context: Context) {
+        if (clanId == 0L || channelId == 0L) return
+        val ch = currentChannel()
+        val label = ch?.channelLabel?.ifBlank { channelName } ?: channelName
+        val categoryId = ch?.categoryId ?: 0L
+        val categoryName = ch?.let { channelController.resolveCategoryDisplayName(clanId, it) }.orEmpty()
+        presentFragment(
+            ChannelChangeCategoryFragment.newInstance(
+                channelId,
+                label,
+                clanId,
+                categoryId,
+                categoryName,
+            ),
+        )
     }
 
     private fun openChannelPermissions(context: Context) {
@@ -690,14 +726,17 @@ class ChannelSettingsFragment : BaseFragment() {
         val channel = currentChannel()
         originalName = channel?.channelLabel?.takeIf { it.isNotBlank() } ?: channelName
         originalTopic = channel?.topic.orEmpty()
+        originalAgeRestricted = channel?.ageRestricted ?: 0
     }
 
     private fun syncFieldsFromChannel() {
         val channel = currentChannel() ?: return
         originalName = channel.channelLabel
         originalTopic = channel.topic
+        originalAgeRestricted = channel.ageRestricted
         nameField?.setText(originalName)
         topicField?.setText(originalTopic)
+        ageRestrictedCell?.setChecked(channel.ageRestricted == 1)
         updateSaveState()
     }
 
@@ -705,8 +744,14 @@ class ChannelSettingsFragment : BaseFragment() {
         channelController.findChannelById(channelId, clanId)
 
     private fun updateSaveState() {
+        val ageRestrictedDraft = if (ageRestrictedCell != null) {
+            if (ageRestrictedCell?.isChecked() == true) 1 else 0
+        } else {
+            originalAgeRestricted
+        }
         val changed = nameField?.text?.toString().orEmpty() != originalName ||
-            topicField?.text?.toString().orEmpty() != originalTopic
+            topicField?.text?.toString().orEmpty() != originalTopic ||
+            ageRestrictedDraft != originalAgeRestricted
         val canSave = changed && nameValidationError == null && !isDuplicateName && !saving
         saveText?.isEnabled = canSave
         saveText?.setTextColor(if (canSave) themeColors.blurple else themeColors.textDisabled)
