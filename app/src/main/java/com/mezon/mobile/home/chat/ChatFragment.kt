@@ -1810,6 +1810,7 @@ class ChatFragment : BaseFragment() {
         adapter.channelType = channelType
         adapter.clanId = clanId
         adapter.isChannelPrivate = resolveChannelPrivate()
+        adapter.isChannelAgeRestricted = resolveChannelAgeRestricted()
         adapter.currentUserId = StartupCache.userId
         adapter.displayRoleResolver = chatDisplayRoleResolver()
         refreshWelcomeFromDialog()
@@ -3507,6 +3508,13 @@ class ChatFragment : BaseFragment() {
         }
         if (clanId != 0L) {
             return channelController.findChannelById(channelId)?.isPrivate ?: false
+        }
+        return false
+    }
+
+    private fun resolveChannelAgeRestricted(): Boolean {
+        if (clanId != 0L) {
+            return channelController.findChannelById(channelId)?.isAgeRestricted ?: false
         }
         return false
     }
@@ -5836,7 +5844,7 @@ class ChatFragment : BaseFragment() {
             return MezonIcon.channelText
         }
         val type = if (entity.isThread) CHANNEL_TYPE_THREAD else entity.type
-        return ChannelItemCell.resolveChannelIcon(type, entity.isPrivate)
+        return ChannelItemCell.resolveChannelIcon(type, entity.isPrivate, entity.isAgeRestricted)
     }
 
     private fun navigateToChannelFromHashtag(channelIdStr: String?) {

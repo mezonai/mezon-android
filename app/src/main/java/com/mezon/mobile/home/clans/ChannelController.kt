@@ -837,7 +837,8 @@ class ChannelController @Inject constructor(
                     else ch.copy(
                         channelLabel = event.channelLabel.ifEmpty { ch.channelLabel },
                         topic = event.topic.ifEmpty { ch.topic },
-                        isPrivate = event.channelPrivate
+                        isPrivate = event.channelPrivate,
+                        isAgeRestricted = event.ageRestricted != 0
                     )
                 }
                 updateCache(clanId, updated)

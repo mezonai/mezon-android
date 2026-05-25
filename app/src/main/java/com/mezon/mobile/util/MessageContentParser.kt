@@ -653,7 +653,7 @@ private fun resolveChannelEntity(
 
 private fun resolveHashtagIcon(entity: ClanChannelEntity): MezonIcon {
     val type = if (entity.isThread) CHANNEL_TYPE_THREAD else entity.type
-    return ChannelItemCell.resolveChannelIcon(type, entity.isPrivate)
+    return ChannelItemCell.resolveChannelIcon(type, entity.isPrivate, entity.isAgeRestricted)
 }
 
 data class MezonChannelLink(val clanId: String, val channelId: String)

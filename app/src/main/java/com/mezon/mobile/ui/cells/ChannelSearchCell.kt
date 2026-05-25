@@ -79,7 +79,7 @@ class ChannelSearchCell(context: Context, private val theme: ThemeColors) : Base
         if (newDisplay != null) {
             display = newDisplay
             val ch = d.channel
-            iconDrawable = ChannelItemCell.resolveChannelIcon(ch.type, ch.isPrivate).getDrawable(context)
+            iconDrawable = ChannelItemCell.resolveChannelIcon(ch.type, ch.isPrivate, ch.isAgeRestricted).getDrawable(context)
             showJoin = d.showJoinUi
         }
         joinTextPaint.textSize = theme.dialogNamePaint.textSize
@@ -140,7 +140,7 @@ class ChannelSearchCell(context: Context, private val theme: ThemeColors) : Base
         val h = measuredHeight - ROW_MARGIN_BOTTOM
 
         val icon = iconDrawable
-            ?: ChannelItemCell.resolveChannelIcon(ch.type, ch.isPrivate).getDrawable(context).also { iconDrawable = it }
+            ?: ChannelItemCell.resolveChannelIcon(ch.type, ch.isPrivate, ch.isAgeRestricted).getDrawable(context).also { iconDrawable = it }
         val iconTop = (h - ICON_SIZE) / 2
         icon.setBounds(ICON_LEFT, iconTop, ICON_LEFT + ICON_SIZE, iconTop + ICON_SIZE)
         icon.draw(canvas)

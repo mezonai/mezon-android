@@ -410,10 +410,10 @@ class CreateThreadFragment : BaseFragment() {
         val ctx = slot.context
         slot.removeAllViews()
         val parentMeta = channelController.findChannelById(parentChannelId, clanId)
-        val icon = if (parentMeta?.isPrivate == true && parentMeta.type == CHANNEL_TYPE_CHANNEL) {
-            MezonIcon.channelTextLock
-        } else {
-            MezonIcon.channelText
+        val icon = when {
+            parentMeta?.type == CHANNEL_TYPE_CHANNEL && parentMeta.isAgeRestricted -> MezonIcon.channelTextWarning
+            parentMeta?.isPrivate == true && parentMeta.type == CHANNEL_TYPE_CHANNEL -> MezonIcon.channelTextLock
+            else -> MezonIcon.channelText
         }
         val iv = ImageView(ctx).apply {
             val d = icon.getDrawable(ctx)

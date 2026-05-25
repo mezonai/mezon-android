@@ -352,17 +352,20 @@ class ChannelInfoFragment : BaseFragment() {
         }
 
         val isChannel = !entity.isThread
-        val isPrivate = entity.isPrivate
 
         if (entity.type == CHANNEL_TYPE_STREAMING) return MezonIcon.channelStream
 
         if (entity.type == CHANNEL_TYPE_APP) return MezonIcon.channelApp
 
-        if (isPrivate) {
-            return if (isChannel) MezonIcon.channelTextLock else MezonIcon.threadLockIcon
+        if (isChannel) {
+            return when {
+                entity.isAgeRestricted -> MezonIcon.channelTextWarning
+                entity.isPrivate -> MezonIcon.channelTextLock
+                else -> MezonIcon.channelText
+            }
         }
 
-        return if (isChannel) MezonIcon.channelText else MezonIcon.threadIcon
+        return if (entity.isPrivate) MezonIcon.threadLockIcon else MezonIcon.threadIcon
     }
 
     private fun buildActionRow(context: Context): LinearLayout {
