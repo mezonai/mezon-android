@@ -479,15 +479,14 @@ fun MessageEntity.withTopicCreated(topicId: Long, topicCreatorId: Long): Message
 }
 
 private const val TOPIC_REPLY_SNOWFLAKE_BASE = 438845456274L
+private const val MAX_PLAUSIBLE_TOPIC_REPLY_COUNT = 50_000
 
 fun resolveTopicReplyCount(rplFromContent: Int, lastTopicMessageId: Long): Int {
-    val snowflakeCount = if (lastTopicMessageId != 0L) {
-        ((lastTopicMessageId ushr 22) - TOPIC_REPLY_SNOWFLAKE_BASE).toInt().coerceAtLeast(0)
-    } else {
-        0
-    }
-    if (rplFromContent <= 0 && snowflakeCount <= 0) return 0
-    return if (snowflakeCount > 0) snowflakeCount else rplFromContent
+    if (rplFromContent > 0) return rplFromContent
+    if (lastTopicMessageId == 0L) return 0
+    val snowflakeCount = ((lastTopicMessageId ushr 22) - TOPIC_REPLY_SNOWFLAKE_BASE).toInt()
+    if (snowflakeCount <= 0 || snowflakeCount > MAX_PLAUSIBLE_TOPIC_REPLY_COUNT) return 0
+    return snowflakeCount
 }
 
 private data class ParsedAttachment(

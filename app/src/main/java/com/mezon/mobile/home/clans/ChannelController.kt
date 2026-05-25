@@ -669,12 +669,16 @@ class ChannelController @Inject constructor(
         }
     }
 
-    fun incrementUnread(channelId: Long, messageId: Long = 0L, updateClanBadge: Boolean = true) {
+    fun incrementUnread(channelId: Long, messageId: Long = 0L, updateClanBadge: Boolean = true): Boolean =
         adjustChannelUnread(channelId, 1, messageId, updateClanBadge)
-    }
 
-    fun adjustChannelUnread(channelId: Long, delta: Int, messageId: Long = 0L, updateClanBadge: Boolean = true) {
-        if (delta == 0) return
+    fun adjustChannelUnread(
+        channelId: Long,
+        delta: Int,
+        messageId: Long = 0L,
+        updateClanBadge: Boolean = true
+    ): Boolean {
+        if (delta == 0) return false
         for ((clanId, channels) in _channelsByClan.value) {
             val idx = channels.indexOfFirst { it.channelId == channelId }
             if (idx >= 0) {
@@ -691,9 +695,10 @@ class ChannelController @Inject constructor(
                 if (updateClanBadge) {
                     clansController.get().updateClanBadgeCount(clanId, delta)
                 }
-                return
+                return true
             }
         }
+        return false
     }
 
     fun updateChannelLastSeen(

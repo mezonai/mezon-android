@@ -40,6 +40,7 @@ class TopicBadgeTracker @Inject constructor(
     private val topicBadgesByParent = HashMap<Long, Int>()
     private val processedTopicChannelKeys = HashSet<String>()
     private val processedTopicParentKeys = HashSet<String>()
+    private val topicClanBadgeApplied = HashMap<Long, Int>()
     private val lock = Any()
 
     fun onReconnect() {
@@ -48,6 +49,7 @@ class TopicBadgeTracker @Inject constructor(
             topicBadgesByParent.clear()
             processedTopicChannelKeys.clear()
             processedTopicParentKeys.clear()
+            topicClanBadgeApplied.clear()
         }
         postTopicBadgeChanged()
     }
@@ -152,7 +154,10 @@ class TopicBadgeTracker @Inject constructor(
         }
         channelController.get().adjustChannelUnread(parentChannelId, -decrement, updateClanBadge = false)
         channelController.get().adjustChannelUnread(topicId, -decrement, updateClanBadge = false)
-        clansController.get().updateClanBadgeCount(entry.clanId, -decrement)
+        val clanBadgeDecrement = synchronized(lock) { topicClanBadgeApplied.remove(topicId) ?: 0 }
+        if (clanBadgeDecrement > 0) {
+            clansController.get().updateClanBadgeCount(entry.clanId, -clanBadgeDecrement)
+        }
         postTopicBadgeChanged()
     }
 
@@ -188,7 +193,11 @@ class TopicBadgeTracker @Inject constructor(
             processedTopicChannelKeys.add(badgeKey)
             trimProcessedKeys(processedTopicChannelKeys)
         }
-        channelController.get().incrementUnread(topicId, messageId, updateClanBadge = true)
+        if (channelController.get().incrementUnread(topicId, messageId, updateClanBadge = true)) {
+            synchronized(lock) {
+                topicClanBadgeApplied[topicId] = (topicClanBadgeApplied[topicId] ?: 0) + 1
+            }
+        }
         return true
     }
 

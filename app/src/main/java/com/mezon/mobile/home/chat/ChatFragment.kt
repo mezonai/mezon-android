@@ -156,6 +156,7 @@ private const val FORWARD_NEARBY_WINDOW_SECONDS = 10 * 60L
 private const val POLL_TALLY_TICK_MS = 15_000L
 private const val POLL_TALLY_MIN_GAP_MS = 12_000L
 private const val POLL_TALLY_MAX_PER_TICK = 8
+private const val TOPIC_BADGE_HYDRATE_DEBOUNCE_MS = 500L
 
 open class ChatFragment : BaseFragment() {
 
@@ -342,6 +343,7 @@ open class ChatFragment : BaseFragment() {
     private lateinit var memberResolver: MemberResolver
     private lateinit var topicController: TopicController
     private lateinit var topicBadgeTracker: TopicBadgeTracker
+    private var topicBadgeHydrateJob: Job? = null
     private lateinit var roleController: RoleController
     private lateinit var searchController: com.mezon.mobile.search.SearchController
     private lateinit var voiceController: VoiceController
@@ -493,8 +495,7 @@ open class ChatFragment : BaseFragment() {
             if (isPaused || isTopicMode || clanId == 0L || fragmentView == null) return@observe
             val category = args.getOrNull(0) as? Int ?: return@observe
             if (category != com.mezon.mobile.home.notifications.NOTIF_CATEGORY_MENTIONS) return@observe
-            topicBadgeTracker.hydrateForParentChannel(clanId, channelId)
-            updateVisibleRows(NotificationCenter.UPDATE_MASK_TOPIC)
+            requestTopicBadgeHydrate(TOPIC_BADGE_HYDRATE_DEBOUNCE_MS)
         }
         observe(NotificationCenter.messagesDidLoad) { _, _, args ->
             if (args.size < 5) return@observe
@@ -534,7 +535,7 @@ open class ChatFragment : BaseFragment() {
                 if (direction == 1) {
                     messages.addAll(newMessages)
                     sortMessagesByIdDesc(messages)
-                    hasMoreTop = if (newRowsCount == 0) false else moreTop
+                    hasMoreTop = moreTop
                     trimViewportNewest()
                 } else {
                     messages.addAll(0, newMessages)
@@ -572,11 +573,11 @@ open class ChatFragment : BaseFragment() {
                         break
                     }
 
-                if (direction == 1) {
-                    adapter.showLoadingUp = hasMoreTop
-                } else {
-                    adapter.showLoadingDown = hasMoreBottom
-                }
+                    if (direction == 1) {
+                        adapter.showLoadingUp = hasMoreTop
+                    } else {
+                        adapter.showLoadingDown = hasMoreBottom
+                    }
                     adapter.notifyMessagesUpdated()
                     updateUnreadDividerPosition()
 
@@ -745,8 +746,7 @@ open class ChatFragment : BaseFragment() {
                     refreshUI()
 
                     if (wasFirstLoad && !isTopicMode && clanId != 0L) {
-                        topicBadgeTracker.hydrateForParentChannel(clanId, channelId)
-                        updateVisibleRows(NotificationCenter.UPDATE_MASK_TOPIC)
+                        requestTopicBadgeHydrate(0L)
                     }
 
                     if (pendingHighlightMessageId != 0L) {
@@ -1909,7 +1909,7 @@ open class ChatFragment : BaseFragment() {
         }
         adapter.topicBadgeResolver = { tid -> topicBadgeTracker.getTopicBadge(tid) }
         if (!isTopicMode && clanId != 0L) {
-            topicBadgeTracker.hydrateForParentChannel(clanId, channelId)
+            requestTopicBadgeHydrate(0L)
         }
         refreshWelcomeFromDialog()
         refreshChatDisplayRoleCache()
@@ -2100,7 +2100,9 @@ open class ChatFragment : BaseFragment() {
             channelController.setCurrentChannel(channelId)
             if (isTopicMode) {
                 channelController.setCurrentTopic(topicId)
+                channelController.markChannelAsRead(topicId, seenMessageId = lastSeenMessageId)
             } else {
+                channelController.markChannelAsRead(channelId, seenMessageId = lastSeenMessageId)
                 channelController.clearCurrentTopic()
                 refreshTopicRootRowsFromCache()
                 updateVisibleRows(NotificationCenter.UPDATE_MASK_TOPIC)
@@ -2433,6 +2435,8 @@ open class ChatFragment : BaseFragment() {
         cancelPendingLoading()
         displayRoleCacheRefreshJob?.cancel()
         displayRoleCacheRefreshJob = null
+        topicBadgeHydrateJob?.cancel()
+        topicBadgeHydrateJob = null
         pendingDisplayRoleUiRefresh = false
         mainHandler.removeCallbacks(markVisibleRunnable)
         markVisibleAsRead()
@@ -2798,6 +2802,19 @@ open class ChatFragment : BaseFragment() {
         )
         if (isTopicMode) {
             topicBadgeTracker.resetTopic(topicId)
+        }
+    }
+
+    private fun requestTopicBadgeHydrate(debounceMs: Long) {
+        if (isTopicMode || clanId == 0L) return
+        topicBadgeHydrateJob?.cancel()
+        topicBadgeHydrateJob = appScope.launch(ioDispatcher) {
+            if (debounceMs > 0L) delay(debounceMs)
+            topicBadgeTracker.hydrateForParentChannel(clanId, channelId)
+            withContext(mainDispatcher) {
+                if (isPaused || isTopicMode || fragmentView == null) return@withContext
+                updateVisibleRows(NotificationCenter.UPDATE_MASK_TOPIC)
+            }
         }
     }
 

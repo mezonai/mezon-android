@@ -58,6 +58,23 @@ internal class TopicMessageButtonLayout(
 
     private var invalidateCallback: (() -> Unit)? = null
 
+    init {
+        applyThemeColors()
+    }
+
+    private fun applyThemeColors() {
+        topicBadgePaint.color = theme.badgeRed
+        topicBadgeTextPaint.color = 0xFFFFFFFF.toInt()
+        topicBadgeTextPaint.textSize = TOPIC_BADGE_TEXT_SIZE
+        topicLinkPaint.textSize = TOPIC_TEXT_SIZE
+        topicLinkPaint.color = theme.textLink
+        topicMutedPaint.textSize = TOPIC_TEXT_SIZE
+        topicMutedPaint.color = theme.onSurfaceVariant
+        topicBgPaint.color = theme.dividerColor
+        topicBorderPaint.color = theme.outlineVariant
+        topicBorderPaint.strokeWidth = TOPIC_BORDER.toFloat()
+    }
+
     fun setInvalidateCallback(callback: () -> Unit) {
         invalidateCallback = callback
     }
@@ -99,16 +116,6 @@ internal class TopicMessageButtonLayout(
             badgeCount > 99 -> "99+"
             else -> badgeCount.toString()
         }
-        topicBadgePaint.color = theme.badgeRed
-        topicBadgeTextPaint.color = 0xFFFFFFFF.toInt()
-        topicBadgeTextPaint.textSize = TOPIC_BADGE_TEXT_SIZE
-        topicLinkPaint.textSize = TOPIC_TEXT_SIZE
-        topicLinkPaint.color = theme.textLink
-        topicMutedPaint.textSize = TOPIC_TEXT_SIZE
-        topicMutedPaint.color = theme.onSurfaceVariant
-        topicBgPaint.color = theme.dividerColor
-        topicBorderPaint.color = theme.outlineVariant
-        topicBorderPaint.strokeWidth = TOPIC_BORDER.toFloat()
         topicAvatarDrawable.setInfo(msg.topicCreatorId, creatorName)
         if (topicAvatarUrl != creatorAvatarUrl) {
             topicAvatarUrl = creatorAvatarUrl
