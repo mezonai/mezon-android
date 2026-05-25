@@ -22,6 +22,8 @@ import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.MemberResolver
 import com.mezon.mobile.home.TopicController
 import com.mezon.mobile.home.UserClanController
+import com.mezon.mobile.home.ChatController
+import com.mezon.mobile.home.chat.TopicFragment
 import com.mezon.mobile.home.chat.SdTopicEntity
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.ClansController
@@ -42,6 +44,7 @@ class NotificationsFragment : BaseFragment() {
     private lateinit var clansController: ClansController
     private lateinit var channelController: ChannelController
     private lateinit var dialogsController: DialogsController
+    private lateinit var chatController: ChatController
 
     var onOpenChat: ((channelId: Long, channelName: String, clanId: Long, channelType: Int) -> Unit)? = null
 
@@ -83,6 +86,7 @@ class NotificationsFragment : BaseFragment() {
         clansController = entryPoint.clansController()
         channelController = entryPoint.channelController()
         dialogsController = entryPoint.dialogsController()
+        chatController = entryPoint.chatController()
     }
 
     override fun onFragmentCreate(): Boolean {
@@ -428,8 +432,28 @@ class NotificationsFragment : BaseFragment() {
         parentChannelId: Long,
         channelType: Int
     ) {
-        val channelName = channelController.findChannelById(parentChannelId)?.channelLabel ?: ""
-        onOpenChat?.invoke(parentChannelId, channelName, clanId, channelType)
+        if (topicId == 0L || rootMessageId == 0L || parentChannelId == 0L) return
+        if (clanId != 0L) {
+            clansController.selectClan(clanId)
+        }
+        val isPrivate = channelController.findChannelById(parentChannelId)?.isPrivate ?: false
+        chatController.openChannel(
+            channelId = parentChannelId,
+            clanId = clanId,
+            channelType = channelType,
+            isChannelPrivate = isPrivate
+        )
+        presentFragment(
+            TopicFragment.newInstance(
+                topicId = topicId,
+                rootMessageId = rootMessageId,
+                clanId = clanId,
+                parentChannelId = parentChannelId,
+                channelType = channelType,
+                isChannelPrivate = isPrivate,
+                openedFromNotification = true
+            )
+        )
     }
 
     private fun buildHeader(context: Context): View {

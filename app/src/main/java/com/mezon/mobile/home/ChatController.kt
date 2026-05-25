@@ -434,6 +434,8 @@ class ChatController @Inject constructor(
                         session.token,
                         channelId,
                         clanId,
+                        messageId = 0L,
+                        direction = 0,
                         limit = PAGE_SIZE,
                         topicId = topicId,
                         preferHttp = preferHttp

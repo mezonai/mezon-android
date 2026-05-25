@@ -989,11 +989,6 @@
     <string name="channel_settings_title_thread">Cài đặt thread</string>
     <string name="channel_settings_thread_name_title">Tên thread</string>
     <string name="channel_settings_topic_title">Chủ đề</string>
-    <string name="topic_discussion">Thảo luận</string>
-    <string name="topic_creator">Người tạo</string>
-    <string name="topic_view">Xem</string>
-    <string name="topic_reply_one">phản hồi</string>
-    <string name="topic_replies">phản hồi</string>
     <string name="channel_settings_name_duplicate_channel">Tên kênh này đã được dùng trong clan.</string>
     <string name="channel_settings_name_duplicate_thread">Tên thread này đã được dùng trong clan.</string>
     <string name="channel_settings_name_invalid_channel">Nhập tên kênh hợp lệ (1–64 ký tự).</string>

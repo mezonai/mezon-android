@@ -83,10 +83,6 @@ import com.mezon.mezon.api.VotePollResponse
 import com.mezon.mezon.api.createPollRequest
 import com.mezon.mezon.api.getPollRequest
 import com.mezon.mezon.api.listChannelMessagesRequest
-import com.mezon.mezon.api.listSdTopicRequest
-import com.mezon.mezon.api.sdTopicDetailRequest
-import com.mezon.mezon.api.SdTopic
-import com.mezon.mezon.api.SdTopicList
 import com.mezon.mezon.api.votePollRequest
 import com.mezon.mezon.api.listFriendsRequest
 import com.mezon.mezon.api.listNotificationsRequest
@@ -1690,11 +1686,10 @@ class MezonApi @Inject constructor(
         topicId: Long = 0L,
         preferHttp: Boolean = false
     ): ChannelMessageList {
-        val effectiveMessageId = if (topicId != 0L && direction == 0) 0L else messageId
         val request = listChannelMessagesRequest {
             this.channelId = channelId
             this.clanId = clanId
-            if (effectiveMessageId != 0L) this.messageId = effectiveMessageId
+            if (messageId != 0L) this.messageId = messageId
             if (direction != 0) this.direction = direction
             this.limit = limit
             if (topicId != 0L) this.topicId = topicId
@@ -1708,32 +1703,6 @@ class MezonApi @Inject constructor(
         )
         val result = ChannelMessageList.parseFrom(bytes)
         return result
-    }
-
-    suspend fun listSdTopic(
-        apiUrl: String,
-        token: String,
-        clanId: Long,
-        limit: Int = 50
-    ): SdTopicList {
-        val request = listSdTopicRequest {
-            this.clanId = clanId
-            this.limit = limit
-        }
-        val bytes = rpc(apiUrl, token, "ListSdTopic", request.toByteArray())
-        return SdTopicList.parseFrom(bytes)
-    }
-
-    suspend fun getTopicDetail(
-        apiUrl: String,
-        token: String,
-        topicId: Long
-    ): SdTopic {
-        val request = sdTopicDetailRequest {
-            this.topicId = topicId
-        }
-        val bytes = rpc(apiUrl, token, "GetTopicDetail", request.toByteArray())
-        return SdTopic.parseFrom(bytes)
     }
 
     suspend fun listNotifications(
