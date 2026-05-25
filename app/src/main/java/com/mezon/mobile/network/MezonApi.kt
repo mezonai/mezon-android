@@ -67,6 +67,10 @@ import com.mezon.mezon.api.ListChannelBadgeCountResponse
 import com.mezon.mezon.api.ListClanBadgeCountResponse
 import com.mezon.mezon.api.listChannelBadgeCountRequest
 import com.mezon.mezon.api.listChannelDescsRequest
+import com.mezon.mezon.api.SdTopic
+import com.mezon.mezon.api.SdTopicList
+import com.mezon.mezon.api.listSdTopicRequest
+import com.mezon.mezon.api.sdTopicDetailRequest
 import com.mezon.mezon.api.listThreadRequest
 import com.mezon.mezon.api.ListFavoriteChannelResponse
 import com.mezon.mezon.api.AddFavoriteChannelResponse
@@ -1212,6 +1216,32 @@ class MezonApi @Inject constructor(
         return ChannelDescList.parseFrom(bytes)
     }
 
+    suspend fun listSdTopic(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        limit: Int = 50
+    ): SdTopicList {
+        val request = listSdTopicRequest {
+            this.clanId = clanId
+            this.limit = limit
+        }
+        val bytes = rpc(apiUrl, token, "ListSdTopic", request.toByteArray())
+        return SdTopicList.parseFrom(bytes)
+    }
+
+    suspend fun getTopicDetail(
+        apiUrl: String,
+        token: String,
+        topicId: Long
+    ): SdTopic {
+        val request = sdTopicDetailRequest {
+            this.topicId = topicId
+        }
+        val bytes = rpc(apiUrl, token, "GetTopicDetail", request.toByteArray())
+        return SdTopic.parseFrom(bytes)
+    }
+
     suspend fun listClanDiscover(
         page: Int = 1,
         itemPerPage: Int = DISCOVER_ITEMS_PER_PAGE
@@ -1653,6 +1683,7 @@ class MezonApi @Inject constructor(
         messageId: Long = 0L,
         direction: Int = 0,
         limit: Int = 50,
+        topicId: Long = 0L,
         preferHttp: Boolean = false
     ): ChannelMessageList {
         val request = listChannelMessagesRequest {
@@ -1661,6 +1692,7 @@ class MezonApi @Inject constructor(
             if (messageId != 0L) this.messageId = messageId
             if (direction != 0) this.direction = direction
             this.limit = limit
+            if (topicId != 0L) this.topicId = topicId
         }
         val bytes = rpc(
             apiUrl,

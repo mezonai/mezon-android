@@ -31,4 +31,34 @@ interface NotificationDao {
         )
     """)
     suspend fun trimCategory(category: Int, keep: Int = 200)
+
+    @Query("""
+        SELECT * FROM notifications
+        WHERE category = :category AND clanId = :clanId AND topicId != 0
+        AND channelId = :parentChannelId
+        AND code IN (:mentionCode, :replyCode)
+        ORDER BY createTimeSeconds DESC, id DESC LIMIT :limit
+    """)
+    suspend fun getTopicMentionsForChannel(
+        category: Int,
+        clanId: Long,
+        parentChannelId: Long,
+        mentionCode: Int,
+        replyCode: Int,
+        limit: Int = 200
+    ): List<NotificationEntity>
+
+    @Query("""
+        SELECT * FROM notifications
+        WHERE category = :category AND clanId = :clanId AND topicId != 0
+        AND code IN (:mentionCode, :replyCode)
+        ORDER BY createTimeSeconds DESC, id DESC LIMIT :limit
+    """)
+    suspend fun getTopicMentionsForClan(
+        category: Int,
+        clanId: Long,
+        mentionCode: Int,
+        replyCode: Int,
+        limit: Int = 200
+    ): List<NotificationEntity>
 }

@@ -4,6 +4,8 @@ import com.mezon.mobile.auth.AuthRepository
 import com.mezon.mobile.home.AnonymousController
 import com.mezon.mobile.home.BadgeCoordinator
 import com.mezon.mobile.home.ChatController
+import com.mezon.mobile.home.TopicBadgeTracker
+import com.mezon.mobile.home.TopicController
 import com.mezon.mobile.home.ConnectionController
 import com.mezon.mobile.home.MemberResolver
 import com.mezon.mobile.home.ChannelFilesController
@@ -67,6 +69,8 @@ interface FragmentEntryPoint {
     fun messageActivitiesController(): MessageActivitiesController
     fun messagesController(): MessagesController
     fun notificationStore(): NotificationStore
+    fun topicBadgeTracker(): TopicBadgeTracker
+    fun topicController(): TopicController
     fun accountController(): AccountController
     fun deviceController(): DeviceController
     fun friendController(): FriendController

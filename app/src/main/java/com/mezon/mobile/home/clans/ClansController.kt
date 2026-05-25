@@ -27,7 +27,9 @@ import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.util.avatarImgproxyUrl
 import com.mezon.mobile.util.createImgproxyUrl
 import com.mezon.mobile.home.BadgeCoordinator
+import com.mezon.mobile.home.TopicBadgeTracker
 import com.mezon.mobile.home.clans.channelapp.ChannelAppController
+import com.mezon.mobile.home.notifications.NotificationStore
 import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.profile.UserController
 import dagger.Lazy
@@ -66,6 +68,8 @@ class ClansController @Inject constructor(
     private val roleController: RoleController,
     private val mezonSocket: MezonSocket,
     private val badgeCoordinator: Lazy<BadgeCoordinator>,
+    private val notificationStore: Lazy<NotificationStore>,
+    private val topicBadgeTracker: Lazy<TopicBadgeTracker>,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     @ApplicationScope private val appScope: CoroutineScope
 ) {
@@ -111,6 +115,8 @@ class ClansController @Inject constructor(
         _selectedClanId.value = clanId
         channelController.loadChannelsForClan(clanId)
         channelAppController.loadAppsForClan(clanId)
+        notificationStore.get().setCurrentClan(clanId)
+        topicBadgeTracker.get().hydrateForClan(clanId)
         roleController.loadPermissionCatalogIfNeeded()
         roleController.loadPermissionsUserForClan(clanId, force = true)
         roleController.loadRolesForClan(clanId)

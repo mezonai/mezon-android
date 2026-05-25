@@ -19,6 +19,8 @@ import com.mezon.mobile.network.SocketEventDispatcher
 import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mezon.api.ChannelDescription
+import com.mezon.mobile.home.chat.SdTopicEntity
+import com.mezon.mobile.home.chat.toClanChannelEntity
 import com.mezon.mezon.rtapi.LastSeenMessageEvent
 import com.mezon.mezon.rtapi.UserChannelAdded
 import com.mezon.mezon.rtapi.UserChannelRemoved
@@ -56,6 +58,7 @@ class ChannelController @Inject constructor(
     private val cacheTracker: ApiCacheTracker,
     private val clansController: dagger.Lazy<ClansController>,
     private val badgeCoordinator: dagger.Lazy<com.mezon.mobile.home.BadgeCoordinator>,
+    private val topicBadgeTracker: dagger.Lazy<com.mezon.mobile.home.TopicBadgeTracker>,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     @ApplicationScope private val appScope: CoroutineScope
 ) {
@@ -70,6 +73,7 @@ class ChannelController @Inject constructor(
     private val channelListLoading = ConcurrentHashMap<Long, Boolean>()
     private val channelListNetworkFetchInflight = ConcurrentHashMap.newKeySet<Long>()
     private val favoritesByClan = ConcurrentHashMap<Long, MutableSet<Long>>()
+    private val sdTopicChannelsById = ConcurrentHashMap<Long, ClanChannelEntity>()
 
     init {
         observeSocketEvents()
@@ -79,7 +83,9 @@ class ChannelController @Inject constructor(
 
     fun cleanup() {
         _channelsByClan.value = emptyMap()
+        sdTopicChannelsById.clear()
         currentOpenChannelId = 0L
+        currentOpenTopicId = 0L
         synchronized(badgeKeyLock) { processedBadgeKeys.clear() }
         channelListLoading.clear()
         channelListNetworkFetchInflight.clear()
@@ -92,6 +98,7 @@ class ChannelController @Inject constructor(
 
     fun purgeClanChannelsCache(clanId: Long) {
         if (clanId == 0L) return
+        clearSdTopicsForClan(clanId)
         val m = _channelsByClan.value.toMutableMap()
         m.remove(clanId)
         _channelsByClan.value = m
@@ -226,6 +233,7 @@ class ChannelController @Inject constructor(
         _channelsByClan.value[clanId] ?: emptyList()
 
     fun findChannelById(channelId: Long): ClanChannelEntity? {
+        sdTopicChannelsById[channelId]?.let { return it }
         val current = _channelsByClan.value
         if (_channelByIdSnapshot !== current) {
             synchronized(this) {
@@ -244,6 +252,9 @@ class ChannelController @Inject constructor(
     }
 
     fun findChannelById(channelId: Long, clanId: Long): ClanChannelEntity? {
+        sdTopicChannelsById[channelId]?.let { ch ->
+            if (clanId == 0L || ch.clanId == clanId) return ch
+        }
         if (clanId != 0L) {
             val list = _channelsByClan.value[clanId]
             if (list != null) {
@@ -356,6 +367,27 @@ class ChannelController @Inject constructor(
                     api.removeFavoriteChannel(session.apiUrl, session.token, clanId, channelId)
                 }
             }
+        }
+    }
+
+    fun registerSdTopicChannels(topics: List<SdTopicEntity>) {
+        for (topic in topics) {
+            registerSdTopicChannel(topic)
+        }
+    }
+
+    fun registerSdTopicChannel(topic: SdTopicEntity) {
+        if (topic.id == 0L || topic.clanId == 0L) return
+        val existing = sdTopicChannelsById[topic.id]
+        val parent = findChannelById(topic.channelId, topic.clanId)
+        sdTopicChannelsById[topic.id] = topic.toClanChannelEntity(parent, existing)
+    }
+
+    fun clearSdTopicsForClan(clanId: Long) {
+        if (clanId == 0L) return
+        val toRemove = sdTopicChannelsById.filterValues { it.clanId == clanId }.keys
+        for (id in toRemove) {
+            sdTopicChannelsById.remove(id)
         }
     }
 
@@ -543,24 +575,52 @@ class ChannelController @Inject constructor(
 
     @Volatile
     private var currentOpenChannelId = 0L
+    @Volatile
+    private var currentOpenTopicId = 0L
     private val processedBadgeKeys = LinkedHashSet<Long>()
     private val badgeKeyLock = Any()
 
     fun setCurrentChannel(channelId: Long) { currentOpenChannelId = channelId }
-    fun clearCurrentChannel() { currentOpenChannelId = 0L }
 
-    private fun isBadgeProcessed(channelId: Long, messageId: Long): Boolean {
-        if (messageId == 0L) return false
+    fun clearCurrentChannel() {
+        currentOpenChannelId = 0L
+        currentOpenTopicId = 0L
+    }
+
+    fun setCurrentTopic(topicId: Long) { currentOpenTopicId = topicId }
+
+    fun clearCurrentTopic() { currentOpenTopicId = 0L }
+
+    fun getCurrentOpenTopicId(): Long = currentOpenTopicId
+
+    fun tryMarkBadgeProcessed(channelId: Long, messageId: Long): Boolean {
+        if (messageId == 0L) return true
         val key = (channelId shl 32) xor messageId
         synchronized(badgeKeyLock) {
-            if (!processedBadgeKeys.add(key)) return true
+            if (!processedBadgeKeys.add(key)) return false
             if (processedBadgeKeys.size > MAX_BADGE_CACHE) {
                 val iter = processedBadgeKeys.iterator()
                 val removeCount = processedBadgeKeys.size - MAX_BADGE_CACHE / 2
                 repeat(removeCount) { if (iter.hasNext()) { iter.next(); iter.remove() } }
             }
         }
-        return false
+        return true
+    }
+
+    private fun isBadgeProcessed(channelId: Long, messageId: Long): Boolean =
+        !tryMarkBadgeProcessed(channelId, messageId)
+
+    private fun resolveNotificationTopicId(notification: com.mezon.mezon.api.Notification): Long {
+        if (notification.topicId != 0L) return notification.topicId
+        if (notification.content == null || notification.content.isEmpty) return 0L
+        return try {
+            val json = JSONObject(notification.content.toStringUtf8())
+            json.optString("topic_id", "0").toLongOrNull()?.takeIf { it != 0L }
+                ?: json.optLong("topic_id", 0L).takeIf { it != 0L }
+                ?: 0L
+        } catch (_: Exception) {
+            0L
+        }
     }
 
     fun clearBadgeDedup() {
@@ -568,6 +628,7 @@ class ChannelController @Inject constructor(
     }
 
     private fun findClanIdForChannel(channelId: Long): Long {
+        sdTopicChannelsById[channelId]?.clanId?.takeIf { it != 0L }?.let { return it }
         for ((clanId, channels) in _channelsByClan.value) {
             if (channels.any { it.channelId == channelId }) return clanId
         }
@@ -622,6 +683,16 @@ class ChannelController @Inject constructor(
     }
 
     fun updateLastSentMessage(channelId: Long, messageId: Long, createTimeSeconds: Long = 0L) {
+        sdTopicChannelsById[channelId]?.let { ch ->
+            if (messageId <= ch.lastSentMessageId) return
+            val ts = createTimeSeconds and 0xFFFF_FFFFL
+            val newSentTs = if (ts > 0L) maxOf(ch.lastSentMessageTs, ts) else ch.lastSentMessageTs
+            sdTopicChannelsById[channelId] = ch.copy(
+                lastSentMessageId = messageId,
+                lastSentMessageTs = newSentTs
+            )
+            return
+        }
         for ((clanId, channels) in _channelsByClan.value) {
             val idx = channels.indexOfFirst { it.channelId == channelId }
             if (idx >= 0) {
@@ -639,7 +710,27 @@ class ChannelController @Inject constructor(
         }
     }
 
-    fun incrementUnread(channelId: Long, messageId: Long = 0L) {
+    fun incrementUnread(channelId: Long, messageId: Long = 0L, updateClanBadge: Boolean = true): Boolean =
+        adjustChannelUnread(channelId, 1, messageId, updateClanBadge)
+
+    fun adjustChannelUnread(
+        channelId: Long,
+        delta: Int,
+        messageId: Long = 0L,
+        updateClanBadge: Boolean = true
+    ): Boolean {
+        if (delta == 0) return false
+        sdTopicChannelsById[channelId]?.let { ch ->
+            val newLastSent = if (messageId > ch.lastSentMessageId) messageId else ch.lastSentMessageId
+            sdTopicChannelsById[channelId] = ch.copy(
+                lastSentMessageId = newLastSent,
+                unreadCount = (ch.unreadCount + delta).coerceAtLeast(0)
+            )
+            if (updateClanBadge) {
+                clansController.get().updateClanBadgeCount(ch.clanId, delta)
+            }
+            return true
+        }
         for ((clanId, channels) in _channelsByClan.value) {
             val idx = channels.indexOfFirst { it.channelId == channelId }
             if (idx >= 0) {
@@ -648,15 +739,18 @@ class ChannelController @Inject constructor(
                 val updated = channels.toMutableList()
                 updated[idx] = ch.copy(
                     lastSentMessageId = newLastSent,
-                    unreadCount = ch.unreadCount + 1
+                    unreadCount = (ch.unreadCount + delta).coerceAtLeast(0)
                 )
                 val map = _channelsByClan.value.toMutableMap()
                 map[clanId] = updated
                 _channelsByClan.value = map
-                clansController.get().updateClanBadgeCount(clanId, 1)
-                return
+                if (updateClanBadge) {
+                    clansController.get().updateClanBadgeCount(clanId, delta)
+                }
+                return true
             }
         }
+        return false
     }
 
     fun updateChannelLastSeen(
@@ -665,6 +759,26 @@ class ChannelController @Inject constructor(
         remainingUnread: Int,
         timestampSeconds: Int = 0
     ) {
+        sdTopicChannelsById[channelId]?.let { ch ->
+            if (messageId <= ch.lastSeenMessageId) return
+            val oldUnread = ch.unreadCount
+            val newUnread = remainingUnread.coerceAtLeast(0)
+            if (newUnread == oldUnread && messageId == ch.lastSeenMessageId) return
+            val tsLong = timestampSeconds.toLong() and 0xFFFF_FFFFL
+            val syncTs = when {
+                newUnread == 0 -> maxOf(ch.lastSeenMessageTs, ch.lastSentMessageTs, tsLong)
+                tsLong > 0L -> maxOf(ch.lastSeenMessageTs, tsLong)
+                else -> ch.lastSeenMessageTs
+            }
+            sdTopicChannelsById[channelId] = ch.copy(
+                lastSeenMessageId = messageId,
+                unreadCount = newUnread,
+                lastSeenMessageTs = syncTs
+            )
+            val delta = newUnread - oldUnread
+            if (delta != 0) clansController.get().updateClanBadgeCount(ch.clanId, delta)
+            return
+        }
         for ((clanId, channels) in _channelsByClan.value) {
             val idx = channels.indexOfFirst { it.channelId == channelId }
             if (idx >= 0) {
@@ -698,6 +812,20 @@ class ChannelController @Inject constructor(
     }
 
     fun markChannelAsRead(channelId: Long, seenTimestampSeconds: Int = 0, seenMessageId: Long = 0L) {
+        sdTopicChannelsById[channelId]?.let { ch ->
+            if (!ch.hasUnread && ch.unreadCount == 0 && seenMessageId <= ch.lastSeenMessageId) return
+            val oldUnread = ch.unreadCount
+            val newSeenId = maxOf(ch.lastSeenMessageId, ch.lastSentMessageId, seenMessageId)
+            val tsLong = seenTimestampSeconds.toLong() and 0xFFFF_FFFFL
+            val newSeenTs = maxOf(ch.lastSeenMessageTs, ch.lastSentMessageTs, tsLong)
+            sdTopicChannelsById[channelId] = ch.copy(
+                unreadCount = 0,
+                lastSeenMessageId = newSeenId,
+                lastSeenMessageTs = newSeenTs
+            )
+            if (oldUnread > 0) clansController.get().updateClanBadgeCount(ch.clanId, -oldUnread)
+            return
+        }
         for ((clanId, channels) in _channelsByClan.value) {
             val idx = channels.indexOfFirst { it.channelId == channelId }
             if (idx >= 0) {
@@ -726,6 +854,19 @@ class ChannelController @Inject constructor(
     }
 
     fun updateLastSeen(channelId: Long, messageId: Long, timestampSeconds: Int = 0) {
+        sdTopicChannelsById[channelId]?.let { ch ->
+            if (messageId <= ch.lastSeenMessageId) return
+            val oldUnread = ch.unreadCount
+            val tsLong = timestampSeconds.toLong() and 0xFFFF_FFFFL
+            val newSeenTs = maxOf(ch.lastSeenMessageTs, ch.lastSentMessageTs, tsLong)
+            sdTopicChannelsById[channelId] = ch.copy(
+                lastSeenMessageId = messageId,
+                unreadCount = 0,
+                lastSeenMessageTs = newSeenTs
+            )
+            if (oldUnread > 0) clansController.get().updateClanBadgeCount(ch.clanId, -oldUnread)
+            return
+        }
         for ((clanId, channels) in _channelsByClan.value) {
             val idx = channels.indexOfFirst { it.channelId == channelId }
             if (idx >= 0) {
@@ -770,9 +911,25 @@ class ChannelController @Inject constructor(
     private fun applyLastSeenTsOnlyFromSocket(channelId: Long, timestampSeconds: Int, badgeCount: Int) {
         val tsLong = timestampSeconds.toLong() and 0xFFFF_FFFFL
         if (tsLong == 0L) return
+        sdTopicChannelsById[channelId]?.let { ch ->
+            val newSeenTs = maxOf(ch.lastSeenMessageTs, tsLong)
+            val newUnread = badgeCount.coerceAtLeast(0)
+            if (newSeenTs == ch.lastSeenMessageTs && newUnread == ch.unreadCount) return
+            val oldUnread = ch.unreadCount
+            sdTopicChannelsById[channelId] = ch.copy(
+                lastSeenMessageTs = newSeenTs,
+                unreadCount = newUnread
+            )
+            val delta = newUnread - oldUnread
+            if (delta != 0) clansController.get().updateClanBadgeCount(ch.clanId, delta)
+            notificationCenter.postNotificationOnMainThread(
+                NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_BADGE
+            )
+            return
+        }
         for ((clanId, channels) in _channelsByClan.value) {
             val idx = channels.indexOfFirst { it.channelId == channelId }
-            if (idx < 0) return
+            if (idx < 0) continue
             val ch = channels[idx]
             val newSeenTs = maxOf(ch.lastSeenMessageTs, tsLong)
             val newUnread = badgeCount.coerceAtLeast(0)
@@ -900,6 +1057,7 @@ class ChannelController @Inject constructor(
                 if (msg.mode == STREAM_MODE_DM) return@collect
                 if (msg.code == CODE_CHAT_UPDATE || msg.code == CODE_CHAT_REMOVE) return@collect
                 if (msg.senderId == currentUserId) return@collect
+                if (msg.topicId != 0L) return@collect
                 if (msg.channelId == currentOpenChannelId) return@collect
                 val msgTs = msg.createTimeSeconds.toLong() and 0xFFFF_FFFFL
                 val clanId = findClanIdForChannel(msg.channelId)
@@ -921,7 +1079,12 @@ class ChannelController @Inject constructor(
                 val clanId = notification.clanId
                 val channelId = notification.channelId
                 if (clanId == 0L || channelId == 0L) return@collect
-                if (channelId == currentOpenChannelId) return@collect
+                val topicId = resolveNotificationTopicId(notification)
+                if (topicId != 0L) {
+                    if (currentOpenTopicId == topicId) return@collect
+                } else if (channelId == currentOpenChannelId) {
+                    return@collect
+                }
 
                 val messageId = try {
                     val json = JSONObject(notification.content.toStringUtf8())
@@ -929,13 +1092,27 @@ class ChannelController @Inject constructor(
                         ?: json.optString("message_id", "").toLongOrNull() ?: 0L
                 } catch (_: Exception) { 0L }
 
-                if (isBadgeProcessed(channelId, messageId)) return@collect
-
-                val channelInCache = _channelsByClan.value[clanId]?.any { it.channelId == channelId } == true
-                if (channelInCache) {
-                    incrementUnread(channelId, messageId)
+                if (topicId != 0L) {
+                    val msgTime = try {
+                        val json = JSONObject(notification.content.toStringUtf8())
+                        json.optLong("create_time_seconds", 0L).takeIf { it != 0L }
+                            ?: json.optString("create_time_seconds", "").toLongOrNull() ?: 0L
+                    } catch (_: Exception) { 0L }
+                    val topicChannel = findChannelById(topicId)
+                    if (topicChannel != null && topicChannel.lastSeenMessageTs > 0L &&
+                        msgTime > 0L && msgTime <= topicChannel.lastSeenMessageTs
+                    ) {
+                        return@collect
+                    }
+                    topicBadgeTracker.get().tryIncrementFromNotification(clanId, channelId, topicId, messageId)
                 } else {
-                    clansController.get().updateClanBadgeCount(clanId, 1)
+                    if (isBadgeProcessed(channelId, messageId)) return@collect
+                    val channelInCache = _channelsByClan.value[clanId]?.any { it.channelId == channelId } == true
+                    if (channelInCache) {
+                        incrementUnread(channelId, messageId)
+                    } else {
+                        clansController.get().updateClanBadgeCount(clanId, 1)
+                    }
                 }
                 notificationCenter.postNotificationOnMainThread(
                     NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_BADGE
