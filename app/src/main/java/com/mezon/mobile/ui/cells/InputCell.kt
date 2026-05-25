@@ -35,6 +35,7 @@ class InputCell(context: Context, private val theme: ThemeColors) : LinearLayout
     private var strokeWhenValid: Int? = null
     private var maxCharacter = 200
     private var isTextarea = false
+    private var showCharacterCount = false
     var onTextChanged: ((String) -> Unit)? = null
 
     init {
@@ -122,7 +123,7 @@ class InputCell(context: Context, private val theme: ThemeColors) : LinearLayout
                     return
                 }
                 clearButton.visibility = if (text.isNotEmpty() && !isTextarea) View.VISIBLE else View.GONE
-                if (isTextarea) charCountView.text = "${text.length}/$maxCharacter"
+                if (isTextarea || showCharacterCount) charCountView.text = "${text.length}/$maxCharacter"
                 onTextChanged?.invoke(text)
             }
         })
@@ -163,6 +164,15 @@ class InputCell(context: Context, private val theme: ThemeColors) : LinearLayout
 
     fun setMaxCharacter(max: Int) {
         maxCharacter = max
+        if (isTextarea || showCharacterCount) {
+            charCountView.text = "${getText().length}/$maxCharacter"
+        }
+    }
+
+    fun setShowCharacterCount(show: Boolean) {
+        showCharacterCount = show
+        charCountView.visibility = if (show || isTextarea) View.VISIBLE else View.GONE
+        charCountView.text = "${getText().length}/$maxCharacter"
     }
 
     fun setInputContainerMinHeightDp(heightDp: Int) {

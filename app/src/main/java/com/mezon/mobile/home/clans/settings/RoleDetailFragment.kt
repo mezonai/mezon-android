@@ -81,6 +81,7 @@ class RoleDetailFragment : BaseFragment() {
     private lateinit var colorLock: ImageView
     private lateinit var deleteBtn: TextView
     private lateinit var iconAvatar: AvatarView
+    private lateinit var iconPlaceholder: ImageView
     private lateinit var iconRemoveBtn: TextView
     private lateinit var iconPickerHit: FrameLayout
     private lateinit var iconRow: LinearLayout
@@ -183,6 +184,7 @@ class RoleDetailFragment : BaseFragment() {
         nameInput = InputCell(context, themeColors).apply {
             setLabel(getString(R.string.clan_roles_detail_role_name))
             setMaxCharacter(ROLE_NAME_MAX)
+            setShowCharacterCount(true)
         }
         nameInput.onTextChanged = { draftName = it }
         inner.addView(nameInput, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 14f, 0f, 14f))
@@ -311,9 +313,24 @@ class RoleDetailFragment : BaseFragment() {
             isClickable = false
             isFocusable = false
         }
+        iconPlaceholder = ImageView(context).apply {
+            scaleType = ImageView.ScaleType.CENTER
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(themeColors.surfaceVariant)
+            }
+            setImageDrawable(
+                MezonIcon.imageIcon.getDrawable(context).apply {
+                    colorFilter = PorterDuffColorFilter(themeColors.colorText, PorterDuff.Mode.SRC_IN)
+                },
+            )
+            setPadding(LayoutHelper.dp(12f), LayoutHelper.dp(12f), LayoutHelper.dp(12f), LayoutHelper.dp(12f))
+        }
+        iconPickerHit.addView(iconPlaceholder, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
         iconAvatar = AvatarView(context).apply {
             setSizeDp(50)
             setRoundRadius(25f)
+            visibility = View.GONE
         }
         iconPickerHit.addView(iconAvatar, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
         iconTail.addView(iconPickerHit)
@@ -397,7 +414,7 @@ class RoleDetailFragment : BaseFragment() {
         applyDetailEditableState(role)
         refreshColorRowUi()
         iconAvatar.setInfo(role.roleId, role.title)
-        iconAvatar.setImageUrl(draftIconUrl.ifBlank { null })
+        refreshIconPreview()
         refreshRemoveIconVisibility()
     }
 
@@ -502,7 +519,7 @@ class RoleDetailFragment : BaseFragment() {
             roleColors,
             draftColorHex,
         ) { picked ->
-            draftColorHex = picked
+            draftColorHex = normalizeColorForApi(picked)
             refreshColorRowUi()
         }
         colorPickerSheet = sheet
@@ -529,9 +546,7 @@ class RoleDetailFragment : BaseFragment() {
 
     private fun removeDraftRoleIcon() {
         draftIconUrl = ""
-        iconAvatar.setImageUrl(null)
-        val r = roleController.getRole(clanId, roleId) ?: return
-        iconAvatar.setInfo(r.roleId, r.title)
+        refreshIconPreview()
         refreshRemoveIconVisibility()
     }
 
@@ -564,7 +579,7 @@ class RoleDetailFragment : BaseFragment() {
                     val mime = cr.getType(uri) ?: "image/jpeg"
                     val url = withContext(ioDispatcher) { clansController.uploadRoleIconImage(bytes, mime) }
                     draftIconUrl = url
-                    iconAvatar.setImageUrl(draftIconUrl.ifBlank { null })
+                    refreshIconPreview()
                     refreshRemoveIconVisibility()
                 }.onFailure { e ->
                     if (e is ContentUriTooLargeException) {
@@ -666,7 +681,25 @@ class RoleDetailFragment : BaseFragment() {
     private fun normHex(h: String): String {
         val t = h.trim()
         if (t.isEmpty()) return ""
-        return if (t.startsWith("#")) t else "#$t"
+        return normalizeColorForApi(t)
+    }
+
+    private fun normalizeColorForApi(h: String): String {
+        val clean = h.trim().removePrefix("#").lowercase()
+        return if (clean.isEmpty()) "" else "#$clean"
+    }
+
+    private fun refreshIconPreview() {
+        val hasIcon = draftIconUrl.isNotBlank()
+        iconPlaceholder.visibility = if (hasIcon) View.GONE else View.VISIBLE
+        iconAvatar.visibility = if (hasIcon) View.VISIBLE else View.GONE
+        if (hasIcon) {
+            val r = roleController.getRole(clanId, roleId)
+            iconAvatar.setInfo(r?.roleId ?: roleId, r?.title ?: draftName)
+            iconAvatar.setImageUrl(draftIconUrl)
+        } else {
+            iconAvatar.setImageUrl(null)
+        }
     }
 
     private fun saveChanges() {
@@ -674,7 +707,7 @@ class RoleDetailFragment : BaseFragment() {
         val members = userClanController.getClanMembers(clanId)
         val role = roleController.getRole(clanId, roleId) ?: return
         val title = draftName.trim().ifEmpty { role.title }
-        val color = draftColorHex.trim()
+        val color = normHex(draftColorHex)
         val trimmedIcon = draftIconUrl.trim()
         val originIconTrimmed = originIconUrl.trim()
         val roleIconForApi: String? = when {
@@ -687,7 +720,7 @@ class RoleDetailFragment : BaseFragment() {
                 clanId = clanId,
                 roleId = roleId,
                 title = title,
-                colorHex = color.ifEmpty { role.colorHexRaw },
+                colorHex = color.ifEmpty { normHex(role.colorHexRaw) },
                 roleIcon = roleIconForApi,
                 addUserIds = emptyList(),
                 removeUserIds = emptyList(),

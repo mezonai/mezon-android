@@ -72,6 +72,7 @@ import com.mezon.mobile.home.clans.ClanRole
 import com.mezon.mobile.home.clans.PermissionPolicy
 import com.mezon.mobile.home.clans.RoleController
 import com.mezon.mobile.home.clans.UserDisplayRole
+import com.mezon.mobile.home.clans.isEveryoneRole
 import com.mezon.mobile.home.chat.input.InputSuggestionItem
 import com.mezon.mobile.home.chat.input.InputSuggestionsAdapter
 import com.mezon.mobile.home.chat.input.InputSuggestionsController
@@ -5026,6 +5027,22 @@ class ChatFragment : BaseFragment() {
         }
     }
 
+    private fun profileRolesFor(member: ClanMember?): List<UserProfileBottomSheet.UserProfileRole> {
+        if (member == null || clanId == 0L || member.roleIds.isEmpty()) return emptyList()
+        val rolesById = (roleController.getRoles(clanId) + listOfNotNull(roleController.getEveryoneRole(clanId)))
+            .associateBy { it.roleId }
+        return member.roleIds.mapNotNull { roleId ->
+            val role = rolesById[roleId] ?: return@mapNotNull null
+            if (role.isEveryoneRole()) return@mapNotNull null
+            UserProfileBottomSheet.UserProfileRole(
+                id = role.roleId,
+                title = role.title,
+                color = role.color,
+                iconUrl = role.iconUrl,
+            )
+        }
+    }
+
     private fun showUserProfile(msg: MessageEntity) {
 
         val ctx = getContext() ?: return
@@ -5079,6 +5096,7 @@ class ChatFragment : BaseFragment() {
             memberSince = null,
             isOwnProfile = isOwnProfile,
             isDM = clanId == 0L,
+            roles = profileRolesFor(member),
             listener = object : UserProfileBottomSheet.UserProfileListener {
                 override fun onSendMessage(userId: Long) {
                     MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.INFO, getString(R.string.feature_coming_soon))
@@ -5159,6 +5177,7 @@ class ChatFragment : BaseFragment() {
             memberSince = null,
             isOwnProfile = userId == currentUserId,
             isDM = clanId == 0L,
+            roles = profileRolesFor(member),
             listener = object : UserProfileBottomSheet.UserProfileListener {
                 override fun onSendMessage(userId: Long) {
                     MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.INFO, getString(R.string.feature_coming_soon))
