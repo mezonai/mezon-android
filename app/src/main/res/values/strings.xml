@@ -326,6 +326,14 @@
     <string name="notif_tab_mentions">Mentions</string>
     <string name="notif_tab_messages">Messages</string>
     <string name="notif_tab_topics">Topics</string>
+    <string name="notif_tab_topics_empty">No topic activity</string>
+    <string name="notif_topic_and_you">Topic and you</string>
+    <string name="notif_replied_to">Replied To:</string>
+    <string name="topic_discussion">Topic Discussion</string>
+    <string name="topic_creator">Creator</string>
+    <string name="topic_view">View topic</string>
+    <string name="topic_reply_one">Reply</string>
+    <string name="topic_replies">Replies</string>
     <string name="notif_tab_for_you">For You</string>
     <string name="notif_empty">No notifications</string>
     <string name="notification_tab_for_you">For you</string>

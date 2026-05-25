@@ -5,9 +5,9 @@ import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.data.db.NotificationDao
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
-import com.mezon.mobile.network.CHANNEL_TYPE_DM
-import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
+import com.mezon.mobile.home.TopicBadgeTracker
 import com.mezon.mobile.network.MezonApi
+import com.mezon.mobile.network.SocketEventDispatcher
 import com.mezon.mobile.session.SessionManager
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -30,7 +30,9 @@ class NotificationStore @Inject constructor(
     private val api: MezonApi,
     private val notificationDao: NotificationDao,
     private val sessionManager: SessionManager,
+    private val dispatcher: SocketEventDispatcher,
     private val notificationCenter: NotificationCenter,
+    private val topicBadgeTracker: dagger.Lazy<TopicBadgeTracker>,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     @ApplicationScope private val appScope: CoroutineScope
 ) {
@@ -43,6 +45,8 @@ class NotificationStore @Inject constructor(
     private val _forYou = MutableStateFlow<List<NotificationEntity>>(emptyList())
     val forYou: StateFlow<List<NotificationEntity>> = _forYou.asStateFlow()
 
+    private val _emptyCategory = MutableStateFlow<List<NotificationEntity>>(emptyList())
+
     private var currentClanId: Long = 0L
 
     private var hasMoreMentions = false
@@ -50,6 +54,10 @@ class NotificationStore @Inject constructor(
     private var hasMoreForYou = false
 
     private val dbLoadedCategories = HashSet<Int>(4)
+
+    init {
+        appScope.launch { observeSocketNotifications() }
+    }
 
     fun cleanup() {
         _mentions.value = emptyList()
@@ -66,6 +74,9 @@ class NotificationStore @Inject constructor(
         if (currentClanId == clanId) return false
         cleanup()
         currentClanId = clanId
+        if (clanId != 0L) {
+            loadCategory(NOTIF_CATEGORY_MENTIONS)
+        }
         return true
     }
 
@@ -94,11 +105,11 @@ class NotificationStore @Inject constructor(
         appScope.launch {
             if (notificationId == 0L && category !in dbLoadedCategories) {
                 loadFromDb(category)
-                val dbData = getForCategory(category).value
-                if (dbData.isNotEmpty()) {
-                    notificationCenter.postNotificationOnMainThread(
-                        NotificationCenter.notificationsDidLoad, category
-                    )
+                if (category == NOTIF_CATEGORY_MENTIONS) {
+                    val cached = getForCategory(category).value
+                    if (cached.isNotEmpty()) {
+                        topicBadgeTracker.get().hydrateFromNotifications(cached)
+                    }
                 }
             }
 
@@ -108,7 +119,7 @@ class NotificationStore @Inject constructor(
                         api.listNotifications(session.apiUrl, session.token, clanId, category, notificationId, PAGE_SIZE)
                     }
                     val entities = result.notificationsList.map { proto ->
-                        proto.toNotificationEntity();
+                        proto.toNotificationEntity()
                     }
                     val hasMore = entities.size >= PAGE_SIZE
                     updateCategoryState(category, entities, notificationId == 0L, hasMore)
@@ -117,7 +128,7 @@ class NotificationStore @Inject constructor(
                         withContext(ioDispatcher) {
                             notificationDao.upsertAll(entities)
                             if (notificationId == 0L) {
-                                notificationDao.trimCategory(category, DB_CACHE_LIMIT)
+                                notificationDao.trimCategory(category, clanId, DB_CACHE_LIMIT)
                             }
                         }
                     }
@@ -125,6 +136,9 @@ class NotificationStore @Inject constructor(
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.notificationsDidLoad, category
                     )
+                    if (category == NOTIF_CATEGORY_MENTIONS) {
+                        topicBadgeTracker.get().hydrateFromNotifications(getForCategory(category).value)
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "loadCategory $category failed", e)
@@ -137,6 +151,10 @@ class NotificationStore @Inject constructor(
                         notificationCenter.postNotificationOnMainThread(
                             NotificationCenter.notificationsLoadError, category
                         )
+                    } else {
+                        notificationCenter.postNotificationOnMainThread(
+                            NotificationCenter.notificationsDidLoad, category
+                        )
                     }
                 }
             }
@@ -144,6 +162,7 @@ class NotificationStore @Inject constructor(
     }
 
     fun deleteNotification(id: Long, category: Int) {
+        val removed = getForCategory(category).value.firstOrNull { it.id == id } ?: return
         getMutableForCategory(category)?.update { old -> old.filter { it.id != id } }
         appScope.launch {
             try {
@@ -152,17 +171,23 @@ class NotificationStore @Inject constructor(
                         api.deleteNotifications(session.apiUrl, session.token, listOf(id), category)
                     }
                 }
+                withContext(ioDispatcher) {
+                    try { notificationDao.deleteById(id) } catch (_: Exception) {}
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "deleteNotification failed", e)
-            }
-            withContext(ioDispatcher) {
-                try { notificationDao.deleteById(id) } catch (_: Exception) {}
+                getMutableForCategory(category)?.update { old ->
+                    if (old.any { it.id == id }) old else listOf(removed) + old
+                }
+                notificationCenter.postNotificationOnMainThread(
+                    NotificationCenter.notificationsDidLoad, category
+                )
             }
         }
     }
 
     fun getForCategory(category: Int): StateFlow<List<NotificationEntity>> =
-        getMutableForCategory(category) ?: _mentions
+        getMutableForCategory(category) ?: _emptyCategory.asStateFlow()
 
     private fun getMutableForCategory(category: Int) = when (category) {
         NOTIF_CATEGORY_MENTIONS -> _mentions
@@ -186,7 +211,13 @@ class NotificationStore @Inject constructor(
         if (lastRecord != null) {
             try {
                 val dbData = withContext(ioDispatcher) {
-                    notificationDao.getByCategoryBefore(category, lastRecord.createTimeSeconds, lastRecord.id, PAGE_SIZE)
+                    notificationDao.getByCategoryBefore(
+                        category,
+                        currentClanId,
+                        lastRecord.createTimeSeconds,
+                        lastRecord.id,
+                        PAGE_SIZE
+                    )
                 }
                 if (dbData.isNotEmpty()) {
                     updateCategoryState(category, dbData, isRefresh = false, hasMore = dbData.size >= PAGE_SIZE)
@@ -214,8 +245,10 @@ class NotificationStore @Inject constructor(
     }
 
     private suspend fun loadFromDb(category: Int) {
+        val clanId = currentClanId
+        if (clanId == 0L) return
         val cached = withContext(ioDispatcher) {
-            notificationDao.getByCategory(category, PAGE_SIZE)
+            notificationDao.getByCategory(category, clanId, PAGE_SIZE)
         }
         if (cached.isNotEmpty()) {
             val flow = getMutableForCategory(category) ?: return
@@ -225,5 +258,32 @@ class NotificationStore @Inject constructor(
             }
         }
         dbLoadedCategories.add(category)
+    }
+
+    private suspend fun observeSocketNotifications() {
+        dispatcher.notifications.collect { notification ->
+            val clanId = notification.clanId
+            if (clanId == 0L) return@collect
+            val activeClanId = currentClanId
+            if (activeClanId == 0L || clanId != activeClanId) return@collect
+            val category = notification.category
+            val flow = getMutableForCategory(category) ?: return@collect
+            val entity = notification.toNotificationEntity()
+            var inserted = false
+            flow.update { old ->
+                if (old.any { it.id == entity.id }) old
+                else {
+                    inserted = true
+                    listOf(entity) + old
+                }
+            }
+            if (!inserted) return@collect
+            appScope.launch(ioDispatcher) {
+                try { notificationDao.upsertAll(listOf(entity)) } catch (_: Exception) {}
+            }
+            notificationCenter.postNotificationOnMainThread(
+                NotificationCenter.notificationsDidLoad, category
+            )
+        }
     }
 }

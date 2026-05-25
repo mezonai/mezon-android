@@ -8,15 +8,17 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.home.ClanMember
 import kotlinx.coroutines.*
 
 class NotificationAdapter(
-    private val theme: ThemeColors
+    private val theme: ThemeColors,
+    private val memberResolver: (Long, Long, Long, Int) -> ClanMember?
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     private val items = ArrayList<NotificationEntity>()
     private var hasMore = false
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var adapterScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var diffJob: Job? = null
 
     init { setHasStableIds(true) }
@@ -33,7 +35,8 @@ class NotificationAdapter(
 
     fun setData(list: List<NotificationEntity>, hasMoreData: Boolean = false, isTabChange: Boolean = false) {
         diffJob?.cancel()
-        if (isTabChange) {
+        val oldList = ArrayList(items)
+        if (isTabChange || (oldList.isEmpty() && list.isNotEmpty())) {
             items.clear()
             items.addAll(list)
             hasMore = hasMoreData
@@ -41,10 +44,9 @@ class NotificationAdapter(
             return
         }
 
-        val oldList = ArrayList(items)
         val oldHasMore = hasMore
 
-        diffJob = scope.launch {
+        diffJob = adapterScope.launch {
             val diffResult = withContext(Dispatchers.Default) {
                 DiffUtil.calculateDiff(object : DiffUtil.Callback() {
                     override fun getOldListSize() = oldList.size + if (oldHasMore) 1 else 0
@@ -73,9 +75,16 @@ class NotificationAdapter(
         }
     }
 
+    override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
+        super.onAttachedToRecyclerView(recyclerView)
+        if (!adapterScope.isActive) {
+            adapterScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        }
+    }
+
     override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
         diffJob?.cancel()
-        scope.cancel()
+        diffJob = null
         super.onDetachedFromRecyclerView(recyclerView)
     }
 
@@ -112,6 +121,7 @@ class NotificationAdapter(
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         if (holder is ItemVH && position < items.size) {
             val entity = items[position]
+            holder.cell.memberResolver = memberResolver
             holder.cell.update(0, entity)
         }
     }

@@ -274,6 +274,14 @@
     <string name="notif_tab_mentions">Nhắc đến</string>
     <string name="notif_tab_messages">Tin nhắn</string>
     <string name="notif_tab_topics">Chủ đề</string>
+    <string name="notif_tab_topics_empty">Không có hoạt động chủ đề</string>
+    <string name="notif_topic_and_you">Chủ đề và bạn</string>
+    <string name="notif_replied_to">Trả lời:</string>
+    <string name="topic_discussion">Thảo luận chủ đề</string>
+    <string name="topic_creator">Người tạo</string>
+    <string name="topic_view">Xem chủ đề</string>
+    <string name="topic_reply_one">Trả lời</string>
+    <string name="topic_replies">Trả lời</string>
     <string name="notif_tab_for_you">Dành cho bạn</string>
     <string name="notif_empty">Không có thông báo</string>
     <string name="notification_header">Thông báo</string>
