@@ -67,6 +67,10 @@ import com.mezon.mezon.api.ListChannelBadgeCountResponse
 import com.mezon.mezon.api.ListClanBadgeCountResponse
 import com.mezon.mezon.api.listChannelBadgeCountRequest
 import com.mezon.mezon.api.listChannelDescsRequest
+import com.mezon.mezon.api.SdTopic
+import com.mezon.mezon.api.SdTopicList
+import com.mezon.mezon.api.listSdTopicRequest
+import com.mezon.mezon.api.sdTopicDetailRequest
 import com.mezon.mezon.api.listThreadRequest
 import com.mezon.mezon.api.ListFavoriteChannelResponse
 import com.mezon.mezon.api.AddFavoriteChannelResponse
@@ -1214,6 +1218,32 @@ class MezonApi @Inject constructor(
         }
         val bytes = rpc(apiUrl, token, "ListThreadDescs", request.toByteArray())
         return ChannelDescList.parseFrom(bytes)
+    }
+
+    suspend fun listSdTopic(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        limit: Int = 50
+    ): SdTopicList {
+        val request = listSdTopicRequest {
+            this.clanId = clanId
+            this.limit = limit
+        }
+        val bytes = rpc(apiUrl, token, "ListSdTopic", request.toByteArray())
+        return SdTopicList.parseFrom(bytes)
+    }
+
+    suspend fun getTopicDetail(
+        apiUrl: String,
+        token: String,
+        topicId: Long
+    ): SdTopic {
+        val request = sdTopicDetailRequest {
+            this.topicId = topicId
+        }
+        val bytes = rpc(apiUrl, token, "GetTopicDetail", request.toByteArray())
+        return SdTopic.parseFrom(bytes)
     }
 
     suspend fun listClanDiscover(

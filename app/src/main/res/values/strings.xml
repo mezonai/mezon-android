@@ -1116,6 +1116,11 @@
     <string name="channel_settings_title_thread">Thread settings</string>
     <string name="channel_settings_thread_name_title">Thread name</string>
     <string name="channel_settings_topic_title">Topic</string>
+    <string name="topic_discussion">Discussion</string>
+    <string name="topic_creator">Creator</string>
+    <string name="topic_view">View</string>
+    <string name="topic_reply_one">reply</string>
+    <string name="topic_replies">replies</string>
     <string name="channel_settings_name_duplicate_channel">That channel name is already in use in this clan.</string>
     <string name="channel_settings_name_duplicate_thread">That thread name is already in use in this clan.</string>
     <string name="channel_settings_name_invalid_channel">Enter a valid channel name (1–64 characters).</string>
