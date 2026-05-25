@@ -14,6 +14,13 @@ const val NOTIF_CATEGORY_MENTIONS = 1
 const val NOTIF_CATEGORY_MESSAGES = 2
 const val NOTIF_CATEGORY_FOR_YOU = 3
 
+private val FOR_YOU_USERNAME_REGEX = Regex("""^([\w.]+)\s""")
+
+private fun enrichForYouUsername(category: Int, senderUsername: String, messageText: String): String {
+    if (category != NOTIF_CATEGORY_FOR_YOU || senderUsername.isNotEmpty()) return senderUsername
+    return FOR_YOU_USERNAME_REGEX.find(messageText)?.groupValues?.getOrNull(1).orEmpty()
+}
+
 @Entity(
     tableName = "notifications",
     indices = [Index(value = ["category", "clanId", "createTimeSeconds"])]
@@ -99,6 +106,7 @@ fun Notification.toNotificationEntity(): NotificationEntity {
 
 
     val resolvedAvatar = this.avatarUrl.ifEmpty { senderAvatar }
+    senderUsername = enrichForYouUsername(category, senderUsername, messageText)
 
     return NotificationEntity(
         id = id,
@@ -162,6 +170,7 @@ private fun parseNotificationItemJson(item: JSONObject): NotificationEntity {
         messageText = parseContentText(textRaw).ifEmpty { textRaw }
     }
 
+    senderUsername = enrichForYouUsername(item.optInt("category", 0), senderUsername, messageText)
 
     return NotificationEntity(
         id = id, subject = item.optString("subject", ""),

@@ -6,24 +6,22 @@ import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.chat.SdTopicEntity
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.*
 
 class TopicNotificationAdapter(
-    private val theme: ThemeColors,
-    private val memberResolver: (SdTopicEntity) -> ClanMember?
+    private val theme: ThemeColors
 ) : RecyclerView.Adapter<TopicNotificationAdapter.TopicViewHolder>() {
 
     private val items = ArrayList<SdTopicEntity>()
     private val memberCache = HashMap<Long, ClanMember>()
-    private val adapterScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var adapterScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var diffJob: Job? = null
 
     init { setHasStableIds(true) }
+
+    fun updateMemberCache(resolvedMembers: Map<Long, ClanMember>) {
+        memberCache.putAll(resolvedMembers)
+    }
 
     fun setData(list: List<SdTopicEntity>, resolvedMembers: Map<Long, ClanMember> = emptyMap(), isTabChange: Boolean = false) {
         diffJob?.cancel()
@@ -57,11 +55,15 @@ class TopicNotificationAdapter(
 
     override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
         super.onAttachedToRecyclerView(recyclerView)
+        if (!adapterScope.isActive) {
+            adapterScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        }
     }
 
     override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
         diffJob?.cancel()
         diffJob = null
+        adapterScope.cancel()
         super.onDetachedFromRecyclerView(recyclerView)
     }
 
@@ -83,8 +85,7 @@ class TopicNotificationAdapter(
         val item = items[position]
         holder.cell.memberResolver = { topic ->
             val senderId = topic.senderIdForAvatar()
-            if (senderId == 0L) null
-            else memberCache[senderId] ?: memberResolver(topic)?.also { memberCache[senderId] = it }
+            if (senderId == 0L) null else memberCache[senderId]
         }
         holder.cell.update(0, item)
     }

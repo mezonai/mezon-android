@@ -153,10 +153,7 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : BaseC
         return username + notice
     }
 
-    private fun resolveForYouUsername(n: NotificationEntity): String {
-        if (n.senderUsername.isNotEmpty()) return n.senderUsername
-        return FOR_YOU_USERNAME_REGEX.find(n.messageText)?.groupValues?.getOrNull(1).orEmpty()
-    }
+    private fun resolveForYouUsername(n: NotificationEntity): String = n.senderUsername
 
     private fun resolveAvatarUrl(n: NotificationEntity): String {
         val fromEntity = n.avatarUrl.ifBlank { n.senderAvatar }
@@ -238,7 +235,6 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : BaseC
     }
 
     companion object {
-        private val FOR_YOU_USERNAME_REGEX = Regex("""^([\w.]+)\s""")
         private val AVATAR_SIZE = LayoutHelper.dp(44)
         private val PADDING_H = LayoutHelper.dp(16)
         private val PADDING_V = LayoutHelper.dp(14)

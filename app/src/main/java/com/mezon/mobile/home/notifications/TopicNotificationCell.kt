@@ -60,7 +60,6 @@ class TopicNotificationCell(
     fun update(mask: Int, newEntity: SdTopicEntity? = null): Boolean {
         val item = newEntity ?: entity ?: return false
         if (newEntity != null) entity = newEntity
-        if (mask != 0 && newEntity == null) return false
 
         val member = memberResolver?.invoke(item)
         val displayName = member?.displayLabel().orEmpty()

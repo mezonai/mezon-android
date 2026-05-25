@@ -12,11 +12,11 @@ import com.mezon.mobile.home.ClanMember
 import kotlinx.coroutines.*
 
 class NotificationAdapter(
-    private val theme: ThemeColors,
-    private val memberResolver: (Long, Long, Long, Int) -> ClanMember?
+    private val theme: ThemeColors
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     private val items = ArrayList<NotificationEntity>()
+    private val memberCache = HashMap<Long, ClanMember>()
     private var hasMore = false
     private var adapterScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var diffJob: Job? = null
@@ -33,9 +33,19 @@ class NotificationAdapter(
         return if (position < items.size) items[position].id else LOADING_ITEM_ID
     }
 
-    fun setData(list: List<NotificationEntity>, hasMoreData: Boolean = false, isTabChange: Boolean = false) {
+    fun updateMemberCache(resolvedMembers: Map<Long, ClanMember>) {
+        memberCache.putAll(resolvedMembers)
+    }
+
+    fun setData(
+        list: List<NotificationEntity>,
+        hasMoreData: Boolean = false,
+        resolvedMembers: Map<Long, ClanMember> = emptyMap(),
+        isTabChange: Boolean = false
+    ) {
         diffJob?.cancel()
         val oldList = ArrayList(items)
+        memberCache.putAll(resolvedMembers)
         if (isTabChange || (oldList.isEmpty() && list.isNotEmpty())) {
             items.clear()
             items.addAll(list)
@@ -85,6 +95,7 @@ class NotificationAdapter(
     override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
         diffJob?.cancel()
         diffJob = null
+        adapterScope.cancel()
         super.onDetachedFromRecyclerView(recyclerView)
     }
 
@@ -121,7 +132,7 @@ class NotificationAdapter(
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         if (holder is ItemVH && position < items.size) {
             val entity = items[position]
-            holder.cell.memberResolver = memberResolver
+            holder.cell.memberResolver = { senderId, _, _, _ -> memberCache[senderId] }
             holder.cell.update(0, entity)
         }
     }

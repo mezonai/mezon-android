@@ -229,12 +229,8 @@ class NotificationsFragment : BaseFragment() {
         }
         contentFrame.addView(emptyView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
-        adapter = NotificationAdapter(theme = themeColors) { senderId, clanId, channelId, channelType ->
-            memberResolver.resolveMember(senderId, clanId, channelId, channelType)
-        }
-        topicAdapter = TopicNotificationAdapter(themeColors) { item ->
-            resolveTopicSenderMember(item)
-        }
+        adapter = NotificationAdapter(theme = themeColors)
+        topicAdapter = TopicNotificationAdapter(themeColors)
         recyclerView.adapter = adapter
         recyclerView.setOnItemClickListener(RecyclerListView.OnItemClickListener { view, _ ->
             if (currentCategory == NOTIF_TAB_TOPICS_UI) {
@@ -354,6 +350,18 @@ class NotificationsFragment : BaseFragment() {
             val senderId = item.senderIdForAvatar()
             if (senderId == 0L || senderId in result) continue
             resolveTopicSenderMember(item)?.let { result[senderId] = it }
+        }
+        return result
+    }
+
+    private fun resolveNotificationMembers(items: List<NotificationEntity>): Map<Long, ClanMember> {
+        if (items.isEmpty()) return emptyMap()
+        val result = HashMap<Long, ClanMember>(items.size)
+        for (item in items) {
+            val senderId = item.senderId
+            if (senderId == 0L || senderId in result) continue
+            memberResolver.resolveMember(senderId, item.clanId, item.channelId, item.channelType)
+                ?.let { result[senderId] = it }
         }
         return result
     }
@@ -589,7 +597,7 @@ class NotificationsFragment : BaseFragment() {
             showList(cached, isTabChanged)
         } else {
             if (isTabChanged || forceRefresh) {
-                adapter.setData(emptyList(), false, true)
+                adapter.setData(emptyList(), hasMoreData = false, isTabChange = true)
             }
             showLoading()
             isLoadingMoreMap[category] = true
@@ -628,16 +636,22 @@ class NotificationsFragment : BaseFragment() {
 
     private fun refreshVisibleAvatars() {
         if (isPaused) return
+        val mask = NotificationCenter.UPDATE_MASK_NAME or NotificationCenter.UPDATE_MASK_AVATAR
         if (currentCategory == NOTIF_TAB_TOPICS_UI) {
-            refreshTopicsList()
+            topicAdapter.updateMemberCache(resolveTopicMembers(topicController.getTopics()))
+            val count = recyclerView.childCount
+            for (i in 0 until count) {
+                val child = recyclerView.getChildAt(i)
+                if (child is TopicNotificationCell) child.update(mask)
+            }
             return
         }
+        val items = store.getForCategory(currentCategory).value
+        adapter.updateMemberCache(resolveNotificationMembers(items))
         val count = recyclerView.childCount
         for (i in 0 until count) {
-            when (val child = recyclerView.getChildAt(i)) {
-                is NotificationCell -> child.entity?.let { child.update(0, it) }
-                is TopicNotificationCell -> child.entity?.let { child.update(0, it) }
-            }
+            val child = recyclerView.getChildAt(i)
+            if (child is NotificationCell) child.update(mask)
         }
     }
 
@@ -697,7 +711,7 @@ class NotificationsFragment : BaseFragment() {
         emptyView.visibility = View.GONE
         recyclerView.visibility = View.VISIBLE
         val hasMore = store.hasMoreForCategory(currentCategory)
-        adapter.setData(items, hasMore, isTabChange)
+        adapter.setData(items, hasMore, resolveNotificationMembers(items), isTabChange)
 
         if (isTabChange) {
             val savedState = scrollStates[currentCategory]

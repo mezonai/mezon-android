@@ -303,7 +303,7 @@ class NotificationStore @Inject constructor(
                 if (old.any { it.id == entity.id }) old
                 else {
                     inserted = true
-                    listOf(entity) + old
+                    (listOf(entity) + old).take(DB_CACHE_LIMIT)
                 }
             }
             if (!inserted) return@collect
