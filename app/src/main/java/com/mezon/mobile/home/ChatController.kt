@@ -521,13 +521,11 @@ class ChatController @Inject constructor(
     }
 
     fun loadMoreBottom(channelId: Long, clanId: Long, newestMessageId: Long) {
-        Log.d(TAG, "loadMoreBottom channelId=$channelId newestMessageId=$newestMessageId")
         appScope.launch(ioDispatcher) {
             try {
                 if (!networkMonitor.isOnline.value) {
                     val fromDb = messageDao.getMessagesAfter(channelId, newestMessageId, PAGE_SIZE)
                     val hasMoreBottom = fromDb.size >= PAGE_SIZE
-                    Log.d(TAG, "loadMoreBottom offline fallback: ${fromDb.size} from DB")
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.messagesDidLoad, channelId, ArrayList(fromDb),
                         false, hasMoreBottom, false, 0L, LOAD_TYPE_MORE_BOTTOM
@@ -541,7 +539,7 @@ class ChatController @Inject constructor(
                         session.apiUrl, session.token, channelId, clanId,
                         newestMessageId, DIRECTION_AFTER, PAGE_SIZE
                     )
-                    val newer = response.messagesList
+                    val newerRenderable = response.messagesList
                         .map { it.toMessageEntity(currentUserId) }
                         .filter { it.isRenderable }
                         .sortedBy { it.id }
@@ -551,14 +549,13 @@ class ChatController @Inject constructor(
                         response.hasLastSentMessage() &&
                         response.lastSentMessage.canAdvanceServerTimeline()
                     ) response.lastSentMessage.id else 0L
-                    updateLastMessageByChannel(channelId, newer, serverLastSentId)
-                    if (newer.isNotEmpty()) {
-                        messageDao.upsertAll(newer)
+                    updateLastMessageByChannel(channelId, newerRenderable, serverLastSentId)
+                    if (newerRenderable.isNotEmpty()) {
+                        messageDao.upsertAll(newerRenderable)
                         messageDao.trimAround(channelId, newestMessageId, PAGE_SIZE * 2)
                     }
-                    Log.d(TAG, "loadMoreBottom: count=${newer.size} hasMoreBottom=$hasMoreBottom hasLastSentMessage=${response.hasLastSentMessage()} serverLastSentId=$serverLastSentId rawCount=${response.messagesList.size} newerRange=${newer.minOfOrNull { it.id }}..${newer.maxOfOrNull { it.id }}")
                     notificationCenter.postNotificationOnMainThread(
-                        NotificationCenter.messagesDidLoad, channelId, ArrayList(newer), false, hasMoreBottom, false, 0L, LOAD_TYPE_MORE_BOTTOM
+                        NotificationCenter.messagesDidLoad, channelId, ArrayList(newerRenderable), false, hasMoreBottom, false, 0L, LOAD_TYPE_MORE_BOTTOM
                     )
                 }
             } catch (e: Exception) {

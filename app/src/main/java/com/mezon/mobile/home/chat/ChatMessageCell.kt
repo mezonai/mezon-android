@@ -185,6 +185,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var errorLayout: StaticLayout? = null
     private var hasReply = false
     private var parsedContent: String = ""
+    private var hasExplicitTextBody: Boolean = false
     private var timeText: String = ""
     var channelType: Int = 0
     var clanId: Long = 0L
@@ -460,6 +461,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
             if (newMsg != null) messageEntity = newMsg
             parsedContent = parseContentText(msg.content)
+            hasExplicitTextBody = messageHasExplicitTextBody(msg.content)
             timeText = formatRelativeTime(msg.timestampSeconds)
             drawPhotoImage = msg.hasAnyMedia
             val isAudioAtt = msg.isAudioAttachment && !msg.hasAnyMedia
@@ -511,6 +513,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             val newParsed = parseContentText(msg.content)
             if (newParsed != parsedContent || msg.content != prevRaw) {
                 parsedContent = newParsed
+                hasExplicitTextBody = messageHasExplicitTextBody(msg.content)
                 rebuildLayout = true
             }
         }
@@ -1125,7 +1128,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val hasText = !hasCallLogCard && !msg.isPollMessage && !hasShareContactCard &&
             parsedContent.isNotBlank() && parsedContent != "[file]" && parsedContent != "[embed]" &&
             parsedContent != "[contact]" &&
-            (!hasEmbedPayload || messageHasExplicitTextBody(msg.content))
+            (!hasEmbedPayload || hasExplicitTextBody)
         contentLayout = if (hasText) {
             val content = msg.content
             val linkColor = theme.blurple

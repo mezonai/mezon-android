@@ -5185,7 +5185,7 @@ class ChatFragment : BaseFragment() {
             }
             MessageActionBottomSheet.ActionType.CopyText -> {
                 val ctx = getContext() ?: return
-                val plainText = parseContentText(msg.content).ifBlank { msg.content }
+                val plainText = parseContentText(msg.content)
                 val clipboard = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                 clipboard.setPrimaryClip(android.content.ClipData.newPlainText("message", plainText))
                 MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.message_toast_copy_text))
