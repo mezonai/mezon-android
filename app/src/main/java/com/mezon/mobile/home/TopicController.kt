@@ -8,6 +8,7 @@ import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.home.chat.SdTopicEntity
 import com.mezon.mobile.home.chat.toSdTopicEntity
 import com.mezon.mobile.home.chat.toSdTopicEntityFromEvent
+import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.network.SocketEventDispatcher
 import com.mezon.mobile.session.SessionManager
@@ -26,6 +27,7 @@ class TopicController @Inject constructor(
     private val sessionManager: SessionManager,
     private val dispatcher: SocketEventDispatcher,
     private val notificationCenter: NotificationCenter,
+    private val channelController: dagger.Lazy<ChannelController>,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     @ApplicationScope private val appScope: CoroutineScope
 ) {
@@ -53,6 +55,9 @@ class TopicController @Inject constructor(
         if (clanId == 0L) return
         synchronized(this) {
             if (currentClanId == clanId && topics.isNotEmpty()) return
+            if (currentClanId != 0L && currentClanId != clanId) {
+                channelController.get().clearSdTopicsForClan(currentClanId)
+            }
             topics.clear()
             topicsDict.clear()
             currentClanId = 0L
@@ -92,6 +97,7 @@ class TopicController @Inject constructor(
                         items.forEach { topicsDict.put(it.id, it) }
                         clanBound = true
                     }
+                    channelController.get().registerSdTopicChannels(items)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "loadTopics failed clanId=$clanId", e)
@@ -126,9 +132,9 @@ class TopicController @Inject constructor(
                 if (existing != null) {
                     val index = topics.indexOfFirst { it.id == entity.id }
                     if (index >= 0) {
-                        topics[index] = entity
+                        topics.removeAt(index)
+                        topics.add(0, entity)
                         topicsDict.put(entity.id, entity)
-                        topics.sortByDescending { it.lastSentTimestampSeconds.takeIf { ts -> ts > 0L } ?: it.updateTimeSeconds }
                         shouldReload = true
                     }
                 } else {
@@ -138,6 +144,7 @@ class TopicController @Inject constructor(
                 }
             }
             if (shouldReload) {
+                channelController.get().registerSdTopicChannel(entity)
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.topicsNeedReload)
             }
         }
@@ -150,10 +157,11 @@ class TopicController @Inject constructor(
             val clanId = message.clanId
             if (clanId == 0L) return@collect
             var shouldReload = false
+            var updated: SdTopicEntity? = null
             synchronized(this) {
                 if (!clanBound || clanId != currentClanId) return@collect
                 val existing = topicsDict.get(topicId) ?: return@collect
-                val updated = existing.copy(
+                updated = existing.copy(
                     lastSentMessageId = message.messageId,
                     lastSentSenderId = message.senderId,
                     lastSentContent = message.content,
@@ -161,13 +169,14 @@ class TopicController @Inject constructor(
                 )
                 val index = topics.indexOfFirst { it.id == topicId }
                 if (index >= 0) {
-                    topics[index] = updated
-                    topicsDict.put(topicId, updated)
-                    topics.sortByDescending { it.lastSentTimestampSeconds.takeIf { ts -> ts > 0L } ?: it.updateTimeSeconds }
+                    topics.removeAt(index)
+                    topics.add(0, updated!!)
+                    topicsDict.put(topicId, updated!!)
                     shouldReload = true
                 }
             }
-            if (shouldReload) {
+            if (shouldReload && updated != null) {
+                channelController.get().registerSdTopicChannel(updated!!)
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.topicsNeedReload)
             }
         }

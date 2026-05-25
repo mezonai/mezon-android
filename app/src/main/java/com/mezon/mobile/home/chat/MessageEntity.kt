@@ -38,7 +38,10 @@ data class ReactionGroup(
 @Entity(
     tableName = "messages",
     primaryKeys = ["channelId", "id"],
-    indices = [Index(value = ["channelId", "timestampSeconds"])]
+    indices = [
+        Index(value = ["channelId", "timestampSeconds"]),
+        Index(value = ["channelId", "topicId"])
+    ]
 )
 data class MessageEntity(
     val id: Long,

@@ -19,6 +19,8 @@ import com.mezon.mobile.network.SocketEventDispatcher
 import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mezon.api.ChannelDescription
+import com.mezon.mobile.home.chat.SdTopicEntity
+import com.mezon.mobile.home.chat.toClanChannelEntity
 import com.mezon.mezon.rtapi.LastSeenMessageEvent
 import com.mezon.mezon.rtapi.UserChannelAdded
 import com.mezon.mezon.rtapi.UserChannelRemoved
@@ -71,6 +73,7 @@ class ChannelController @Inject constructor(
     private val channelListLoading = ConcurrentHashMap<Long, Boolean>()
     private val channelListNetworkFetchInflight = ConcurrentHashMap.newKeySet<Long>()
     private val favoritesByClan = ConcurrentHashMap<Long, MutableSet<Long>>()
+    private val sdTopicChannelsById = ConcurrentHashMap<Long, ClanChannelEntity>()
 
     init {
         observeSocketEvents()
@@ -80,6 +83,7 @@ class ChannelController @Inject constructor(
 
     fun cleanup() {
         _channelsByClan.value = emptyMap()
+        sdTopicChannelsById.clear()
         currentOpenChannelId = 0L
         currentOpenTopicId = 0L
         synchronized(badgeKeyLock) { processedBadgeKeys.clear() }
@@ -94,6 +98,7 @@ class ChannelController @Inject constructor(
 
     fun purgeClanChannelsCache(clanId: Long) {
         if (clanId == 0L) return
+        clearSdTopicsForClan(clanId)
         val m = _channelsByClan.value.toMutableMap()
         m.remove(clanId)
         _channelsByClan.value = m
@@ -228,6 +233,7 @@ class ChannelController @Inject constructor(
         _channelsByClan.value[clanId] ?: emptyList()
 
     fun findChannelById(channelId: Long): ClanChannelEntity? {
+        sdTopicChannelsById[channelId]?.let { return it }
         val current = _channelsByClan.value
         if (_channelByIdSnapshot !== current) {
             synchronized(this) {
@@ -246,6 +252,9 @@ class ChannelController @Inject constructor(
     }
 
     fun findChannelById(channelId: Long, clanId: Long): ClanChannelEntity? {
+        sdTopicChannelsById[channelId]?.let { ch ->
+            if (clanId == 0L || ch.clanId == clanId) return ch
+        }
         if (clanId != 0L) {
             val list = _channelsByClan.value[clanId]
             if (list != null) {
@@ -358,6 +367,27 @@ class ChannelController @Inject constructor(
                     api.removeFavoriteChannel(session.apiUrl, session.token, clanId, channelId)
                 }
             }
+        }
+    }
+
+    fun registerSdTopicChannels(topics: List<SdTopicEntity>) {
+        for (topic in topics) {
+            registerSdTopicChannel(topic)
+        }
+    }
+
+    fun registerSdTopicChannel(topic: SdTopicEntity) {
+        if (topic.id == 0L || topic.clanId == 0L) return
+        val existing = sdTopicChannelsById[topic.id]
+        val parent = findChannelById(topic.channelId, topic.clanId)
+        sdTopicChannelsById[topic.id] = topic.toClanChannelEntity(parent, existing)
+    }
+
+    fun clearSdTopicsForClan(clanId: Long) {
+        if (clanId == 0L) return
+        val toRemove = sdTopicChannelsById.filterValues { it.clanId == clanId }.keys
+        for (id in toRemove) {
+            sdTopicChannelsById.remove(id)
         }
     }
 
@@ -598,6 +628,7 @@ class ChannelController @Inject constructor(
     }
 
     private fun findClanIdForChannel(channelId: Long): Long {
+        sdTopicChannelsById[channelId]?.clanId?.takeIf { it != 0L }?.let { return it }
         for ((clanId, channels) in _channelsByClan.value) {
             if (channels.any { it.channelId == channelId }) return clanId
         }
@@ -652,6 +683,16 @@ class ChannelController @Inject constructor(
     }
 
     fun updateLastSentMessage(channelId: Long, messageId: Long, createTimeSeconds: Long = 0L) {
+        sdTopicChannelsById[channelId]?.let { ch ->
+            if (messageId <= ch.lastSentMessageId) return
+            val ts = createTimeSeconds and 0xFFFF_FFFFL
+            val newSentTs = if (ts > 0L) maxOf(ch.lastSentMessageTs, ts) else ch.lastSentMessageTs
+            sdTopicChannelsById[channelId] = ch.copy(
+                lastSentMessageId = messageId,
+                lastSentMessageTs = newSentTs
+            )
+            return
+        }
         for ((clanId, channels) in _channelsByClan.value) {
             val idx = channels.indexOfFirst { it.channelId == channelId }
             if (idx >= 0) {
@@ -679,6 +720,17 @@ class ChannelController @Inject constructor(
         updateClanBadge: Boolean = true
     ): Boolean {
         if (delta == 0) return false
+        sdTopicChannelsById[channelId]?.let { ch ->
+            val newLastSent = if (messageId > ch.lastSentMessageId) messageId else ch.lastSentMessageId
+            sdTopicChannelsById[channelId] = ch.copy(
+                lastSentMessageId = newLastSent,
+                unreadCount = (ch.unreadCount + delta).coerceAtLeast(0)
+            )
+            if (updateClanBadge) {
+                clansController.get().updateClanBadgeCount(ch.clanId, delta)
+            }
+            return true
+        }
         for ((clanId, channels) in _channelsByClan.value) {
             val idx = channels.indexOfFirst { it.channelId == channelId }
             if (idx >= 0) {
@@ -707,6 +759,26 @@ class ChannelController @Inject constructor(
         remainingUnread: Int,
         timestampSeconds: Int = 0
     ) {
+        sdTopicChannelsById[channelId]?.let { ch ->
+            if (messageId <= ch.lastSeenMessageId) return
+            val oldUnread = ch.unreadCount
+            val newUnread = remainingUnread.coerceAtLeast(0)
+            if (newUnread == oldUnread && messageId == ch.lastSeenMessageId) return
+            val tsLong = timestampSeconds.toLong() and 0xFFFF_FFFFL
+            val syncTs = when {
+                newUnread == 0 -> maxOf(ch.lastSeenMessageTs, ch.lastSentMessageTs, tsLong)
+                tsLong > 0L -> maxOf(ch.lastSeenMessageTs, tsLong)
+                else -> ch.lastSeenMessageTs
+            }
+            sdTopicChannelsById[channelId] = ch.copy(
+                lastSeenMessageId = messageId,
+                unreadCount = newUnread,
+                lastSeenMessageTs = syncTs
+            )
+            val delta = newUnread - oldUnread
+            if (delta != 0) clansController.get().updateClanBadgeCount(ch.clanId, delta)
+            return
+        }
         for ((clanId, channels) in _channelsByClan.value) {
             val idx = channels.indexOfFirst { it.channelId == channelId }
             if (idx >= 0) {
@@ -740,6 +812,20 @@ class ChannelController @Inject constructor(
     }
 
     fun markChannelAsRead(channelId: Long, seenTimestampSeconds: Int = 0, seenMessageId: Long = 0L) {
+        sdTopicChannelsById[channelId]?.let { ch ->
+            if (!ch.hasUnread && ch.unreadCount == 0 && seenMessageId <= ch.lastSeenMessageId) return
+            val oldUnread = ch.unreadCount
+            val newSeenId = maxOf(ch.lastSeenMessageId, ch.lastSentMessageId, seenMessageId)
+            val tsLong = seenTimestampSeconds.toLong() and 0xFFFF_FFFFL
+            val newSeenTs = maxOf(ch.lastSeenMessageTs, ch.lastSentMessageTs, tsLong)
+            sdTopicChannelsById[channelId] = ch.copy(
+                unreadCount = 0,
+                lastSeenMessageId = newSeenId,
+                lastSeenMessageTs = newSeenTs
+            )
+            if (oldUnread > 0) clansController.get().updateClanBadgeCount(ch.clanId, -oldUnread)
+            return
+        }
         for ((clanId, channels) in _channelsByClan.value) {
             val idx = channels.indexOfFirst { it.channelId == channelId }
             if (idx >= 0) {
@@ -768,6 +854,19 @@ class ChannelController @Inject constructor(
     }
 
     fun updateLastSeen(channelId: Long, messageId: Long, timestampSeconds: Int = 0) {
+        sdTopicChannelsById[channelId]?.let { ch ->
+            if (messageId <= ch.lastSeenMessageId) return
+            val oldUnread = ch.unreadCount
+            val tsLong = timestampSeconds.toLong() and 0xFFFF_FFFFL
+            val newSeenTs = maxOf(ch.lastSeenMessageTs, ch.lastSentMessageTs, tsLong)
+            sdTopicChannelsById[channelId] = ch.copy(
+                lastSeenMessageId = messageId,
+                unreadCount = 0,
+                lastSeenMessageTs = newSeenTs
+            )
+            if (oldUnread > 0) clansController.get().updateClanBadgeCount(ch.clanId, -oldUnread)
+            return
+        }
         for ((clanId, channels) in _channelsByClan.value) {
             val idx = channels.indexOfFirst { it.channelId == channelId }
             if (idx >= 0) {
@@ -812,9 +911,25 @@ class ChannelController @Inject constructor(
     private fun applyLastSeenTsOnlyFromSocket(channelId: Long, timestampSeconds: Int, badgeCount: Int) {
         val tsLong = timestampSeconds.toLong() and 0xFFFF_FFFFL
         if (tsLong == 0L) return
+        sdTopicChannelsById[channelId]?.let { ch ->
+            val newSeenTs = maxOf(ch.lastSeenMessageTs, tsLong)
+            val newUnread = badgeCount.coerceAtLeast(0)
+            if (newSeenTs == ch.lastSeenMessageTs && newUnread == ch.unreadCount) return
+            val oldUnread = ch.unreadCount
+            sdTopicChannelsById[channelId] = ch.copy(
+                lastSeenMessageTs = newSeenTs,
+                unreadCount = newUnread
+            )
+            val delta = newUnread - oldUnread
+            if (delta != 0) clansController.get().updateClanBadgeCount(ch.clanId, delta)
+            notificationCenter.postNotificationOnMainThread(
+                NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_BADGE
+            )
+            return
+        }
         for ((clanId, channels) in _channelsByClan.value) {
             val idx = channels.indexOfFirst { it.channelId == channelId }
-            if (idx < 0) return
+            if (idx < 0) continue
             val ch = channels[idx]
             val newSeenTs = maxOf(ch.lastSeenMessageTs, tsLong)
             val newUnread = badgeCount.coerceAtLeast(0)

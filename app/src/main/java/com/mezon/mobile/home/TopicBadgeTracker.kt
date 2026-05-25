@@ -41,6 +41,7 @@ class TopicBadgeTracker @Inject constructor(
     private val processedTopicChannelKeys = HashSet<String>()
     private val processedTopicParentKeys = HashSet<String>()
     private val topicClanBadgeApplied = HashMap<Long, Int>()
+    private val selfRoleIdsByClan = HashMap<Long, List<Long>>()
     private val lock = Any()
 
     fun onReconnect() {
@@ -50,6 +51,7 @@ class TopicBadgeTracker @Inject constructor(
             processedTopicChannelKeys.clear()
             processedTopicParentKeys.clear()
             topicClanBadgeApplied.clear()
+            selfRoleIdsByClan.clear()
         }
         postTopicBadgeChanged()
     }
@@ -104,6 +106,8 @@ class TopicBadgeTracker @Inject constructor(
                     notification.messageId
                 )
             ) {
+                channelController.get().adjustChannelUnread(parentChannelId, 1, updateClanBadge = false)
+                bumpTopicClanBadge(notification.clanId, notification.topicId, notification.messageId)
                 changed = true
             }
         }
@@ -193,12 +197,21 @@ class TopicBadgeTracker @Inject constructor(
             processedTopicChannelKeys.add(badgeKey)
             trimProcessedKeys(processedTopicChannelKeys)
         }
+        bumpTopicClanBadge(clanId, topicId, messageId)
+        return true
+    }
+
+    private fun bumpTopicClanBadge(clanId: Long, topicId: Long, messageId: Long) {
         if (channelController.get().incrementUnread(topicId, messageId, updateClanBadge = true)) {
             synchronized(lock) {
                 topicClanBadgeApplied[topicId] = (topicClanBadgeApplied[topicId] ?: 0) + 1
             }
+        } else {
+            synchronized(lock) {
+                topicClanBadgeApplied[topicId] = (topicClanBadgeApplied[topicId] ?: 0) + 1
+            }
+            clansController.get().updateClanBadgeCount(clanId, 1)
         }
-        return true
     }
 
     private fun incrementTopicParentBadge(
@@ -222,11 +235,18 @@ class TopicBadgeTracker @Inject constructor(
 
     private fun resolveSelfRoleIds(clanId: Long, currentUserId: Long): List<Long> {
         if (clanId == 0L || currentUserId == 0L) return emptyList()
+        synchronized(lock) {
+            selfRoleIdsByClan[clanId]?.let { return it }
+        }
         val selfId = userController.get().userId.takeIf { it != 0L } ?: currentUserId
-        return userClanController.get().getClanMembers(clanId)
+        val roles = userClanController.get().getClanMembers(clanId)
             .firstOrNull { it.userId == selfId }
             ?.roleIds
             .orEmpty()
+        synchronized(lock) {
+            selfRoleIdsByClan[clanId] = roles
+        }
+        return roles
     }
 
     private fun trimProcessedKeys(keys: HashSet<String>) {

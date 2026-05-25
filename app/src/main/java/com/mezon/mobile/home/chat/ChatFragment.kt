@@ -2825,9 +2825,11 @@ open class ChatFragment : BaseFragment() {
         }
         if (roots.isEmpty()) return
         appScope.launch(ioDispatcher) {
+            val ids = roots.map { it.second.id }
+            val freshMap = chatController.getMessagesByIds(channelId, ids)
             val updates = ArrayList<Pair<Int, MessageEntity>>()
             for ((index, msg) in roots) {
-                val fresh = chatController.getMessageById(channelId, msg.id) ?: continue
+                val fresh = freshMap[msg.id] ?: continue
                 if (fresh.rplCount != msg.rplCount ||
                     fresh.lastSentSeconds != msg.lastSentSeconds ||
                     fresh.content != msg.content

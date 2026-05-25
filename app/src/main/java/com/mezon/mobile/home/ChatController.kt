@@ -244,6 +244,12 @@ class ChatController @Inject constructor(
     suspend fun getMessageById(channelId: Long, messageId: Long): MessageEntity? =
         withContext(ioDispatcher) { messageDao.getById(channelId, messageId) }
 
+    suspend fun getMessagesByIds(channelId: Long, ids: List<Long>): Map<Long, MessageEntity> =
+        withContext(ioDispatcher) {
+            if (ids.isEmpty()) return@withContext emptyMap()
+            messageDao.getByIds(channelId, ids).associateBy { it.id }
+        }
+
     fun publishCreatedPollMessage(
         channelId: Long,
         clanId: Long,
@@ -1754,6 +1760,10 @@ class ChatController @Inject constructor(
         if (cachedRef != null) {
             messageDao.getById(cachedRef.parentChannelId, cachedRef.rootMessageId)?.let { return it }
         }
+        messageDao.getLatestByTopicId(parentChannelId, topicId)?.let { found ->
+            cacheTopicRoot(topicId, parentChannelId, found.id)
+            return found
+        }
         val latest = messageDao.getLatestByChannel(parentChannelId, 200)
         return latest.firstOrNull { it.effectiveTopicId == topicId || it.topicId == topicId }
             ?: latest.firstOrNull {
@@ -1774,6 +1784,7 @@ class ChatController @Inject constructor(
         val root = findTopicRootMessage(topicId, parentChannelId) ?: return
         val newRpl = (root.rplCount + increment).coerceAtLeast(0)
         val newLastSent = if (increment > 0 && timestampSeconds > 0L) timestampSeconds else root.lastSentSeconds
+        if (newRpl == root.rplCount && newLastSent == root.lastSentSeconds) return
         val updated = root.withTopicStats(newRpl, newLastSent)
         messageDao.upsert(updated)
         notificationCenter.postNotificationOnMainThread(
@@ -1887,14 +1898,6 @@ class ChatController @Inject constructor(
                         appScope.launch(ioDispatcher) {
                             messageDao.upsert(topicEntity)
                             updateTopicRootStats(msg.topicId, msg.channelId, 1, topicEntity.timestampSeconds)
-                        }
-                        if (topicEntity.canAdvanceServerTimeline()) {
-                            synchronized(this) {
-                                dialogMessage.put(topicEntity.channelId, topicEntity)
-                                if (topicEntity.id > lastMessageByChannel.get(topicEntity.channelId, 0L)) {
-                                    lastMessageByChannel.put(topicEntity.channelId, topicEntity.id)
-                                }
-                            }
                         }
                         notificationCenter.postNotificationOnMainThread(
                             NotificationCenter.didReceiveNewMessages, topicEntity.channelId, topicEntity
