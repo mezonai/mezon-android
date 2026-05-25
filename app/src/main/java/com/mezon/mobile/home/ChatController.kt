@@ -1901,6 +1901,13 @@ class ChatController @Inject constructor(
                             messageDao.upsert(topicEntity)
                             updateTopicRootStats(msg.topicId, msg.channelId, 1, topicEntity.timestampSeconds)
                         }
+                        if (topicEntity.canAdvanceServerTimeline()) {
+                            synchronized(this) {
+                                if (topicEntity.id > lastMessageByChannel.get(topicEntity.channelId, 0L)) {
+                                    lastMessageByChannel.put(topicEntity.channelId, topicEntity.id)
+                                }
+                            }
+                        }
                         notificationCenter.postNotificationOnMainThread(
                             NotificationCenter.didReceiveNewMessages, topicEntity.channelId, topicEntity
                         )

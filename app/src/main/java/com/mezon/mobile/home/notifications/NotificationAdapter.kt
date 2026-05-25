@@ -45,14 +45,16 @@ class NotificationAdapter(
     ) {
         diffJob?.cancel()
         val oldList = ArrayList(items)
-        memberCache.putAll(resolvedMembers)
         if (isTabChange || (oldList.isEmpty() && list.isNotEmpty())) {
             items.clear()
             items.addAll(list)
+            memberCache.clear()
+            memberCache.putAll(resolvedMembers)
             hasMore = hasMoreData
             notifyDataSetChanged()
             return
         }
+        memberCache.putAll(resolvedMembers)
 
         val oldHasMore = hasMore
 

@@ -378,9 +378,10 @@ class ChannelController @Inject constructor(
 
     fun registerSdTopicChannel(topic: SdTopicEntity) {
         if (topic.id == 0L || topic.clanId == 0L) return
-        val existing = sdTopicChannelsById[topic.id]
         val parent = findChannelById(topic.channelId, topic.clanId)
-        sdTopicChannelsById[topic.id] = topic.toClanChannelEntity(parent, existing)
+        sdTopicChannelsById.compute(topic.id) { _, existing ->
+            topic.toClanChannelEntity(parent, existing)
+        }
     }
 
     fun clearSdTopicsForClan(clanId: Long) {
@@ -683,16 +684,13 @@ class ChannelController @Inject constructor(
     }
 
     fun updateLastSentMessage(channelId: Long, messageId: Long, createTimeSeconds: Long = 0L) {
-        sdTopicChannelsById[channelId]?.let { ch ->
-            if (messageId <= ch.lastSentMessageId) return
+        val wasTopic = sdTopicChannelsById.computeIfPresent(channelId) { _, ch ->
+            if (messageId <= ch.lastSentMessageId) return@computeIfPresent ch
             val ts = createTimeSeconds and 0xFFFF_FFFFL
             val newSentTs = if (ts > 0L) maxOf(ch.lastSentMessageTs, ts) else ch.lastSentMessageTs
-            sdTopicChannelsById[channelId] = ch.copy(
-                lastSentMessageId = messageId,
-                lastSentMessageTs = newSentTs
-            )
-            return
-        }
+            ch.copy(lastSentMessageId = messageId, lastSentMessageTs = newSentTs)
+        } != null
+        if (wasTopic) return
         for ((clanId, channels) in _channelsByClan.value) {
             val idx = channels.indexOfFirst { it.channelId == channelId }
             if (idx >= 0) {
@@ -720,14 +718,18 @@ class ChannelController @Inject constructor(
         updateClanBadge: Boolean = true
     ): Boolean {
         if (delta == 0) return false
-        sdTopicChannelsById[channelId]?.let { ch ->
+        var topicClanId = 0L
+        val wasTopic = sdTopicChannelsById.computeIfPresent(channelId) { _, ch ->
+            topicClanId = ch.clanId
             val newLastSent = if (messageId > ch.lastSentMessageId) messageId else ch.lastSentMessageId
-            sdTopicChannelsById[channelId] = ch.copy(
+            ch.copy(
                 lastSentMessageId = newLastSent,
                 unreadCount = (ch.unreadCount + delta).coerceAtLeast(0)
             )
+        } != null
+        if (wasTopic) {
             if (updateClanBadge) {
-                clansController.get().updateClanBadgeCount(ch.clanId, delta)
+                clansController.get().updateClanBadgeCount(topicClanId, delta)
             }
             return true
         }
@@ -759,24 +761,29 @@ class ChannelController @Inject constructor(
         remainingUnread: Int,
         timestampSeconds: Int = 0
     ) {
-        sdTopicChannelsById[channelId]?.let { ch ->
-            if (messageId <= ch.lastSeenMessageId) return
+        var topicClanId = 0L
+        var topicDelta = 0
+        val wasTopic = sdTopicChannelsById.computeIfPresent(channelId) { _, ch ->
+            topicClanId = ch.clanId
+            if (messageId <= ch.lastSeenMessageId) return@computeIfPresent ch
             val oldUnread = ch.unreadCount
             val newUnread = remainingUnread.coerceAtLeast(0)
-            if (newUnread == oldUnread && messageId == ch.lastSeenMessageId) return
+            if (newUnread == oldUnread && messageId == ch.lastSeenMessageId) return@computeIfPresent ch
             val tsLong = timestampSeconds.toLong() and 0xFFFF_FFFFL
             val syncTs = when {
                 newUnread == 0 -> maxOf(ch.lastSeenMessageTs, ch.lastSentMessageTs, tsLong)
                 tsLong > 0L -> maxOf(ch.lastSeenMessageTs, tsLong)
                 else -> ch.lastSeenMessageTs
             }
-            sdTopicChannelsById[channelId] = ch.copy(
+            topicDelta = newUnread - oldUnread
+            ch.copy(
                 lastSeenMessageId = messageId,
                 unreadCount = newUnread,
                 lastSeenMessageTs = syncTs
             )
-            val delta = newUnread - oldUnread
-            if (delta != 0) clansController.get().updateClanBadgeCount(ch.clanId, delta)
+        } != null
+        if (wasTopic) {
+            if (topicDelta != 0) clansController.get().updateClanBadgeCount(topicClanId, topicDelta)
             return
         }
         for ((clanId, channels) in _channelsByClan.value) {
@@ -812,18 +819,23 @@ class ChannelController @Inject constructor(
     }
 
     fun markChannelAsRead(channelId: Long, seenTimestampSeconds: Int = 0, seenMessageId: Long = 0L) {
-        sdTopicChannelsById[channelId]?.let { ch ->
-            if (!ch.hasUnread && ch.unreadCount == 0 && seenMessageId <= ch.lastSeenMessageId) return
-            val oldUnread = ch.unreadCount
+        var topicClanId = 0L
+        var topicOldUnread = 0
+        val wasTopic = sdTopicChannelsById.computeIfPresent(channelId) { _, ch ->
+            topicClanId = ch.clanId
+            if (!ch.hasUnread && ch.unreadCount == 0 && seenMessageId <= ch.lastSeenMessageId) return@computeIfPresent ch
+            topicOldUnread = ch.unreadCount
             val newSeenId = maxOf(ch.lastSeenMessageId, ch.lastSentMessageId, seenMessageId)
             val tsLong = seenTimestampSeconds.toLong() and 0xFFFF_FFFFL
             val newSeenTs = maxOf(ch.lastSeenMessageTs, ch.lastSentMessageTs, tsLong)
-            sdTopicChannelsById[channelId] = ch.copy(
+            ch.copy(
                 unreadCount = 0,
                 lastSeenMessageId = newSeenId,
                 lastSeenMessageTs = newSeenTs
             )
-            if (oldUnread > 0) clansController.get().updateClanBadgeCount(ch.clanId, -oldUnread)
+        } != null
+        if (wasTopic) {
+            if (topicOldUnread > 0) clansController.get().updateClanBadgeCount(topicClanId, -topicOldUnread)
             return
         }
         for ((clanId, channels) in _channelsByClan.value) {
@@ -854,17 +866,22 @@ class ChannelController @Inject constructor(
     }
 
     fun updateLastSeen(channelId: Long, messageId: Long, timestampSeconds: Int = 0) {
-        sdTopicChannelsById[channelId]?.let { ch ->
-            if (messageId <= ch.lastSeenMessageId) return
-            val oldUnread = ch.unreadCount
+        var topicClanId = 0L
+        var topicOldUnread = 0
+        val wasTopic = sdTopicChannelsById.computeIfPresent(channelId) { _, ch ->
+            topicClanId = ch.clanId
+            if (messageId <= ch.lastSeenMessageId) return@computeIfPresent ch
+            topicOldUnread = ch.unreadCount
             val tsLong = timestampSeconds.toLong() and 0xFFFF_FFFFL
             val newSeenTs = maxOf(ch.lastSeenMessageTs, ch.lastSentMessageTs, tsLong)
-            sdTopicChannelsById[channelId] = ch.copy(
+            ch.copy(
                 lastSeenMessageId = messageId,
                 unreadCount = 0,
                 lastSeenMessageTs = newSeenTs
             )
-            if (oldUnread > 0) clansController.get().updateClanBadgeCount(ch.clanId, -oldUnread)
+        } != null
+        if (wasTopic) {
+            if (topicOldUnread > 0) clansController.get().updateClanBadgeCount(topicClanId, -topicOldUnread)
             return
         }
         for ((clanId, channels) in _channelsByClan.value) {
@@ -911,20 +928,25 @@ class ChannelController @Inject constructor(
     private fun applyLastSeenTsOnlyFromSocket(channelId: Long, timestampSeconds: Int, badgeCount: Int) {
         val tsLong = timestampSeconds.toLong() and 0xFFFF_FFFFL
         if (tsLong == 0L) return
-        sdTopicChannelsById[channelId]?.let { ch ->
+        var topicClanId = 0L
+        var topicDelta = 0
+        var topicChanged = false
+        val wasTopic = sdTopicChannelsById.computeIfPresent(channelId) { _, ch ->
+            topicClanId = ch.clanId
             val newSeenTs = maxOf(ch.lastSeenMessageTs, tsLong)
             val newUnread = badgeCount.coerceAtLeast(0)
-            if (newSeenTs == ch.lastSeenMessageTs && newUnread == ch.unreadCount) return
-            val oldUnread = ch.unreadCount
-            sdTopicChannelsById[channelId] = ch.copy(
-                lastSeenMessageTs = newSeenTs,
-                unreadCount = newUnread
-            )
-            val delta = newUnread - oldUnread
-            if (delta != 0) clansController.get().updateClanBadgeCount(ch.clanId, delta)
-            notificationCenter.postNotificationOnMainThread(
-                NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_BADGE
-            )
+            if (newSeenTs == ch.lastSeenMessageTs && newUnread == ch.unreadCount) return@computeIfPresent ch
+            topicChanged = true
+            topicDelta = newUnread - ch.unreadCount
+            ch.copy(lastSeenMessageTs = newSeenTs, unreadCount = newUnread)
+        } != null
+        if (wasTopic) {
+            if (topicChanged) {
+                if (topicDelta != 0) clansController.get().updateClanBadgeCount(topicClanId, topicDelta)
+                notificationCenter.postNotificationOnMainThread(
+                    NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_BADGE
+                )
+            }
             return
         }
         for ((clanId, channels) in _channelsByClan.value) {
