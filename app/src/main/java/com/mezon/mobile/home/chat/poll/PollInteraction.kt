@@ -23,8 +23,35 @@ data class PollLocalState(
 sealed class PollTap {
     data class ToggleOption(val answerIndex: Int) : PollTap()
     data object PrimaryAction : PollTap()
+    /** "View details" link — opens full voter breakdown modal. */
+    data object ViewDetails : PollTap()
+    /** Footer vote count / time row — opens poll detail modal. */
     data object FooterStats : PollTap()
     data object ToggleExpandOptions : PollTap()
+}
+
+/** Mirrors [com.mezon.mobile.home.chat.poll.PollMessageLayout] primary button labels. */
+enum class PollPrimaryIntent {
+    BackToVote,
+    RemoveVote,
+    CastVote,
+    /** Unvoted, no selection — "View results" toggles inline % / vote counts on options. */
+    ShowResultsPreview,
+}
+
+fun resolvePollPrimaryIntent(
+    parsed: ParsedPoll,
+    state: PollLocalState,
+    hasVoted: Boolean,
+    expired: Boolean,
+): PollPrimaryIntent? {
+    if (parsed.isClosed || expired) return null
+    return when {
+        state.showResultsPreview && !hasVoted -> PollPrimaryIntent.BackToVote
+        hasVoted -> PollPrimaryIntent.RemoveVote
+        state.selection.isNotEmpty() -> PollPrimaryIntent.CastVote
+        else -> PollPrimaryIntent.ShowResultsPreview
+    }
 }
 
 fun PollLocalState.withSelection(transform: (Set<Int>) -> Set<Int>): PollLocalState =

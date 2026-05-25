@@ -116,11 +116,16 @@ import com.mezon.mobile.util.resolveStickerSourceUrl
 import com.mezon.mobile.util.firstReferenceMessageId
 import com.mezon.mobile.core.SharedConfig
 import com.mezon.mobile.home.chat.poll.ChatPollBridge
+import com.mezon.mobile.home.chat.poll.CreatePollFragment
 import com.mezon.mobile.home.chat.poll.ParsedPoll
 import com.mezon.mobile.home.chat.poll.PollDetailModal
 import com.mezon.mobile.home.chat.poll.PollLocalState
+import com.mezon.mobile.home.chat.poll.PollSubmitPayload
+import com.mezon.mobile.home.chat.poll.PollPrimaryIntent
 import com.mezon.mobile.home.chat.poll.PollTap
 import com.mezon.mobile.home.chat.poll.PollVotePersistence
+import com.mezon.mobile.home.chat.poll.resolvePollPrimaryIntent
+import com.mezon.mobile.home.chat.poll.canCreatePoll
 import com.mezon.mobile.home.chat.poll.mergePollFromGetResponse
 import com.mezon.mobile.home.chat.poll.parsePollContent
 import com.mezon.mobile.home.chat.poll.votedAnswerIndices
@@ -140,6 +145,7 @@ import com.mezon.mobile.core.SizeNotifierFrameLayout
 import com.mezon.mobile.home.chat.emoji.EmojiView
 import com.mezon.mobile.util.EmbedFormUtil
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 
 private const val TAG = "ChatFragment"
 private const val FORWARD_NEARBY_WINDOW_SECONDS = 10 * 60L
@@ -352,6 +358,7 @@ class ChatFragment : BaseFragment() {
     private val messages = ArrayList<MessageEntity>()
     private val messagesDict = LongSparseArray<MessageEntity>()
     private val pollStates = mutableMapOf<Long, PollLocalState>()
+    private val createPollInFlight = AtomicBoolean(false)
     private var pollTallyRefreshJob: Job? = null
     private val pollTallyLastRequestedAtMs = ConcurrentHashMap<Long, Long>()
     private var transitionAnimationIndex = 0
@@ -2828,6 +2835,7 @@ class ChatFragment : BaseFragment() {
                 if (parsed.isClosed) return
                 if (pollExpired(parsed)) return
                 val st0 = pollStates[msg.id] ?: PollLocalState()
+                if (st0.showResultsPreview) return
                 if (resolvedVotedList(parsed, msg).isNotEmpty()) return
                 val idx = tap.answerIndex
                 val nextSel = if (parsed.isMultiple) {
@@ -2841,7 +2849,7 @@ class ChatFragment : BaseFragment() {
                 refreshPollCell(msg.id)
             }
             PollTap.PrimaryAction -> handlePollPrimaryAction(msg, parsed)
-            PollTap.FooterStats -> openPollDetailSheet(msg, parsed)
+            PollTap.ViewDetails, PollTap.FooterStats -> openPollDetailSheet(msg, parsed)
             PollTap.ToggleExpandOptions -> {
                 val st = pollStates[msg.id] ?: PollLocalState()
                 pollStates[msg.id] = st.copy(optionsExpanded = !st.optionsExpanded)
@@ -2878,17 +2886,23 @@ class ChatFragment : BaseFragment() {
 
     private fun handlePollPrimaryAction(msg: MessageEntity, parsed: ParsedPoll) {
         val expired = pollExpired(parsed)
-        if (parsed.isClosed || expired) return
         val st = pollStates[msg.id] ?: PollLocalState()
-        val voted = resolvedVotedList(parsed, msg).isNotEmpty()
-        when {
-            st.showResultsPreview && !voted -> {
+        val hasVoted = resolvedVotedList(parsed, msg).isNotEmpty()
+        when (
+            resolvePollPrimaryIntent(parsed, st, hasVoted, expired)
+        ) {
+            null -> return
+            PollPrimaryIntent.BackToVote -> {
                 pollStates[msg.id] = st.copy(showResultsPreview = false)
                 refreshPollCell(msg.id)
             }
-            voted -> submitPollVote(msg, parsed, emptyList())
-            st.selection.isNotEmpty() -> submitPollVote(msg, parsed, st.selection.sorted())
-            else -> openPollDetailSheet(msg, parsed)
+            PollPrimaryIntent.RemoveVote -> submitPollVote(msg, parsed, emptyList())
+            PollPrimaryIntent.CastVote -> submitPollVote(msg, parsed, st.selection.sorted())
+            PollPrimaryIntent.ShowResultsPreview -> {
+                pollStates[msg.id] = st.copy(showResultsPreview = true)
+                refreshPollCell(msg.id)
+                requestPollCountsRefresh(msg.id, msg.channelId)
+            }
         }
     }
 
@@ -3806,7 +3820,10 @@ class ChatFragment : BaseFragment() {
         if (!ensureCanSendMessageOrNotify()) return
         val activity = getParentActivity() ?: return
         if (activity.isFinishing || activity.isDestroyed) return
+        openMediaAttachAlert()
+    }
 
+    private fun openMediaAttachAlert() {
         if (!hasMediaPermission()) {
             if (mediaPermissionDeniedOnce && !shouldShowMediaPermissionRationale()) {
                 showOpenMediaSettingsDialog()
@@ -3815,7 +3832,6 @@ class ChatFragment : BaseFragment() {
             requestMediaPermission()
             return
         }
-
         openAttachAlert()
     }
 
@@ -3891,12 +3907,83 @@ class ChatFragment : BaseFragment() {
         alert.show()
     }
 
+    private fun openCreatePollScreen() {
+        if (!canCreatePoll(channelType)) return
+        val frag = CreatePollFragment.newInstance(channelId, clanId)
+        frag.onPollSubmit = { payload -> submitCreatePoll(payload) }
+        if (!presentFragment(frag)) {
+            presentFragment(frag, removeLast = false, forceWithoutAnimation = true)
+        }
+    }
+
+    private suspend fun submitCreatePoll(payload: PollSubmitPayload): Boolean {
+        if (!createPollInFlight.compareAndSet(false, true)) return false
+        return try {
+            val response = withContext(ioDispatcher) {
+                sessionManager.withAutoRefresh { session ->
+                    mezonApi.createPoll(
+                        session.apiUrl,
+                        session.token,
+                        channelId,
+                        clanId,
+                        payload.question,
+                        answerLabels = payload.answers,
+                        payload.expireHours,
+                        payload.pollType
+                    )
+                }
+            }
+            if (response.messageId == 0L) {
+                Log.e(TAG, "createPoll: missing message_id pollId=${response.pollId}")
+                withContext(mainDispatcher) {
+                    MezonToast.show(
+                        this@ChatFragment,
+                        ToastOverlay.ToastType.ERROR,
+                        getString(R.string.poll_create_failed)
+                    )
+                }
+                return false
+            }
+            withContext(mainDispatcher) {
+                chatController.publishCreatedPollMessage(channelId, clanId, channelType, response)
+            }
+            var confirmed = chatController.awaitChannelMessage(channelId, response.messageId)
+            if (!confirmed) {
+                confirmed = chatController.reloadChannelMessageIfMissing(
+                    channelId, clanId, response.messageId
+                )
+            }
+            if (!confirmed) {
+                Log.w(TAG, "createPoll: no ChannelMessage yet id=${response.messageId}; optimistic shown")
+            }
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "createPoll failed", e)
+            withContext(mainDispatcher) {
+                MezonToast.show(
+                    this@ChatFragment,
+                    ToastOverlay.ToastType.ERROR,
+                    getString(R.string.poll_create_failed)
+                )
+            }
+            false
+        } finally {
+            createPollInFlight.set(false)
+        }
+    }
+
     private fun showAdvancedFunctionMenu() {
         dismissPasteImagePopup()
         if (!ensureCanSendMessageOrNotify()) return
         val ctx = getContext() ?: return
         val isAnon = anonymousController.isAnonymous(clanId)
-        val alert = AdvancedAttachAlert(ctx, themeColors, clanId, isAnon)
+        val alert = AdvancedAttachAlert(
+            ctx,
+            themeColors,
+            clanId,
+            isAnon,
+            showCreatePoll = canCreatePoll(channelType)
+        )
         alert.advancedDelegate = object : AdvancedAttachAlert.AdvancedAttachAlertDelegate {
             override fun onLocationSelected() {
                 if (!ensureCanSendMessageOrNotify()) return
@@ -3912,6 +3999,9 @@ class ChatFragment : BaseFragment() {
             }
             override fun onAnonymousToggled() {
                 anonymousController.toggleAnonymous(clanId)
+            }
+            override fun onCreatePollRequested() {
+                openCreatePollScreen()
             }
             override fun onShareContactSelected() {
                 if (!ensureCanSendMessageOrNotify()) return
@@ -4483,7 +4573,7 @@ class ChatFragment : BaseFragment() {
         if (requestCode == ChatAttachAlert.REQUEST_CODE_MEDIA_PERMISSION) {
             if (computeMediaPermissionGrantedFromResult(permissions, grantResults)) {
                 mediaPermissionDeniedOnce = false
-                openAttachAlert()
+                openMediaAttachAlert()
             } else {
                 mediaPermissionDeniedOnce = true
                 if (!shouldShowMediaPermissionRationale()) {

@@ -88,13 +88,10 @@ class ChatAttachAlert(
             gravity = Gravity.CENTER_VERTICAL
             setPadding(LayoutHelper.dp(12f), 0, LayoutHelper.dp(12f), 0)
         }
-        buildHeaderButton(headerRow, MezonIcon.fileIconGray, R.string.advanced_files) {
+        buildHeaderButton(headerRow, MezonIcon.fileIconGray, R.string.file_selection_upload) {
             dismiss()
             attachDelegate?.onFilesRequested()
         }
-        parent.addView(headerRow, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, headerHeight, Gravity.TOP
-        ))
 
         adapter = PhotoAttachAdapter()
 
@@ -127,6 +124,13 @@ class ChatAttachAlert(
             })
         }
         parent.addView(gridView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
+
+        // Header must be above grid — RecyclerView is MATCH_PARENT and steals touches otherwise.
+        headerRow.elevation = LayoutHelper.dp(8f).toFloat()
+        headerRow.isClickable = true
+        parent.addView(headerRow, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, headerHeight, Gravity.TOP
+        ))
 
         emptyView = TextView(context).apply {
             text = "No photos or videos"

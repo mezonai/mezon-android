@@ -73,8 +73,10 @@ import com.mezon.mezon.api.AddFavoriteChannelResponse
 import com.mezon.mezon.api.addFavoriteChannelRequest
 import com.mezon.mezon.api.listFavoriteChannelRequest
 import com.mezon.mezon.api.removeFavoriteChannelRequest
+import com.mezon.mezon.api.CreatePollResponse
 import com.mezon.mezon.api.GetPollResponse
 import com.mezon.mezon.api.VotePollResponse
+import com.mezon.mezon.api.createPollRequest
 import com.mezon.mezon.api.getPollRequest
 import com.mezon.mezon.api.listChannelMessagesRequest
 import com.mezon.mezon.api.votePollRequest
@@ -1585,6 +1587,28 @@ class MezonApi @Inject constructor(
             this.extraData = extraData
         }.toByteArray()
         rpc(apiUrl, token, "MessageButtonClick", body)
+    }
+
+    suspend fun createPoll(
+        apiUrl: String,
+        token: String,
+        channelId: Long,
+        clanId: Long,
+        question: String,
+        answerLabels: List<String>,
+        expireHours: Int,
+        type: Int
+    ): CreatePollResponse {
+        val request = createPollRequest {
+            this.channelId = channelId
+            this.clanId = clanId
+            this.question = question
+            answers.addAll(answerLabels)
+            this.expireHours = expireHours
+            this.typeValue = type
+        }
+        val bytes = rpc(apiUrl, token, "CreatePoll", request.toByteArray())
+        return CreatePollResponse.parseFrom(bytes)
     }
 
     suspend fun votePoll(

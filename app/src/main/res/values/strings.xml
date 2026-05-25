@@ -1215,6 +1215,32 @@
     <string name="embed_form_submit_failed">Could not submit the form</string>
 
     <!-- Poll messages -->
+    <!-- Create poll -->
+    <string name="file_selection_upload">Upload a file</string>
+    <string name="file_selection_create_poll">Create poll</string>
+    <string name="poll_create_title">Create poll</string>
+    <string name="poll_question">Question</string>
+    <string name="poll_question_placeholder">What do you want to ask?</string>
+    <string name="poll_question_counter">%1$d/%2$d</string>
+    <string name="poll_answers">Answers</string>
+    <string name="poll_answers_min_required">At least 2 answers required (same as web)</string>
+    <string name="poll_answer_placeholder">Enter an answer</string>
+    <string name="poll_add_answer">+ Add answer</string>
+    <string name="poll_pick_emoji_title">Choose emoji</string>
+    <string name="poll_emoji_search_hint">Search emoji</string>
+    <string name="poll_remove_answer">Remove answer</string>
+    <string name="poll_duration">Duration</string>
+    <string name="poll_allow_multiple">Allow multiple answers</string>
+    <string name="poll_post">Post</string>
+    <string name="poll_posting">Posting…</string>
+    <string name="poll_create_failed">Could not create poll</string>
+    <string name="poll_duration_1_hour">1 hour</string>
+    <string name="poll_duration_4_hours">4 hours</string>
+    <string name="poll_duration_8_hours">8 hours</string>
+    <string name="poll_duration_24_hours">24 hours</string>
+    <string name="poll_duration_3_days">3 days</string>
+    <string name="poll_duration_1_week">1 week</string>
+
     <string name="poll_select_one">Select one answer</string>
     <string name="poll_select_multiple">Select one or more answers</string>
     <string name="poll_show_results">View results</string>

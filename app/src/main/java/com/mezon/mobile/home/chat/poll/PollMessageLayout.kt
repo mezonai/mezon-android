@@ -8,24 +8,29 @@ import android.graphics.Typeface
 import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.TextUtils
+import android.view.View
 import com.mezon.mobile.R
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import kotlin.math.min
 
-private val POLL_INLINE_EMOJI = Regex("\\[e:[^\\]]+\\]\\s*")
-
-internal fun stripInlinePollEmoji(text: String): String = POLL_INLINE_EMOJI.replace(text, "").trim()
-
 private const val MAX_OPTIONS_COLLAPSED = 5
 
 private data class OptionLine(
     val answerIndex: Int,
-    val label: String,
+    val labelLayout: StaticLayout,
     val top: Float,
     val height: Float,
     val voteCount: Int,
     val percentage: Int
+)
+
+private data class OptionLabelCacheEntry(
+    val label: String,
+    val layoutWidth: Int,
+    val hostViewId: Int,
+    val spannable: CharSequence,
+    val layout: StaticLayout,
 )
 
 class PollMessageLayout(private val context: Context) {
@@ -70,6 +75,8 @@ class PollMessageLayout(private val context: Context) {
     private val cardRect = RectF()
     private val tmpRect = RectF()
     private val optionLines = ArrayList<OptionLine>()
+    private val optionLabelCache = HashMap<Int, OptionLabelCacheEntry>()
+    private var optionLabelCachePollId: Long = -1L
     private var footerStatsRect = RectF()
     private var detailLinkRect = RectF()
     private var actionButtonRect = RectF()
@@ -95,7 +102,8 @@ class PollMessageLayout(private val context: Context) {
         state: PollLocalState,
         currentUserId: Long,
         theme: ThemeColors,
-        bubbleMaxW: Int
+        bubbleMaxW: Int,
+        hostView: View
     ) {
         val pad = LayoutHelper.dp(12)
         cardWidth = bubbleMaxW.coerceAtLeast(LayoutHelper.dp(120))
@@ -123,7 +131,7 @@ class PollMessageLayout(private val context: Context) {
         optionSelectionStrokePaint.color = theme.primary
         optionSelectionStrokePaint.strokeWidth = LayoutHelper.dpf(2f)
 
-        val qText = stripInlinePollEmoji(parsed.question)
+        val qText = pollAnswerPlainText(parsed.question)
         questionLayout = StaticLayout.Builder.obtain(qText, 0, qText.length, titlePaint, innerW)
             .setMaxLines(6)
             .setEllipsize(android.text.TextUtils.TruncateAt.END)
@@ -151,6 +159,11 @@ class PollMessageLayout(private val context: Context) {
             else -> ""
         }
 
+        if (parsed.pollId != optionLabelCachePollId) {
+            optionLabelCache.clear()
+            optionLabelCachePollId = parsed.pollId
+        }
+
         optionLines.clear()
         val visible = visibleAnswers(parsed, state)
         val optionH = LayoutHelper.dp(44).toFloat()
@@ -160,13 +173,34 @@ class PollMessageLayout(private val context: Context) {
         y += (questionLayout?.height ?: 0) + LayoutHelper.dp(6)
         y += (subtitleLayout?.height ?: 0) + LayoutHelper.dp(10)
 
+        val optionPadH = LayoutHelper.dp(12)
+        val labelBaseW = (innerW - optionPadH * 2).coerceAtLeast(LayoutHelper.dp(40))
+
         for (ans in visible) {
             val count = parsed.countFor(ans.index)
             val pct = if (parsed.totalVotes > 0) ((count * 100f) / parsed.totalVotes).toInt().coerceIn(0, 100) else 0
+            var labelMaxW = labelBaseW.toFloat()
+            if (showResults) {
+                val meta = "${pct}% · " + context.resources.getQuantityString(
+                    R.plurals.poll_option_votes,
+                    count,
+                    count
+                )
+                val mw = metaPaint.measureText(meta)
+                val side = LayoutHelper.dp(18).toFloat()
+                val edgePad = LayoutHelper.dp(10).toFloat()
+                labelMaxW = (labelBaseW - mw - side - edgePad - LayoutHelper.dp(6)).coerceAtLeast(LayoutHelper.dp(40).toFloat())
+            }
+            val labelLayout = obtainOptionLabelLayout(
+                answerIndex = ans.index,
+                rawLabel = ans.label,
+                labelMaxW = labelMaxW.toInt(),
+                hostView = hostView
+            )
             optionLines.add(
                 OptionLine(
                     answerIndex = ans.index,
-                    label = stripInlinePollEmoji(ans.label),
+                    labelLayout = labelLayout,
                     top = y,
                     height = optionH,
                     voteCount = count,
@@ -175,6 +209,9 @@ class PollMessageLayout(private val context: Context) {
             )
             y += optionH + gap
         }
+
+        val visibleIndices = visible.map { it.index }.toHashSet()
+        optionLabelCache.keys.retainAll(visibleIndices)
 
         expandLinkVisible = parsed.answers.size > MAX_OPTIONS_COLLAPSED
         expandLinkText = context.getString(
@@ -241,8 +278,12 @@ class PollMessageLayout(private val context: Context) {
             maxStatsW,
             TextUtils.TruncateAt.END
         ).toString()
-        val statsW = metaPaint.measureText(footerStatsDrawText)
-        footerStatsRect.set(pad.toFloat(), footerTop, pad + statsW, footerTop + rowH)
+        val statsRight = if (bw > 0f) {
+            actionButtonRect.left - LayoutHelper.dp(8)
+        } else {
+            pad + maxStatsW
+        }
+        footerStatsRect.set(pad.toFloat(), footerTop, statsRight, footerTop + rowH)
 
         detailLinkText = context.getString(R.string.poll_view_details)
         val detailH = LayoutHelper.dp(22).toFloat()
@@ -253,6 +294,42 @@ class PollMessageLayout(private val context: Context) {
         y = detailTop + detailH + LayoutHelper.dp(12)
         blockHeight = y.toInt().coerceAtLeast((actionButtonRect.bottom + LayoutHelper.dp(12)).toInt())
         cardRect.set(0f, 0f, cardWidth.toFloat(), blockHeight.toFloat())
+    }
+
+    private fun obtainOptionLabelLayout(
+        answerIndex: Int,
+        rawLabel: String,
+        labelMaxW: Int,
+        hostView: View,
+    ): StaticLayout {
+        val hostViewId = System.identityHashCode(hostView)
+        val hit = optionLabelCache[answerIndex]
+        if (hit != null &&
+            hit.label == rawLabel &&
+            hit.layoutWidth == labelMaxW &&
+            hit.hostViewId == hostViewId
+        ) {
+            return hit.layout
+        }
+        val spannable = if (hit != null && hit.label == rawLabel && hit.hostViewId == hostViewId) {
+            hit.spannable
+        } else {
+            buildPollAnswerSpannable(rawLabel, hostView)
+        }
+        val layout = StaticLayout.Builder.obtain(
+            spannable, 0, spannable.length, optionLabelPaint, labelMaxW
+        )
+            .setMaxLines(1)
+            .setEllipsize(TextUtils.TruncateAt.END)
+            .build()
+        optionLabelCache[answerIndex] = OptionLabelCacheEntry(
+            label = rawLabel,
+            layoutWidth = labelMaxW,
+            hostViewId = hostViewId,
+            spannable = spannable,
+            layout = layout
+        )
+        return layout
     }
 
     private fun visibleAnswers(parsed: ParsedPoll, state: PollLocalState): List<PollAnswerItem> {
@@ -281,7 +358,7 @@ class PollMessageLayout(private val context: Context) {
         parsed.isClosed || expired -> ""
         showResults && !hasVoted && !parsed.isClosed && !expired -> context.getString(R.string.poll_back_to_vote)
         hasVoted -> context.getString(R.string.poll_remove_vote)
-        state.selection.isNotEmpty() -> context.getString(R.string.poll_vote)
+        state.selection.isNotEmpty() && !showResults -> context.getString(R.string.poll_vote)
         else -> context.getString(R.string.poll_show_results)
     }
 
@@ -315,7 +392,7 @@ class PollMessageLayout(private val context: Context) {
         val expired = parsed.expireAtSeconds > 0 && parsed.expireAtSeconds < nowSec
         val showResults = parsed.isClosed || expired || hasVoted || state.showResultsPreview
         val innerW = cardWidth - pad * 2
-        val canPick = !parsed.isClosed && !expired && !hasVoted
+        val canPick = !parsed.isClosed && !expired && !hasVoted && !state.showResultsPreview
 
         for (line in optionLines) {
             val highlight = canPick && state.selection.contains(line.answerIndex)
@@ -394,10 +471,15 @@ class PollMessageLayout(private val context: Context) {
         }
 
         val labelX = left + LayoutHelper.dp(12)
-        val labelY = top + h / 2f - (optionLabelPaint.descent() + optionLabelPaint.ascent()) / 2f
-        val rawLabel = if (line.label.length > 72) line.label.take(72) + "…" else line.label
+        val lay = line.labelLayout
+        val labelTop = top + (h - lay.height) / 2f
+        canvas.save()
+        canvas.translate(labelX, labelTop)
+        lay.draw(canvas)
+        canvas.restore()
 
         if (showResults) {
+            val labelY = top + h / 2f - (optionLabelPaint.descent() + optionLabelPaint.ascent()) / 2f
             val meta = "${line.percentage}% · " + context.resources.getQuantityString(
                 R.plurals.poll_option_votes,
                 line.voteCount,
@@ -408,13 +490,6 @@ class PollMessageLayout(private val context: Context) {
             val edgePad = LayoutHelper.dp(10).toFloat()
             val cx = right - edgePad - side / 2f
             val metaRight = if (isChosen) cx - side / 2f - LayoutHelper.dp(6).toFloat() else right - LayoutHelper.dp(12)
-            val maxLabelW = (metaRight - mw - labelX - LayoutHelper.dp(6)).coerceAtLeast(LayoutHelper.dp(40).toFloat())
-            val labelDraw = if (optionLabelPaint.measureText(rawLabel) > maxLabelW) {
-                TextUtils.ellipsize(rawLabel, optionLabelPaint, maxLabelW, TextUtils.TruncateAt.END).toString()
-            } else {
-                rawLabel
-            }
-            canvas.drawText(labelDraw, labelX, labelY, optionLabelPaint)
             canvas.drawText(meta, metaRight - mw, labelY, metaPaint)
             if (isChosen) {
                 val cy = top + h / 2f
@@ -424,10 +499,14 @@ class PollMessageLayout(private val context: Context) {
                 canvas.drawLine(cx - side * 0.12f, cy, cx - side * 0.02f, cy + side * 0.14f, checkStroke)
                 canvas.drawLine(cx - side * 0.02f, cy + side * 0.14f, cx + side * 0.18f, cy - side * 0.12f, checkStroke)
             }
-        } else {
-            canvas.drawText(rawLabel, labelX, labelY, optionLabelPaint)
         }
     }
+
+    private fun footerStatsRectContains(lx: Float, ly: Float, slop: Float): Boolean =
+        lx >= footerStatsRect.left - slop &&
+            lx <= footerStatsRect.right + slop &&
+            ly >= footerStatsRect.top - slop &&
+            ly <= footerStatsRect.bottom + slop
 
     fun hitTest(x: Float, y: Float, cardLeft: Float, cardTop: Float): PollTap? {
         val lx = x - cardLeft
@@ -450,9 +529,12 @@ class PollMessageLayout(private val context: Context) {
                 return PollTap.ToggleOption(line.answerIndex)
             }
         }
+        val footerSlop = LayoutHelper.dp(6).toFloat()
+        if (!footerStatsRect.isEmpty && footerStatsRectContains(lx, ly, footerSlop)) {
+            return PollTap.FooterStats
+        }
         if (!actionButtonRect.isEmpty && actionButtonRect.contains(lx, ly)) return PollTap.PrimaryAction
-        if (detailLinkText.isNotEmpty() && detailLinkRect.contains(lx, ly)) return PollTap.FooterStats
-        if (footerStatsRect.contains(lx, ly)) return PollTap.FooterStats
+        if (detailLinkText.isNotEmpty() && detailLinkRect.contains(lx, ly)) return PollTap.ViewDetails
         return null
     }
 }
