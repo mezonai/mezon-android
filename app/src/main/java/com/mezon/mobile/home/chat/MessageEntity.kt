@@ -66,7 +66,11 @@ data class MessageEntity(
     val isError: Boolean = false,
     val extraAttachmentsJson: String = "",
     val sendState: Int = SEND_STATE_SENT,
-    val reactionsJson: String = ""
+    val reactionsJson: String = "",
+    val topicId: Long = 0L,
+    val topicCreatorId: Long = 0L,
+    val rplCount: Int = 0,
+    val lastSentSeconds: Long = 0L
 ) {
     companion object {
         const val UNREAD_DIVIDER_ID = Long.MIN_VALUE
@@ -105,6 +109,24 @@ data class MessageEntity(
     val isPollMessage: Boolean
         get() = code == CODE_POLL ||
             (code == CODE_CHAT_UPDATE && isPollContentJson(content))
+
+    val isTopicRootMessage: Boolean
+        get() {
+            if (effectiveTopicId == 0L) return false
+            if (code == CODE_TOPIC) return true
+            return runCatching {
+                JSONObject(content).optString("tp", "0").toLongOrNull() == effectiveTopicId
+            }.getOrDefault(false)
+        }
+
+    val effectiveTopicId: Long
+        get() {
+            if (topicId != 0L) return topicId
+            if (code != CODE_TOPIC) return 0L
+            return runCatching {
+                JSONObject(content).optString("tp", "0").toLongOrNull() ?: 0L
+            }.getOrDefault(0L)
+        }
 
     val isUnreadDivider: Boolean
         get() = id == UNREAD_DIVIDER_ID
@@ -202,6 +224,35 @@ data class MessageEntity(
             }
             false
         } catch (_: Exception) { false }
+    }
+
+    fun isMentionOrReplyForUser(userId: Long, roleIds: List<Long>): Boolean {
+        if (userId == 0L) return false
+        if (hasMention(userId.toString())) return true
+        if (content.isBlank()) return false
+        return try {
+            val obj = JSONObject(content)
+            val mentions = obj.optJSONArray("mentions")
+            if (mentions != null && roleIds.isNotEmpty()) {
+                val roleIdSet = roleIds.toHashSet()
+                for (i in 0 until mentions.length()) {
+                    val item = mentions.getJSONObject(i)
+                    val roleId = item.optString("role_id", "").toLongOrNull()
+                        ?: item.optLong("role_id", 0L).takeIf { it != 0L }
+                    if (roleId != null && roleIdSet.contains(roleId)) return true
+                }
+            }
+            val refs = obj.optJSONArray("references") ?: return false
+            for (i in 0 until refs.length()) {
+                val ref = refs.getJSONObject(i)
+                val senderId = ref.optString("message_sender_id", "").toLongOrNull()
+                    ?: ref.optLong("message_sender_id", 0L)
+                if (senderId == userId) return true
+            }
+            false
+        } catch (_: Exception) {
+            false
+        }
     }
 
     val extraAttachments: List<AttachmentInfo>
@@ -323,6 +374,8 @@ fun ChannelMessage.toMessageEntity(currentUserId: Long): MessageEntity {
     }
     val resolvedSenderAvatar = if (useClanPersona) clanAvatar.ifBlank { avatar } else avatar
 
+    val topicFields = parseTopicFieldsFromContent(code, mergedContent, this.topicId, senderId)
+
     return MessageEntity(
         id = messageId,
         channelId = channelId,
@@ -347,8 +400,94 @@ fun ChannelMessage.toMessageEntity(currentUserId: Long): MessageEntity {
         hideEditted = hideEditted,
         isForwarded = forwarded,
         extraAttachmentsJson = extraJson,
-        reactionsJson = reactionsJson
+        reactionsJson = reactionsJson,
+        topicId = topicFields.topicId,
+        topicCreatorId = topicFields.topicCreatorId,
+        rplCount = topicFields.rplCount,
+        lastSentSeconds = topicFields.lastSentSeconds
     )
+}
+
+private data class ParsedTopicFields(
+    val topicId: Long,
+    val topicCreatorId: Long,
+    val rplCount: Int,
+    val lastSentSeconds: Long
+)
+
+private fun parseTopicFieldsFromContent(
+    code: Int,
+    content: String,
+    protoTopicId: Long,
+    senderId: Long
+): ParsedTopicFields {
+    var topicId = protoTopicId
+    var topicCreatorId = 0L
+    var rplCount = 0
+    var lastSentSeconds = 0L
+    if (code == MessageEntity.CODE_TOPIC || content.contains("\"tp\"")) {
+        runCatching {
+            val json = JSONObject(content)
+            val tp = json.optString("tp", "0").toLongOrNull() ?: 0L
+            if (tp != 0L) topicId = tp
+            topicCreatorId = json.optString("cid", "0").toLongOrNull() ?: 0L
+            rplCount = json.optInt("rpl", 0)
+            lastSentSeconds = json.optLong("lsnt", 0L)
+        }
+    }
+    if (topicCreatorId == 0L && code == MessageEntity.CODE_TOPIC) {
+        topicCreatorId = senderId
+    }
+    return ParsedTopicFields(topicId, topicCreatorId, rplCount, lastSentSeconds)
+}
+
+private fun mergeTopicFieldsIntoContent(
+    content: String,
+    topicId: Long,
+    topicCreatorId: Long,
+    rplCount: Int,
+    lastSentSeconds: Long
+): String {
+    return runCatching {
+        val json = if (content.isBlank() || content == "{}") JSONObject() else JSONObject(content)
+        if (topicId != 0L) json.put("tp", topicId.toString())
+        if (topicCreatorId != 0L) json.put("cid", topicCreatorId.toString())
+        if (rplCount > 0) json.put("rpl", rplCount)
+        if (lastSentSeconds > 0L) json.put("lsnt", lastSentSeconds)
+        json.toString()
+    }.getOrDefault(content)
+}
+
+fun MessageEntity.withTopicStats(rplCount: Int, lastSentSeconds: Long): MessageEntity {
+    val mergedContent = mergeTopicFieldsIntoContent(content, topicId, topicCreatorId, rplCount, lastSentSeconds)
+    return copy(
+        code = MessageEntity.CODE_TOPIC,
+        content = mergedContent,
+        rplCount = rplCount,
+        lastSentSeconds = lastSentSeconds
+    )
+}
+
+fun MessageEntity.withTopicCreated(topicId: Long, topicCreatorId: Long): MessageEntity {
+    val mergedContent = mergeTopicFieldsIntoContent(content, topicId, topicCreatorId, rplCount, lastSentSeconds)
+    return copy(
+        code = MessageEntity.CODE_TOPIC,
+        topicId = topicId,
+        topicCreatorId = topicCreatorId,
+        content = mergedContent
+    )
+}
+
+private const val TOPIC_REPLY_SNOWFLAKE_BASE = 438845456274L
+
+fun resolveTopicReplyCount(rplFromContent: Int, lastTopicMessageId: Long): Int {
+    val snowflakeCount = if (lastTopicMessageId != 0L) {
+        ((lastTopicMessageId ushr 22) - TOPIC_REPLY_SNOWFLAKE_BASE).toInt().coerceAtLeast(0)
+    } else {
+        0
+    }
+    if (rplFromContent <= 0 && snowflakeCount <= 0) return 0
+    return if (snowflakeCount > 0) snowflakeCount else rplFromContent
 }
 
 private data class ParsedAttachment(
