@@ -159,6 +159,12 @@ open class BottomSheet(
     private var useFastDismiss = false
     private var skipDismissAnimation = false
 
+    private var snapPoints: FloatArray = floatArrayOf()
+    private var initialSnapIndex: Int = 0
+    var currentSnapIndex: Int = 0
+        private set
+    private var availableSheetHeight: Int = 0
+
     // Background / shadow
     protected var shadowDrawable: Drawable? = null
     protected var backgroundPaddingTop = 0
@@ -291,6 +297,45 @@ open class BottomSheet(
     }
 
     fun transitionFromRight(value: Boolean) { transitionFromRight = value }
+
+    fun setSnapPoints(vararg fractions: Float, initialIndex: Int = 0) {
+        val cleaned = fractions
+            .map { it.coerceIn(0.05f, 1f) }
+            .toFloatArray()
+            .also { it.sort() }
+        snapPoints = cleaned
+        initialSnapIndex = initialIndex.coerceIn(0, (cleaned.size - 1).coerceAtLeast(0))
+        currentSnapIndex = initialSnapIndex
+        if (::container.isInitialized) container.requestLayout()
+    }
+
+    fun snapTo(index: Int, animated: Boolean = true) {
+        if (snapPoints.isEmpty()) return
+        val idx = index.coerceIn(0, snapPoints.size - 1)
+        currentSnapIndex = idx
+        val target = snapTranslationY(idx)
+        val cv = containerView ?: return
+        if (animated) {
+            ObjectAnimator.ofFloat(cv, View.TRANSLATION_Y, target).apply {
+                duration = 250
+                interpolator = CubicBezierInterpolator.DEFAULT
+                addUpdateListener { onContainerViewTranslation() }
+                start()
+            }
+        } else {
+            cv.translationY = target
+            onContainerViewTranslation()
+        }
+    }
+
+    private fun snapTranslationY(index: Int): Float {
+        if (snapPoints.isEmpty() || availableSheetHeight <= 0) return 0f
+        val maxSnap = snapPoints.last()
+        val f = snapPoints[index.coerceIn(0, snapPoints.size - 1)]
+        return ((maxSnap - f) * availableSheetHeight)
+    }
+
+    fun hasSnapPoints(): Boolean = snapPoints.isNotEmpty()
 
     // ─── Lifecycle ──────────────────────────────────────────────────────────
 
@@ -548,7 +593,8 @@ open class BottomSheet(
                 val animators = ArrayList<Animator>()
                 animators.add(ObjectAnimator.ofFloat(cv, View.TRANSLATION_X, 0f))
                 animators.add(ObjectAnimator.ofFloat(cv, View.ALPHA, 1f))
-                animators.add(ObjectAnimator.ofFloat(cv, View.TRANSLATION_Y, 0f).apply {
+                val openTargetTy = if (snapPoints.isNotEmpty()) snapTranslationY(initialSnapIndex) else 0f
+                animators.add(ObjectAnimator.ofFloat(cv, View.TRANSLATION_Y, openTargetTy).apply {
                     addUpdateListener { onContainerViewTranslation() }
                 })
                 animators.add(ObjectAnimator.ofInt(backDrawable, "alpha", if (dimBehind) dimAlpha else 0))
@@ -911,6 +957,67 @@ open class BottomSheet(
         private fun checkDismiss(velX: Float, velY: Float) {
             val cv = containerView ?: return
             val translationY = cv.translationY
+
+            if (snapPoints.isNotEmpty()) {
+                val lowestTy = snapTranslationY(0)
+                val dismissOverdrag = AndroidUtilities.getPixelsInCM(0.8f, false).toFloat()
+                val shouldDismiss = (translationY > lowestTy + dismissOverdrag) ||
+                        (velY > 3500 && translationY >= lowestTy - LayoutHelper.dp(40).toFloat())
+                if (shouldDismiss) {
+                    maybeStartTracking = false
+                    val allowOld = allowCustomAnimation
+                    allowCustomAnimation = false
+                    useFastDismiss = true
+                    dismiss()
+                    allowCustomAnimation = allowOld
+                    return
+                }
+                val predictedTy = (translationY + velY * 0.15f).coerceIn(0f, lowestTy)
+                var bestIdx = 0
+                var bestDist = Float.MAX_VALUE
+                for (i in snapPoints.indices) {
+                    val ty = snapTranslationY(i)
+                    val d = Math.abs(predictedTy - ty)
+                    if (d < bestDist) { bestDist = d; bestIdx = i }
+                }
+                currentSnapIndex = bestIdx
+                val targetTy = snapTranslationY(bestIdx)
+                maybeStartTracking = false
+                beginHeavyOperationsAnimation()
+                currentAnimation = AnimatorSet().apply {
+                    val invalidator = ValueAnimator.ofFloat(0f, 1f).apply {
+                        addUpdateListener {
+                            this@ContainerView.invalidate()
+                            onContainerViewTranslation()
+                        }
+                    }
+                    playTogether(
+                        ObjectAnimator.ofFloat(cv, "translationY", targetTy),
+                        invalidator
+                    )
+                    duration = 250
+                    interpolator = CubicBezierInterpolator.DEFAULT
+                    addListener(object : AnimatorListenerAdapter() {
+                        override fun onAnimationEnd(animation: Animator) {
+                            if (currentAnimation?.equals(animation) == true) {
+                                currentAnimation = null
+                                finishHeavyOperationsAnimation()
+                                swipeY = targetTy
+                            }
+                        }
+
+                        override fun onAnimationCancel(animation: Animator) {
+                            if (currentAnimation?.equals(animation) == true) {
+                                currentAnimation = null
+                                finishHeavyOperationsAnimation()
+                            }
+                        }
+                    })
+                    start()
+                }
+                return
+            }
+
             val backAnimation = (translationY < AndroidUtilities.getPixelsInCM(0.8f, false)
                     && (velY < 3500 || Math.abs(velY) < Math.abs(velX)))
                     || (velY < 0 && Math.abs(velY) >= 3500)
@@ -981,6 +1088,7 @@ open class BottomSheet(
                     }
                     return true
                 }
+                swipeY = containerView?.translationY ?: 0f
                 onScrollUpBegin(swipeY)
                 startedTrackingPointerId = ev.getPointerId(0)
                 maybeStartTracking = true
@@ -995,9 +1103,11 @@ open class BottomSheet(
                 val dx = Math.abs(ev.x.toInt() - startedTrackingX).toFloat()
                 val dy = (ev.y.toInt() - startedTrackingY).toFloat()
                 val canScrollUp = onScrollUp(swipeY + dy)
+                val snapMode = snapPoints.isNotEmpty()
+                val triggerDy = if (snapMode) Math.abs(dy) else dy
 
                 if (!disableScroll && maybeStartTracking && !startedTracking
-                    && dy > 0 && dy / 3.0f > dx && Math.abs(dy) >= touchSlop
+                    && triggerDy > 0 && Math.abs(dy) / 3.0f > dx && Math.abs(dy) >= touchSlop
                 ) {
                     startedTrackingY = ev.y.toInt()
                     maybeStartTracking = false
@@ -1005,8 +1115,15 @@ open class BottomSheet(
                     requestDisallowInterceptTouchEvent(true)
                 } else if (startedTracking) {
                     swipeY += dy
-                    if (!canScrollUp) swipeY = swipeY.coerceAtLeast(0f)
-                    containerView?.translationY = swipeY.coerceAtLeast(0f)
+                    if (snapMode) {
+                        val lowestTy = snapTranslationY(0)
+                        val dismissOverdrag = AndroidUtilities.getPixelsInCM(1.5f, false).toFloat()
+                        swipeY = swipeY.coerceIn(0f, lowestTy + dismissOverdrag)
+                        containerView?.translationY = swipeY
+                    } else {
+                        if (!canScrollUp) swipeY = swipeY.coerceAtLeast(0f)
+                        containerView?.translationY = swipeY.coerceAtLeast(0f)
+                    }
                     onContainerViewTranslation()
                     startedTrackingY = ev.y.toInt()
                     this@ContainerView.invalidate()
@@ -1096,6 +1213,7 @@ open class BottomSheet(
             }
             isPortrait = width < height
 
+            availableSheetHeight = height
             containerView?.let { cv ->
                 val widthSpec = if (!useFullWidth) {
                     val sheetWidth = getBottomSheetWidth(isPortrait, width, height)
@@ -1103,7 +1221,12 @@ open class BottomSheet(
                 } else {
                     MeasureSpec.makeMeasureSpec(width + backgroundPaddingLeft * 2, MeasureSpec.EXACTLY)
                 }
-                cv.measure(widthSpec, MeasureSpec.makeMeasureSpec(height, MeasureSpec.AT_MOST))
+                val heightSpec = if (snapPoints.isNotEmpty()) {
+                    MeasureSpec.makeMeasureSpec((height * snapPoints.last()).toInt(), MeasureSpec.EXACTLY)
+                } else {
+                    MeasureSpec.makeMeasureSpec(height, MeasureSpec.AT_MOST)
+                }
+                cv.measure(widthSpec, heightSpec)
             }
 
             val childCount = childCount
@@ -1235,6 +1358,10 @@ open class BottomSheet(
         fun setUseFullWidth(value: Boolean): Builder { sheet.setUseFullWidth(value); return this }
         fun setUseFullscreen(value: Boolean): Builder { sheet.setUseFullscreen(value); return this }
         fun setOnPreDismissListener(listener: DialogInterface.OnDismissListener?): Builder { sheet.setOnHideListener(listener); return this }
+        fun setSnapPoints(vararg fractions: Float, initialIndex: Int = 0): Builder {
+            sheet.setSnapPoints(*fractions, initialIndex = initialIndex)
+            return this
+        }
         fun getDismissRunnable(): Runnable = sheet.dismissRunnable
 
         fun create(): BottomSheet = sheet

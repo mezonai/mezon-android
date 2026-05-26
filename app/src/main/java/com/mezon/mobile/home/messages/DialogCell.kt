@@ -5,6 +5,7 @@ import android.graphics.Canvas
 import android.graphics.RectF
 import android.text.StaticLayout
 import android.text.TextUtils
+import com.mezon.mobile.R
 import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.BaseCell
 import com.mezon.mobile.core.LayoutHelper
@@ -195,7 +196,11 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         } else 0
         val badgeSpace = if (badgeLayout != null) BADGE_MIN_W + BADGE_GAP else 0
         val previewWidth = contentWidth - badgeSpace - buzzSpace
-        val previewText = dm.lastMessageContent.ifEmpty { "No messages" }
+        val previewText = when {
+            dm.lastMessageContent.isNotEmpty() -> dm.lastMessageContent
+            dm.lastSentMessageId > 0L || dm.lastSentMessageTs > 0L -> ""
+            else -> context.getString(R.string.dm_no_messages)
+        }
         previewLayout = StaticLayout.Builder.obtain(previewText, 0, previewText.length, previewPaint, previewWidth.coerceAtLeast(0))
             .setMaxLines(1)
             .setEllipsize(TextUtils.TruncateAt.END)

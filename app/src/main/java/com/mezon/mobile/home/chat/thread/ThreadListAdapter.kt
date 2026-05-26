@@ -87,7 +87,11 @@ class ThreadListAdapter(
                 (holder.itemView as ThreadSectionCell).setTitle(item)
             }
             is ThreadInfo -> {
-                val senderName = senderNameResolver(item.lastSenderId)
+                val senderName = if (item.lastSenderId != 0L) {
+                    senderNameResolver(item.lastSenderId)
+                } else {
+                    item.creatorName.ifBlank { senderNameResolver(item.creatorId) }
+                }
                 (holder.itemView as ThreadCell).setData(item, senderName)
             }
         }
@@ -123,6 +127,10 @@ class ThreadListAdapter(
             if (old is String && new is String) return old == new
             if (old is ThreadInfo && new is ThreadInfo) {
                 return old.channelLabel == new.channelLabel &&
+                    old.active == new.active &&
+                    old.isPrivate == new.isPrivate &&
+                    old.creatorId == new.creatorId &&
+                    old.creatorName == new.creatorName &&
                     old.lastMessageContent == new.lastMessageContent &&
                     old.lastMessageTs == new.lastMessageTs &&
                     old.lastSenderId == new.lastSenderId

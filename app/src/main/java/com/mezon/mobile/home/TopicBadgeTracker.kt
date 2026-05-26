@@ -165,6 +165,21 @@ class TopicBadgeTracker @Inject constructor(
         postTopicBadgeChanged()
     }
 
+    fun clearTopicUiBadge(topicId: Long) {
+        val removed = synchronized(lock) { topicParentMap.remove(topicId) } ?: return
+        val decrement = removed.count.coerceAtLeast(0)
+        if (decrement > 0) {
+            synchronized(lock) {
+                val parentTotal = topicBadgesByParent[removed.parentChannelId] ?: 0
+                if (parentTotal > 0) {
+                    topicBadgesByParent[removed.parentChannelId] = (parentTotal - decrement).coerceAtLeast(0)
+                }
+                topicClanBadgeApplied.remove(topicId)
+            }
+            postTopicBadgeChanged()
+        }
+    }
+
     private fun applyHydratedTopicParentBadge(
         clanId: Long,
         parentChannelId: Long,

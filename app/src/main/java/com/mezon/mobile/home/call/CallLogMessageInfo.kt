@@ -2,7 +2,10 @@ package com.mezon.mobile.home.call
 
 import android.content.Context
 import com.mezon.mobile.R
+import com.mezon.mezon.api.MessageAttachmentList
+import com.mezon.mobile.home.chat.MessageEntity
 import com.mezon.mobile.util.parseContentPreview
+import com.google.protobuf.ByteString
 import org.json.JSONObject
 
 object CallLogMessageType {
@@ -92,9 +95,38 @@ fun dialogPreviewForCallLog(context: Context, parsed: ParsedCallLogMessage): Str
     }
 }
 
-fun messagePreviewForDialog(context: Context, content: String): String {
+fun messagePreviewForDialog(
+    context: Context,
+    content: String,
+    attachments: ByteString = ByteString.EMPTY,
+    code: Int = 0
+): String {
     val base = parseContentPreview(content)
-    if (base.isNotBlank()) return base
+    if (base.isNotBlank()) {
+        if (base == "[contact]") {
+            return "[${context.getString(R.string.message_attachment_contact)}]"
+        }
+        return base
+    }
+    when (code) {
+        MessageEntity.CODE_SHARE_CONTACT -> {
+            return "[${context.getString(R.string.message_attachment_contact)}]"
+        }
+        MessageEntity.CODE_LOCATION -> {
+            return "[${context.getString(R.string.message_attachment_location)}]"
+        }
+        MessageEntity.CODE_POLL -> {
+            return "[${context.getString(R.string.message_attachment_poll)}]"
+        }
+    }
+    if (!attachments.isEmpty) {
+        val hasAttachments = runCatching {
+            MessageAttachmentList.parseFrom(attachments).attachmentsCount > 0
+        }.getOrDefault(false)
+        if (hasAttachments) {
+            return "[${context.getString(R.string.message_attachment_file)}]"
+        }
+    }
     val cl = parseCallLogMessage(content) ?: return ""
     return dialogPreviewForCallLog(context, cl)
 }

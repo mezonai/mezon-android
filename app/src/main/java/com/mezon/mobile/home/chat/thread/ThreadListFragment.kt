@@ -29,6 +29,7 @@ import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.MemberResolver
 import com.mezon.mobile.home.clans.ChannelController
+import com.mezon.mobile.home.clans.ClanChannelEntity
 import com.mezon.mobile.home.clans.PermissionPolicy
 import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
 import com.mezon.mobile.network.MezonApi
@@ -120,6 +121,10 @@ class ThreadListFragment : BaseFragment() {
             val changedClanId = args.firstOrNull() as? Long ?: return@observe
             if (changedClanId == clanId) updateCreateThreadActions()
         }
+        observe(NotificationCenter.channelsDidLoad) { _, _, args ->
+            val changedClanId = args.firstOrNull() as? Long ?: return@observe
+            if (changedClanId == clanId) refreshCachedThreadList()
+        }
         return true
     }
 
@@ -140,7 +145,7 @@ class ThreadListFragment : BaseFragment() {
         val actionBarView = ActionBarView(context, themeColors).apply {
             setBackButtonImage(R.drawable.ic_arrow_back)
             setBackgroundColor(themeColors.surface)
-            setTitle("Threads")
+            setTitle(getString(R.string.thread_list_title))
             setCenterTitle(true)
         }
         actionBar = actionBarView
@@ -213,6 +218,11 @@ class ThreadListFragment : BaseFragment() {
         return root
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (fragmentView != null) refreshCachedThreadList(animateChanges = false)
+    }
+
     private fun updateCreateThreadActions() {
         val visibility = if (permissionPolicy.canCreateThreadFromThreadList(channelId, clanId)) View.VISIBLE else View.GONE
         createMenuItem?.visibility = visibility
@@ -244,7 +254,7 @@ class ThreadListFragment : BaseFragment() {
         searchInput = EditText(context).apply {
             setTextColor(themeColors.onSurface)
             setHintTextColor(themeColors.textDisabled)
-            hint = "Search Threads"
+            hint = getString(R.string.thread_list_search_hint)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             background = null
             setPadding(0, 0, 0, 0)
@@ -296,14 +306,14 @@ class ThreadListFragment : BaseFragment() {
             }
         }
         val iconView = ImageView(context).apply {
-            setImageDrawable(MezonIcon.threadIcon.getDrawable(context))
+            setImageDrawable(MezonIcon.threadPlusIcon.getDrawable(context))
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
         iconCircle.addView(iconView, LayoutHelper.createFrame(22, 22, Gravity.CENTER))
         container.addView(iconCircle, LayoutHelper.createLinear(50, 50, 0f, Gravity.CENTER_HORIZONTAL, 0f, 0f, 0f, 16f))
 
         val titleText = TextView(context).apply {
-            text = "No Threads Yet"
+            text = getString(R.string.thread_list_empty_title)
             setTextColor(themeColors.tabLabelActive)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
@@ -315,7 +325,7 @@ class ThreadListFragment : BaseFragment() {
         ))
 
         val descText = TextView(context).apply {
-            text = "Keep the conversation going by starting a new thread"
+            text = getString(R.string.thread_list_empty_description)
             setTextColor(themeColors.textDisabled)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
             gravity = Gravity.CENTER
@@ -454,12 +464,12 @@ class ThreadListFragment : BaseFragment() {
                 rawList.forEachIndexed { i, ch ->
                     Log.d(TAG, "[$i] id=${ch.channelId} label=${ch.channelLabel} active=${ch.active} hasLastMsg=${ch.hasLastSentMessage()} ts=${if (ch.hasLastSentMessage()) ch.lastSentMessage.timestampSeconds else 0}")
                 }
-                val threads = rawList.map { it.toThreadInfo() }
+                val threads = mergeCachedThreads(rawList.map { it.toThreadInfo() })
                 allThreads.clear()
                 allThreads.addAll(threads)
 
-                isNextDisabled = threads.size < LIMIT
-                isPaginationVisible = !(page == 1 && threads.size < LIMIT)
+                isNextDisabled = rawList.size < LIMIT
+                isPaginationVisible = !(page == 1 && rawList.size < LIMIT)
 
                 loadingView?.visibility = View.GONE
                 setPaginationLoading(false)
@@ -484,6 +494,72 @@ class ThreadListFragment : BaseFragment() {
                 }
             }
         }
+    }
+
+    private fun refreshCachedThreadList(animateChanges: Boolean = true) {
+        if (!::channelController.isInitialized) return
+        val merged = mergeCachedThreads(allThreads)
+        if (merged == allThreads) return
+        allThreads.clear()
+        allThreads.addAll(merged)
+        loadingView?.visibility = View.GONE
+        setPaginationLoading(false)
+        val query = searchInput?.text?.toString().orEmpty()
+        if (isSearchMode && query.isNotBlank()) {
+            searchThreads(query.lowercase())
+        } else {
+            showThreadList(merged, animateChanges = animateChanges)
+            updatePaginationState()
+        }
+    }
+
+    private fun mergeCachedThreads(remoteThreads: List<ThreadInfo>): List<ThreadInfo> {
+        val byId = LinkedHashMap<Long, ThreadInfo>()
+        for (thread in remoteThreads) {
+            byId[thread.channelId] = thread
+        }
+        val cachedThreads = channelController.getChannels(clanId)
+            .filter { it.parentId == channelId && (it.isThread || it.type == CHANNEL_TYPE_THREAD) }
+        for (channel in cachedThreads) {
+            val local = channel.toThreadInfoFromCache()
+            val current = byId[channel.channelId]
+            byId[channel.channelId] = if (current == null) {
+                local
+            } else {
+                current.copy(
+                    parentId = current.parentId.takeIf { it != 0L } ?: local.parentId,
+                    channelLabel = current.channelLabel.ifBlank { local.channelLabel },
+                    active = if (current.active != 0) current.active else local.active,
+                    isPrivate = current.isPrivate || local.isPrivate,
+                    lastMessageTs = maxOf(current.lastMessageTs, local.lastMessageTs)
+                )
+            }
+        }
+        return byId.values.sortedWith(
+            compareByDescending<ThreadInfo> { it.lastMessageTs }
+                .thenByDescending { it.channelId }
+        )
+    }
+
+    private fun ClanChannelEntity.toThreadInfoFromCache(): ThreadInfo {
+        val threadActive = when {
+            active != 0 -> active
+            isPrivate -> ThreadStatus.ACTIVE_PRIVATE
+            else -> ThreadStatus.ACTIVE_PUBLIC
+        }
+        return ThreadInfo(
+            channelId = channelId,
+            clanId = clanId,
+            parentId = parentId,
+            channelLabel = channelLabel,
+            active = threadActive,
+            isPrivate = isPrivate,
+            creatorId = 0L,
+            creatorName = "",
+            lastSenderId = 0L,
+            lastMessageContent = "",
+            lastMessageTs = lastSentMessageTs
+        )
     }
 
     private fun setPaginationLoading(loading: Boolean) {

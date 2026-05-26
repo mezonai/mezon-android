@@ -130,6 +130,7 @@ class UserProfileBottomSheet(
             orientation = LinearLayout.VERTICAL
             clipChildren = false      // Allow avatar to overflow below backdrop
             clipToPadding = false
+            setPadding(0, 0, 0, AndroidUtilities.navigationBarHeight)
         }
 
         rootLayout.addView(buildBackdropWithAvatar())

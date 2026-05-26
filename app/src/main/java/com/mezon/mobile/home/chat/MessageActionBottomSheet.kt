@@ -34,6 +34,8 @@ class MessageActionBottomSheet(
     private val showForwardSingle: Boolean = true,
     private val showForwardAllNearby: Boolean = false,
     private val showEditMessage: Boolean = false,
+    private val showTopicDiscussion: Boolean = false,
+    private val showPinActions: Boolean = true,
     private val listener: MessageActionListener
 ) : BottomSheet(context) {
 
@@ -43,6 +45,7 @@ class MessageActionBottomSheet(
         ForwardAllNearby,
         EditMessage,
         CopyText,
+        TopicDiscussion,
         PinMessage,
         UnPinMessage,
         DeleteMessage,
@@ -320,6 +323,15 @@ class MessageActionBottomSheet(
             ))
         }
 
+        if (showTopicDiscussion) {
+            actions.add(ActionItem(
+                ActionType.TopicDiscussion,
+                context.getString(R.string.topic_discussion),
+                R.drawable.ic_thread_new_icon,
+                applyIconTint = false
+            ))
+        }
+
         return actions
     }
 
@@ -333,18 +345,20 @@ class MessageActionBottomSheet(
             R.drawable.ic_copy_icon
         ))
 
-        if (isPinned) {
-            actions.add(ActionItem(
-                ActionType.UnPinMessage,
-                context.getString(R.string.action_unpin),
-                R.drawable.ic_pin_icon
-            ))
-        } else {
-            actions.add(ActionItem(
-                ActionType.PinMessage,
-                context.getString(R.string.action_pin),
-                R.drawable.ic_pin_icon
-            ))
+        if (showPinActions) {
+            if (isPinned) {
+                actions.add(ActionItem(
+                    ActionType.UnPinMessage,
+                    context.getString(R.string.action_unpin),
+                    R.drawable.ic_pin_icon
+                ))
+            } else {
+                actions.add(ActionItem(
+                    ActionType.PinMessage,
+                    context.getString(R.string.action_pin),
+                    R.drawable.ic_pin_icon
+                ))
+            }
         }
 
         actions.add(ActionItem(
