@@ -48,7 +48,6 @@ import com.mezon.mezon.api.checkDuplicateNameRequest
 import com.mezon.mezon.api.deleteChannelDescRequest
 import com.mezon.mezon.api.updateChannelDescRequest
 import com.mezon.mezon.api.listCategoryDescsRequest
-import com.mezon.mezon.api.CategoryDescList
 import com.mezon.mezon.api.CheckDuplicateNameResponse
 import com.mezon.mezon.api.listQuickMenuAccessRequest
 import com.mezon.mezon.api.QuickMenuAccessList

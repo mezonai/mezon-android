@@ -40,7 +40,6 @@ data class ClanChannelEntity(
     val categoryOrder: Int = 0,
     val ageRestricted: Int = 0,
 ) {
-    val isAgeRestricted: Boolean get() = ageRestricted == 1
     val isThread: Boolean get() = type == 7 && parentId != 0L
     val hasUnread: Boolean get() {
         if (unreadCount > 0) return true

@@ -759,13 +759,13 @@ class ChannelController @Inject constructor(
                     categoryId = if (apiNorm.categoryId != 0L) apiNorm.categoryId else cached.categoryId,
                     isPrivate = if (apiNorm.type != 0) apiNorm.isPrivate else cached.isPrivate,
                     isAgeRestricted = apiNorm.isAgeRestricted || cached.isAgeRestricted,
+                    ageRestricted = if (apiNorm.ageRestricted != 0) apiNorm.ageRestricted else cached.ageRestricted,
                     categoryOrder = if (apiNorm.categoryOrder != 0) apiNorm.categoryOrder else cached.categoryOrder,
                     lastSeenMessageId = maxOf(cached.lastSeenMessageId, apiNorm.lastSeenMessageId),
                     lastSentMessageId = maxOf(cached.lastSentMessageId, apiNorm.lastSentMessageId),
                     lastSeenMessageTs = maxOf(cached.lastSeenMessageTs, apiNorm.lastSeenMessageTs),
                     lastSentMessageTs = maxOf(cached.lastSentMessageTs, apiNorm.lastSentMessageTs),
                     unreadCount = mergeUnreadFromChannelList(cached.unreadCount, apiNorm),
-                    ageRestricted = apiNorm.ageRestricted,
                 )
             }
         }
