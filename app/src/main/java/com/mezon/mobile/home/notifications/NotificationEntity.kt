@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.notifications
 
+import android.util.Log
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -8,22 +9,17 @@ import com.mezon.mezon.api.Notification
 import com.mezon.mobile.util.parseContentText
 import org.json.JSONObject
 
+private const val TAG = "NotifParse"
+
 const val NOTIF_TAB_TOPICS_UI = -1
 
 const val NOTIF_CATEGORY_MENTIONS = 1
 const val NOTIF_CATEGORY_MESSAGES = 2
 const val NOTIF_CATEGORY_FOR_YOU = 3
 
-private val FOR_YOU_USERNAME_REGEX = Regex("""^([\w.]+)\s""")
-
-private fun enrichForYouUsername(category: Int, senderUsername: String, messageText: String): String {
-    if (category != NOTIF_CATEGORY_FOR_YOU || senderUsername.isNotEmpty()) return senderUsername
-    return FOR_YOU_USERNAME_REGEX.find(messageText)?.groupValues?.getOrNull(1).orEmpty()
-}
-
 @Entity(
     tableName = "notifications",
-    indices = [Index(value = ["category", "clanId", "createTimeSeconds"])]
+    indices = [Index(value = ["category", "createTimeSeconds"])]
 )
 data class NotificationEntity(
     @PrimaryKey val id: Long,
@@ -58,24 +54,16 @@ fun Notification.toNotificationEntity(): NotificationEntity {
     var messageText = ""
     var createTimeSeconds = this.createTimeSeconds.toLong()
     var messageId = 0L
-    var topicId = this.topicId.takeIf { it != 0L } ?: 0L
 
     if (content != null && !content.isEmpty) {
         try {
             val bytes = content.toByteArray()
             val firstByte = bytes[0].toInt() and 0xFF
             if (firstByte == 123 || firstByte == 91) {
+                // Byte đầu là '{' (123) hoặc '[' (91) → raw JSON
                 val obj = JSONObject(content.toStringUtf8())
                 if (channelId == 0L) channelId = obj.optString("channel_id", "0").toLongOrNull() ?: 0L
                 if (clanId == 0L) clanId = obj.optString("clan_id", "0").toLongOrNull() ?: 0L
-                if (messageId == 0L) {
-                    messageId = obj.optLong("message_id", 0L).takeIf { it != 0L }
-                        ?: obj.optString("message_id", "").toLongOrNull() ?: 0L
-                }
-                if (topicId == 0L) {
-                    topicId = obj.optLong("topic_id", 0L).takeIf { it != 0L }
-                        ?: obj.optString("topic_id", "").toLongOrNull() ?: 0L
-                }
                 senderUsername = obj.optString("username", "")
                 senderName = obj.optString("display_name", "").ifEmpty { senderUsername }
                 senderAvatar = obj.optString("avatar", "")
@@ -86,6 +74,7 @@ fun Notification.toNotificationEntity(): NotificationEntity {
                 } else obj.optString("t", "")
                 messageText = parseContentText(textRaw).ifEmpty { textRaw }
             } else {
+                // Proto-encoded DirectFcmProto
                 val fcm = DirectFcmProto.parseFrom(bytes)
                 if (channelId == 0L) channelId = fcm.channelId
                 if (clanId == 0L) clanId = fcm.clanId
@@ -100,13 +89,13 @@ fun Notification.toNotificationEntity(): NotificationEntity {
                 } else ""
                 messageText = parseContentText(textRaw).ifEmpty { textRaw }
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e(TAG, "content parse error id=$id", e)
         }
     }
 
 
     val resolvedAvatar = this.avatarUrl.ifEmpty { senderAvatar }
-    senderUsername = enrichForYouUsername(category, senderUsername, messageText)
 
     return NotificationEntity(
         id = id,
@@ -130,12 +119,14 @@ fun Notification.toNotificationEntity(): NotificationEntity {
     )
 }
 
+// Dùng cho REST JSON response fallback
 fun parseNotificationsJson(jsonString: String): List<NotificationEntity> {
     return try {
         val root = JSONObject(jsonString)
         val arr = root.optJSONArray("notifications") ?: return emptyList()
         (0 until arr.length()).map { parseNotificationItemJson(arr.getJSONObject(it)) }
-    } catch (_: Exception) {
+    } catch (e: Exception) {
+        Log.e(TAG, "parseNotificationsJson error", e)
         emptyList()
     }
 }
@@ -144,6 +135,7 @@ private fun parseNotificationItemJson(item: JSONObject): NotificationEntity {
     val id = item.optString("id", "0").toLongOrNull() ?: 0L
     val avatarUrl = item.optString("avatar_url", "")
 
+    // Top-level fields from ApiNotification (populated by some server versions)
     var channelId = item.optString("channel_id", "0").toLongOrNull() ?: 0L
     var clanId = item.optString("clan_id", "0").toLongOrNull() ?: 0L
     var channelType = item.optInt("channel_type", 0)
@@ -170,7 +162,6 @@ private fun parseNotificationItemJson(item: JSONObject): NotificationEntity {
         messageText = parseContentText(textRaw).ifEmpty { textRaw }
     }
 
-    senderUsername = enrichForYouUsername(item.optInt("category", 0), senderUsername, messageText)
 
     return NotificationEntity(
         id = id, subject = item.optString("subject", ""),

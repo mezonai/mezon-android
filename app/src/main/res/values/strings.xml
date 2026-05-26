@@ -326,14 +326,6 @@
     <string name="notif_tab_mentions">Mentions</string>
     <string name="notif_tab_messages">Messages</string>
     <string name="notif_tab_topics">Topics</string>
-    <string name="notif_tab_topics_empty">No topic activity</string>
-    <string name="notif_topic_and_you">Topic and you</string>
-    <string name="notif_replied_to">Replied To:</string>
-    <string name="topic_discussion">Topic Discussion</string>
-    <string name="topic_creator">Creator</string>
-    <string name="topic_view">View topic</string>
-    <string name="topic_reply_one">Reply</string>
-    <string name="topic_replies">Replies</string>
     <string name="notif_tab_for_you">For You</string>
     <string name="notif_empty">No notifications</string>
     <string name="notification_tab_for_you">For you</string>
@@ -385,11 +377,12 @@
     <string name="clan_settings_roles">Roles</string>
     <string name="clan_settings_invites">Invites</string>
     <string name="clan_roles_description">Use roles to group your clan members and assign permissions</string>
-    <string name="clan_roles_default_role">Default permission for all clan members</string>
+    <string name="clan_roles_default_role">Default permissions for all clan members</string>
     <string name="clan_roles_header_count">Roles - %1$d</string>
     <string name="clan_roles_member_count">%1$d - Members</string>
+    <string name="clan_roles_member_count_one">1 - Member</string>
     <string name="clan_roles_no_roles">There are currently no roles</string>
-    <string name="clan_roles_all_members">All Members</string>
+    <string name="clan_roles_all_members">All clan members</string>
     <string name="clan_roles_add_content_desc">Add role</string>
     <string name="clan_roles_create_step_title">Step 1 of 3</string>
     <string name="clan_roles_create_heading">Create a new role</string>
@@ -402,6 +395,8 @@
     <string name="clan_roles_perm_heading">Set up permissions</string>
     <string name="clan_roles_perm_search">Search Permissions</string>
     <string name="clan_roles_perm_next">Next</string>
+    <string name="clan_roles_skip_step">Skip this step</string>
+    <string name="clan_roles_no_permissions_found">No permissions found.</string>
     <string name="clan_roles_members_step_title">Step 3 of 3</string>
     <string name="clan_roles_members_heading">Add members</string>
     <string name="clan_roles_members_body">Assign this role to your members. Members can have more than one role.</string>
@@ -617,7 +612,7 @@
     <string name="menu_clan_sound">Sound Effect</string>
     <string name="menu_clan_enable_community">Enable Community</string>
     <string name="menu_clan_members">Members</string>
-    <string name="menu_clan_roles">Clan Roles</string>
+    <string name="menu_clan_roles">Roles</string>
     <string name="menu_clan_notification_setting">Notification Settings</string>
     <string name="clan_overview_save_success">Clan setting updated successfully</string>
     <string name="clan_overview_save_error">Something went wrong while updating clan settings</string>
@@ -1180,7 +1175,7 @@
     <string name="channel_permission_save_failed">Could not save permissions</string>
     <string name="channel_permission_load_failed">Could not load permissions</string>
 
-    <string name="channel_permissions_title">Permissions</string>
+    <string name="channel_permissions_title">Channel Permissions</string>
     <string name="channel_permissions_overrides">Permission Overrides</string>
     <string name="channel_permissions_save">Save</string>
     <string name="channel_permissions_general_channel_permissions">GENERAL CHANNEL PERMISSIONS</string>
@@ -1192,7 +1187,7 @@
     <string name="channel_permissions_add_members_or_roles">Add members or roles</string>
     <string name="channel_permissions_role_member_placeholder">Role/Member</string>
     <string name="channel_permissions_private_channel">Private Channel</string>
-    <string name="channel_permissions_basic_description">By making a channel private, only select members and roles will be able to view this channel</string>
+    <string name="channel_permissions_basic_description">By making a channel private, only selected members and roles will be able to view this channel</string>
     <string name="channel_permissions_who_can_access">Who can access</string>
     <string name="channel_permissions_creator_badge">Creator</string>
     <string name="channel_permissions_role_badge">Role</string>

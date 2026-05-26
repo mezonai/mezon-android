@@ -154,6 +154,72 @@ class UserClanController @Inject constructor(
         }
     }
 
+    fun applyRoleAssignments(
+        clanId: Long,
+        roleId: Long,
+        addUserIds: Collection<Long>,
+        removeUserIds: Collection<Long>
+    ) {
+        if (clanId == 0L || roleId == 0L || (addUserIds.isEmpty() && removeUserIds.isEmpty())) return
+        val add = addUserIds.toHashSet()
+        val remove = removeUserIds.toHashSet()
+        var clanChanged = false
+        val changedChannels = ArrayList<Long>()
+        synchronized(this) {
+            val clanMembers = membersByClan[clanId]
+            if (clanMembers != null) {
+                val next = updateMemberRoleList(clanMembers, roleId, add, remove)
+                if (next !== clanMembers) {
+                    membersByClan.put(clanId, next)
+                    clanChanged = true
+                }
+            }
+            for (i in 0 until membersByChannel.size()) {
+                val channelId = membersByChannel.keyAt(i)
+                val list = membersByChannel.valueAt(i)
+                if (list.none { it.clanId == clanId }) continue
+                val next = updateMemberRoleList(list, roleId, add, remove)
+                if (next !== list) {
+                    membersByChannel.put(channelId, next)
+                    changedChannels.add(channelId)
+                }
+            }
+        }
+        if (clanChanged) {
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.clanMembersDidLoad, clanId)
+        }
+        changedChannels.forEach {
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.channelMembersDidLoad, it)
+        }
+    }
+
+    private fun updateMemberRoleList(
+        source: List<ClanMember>,
+        roleId: Long,
+        addUserIds: Set<Long>,
+        removeUserIds: Set<Long>
+    ): List<ClanMember> {
+        var changed = false
+        val next = ArrayList<ClanMember>(source.size)
+        for (member in source) {
+            if (member.userId !in addUserIds && member.userId !in removeUserIds) {
+                next.add(member)
+                continue
+            }
+            val roles = LinkedHashSet(member.roleIds)
+            val beforeSize = roles.size
+            if (member.userId in addUserIds) roles.add(roleId)
+            if (member.userId in removeUserIds) roles.remove(roleId)
+            if (roles.size != beforeSize || roles.toList() != member.roleIds) {
+                next.add(member.copy(roleIds = roles.toList()))
+                changed = true
+            } else {
+                next.add(member)
+            }
+        }
+        return if (changed) next else source
+    }
+
     fun loadClanMembers(clanId: Long, noCache: Boolean = false) {
         if (clanId == 0L) return
         appScope.launch(ioDispatcher) {

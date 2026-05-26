@@ -168,7 +168,7 @@ class ChannelPermissionController @Inject constructor(
                     session.token,
                     clanId,
                     channelId,
-                    if (isPrivate) 1 else 0,
+                    if (isPrivate) 0 else 1,
                     listOfNotNull(userController.userId.takeIf { it != 0L }),
                     emptyList(),
                 )
@@ -176,6 +176,7 @@ class ChannelPermissionController @Inject constructor(
             channelController.findChannelById(channelId, clanId)?.let { existing ->
                 channelController.upsertChannel(existing.copy(isPrivate = isPrivate))
             }
+            channelController.loadChannelsForClan(clanId, force = true)
             loadChannelPermissionData(clanId, channelId, channelType, force = true)
             notificationCenter.postNotificationOnMainThread(NotificationCenter.channelPermissionsDidLoad, channelId)
             Result.success(Unit)
@@ -225,7 +226,6 @@ class ChannelPermissionController @Inject constructor(
                     api.addRoleChannelDesc(session.apiUrl, session.token, channelId, roleIds)
                 }
                 roleController.addChannelToRoles(clanId, channelId, roleIds)
-                roleController.loadRolesForClan(clanId, force = true)
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.channelPermissionsDidLoad, channelId)
                 Result.success(Unit)
             } catch (e: Exception) {
@@ -241,7 +241,6 @@ class ChannelPermissionController @Inject constructor(
                     api.deleteRoleChannelDesc(session.apiUrl, session.token, clanId, channelId, role.roleId, role.title)
                 }
                 roleController.removeChannelFromRole(clanId, channelId, role.roleId)
-                roleController.loadRolesForClan(clanId, force = true)
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.channelPermissionsDidLoad, channelId)
                 Result.success(Unit)
             } catch (e: Exception) {

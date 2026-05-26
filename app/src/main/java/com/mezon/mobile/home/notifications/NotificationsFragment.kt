@@ -2,6 +2,7 @@ package com.mezon.mobile.home.notifications
 
 import android.content.Context
 import android.text.TextUtils
+import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
@@ -17,20 +18,12 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.di.FragmentEntryPoint
-import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.DialogsController
-import com.mezon.mobile.home.MemberResolver
-import com.mezon.mobile.home.TopicController
-import com.mezon.mobile.home.UserClanController
-import com.mezon.mobile.home.ChatController
-import com.mezon.mobile.home.chat.TopicFragment
-import com.mezon.mobile.home.chat.SdTopicEntity
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.ClansController
 import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
-import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
 import com.mezon.mobile.ui.cells.MezonIcon
 
 private data class TabDef(val category: Int, val labelRes: Int, val icon: MezonIcon)
@@ -38,13 +31,9 @@ private data class TabDef(val category: Int, val labelRes: Int, val icon: MezonI
 class NotificationsFragment : BaseFragment() {
 
     private lateinit var store: NotificationStore
-    private lateinit var topicController: TopicController
-    private lateinit var memberResolver: MemberResolver
-    private lateinit var userClanController: UserClanController
     private lateinit var clansController: ClansController
     private lateinit var channelController: ChannelController
     private lateinit var dialogsController: DialogsController
-    private lateinit var chatController: ChatController
 
     var onOpenChat: ((channelId: Long, channelName: String, clanId: Long, channelType: Int) -> Unit)? = null
 
@@ -54,7 +43,6 @@ class NotificationsFragment : BaseFragment() {
     private lateinit var loadingView: ProgressBar
     private lateinit var emptyView: TextView
     private lateinit var adapter: NotificationAdapter
-    private lateinit var topicAdapter: TopicNotificationAdapter
 
     private val tabs = listOf(
         TabDef(NOTIF_CATEGORY_MENTIONS, R.string.notif_tab_mentions, MezonIcon.notificationTabMention),
@@ -72,66 +60,37 @@ class NotificationsFragment : BaseFragment() {
     )
 
     private val scrollStates = mutableMapOf<Int, android.os.Parcelable?>()
-    private var lastAppliedClanId = 0L
-    private var pendingClanRefresh = false
-    private var pendingListRefresh = false
-    private var scrollingManually = false
-    private var pendingPartialUpdateMask = 0
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
         store = entryPoint.notificationStore()
-        topicController = entryPoint.topicController()
-        memberResolver = entryPoint.memberResolver()
-        userClanController = entryPoint.userClanController()
         clansController = entryPoint.clansController()
         channelController = entryPoint.channelController()
         dialogsController = entryPoint.dialogsController()
-        chatController = entryPoint.chatController()
     }
 
     override fun onFragmentCreate(): Boolean {
         super.onFragmentCreate()
 
-        observe(NotificationCenter.selectedClanChanged) { _, _, args ->
-            val id = args.getOrNull(0) as? Long ?: return@observe
-            if (id == 0L) return@observe
-            if (fragmentView == null || !::recyclerView.isInitialized) {
-                pendingClanRefresh = true
-                return@observe
+        observe(NotificationCenter.clansDidLoad) { _, _, _ ->
+            if (fragmentView == null || isPaused) return@observe
+            val id = clansController.selectedClanId.value
+            if (id != 0L) {
+                if (store.setCurrentClan(id)) {
+                    selectTab(currentCategory, forceRefresh = true)
+                }
             }
-            if (isPaused) {
-                pendingClanRefresh = true
-                return@observe
-            }
-            applyClanContext(id)
-        }
-        observe(NotificationCenter.topicsNeedReload) { _, _, _ ->
-            if (fragmentView == null || !::recyclerView.isInitialized) return@observe
-            if (isPaused) {
-                pendingListRefresh = true
-                return@observe
-            }
-            if (currentCategory == NOTIF_TAB_TOPICS_UI) refreshTopicsList()
         }
         observe(NotificationCenter.notificationsDidLoad) { _, _, args ->
-            if (fragmentView == null || !::recyclerView.isInitialized) return@observe
+            if (fragmentView == null || isPaused) return@observe
             val category = args.firstOrNull() as? Int ?: return@observe
             isLoadingMoreMap[category] = false
-            if (isPaused) {
-                pendingListRefresh = true
-                return@observe
-            }
             if (category == currentCategory) refreshList()
         }
         observe(NotificationCenter.notificationsLoadError) { _, _, args ->
-            if (fragmentView == null || !::recyclerView.isInitialized) return@observe
+            if (fragmentView == null || isPaused) return@observe
             if (currentCategory == NOTIF_TAB_TOPICS_UI) return@observe
             val category = args.firstOrNull() as? Int ?: return@observe
             isLoadingMoreMap[category] = false
-            if (isPaused) {
-                pendingListRefresh = true
-                return@observe
-            }
             if (category == currentCategory) {
                 val items = store.getForCategory(currentCategory).value
                 if (items.isNotEmpty()) {
@@ -141,23 +100,9 @@ class NotificationsFragment : BaseFragment() {
                 }
             }
         }
-        observe(NotificationCenter.userClansDidLoad) { _, _, _ ->
-            if (fragmentView == null || !::recyclerView.isInitialized || isPaused) return@observe
-            refreshVisibleAvatars()
-        }
-        observe(NotificationCenter.clanMembersDidLoad) { _, _, args ->
-            if (fragmentView == null || !::recyclerView.isInitialized || isPaused) return@observe
-            val clanId = args.firstOrNull() as? Long ?: return@observe
-            if (clanId != clansController.selectedClanId.value) return@observe
-            refreshVisibleAvatars()
-        }
         observe(NotificationCenter.updateInterfaces) { _, _, args ->
             if (fragmentView == null || isPaused) return@observe
             val mask = args.firstOrNull() as? Int ?: 0
-            if (scrollingManually) {
-                pendingPartialUpdateMask = pendingPartialUpdateMask or mask
-                return@observe
-            }
             updateVisibleRows(mask)
         }
         observe(NotificationCenter.themeChanged) { _, _, _ ->
@@ -166,7 +111,6 @@ class NotificationsFragment : BaseFragment() {
             emptyView.setTextColor(themeColors.onSurfaceVariant)
             rebuildTabChipColors()
             adapter.notifyDataSetChanged()
-            topicAdapter.notifyDataSetChanged()
         }
 
         return true
@@ -212,7 +156,6 @@ class NotificationsFragment : BaseFragment() {
         recyclerView = RecyclerListView(context).apply {
             layoutManager = LinearLayoutManager(context)
             setHasFixedSize(false)
-            itemAnimator = null
             visibility = View.GONE
         }
         contentFrame.addView(recyclerView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
@@ -230,16 +173,9 @@ class NotificationsFragment : BaseFragment() {
         contentFrame.addView(emptyView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
         adapter = NotificationAdapter(theme = themeColors)
-        topicAdapter = TopicNotificationAdapter(themeColors)
         recyclerView.adapter = adapter
         recyclerView.setOnItemClickListener(RecyclerListView.OnItemClickListener { view, _ ->
-            if (currentCategory == NOTIF_TAB_TOPICS_UI) {
-                if (view is TopicNotificationCell) {
-                    val item = view.entity ?: return@OnItemClickListener
-                    openTopicFromSdTopic(item)
-                }
-                return@OnItemClickListener
-            }
+            if (currentCategory == NOTIF_TAB_TOPICS_UI) return@OnItemClickListener
             if (view is NotificationCell) {
                 val entity = view.entity ?: return@OnItemClickListener
                 handleNotificationPress(entity)
@@ -255,131 +191,43 @@ class NotificationsFragment : BaseFragment() {
         })
 
         recyclerView.addOnScrollListener(object : androidx.recyclerview.widget.RecyclerView.OnScrollListener() {
-            override fun onScrollStateChanged(
-                recyclerView: androidx.recyclerview.widget.RecyclerView,
-                newState: Int
-            ) {
-                when (newState) {
-                    androidx.recyclerview.widget.RecyclerView.SCROLL_STATE_DRAGGING,
-                    androidx.recyclerview.widget.RecyclerView.SCROLL_STATE_SETTLING -> scrollingManually = true
-                    androidx.recyclerview.widget.RecyclerView.SCROLL_STATE_IDLE -> {
-                        scrollingManually = false
-                        if (pendingPartialUpdateMask != 0) {
-                            val mask = pendingPartialUpdateMask
-                            pendingPartialUpdateMask = 0
-                            updateVisibleRows(mask)
+            override fun onScrolled(recyclerView: androidx.recyclerview.widget.RecyclerView, dx: Int, dy: Int) {
+                if (currentCategory == NOTIF_TAB_TOPICS_UI) return
+                if (dy > 0 && isLoadingMoreMap[currentCategory] != true) {
+                    if (recyclerView.scrollState == androidx.recyclerview.widget.RecyclerView.SCROLL_STATE_IDLE) {
+                        return
+                    }
+
+                    val layoutManager = recyclerView.layoutManager as LinearLayoutManager
+                    val visibleItemCount = layoutManager.childCount
+                    val totalItemCount = layoutManager.itemCount
+                    val firstVisibleItemPosition = layoutManager.findFirstVisibleItemPosition()
+
+                    if ((visibleItemCount + firstVisibleItemPosition) >= totalItemCount && firstVisibleItemPosition >= 0) {
+                        if (store.hasMoreForCategory(currentCategory)) {
+                            isLoadingMoreMap[currentCategory] = true
+                            store.loadMore(currentCategory)
                         }
-                        tryLoadMore(recyclerView)
                     }
                 }
             }
-
-            override fun onScrolled(recyclerView: androidx.recyclerview.widget.RecyclerView, dx: Int, dy: Int) {
-                if (dy > 0) tryLoadMore(recyclerView)
-            }
         })
 
-        fragmentView = root
-        root.post { bootstrapContent() }
         return root
     }
 
     override fun onBecomeFullyVisible() {
         super.onBecomeFullyVisible()
-        bootstrapContent()
-    }
 
-    private fun bootstrapContent() {
-        if (fragmentView == null || !::recyclerView.isInitialized) return
         val clanId = clansController.selectedClanId.value
-        if (clanId == 0L) {
-            showEmpty()
-            return
-        }
-        if (pendingClanRefresh || lastAppliedClanId != clanId) {
-            pendingClanRefresh = false
-            applyClanContext(clanId)
-            return
-        }
-        ensureMembersLoaded(clanId)
-        if (pendingListRefresh) {
-            pendingListRefresh = false
-            refreshList()
-            return
-        }
-        val contentHidden = loadingView.visibility != View.VISIBLE &&
-            recyclerView.visibility != View.VISIBLE &&
-            emptyView.visibility != View.VISIBLE
-        if (contentHidden) {
-            selectTab(currentCategory, forceRefresh = false)
-        }
-    }
+        val isClanChanged = store.setCurrentClan(clanId)
 
-    private fun applyClanContext(clanId: Long) {
-        if (clanId == 0L) return
-        store.setCurrentClan(clanId)
-        topicController.resetForClan(clanId)
-        ensureMembersLoaded(clanId)
-        lastAppliedClanId = clanId
-        selectTab(currentCategory, forceRefresh = true)
-    }
-
-    private fun ensureMembersLoaded(clanId: Long) {
-        if (clanId == 0L) return
-        userClanController.loadClanMembers(clanId)
-        if (!userClanController.loaded) {
-            userClanController.loadUsers()
-        }
-    }
-
-    private fun resolveTopicSenderMember(item: SdTopicEntity): ClanMember? {
-        val senderId = item.senderIdForAvatar()
-        if (senderId == 0L || item.clanId == 0L) return null
-        return memberResolver.resolveClanScopedMember(
-            senderId,
-            item.clanId,
-            item.channelId,
-            CHANNEL_TYPE_THREAD
-        )
-    }
-
-    private fun resolveTopicMembers(items: List<SdTopicEntity>): Map<Long, ClanMember> {
-        if (items.isEmpty()) return emptyMap()
-        val result = HashMap<Long, ClanMember>(items.size)
-        for (item in items) {
-            val senderId = item.senderIdForAvatar()
-            if (senderId == 0L || senderId in result) continue
-            resolveTopicSenderMember(item)?.let { result[senderId] = it }
-        }
-        return result
-    }
-
-    private fun resolveNotificationMembers(items: List<NotificationEntity>): Map<Long, ClanMember> {
-        if (items.isEmpty()) return emptyMap()
-        val result = HashMap<Long, ClanMember>(items.size)
-        for (item in items) {
-            val senderId = item.senderId
-            if (senderId == 0L || senderId in result) continue
-            memberResolver.resolveMember(senderId, item.clanId, item.channelId, item.channelType)
-                ?.let { result[senderId] = it }
-        }
-        return result
+        selectTab(currentCategory, forceRefresh = isClanChanged)
     }
 
     private fun handleNotificationPress(entity: NotificationEntity) {
-        if (entity.topicId != 0L && entity.messageId != 0L) {
-            val channelType = entity.channelType.takeIf { it != 0 } ?: CHANNEL_TYPE_CHANNEL
-            openTopicDiscussion(
-                topicId = entity.topicId,
-                rootMessageId = entity.messageId,
-                clanId = entity.clanId,
-                parentChannelId = entity.channelId,
-                channelType = channelType
-            )
-            return
-        }
         val channelId = entity.channelId
-        if (channelId == 0L) return
+        if (channelId == 0L) { Log.w("NotifNav", "channelId == 0, skip"); return }
         val rawClanId = entity.clanId
         val dm = dialogsController.getDialog(channelId)
         val isDmDialog = dm?.type == CHANNEL_TYPE_DM || dm?.type == CHANNEL_TYPE_GROUP
@@ -405,63 +253,6 @@ class NotificationsFragment : BaseFragment() {
         }
 
         onOpenChat?.invoke(channelId, channelName, clanId, channelType)
-    }
-
-    private fun openTopicFromSdTopic(item: SdTopicEntity) {
-        openTopicDiscussion(
-            topicId = item.id,
-            rootMessageId = item.messageId,
-            clanId = item.clanId,
-            parentChannelId = item.channelId,
-            channelType = CHANNEL_TYPE_THREAD
-        )
-    }
-
-    private fun tryLoadMore(recyclerView: androidx.recyclerview.widget.RecyclerView) {
-        if (currentCategory == NOTIF_TAB_TOPICS_UI) return
-        if (isLoadingMoreMap[currentCategory] == true) return
-        val layoutManager = recyclerView.layoutManager as? LinearLayoutManager ?: return
-        val visibleItemCount = layoutManager.childCount
-        val totalItemCount = layoutManager.itemCount
-        val firstVisibleItemPosition = layoutManager.findFirstVisibleItemPosition()
-        if (firstVisibleItemPosition < 0) return
-        if ((visibleItemCount + firstVisibleItemPosition) >= totalItemCount - 2) {
-            if (store.hasMoreForCategory(currentCategory)) {
-                isLoadingMoreMap[currentCategory] = true
-                store.loadMore(currentCategory)
-            }
-        }
-    }
-
-    private fun openTopicDiscussion(
-        topicId: Long,
-        rootMessageId: Long,
-        clanId: Long,
-        parentChannelId: Long,
-        channelType: Int
-    ) {
-        if (topicId == 0L || rootMessageId == 0L || parentChannelId == 0L) return
-        if (clanId != 0L) {
-            clansController.selectClan(clanId)
-        }
-        val isPrivate = channelController.findChannelById(parentChannelId)?.isPrivate ?: false
-        chatController.openChannel(
-            channelId = parentChannelId,
-            clanId = clanId,
-            channelType = channelType,
-            isChannelPrivate = isPrivate
-        )
-        presentFragment(
-            TopicFragment.newInstance(
-                topicId = topicId,
-                rootMessageId = rootMessageId,
-                clanId = clanId,
-                parentChannelId = parentChannelId,
-                channelType = channelType,
-                isChannelPrivate = isPrivate,
-                openedFromNotification = true
-            )
-        )
     }
 
     private fun buildHeader(context: Context): View {
@@ -561,23 +352,8 @@ class NotificationsFragment : BaseFragment() {
             }
             currentCategory = category
             rebuildTabChipColors()
-            recyclerView.adapter = topicAdapter
-            val clanId = clansController.selectedClanId.value
-            val cached = topicController.getTopics()
-            if (cached.isNotEmpty() && !forceRefresh) {
-                showTopicsList(cached, isTabChanged)
-            } else {
-                if (isTabChanged || forceRefresh) {
-                    topicAdapter.setData(emptyList(), isTabChange = true)
-                }
-                showLoading()
-                topicController.loadTopics(clanId, forceRefresh = forceRefresh || isTabChanged)
-            }
+            showTopicsPlaceholder()
             return
-        }
-
-        if (currentCategory == NOTIF_TAB_TOPICS_UI && category != NOTIF_TAB_TOPICS_UI) {
-            recyclerView.adapter = adapter
         }
 
         val isTabChanged = currentCategory != category
@@ -597,7 +373,7 @@ class NotificationsFragment : BaseFragment() {
             showList(cached, isTabChanged)
         } else {
             if (isTabChanged || forceRefresh) {
-                adapter.setData(emptyList(), hasMoreData = false, isTabChange = true)
+                adapter.setData(emptyList(), false, true)
             }
             showLoading()
             isLoadingMoreMap[category] = true
@@ -634,39 +410,13 @@ class NotificationsFragment : BaseFragment() {
         }
     }
 
-    private fun refreshVisibleAvatars() {
-        if (isPaused) return
-        val mask = NotificationCenter.UPDATE_MASK_NAME or NotificationCenter.UPDATE_MASK_AVATAR
-        if (currentCategory == NOTIF_TAB_TOPICS_UI) {
-            topicAdapter.updateMemberCache(resolveTopicMembers(topicController.getTopics()))
-            val count = recyclerView.childCount
-            for (i in 0 until count) {
-                val child = recyclerView.getChildAt(i)
-                if (child is TopicNotificationCell) child.update(mask)
-            }
-            return
-        }
-        val items = store.getForCategory(currentCategory).value
-        adapter.updateMemberCache(resolveNotificationMembers(items))
-        val count = recyclerView.childCount
-        for (i in 0 until count) {
-            val child = recyclerView.getChildAt(i)
-            if (child is NotificationCell) child.update(mask)
-        }
-    }
-
     private fun refreshList() {
         if (currentCategory == NOTIF_TAB_TOPICS_UI) {
-            refreshTopicsList()
+            showTopicsPlaceholder()
             return
         }
         val items = store.getForCategory(currentCategory).value
         if (items.isEmpty()) showEmpty() else showList(items)
-    }
-
-    private fun refreshTopicsList() {
-        val items = topicController.getTopics()
-        if (items.isEmpty()) showTopicsEmpty() else showTopicsList(items)
     }
 
     private fun showLoading() {
@@ -682,27 +432,11 @@ class NotificationsFragment : BaseFragment() {
         emptyView.visibility = View.VISIBLE
     }
 
-    private fun showTopicsEmpty() {
-        emptyView.text = getString(R.string.notif_tab_topics_empty)
+    private fun showTopicsPlaceholder() {
         loadingView.visibility = View.GONE
         recyclerView.visibility = View.GONE
+        emptyView.text = getString(R.string.feature_coming_soon)
         emptyView.visibility = View.VISIBLE
-    }
-
-    private fun showTopicsList(items: List<SdTopicEntity>, isTabChange: Boolean = false) {
-        emptyView.text = getString(R.string.notif_tab_topics_empty)
-        loadingView.visibility = View.GONE
-        emptyView.visibility = View.GONE
-        recyclerView.visibility = View.VISIBLE
-        topicAdapter.setData(items, resolveTopicMembers(items), isTabChange)
-        if (isTabChange) {
-            val saved = scrollStates[NOTIF_TAB_TOPICS_UI]
-            if (saved != null) {
-                recyclerView.layoutManager?.onRestoreInstanceState(saved)
-            } else {
-                recyclerView.scrollToPosition(0)
-            }
-        }
     }
 
     private fun showList(items: List<NotificationEntity>, isTabChange: Boolean = false) {
@@ -711,7 +445,7 @@ class NotificationsFragment : BaseFragment() {
         emptyView.visibility = View.GONE
         recyclerView.visibility = View.VISIBLE
         val hasMore = store.hasMoreForCategory(currentCategory)
-        adapter.setData(items, hasMore, resolveNotificationMembers(items), isTabChange)
+        adapter.setData(items, hasMore, isTabChange)
 
         if (isTabChange) {
             val savedState = scrollStates[currentCategory]

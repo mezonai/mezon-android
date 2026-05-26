@@ -19,11 +19,6 @@ class ChatAdapter(
     var pollBridge: com.mezon.mobile.home.chat.poll.ChatPollBridge? = null
     var shareContactOnlineResolver: ((Long) -> Boolean)? = null
     var displayRoleResolver: ((Long) -> UserDisplayRole?)? = null
-    var onTopicClick: ((topicId: Long, rootMessageId: Long) -> Unit)? = null
-    var topicCreatorResolver: ((Long) -> Pair<String, String>?)? = null
-    var topicLastMessageIdResolver: ((Long) -> Long)? = null
-    var topicBadgeResolver: ((Long) -> Int)? = null
-    var topicButtonEnabled = true
 
     init { setHasStableIds(true) }
 
@@ -235,11 +230,6 @@ class ChatAdapter(
                 holder.cell.isChannelPrivate = isChannelPrivate
                 val msg = messages[idx]
                 holder.cell.displayRoleResolver = displayRoleResolver
-                holder.cell.onTopicClick = onTopicClick
-                holder.cell.topicCreatorResolver = topicCreatorResolver
-                holder.cell.topicLastMessageIdResolver = topicLastMessageIdResolver
-                holder.cell.topicBadgeResolver = topicBadgeResolver
-                holder.cell.topicButtonEnabled = topicButtonEnabled
                 holder.cell.hasMentionHighlight = currentUserId.isNotEmpty() &&
                     msg.hasMention(currentUserId)
                 holder.cell.update(0, msg)

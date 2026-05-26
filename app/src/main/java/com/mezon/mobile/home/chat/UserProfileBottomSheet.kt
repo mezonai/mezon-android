@@ -38,6 +38,7 @@ class UserProfileBottomSheet(
     private val memberSince: String? = null,
     private val isOwnProfile: Boolean = false,
     private val isDM: Boolean = false,
+    private val roles: List<UserProfileRole> = emptyList(),
     private val listener: UserProfileListener? = null,
     private val voiceParticipantExtras: VoiceParticipantExtras? = null
 ) : BottomSheet(context) {
@@ -61,6 +62,13 @@ class UserProfileBottomSheet(
         val onJoinVoiceChannel: () -> Unit,
         val voiceChannelType: Int = CHANNEL_TYPE_VOICE,
         val voiceChannelPrivate: Boolean = false
+    )
+
+    data class UserProfileRole(
+        val id: Long,
+        val title: String,
+        val color: Int,
+        val iconUrl: String
     )
 
     companion object {
@@ -152,6 +160,18 @@ class UserProfileBottomSheet(
             }
             bottomMargin = LayoutHelper.dp(12)
         })
+
+        val rolesCard = buildRolesCard()
+        if (rolesCard != null) {
+            rootLayout.addView(rolesCard, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                leftMargin = LayoutHelper.dp(14)
+                rightMargin = LayoutHelper.dp(14)
+                bottomMargin = LayoutHelper.dp(12)
+            })
+        }
 
         val detailsCard = buildDetailsCard()
         if (detailsCard != null) {
@@ -463,6 +483,64 @@ class UserProfileBottomSheet(
         ).apply { gravity = Gravity.CENTER_HORIZONTAL })
 
         return button
+    }
+
+
+    private fun buildRolesCard(): LinearLayout? {
+        if (roles.isEmpty() || isDM) return null
+        val card = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                setColor(theme.channelPanelBg)
+                cornerRadius = LayoutHelper.dp(8).toFloat()
+            }
+            setPadding(LayoutHelper.dp(16), LayoutHelper.dp(16), LayoutHelper.dp(16), LayoutHelper.dp(12))
+        }
+        card.addView(TextView(context).apply {
+            text = context.getString(R.string.menu_clan_roles)
+            setTextColor(rnProfileSectionTitleColor)
+            setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14f)
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            bottomMargin = LayoutHelper.dp(10)
+        })
+        roles.forEach { role ->
+            card.addView(buildRoleRow(role), LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = LayoutHelper.dp(6)
+            })
+        }
+        return card
+    }
+
+    private fun buildRoleRow(role: UserProfileRole): LinearLayout {
+        val row = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(LayoutHelper.dp(8), LayoutHelper.dp(6), LayoutHelper.dp(8), LayoutHelper.dp(6))
+            background = GradientDrawable().apply {
+                setColor(primaryColor)
+                cornerRadius = LayoutHelper.dp(8).toFloat()
+            }
+        }
+        val color = if (role.color != 0) role.color else Color.parseColor("#99aab5")
+        row.addView(View(context).apply {
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(color)
+            }
+        }, LinearLayout.LayoutParams(LayoutHelper.dp(10), LayoutHelper.dp(10)).apply {
+            marginEnd = LayoutHelper.dp(10)
+        })
+        row.addView(TextView(context).apply {
+            text = role.title
+            setTextColor(textStrongColor)
+            setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14f)
+            maxLines = 1
+        }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        return row
     }
 
 

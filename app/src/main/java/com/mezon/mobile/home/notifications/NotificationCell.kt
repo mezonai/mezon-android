@@ -9,7 +9,6 @@ import com.mezon.mobile.core.BaseCell
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
-import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.util.avatarImgproxyUrl
 import com.mezon.mobile.util.convertTimestampToTimeAgo
@@ -19,18 +18,23 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : BaseC
     var entity: NotificationEntity? = null
         private set
 
-    var memberResolver: ((Long, Long, Long, Int) -> ClanMember?)? = null
-
     private val avatarDrawable = AvatarDrawable()
     private var currentAvatarUrl: String? = null
     private var avatarDisposable: MezonImageLoader.Cancellable? = null
+    private var attachedToWindow = false
 
     private var subjectLayout: StaticLayout? = null
     private var bodyLayout: StaticLayout? = null
     private var timeLayout: StaticLayout? = null
 
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        attachedToWindow = true
+    }
+
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
+        attachedToWindow = false
         avatarDisposable?.cancel()
         avatarDisposable = null
     }
@@ -59,10 +63,9 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : BaseC
 
         if (mask == 0) {
             if (newEntity != null) entity = newEntity
-            val displayName = resolveDisplayName(n)
-            avatarDrawable.setInfo(n.senderId.takeIf { it != 0L } ?: n.id, displayName)
+            avatarDrawable.setInfo(n.senderId.takeIf { it != 0L } ?: n.id, n.senderUsername)
             buildLayouts()
-            loadAvatar(resolveAvatarUrl(n))
+            loadAvatar(n.avatarUrl)
             invalidate()
             return true
         }
@@ -77,16 +80,16 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : BaseC
         }
 
         if ((mask and NotificationCenter.UPDATE_MASK_AVATAR) != 0) {
-            val avatarUrl = resolveAvatarUrl(n)
-            if (entity?.avatarUrl != n.avatarUrl || currentAvatarUrl != avatarUrl) {
-                loadAvatar(avatarUrl)
+            if (entity?.avatarUrl != n.avatarUrl) {
+                loadAvatar(n.avatarUrl)
                 needInvalidate = true
             }
         }
 
         if ((mask and NotificationCenter.UPDATE_MASK_NAME) != 0) {
-            avatarDrawable.setInfo(n.senderId.takeIf { it != 0L } ?: n.id, resolveDisplayName(n))
-            rebuildLayout = true
+            if (entity?.senderName != n.senderName) {
+                rebuildLayout = true
+            }
         }
 
         if (newEntity != null) entity = newEntity
@@ -138,40 +141,17 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : BaseC
 
     private fun buildSubjectText(n: NotificationEntity): String {
         return when (n.category) {
-            NOTIF_CATEGORY_MENTIONS -> n.subject
-            NOTIF_CATEGORY_MESSAGES -> n.senderName.ifEmpty { n.subject }
-            NOTIF_CATEGORY_FOR_YOU -> buildForYouSubject(n)
+            NOTIF_CATEGORY_MENTIONS -> {
+                n.subject
+            }
+            NOTIF_CATEGORY_MESSAGES -> {
+                n.senderName.ifEmpty { n.subject }
+            }
+            NOTIF_CATEGORY_FOR_YOU -> {
+                n.subject
+            }
             else -> n.subject
         }
-    }
-
-    private fun buildForYouSubject(n: NotificationEntity): String {
-        val username = resolveForYouUsername(n)
-        if (username.isEmpty()) return n.subject
-        val subject = n.subject
-        val notice = if (subject.contains(username)) subject.substring(username.length) else subject
-        return username + notice
-    }
-
-    private fun resolveForYouUsername(n: NotificationEntity): String = n.senderUsername
-
-    private fun resolveAvatarUrl(n: NotificationEntity): String {
-        val fromEntity = n.avatarUrl.ifBlank { n.senderAvatar }
-        if (fromEntity.isNotEmpty()) return fromEntity
-        val member = memberResolver?.invoke(n.senderId, n.clanId, n.channelId, n.channelType)
-        return member?.let { it.clanAvatar.ifBlank { it.avatarUrl } }.orEmpty()
-    }
-
-    private fun resolveDisplayName(n: NotificationEntity): String {
-        if (n.category == NOTIF_CATEGORY_FOR_YOU) {
-            val username = resolveForYouUsername(n)
-            if (username.isNotEmpty()) return username
-        }
-        val member = memberResolver?.invoke(n.senderId, n.clanId, n.channelId, n.channelType)
-        if (member != null) {
-            return member.clanNick.ifBlank { member.displayName.ifBlank { member.username } }
-        }
-        return n.senderName.ifBlank { n.senderUsername }
     }
 
     private fun loadAvatar(url: String) {

@@ -63,16 +63,6 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE channelId = :channelId AND id = :messageId LIMIT 1")
     suspend fun getById(channelId: Long, messageId: Long): MessageEntity?
 
-    @Query("""
-        SELECT * FROM messages
-        WHERE channelId = :parentChannelId AND topicId = :topicId
-        ORDER BY timestampSeconds DESC LIMIT 1
-    """)
-    suspend fun getLatestByTopicId(parentChannelId: Long, topicId: Long): MessageEntity?
-
-    @Query("SELECT * FROM messages WHERE channelId = :channelId AND id IN (:ids)")
-    suspend fun getByIds(channelId: Long, ids: List<Long>): List<MessageEntity>
-
     @Query("UPDATE messages SET reactionsJson = :reactionsJson WHERE channelId = :channelId AND id = :messageId")
     suspend fun updateReactions(channelId: Long, messageId: Long, reactionsJson: String)
 }

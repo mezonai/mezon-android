@@ -62,10 +62,7 @@ import com.mezon.mezon.api.messageAttachment
 import com.mezon.mezon.api.messageMention
 import org.json.JSONObject
 import com.mezon.mezon.rtapi.ChannelMessageSend
-import com.mezon.mobile.home.chat.withTopicCreated
-import com.mezon.mobile.home.chat.withTopicStats
 import com.mezon.mezon.rtapi.Envelope
-import com.mezon.mezon.rtapi.SdTopicEvent
 import com.mezon.mezon.rtapi.channelMessageSend
 import com.mezon.mezon.rtapi.channelMessageUpdate
 import com.mezon.mobile.network.ConnectionState
@@ -97,19 +94,6 @@ private const val DIRECTION_BEFORE = 3
 /** Wait for poll message over websocket after CreatePoll REST. */
 private const val POLL_MESSAGE_WAIT_MS = 8_000L
 
-private fun computeHasMoreTop(
-    topicId: Long,
-    apiBatchSize: Int,
-    filteredBatch: List<MessageEntity>
-): Boolean {
-    val firstReached = filteredBatch.any { it.code == MessageEntity.CODE_FIRST_MESSAGE }
-    return when {
-        apiBatchSize == 0 -> false
-        topicId != 0L -> apiBatchSize >= PAGE_SIZE && !firstReached
-        else -> !firstReached
-    }
-}
-
 @Singleton
 class ChatController @Inject constructor(
     @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
@@ -123,7 +107,6 @@ class ChatController @Inject constructor(
     private val cacheTracker: ApiCacheTracker,
     private val dialogsController: DialogsController,
     private val badgeCoordinator: BadgeCoordinator,
-    private val topicBadgeTracker: TopicBadgeTracker,
     private val forwardTargetUsageStore: ForwardTargetUsageStore,
     private val channelController: dagger.Lazy<com.mezon.mobile.home.clans.ChannelController>,
     private val userController: dagger.Lazy<UserController>,
@@ -138,16 +121,6 @@ class ChatController @Inject constructor(
     private val initialFetchDone = HashSet<Long>()
     private val lastMessageByChannel = LongSparseArray<Long>()
     private val pendingTempMessageByChannel = LongSparseArray<Long>()
-    private val topicRootByTopicId = LongSparseArray<TopicRootRef>()
-
-    private data class TopicRootRef(val parentChannelId: Long, val rootMessageId: Long)
-
-    private fun cacheTopicRoot(topicId: Long, parentChannelId: Long, rootMessageId: Long) {
-        if (topicId == 0L || parentChannelId == 0L || rootMessageId == 0L) return
-        synchronized(this) {
-            topicRootByTopicId.put(topicId, TopicRootRef(parentChannelId, rootMessageId))
-        }
-    }
 
     private fun isAnonymousSend(clanId: Long): Boolean =
         clanId != 0L && anonymousController.get().isAnonymous(clanId)
@@ -174,7 +147,6 @@ class ChatController @Inject constructor(
         appScope.launch { observeIncomingMessages() }
         appScope.launch { observeIncomingMessageUpdates() }
         appScope.launch { observeReactionEvents() }
-        appScope.launch { observeSdTopicEvents() }
         appScope.launch(ioDispatcher) {
             val session = sessionManager.sessionFlow.first { it != null }
             cachedCurrentUserId = session?.userId?.toLongOrNull() ?: 0L
@@ -234,7 +206,6 @@ class ChatController @Inject constructor(
             initialFetchDone.clear()
             lastMessageByChannel.clear()
             pendingTempMessageByChannel.clear()
-            topicRootByTopicId.clear()
             cachedCurrentUserId = 0L
         }
         pendingApiReactions.clear()
@@ -244,12 +215,7 @@ class ChatController @Inject constructor(
     suspend fun getMessageById(channelId: Long, messageId: Long): MessageEntity? =
         withContext(ioDispatcher) { messageDao.getById(channelId, messageId) }
 
-    suspend fun getMessagesByIds(channelId: Long, ids: List<Long>): Map<Long, MessageEntity> =
-        withContext(ioDispatcher) {
-            if (ids.isEmpty()) return@withContext emptyMap()
-            messageDao.getByIds(channelId, ids).associateBy { it.id }
-        }
-
+    /** Optimistic poll row so chat shows the new message before websocket catches up. */
     fun publishCreatedPollMessage(
         channelId: Long,
         clanId: Long,
@@ -280,6 +246,7 @@ class ChatController @Inject constructor(
         )
     }
 
+    /** Wait until server pushes the poll message, or timeout. */
     suspend fun awaitChannelMessage(
         channelId: Long,
         messageId: Long,
@@ -309,6 +276,7 @@ class ChatController @Inject constructor(
         } == true
     }
 
+    /** Fallback when websocket is slow: fetch latest page and publish the poll message if present. */
     suspend fun reloadChannelMessageIfMissing(channelId: Long, clanId: Long, messageId: Long): Boolean {
         if (messageId == 0L) return false
         return try {
@@ -341,18 +309,6 @@ class ChatController @Inject constructor(
             false
         }
     }
-
-    private fun messageCacheKey(channelId: Long, topicId: Long = 0L): Long =
-        if (topicId != 0L) topicId else channelId
-
-    private fun remapForCache(entities: List<MessageEntity>, cacheKey: Long): List<MessageEntity> {
-        if (entities.isEmpty()) return entities
-        if (entities.first().channelId == cacheKey) return entities
-        return entities.map { it.copy(channelId = cacheKey) }
-    }
-
-    private fun remapForCache(entity: MessageEntity, cacheKey: Long): MessageEntity =
-        if (entity.channelId == cacheKey) entity else entity.copy(channelId = cacheKey)
 
     fun openChannel(
         channelId: Long,
@@ -398,30 +354,23 @@ class ChatController @Inject constructor(
         channelId: Long,
         clanId: Long,
         forceRefresh: Boolean = false,
-        preferHttp: Boolean = false,
-        topicId: Long = 0L
+        preferHttp: Boolean = false
     ) {
-        val cacheKey = messageCacheKey(channelId, topicId)
         appScope.launch(ioDispatcher) {
             try {
-                val cacheTrackerKey = apiCacheKey("fetchMessages", clanId, cacheKey, topicId)
-                if (forceRefresh) cacheTracker.invalidate(cacheTrackerKey)
+                val cacheKey = apiCacheKey("fetchMessages", clanId, channelId)
+                if (forceRefresh) cacheTracker.invalidate(cacheKey)
                 val isOnlineNow = networkMonitor.isOnline.value
 
                 if (!isOnlineNow) {
-                    val fromDb = messageDao.getLatestByChannel(cacheKey, PAGE_SIZE)
-                    val hasMoreTopOffline = computeHasMoreTop(
-                        topicId,
-                        fromDb.size,
-                        fromDb
-                    )
+                    val fromDb = messageDao.getLatestByChannel(channelId, PAGE_SIZE)
                     if (fromDb.isNotEmpty()) {
                         notificationCenter.postNotificationOnMainThread(
-                            NotificationCenter.messagesDidLoad, cacheKey, ArrayList(fromDb), hasMoreTopOffline, false, true
+                            NotificationCenter.messagesDidLoad, channelId, ArrayList(fromDb), true, false, true
                         )
                     } else {
                         notificationCenter.postNotificationOnMainThread(
-                            NotificationCenter.messagesDidLoad, cacheKey, ArrayList<MessageEntity>(), false, false, true
+                            NotificationCenter.messagesDidLoad, channelId, ArrayList<MessageEntity>(), false, false, true
                         )
                     }
                     return@launch
@@ -434,53 +383,41 @@ class ChatController @Inject constructor(
                         session.token,
                         channelId,
                         clanId,
-                        messageId = 0L,
-                        direction = 0,
                         limit = PAGE_SIZE,
-                        topicId = topicId,
                         preferHttp = preferHttp
                     )
                     val allMessages = response.messagesList.map { it.toMessageEntity(currentUserId) }
-                    if (topicId == 0L) {
-                        allMessages.filter { it.isRenderable && it.isTopicRootMessage }.forEach { msg ->
-                            cacheTopicRoot(msg.effectiveTopicId, channelId, msg.id)
-                        }
-                    }
-                    val hasMoreTop = computeHasMoreTop(
-                        topicId,
-                        response.messagesList.size,
-                        allMessages.filter { it.isRenderable }
-                    )
+                    val firstMessageReached = allMessages.any { it.code == MessageEntity.CODE_FIRST_MESSAGE }
+                    val hasMoreTop = !firstMessageReached
 
-                    val messages = remapForCache(
-                        allMessages.filter { it.isRenderable }.sortedBy { it.id },
-                        cacheKey
-                    )
+                    val messages = allMessages
+                        .filter { it.isRenderable }
+                        .sortedBy { it.id }
 
-                    synchronized(this@ChatController) { initialFetchDone.add(cacheKey) }
+                    synchronized(this@ChatController) { initialFetchDone.add(channelId) }
                     val serverLastSentId = if (
                         response.hasLastSentMessage() &&
                         response.lastSentMessage.canAdvanceServerTimeline()
                     ) response.lastSentMessage.id else 0L
-                    updateLastMessageByChannel(cacheKey, messages, serverLastSentId)
+                    updateLastMessageByChannel(channelId, messages, serverLastSentId)
                     val serverLastSeenId = if (response.hasLastSeenMessage()) response.lastSeenMessage.id else 0L
                     notificationCenter.postNotificationOnMainThread(
-                        NotificationCenter.messagesDidLoad, cacheKey, ArrayList(messages), hasMoreTop, false, false, serverLastSeenId
+                        NotificationCenter.messagesDidLoad, channelId, ArrayList(messages), hasMoreTop, false, false, serverLastSeenId
                     )
-                    cacheTracker.markCalled(cacheTrackerKey)
-                    launch { messageDao.upsertAll(messages); messageDao.trimToLatest(cacheKey, PAGE_SIZE * 4) }
+                    cacheTracker.markCalled(cacheKey)
+                    launch { messageDao.upsertAll(messages); messageDao.trimToLatest(channelId, PAGE_SIZE * 4) }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "loadMessages failed for channel $cacheKey", e)
-                sentryReporter.logChatFailure("loadMessages", cacheKey, clanId, e)
-                val fromDb = messageDao.getLatestByChannel(cacheKey, PAGE_SIZE)
+                Log.e(TAG, "loadMessages failed for channel $channelId", e)
+                sentryReporter.logChatFailure("loadMessages", channelId, clanId, e)
+                val fromDb = messageDao.getLatestByChannel(channelId, PAGE_SIZE)
                 if (fromDb.isNotEmpty()) {
                     notificationCenter.postNotificationOnMainThread(
-                        NotificationCenter.messagesDidLoad, cacheKey, ArrayList(fromDb), true, false, true
+                        NotificationCenter.messagesDidLoad, channelId, ArrayList(fromDb), true, false, true
                     )
                 } else {
                     notificationCenter.postNotificationOnMainThread(
-                        NotificationCenter.messagesLoadError, cacheKey, e.message ?: "Failed to load"
+                        NotificationCenter.messagesLoadError, channelId, e.message ?: "Failed to load"
                     )
                 }
             }
@@ -492,17 +429,15 @@ class ChatController @Inject constructor(
         clanId: Long,
         anchorMessageId: Long,
         requireExactAnchor: Boolean = false,
-        preferHttp: Boolean = false,
-        topicId: Long = 0L
+        preferHttp: Boolean = false
     ) {
-        val cacheKey = messageCacheKey(channelId, topicId)
         appScope.launch(ioDispatcher) {
             try {
-                val cacheTrackerKey = apiCacheKey("fetchMessages", clanId, cacheKey, topicId)
+                val cacheKey = apiCacheKey("fetchMessages", clanId, channelId)
                 val isOnlineNow = networkMonitor.isOnline.value
 
                 if (!isOnlineNow) {
-                    val fromDb = messageDao.getMessagesAround(cacheKey, anchorMessageId, PAGE_SIZE)
+                    val fromDb = messageDao.getMessagesAround(channelId, anchorMessageId, PAGE_SIZE)
                     var anchorInDb = false
                     if (fromDb.isNotEmpty()) {
                         val dbMinId = fromDb.minOf { it.id }
@@ -513,11 +448,11 @@ class ChatController @Inject constructor(
                             anchorMessageId in dbMinId..dbMaxId
                         }
                         if (anchorInDb) {
-                            val lastKnown = synchronized(this@ChatController) { lastMessageByChannel.get(cacheKey, 0L) }
+                            val lastKnown = synchronized(this@ChatController) { lastMessageByChannel.get(channelId, 0L) }
                             val hasMoreBottom = lastKnown > 0L && dbMaxId < lastKnown
                             Log.d(TAG, "loadMessagesAround: DB hit anchor=$anchorMessageId range=$dbMinId..$dbMaxId hasMoreBottom=$hasMoreBottom count=${fromDb.size}")
                             notificationCenter.postNotificationOnMainThread(
-                                NotificationCenter.messagesDidLoad, cacheKey, ArrayList(fromDb), true, hasMoreBottom, true
+                                NotificationCenter.messagesDidLoad, channelId, ArrayList(fromDb), true, hasMoreBottom, true
                             )
                         } else {
                             Log.d(TAG, "loadMessagesAround: DB miss anchor=$anchorMessageId not in range=$dbMinId..$dbMaxId, waiting for API")
@@ -526,14 +461,14 @@ class ChatController @Inject constructor(
 
                     if (!anchorInDb && fromDb.isNotEmpty()) {
                         Log.d(TAG, "Offline — anchor not in DB, showing latest cached as fallback")
-                        val fallback = messageDao.getLatestByChannel(cacheKey, PAGE_SIZE * 4)
+                        val fallback = messageDao.getLatestByChannel(channelId, PAGE_SIZE * 4)
                         if (fallback.isNotEmpty()) {
                             notificationCenter.postNotificationOnMainThread(
-                                NotificationCenter.messagesDidLoad, cacheKey, ArrayList(fallback), true, false, true
+                                NotificationCenter.messagesDidLoad, channelId, ArrayList(fallback), true, false, true
                             )
                         }
                     } else if (fromDb.isEmpty()) {
-                        Log.d(TAG, "Offline — no cached messages for channel $cacheKey (around)")
+                        Log.d(TAG, "Offline — no cached messages for channel $channelId (around)")
                     }
                     return@launch
                 }
@@ -548,57 +483,51 @@ class ChatController @Inject constructor(
                         anchorMessageId,
                         DIRECTION_AROUND,
                         PAGE_SIZE,
-                        topicId = topicId,
                         preferHttp = preferHttp
                     )
                     val allMsgs = response.messagesList.map { it.toMessageEntity(currentUserId) }
-                    val hasMoreTop = computeHasMoreTop(
-                        topicId,
-                        response.messagesList.size,
-                        allMsgs.filter { it.isRenderable }
-                    )
+                    val firstMessageReached = allMsgs.any { it.code == MessageEntity.CODE_FIRST_MESSAGE }
+                    val hasMoreTop = !firstMessageReached
 
-                    val msgs = remapForCache(
-                        allMsgs.filter { it.isRenderable }.sortedBy { it.id },
-                        cacheKey
-                    )
+                    val msgs = allMsgs
+                        .filter { it.isRenderable }
+                        .sortedBy { it.id }
 
                     if (msgs.isNotEmpty()) {
                         messageDao.upsertAll(msgs)
-                        messageDao.trimAround(cacheKey, anchorMessageId, PAGE_SIZE * 2)
-                        synchronized(this@ChatController) { initialFetchDone.add(cacheKey) }
+                        messageDao.trimAround(channelId, anchorMessageId, PAGE_SIZE * 2)
+                        synchronized(this@ChatController) { initialFetchDone.add(channelId) }
                         val serverLastSentId = if (
                             response.hasLastSentMessage() &&
                             response.lastSentMessage.canAdvanceServerTimeline()
                         ) response.lastSentMessage.id else 0L
-                        updateLastMessageByChannel(cacheKey, msgs, serverLastSentId)
-                        Log.d(TAG, "loadMessagesAround: anchor=$anchorMessageId count=${msgs.size} hasMoreTop=$hasMoreTop topicId=$topicId hasLastSentMessage=${response.hasLastSentMessage()} serverLastSentId=$serverLastSentId")
+                        updateLastMessageByChannel(channelId, msgs, serverLastSentId)
+                        Log.d(TAG, "loadMessagesAround: anchor=$anchorMessageId count=${msgs.size} hasMoreTop=$hasMoreTop firstMessageReached=$firstMessageReached hasLastSentMessage=${response.hasLastSentMessage()} serverLastSentId=$serverLastSentId")
                         val serverLastSeenId = if (response.hasLastSeenMessage()) response.lastSeenMessage.id else 0L
                         notificationCenter.postNotificationOnMainThread(
-                            NotificationCenter.messagesDidLoad, cacheKey, ArrayList(msgs), hasMoreTop, true, false, serverLastSeenId
+                            NotificationCenter.messagesDidLoad, channelId, ArrayList(msgs), hasMoreTop, true, false, serverLastSeenId
                         )
                     }
-                    cacheTracker.markCalled(cacheTrackerKey)
+                    cacheTracker.markCalled(cacheKey)
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "loadMessagesAround failed for channel $cacheKey", e)
-                sentryReporter.logChatFailure("loadMessagesAround", cacheKey, clanId, e)
+                Log.e(TAG, "loadMessagesAround failed for channel $channelId", e)
+                sentryReporter.logChatFailure("loadMessagesAround", channelId, clanId, e)
                 notificationCenter.postNotificationOnMainThread(
-                    NotificationCenter.messagesLoadError, cacheKey, e.message ?: "Failed to load"
+                    NotificationCenter.messagesLoadError, channelId, e.message ?: "Failed to load"
                 )
             }
         }
     }
 
-    fun loadMoreBottom(channelId: Long, clanId: Long, newestMessageId: Long, topicId: Long = 0L) {
-        val cacheKey = messageCacheKey(channelId, topicId)
+    fun loadMoreBottom(channelId: Long, clanId: Long, newestMessageId: Long) {
         appScope.launch(ioDispatcher) {
             try {
                 if (!networkMonitor.isOnline.value) {
-                    val fromDb = messageDao.getMessagesAfter(cacheKey, newestMessageId, PAGE_SIZE)
+                    val fromDb = messageDao.getMessagesAfter(channelId, newestMessageId, PAGE_SIZE)
                     val hasMoreBottom = fromDb.size >= PAGE_SIZE
                     notificationCenter.postNotificationOnMainThread(
-                        NotificationCenter.messagesDidLoad, cacheKey, ArrayList(fromDb),
+                        NotificationCenter.messagesDidLoad, channelId, ArrayList(fromDb),
                         false, hasMoreBottom, false, 0L, LOAD_TYPE_MORE_BOTTOM
                     )
                     return@launch
@@ -608,48 +537,46 @@ class ChatController @Inject constructor(
                     val currentUserId = session.userId.toLongOrNull() ?: 0L
                     val response = api.listChannelMessages(
                         session.apiUrl, session.token, channelId, clanId,
-                        newestMessageId, DIRECTION_AFTER, PAGE_SIZE, topicId = topicId
+                        newestMessageId, DIRECTION_AFTER, PAGE_SIZE
                     )
-                    val newerRenderable = remapForCache(
-                        response.messagesList
-                            .map { it.toMessageEntity(currentUserId) }
-                            .filter { it.isRenderable }
-                            .sortedBy { it.id },
-                        cacheKey
-                    )
+                    val newerRenderable = response.messagesList
+                        .map { it.toMessageEntity(currentUserId) }
+                        .filter { it.isRenderable }
+                        .sortedBy { it.id }
 
                     val hasMoreBottom = response.messagesList.size >= PAGE_SIZE
                     val serverLastSentId = if (
                         response.hasLastSentMessage() &&
                         response.lastSentMessage.canAdvanceServerTimeline()
                     ) response.lastSentMessage.id else 0L
-                    updateLastMessageByChannel(cacheKey, newerRenderable, serverLastSentId)
+                    updateLastMessageByChannel(channelId, newerRenderable, serverLastSentId)
                     if (newerRenderable.isNotEmpty()) {
                         messageDao.upsertAll(newerRenderable)
-                        messageDao.trimAround(cacheKey, newestMessageId, PAGE_SIZE * 2)
+                        messageDao.trimAround(channelId, newestMessageId, PAGE_SIZE * 2)
                     }
                     notificationCenter.postNotificationOnMainThread(
-                        NotificationCenter.messagesDidLoad, cacheKey, ArrayList(newerRenderable), false, hasMoreBottom, false, 0L, LOAD_TYPE_MORE_BOTTOM
+                        NotificationCenter.messagesDidLoad, channelId, ArrayList(newerRenderable), false, hasMoreBottom, false, 0L, LOAD_TYPE_MORE_BOTTOM
                     )
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "loadMoreBottom failed", e)
                 notificationCenter.postNotificationOnMainThread(
-                    NotificationCenter.messagesLoadError, cacheKey, e.message ?: "Load more failed"
+                    NotificationCenter.messagesLoadError, channelId, e.message ?: "Load more failed"
                 )
             }
         }
     }
 
-    fun loadMoreTop(channelId: Long, clanId: Long, oldestMessageId: Long, topicId: Long = 0L) {
-        val cacheKey = messageCacheKey(channelId, topicId)
+    fun loadMoreTop(channelId: Long, clanId: Long, oldestMessageId: Long) {
+        Log.d(TAG, "loadMoreTop channelId=$channelId oldestMessageId=$oldestMessageId")
         appScope.launch(ioDispatcher) {
             try {
                 if (!networkMonitor.isOnline.value) {
-                    val fromDb = messageDao.getMessagesBefore(cacheKey, oldestMessageId, PAGE_SIZE)
+                    val fromDb = messageDao.getMessagesBefore(channelId, oldestMessageId, PAGE_SIZE)
                     val hasMoreTop = fromDb.size >= PAGE_SIZE
+                    Log.d(TAG, "loadMoreTop offline fallback: ${fromDb.size} from DB")
                     notificationCenter.postNotificationOnMainThread(
-                        NotificationCenter.messagesDidLoad, cacheKey, ArrayList(fromDb.sortedByDescending { it.id }),
+                        NotificationCenter.messagesDidLoad, channelId, ArrayList(fromDb.sortedBy { it.timestampSeconds }),
                         hasMoreTop, false, false, 0L, LOAD_TYPE_MORE_TOP
                     )
                     return@launch
@@ -659,31 +586,28 @@ class ChatController @Inject constructor(
                     val currentUserId = session.userId.toLongOrNull() ?: 0L
                     val response = api.listChannelMessages(
                         session.apiUrl, session.token, channelId, clanId,
-                        oldestMessageId, DIRECTION_BEFORE, PAGE_SIZE, topicId = topicId
+                        oldestMessageId, DIRECTION_BEFORE, PAGE_SIZE
                     )
                     val allOlder = response.messagesList.map { it.toMessageEntity(currentUserId) }
-                    val older = remapForCache(
-                        allOlder.filter { it.isRenderable }.sortedByDescending { it.id },
-                        cacheKey
-                    )
-                    val hasMoreTop = computeHasMoreTop(
-                        topicId,
-                        response.messagesList.size,
-                        older
-                    )
+                    val firstMessageReached = allOlder.any { it.code == MessageEntity.CODE_FIRST_MESSAGE }
+                    val hasMoreTop = !firstMessageReached
 
+                    val older = allOlder
+                        .filter { it.isRenderable }
+                        .sortedBy { it.timestampSeconds }
                     if (older.isNotEmpty()) {
                         messageDao.upsertAll(older)
-                        messageDao.trimAround(cacheKey, oldestMessageId, PAGE_SIZE * 2)
+                        messageDao.trimAround(channelId, oldestMessageId, PAGE_SIZE * 2)
                     }
+                    Log.d(TAG, "loadMoreTop returned ${older.size} hasMoreTop=$hasMoreTop firstMessageReached=$firstMessageReached")
                     notificationCenter.postNotificationOnMainThread(
-                        NotificationCenter.messagesDidLoad, cacheKey, ArrayList(older), hasMoreTop, false, false, 0L, LOAD_TYPE_MORE_TOP
+                        NotificationCenter.messagesDidLoad, channelId, ArrayList(older), hasMoreTop, false, false, 0L, LOAD_TYPE_MORE_TOP
                     )
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "loadMoreTop failed", e)
                 notificationCenter.postNotificationOnMainThread(
-                    NotificationCenter.messagesLoadError, cacheKey, e.message ?: "Load more failed"
+                    NotificationCenter.messagesLoadError, channelId, e.message ?: "Load more failed"
                 )
             }
         }
@@ -739,12 +663,10 @@ class ChatController @Inject constructor(
         mentions: List<MentionData>? = null,
         emojiMarkers: List<EmojiMarker>? = null,
         markdownMarkers: List<MarkdownMarker>? = null,
-        hashtags: List<com.mezon.mobile.util.HashtagData>? = null,
-        topicId: Long = 0L
+        hashtags: List<com.mezon.mobile.util.HashtagData>? = null
     ) {
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
-        val cacheKey = messageCacheKey(channelId, topicId)
         val hasContentExtras = !emojiMarkers.isNullOrEmpty() || !markdownMarkers.isNullOrEmpty() || !hashtags.isNullOrEmpty()
         val content = if (!hasContentExtras) buildTextContent(text)
             else buildTextContentWithEmojis(text, null, emojiMarkers, markdownMarkers, hashtags)
@@ -759,7 +681,7 @@ class ChatController @Inject constructor(
             }
         }
 
-        val tempId = generateTempId(cacheKey)
+        val tempId = generateTempId(channelId)
         val uc = userController.get()
         val anon = isAnonymousSend(clanId)
         val (optName, optAvatar) = optimisticSenderPresentation(uc, clanId, channelType, anon)
@@ -769,7 +691,7 @@ class ChatController @Inject constructor(
         )
         val optimistic = MessageEntity(
             id = tempId,
-            channelId = cacheKey,
+            channelId = channelId,
             senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
             senderName = optName,
             senderUsername = if (anon) "Anonymous" else uc.username,
@@ -781,7 +703,7 @@ class ChatController @Inject constructor(
             sendState = MessageEntity.SEND_STATE_SENDING
         )
         notificationCenter.postNotificationOnMainThread(
-            NotificationCenter.didReceiveNewMessages, cacheKey, optimistic
+            NotificationCenter.didReceiveNewMessages, channelId, optimistic
         )
 
         appScope.launch {
@@ -806,18 +728,17 @@ class ChatController @Inject constructor(
                         references?.let { this.references.addAll(it) }
                         this.mentionEveryone = mentionEveryone
                         if (anon) this.anonymousMessage = true
-                        if (topicId != 0L) this.topicId = topicId
                     }
                     val ack = channelSend(session.apiUrl, session.token, request)
                     markForwardTargetUsed(channelId, channelType)
                     notificationCenter.postNotificationOnMainThread(
-                        NotificationCenter.pendingMessageSent, cacheKey, tempId, ack.messageId
+                        NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
                     )
                 }
             } catch (e: Exception) {
-                sentryReporter.logChatFailure("sendMessage", cacheKey, clanId, e)
+                sentryReporter.logChatFailure("sendMessage", channelId, clanId, e)
                 notificationCenter.postNotificationOnMainThread(
-                    NotificationCenter.pendingMessageError, cacheKey, tempId
+                    NotificationCenter.pendingMessageError, channelId, tempId
                 )
             }
         }
@@ -1243,12 +1164,10 @@ class ChatController @Inject constructor(
         references: List<com.mezon.mezon.api.MessageRef>? = null,
         mentions: List<MentionData>? = null,
         hashtags: List<com.mezon.mobile.util.HashtagData>? = null,
-        emojiMarkers: List<EmojiMarker>? = null,
-        topicId: Long = 0L
+        emojiMarkers: List<EmojiMarker>? = null
     ) {
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
-        val cacheKey = messageCacheKey(channelId, topicId)
         val hasContentExtras = !hashtags.isNullOrEmpty() || !emojiMarkers.isNullOrEmpty()
         val wireBase = when {
             text.isBlank() -> "{\"t\":\"\"}"
@@ -1270,7 +1189,7 @@ class ChatController @Inject constructor(
             }
         }
 
-        val tempId = generateTempId(cacheKey)
+        val tempId = generateTempId(channelId)
         val uc = userController.get()
         val anon = isAnonymousSend(clanId)
         val (optName, optAvatar) = optimisticSenderPresentation(uc, clanId, channelType, anon)
@@ -1294,7 +1213,7 @@ class ChatController @Inject constructor(
         } else ""
         val optimistic = MessageEntity(
             id = tempId,
-            channelId = cacheKey,
+            channelId = channelId,
             senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
             senderName = optName,
             senderUsername = if (anon) "Anonymous" else uc.username,
@@ -1313,7 +1232,7 @@ class ChatController @Inject constructor(
             sendState = MessageEntity.SEND_STATE_SENDING
         )
         notificationCenter.postNotificationOnMainThread(
-            NotificationCenter.didReceiveNewMessages, cacheKey, optimistic
+            NotificationCenter.didReceiveNewMessages, channelId, optimistic
         )
 
         appScope.launch(ioDispatcher) {
@@ -1386,23 +1305,22 @@ class ChatController @Inject constructor(
                             references?.let { this.references.addAll(it) }
                             this.mentionEveryone = mentionEveryone
                             if (anon) this.anonymousMessage = true
-                            if (topicId != 0L) this.topicId = topicId
                         }
                         val ack = channelSend(session.apiUrl, session.token, request)
                         markForwardTargetUsed(channelId, channelType)
                         notificationCenter.postNotificationOnMainThread(
-                            NotificationCenter.pendingMessageSent, cacheKey, tempId, ack.messageId
+                            NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
                         )
                     } else {
                         notificationCenter.postNotificationOnMainThread(
-                            NotificationCenter.pendingMessageError, cacheKey, tempId
+                            NotificationCenter.pendingMessageError, channelId, tempId
                         )
                     }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to send message with attachments", e)
                 notificationCenter.postNotificationOnMainThread(
-                    NotificationCenter.pendingMessageError, cacheKey, tempId
+                    NotificationCenter.pendingMessageError, channelId, tempId
                 )
             }
         }
@@ -1714,84 +1632,17 @@ class ChatController @Inject constructor(
         )
     }
 
-    fun deleteMessage(channelId: Long, clanId: Long, channelType: Int, isChannelPrivate: Boolean, messageId: Long, topicId: Long = 0L) {
+    fun deleteMessage(channelId: Long, clanId: Long, channelType: Int, isChannelPrivate: Boolean, messageId: Long) {
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
         appScope.launch {
             try {
-                mezonSocket.removeChatMessage(clanId, channelId, mode, isPublic, messageId, topicId = topicId)
-                Log.d(TAG, "Message deleted: channelId=$channelId messageId=$messageId topicId=$topicId isPublic=$isPublic")
+                mezonSocket.removeChatMessage(clanId, channelId, mode, isPublic, messageId)
+                Log.d(TAG, "Message deleted: channelId=$channelId messageId=$messageId isPublic=$isPublic")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to delete message", e)
             }
         }
-    }
-
-    private suspend fun observeSdTopicEvents() {
-        socketEventDispatcher.sdTopicEvents.collect { event ->
-            handleSdTopicEvent(event)
-        }
-    }
-
-    private suspend fun handleSdTopicEvent(event: SdTopicEvent) {
-        val parentChannelId = event.channelId
-        val messageId = event.messageId
-        val topicId = event.id
-        val creatorId = event.userId
-        cacheTopicRoot(topicId, parentChannelId, messageId)
-        if (event.hasLastSentMessage() && event.lastSentMessage.id > 0L) {
-            synchronized(this) {
-                val lastId = event.lastSentMessage.id
-                if (lastId > lastMessageByChannel.get(topicId, 0L)) {
-                    lastMessageByChannel.put(topicId, lastId)
-                }
-            }
-        }
-        appScope.launch(ioDispatcher) {
-            val existing = messageDao.getById(parentChannelId, messageId) ?: return@launch
-            val updated = existing.withTopicCreated(topicId, creatorId)
-            messageDao.upsert(updated)
-            notificationCenter.postNotificationOnMainThread(
-                NotificationCenter.messageDidUpdate, parentChannelId, updated, NotificationCenter.UPDATE_MASK_TOPIC
-            )
-        }
-    }
-
-    private suspend fun findTopicRootMessage(topicId: Long, parentChannelId: Long): MessageEntity? {
-        val cachedRef = synchronized(this) { topicRootByTopicId.get(topicId) }
-        if (cachedRef != null) {
-            messageDao.getById(cachedRef.parentChannelId, cachedRef.rootMessageId)?.let { return it }
-        }
-        messageDao.getLatestByTopicId(parentChannelId, topicId)?.let { found ->
-            cacheTopicRoot(topicId, parentChannelId, found.id)
-            return found
-        }
-        val latest = messageDao.getLatestByChannel(parentChannelId, 200)
-        return latest.firstOrNull { it.effectiveTopicId == topicId || it.topicId == topicId }
-            ?: latest.firstOrNull {
-                runCatching {
-                    JSONObject(it.content).optString("tp", "0").toLongOrNull() == topicId
-                }.getOrDefault(false)
-            }?.also { found ->
-                cacheTopicRoot(topicId, parentChannelId, found.id)
-            }
-    }
-
-    private suspend fun updateTopicRootStats(
-        topicId: Long,
-        parentChannelId: Long,
-        increment: Int,
-        timestampSeconds: Long
-    ) {
-        val root = findTopicRootMessage(topicId, parentChannelId) ?: return
-        val newRpl = (root.rplCount + increment).coerceAtLeast(0)
-        val newLastSent = if (increment > 0 && timestampSeconds > 0L) timestampSeconds else root.lastSentSeconds
-        if (newRpl == root.rplCount && newLastSent == root.lastSentSeconds) return
-        val updated = root.withTopicStats(newRpl, newLastSent)
-        messageDao.upsert(updated)
-        notificationCenter.postNotificationOnMainThread(
-            NotificationCenter.messageDidUpdate, parentChannelId, updated, NotificationCenter.UPDATE_MASK_TOPIC
-        )
     }
 
     private suspend fun observeIncomingMessages() {
@@ -1813,21 +1664,6 @@ class ChatController @Inject constructor(
 
             when (msg.code) {
                 CODE_CHAT_UPDATE -> {
-                    if (msg.topicId != 0L) {
-                        appScope.launch(ioDispatcher) {
-                            val topicEntity = remapForCache(entity, msg.topicId)
-                            messageDao.updateContent(
-                                topicEntity.channelId, topicEntity.id, topicEntity.content,
-                                topicEntity.updateTimeSeconds, topicEntity.hideEditted, topicEntity.code
-                            )
-                            val merged = messageDao.getById(topicEntity.channelId, topicEntity.id) ?: topicEntity
-                            notificationCenter.postNotificationOnMainThread(
-                                NotificationCenter.messageDidUpdate, topicEntity.channelId, merged,
-                                NotificationCenter.UPDATE_MASK_MESSAGE_TEXT
-                            )
-                        }
-                        return@collect
-                    }
                     if (BuildConfig.DEBUG) {
                         Log.d(TAG, "incoming CHANNEL_MESSAGE as update id=${entity.id} channel=${entity.channelId}")
                     }
@@ -1870,59 +1706,24 @@ class ChatController @Inject constructor(
                 }
                 CODE_CHAT_REMOVE,
                 MessageEntity.CODE_DELETE_EPHEMERAL -> {
-                    val deleteCacheKey = if (msg.topicId != 0L) msg.topicId else msg.channelId
-                    appScope.launch { messageDao.delete(deleteCacheKey, msg.messageId) }
+                    appScope.launch { messageDao.delete(msg.channelId, msg.messageId) }
                     synchronized(this) {
-                        if (lastMessageByChannel.get(deleteCacheKey, 0L) == msg.messageId) {
+                        if (lastMessageByChannel.get(msg.channelId, 0L) == msg.messageId) {
                             appScope.launch(ioDispatcher) {
-                                val newLast = messageDao.getLatestByChannel(deleteCacheKey, PAGE_SIZE)
+                                val newLast = messageDao.getLatestByChannel(msg.channelId, PAGE_SIZE)
                                     .firstOrNull { it.canAdvanceServerTimeline() }
                                 synchronized(this@ChatController) {
-                                    if (newLast != null) lastMessageByChannel.put(deleteCacheKey, newLast.id)
-                                    else lastMessageByChannel.delete(deleteCacheKey)
+                                    if (newLast != null) lastMessageByChannel.put(msg.channelId, newLast.id)
+                                    else lastMessageByChannel.delete(msg.channelId)
                                 }
                             }
-                        }
-                    }
-                    if (msg.topicId != 0L) {
-                        appScope.launch(ioDispatcher) {
-                            updateTopicRootStats(msg.topicId, msg.channelId, -1, 0L)
                         }
                     }
                     notificationCenter.postNotificationOnMainThread(
-                        NotificationCenter.messageDidDelete, deleteCacheKey, msg.messageId
+                        NotificationCenter.messageDidDelete, msg.channelId, msg.messageId
                     )
                 }
                 else -> {
-                    if (msg.topicId != 0L) {
-                        if (!entity.isRenderable) return@collect
-                        val topicEntity = remapForCache(entity, msg.topicId)
-                        appScope.launch(ioDispatcher) {
-                            messageDao.upsert(topicEntity)
-                            updateTopicRootStats(msg.topicId, msg.channelId, 1, topicEntity.timestampSeconds)
-                        }
-                        if (topicEntity.canAdvanceServerTimeline()) {
-                            synchronized(this) {
-                                if (topicEntity.id > lastMessageByChannel.get(topicEntity.channelId, 0L)) {
-                                    lastMessageByChannel.put(topicEntity.channelId, topicEntity.id)
-                                }
-                            }
-                        }
-                        notificationCenter.postNotificationOnMainThread(
-                            NotificationCenter.didReceiveNewMessages, topicEntity.channelId, topicEntity
-                        )
-                        notificationCenter.postNotificationOnMainThread(
-                            NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_NEW_MESSAGE
-                        )
-                        topicBadgeTracker.tryIncrementForMention(
-                            entity,
-                            msg.channelId,
-                            msg.topicId,
-                            msg.clanId,
-                            currentUserId
-                        )
-                        return@collect
-                    }
                     if (!entity.isRenderable) {
                         if (BuildConfig.DEBUG) {
                             Log.d(

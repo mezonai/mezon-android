@@ -1,6 +1,7 @@
 package com.mezon.mobile.home.clans.settings
 
 import android.content.Context
+import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.Gravity
@@ -24,6 +25,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private const val ROLE_NAME_MAX = 64
+private const val DEFAULT_CREATE_ROLE_COLOR_HEX = "#99aab5"
 
 class CreateNewRoleFragment : BaseFragment() {
 
@@ -42,6 +44,17 @@ class CreateNewRoleFragment : BaseFragment() {
     private lateinit var clansController: ClansController
     private lateinit var nameInput: InputCell
     private lateinit var createBtn: TextView
+    private lateinit var colorRow: LinearLayout
+    private lateinit var colorSwatch: View
+    private lateinit var colorValue: TextView
+    private var selectedColorHex = DEFAULT_CREATE_ROLE_COLOR_HEX
+    private var colorPickerSheet: RoleColorPickerBottomSheet? = null
+    private val roleColors = listOf(
+        "#1abc9c", "#2ecc71", "#3498db", "#9b59b6", "#e91e63", "#f1c40f",
+        "#e67e22", "#e74c3c", "#95a5a6", "#607d8b", "#11806a", "#1f8b4c",
+        "#206694", "#71368a", "#ad1457", "#c27c0e", "#e84300", "#992d22",
+        "#979c9f", "#546e7a",
+    )
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
         roleController = entryPoint.roleController()
@@ -52,6 +65,10 @@ class CreateNewRoleFragment : BaseFragment() {
     override fun onFragmentCreate(): Boolean {
         super.onFragmentCreate()
         clanId = arguments?.getLong(ARG_CLAN_ID) ?: 0L
+        if (clanId != 0L) {
+            userClanController.loadClanMembers(clanId)
+            roleController.loadUserMaxPermissionForClan(clanId)
+        }
         return true
     }
 
@@ -127,6 +144,8 @@ class CreateNewRoleFragment : BaseFragment() {
             setMaxCharacter(ROLE_NAME_MAX)
         }
         inner.addView(nameInput, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 18f, 0f, 0f))
+        colorRow = buildColorRow(context)
+        inner.addView(colorRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 12f, 0f, 0f))
         scroll.addView(inner, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
@@ -161,6 +180,82 @@ class CreateNewRoleFragment : BaseFragment() {
         return root
     }
 
+    override fun onFragmentDestroy() {
+        colorPickerSheet?.dismiss()
+        colorPickerSheet = null
+        super.onFragmentDestroy()
+    }
+
+    private fun buildColorRow(context: Context): LinearLayout {
+        colorSwatch = View(context).apply {
+            background = GradientDrawable().apply {
+                cornerRadius = LayoutHelper.dpf(6f)
+                setColor(parseColor(selectedColorHex))
+            }
+        }
+        colorValue = TextView(context).apply {
+            text = selectedColorHex
+            textSize = 13f
+            setTextColor(themeColors.textDisabled)
+            setPadding(LayoutHelper.dp(10f), 0, 0, 0)
+        }
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(LayoutHelper.dp(12f), LayoutHelper.dp(10f), LayoutHelper.dp(12f), LayoutHelper.dp(10f))
+            background = GradientDrawable().apply {
+                cornerRadius = LayoutHelper.dpf(8f)
+                setColor(com.mezon.mobile.home.clans.CreateClanRnUiTokens.menuItemBackground(themeColors))
+            }
+            isClickable = true
+            setOnClickListener { showColorPicker(context) }
+            addView(
+                TextView(context).apply {
+                    text = getString(R.string.clan_roles_detail_color)
+                    textSize = 13f
+                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                    setTextColor(ClanRolesUiTheme.secondaryCardTitleColor(themeColors))
+                },
+                LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL)
+            )
+            addView(colorSwatch, LayoutHelper.createLinear(40, 40, 0f, Gravity.CENTER_VERTICAL))
+            addView(colorValue, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.CENTER_VERTICAL))
+        }
+    }
+
+    private fun showColorPicker(context: Context) {
+        colorPickerSheet?.dismiss()
+        val sheet = RoleColorPickerBottomSheet(
+            context,
+            themeColors,
+            roleColors,
+            selectedColorHex,
+        ) { picked ->
+            selectedColorHex = normalizeColorForUi(picked)
+            refreshColorUi()
+        }
+        colorPickerSheet = sheet
+        sheet.show()
+    }
+
+    private fun refreshColorUi() {
+        colorSwatch.background = GradientDrawable().apply {
+            cornerRadius = LayoutHelper.dpf(6f)
+            setColor(parseColor(selectedColorHex))
+        }
+        colorValue.text = selectedColorHex
+    }
+
+    private fun normalizeColorForUi(raw: String): String {
+        val clean = raw.trim().removePrefix("#").lowercase()
+        return if (clean.isEmpty()) DEFAULT_CREATE_ROLE_COLOR_HEX else "#$clean"
+    }
+
+    private fun parseColor(raw: String): Int {
+        val clean = raw.trim().removePrefix("#")
+        return runCatching { Color.parseColor("#$clean") }.getOrElse { Color.parseColor(DEFAULT_CREATE_ROLE_COLOR_HEX) }
+    }
+
     private fun refreshCreateEnabled() {
         refreshCreateEnabledSync()
     }
@@ -184,7 +279,7 @@ class CreateNewRoleFragment : BaseFragment() {
         val clan = clansController.clans.value.firstOrNull { it.clanId == clanId } ?: return
         val members = userClanController.getClanMembers(clanId)
         fragmentScope.launch {
-            val result = roleController.createRole(clanId, name, "", members, clan.creatorId)
+            val result = roleController.createRole(clanId, name, selectedColorHex, members, clan.creatorId)
             withContext(Dispatchers.Main.immediate) {
                 if (result.isSuccess) {
                     val role = result.getOrNull()!!
