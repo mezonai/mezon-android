@@ -51,17 +51,29 @@ class WebhooksListFragment : BaseFragment() {
     companion object {
         private const val ARG_CLAN_ID = "clanId"
         private const val ARG_CLAN_SCOPE = "isClanIntegration"
+        private const val ARG_CHANNEL_ID = "channelId"
 
         fun newInstance(clanId: Long, isClanScope: Boolean): WebhooksListFragment =
             WebhooksListFragment().apply {
                 arguments = Bundle().apply {
                     putLong(ARG_CLAN_ID, clanId)
                     putBoolean(ARG_CLAN_SCOPE, isClanScope)
+                    putLong(ARG_CHANNEL_ID, 0L)
+                }
+            }
+
+        fun newInstanceForChannel(clanId: Long, channelId: Long): WebhooksListFragment =
+            WebhooksListFragment().apply {
+                arguments = Bundle().apply {
+                    putLong(ARG_CLAN_ID, clanId)
+                    putBoolean(ARG_CLAN_SCOPE, false)
+                    putLong(ARG_CHANNEL_ID, channelId)
                 }
             }
     }
 
     private var clanId = 0L
+    private var channelId = 0L
     private var isClanIntegration = false
 
     private lateinit var clansController: ClansController
@@ -87,6 +99,7 @@ class WebhooksListFragment : BaseFragment() {
     override fun onFragmentCreate(): Boolean {
         super.onFragmentCreate()
         clanId = arguments?.getLong(ARG_CLAN_ID) ?: 0L
+        channelId = arguments?.getLong(ARG_CHANNEL_ID) ?: 0L
         isClanIntegration = arguments?.getBoolean(ARG_CLAN_SCOPE) ?: false
         if (clanId != 0L) {
             channelController.loadChannelsForClan(clanId, force = true)
@@ -311,7 +324,17 @@ class WebhooksListFragment : BaseFragment() {
                         clanWebhookItems.addAll(clansController.fetchClanWebhooks(clanId).listClanWebhooksList)
                     } else {
                         channelWebhookItems.clear()
-                        channelWebhookItems.addAll(clansController.fetchChannelWebhooksForClan(clanId).webhooksList)
+                        val response = if (channelId != 0L) {
+                            clansController.fetchChannelWebhooks(channelId, clanId)
+                        } else {
+                            clansController.fetchChannelWebhooksForClan(clanId)
+                        }
+                        val filtered = if (channelId != 0L) {
+                            response.webhooksList.filter { it.channelId == channelId }
+                        } else {
+                            response.webhooksList
+                        }
+                        channelWebhookItems.addAll(filtered)
                     }
                 }.onSuccess {
                     listWrap.removeAllViews()
@@ -460,6 +483,10 @@ class WebhooksListFragment : BaseFragment() {
     private fun onAddWebhookPressed() {
         val ctx = getContext() ?: return
         if (!isClanIntegration) {
+            if (channelId != 0L) {
+                createChannelWebhook(channelId = channelId)
+                return
+            }
             val channels = parentTextChannelsOrdered()
             if (channels.isEmpty()) {
                 MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.clan_invite_need_channel))
