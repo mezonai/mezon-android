@@ -53,6 +53,8 @@ import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.ChatController
+import com.mezon.mobile.home.TopicBadgeTracker
+import com.mezon.mobile.home.TopicController
 import com.mezon.mobile.home.chat.thread.CreateThreadFragment
 import com.mezon.mobile.home.chat.thread.ThreadListFragment
 import com.mezon.mobile.home.ClanMember
@@ -155,19 +157,22 @@ private const val FORWARD_NEARBY_WINDOW_SECONDS = 10 * 60L
 private const val POLL_TALLY_TICK_MS = 15_000L
 private const val POLL_TALLY_MIN_GAP_MS = 12_000L
 private const val POLL_TALLY_MAX_PER_TICK = 8
+private const val TOPIC_BADGE_HYDRATE_DEBOUNCE_MS = 500L
 
-class ChatFragment : BaseFragment() {
+open class ChatFragment : BaseFragment() {
 
     companion object {
-        private const val ARG_CHANNEL_ID = "channelId"
-        private const val ARG_CHANNEL_NAME = "channelName"
-        private const val ARG_CLAN_ID = "clanId"
-        private const val ARG_CHANNEL_TYPE = "channelType"
-        private const val ARG_CHANNEL_PRIVATE = "channelPrivate"
+        internal const val ARG_CHANNEL_ID = "channelId"
+        internal const val ARG_CHANNEL_NAME = "channelName"
+        internal const val ARG_CLAN_ID = "clanId"
+        internal const val ARG_CHANNEL_TYPE = "channelType"
+        internal const val ARG_CHANNEL_PRIVATE = "channelPrivate"
+        internal const val ARG_TOPIC_ID = "topicId"
+        internal const val ARG_ROOT_MESSAGE_ID = "rootMessageId"
         private const val ARG_PARENT_ID = "parentId"
         private const val ARG_MESSAGE_ID = "message_id"
         private const val ARG_FORCE_LATEST = "force_latest"
-        private const val ARG_OPENED_FROM_NOTIFICATION = "opened_from_notification"
+        internal const val ARG_OPENED_FROM_NOTIFICATION = "opened_from_notification"
         private const val VIEWPORT_LIMIT = 300
         private const val PAGE_DOWN_SCROLL_THRESHOLD = 2
         private const val REQUEST_CODE_LOCATION_PERMISSION = 1002
@@ -269,6 +274,13 @@ class ChatFragment : BaseFragment() {
     private val voiceLongPressRunnable = Runnable { onVoiceLongPressFired() }
 
     private var channelId = 0L
+    private var topicId = 0L
+    private var rootMessageId = 0L
+    private var topicRootHeader: TopicRootHeaderView? = null
+    private val messageListKey: Long
+        get() = if (topicId != 0L) topicId else channelId
+    private val isTopicMode: Boolean
+        get() = topicId != 0L
     private var channelName = ""
     private var lastWelcomeAvatarUrl = ""
     private var lastWelcomeAvatarId = 0L
@@ -330,6 +342,9 @@ class ChatFragment : BaseFragment() {
     private lateinit var userClanController: UserClanController
     private lateinit var userController: com.mezon.mobile.home.profile.UserController
     private lateinit var memberResolver: MemberResolver
+    private lateinit var topicController: TopicController
+    private lateinit var topicBadgeTracker: TopicBadgeTracker
+    private var topicBadgeHydrateJob: Job? = null
     private lateinit var roleController: RoleController
     private lateinit var searchController: com.mezon.mobile.search.SearchController
     private lateinit var voiceController: VoiceController
@@ -396,6 +411,8 @@ class ChatFragment : BaseFragment() {
     override fun onFragmentCreate(): Boolean {
         super.onFragmentCreate()
         channelId = arguments?.getLong(ARG_CHANNEL_ID) ?: 0L
+        topicId = arguments?.getLong(ARG_TOPIC_ID) ?: 0L
+        rootMessageId = arguments?.getLong(ARG_ROOT_MESSAGE_ID) ?: 0L
         channelName = arguments?.getString(ARG_CHANNEL_NAME) ?: ""
         clanId = arguments?.getLong(ARG_CLAN_ID) ?: 0L
         chatCachedCreatorId = null
@@ -445,7 +462,15 @@ class ChatFragment : BaseFragment() {
         } else if (channelType == CHANNEL_TYPE_GROUP) {
             dialogsController.loadDmParticipants(channelId)
         }
-        pinMessageController.loadPinMessages(channelId, clanId)
+        if (!isTopicMode) {
+            pinMessageController.loadPinMessages(channelId, clanId)
+        }
+        if (clanId != 0L && !isTopicMode) {
+            topicController.loadTopics(clanId)
+        }
+        if (isTopicMode) {
+            loadTopicRootHeaderMessage()
+        }
         refreshPermissionGates()
         Log.d(TAG, "onFragmentCreate: startLoadFromMessageId=$startLoadFromMessageId forceLatest=$forceLatest channelId=$channelId")
         observe(NotificationCenter.channelPermissionOverridesDidLoad) { _, _, args ->
@@ -467,8 +492,16 @@ class ChatFragment : BaseFragment() {
             if (isPaused) return@observe
             if (clanId == 0L) refreshPermissionGates()
         }
+        observe(NotificationCenter.notificationsDidLoad) { _, _, args ->
+            if (isPaused || isTopicMode || clanId == 0L || fragmentView == null) return@observe
+            val category = args.getOrNull(0) as? Int ?: return@observe
+            if (category != com.mezon.mobile.home.notifications.NOTIF_CATEGORY_MENTIONS) return@observe
+            requestTopicBadgeHydrate(TOPIC_BADGE_HYDRATE_DEBOUNCE_MS)
+        }
         observe(NotificationCenter.messagesDidLoad) { _, _, args ->
-            if (args.size < 5 || args[0] != channelId) return@observe
+            if (args.size < 5) return@observe
+            val eventKey = args[0] as? Long ?: return@observe
+            if (eventKey != messageListKey) return@observe
             @Suppress("UNCHECKED_CAST")
             val loadedMessages = args[1] as? ArrayList<MessageEntity> ?: return@observe
             val moreTop = args[2] as? Boolean ?: false
@@ -476,8 +509,6 @@ class ChatFragment : BaseFragment() {
             val isCache = args[4] as? Boolean ?: false
             val serverLastSeenId = args.getOrNull(5) as? Long ?: 0L
             val loadType = args.getOrNull(6) as? Int ?: LOAD_TYPE_INITIAL
-            Log.d(TAG, "messagesDidLoad: isCache=$isCache firstLoad=$firstLoad hasUnread=$hasUnread " +
-                "loaded=${loadedMessages.size} lastSeen=$lastSeenMessageId lastSent=$lastSentMessageId serverLastSeen=$serverLastSeenId loadType=$loadType")
             if (serverLastSeenId != 0L) {
                 val newSeen = maxOf(lastSeenMessageId, serverLastSeenId)
                 if (newSeen != lastSeenMessageId) {
@@ -629,7 +660,7 @@ class ChatFragment : BaseFragment() {
                 }
             }
 
-            val fromStore = chatController.getLastMessageId(channelId)
+            val fromStore = chatController.getLastMessageId(messageListKey)
             lastSentMessageId = maxOf(lastSentMessageId, fromStore)
 
             val newestReadableInList = newestReadStateMessageId()
@@ -715,6 +746,10 @@ class ChatFragment : BaseFragment() {
 
                     refreshUI()
 
+                    if (wasFirstLoad && !isTopicMode && clanId != 0L) {
+                        requestTopicBadgeHydrate(0L)
+                    }
+
                     if (pendingHighlightMessageId != 0L) {
                         val highlightId = pendingHighlightMessageId
                         pendingHighlightMessageId = 0L
@@ -755,7 +790,7 @@ class ChatFragment : BaseFragment() {
         observe(NotificationCenter.didReceiveNewMessages) { _, _, args ->
             if (args.size < 2) return@observe
             val eventChannelId = args[0] as? Long ?: return@observe
-            if (eventChannelId != channelId) {
+            if (eventChannelId != messageListKey) {
                 if (BuildConfig.DEBUG) {
                     Log.d(
                         TAG,
@@ -895,7 +930,7 @@ class ChatFragment : BaseFragment() {
             if (!isPaused) markAsRead()
         }
         observe(NotificationCenter.pendingMessageSent) { _, _, args ->
-            if (args.size < 3 || args[0] != channelId) return@observe
+            if (args.size < 3 || args[0] != messageListKey) return@observe
             val tempId = args[1] as? Long ?: return@observe
             val apiRealId = args[2] as? Long ?: return@observe
             Log.d(TAG, "pendingMessageSent tempId=$tempId apiRealId=$apiRealId")
@@ -908,7 +943,7 @@ class ChatFragment : BaseFragment() {
         }
 
         observe(NotificationCenter.pendingMessageError) { _, _, args ->
-            if (args.size < 2 || args[0] != channelId) return@observe
+            if (args.size < 2 || args[0] != messageListKey) return@observe
             val tempId = args[1] as? Long ?: return@observe
             Log.e(TAG, "pendingMessageError tempId=$tempId channelId=$channelId channelType=$channelType")
             val idx = messages.indexOfFirst { it.id == tempId }
@@ -922,17 +957,31 @@ class ChatFragment : BaseFragment() {
         }
 
         observe(NotificationCenter.messageDidUpdate) { _, _, args ->
-            if (args.size < 2 || args[0] != channelId) return@observe
+            if (args.size < 2 || args[0] != messageListKey) return@observe
             val updateEntity = args[1] as? MessageEntity ?: return@observe
             val idx = messages.indexOfFirst { it.id == updateEntity.id }
             if (idx >= 0) {
                 val existing = messages[idx]
-                val merged = existing.copy(
-                    content = updateEntity.content,
-                    updateTimeSeconds = updateEntity.updateTimeSeconds,
-                    hideEditted = updateEntity.hideEditted,
-                    code = updateEntity.code
-                )
+                val mask = if (args.size >= 3) args[2] as? Int ?: NotificationCenter.UPDATE_MASK_MESSAGE_TEXT else NotificationCenter.UPDATE_MASK_MESSAGE_TEXT
+                val merged = if (mask and NotificationCenter.UPDATE_MASK_TOPIC != 0) {
+                    existing.copy(
+                        content = updateEntity.content,
+                        updateTimeSeconds = updateEntity.updateTimeSeconds,
+                        hideEditted = updateEntity.hideEditted,
+                        code = updateEntity.code,
+                        topicId = updateEntity.topicId,
+                        topicCreatorId = updateEntity.topicCreatorId,
+                        rplCount = updateEntity.rplCount,
+                        lastSentSeconds = updateEntity.lastSentSeconds
+                    )
+                } else {
+                    existing.copy(
+                        content = updateEntity.content,
+                        updateTimeSeconds = updateEntity.updateTimeSeconds,
+                        hideEditted = updateEntity.hideEditted,
+                        code = updateEntity.code
+                    )
+                }
                 messages[idx] = merged
                 messagesDict.put(merged.id, merged)
                 if (!hasEmbedControlPayload(merged.content)) EmbedFormUtil.clearMessage(merged.id)
@@ -942,13 +991,12 @@ class ChatFragment : BaseFragment() {
                         displayMergedPoll = null
                     )
                 }
-                val mask = if (args.size >= 3) args[2] as? Int ?: NotificationCenter.UPDATE_MASK_MESSAGE_TEXT else NotificationCenter.UPDATE_MASK_MESSAGE_TEXT
                 if (fragmentView != null) updateVisibleRows(mask)
             }
         }
 
         observe(NotificationCenter.messageDidDelete) { _, _, args ->
-            if (args.size < 2 || args[0] != channelId) return@observe
+            if (args.size < 2 || args[0] != messageListKey) return@observe
             val messageId = args[1] as? Long ?: return@observe
             val idx = messages.indexOfFirst { it.id == messageId }
             if (idx >= 0) {
@@ -969,7 +1017,7 @@ class ChatFragment : BaseFragment() {
         }
 
         observe(NotificationCenter.messagesLoadError) { _, _, args ->
-            if (args.isNotEmpty() && args[0] == channelId) {
+            if (args.isNotEmpty() && args[0] == messageListKey) {
                 isLoading = false
                 isLoadingMore = false
                 if (fragmentView != null && messages.isEmpty()) {
@@ -985,6 +1033,11 @@ class ChatFragment : BaseFragment() {
             if (fragmentView == null) return@observe
             val mask = args.firstOrNull() as? Int ?: 0
             updateVisibleRows(mask)
+        }
+
+        observe(NotificationCenter.topicsNeedReload) { _, _, _ ->
+            if (isPaused || isTopicMode || fragmentView == null) return@observe
+            updateVisibleRows(NotificationCenter.UPDATE_MASK_TOPIC)
         }
 
         observe(NotificationCenter.audioPlaybackStateChanged) { _, _, args ->
@@ -1004,7 +1057,7 @@ class ChatFragment : BaseFragment() {
             if (isPaused || fragmentView == null) return@observe
             if (args.size < 7) return@observe
             val eventChannelId = args[0] as? Long ?: return@observe
-            if (eventChannelId != channelId) return@observe
+            if (eventChannelId != messageListKey) return@observe
             val messageId = args[1] as? Long ?: return@observe
             val emojiId = args[2] as? Long ?: return@observe
             val emoji = args[3] as? String ?: return@observe
@@ -1066,7 +1119,7 @@ class ChatFragment : BaseFragment() {
         observe(NotificationCenter.appDidReconnect) { _, _, _ ->
             if (isPaused) return@observe
             Log.d(TAG, "appDidReconnect: reloading messages for channel $channelId")
-            chatController.loadMessages(channelId, clanId, forceRefresh = true, preferHttp = false)
+            chatController.loadMessages(channelId, clanId, forceRefresh = true, preferHttp = false, topicId = topicId)
         }
 
         observe(NotificationCenter.scrollToBottomChat) { _, _, args ->
@@ -1153,7 +1206,7 @@ class ChatFragment : BaseFragment() {
         notificationCenter.addPostponeNotificationsCallback(postponeNewMessagesCallback)
 
         isLoading = true
-        chatController.loadMessages(channelId, clanId, forceRefresh = true, preferHttp = openedFromNotification)
+        chatController.loadMessages(channelId, clanId, forceRefresh = true, preferHttp = openedFromNotification, topicId = topicId)
         return true
     }
 
@@ -1175,6 +1228,8 @@ class ChatFragment : BaseFragment() {
         emojiController = entryPoint.emojiController()
         anonymousController = entryPoint.anonymousController()
         pinMessageController = entryPoint.pinMessageController()
+        topicController = entryPoint.topicController()
+        topicBadgeTracker = entryPoint.topicBadgeTracker()
         voiceController = entryPoint.voiceController()
         channelAppController = entryPoint.channelAppController()
         clansController = entryPoint.clansController()
@@ -1250,9 +1305,25 @@ class ChatFragment : BaseFragment() {
                 touchDelegate = TouchDelegate(rect, tv)
             }
             setupDmHeaderCallMenu(this)
+            if (isTopicMode) {
+                setTitle(getString(R.string.topic_discussion))
+                setSubtitle(null)
+                setTitleStartIcon(null, 0, 0)
+                setTitleOnClickListener(null)
+            }
         }
         actionBar = chatActionBar
         innerLayout.addView(chatActionBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 56))
+
+        if (isTopicMode) {
+            topicRootHeader = TopicRootHeaderView(context, themeColors).apply {
+                visibility = View.GONE
+            }
+            innerLayout.addView(
+                topicRootHeader,
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT)
+            )
+        }
 
         val contentFrame = FrameLayout(context)
         innerLayout.addView(contentFrame, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
@@ -1821,6 +1892,26 @@ class ChatFragment : BaseFragment() {
         adapter.isChannelPrivate = resolveChannelPrivate()
         adapter.currentUserId = StartupCache.userId
         adapter.displayRoleResolver = chatDisplayRoleResolver()
+        adapter.onTopicClick = { tid, rootId ->
+            if (!isTopicMode) openTopicDiscussion(tid, rootId)
+        }
+        adapter.topicButtonEnabled = !isTopicMode
+        adapter.topicCreatorResolver = { creatorId ->
+            memberResolver.resolveMember(creatorId, clanId, channelId, channelType)?.let { member ->
+                val name = member.clanNick.ifBlank { member.displayName.ifBlank { member.username } }
+                val avatar = member.clanAvatar.ifBlank { member.avatarUrl }
+                name to avatar
+            }
+        }
+        adapter.topicLastMessageIdResolver = { tid ->
+            chatController.getLastMessageId(tid).takeIf { it != 0L }
+                ?: topicController.findTopic(tid)?.lastSentMessageId?.takeIf { it != 0L }
+                ?: 0L
+        }
+        adapter.topicBadgeResolver = { tid -> topicBadgeTracker.getTopicBadge(tid) }
+        if (!isTopicMode && clanId != 0L) {
+            requestTopicBadgeHydrate(0L)
+        }
         refreshWelcomeFromDialog()
         refreshChatDisplayRoleCache()
         adapter.pollBridge = object : ChatPollBridge {
@@ -1894,13 +1985,13 @@ class ChatFragment : BaseFragment() {
                     if (!isViewingOlder && !hasMoreBottom) markAsRead()
                 }
 
-                if (!isLoadingMore && hasMoreTop && messages.size >= 10) {
+                if (!isLoadingMore && hasMoreTop && messages.size >= 10 && !isOldestMessageEndOfHistory()) {
                     val lastVisible = lm.findLastVisibleItemPosition()
                     val totalCount = adapter.itemCount
                     if (totalCount > 0 && lastVisible >= totalCount - 5) {
                         val oldest = messages.lastOrNull()?.id ?: return
                         isLoadingMore = true
-                        chatController.loadMoreTop(channelId, clanId, oldest)
+                        chatController.loadMoreTop(channelId, clanId, oldest, topicId = topicId)
                     }
                 }
 
@@ -1909,7 +2000,7 @@ class ChatFragment : BaseFragment() {
                         val newest = newestReadStateMessageId()
                         if (newest == 0L) return
                         isLoadingMore = true
-                        chatController.loadMoreBottom(channelId, clanId, newest)
+                        chatController.loadMoreBottom(channelId, clanId, newest, topicId = topicId)
                     }
                 }
             }
@@ -2008,7 +2099,15 @@ class ChatFragment : BaseFragment() {
         dialogsController.setCurrentChannel(channelId)
         if (clanId != 0L) {
             channelController.setCurrentChannel(channelId)
-            channelController.markChannelAsRead(channelId, seenMessageId = lastSeenMessageId)
+            if (isTopicMode) {
+                channelController.setCurrentTopic(topicId)
+                channelController.markChannelAsRead(topicId, seenMessageId = lastSeenMessageId)
+            } else {
+                channelController.markChannelAsRead(channelId, seenMessageId = lastSeenMessageId)
+                channelController.clearCurrentTopic()
+                refreshTopicRootRowsFromCache()
+                updateVisibleRows(NotificationCenter.UPDATE_MASK_TOPIC)
+            }
         }
 
         if (pendingJumpMessageId != 0L) {
@@ -2048,7 +2147,7 @@ class ChatFragment : BaseFragment() {
         } else if (!isLoading) {
             isLoading = true
             showLoading()
-            chatController.loadMessages(channelId, clanId, forceRefresh = true, preferHttp = openedFromNotification)
+            chatController.loadMessages(channelId, clanId, forceRefresh = true, preferHttp = openedFromNotification, topicId = topicId)
         }
         mainHandler.post { refreshPollSnapshotsForStoredVotes() }
         startVisiblePollTallyRefreshLoop()
@@ -2059,6 +2158,7 @@ class ChatFragment : BaseFragment() {
 
     override fun onPause() {
         super.onPause()
+        if (clanId != 0L) channelController.clearCurrentTopic()
         waitingForKeyboardOpen = false
         AndroidUtilities.cancelRunOnUIThread(openKeyboardRunnable)
         AndroidUtilities.cancelRunOnUIThread(showKeyboardFromEmojiRunnable)
@@ -2336,6 +2436,8 @@ class ChatFragment : BaseFragment() {
         cancelPendingLoading()
         displayRoleCacheRefreshJob?.cancel()
         displayRoleCacheRefreshJob = null
+        topicBadgeHydrateJob?.cancel()
+        topicBadgeHydrateJob = null
         pendingDisplayRoleUiRefresh = false
         mainHandler.removeCallbacks(markVisibleRunnable)
         markVisibleAsRead()
@@ -2486,7 +2588,6 @@ class ChatFragment : BaseFragment() {
         loadingView.visibility = View.GONE
         errorView.visibility = View.GONE
         val vis = if (needScrollRestore) View.INVISIBLE else View.VISIBLE
-        Log.d(TAG, "showMessages: msgs=${messages.size} recyclerView→${if (vis == View.VISIBLE) "VISIBLE" else "INVISIBLE"} needScrollRestore=$needScrollRestore")
         recyclerView.visibility = vis
         adapter.showLoadingUp = hasMoreTop
         adapter.showLoadingDown = hasMoreBottom
@@ -2615,7 +2716,7 @@ class ChatFragment : BaseFragment() {
             recyclerView.visibility = View.INVISIBLE
             firstLoad = true
             Log.d(TAG, "jumpToPresent: cleared list, calling loadMessages forceRefresh=true")
-            chatController.loadMessages(channelId, clanId, forceRefresh = true, preferHttp = false)
+            chatController.loadMessages(channelId, clanId, forceRefresh = true, preferHttp = false, topicId = topicId)
         }
     }
 
@@ -2695,10 +2796,60 @@ class ChatFragment : BaseFragment() {
         val ts = pendingSeenTimestamp
         val badge = pendingBadgeCount
         pendingSeenMessageId = 0L
+        val readChannelId = if (isTopicMode) topicId else channelId
         chatController.updateLastSeenMessage(
-            channelId, clanId, channelType,
+            readChannelId, clanId, channelType,
             msgId, ts, badgeCount = badge
         )
+        if (isTopicMode) {
+            topicBadgeTracker.resetTopic(topicId)
+        }
+    }
+
+    private fun requestTopicBadgeHydrate(debounceMs: Long) {
+        if (isTopicMode || clanId == 0L) return
+        topicBadgeHydrateJob?.cancel()
+        topicBadgeHydrateJob = appScope.launch(ioDispatcher) {
+            if (debounceMs > 0L) delay(debounceMs)
+            topicBadgeTracker.hydrateForParentChannel(clanId, channelId)
+            withContext(mainDispatcher) {
+                if (isPaused || isTopicMode || fragmentView == null) return@withContext
+                updateVisibleRows(NotificationCenter.UPDATE_MASK_TOPIC)
+            }
+        }
+    }
+
+    private fun refreshTopicRootRowsFromCache() {
+        if (isTopicMode || messages.isEmpty()) return
+        val roots = messages.mapIndexedNotNull { index, msg ->
+            if (msg.isTopicRootMessage) index to msg else null
+        }
+        if (roots.isEmpty()) return
+        appScope.launch(ioDispatcher) {
+            val ids = roots.map { it.second.id }
+            val freshMap = chatController.getMessagesByIds(channelId, ids)
+            val updates = ArrayList<Pair<Int, MessageEntity>>()
+            for ((index, msg) in roots) {
+                val fresh = freshMap[msg.id] ?: continue
+                if (fresh.rplCount != msg.rplCount ||
+                    fresh.lastSentSeconds != msg.lastSentSeconds ||
+                    fresh.content != msg.content
+                ) {
+                    updates.add(index to fresh)
+                }
+            }
+            if (updates.isEmpty()) return@launch
+            withContext(mainDispatcher) {
+                if (isPaused || isTopicMode || fragmentView == null) return@withContext
+                for ((index, fresh) in updates) {
+                    if (index < messages.size && messages[index].id == fresh.id) {
+                        messages[index] = fresh
+                        messagesDict.put(fresh.id, fresh)
+                    }
+                }
+                updateVisibleRows(NotificationCenter.UPDATE_MASK_TOPIC)
+            }
+        }
     }
 
     private fun updatePageDownVisibility() {
@@ -3233,6 +3384,11 @@ class ChatFragment : BaseFragment() {
         list.sortByDescending { it.id }
     }
 
+    private fun isOldestMessageEndOfHistory(): Boolean {
+        val oldest = messages.lastOrNull() ?: return false
+        return oldest.isWelcomeMessage || oldest.code == MessageEntity.CODE_FIRST_MESSAGE
+    }
+
     private fun newestReadStateMessage(): MessageEntity? {
         return messages.firstOrNull { it.canAdvanceReadState() && messagesDict.get(it.id) != null }
     }
@@ -3700,14 +3856,16 @@ class ChatFragment : BaseFragment() {
                 references,
                 mentions,
                 hashtags,
-                emojiMarkers
+                emojiMarkers,
+                topicId = topicId
             )
             clearPendingAttachments()
         } else {
             val emojiMarkers = buildEmojiMarkers(cleanedText)
             chatController.sendMessage(
                 channelId, clanId, channelType, isPrivate, cleanedText,
-                references, mentions, emojiMarkers, mdMarkers, hashtags
+                references, mentions, emojiMarkers, mdMarkers, hashtags,
+                topicId = topicId
             )
         }
         inputField.text?.clear()
@@ -5348,7 +5506,7 @@ class ChatFragment : BaseFragment() {
         builder.setTitle(R.string.message_delete_title)
         builder.setMessage(R.string.message_delete_description)
         builder.setPositiveButton(R.string.common_delete) { _, _ ->
-            chatController.deleteMessage(channelId, clanId, channelType, resolveChannelPrivate(), msg.id)
+            chatController.deleteMessage(channelId, clanId, channelType, resolveChannelPrivate(), msg.id, topicId = topicId)
         }
         builder.setNegativeButton(R.string.common_cancel, null)
         builder.show()
@@ -5657,7 +5815,8 @@ class ChatFragment : BaseFragment() {
                 clanId,
                 messageId,
                 requireExactAnchor = true,
-                preferHttp = openedFromNotification
+                preferHttp = openedFromNotification,
+                topicId = topicId
             )
         }
     }
@@ -6118,6 +6277,62 @@ class ChatFragment : BaseFragment() {
                 startCall()
             }
             .show()
+    }
+
+    private fun openTopicDiscussion(topicId: Long, rootMessageId: Long) {
+        if (topicId == 0L || rootMessageId == 0L) return
+        presentFragment(
+            TopicFragment.newInstance(
+                topicId = topicId,
+                rootMessageId = rootMessageId,
+                clanId = clanId,
+                parentChannelId = channelId,
+                channelType = CHANNEL_TYPE_THREAD,
+                isChannelPrivate = resolveChannelPrivate()
+            )
+        )
+    }
+
+    private fun loadTopicRootHeaderMessage() {
+        if (!isTopicMode || rootMessageId == 0L) return
+        appScope.launch(ioDispatcher) {
+            var root = chatController.getMessageById(channelId, rootMessageId)
+            if (root == null) {
+                val detail = topicController.fetchTopicDetail(topicId)
+                if (detail != null) {
+                    root = MessageEntity(
+                        id = detail.messageId,
+                        channelId = channelId,
+                        senderId = detail.creatorId,
+                        senderName = "",
+                        senderUsername = "",
+                        senderAvatar = "",
+                        content = detail.content,
+                        timestampSeconds = detail.createTimeSeconds,
+                        code = MessageEntity.CODE_TOPIC,
+                        topicId = topicId,
+                        topicCreatorId = detail.creatorId
+                    )
+                }
+            }
+            val base = root ?: return@launch
+            val creatorId = base.topicCreatorId.takeIf { it != 0L } ?: base.senderId
+            val member = memberResolver.resolveMember(creatorId, clanId, channelId, channelType)
+            val resolved = if (member != null) {
+                base.copy(
+                    senderId = creatorId,
+                    senderName = member.clanNick.ifBlank { member.displayName.ifBlank { member.username } },
+                    senderUsername = member.username,
+                    senderAvatar = member.clanAvatar.ifBlank { member.avatarUrl }
+                )
+            } else {
+                base
+            }
+            withContext(mainDispatcher) {
+                topicRootHeader?.setRootMessage(resolved)
+                topicRootHeader?.visibility = View.VISIBLE
+            }
+        }
     }
 
 }

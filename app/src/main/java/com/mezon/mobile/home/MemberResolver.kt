@@ -40,6 +40,23 @@ class MemberResolver @Inject constructor(
         return userClanController.getUserById(userId)?.toClanMember()
     }
 
+    fun resolveClanScopedMember(
+        userId: Long,
+        clanId: Long,
+        channelId: Long,
+        channelType: Int
+    ): ClanMember? {
+        if (userId == 0L || clanId == 0L) return null
+
+        userClanController.getClanMembers(clanId).firstOrNull { it.userId == userId }?.let { return it }
+
+        if (userId == userController.userId) {
+            return buildSelfMemberInContext(clanId, channelId, channelType)
+        }
+
+        return findClanOrChannelMember(userId, clanId, channelId, channelType)
+    }
+
     fun resolveMembers(
         userIds: Collection<Long>,
         clanId: Long,
@@ -121,6 +138,7 @@ class MemberResolver @Inject constructor(
         val useClanPersona = mode == STREAM_MODE_CHANNEL || mode == STREAM_MODE_THREAD
         if (!useClanPersona) return globalFallback
         val member = resolveChannelMemberList(clanId, channelId, channelType).firstOrNull { it.userId == selfId }
+            ?: userClanController.getClanMembers(clanId).firstOrNull { it.userId == selfId }
         return member ?: globalFallback
     }
 

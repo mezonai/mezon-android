@@ -113,6 +113,7 @@ class MainTabsActivity : ViewPagerActivity() {
         searchController = entryPoint.searchController()
         accountController = entryPoint.accountController()
         entryPoint.notificationStore()
+        entryPoint.topicController()
     }
 
     override fun onFragmentCreate(): Boolean {

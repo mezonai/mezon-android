@@ -142,6 +142,8 @@ class NotificationCenter(val currentAccount: Int) {
         val callMediaChanged = nextId()
         val callEnded = nextId()
 
+        val topicsNeedReload = nextId()
+
         const val UPDATE_MASK_NAME = 1
         const val UPDATE_MASK_AVATAR = 2
         const val UPDATE_MASK_STATUS = 4
@@ -160,10 +162,12 @@ class NotificationCenter(val currentAccount: Int) {
         const val UPDATE_MASK_REORDER = 131072
         const val UPDATE_MASK_BADGE = 262144
         const val UPDATE_MASK_REACTIONS = 524288
+        const val UPDATE_MASK_TOPIC = 1048576
         const val UPDATE_MASK_ALL = UPDATE_MASK_AVATAR or UPDATE_MASK_STATUS or
             UPDATE_MASK_NAME or UPDATE_MASK_CHAT_AVATAR or UPDATE_MASK_CHAT_NAME or
             UPDATE_MASK_CLAN_BANNER or UPDATE_MASK_CHAT_MEMBERS or UPDATE_MASK_USER_PRINT or
-            UPDATE_MASK_READ_DIALOG_MESSAGE or UPDATE_MASK_BADGE or UPDATE_MASK_REACTIONS
+            UPDATE_MASK_READ_DIALOG_MESSAGE or UPDATE_MASK_BADGE or UPDATE_MASK_REACTIONS or
+            UPDATE_MASK_TOPIC
 
         private const val EXPIRE_NOTIFICATIONS_TIME = 5017L
         private const val DEBOUNCE_DELAY_MS = 250L
