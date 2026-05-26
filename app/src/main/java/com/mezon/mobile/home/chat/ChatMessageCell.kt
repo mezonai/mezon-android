@@ -34,6 +34,7 @@ import com.mezon.mobile.util.createImgproxyUrl
 import com.mezon.mobile.util.getEmojiDirectUrl
 import com.mezon.mobile.util.getEmojiUrl
 import com.mezon.mobile.util.MentionColors
+import com.mezon.mobile.util.MezonDisplayColors
 import com.mezon.mobile.util.buildPlainTextWithHeadings
 import com.mezon.mobile.util.formatEmbedRichText
 import com.mezon.mobile.util.OgpData
@@ -833,7 +834,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         if (!showSenderDisplayRoleRow(senderId)) return null
         val dr = displayRoleResolver?.invoke(senderId)
         return SenderRoleAppearance(
-            color = if (dr != null && dr.color != 0) dr.color else theme.chatSenderPaint.color,
+            color = if (dr != null && dr.color != 0) dr.color else MezonDisplayColors.DEFAULT_ROLE_NAME,
             iconUrl = dr?.iconUrl?.trim().orEmpty()
         )
     }
@@ -1209,7 +1210,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     if (reserveSenderRoleIcon) loadSenderRoleIcon(appearance.iconUrl) else clearSenderRoleIcon()
                     rememberSenderDisplayRoleAppearance(appearance)
                 } else {
-                    senderNamePaint.color = theme.chatSenderPaint.color
+                    senderNamePaint.color = MezonDisplayColors.DEFAULT_ROLE_NAME
                     clearSenderRoleIcon()
                     rememberSenderDisplayRoleAppearance(null)
                 }
@@ -1220,7 +1221,13 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             } else {
                 clearSenderRoleIcon()
                 rememberSenderDisplayRoleAppearance(null)
-                StaticLayout.Builder.obtain(s, 0, s.length, senderPaint, senderMaxW)
+                syncSenderNamePaintFromTheme()
+                senderNamePaint.color = if (clanId == 0L) {
+                    MezonDisplayColors.DEFAULT_MESSAGE_CREATOR_NAME
+                } else {
+                    senderPaint.color
+                }
+                StaticLayout.Builder.obtain(s, 0, s.length, senderNamePaint, senderMaxW)
                     .setMaxLines(1)
                     .setEllipsize(android.text.TextUtils.TruncateAt.END)
                     .build()

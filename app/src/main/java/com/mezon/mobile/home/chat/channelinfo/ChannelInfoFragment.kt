@@ -1,9 +1,12 @@
 package com.mezon.mobile.home.chat.channelinfo
 
+import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.GradientDrawable
+import android.net.Uri
 import android.os.Bundle
 import android.text.SpannableString
 import android.text.Spanned
@@ -28,6 +31,7 @@ import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.ChannelFilesController
 import com.mezon.mobile.home.ChannelGalleryController
 import com.mezon.mobile.home.DialogsController
+import com.mezon.mobile.home.DmGroupAvatarUploadResult
 import com.mezon.mobile.home.MemberResolver
 import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.clans.ChannelController
@@ -53,6 +57,7 @@ import com.mezon.mobile.ui.cells.AvatarView
 import com.mezon.mobile.ui.cells.ColoredImageSpan
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.ScreenStateView
+import com.mezon.mobile.util.CreateChannelNameValidator
 
 class ChannelInfoFragment : BaseFragment() {
 
@@ -63,6 +68,8 @@ class ChannelInfoFragment : BaseFragment() {
         private const val ARG_CHANNEL_TYPE = "channelType"
         private const val ARG_CHANNEL_PRIVATE = "channelPrivate"
         private const val ARG_PARENT_ID = "parentId"
+        private const val REQUEST_CODE_PICK_GROUP_AVATAR = 9124
+        private const val MAX_GROUP_AVATAR_BYTES = 8 * 1024 * 1024
 
         fun newInstance(
             channelId: Long,
@@ -100,6 +107,8 @@ class ChannelInfoFragment : BaseFragment() {
     private lateinit var permissionPolicy: PermissionPolicy
     private var settingsActionGap: View? = null
     private var settingsActionView: View? = null
+    private var dmHeaderAvatarView: AvatarView? = null
+    private var editGroupSheet: DmGroupEditBottomSheet? = null
 
     private lateinit var channelFilesController: ChannelFilesController
     private lateinit var channelGalleryController: ChannelGalleryController
@@ -134,6 +143,11 @@ class ChannelInfoFragment : BaseFragment() {
         observe(NotificationCenter.channelMembersDidLoad) { _, _, args ->
             if (isPaused) return@observe
             reloadMembers()
+        }
+
+        observe(NotificationCenter.dialogsNeedReload) { _, _, _ ->
+            if (isPaused) return@observe
+            refreshDmHeader()
         }
 
         observe(NotificationCenter.pinMessagesDidLoad) { _, _, args ->
@@ -325,13 +339,16 @@ class ChannelInfoFragment : BaseFragment() {
                     setPhoto(GroupAvatar.bitmap(context))
                 }
             }
+            dmHeaderAvatarView = av
             avatarContainer.addView(av, LayoutHelper.createFrame(avatarSize, avatarSize, Gravity.CENTER))
+            avatarContainer.setOnClickListener { showGroupEditSheet(context) }
         } else {
             val av = AvatarView(context).apply {
                 setSizeDp(avatarSize)
                 setInfo(channelId, displayName)
                 setImageUrl(avatarUrl)
             }
+            dmHeaderAvatarView = av
             avatarContainer.addView(av, LayoutHelper.createFrame(avatarSize, avatarSize, Gravity.CENTER))
         }
 
@@ -379,6 +396,13 @@ class ChannelInfoFragment : BaseFragment() {
         row.addView(createActionButton(context, MezonIcon.searchIcon, "Search", applyTint = false) {
             openSearch()
         })
+
+        if (channelType == CHANNEL_TYPE_GROUP) {
+            addActionGap(row)
+            row.addView(createActionButton(context, MezonIcon.pencilIcon, getString(R.string.dm_group_customize)) {
+                showGroupEditSheet(context)
+            })
+        }
 
         if (!isDmContext && channelType == CHANNEL_TYPE_CHANNEL) {
             addActionGap(row)
@@ -639,6 +663,119 @@ class ChannelInfoFragment : BaseFragment() {
     private fun buildComingSoonTab(context: Context): View {
         return ScreenStateView(context, themeColors).apply {
             showEmpty("Coming soon")
+        }
+    }
+
+    private fun showGroupEditSheet(context: Context) {
+        if (channelType != CHANNEL_TYPE_GROUP) return
+        val dm = dialogsController.getDialog(channelId)
+        val name = dm?.displayName?.ifBlank { dm.label }?.ifBlank { channelName } ?: channelName
+        val avatar = dm?.avatarUrl.orEmpty()
+        val sheet = DmGroupEditBottomSheet(
+            context = context,
+            themeColors = themeColors,
+            initialName = name,
+            initialAvatarUrl = avatar,
+            onPickAvatar = { openGroupAvatarPicker() },
+            onSaveRequested = { trimmedName, changedName, changedAvatar ->
+                saveGroupEdits(trimmedName, changedName, changedAvatar)
+            }
+        )
+        editGroupSheet = sheet
+        sheet.setOnHideListener { _ -> editGroupSheet = null }
+        showDialog(sheet)
+    }
+
+    private fun openGroupAvatarPicker() {
+        val pick = Intent(Intent.ACTION_PICK).apply { type = "image/*" }
+        val getContent = Intent(Intent.ACTION_GET_CONTENT).apply {
+            type = "image/*"
+            addCategory(Intent.CATEGORY_OPENABLE)
+        }
+        val chooser = Intent.createChooser(getContent, getString(R.string.dm_group_upload_image)).apply {
+            putExtra(Intent.EXTRA_INITIAL_INTENTS, arrayOf(pick))
+        }
+        startActivityForResult(chooser, REQUEST_CODE_PICK_GROUP_AVATAR)
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQUEST_CODE_PICK_GROUP_AVATAR || resultCode != Activity.RESULT_OK) return
+        val uri = data?.clipData?.getItemAt(0)?.uri ?: data?.data ?: return
+        handleGroupAvatarPicked(uri)
+    }
+
+    private fun handleGroupAvatarPicked(uri: Uri) {
+        val context = getContext() ?: return
+        val resolver = context.contentResolver
+        val sheet = editGroupSheet ?: return
+        sheet.setUploading(true)
+        fragmentScope.launch(Dispatchers.Main.immediate) {
+            val result = dialogsController.uploadDmGroupAvatar(uri, resolver, MAX_GROUP_AVATAR_BYTES)
+            sheet.setUploading(false)
+            when (result) {
+                is DmGroupAvatarUploadResult.Success -> sheet.setDraftAvatar(result.url)
+                DmGroupAvatarUploadResult.TooLarge -> Toast.makeText(
+                    context,
+                    getString(R.string.clan_image_too_large, MAX_GROUP_AVATAR_BYTES / (1024 * 1024)),
+                    Toast.LENGTH_SHORT
+                ).show()
+                DmGroupAvatarUploadResult.Failed -> Toast.makeText(
+                    context,
+                    getString(R.string.dm_group_update_failed),
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    }
+
+    private fun saveGroupEdits(
+        trimmedName: String,
+        changedName: String?,
+        changedAvatar: String?
+    ) {
+        val context = getContext() ?: return
+        if (!CreateChannelNameValidator.isValid(trimmedName)) {
+            Toast.makeText(context, getString(R.string.dm_group_invalid_name), Toast.LENGTH_SHORT).show()
+            return
+        }
+        val sheet = editGroupSheet ?: return
+        sheet.setSaving(true)
+        fragmentScope.launch(Dispatchers.Main.immediate) {
+            val success = dialogsController.updateDmGroup(channelId, changedName, changedAvatar)
+            sheet.setSaving(false)
+            if (success) {
+                sheet.dismiss()
+                editGroupSheet = null
+                refreshDmHeader()
+            } else {
+                Toast.makeText(context, getString(R.string.dm_group_update_failed), Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun refreshDmHeader() {
+        if (!isDm) return
+        val dm = dialogsController.getDialog(channelId)
+        val displayName = dm?.displayName?.ifBlank { dm.label }?.ifBlank { channelName } ?: channelName
+        if (displayName.isNotBlank()) {
+            channelName = displayName
+            actionBar?.setTitle(displayName)
+        }
+        val avatarUrl = dm?.avatarUrl.orEmpty()
+        val avatar = dmHeaderAvatarView ?: return
+        if (channelType == CHANNEL_TYPE_GROUP) {
+            avatar.setInfo(channelId, displayName)
+            if (isDefaultGroupAvatarUrl(avatarUrl)) {
+                avatar.setImageUrl(null)
+                avatar.setPhoto(GroupAvatar.bitmap(avatar.context))
+            } else {
+                avatar.setPhoto(null)
+                avatar.setImageUrl(avatarUrl)
+            }
+        } else {
+            avatar.setInfo(channelId, displayName)
+            avatar.setImageUrl(avatarUrl)
         }
     }
 

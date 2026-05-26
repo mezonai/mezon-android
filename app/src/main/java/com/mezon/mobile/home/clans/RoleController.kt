@@ -23,6 +23,8 @@ import com.mezon.mobile.network.SocketEventDispatcher
 import com.mezon.mobile.session.SessionManager
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -36,6 +38,13 @@ import javax.inject.Singleton
 private const val TAG = "RoleController"
 
 data class UserDisplayRole(
+    val color: Int,
+    val iconUrl: String,
+)
+
+data class MemberProfileRoleChip(
+    val roleId: Long,
+    val title: String,
     val color: Int,
     val iconUrl: String,
 )
@@ -74,6 +83,7 @@ class RoleController @Inject constructor(
     private val displayRoleCacheLock = Any()
     private val displayRoleCacheByClan = HashMap<Long, LongSparseArray<UserDisplayRole>>()
     private val displayRoleCacheBuilt = HashSet<Long>()
+    private val persistSnapshotJobs = ConcurrentHashMap<Long, Job>()
 
     init {
         appScope.launch {
@@ -112,6 +122,28 @@ class RoleController @Inject constructor(
     fun getRoles(clanId: Long): List<ClanRole> = synchronized(lock) {
         val all = rolesByClan[clanId] ?: return@synchronized emptyList()
         all.filterNot { it.isEveryoneRole() }
+    }
+
+    fun profileRoleChipsForMember(clanId: Long, roleIds: List<Long>): List<MemberProfileRoleChip> {
+        if (clanId == 0L || roleIds.isEmpty()) return emptyList()
+        val rolesById = HashMap<Long, ClanRole>()
+        synchronized(lock) {
+            rolesByClan[clanId]?.forEach { rolesById[it.roleId] = it }
+        }
+        val result = ArrayList<MemberProfileRoleChip>(roleIds.size)
+        for (roleId in roleIds) {
+            val role = rolesById[roleId] ?: continue
+            if (role.isEveryoneRole()) continue
+            result.add(
+                MemberProfileRoleChip(
+                    roleId = role.roleId,
+                    title = role.title,
+                    color = role.color,
+                    iconUrl = role.iconUrl,
+                )
+            )
+        }
+        return result
     }
 
     fun getEveryoneRole(clanId: Long): ClanRole? = synchronized(lock) {
@@ -443,20 +475,29 @@ class RoleController @Inject constructor(
 
     private fun persistRolesSnapshot(clanId: Long) {
         if (clanId <= 0L) return
-        val roles = synchronized(lock) { rolesByClan[clanId]?.toList().orEmpty() }
-        if (roles.isEmpty()) return
-        val selfMax = synchronized(lock) { listRolesSelfMaxLevelByClan[clanId] ?: 0 }
-        appScope.launch(ioDispatcher) {
+        persistSnapshotJobs.remove(clanId)?.cancel()
+        persistSnapshotJobs[clanId] = appScope.launch(ioDispatcher) {
+            delay(PERSIST_SNAPSHOT_DEBOUNCE_MS)
+            val roles = synchronized(lock) { rolesByClan[clanId]?.toList().orEmpty() }
+            if (roles.isEmpty()) {
+                persistSnapshotJobs.remove(clanId)
+                return@launch
+            }
+            val selfMax = synchronized(lock) { listRolesSelfMaxLevelByClan[clanId] ?: 0 }
             try {
                 clanRoleListMetaDao.upsert(ClanRoleListMetaEntity(clanId, selfMax))
                 clanRoleCacheDao.replaceClan(clanId, roles.map { it.toCacheEntity() })
             } catch (e: Exception) {
                 Log.e(TAG, "persist clan roles cache failed clanId=$clanId", e)
+            } finally {
+                persistSnapshotJobs.remove(clanId)
             }
         }
     }
 
     fun cleanup() {
+        persistSnapshotJobs.values.forEach { it.cancel() }
+        persistSnapshotJobs.clear()
         synchronized(displayRoleCacheLock) {
             displayRoleCacheByClan.clear()
             displayRoleCacheBuilt.clear()
@@ -1005,5 +1046,9 @@ class RoleController @Inject constructor(
                 remote
             }
         }
+    }
+
+    companion object {
+        private const val PERSIST_SNAPSHOT_DEBOUNCE_MS = 300L
     }
 }

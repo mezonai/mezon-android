@@ -672,12 +672,20 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
         val lead = titleStartLeadWidth()
 
         if (centerTitle) {
+            val titleH = titleTextView?.measuredHeight ?: 0
+            val subH = if (hasSubtitle) subtitleTextView?.measuredHeight ?: 0 else 0
+            val totalH = titleH + subH
+            val topMargin = statusBarOffset + (actionBarHeight - totalH) / 2
             titleTextView?.let { tv ->
                 if (tv.visibility != GONE) {
-                    val titleH = tv.measuredHeight
-                    val topMargin = statusBarOffset + (actionBarHeight - titleH) / 2
                     val tLeft = (w - tv.measuredWidth) / 2
                     tv.layout(tLeft, topMargin, tLeft + tv.measuredWidth, topMargin + titleH)
+                }
+            }
+            if (hasSubtitle) {
+                subtitleTextView?.let { sv ->
+                    val sLeft = (w - sv.measuredWidth) / 2
+                    sv.layout(sLeft, topMargin + titleH, sLeft + sv.measuredWidth, topMargin + totalH)
                 }
             }
         } else if (hasSubtitle) {

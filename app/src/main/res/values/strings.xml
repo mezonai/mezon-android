@@ -199,6 +199,12 @@
     <string name="dm_new_dm_failed">Could not create conversation. Please try again.</string>
     <string name="dm_create_group_failed">Could not create group. Please try again.</string>
     <string name="dm_add_members_failed">Could not add members. Please try again.</string>
+    <string name="dm_group_customize">Customize Group</string>
+    <string name="dm_group_name">Group Name</string>
+    <string name="dm_group_upload_image">Upload an Image</string>
+    <string name="dm_group_remove_avatar">Remove avatar</string>
+    <string name="dm_group_invalid_name">Invalid group name</string>
+    <string name="dm_group_update_failed">Update group failed</string>
 
     <!-- message -->
     <string name="message_actions_edit">Edit Message</string>
@@ -387,8 +393,6 @@
     <string name="clan_roles_description">Use roles to group your clan members and assign permissions</string>
     <string name="clan_roles_default_role">Default permissions for all clan members</string>
     <string name="clan_roles_header_count">Roles - %1$d</string>
-    <string name="clan_roles_member_count">%1$d - Members</string>
-    <string name="clan_roles_member_count_one">1 - Member</string>
     <string name="clan_roles_no_roles">There are currently no roles</string>
     <string name="clan_roles_all_members">All clan members</string>
     <string name="clan_roles_add_content_desc">Add role</string>
