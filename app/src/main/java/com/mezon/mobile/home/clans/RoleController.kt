@@ -259,13 +259,22 @@ class RoleController @Inject constructor(
         clanCreatorId: Long
     ): Long {
         if (userId == 0L) return 0L
-        val self = members.firstOrNull { it.userId == userId } ?: return 0L
-        if (self.roleIds.isEmpty()) return 0L
-        val all = synchronized(lock) { rolesByClan[clanId]?.toList().orEmpty() }
-        val byId = HashMap<Long, ClanRole>(all.size)
-        for (role in all) {
-            byId[role.roleId] = role
+        if (clanCreatorId != 0L && userId == clanCreatorId) {
+            val all = synchronized(lock) { rolesByClan[clanId]?.toList().orEmpty() }
+            val top = all.maxByOrNull { it.maxLevelPermission }
+            return top?.roleId ?: 0L
         }
+        val all = synchronized(lock) { rolesByClan[clanId]?.toList().orEmpty() }
+        val self = members.firstOrNull { it.userId == userId }
+        if (self == null) {
+            val effectiveLevel = effectiveUserMaxPermissionLevel(clanId)
+            if (effectiveLevel <= 0) return 0L
+            return all
+                .filter { it.maxLevelPermission <= effectiveLevel }
+                .maxByOrNull { it.maxLevelPermission }
+                ?.roleId ?: 0L
+        }
+        val byId = all.associateBy { it.roleId }
         var bestLevel = -1
         var bestRoleId = 0L
         for (rid in self.roleIds) {
@@ -275,7 +284,13 @@ class RoleController @Inject constructor(
                 bestRoleId = r.roleId
             }
         }
-        return bestRoleId
+        if (bestRoleId != 0L) return bestRoleId
+        val effectiveLevel = effectiveUserMaxPermissionLevel(clanId)
+        if (effectiveLevel <= 0) return 0L
+        return all
+            .filter { it.maxLevelPermission <= effectiveLevel }
+            .maxByOrNull { it.maxLevelPermission }
+            ?.roleId ?: 0L
     }
 
     fun invalidateDisplayRoleCache(clanId: Long) {
@@ -975,7 +990,10 @@ class RoleController @Inject constructor(
                 api.listRoles(session.apiUrl, session.token, clanId)
             }
             val roleList = response.roles
-            val mapped = roleList.rolesList.map { mapProtoRoleToClanRole(it) }
+            val mapped = mergeLocalChannelAssignments(
+                clanId,
+                roleList.rolesList.map { mapProtoRoleToClanRole(it) }
+            )
             var userMax: Int? = null
             if (beginUserMaxLoad(clanId, force = true)) {
                 try {
@@ -1012,6 +1030,21 @@ class RoleController @Inject constructor(
             notificationCenter.postNotificationOnMainThread(NotificationCenter.clanRolesDidLoad, clanId)
         } catch (e: Exception) {
             Log.e(TAG, "loadRolesForClan failed for clan $clanId", e)
+        }
+    }
+
+    private fun mergeLocalChannelAssignments(clanId: Long, remoteRoles: List<ClanRole>): List<ClanRole> {
+        val existingById = synchronized(lock) {
+            rolesByClan[clanId]?.associateBy { it.roleId }.orEmpty()
+        }
+        if (existingById.isEmpty()) return remoteRoles
+        return remoteRoles.map { remote ->
+            val existing = existingById[remote.roleId]
+            if (existing != null && remote.channelIds.isEmpty() && existing.channelIds.isNotEmpty()) {
+                remote.copy(roleChannelActive = 1, channelIds = existing.channelIds)
+            } else {
+                remote
+            }
         }
     }
 

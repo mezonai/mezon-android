@@ -1,10 +1,13 @@
 package com.mezon.mobile.home
 
 import android.content.Context
+import android.content.ContentResolver
+import android.net.Uri
 import android.util.LongSparseArray
 import android.util.Log
 import com.mezon.mezon.api.AllUsersAddChannelResponse
 import com.mezon.mezon.api.ChannelMessage
+import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.data.db.DirectMessageDao
@@ -33,6 +36,8 @@ import com.mezon.mobile.notification.ActiveChannelTracker
 import com.mezon.mobile.notification.NotificationHelper
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.session.StoredSession
+import com.mezon.mobile.util.ContentUriTooLargeException
+import com.mezon.mobile.util.FileUtils
 import com.mezon.mobile.util.parseContentPreview
 import com.mezon.mobile.home.call.messagePreviewForDialog
 import dagger.Lazy
@@ -51,6 +56,12 @@ import javax.inject.Singleton
 import dagger.hilt.android.qualifiers.ApplicationContext
 
 private const val TAG = "DialogsController"
+
+sealed class DmGroupAvatarUploadResult {
+    data class Success(val url: String) : DmGroupAvatarUploadResult()
+    data object TooLarge : DmGroupAvatarUploadResult()
+    data object Failed : DmGroupAvatarUploadResult()
+}
 
 @Singleton
 class DialogsController @Inject constructor(
@@ -561,6 +572,112 @@ class DialogsController @Inject constructor(
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsLoadError, e.message ?: "Failed to load")
                 badgeCoordinator.get().processDeferredQueue()
             }
+        }
+    }
+
+    suspend fun uploadDmGroupAvatar(
+        uri: Uri,
+        contentResolver: ContentResolver,
+        maxBytes: Int
+    ): DmGroupAvatarUploadResult {
+        return try {
+            val mimeType = contentResolver.getType(uri).orEmpty().ifBlank { "image/jpeg" }
+            val size = FileUtils.getPickedFileSize(contentResolver, uri)
+            if (size > maxBytes) {
+                return DmGroupAvatarUploadResult.TooLarge
+            }
+            val fileBytes = withContext(ioDispatcher) {
+                FileUtils.readContentUriBytesCapped(contentResolver, uri, maxBytes)
+            }
+            if (fileBytes.isEmpty()) {
+                return DmGroupAvatarUploadResult.Failed
+            }
+            val ext = when {
+                mimeType.contains("png", ignoreCase = true) -> "png"
+                mimeType.contains("webp", ignoreCase = true) -> "webp"
+                else -> "jpg"
+            }
+            val filename = "${System.currentTimeMillis() / 1000}_dm_group.$ext"
+            val cdnUrl = sessionManager.withAutoRefresh { session ->
+                withContext(ioDispatcher) {
+                    val presign = api.uploadAttachmentFile(
+                        session.apiUrl,
+                        session.token,
+                        filename,
+                        mimeType,
+                        fileBytes.size,
+                        512,
+                        512
+                    )
+                    api.putFileToPresignedUrl(presign.url, fileBytes, mimeType)
+                    "${BuildConfig.MEZON_BASE_IMG_URL}/${presign.filename}"
+                }
+            }
+            DmGroupAvatarUploadResult.Success(cdnUrl)
+        } catch (_: ContentUriTooLargeException) {
+            DmGroupAvatarUploadResult.TooLarge
+        } catch (e: Exception) {
+            Log.e(TAG, "uploadDmGroupAvatar failed", e)
+            DmGroupAvatarUploadResult.Failed
+        }
+    }
+
+    suspend fun updateDmGroup(
+        channelId: Long,
+        changedName: String?,
+        changedAvatar: String?
+    ): Boolean {
+        if (channelId == 0L) return false
+        if (changedName == null && changedAvatar == null) return true
+        return try {
+            val normalizedName = changedName?.trim()
+            sessionManager.withAutoRefresh { session ->
+                withContext(ioDispatcher) {
+                    api.updateChannelDesc(
+                        session.apiUrl,
+                        session.token,
+                        clanId = 0L,
+                        channelId = channelId,
+                        channelLabel = normalizedName,
+                        channelAvatar = changedAvatar
+                    )
+                }
+            }
+            var updated: DirectMessage? = null
+            var mask = 0
+            synchronized(this) {
+                val current = dialogsDict[channelId] ?: return@synchronized
+                var next = current
+                if (normalizedName != null && normalizedName != current.displayName) {
+                    next = next.copy(
+                        displayName = normalizedName,
+                        label = normalizedName,
+                        username = normalizedName
+                    )
+                    mask = mask or NotificationCenter.UPDATE_MASK_CHAT_NAME
+                }
+                if (changedAvatar != null && changedAvatar != current.avatarUrl) {
+                    next = next.copy(avatarUrl = changedAvatar)
+                    mask = mask or NotificationCenter.UPDATE_MASK_CHAT_AVATAR
+                }
+                if (next != current) {
+                    dialogsDict.put(channelId, next)
+                    val idx = dialogs.indexOfFirst { it.channelId == channelId }
+                    if (idx >= 0) dialogs[idx] = next
+                    updated = next
+                }
+            }
+            updated?.let { row ->
+                appScope.launch(ioDispatcher) { directMessageDao.upsert(row) }
+                notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
+                if (mask != 0) {
+                    notificationCenter.postNotificationOnMainThread(NotificationCenter.updateInterfaces, mask)
+                }
+            }
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "updateDmGroup failed channelId=$channelId", e)
+            false
         }
     }
 

@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -321,15 +322,13 @@ class ServerRolesFragment : BaseFragment() {
                 presentFragment(RoleDetailFragment.newInstance(clanId, role.roleId))
             }
         }
+        val iconSlot = FrameLayout(context)
         if (role.iconUrl.isNotBlank()) {
             val icon = CdnIconView(context, themeColors).apply {
                 setSizeDp(ROLE_ROW_ICON_DP)
                 setImageUrl(role.iconUrl)
             }
-            row.addView(
-                icon,
-                LayoutHelper.createLinear(ROLE_ROW_ICON_DP, ROLE_ROW_ICON_DP, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, ROLE_ICON_GAP_END_DP.toFloat(), 0f)
-            )
+            iconSlot.addView(icon, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.CENTER))
         } else {
             val shield = ImageView(context).apply {
                 val d = MezonIcon.shieldUserIcon.getDrawable(context).mutate()
@@ -338,11 +337,12 @@ class ServerRolesFragment : BaseFragment() {
                 setImageDrawable(d)
                 scaleType = ImageView.ScaleType.FIT_CENTER
             }
-            row.addView(
-                shield,
-                LayoutHelper.createLinear(ROLE_ROW_ICON_DP, ROLE_ROW_ICON_DP, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, ROLE_ICON_GAP_END_DP.toFloat(), 0f)
-            )
+            iconSlot.addView(shield, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.CENTER))
         }
+        row.addView(
+            iconSlot,
+            LayoutHelper.createLinear(ROLE_ROW_ICON_DP, ROLE_ROW_ICON_DP, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, ROLE_ICON_GAP_END_DP.toFloat(), 0f)
+        )
         val mid = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f)

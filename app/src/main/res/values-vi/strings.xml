@@ -356,7 +356,7 @@
     <string name="clan_roles_perm_heading">Thiết lập quyền</string>
     <string name="clan_roles_perm_search">Tìm quyền</string>
     <string name="clan_roles_perm_next">Tiếp</string>
-    <string name="clan_roles_skip_step">Bỏ qua</string>
+    <string name="clan_roles_skip_step">Bỏ qua bước này</string>
     <string name="clan_roles_no_permissions_found">Không tìm thấy quyền.</string>
     <string name="clan_roles_members_step_title">Bước 3/3</string>
     <string name="clan_roles_members_heading">Thêm thành viên</string>

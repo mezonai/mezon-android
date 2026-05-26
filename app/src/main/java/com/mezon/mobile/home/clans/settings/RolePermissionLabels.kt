@@ -28,7 +28,6 @@ object RolePermissionLabels {
                 .thenBy { it.level }
                 .thenBy { it.title.lowercase() }
         )
-
     fun titleForSlug(context: Context, slug: String, fallbackTitle: String): String {
         val res = when (slug) {
             "administrator" -> R.string.clan_roles_perm_title_administrator

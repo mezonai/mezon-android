@@ -614,7 +614,6 @@ class UserProfileBottomSheet(
         }
     }
 
-
     private fun buildDetailsCard(): LinearLayout? {
         val hasMemberSince = !memberSince.isNullOrEmpty()
         val hasAboutMe = !aboutMe.isNullOrEmpty()
