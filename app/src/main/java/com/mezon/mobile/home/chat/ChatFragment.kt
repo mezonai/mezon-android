@@ -287,6 +287,7 @@ open class ChatFragment : BaseFragment() {
     private var lastWelcomePlaceholderKey = ""
     private var lastWelcomePeerUsername = ""
     private var lastWelcomeChannelName = ""
+    private var lastWelcomeCreatorName = ""
     private var clanId = 0L
     private var chatCachedCreatorId: Long? = null
     private var displayRoleCacheRefreshJob: Job? = null
@@ -425,12 +426,13 @@ open class ChatFragment : BaseFragment() {
         startLoadFromMessageOffset = Int.MAX_VALUE
         needScrollRestore = false
 
+        val readStateChannelId = if (isTopicMode && topicId != 0L) topicId else channelId
         if (clanId == 0L) {
-            val dm = dialogsController.getDialog(channelId)
+            val dm = dialogsController.getDialog(readStateChannelId)
             lastSeenMessageId = dm?.lastSeenMessageId ?: 0L
             lastSentMessageId = dm?.lastSentMessageId ?: 0L
         } else {
-            val ch = channelController.findChannelById(channelId)
+            val ch = channelController.findChannelById(readStateChannelId)
             lastSeenMessageId = ch?.lastSeenMessageId ?: 0L
             lastSentMessageId = ch?.lastSentMessageId ?: 0L
         }
@@ -842,6 +844,7 @@ open class ChatFragment : BaseFragment() {
                 if (BuildConfig.DEBUG) {
                     Log.d(TAG, "didReceiveNewMessages inserted sending id=${entity.id}")
                 }
+                refreshThreadWelcomeCreator()
                 return@observe
             }
             if (mergeDuplicateIncomingMessage(entity)) {
@@ -918,6 +921,7 @@ open class ChatFragment : BaseFragment() {
                 }
                 if (entity.isMe) forceScrollToBottom() else scrollToBottom()
             }
+            refreshThreadWelcomeCreator()
             if (BuildConfig.DEBUG) {
                 Log.d(
                     TAG,
@@ -2103,6 +2107,18 @@ open class ChatFragment : BaseFragment() {
             if (isTopicMode) {
                 channelController.setCurrentTopic(topicId)
                 channelController.markChannelAsRead(topicId, seenMessageId = lastSeenMessageId)
+                if (lastSeenMessageId != 0L) {
+                    val topicSeenTs = channelController.findChannelById(topicId)?.lastSeenMessageTs?.toInt() ?: 0
+                    chatController.updateLastSeenMessage(
+                        channelId,
+                        clanId,
+                        channelType,
+                        lastSeenMessageId,
+                        topicSeenTs,
+                        badgeCount = 0,
+                        applyLocal = false
+                    )
+                }
             } else {
                 channelController.markChannelAsRead(channelId, seenMessageId = lastSeenMessageId)
                 channelController.clearCurrentTopic()
@@ -2592,6 +2608,7 @@ open class ChatFragment : BaseFragment() {
         recyclerView.visibility = vis
         adapter.showLoadingUp = hasMoreTop
         adapter.showLoadingDown = hasMoreBottom
+        refreshThreadWelcomeCreator(notify = false)
         adapter.notifyMessagesUpdated()
         updateUnreadDividerPosition()
     }
@@ -2798,13 +2815,24 @@ open class ChatFragment : BaseFragment() {
         val badge = pendingBadgeCount
         pendingSeenMessageId = 0L
         val readChannelId = if (isTopicMode) topicId else channelId
+        if (isTopicMode) {
+            channelController.updateLastSeen(topicId, msgId, ts)
+            chatController.updateLastSeenMessage(
+                channelId,
+                clanId,
+                channelType,
+                msgId,
+                ts,
+                badgeCount = 0,
+                applyLocal = false
+            )
+            topicBadgeTracker.resetTopic(topicId)
+            return
+        }
         chatController.updateLastSeenMessage(
             readChannelId, clanId, channelType,
             msgId, ts, badgeCount = badge
         )
-        if (isTopicMode) {
-            topicBadgeTracker.resetTopic(topicId)
-        }
     }
 
     private fun requestTopicBadgeHydrate(debounceMs: Long) {
@@ -3575,6 +3603,31 @@ open class ChatFragment : BaseFragment() {
         adapter.welcomePlaceholderKey = nextPlaceholderKey
         adapter.welcomePeerUsername = nextPeerUsername
         adapter.notifyWelcomeCellChanged()
+    }
+
+    private fun refreshThreadWelcomeCreator(notify: Boolean = true) {
+        if (!::adapter.isInitialized) return
+        if (channelType != CHANNEL_TYPE_THREAD && routeParentId == 0L) return
+        val oldestFirst = messages.asReversed()
+        val creatorMessage = oldestFirst.firstOrNull { msg ->
+            !msg.isUnreadDivider &&
+                !msg.isWelcomeMessage &&
+                !msg.isSystemMessage &&
+                msg.senderId != 0L
+        } ?: oldestFirst.firstOrNull { msg ->
+            !msg.isUnreadDivider &&
+                !msg.isWelcomeMessage &&
+                msg.senderId != 0L
+        }
+        val nextCreatorName = creatorMessage?.let { msg ->
+            memberResolver.resolveMember(msg.senderId, clanId, channelId, channelType)?.let { member ->
+                member.clanNick.ifBlank { member.displayName.ifBlank { member.username } }
+            } ?: msg.senderName.ifBlank { msg.senderUsername }
+        }.orEmpty()
+        if (nextCreatorName == lastWelcomeCreatorName && adapter.welcomeCreatorName == nextCreatorName) return
+        lastWelcomeCreatorName = nextCreatorName
+        adapter.welcomeCreatorName = nextCreatorName
+        if (notify) adapter.notifyWelcomeCellChanged()
     }
 
     private fun dmHeaderCallOtherUserId(): Long? {
@@ -6298,7 +6351,7 @@ open class ChatFragment : BaseFragment() {
                 rootMessageId = rootMessageId,
                 clanId = clanId,
                 parentChannelId = channelId,
-                channelType = CHANNEL_TYPE_THREAD,
+                channelType = channelType,
                 isChannelPrivate = resolveChannelPrivate()
             )
         )

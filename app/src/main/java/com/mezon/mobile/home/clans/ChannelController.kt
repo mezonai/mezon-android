@@ -836,6 +836,7 @@ class ChannelController @Inject constructor(
         } != null
         if (wasTopic) {
             if (topicOldUnread > 0) clansController.get().updateClanBadgeCount(topicClanId, -topicOldUnread)
+            topicBadgeTracker.get().clearTopicUiBadge(channelId)
             return
         }
         for ((clanId, channels) in _channelsByClan.value) {
@@ -882,6 +883,7 @@ class ChannelController @Inject constructor(
         } != null
         if (wasTopic) {
             if (topicOldUnread > 0) clansController.get().updateClanBadgeCount(topicClanId, -topicOldUnread)
+            topicBadgeTracker.get().clearTopicUiBadge(channelId)
             return
         }
         for ((clanId, channels) in _channelsByClan.value) {
@@ -930,17 +932,22 @@ class ChannelController @Inject constructor(
         if (tsLong == 0L) return
         var topicClanId = 0L
         var topicDelta = 0
+        var topicNewUnread = 0
         var topicChanged = false
         val wasTopic = sdTopicChannelsById.computeIfPresent(channelId) { _, ch ->
             topicClanId = ch.clanId
             val newSeenTs = maxOf(ch.lastSeenMessageTs, tsLong)
             val newUnread = badgeCount.coerceAtLeast(0)
+            topicNewUnread = newUnread
             if (newSeenTs == ch.lastSeenMessageTs && newUnread == ch.unreadCount) return@computeIfPresent ch
             topicChanged = true
             topicDelta = newUnread - ch.unreadCount
             ch.copy(lastSeenMessageTs = newSeenTs, unreadCount = newUnread)
         } != null
         if (wasTopic) {
+            if (topicNewUnread == 0) {
+                topicBadgeTracker.get().clearTopicUiBadge(channelId)
+            }
             if (topicChanged) {
                 if (topicDelta != 0) clansController.get().updateClanBadgeCount(topicClanId, topicDelta)
                 notificationCenter.postNotificationOnMainThread(
@@ -1126,7 +1133,12 @@ class ChannelController @Inject constructor(
                     ) {
                         return@collect
                     }
-                    topicBadgeTracker.get().tryIncrementFromNotification(clanId, channelId, topicId, messageId)
+                    topicBadgeTracker.get().tryIncrementFromNotification(
+                        clanId,
+                        channelId,
+                        topicId,
+                        messageId
+                    )
                 } else {
                     if (isBadgeProcessed(channelId, messageId)) return@collect
                     val channelInCache = _channelsByClan.value[clanId]?.any { it.channelId == channelId } == true

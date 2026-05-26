@@ -695,10 +695,11 @@ class ChatController @Inject constructor(
         channelType: Int,
         messageId: Long,
         timestampSeconds: Int,
-        badgeCount: Int = 0
+        badgeCount: Int = 0,
+        applyLocal: Boolean = true
     ) {
         badgeCoordinator.scheduleLastSeenWrite(
-            channelId, clanId, channelType, messageId, timestampSeconds, badgeCount
+            channelId, clanId, channelType, messageId, timestampSeconds, badgeCount, applyLocal
         )
     }
 
