@@ -440,7 +440,10 @@ class ChannelQuickActionFragment : BaseFragment() {
             dialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE)?.setOnClickListener {
                 val key = normalizeMenuName(keyField.text.toString())
                 val content = contentField.text.toString().trim()
-                if (key.isEmpty() || content.isEmpty()) return@setOnClickListener
+                if (key.isEmpty() || content.isEmpty()) {
+                    MezonToast.show(this@ChannelQuickActionFragment, ToastOverlay.ToastType.ERROR, getString(R.string.channel_quick_action_fields_required))
+                    return@setOnClickListener
+                }
                 dialog.dismiss()
                 if (existing == null) createMenu(key, content) else updateMenu(existing, key, content)
             }

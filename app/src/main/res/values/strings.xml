@@ -1194,6 +1194,7 @@
     <string name="channel_quick_action_delete_message">Delete %1$s?</string>
     <string name="channel_quick_action_create_title">New slash command/quick menu</string>
     <string name="channel_quick_action_edit_title">Edit slash command/quick menu</string>
+    <string name="channel_quick_action_fields_required">Key and content cannot be empty</string>
     <string name="channel_ban_list_title">Ban List</string>
     <string name="channel_ban_list_empty">No banned users</string>
     <string name="channel_ban_unban">Unban</string>

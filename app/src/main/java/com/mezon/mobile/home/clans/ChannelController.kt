@@ -373,7 +373,7 @@ class ChannelController @Inject constructor(
         val collected = LinkedHashMap<Long, ClanCategoryItem>()
         var cursor = ""
         repeat(MAX_CATEGORY_API_PAGES) {
-            val page = api.listCategoryDescs(apiUrl, token, limit = 100, cursor = cursor)
+            val page = api.listCategoryDescs(apiUrl, token, clanId = clanId, limit = 100, cursor = cursor)
             val rawList = page.categorydescList
             if (rawList.isEmpty()) return collected.values.toList()
             val batch = rawList.mapNotNull { desc ->

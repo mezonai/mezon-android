@@ -478,8 +478,9 @@ class ChannelSettingsFragment : BaseFragment() {
     }
 
     private fun isWelcomeChannel(): Boolean {
-        val welcomeId = clansController.clans.value.firstOrNull { it.clanId == clanId }?.welcomeChannelId ?: 0L
-        return welcomeId != 0L && welcomeId == channelId
+        val clan = clansController.clans.value.firstOrNull { it.clanId == clanId }
+            ?: return true
+        return clan.welcomeChannelId != 0L && clan.welcomeChannelId == channelId
     }
 
     private fun scheduleDuplicateCheck(raw: String) {
@@ -500,6 +501,8 @@ class ChannelSettingsFragment : BaseFragment() {
             val duplicate = channelController.checkDuplicateChannelName(trimmed, checkType, conditionId)
                 .getOrDefault(false)
             if (isFinished) return@launch
+            val currentText = nameField?.text?.toString()?.trim().orEmpty()
+            if (currentText != trimmed) return@launch
             isDuplicateName = duplicate
             if (duplicate) {
                 nameValidationError = getString(
@@ -729,7 +732,19 @@ class ChannelSettingsFragment : BaseFragment() {
         originalAgeRestricted = channel?.ageRestricted ?: 0
     }
 
+    private fun hasUnsavedEdits(): Boolean {
+        val ageRestrictedDraft = if (ageRestrictedCell != null) {
+            if (ageRestrictedCell?.isChecked() == true) 1 else 0
+        } else {
+            originalAgeRestricted
+        }
+        return nameField?.text?.toString()?.trim().orEmpty() != originalName.trim() ||
+            topicField?.text?.toString().orEmpty() != originalTopic ||
+            ageRestrictedDraft != originalAgeRestricted
+    }
+
     private fun syncFieldsFromChannel() {
+        if (hasUnsavedEdits()) return
         val channel = currentChannel() ?: return
         originalName = channel.channelLabel
         originalTopic = channel.topic
@@ -749,7 +764,7 @@ class ChannelSettingsFragment : BaseFragment() {
         } else {
             originalAgeRestricted
         }
-        val changed = nameField?.text?.toString().orEmpty() != originalName ||
+        val changed = nameField?.text?.toString()?.trim().orEmpty() != originalName.trim() ||
             topicField?.text?.toString().orEmpty() != originalTopic ||
             ageRestrictedDraft != originalAgeRestricted
         val canSave = changed && nameValidationError == null && !isDuplicateName && !saving

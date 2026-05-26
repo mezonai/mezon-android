@@ -148,10 +148,11 @@ class ChannelBanListFragment : BaseFragment() {
         }
         emptyView.visibility = View.GONE
         val ctx = getContext() ?: return
+        val clanMembers = userClanController.getClanMembers(clanId)
         for (user in bannedItems) {
             val userId = user.bannedId.takeIf { it != 0L } ?: user.bannerId
             if (userId == 0L) continue
-            val member = userClanController.getClanMembers(clanId).firstOrNull { it.userId == userId }
+            val member = clanMembers.firstOrNull { it.userId == userId }
             val displayName = member?.displayName?.ifBlank { member.username }.orEmpty().ifBlank { "#$userId" }
             val row = LinearLayout(ctx).apply {
                 orientation = LinearLayout.HORIZONTAL
