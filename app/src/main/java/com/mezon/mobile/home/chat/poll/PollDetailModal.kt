@@ -16,6 +16,7 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.text.SpannableStringBuilder
 import android.widget.TextView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -223,7 +224,7 @@ class PollDetailModal(
                         loaded.totalVotes.coerceAtLeast(0),
                         loaded.totalVotes.coerceAtLeast(0)
                     )
-                    subtitleView.text = "$base Â· ${context.getString(R.string.poll_detail_refresh_failed)}"
+                    subtitleView.text = "$base - ${context.getString(R.string.poll_detail_refresh_failed)}"
                     return@withContext
                 }
                 loaded = p
@@ -238,7 +239,7 @@ class PollDetailModal(
     }
 
     private fun bindHeader() {
-        titleView.text = stripInlinePollEmoji(loaded.question)
+        titleView.text = pollAnswerPlainText(loaded.question)
         val total = loaded.totalVotes.coerceAtLeast(0)
         subtitleView.text = context.resources.getQuantityString(R.plurals.poll_total_votes, total, total)
     }
@@ -260,7 +261,11 @@ class PollDetailModal(
                 maxLines = 2
                 ellipsize = android.text.TextUtils.TruncateAt.END
                 val cnt = loaded.countFor(ans.index)
-                text = "${stripInlinePollEmoji(ans.label)}  Â·  $cnt"
+                val label = buildPollAnswerSpannable(ans.label, this)
+                text = SpannableStringBuilder().apply {
+                    append(label)
+                    append("  ·  $cnt")
+                }
                 background = optionRowBackground(false)
                 setOnClickListener {
                     selectOption(ans.index)

@@ -274,6 +274,14 @@
     <string name="notif_tab_mentions">Nhắc đến</string>
     <string name="notif_tab_messages">Tin nhắn</string>
     <string name="notif_tab_topics">Chủ đề</string>
+    <string name="notif_tab_topics_empty">Không có hoạt động chủ đề</string>
+    <string name="notif_topic_and_you">Chủ đề và bạn</string>
+    <string name="notif_replied_to">Trả lời:</string>
+    <string name="topic_discussion">Thảo luận chủ đề</string>
+    <string name="topic_creator">Người tạo</string>
+    <string name="topic_view">Xem chủ đề</string>
+    <string name="topic_reply_one">Trả lời</string>
+    <string name="topic_replies">Trả lời</string>
     <string name="notif_tab_for_you">Dành cho bạn</string>
     <string name="notif_empty">Không có thông báo</string>
     <string name="notification_header">Thông báo</string>
@@ -329,8 +337,9 @@
     <string name="clan_roles_default_role">Quyền mặc định cho mọi thành viên clan</string>
     <string name="clan_roles_header_count">Vai trò - %1$d</string>
     <string name="clan_roles_member_count">%1$d - Thành viên</string>
+    <string name="clan_roles_member_count_one">1 - Thành viên</string>
     <string name="clan_roles_no_roles">Hiện chưa có vai trò</string>
-    <string name="clan_roles_all_members">Mọi thành viên</string>
+    <string name="clan_roles_all_members">Mọi thành viên clan</string>
     <string name="clan_roles_add_content_desc">Thêm vai trò</string>
     <string name="clan_roles_create_step_title">Bước 1/3</string>
     <string name="clan_roles_create_heading">Tạo vai trò mới</string>
@@ -343,6 +352,8 @@
     <string name="clan_roles_perm_heading">Thiết lập quyền</string>
     <string name="clan_roles_perm_search">Tìm quyền</string>
     <string name="clan_roles_perm_next">Tiếp</string>
+    <string name="clan_roles_skip_step">Bỏ qua bước này</string>
+    <string name="clan_roles_no_permissions_found">Không tìm thấy quyền.</string>
     <string name="clan_roles_members_step_title">Bước 3/3</string>
     <string name="clan_roles_members_heading">Thêm thành viên</string>
     <string name="clan_roles_members_body">Gán vai trò này cho thành viên. Mỗi người có thể có nhiều vai trò.</string>
@@ -559,7 +570,7 @@
     <string name="menu_clan_sound">Hiệu ứng âm thanh</string>
     <string name="menu_clan_enable_community">Kích hoạt cộng đồng</string>
     <string name="menu_clan_members">Thành viên</string>
-    <string name="menu_clan_roles">Vai trò clan</string>
+    <string name="menu_clan_roles">Vai trò</string>
     <string name="menu_clan_notification_setting">Cài đặt thông báo</string>
     <string name="clan_overview_save_success">Cài đặt clan đã được cập nhật thành công</string>
     <string name="clan_overview_save_error">Lỗi khi cập nhật cài đặt clan</string>
@@ -1044,7 +1055,7 @@
     <string name="channel_permission_save_failed">Không lưu được quyền</string>
     <string name="channel_permission_load_failed">Không tải được quyền</string>
 
-    <string name="channel_permissions_title">Quyền truy cập</string>
+    <string name="channel_permissions_title">Quyền kênh</string>
     <string name="channel_permissions_overrides">Ghi đè quyền</string>
     <string name="channel_permissions_save">Lưu</string>
     <string name="channel_permissions_general_channel_permissions">QUYỀN TỔNG QUÁT KÊNH</string>
@@ -1087,6 +1098,31 @@
     <string name="embed_form_submit_failed">Không thể gửi biểu mẫu</string>
     <string name="advanced_ephemeral">Ephemeral</string>
     <string name="ephemeral_only_visible_to_recipient">Chỉ người nhận mới thấy được</string>
+    <!-- Create poll -->
+    <string name="file_selection_upload">Tải tệp lên</string>
+    <string name="file_selection_create_poll">Tạo bình chọn</string>
+    <string name="poll_create_title">Tạo bình chọn</string>
+    <string name="poll_question">Câu hỏi</string>
+    <string name="poll_question_placeholder">Bạn muốn hỏi điều gì?</string>
+    <string name="poll_question_counter">%1$d/%2$d</string>
+    <string name="poll_answers">Câu trả lời</string>
+    <string name="poll_answers_min_required">Cần ít nhất 2 câu trả lời (giống web)</string>
+    <string name="poll_answer_placeholder">Nhập câu trả lời</string>
+    <string name="poll_add_answer">+ Thêm câu trả lời</string>
+    <string name="poll_pick_emoji_title">Chọn emoji</string>
+    <string name="poll_emoji_search_hint">Tìm emoji</string>
+    <string name="poll_remove_answer">Xóa câu trả lời</string>
+    <string name="poll_duration">Thời gian</string>
+    <string name="poll_allow_multiple">Cho phép chọn nhiều đáp án</string>
+    <string name="poll_post">Đăng</string>
+    <string name="poll_posting">Đang đăng…</string>
+    <string name="poll_create_failed">Không tạo được bình chọn</string>
+    <string name="poll_duration_1_hour">1 Giờ</string>
+    <string name="poll_duration_4_hours">4 Giờ</string>
+    <string name="poll_duration_8_hours">8 Giờ</string>
+    <string name="poll_duration_24_hours">24 Giờ</string>
+    <string name="poll_duration_3_days">3 Ngày</string>
+    <string name="poll_duration_1_week">1 Tuần</string>
 
     <!-- Poll messages -->
     <string name="poll_select_one">Chọn một đáp án</string>

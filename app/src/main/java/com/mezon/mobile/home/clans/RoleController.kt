@@ -232,8 +232,16 @@ class RoleController @Inject constructor(
             val top = all.maxByOrNull { it.maxLevelPermission }
             return top?.roleId ?: 0L
         }
-        val self = members.firstOrNull { it.userId == userId } ?: return 0L
         val all = synchronized(lock) { rolesByClan[clanId]?.toList().orEmpty() }
+        val self = members.firstOrNull { it.userId == userId }
+        if (self == null) {
+            val effectiveLevel = effectiveUserMaxPermissionLevel(clanId)
+            if (effectiveLevel <= 0) return 0L
+            return all
+                .filter { it.maxLevelPermission <= effectiveLevel }
+                .maxByOrNull { it.maxLevelPermission }
+                ?.roleId ?: 0L
+        }
         val byId = all.associateBy { it.roleId }
         var bestLevel = -1
         var bestRoleId = 0L
@@ -244,7 +252,13 @@ class RoleController @Inject constructor(
                 bestRoleId = r.roleId
             }
         }
-        return bestRoleId
+        if (bestRoleId != 0L) return bestRoleId
+        val effectiveLevel = effectiveUserMaxPermissionLevel(clanId)
+        if (effectiveLevel <= 0) return 0L
+        return all
+            .filter { it.maxLevelPermission <= effectiveLevel }
+            .maxByOrNull { it.maxLevelPermission }
+            ?.roleId ?: 0L
     }
 
     fun invalidateDisplayRoleCache(clanId: Long) {
@@ -381,7 +395,7 @@ class RoleController @Inject constructor(
             val next = ArrayList<ClanRole>(current.size)
             for (role in current) {
                 if (role.roleId in targetIds && channelId !in role.channelIds) {
-                    next.add(role.copy(roleChannelActive = 1, channelIds = role.channelIds + channelId))
+                    next.add(role.copy(roleChannelActive = 1, channelIds = (role.channelIds + channelId).distinct()))
                     changed = true
                 } else {
                     next.add(role)
@@ -390,6 +404,7 @@ class RoleController @Inject constructor(
             if (changed) rolesByClan[clanId] = next
         }
         if (changed) {
+            persistRolesSnapshot(clanId)
             notificationCenter.postNotificationOnMainThread(NotificationCenter.clanRolesDidLoad, clanId)
         }
     }
@@ -421,7 +436,23 @@ class RoleController @Inject constructor(
             if (changed) rolesByClan[clanId] = next
         }
         if (changed) {
+            persistRolesSnapshot(clanId)
             notificationCenter.postNotificationOnMainThread(NotificationCenter.clanRolesDidLoad, clanId)
+        }
+    }
+
+    private fun persistRolesSnapshot(clanId: Long) {
+        if (clanId <= 0L) return
+        val roles = synchronized(lock) { rolesByClan[clanId]?.toList().orEmpty() }
+        if (roles.isEmpty()) return
+        val selfMax = synchronized(lock) { listRolesSelfMaxLevelByClan[clanId] ?: 0 }
+        appScope.launch(ioDispatcher) {
+            try {
+                clanRoleListMetaDao.upsert(ClanRoleListMetaEntity(clanId, selfMax))
+                clanRoleCacheDao.replaceClan(clanId, roles.map { it.toCacheEntity() })
+            } catch (e: Exception) {
+                Log.e(TAG, "persist clan roles cache failed clanId=$clanId", e)
+            }
         }
     }
 
@@ -468,6 +499,7 @@ class RoleController @Inject constructor(
         }
         appScope.launch(ioDispatcher) {
             try {
+                hydrateLocalPermissionSnapshotForClan(clanId)
                 loadRolesForClanSync(clanId)
             } finally {
                 finalizeAfterRoleLoad(clanId, null)
@@ -808,7 +840,7 @@ class RoleController @Inject constructor(
                     session.token,
                     clanId,
                     title,
-                    colorHex,
+                    normalizeRoleColorForApi(colorHex),
                     maxRid,
                     emptyList(),
                     emptyList()
@@ -846,7 +878,7 @@ class RoleController @Inject constructor(
                     clanId,
                     roleId,
                     title,
-                    colorHex,
+                    colorHex?.let { normalizeRoleColorForApi(it) },
                     roleIcon,
                     addUserIds,
                     removeUserIds,
@@ -854,6 +886,10 @@ class RoleController @Inject constructor(
                     removePermissionIds,
                     maxRid
                 )
+            }
+            if (addUserIds.isNotEmpty() || removeUserIds.isNotEmpty()) {
+                userClanController.applyRoleAssignments(clanId, roleId, addUserIds, removeUserIds)
+                invalidateDisplayRoleCache(clanId)
             }
             loadRolesForClanSync(clanId)
             notificationCenter.postNotificationOnMainThread(NotificationCenter.clanRolesDidLoad, clanId)
@@ -894,6 +930,11 @@ class RoleController @Inject constructor(
         ids.toList()
     }
 
+    private fun normalizeRoleColorForApi(raw: String): String {
+        val clean = raw.trim().removePrefix("#").lowercase()
+        return if (clean.isEmpty()) "" else "#$clean"
+    }
+
     private suspend fun finalizeAfterRoleLoad(clanId: Long, primary: Runnable?) {
         loadingClans[clanId] = false
         withContext(mainDispatcher) {
@@ -908,7 +949,10 @@ class RoleController @Inject constructor(
                 api.listRoles(session.apiUrl, session.token, clanId)
             }
             val roleList = response.roles
-            val mapped = roleList.rolesList.map { mapProtoRoleToClanRole(it) }
+            val mapped = mergeLocalChannelAssignments(
+                clanId,
+                roleList.rolesList.map { mapProtoRoleToClanRole(it) }
+            )
             var userMax: Int? = null
             if (beginUserMaxLoad(clanId, force = true)) {
                 try {
@@ -945,6 +989,21 @@ class RoleController @Inject constructor(
             notificationCenter.postNotificationOnMainThread(NotificationCenter.clanRolesDidLoad, clanId)
         } catch (e: Exception) {
             Log.e(TAG, "loadRolesForClan failed for clan $clanId", e)
+        }
+    }
+
+    private fun mergeLocalChannelAssignments(clanId: Long, remoteRoles: List<ClanRole>): List<ClanRole> {
+        val existingById = synchronized(lock) {
+            rolesByClan[clanId]?.associateBy { it.roleId }.orEmpty()
+        }
+        if (existingById.isEmpty()) return remoteRoles
+        return remoteRoles.map { remote ->
+            val existing = existingById[remote.roleId]
+            if (existing != null && remote.channelIds.isEmpty() && existing.channelIds.isNotEmpty()) {
+                remote.copy(roleChannelActive = 1, channelIds = existing.channelIds)
+            } else {
+                remote
+            }
         }
     }
 }

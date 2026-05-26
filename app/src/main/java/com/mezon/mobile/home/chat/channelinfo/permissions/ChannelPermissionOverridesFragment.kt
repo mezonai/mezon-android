@@ -171,7 +171,13 @@ class ChannelPermissionOverridesFragment : BaseFragment() {
             val userId = if (targetType == CHANNEL_PERMISSION_TARGET_ROLE) 0L else targetId
             val overrides = permissionController.fetchOverrides(channelId, roleId, userId)
             withContext(Dispatchers.Main.immediate) {
-                catalog = roleController.getPermissionCatalog().filter { it.scope == CHANNEL_PERMISSION_SCOPE }
+                catalog = roleController.getPermissionCatalog()
+                    .filter { it.scope == CHANNEL_PERMISSION_SCOPE }
+                    .sortedWith(
+                        compareBy<PermissionCatalogEntry> { RolePermissionLabels.sortWeight(it.slug) }
+                            .thenBy { it.level }
+                            .thenBy { it.title.lowercase() }
+                    )
                 val mapped = overrides.getOrNull()?.associate {
                     it.permissionId to if (it.active) CHANNEL_PERMISSION_STATUS_ALLOW else CHANNEL_PERMISSION_STATUS_DENY
                 }.orEmpty()

@@ -90,6 +90,7 @@ class ClansFragment : BaseFragment() {
     private lateinit var serverAdapter: ServerRailAdapter
     private lateinit var channelPanel: LinearLayout
     private var listFrozen = false
+    private var lastVoiceFetchClanId = 0L
 
     // Clan header views
     private var bannerImage: ImageView? = null
@@ -879,7 +880,10 @@ class ClansFragment : BaseFragment() {
         val clanId = clansController.selectedClanId.value
         val sections = channelController.getChannelSections(clanId)
         channelListView.bind(clanId, sections)
-        voiceController.fetchVoiceChannelMembers(clanId)
+        if (clanId != lastVoiceFetchClanId) {
+            lastVoiceFetchClanId = clanId
+            fragmentView?.post { voiceController.fetchVoiceChannelMembers(clanId) }
+        }
         updateVoiceMembers(clanId)
         updateChannelAppsStrip(clanId)
     }

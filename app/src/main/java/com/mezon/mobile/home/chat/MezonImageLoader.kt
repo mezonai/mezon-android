@@ -314,6 +314,7 @@ class MezonImageLoader private constructor(context: Context) {
                 }
                 try {
                     val urlFile = diskFileForUrl(logicalUrl)
+                    urlFile.parentFile?.mkdirs()
                     response.body?.byteStream()?.use { input ->
                         FileOutputStream(urlFile).use { output -> input.copyTo(output) }
                     } ?: throw IOException("Empty body")
@@ -633,6 +634,7 @@ class MezonImageLoader private constructor(context: Context) {
 
         DECODE_EXECUTOR.execute {
             try {
+                diskCacheDir.mkdirs()
                 val tmpFile = File(diskCacheDir, "uri_" + cacheKey)
                 appContext.contentResolver.openInputStream(uri)?.use { input ->
                     FileOutputStream(tmpFile).use { output -> input.copyTo(output) }

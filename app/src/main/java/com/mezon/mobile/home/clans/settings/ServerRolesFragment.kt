@@ -159,7 +159,6 @@ class ServerRolesFragment : BaseFragment() {
         val isViewOnly = !(perm.hasAdminPermission || perm.hasManageClanPermission || perm.isClanOwner)
         val everyone = roleController.getEveryoneRole(clanId)
         val displayRoles = roleController.getRoles(clanId)
-        val allRoles = displayRoles + listOfNotNull(everyone)
 
         content.addView(
             TextView(content.context).apply {
@@ -181,7 +180,7 @@ class ServerRolesFragment : BaseFragment() {
 
         content.addView(
             TextView(content.context).apply {
-                text = getString(R.string.clan_roles_header_count, allRoles.size)
+                text = getString(R.string.clan_roles_header_count, displayRoles.size)
                 textSize = 14f
                 setTextColor(ClanRolesUiTheme.textOnScreenMuted(themeColors))
             },
@@ -322,14 +321,6 @@ class ServerRolesFragment : BaseFragment() {
             }
         }
         val iconSlot = FrameLayout(context)
-        val shield = ImageView(context).apply {
-            val d = MezonIcon.shieldUserIcon.getDrawable(context).mutate()
-            val tint = if (role.color != 0) role.color else themeColors.textDisabled
-            d.colorFilter = PorterDuffColorFilter(tint, PorterDuff.Mode.SRC_IN)
-            setImageDrawable(d)
-            scaleType = ImageView.ScaleType.FIT_CENTER
-        }
-        iconSlot.addView(shield, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.CENTER))
         if (role.iconUrl.isNotBlank()) {
             val av = AvatarView(context).apply {
                 setSizeDp(ROLE_ROW_ICON_DP)
@@ -338,6 +329,15 @@ class ServerRolesFragment : BaseFragment() {
                 setImageUrl(role.iconUrl)
             }
             iconSlot.addView(av, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.CENTER))
+        } else {
+            val shield = ImageView(context).apply {
+                val d = MezonIcon.shieldUserIcon.getDrawable(context).mutate()
+                val tint = if (role.color != 0) role.color else themeColors.textDisabled
+                d.colorFilter = PorterDuffColorFilter(tint, PorterDuff.Mode.SRC_IN)
+                setImageDrawable(d)
+                scaleType = ImageView.ScaleType.FIT_CENTER
+            }
+            iconSlot.addView(shield, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.CENTER))
         }
         row.addView(
             iconSlot,
@@ -371,7 +371,11 @@ class ServerRolesFragment : BaseFragment() {
             )
         }
         mid.addView(titleRow)
-        val sub = getString(R.string.clan_roles_member_count, role.memberCount)
+        val sub = if (role.memberCount == 1) {
+            getString(R.string.clan_roles_member_count_one)
+        } else {
+            getString(R.string.clan_roles_member_count, role.memberCount)
+        }
         mid.addView(
             TextView(context).apply {
                 text = sub

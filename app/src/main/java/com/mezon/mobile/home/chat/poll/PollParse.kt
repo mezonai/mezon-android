@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.chat.poll
 
+import com.mezon.mezon.api.CreatePollResponse
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -19,6 +20,34 @@ data class ParsedPoll(
     val voterDetails: List<PollVoterEntry>
 ) {
     fun countFor(answerIndex: Int): Int = countsByIndex[answerIndex] ?: 0
+}
+
+/** Message `content` JSON from [CreatePollResponse] for optimistic UI before websocket. */
+fun buildPollMessageContent(response: CreatePollResponse): String {
+    val obj = JSONObject()
+    obj.put("question", response.question)
+    if (response.pollId != 0L) obj.put("poll_id", response.pollId)
+    if (response.exp != 0L) obj.put("expire_at", response.exp)
+    obj.put("type", response.type.number)
+    obj.put("is_closed", response.isClosed)
+    if (response.totalVotes > 0) obj.put("total_votes", response.totalVotes)
+    val sortedAnswers = response.answersList.sortedBy { it.index }
+    val answersArr = JSONArray()
+    for (a in sortedAnswers) {
+        answersArr.put(
+            JSONObject().apply {
+                put("index", a.index)
+                put("label", a.label)
+            }
+        )
+    }
+    obj.put("answers", answersArr)
+    val countsArr = JSONArray()
+    for (i in sortedAnswers.indices) {
+        countsArr.put(if (i < response.answerCountsCount) response.getAnswerCounts(i) else 0)
+    }
+    obj.put("answer_counts", countsArr)
+    return obj.toString()
 }
 
 fun isPollContentJson(content: String): Boolean {

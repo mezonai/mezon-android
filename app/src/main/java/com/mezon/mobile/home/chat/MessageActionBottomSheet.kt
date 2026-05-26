@@ -33,6 +33,7 @@ class MessageActionBottomSheet(
     private val hasImage: Boolean = false,
     private val showForwardSingle: Boolean = true,
     private val showForwardAllNearby: Boolean = false,
+    private val showEditMessage: Boolean = false,
     private val listener: MessageActionListener
 ) : BottomSheet(context) {
 
@@ -302,7 +303,7 @@ class MessageActionBottomSheet(
             ))
         }
 
-        if (isMyMessage) {
+        if (showEditMessage) {
             actions.add(ActionItem(
                 ActionType.EditMessage,
                 context.getString(R.string.action_edit),
