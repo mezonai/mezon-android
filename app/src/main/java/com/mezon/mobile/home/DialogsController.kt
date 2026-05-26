@@ -1,13 +1,10 @@
 package com.mezon.mobile.home
 
-import android.content.ContentResolver
 import android.content.Context
-import android.net.Uri
 import android.util.LongSparseArray
 import android.util.Log
 import com.mezon.mezon.api.AllUsersAddChannelResponse
 import com.mezon.mezon.api.ChannelMessage
-import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.data.db.DirectMessageDao
@@ -36,13 +33,10 @@ import com.mezon.mobile.notification.ActiveChannelTracker
 import com.mezon.mobile.notification.NotificationHelper
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.session.StoredSession
-import com.mezon.mobile.util.ContentUriTooLargeException
-import com.mezon.mobile.util.FileUtils
 import com.mezon.mobile.util.parseContentPreview
 import com.mezon.mobile.home.call.messagePreviewForDialog
 import dagger.Lazy
 import com.mezon.mezon.api.ChannelDescription
-import com.mezon.mezon.rtapi.ChannelUpdatedEvent
 import com.mezon.mezon.rtapi.LastSeenMessageEvent
 import com.mezon.mezon.rtapi.UserChannelAdded
 import com.mezon.mezon.rtapi.UserChannelRemoved
@@ -52,18 +46,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 import dagger.hilt.android.qualifiers.ApplicationContext
 
 private const val TAG = "DialogsController"
-
-sealed class DmGroupAvatarUploadResult {
-    data class Success(val url: String) : DmGroupAvatarUploadResult()
-    object TooLarge : DmGroupAvatarUploadResult()
-    object Failed : DmGroupAvatarUploadResult()
-}
 
 @Singleton
 class DialogsController @Inject constructor(
@@ -113,7 +100,6 @@ class DialogsController @Inject constructor(
         appScope.launch { loadDialogsFromDb() }
         appScope.launch { observeMarkAsRead() }
         appScope.launch { observeLastSeenMessages() }
-        appScope.launch { observeChannelUpdated() }
         appScope.launch { observeUserChannelAdded() }
         appScope.launch { observeUserChannelRemoved() }
     }
@@ -223,48 +209,6 @@ class DialogsController @Inject constructor(
         return names.joinToString(",")
     }
 
-    private fun avatarExtensionForMime(mimeType: String): String {
-        return when (mimeType.lowercase(Locale.US)) {
-            "image/png" -> "png"
-            "image/webp" -> "webp"
-            "image/gif" -> "gif"
-            else -> "jpg"
-        }
-    }
-
-    private fun isDefaultDmGroupAvatarUrl(url: String): Boolean =
-        url.isBlank() || url.contains("avatar-group.png", ignoreCase = true)
-
-    private fun applyDmMetadataUpdate(
-        channelId: Long,
-        label: String?,
-        avatar: String?
-    ): DirectMessage? {
-        var updated: DirectMessage? = null
-        synchronized(this) {
-            val current = dialogsDict[channelId] ?: return null
-            if (current.type != CHANNEL_TYPE_GROUP && current.type != CHANNEL_TYPE_DM) return null
-            var next = current
-            val cleanLabel = label?.trim().orEmpty()
-            if (cleanLabel.isNotEmpty()) {
-                next = if (current.type == CHANNEL_TYPE_GROUP) {
-                    next.copy(label = cleanLabel, displayName = cleanLabel, username = cleanLabel)
-                } else {
-                    next.copy(label = cleanLabel, displayName = cleanLabel)
-                }
-            }
-            if (avatar != null) {
-                next = next.copy(avatarUrl = avatar)
-            }
-            if (next == current) return null
-            dialogsDict.put(channelId, next)
-            val idx = dialogs.indexOfFirst { it.channelId == channelId }
-            if (idx >= 0) dialogs[idx] = next
-            updated = next
-        }
-        return updated
-    }
-
     private fun applyGroupFallbackMetadata(
         row: DirectMessage,
         desc: ChannelDescription,
@@ -337,73 +281,6 @@ class DialogsController @Inject constructor(
             } catch (e: Exception) {
                 Log.e(TAG, "loadDmParticipants failed for channel $channelId", e)
             }
-        }
-    }
-
-    suspend fun uploadDmGroupAvatar(
-        uri: Uri,
-        contentResolver: ContentResolver,
-        maxBytes: Int
-    ): DmGroupAvatarUploadResult = withContext(ioDispatcher) {
-        try {
-            val knownSize = FileUtils.getPickedFileSize(contentResolver, uri)
-            if (knownSize > maxBytes) return@withContext DmGroupAvatarUploadResult.TooLarge
-            val mimeType = contentResolver.getType(uri) ?: "image/jpeg"
-            val bytes = FileUtils.readContentUriBytesCapped(contentResolver, uri, maxBytes)
-            val timestamp = System.currentTimeMillis() / 1000
-            val filename = "${timestamp}_group_avatar.${avatarExtensionForMime(mimeType)}"
-            val url = sessionManager.withAutoRefresh { session ->
-                val presign = api.uploadAttachmentFile(
-                    session.apiUrl,
-                    session.token,
-                    filename,
-                    mimeType,
-                    bytes.size,
-                    400,
-                    400
-                )
-                api.putFileToPresignedUrl(presign.url, bytes, mimeType)
-                "${BuildConfig.MEZON_BASE_IMG_URL}/${presign.filename}"
-            }
-            DmGroupAvatarUploadResult.Success(url)
-        } catch (_: ContentUriTooLargeException) {
-            DmGroupAvatarUploadResult.TooLarge
-        } catch (e: Exception) {
-            Log.e(TAG, "uploadDmGroupAvatar failed", e)
-            DmGroupAvatarUploadResult.Failed
-        }
-    }
-
-    suspend fun updateDmGroup(
-        channelId: Long,
-        channelLabel: String?,
-        channelAvatar: String?
-    ): Boolean = withContext(ioDispatcher) {
-        if (channelId == 0L || (channelLabel == null && channelAvatar == null)) return@withContext false
-        try {
-            val current = synchronized(this@DialogsController) { dialogsDict[channelId] }
-            sessionManager.withAutoRefresh { session ->
-                val labelPayload = channelLabel
-                    ?: current?.displayName?.ifBlank { current.label }?.takeIf { it.isNotBlank() }
-                val avatarPayload = channelAvatar
-                    ?: current?.avatarUrl?.takeIf { it.isNotBlank() && !isDefaultDmGroupAvatarUrl(it) }
-                api.updateChannelDesc(
-                    apiUrl = session.apiUrl,
-                    token = session.token,
-                    clanId = 0L,
-                    channelId = channelId,
-                    channelLabel = labelPayload,
-                    channelAvatar = avatarPayload
-                )
-            }
-            val updated = applyDmMetadataUpdate(channelId, channelLabel, channelAvatar)
-            updated?.let { directMessageDao.upsert(it) }
-            cacheTracker.invalidateByPrefix("listChannelDescs_")
-            notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
-            true
-        } catch (e: Exception) {
-            Log.e(TAG, "updateDmGroup failed channelId=$channelId", e)
-            false
         }
     }
 
@@ -1156,12 +1033,6 @@ class DialogsController @Inject constructor(
         }
     }
 
-    private suspend fun observeChannelUpdated() {
-        socketEventDispatcher.channelUpdatedEvents.collect { event ->
-            applyChannelUpdated(event)
-        }
-    }
-
     private suspend fun observeUserChannelAdded() {
         val currentUserId = sessionManager.sessionFlow
             .first { it != null }
@@ -1180,18 +1051,6 @@ class DialogsController @Inject constructor(
         socketEventDispatcher.userChannelRemovedEvents.collect { event ->
             applyUserChannelRemoved(event, currentUserId)
         }
-    }
-
-    private fun applyChannelUpdated(event: ChannelUpdatedEvent) {
-        if (event.clanId != 0L || event.channelId == 0L) return
-        val existing = synchronized(this) { dialogsDict[event.channelId] } ?: return
-        if (existing.type != CHANNEL_TYPE_GROUP && existing.type != CHANNEL_TYPE_DM) return
-        val label = event.channelLabel.takeIf { it.isNotBlank() }
-        val avatar = if (event.channelAvatar.isNotBlank() || label != null) event.channelAvatar else null
-        if (label == null && avatar == null) return
-        val updated = applyDmMetadataUpdate(event.channelId, label, avatar) ?: return
-        appScope.launch(ioDispatcher) { directMessageDao.upsert(updated) }
-        notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
     }
 
     private fun applyUserChannelAdded(event: UserChannelAdded, currentUserId: Long) {
