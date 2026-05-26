@@ -1110,6 +1110,18 @@ class ChatFragment : BaseFragment() {
             }
         }
 
+        observe(NotificationCenter.channelsDidLoad) { _, _, args ->
+            val loadedClanId = args.firstOrNull() as? Long ?: return@observe
+            if (loadedClanId != clanId) return@observe
+            val newPrivate = resolveChannelPrivate()
+            val newAgeRestricted = resolveChannelAgeRestricted()
+            if (adapter.isChannelPrivate != newPrivate || adapter.isChannelAgeRestricted != newAgeRestricted) {
+                adapter.isChannelPrivate = newPrivate
+                adapter.isChannelAgeRestricted = newAgeRestricted
+                adapter.notifyDataSetChanged()
+            }
+        }
+
         observe(NotificationCenter.searchChannelsDidLoad) { _, _, _ ->
             if (isPaused) return@observe
             if (currentTrigger.mode == InputSuggestionsController.Mode.HASHTAG) {
