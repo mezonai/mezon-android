@@ -31,7 +31,9 @@ import com.mezon.mobile.core.BottomSheet
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.FragmentEntryPoint
+import com.mezon.mobile.home.ClanUser
 import com.mezon.mobile.home.DialogsController
+import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.chat.MessageEntity
 import com.mezon.mobile.home.friends.FriendController
 import com.mezon.mezon.api.Friend
@@ -80,6 +82,7 @@ class SendTokenFragment : BaseFragment() {
 
     private lateinit var accountController: AccountController
     private lateinit var friendController: FriendController
+    private lateinit var userClanController: UserClanController
     private lateinit var dialogsController: DialogsController
     private lateinit var mezonApi: MezonApi
     private lateinit var sessionManager: SessionManager
@@ -117,6 +120,7 @@ class SendTokenFragment : BaseFragment() {
     ) {
         accountController = entryPoint.accountController()
         friendController = entryPoint.friendController()
+        userClanController = entryPoint.userClanController()
         dialogsController = entryPoint.dialogsController()
         mezonApi = entryPoint.mezonApi()
         sessionManager = entryPoint.sessionManager()
@@ -128,6 +132,7 @@ class SendTokenFragment : BaseFragment() {
         formValue = arguments?.getString(ARG_FORM_VALUE)
         parseForm(formValue)
         friendController.loadFriends()
+        userClanController.loadUsers()
         observe(NotificationCenter.accountInfoLoaded) { _, _, _ ->
             refreshWalletBalance()
         }
@@ -938,6 +943,7 @@ class SendTokenFragment : BaseFragment() {
         val allOptions = buildRecipientOptions()
         if (allOptions.isEmpty()) {
             friendController.loadFriends(noCache = true)
+            userClanController.loadUsers(noCache = true)
             showToast(
                 getString(R.string.send_token_no_friends_to_select),
                 ToastOverlay.ToastType.INFO
@@ -981,7 +987,7 @@ class SendTokenFragment : BaseFragment() {
             isNestedScrollingEnabled = true
         }
         val adapter = RecipientPickerAdapter(themeColors) { selected ->
-            applyRecipientSelection(selected.friend)
+            applyRecipientSelection(selected)
             sheet.dismiss()
         }
         recycler.adapter = adapter
@@ -1043,25 +1049,41 @@ class SendTokenFragment : BaseFragment() {
 
     private fun buildRecipientOptions(): List<RecipientOption> {
         val currentUserId = accountController.accountInfo.value.userId
-        return friendController.friends.value
-            .asSequence()
-            .filter { it.user.id != currentUserId }
-            .map { friend ->
-                val display = friend.user.displayName.ifBlank { friend.user.username }.ifBlank { friend.user.id.toString() }
-                RecipientOption(
-                    friend = friend,
-                    displayName = display,
-                    username = friend.user.username,
-                    avatarUrl = friend.user.avatarUrl
-                )
-            }
+        val userMap = LinkedHashMap<Long, RecipientOption>()
+
+        for (clanUser in userClanController.getUsers()) {
+            if (clanUser.id == currentUserId) continue
+            if (userMap.containsKey(clanUser.id)) continue
+            val display = clanUser.displayName.ifBlank { clanUser.username }.ifBlank { clanUser.id.toString() }
+            userMap[clanUser.id] = RecipientOption(
+                userId = clanUser.id,
+                displayName = display,
+                username = clanUser.username,
+                avatarUrl = clanUser.avatarUrl
+            )
+        }
+
+        for (friend in friendController.friends.value) {
+            val friendId = friend.user.id
+            if (friendId == currentUserId) continue
+            if (userMap.containsKey(friendId)) continue
+            val display = friend.user.displayName.ifBlank { friend.user.username }.ifBlank { friendId.toString() }
+            userMap[friendId] = RecipientOption(
+                userId = friendId,
+                displayName = display,
+                username = friend.user.username,
+                avatarUrl = friend.user.avatarUrl
+            )
+        }
+
+        return userMap.values
             .sortedBy { it.displayName.lowercase(Locale.getDefault()) }
             .toList()
     }
 
-    private fun applyRecipientSelection(friend: Friend) {
-        jsonReceiverId = friend.user.id.toString()
-        jsonReceiverName = friend.user.displayName.ifBlank { friend.user.username }.ifBlank { jsonReceiverId }
+    private fun applyRecipientSelection(option: RecipientOption) {
+        jsonReceiverId = option.userId.toString()
+        jsonReceiverName = option.displayName.ifBlank { option.username }.ifBlank { jsonReceiverId }
         recipientValueText?.text = jsonReceiverName
         recipientValueText?.setTextColor(themeColors.onSurface)
         if (isAmountFieldEditable()) {
@@ -1070,7 +1092,7 @@ class SendTokenFragment : BaseFragment() {
     }
 
     private data class RecipientOption(
-        val friend: Friend,
+        val userId: Long,
         val displayName: String,
         val username: String,
         val avatarUrl: String
@@ -1138,7 +1160,7 @@ class SendTokenFragment : BaseFragment() {
         override fun onBindViewHolder(holder: Holder, position: Int) {
             val item = items[position]
             holder.itemView.tag = position
-            holder.avatar.setInfo(item.friend.user.id, item.username)
+            holder.avatar.setInfo(item.userId, item.username)
             holder.avatar.setImageUrl(item.avatarUrl.ifBlank { null })
             holder.nameTv.text = item.displayName
             holder.userTv.text = "@${item.username}"
