@@ -887,10 +887,12 @@ class ChatController @Inject constructor(
         url: String,
         filetype: String,
         filename: String? = null,
-        references: List<com.mezon.mezon.api.MessageRef>? = null
+        references: List<com.mezon.mezon.api.MessageRef>? = null,
+        topicId: Long = 0L
     ) {
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
+        val cacheKey = messageCacheKey(channelId, topicId)
         val baseContent = "{\"t\":\"\"}"
         val content = mergeRefsIntoOptimisticContent(baseContent, references)
         val attachment = messageAttachment {
@@ -899,7 +901,7 @@ class ChatController @Inject constructor(
             if (filename != null) this.filename = filename
         }
 
-        val tempId = generateTempId(channelId)
+        val tempId = generateTempId(cacheKey)
         val uc = userController.get()
         val anon = isAnonymousSend(clanId)
         val (optName, optAvatar) = optimisticSenderPresentation(uc, clanId, channelType, anon)
@@ -911,7 +913,7 @@ class ChatController @Inject constructor(
         }
         val optimistic = MessageEntity(
             id = tempId,
-            channelId = channelId,
+            channelId = cacheKey,
             senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
             senderName = optName,
             senderUsername = if (anon) "Anonymous" else uc.username,
@@ -927,7 +929,7 @@ class ChatController @Inject constructor(
             sendState = MessageEntity.SEND_STATE_SENDING
         )
         notificationCenter.postNotificationOnMainThread(
-            NotificationCenter.didReceiveNewMessages, channelId, optimistic
+            NotificationCenter.didReceiveNewMessages, cacheKey, optimistic
         )
 
         appScope.launch {
@@ -943,18 +945,19 @@ class ChatController @Inject constructor(
                         this.attachments.add(attachment)
                         references?.let { this.references.addAll(it) }
                         if (anon) this.anonymousMessage = true
+                        if (topicId != 0L) this.topicId = topicId
                     }
                     val ack = channelSend(session.apiUrl, session.token, request)
                     markForwardTargetUsed(channelId, channelType)
                     notificationCenter.postNotificationOnMainThread(
-                        NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
+                        NotificationCenter.pendingMessageSent, cacheKey, tempId, ack.messageId
                     )
                     Log.d(TAG, "Direct attachment sent: channelId=$channelId url=${url.take(60)}")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to send direct attachment", e)
                 notificationCenter.postNotificationOnMainThread(
-                    NotificationCenter.pendingMessageError, channelId, tempId
+                    NotificationCenter.pendingMessageError, cacheKey, tempId
                 )
             }
         }

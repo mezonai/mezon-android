@@ -287,7 +287,6 @@ open class ChatFragment : BaseFragment() {
     private var lastWelcomePlaceholderKey = ""
     private var lastWelcomePeerUsername = ""
     private var lastWelcomeChannelName = ""
-    private var lastWelcomeCreatorName = ""
     private var clanId = 0L
     private var chatCachedCreatorId: Long? = null
     private var displayRoleCacheRefreshJob: Job? = null
@@ -844,7 +843,6 @@ open class ChatFragment : BaseFragment() {
                 if (BuildConfig.DEBUG) {
                     Log.d(TAG, "didReceiveNewMessages inserted sending id=${entity.id}")
                 }
-                refreshThreadWelcomeCreator()
                 return@observe
             }
             if (mergeDuplicateIncomingMessage(entity)) {
@@ -921,7 +919,6 @@ open class ChatFragment : BaseFragment() {
                 }
                 if (entity.isMe) forceScrollToBottom() else scrollToBottom()
             }
-            refreshThreadWelcomeCreator()
             if (BuildConfig.DEBUG) {
                 Log.d(
                     TAG,
@@ -2608,7 +2605,6 @@ open class ChatFragment : BaseFragment() {
         recyclerView.visibility = vis
         adapter.showLoadingUp = hasMoreTop
         adapter.showLoadingDown = hasMoreBottom
-        refreshThreadWelcomeCreator(notify = false)
         adapter.notifyMessagesUpdated()
         updateUnreadDividerPosition()
     }
@@ -3603,31 +3599,6 @@ open class ChatFragment : BaseFragment() {
         adapter.welcomePlaceholderKey = nextPlaceholderKey
         adapter.welcomePeerUsername = nextPeerUsername
         adapter.notifyWelcomeCellChanged()
-    }
-
-    private fun refreshThreadWelcomeCreator(notify: Boolean = true) {
-        if (!::adapter.isInitialized) return
-        if (channelType != CHANNEL_TYPE_THREAD && routeParentId == 0L) return
-        val oldestFirst = messages.asReversed()
-        val creatorMessage = oldestFirst.firstOrNull { msg ->
-            !msg.isUnreadDivider &&
-                !msg.isWelcomeMessage &&
-                !msg.isSystemMessage &&
-                msg.senderId != 0L
-        } ?: oldestFirst.firstOrNull { msg ->
-            !msg.isUnreadDivider &&
-                !msg.isWelcomeMessage &&
-                msg.senderId != 0L
-        }
-        val nextCreatorName = creatorMessage?.let { msg ->
-            memberResolver.resolveMember(msg.senderId, clanId, channelId, channelType)?.let { member ->
-                member.clanNick.ifBlank { member.displayName.ifBlank { member.username } }
-            } ?: msg.senderName.ifBlank { msg.senderUsername }
-        }.orEmpty()
-        if (nextCreatorName == lastWelcomeCreatorName && adapter.welcomeCreatorName == nextCreatorName) return
-        lastWelcomeCreatorName = nextCreatorName
-        adapter.welcomeCreatorName = nextCreatorName
-        if (notify) adapter.notifyWelcomeCellChanged()
     }
 
     private fun dmHeaderCallOtherUserId(): Long? {
@@ -5014,6 +4985,7 @@ open class ChatFragment : BaseFragment() {
     }
 
     private fun canShowCreateThreadInMessageMenu(): Boolean {
+        if (isTopicMode) return false
         if (clanId == 0L) return false
         if (channelType != CHANNEL_TYPE_CHANNEL) return false
         if (routeParentId != 0L) return false
@@ -5083,6 +5055,23 @@ open class ChatFragment : BaseFragment() {
         return permissionPolicy.canCreateThreadFromMessage(channelId, clanId)
     }
 
+    private fun canShowTopicDiscussionInMessageMenu(msg: MessageEntity): Boolean {
+        if (isTopicMode) return false
+        if (clanId == 0L) return false
+        if (channelType == CHANNEL_TYPE_DM || channelType == CHANNEL_TYPE_GROUP) return false
+        if (channelType == CHANNEL_TYPE_STREAMING || channelType == CHANNEL_TYPE_APP || channelType == CHANNEL_TYPE_VOICE) return false
+        if (!canSendMessageInCurrentChannel()) return false
+        if (msg.isPollMessage) return false
+        if (msg.code == MessageEntity.CODE_TOPIC) return false
+        if (msg.code == MessageEntity.CODE_CREATE_THREAD) return false
+        if (msg.code == MessageEntity.CODE_CREATE_PIN) return false
+        if (msg.code == MessageEntity.CODE_MESSAGE_BUZZ) return false
+        if (msg.code == MessageEntity.CODE_AUDIT_LOG) return false
+        if (msg.code == MessageEntity.CODE_WELCOME) return false
+        if (msg.code == MessageEntity.CODE_UPCOMING_EVENT) return false
+        return true
+    }
+
     private fun showMessageActionSheet(msg: MessageEntity) {
         val ctx = getContext() ?: return
         val activity = getParentActivity() ?: return
@@ -5109,6 +5098,8 @@ open class ChatFragment : BaseFragment() {
             showForwardSingle = allowFwd,
             showForwardAllNearby = allowFwd && collectForwardNearbyMessages(msg).size > 1,
             showEditMessage = showEditMessage,
+            showTopicDiscussion = canShowTopicDiscussionInMessageMenu(msg),
+            showPinActions = !isTopicMode,
             listener = object : MessageActionBottomSheet.MessageActionListener {
                 override fun onActionSelected(action: MessageActionBottomSheet.ActionType, message: MessageEntity) {
                     handleMessageAction(action, message)
@@ -5438,20 +5429,34 @@ open class ChatFragment : BaseFragment() {
                 openForwardAllNearbyScreen(msg)
             }
             MessageActionBottomSheet.ActionType.PinMessage -> {
+                if (isTopicMode) return
                 showPinConfirmation(msg, isUnpin = false)
             }
             MessageActionBottomSheet.ActionType.UnPinMessage -> {
+                if (isTopicMode) return
                 showPinConfirmation(msg, isUnpin = true)
             }
             MessageActionBottomSheet.ActionType.DeleteMessage -> {
                 showDeleteConfirmation(msg)
             }
             MessageActionBottomSheet.ActionType.CreateThread -> {
+                if (isTopicMode) return
                 if (!canManageThreadInCurrentChannel()) {
                     refreshPermissionGates()
                     MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.channel_permissions_no_access))
                     return
                 }
+                presentFragment(
+                    CreateThreadFragment.newInstance(
+                        channelId,
+                        channelName,
+                        clanId,
+                        seedMessageId = msg.id
+                    )
+                )
+            }
+            MessageActionBottomSheet.ActionType.TopicDiscussion -> {
+                if (!canShowTopicDiscussionInMessageMenu(msg)) return
                 presentFragment(
                     CreateThreadFragment.newInstance(
                         channelId,

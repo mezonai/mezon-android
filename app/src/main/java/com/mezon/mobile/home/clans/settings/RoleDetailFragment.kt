@@ -74,6 +74,9 @@ class RoleDetailFragment : BaseFragment() {
     private lateinit var userController: UserController
     private lateinit var permissionPolicy: PermissionPolicy
     private lateinit var nameInput: InputCell
+    private lateinit var nameLock: ImageView
+    private var saveItem: View? = null
+    private var saveText: TextView? = null
     private lateinit var colorRow: LinearLayout
     private lateinit var colorSwatch: View
     private lateinit var colorHexLabel: TextView
@@ -83,6 +86,7 @@ class RoleDetailFragment : BaseFragment() {
     private lateinit var iconAvatar: AvatarView
     private lateinit var iconPlaceholder: ImageView
     private lateinit var iconRemoveBtn: TextView
+    private lateinit var iconLock: ImageView
     private lateinit var iconPickerHit: FrameLayout
     private lateinit var iconRow: LinearLayout
     private lateinit var permActionRow: LinearLayout
@@ -150,6 +154,8 @@ class RoleDetailFragment : BaseFragment() {
             ClanRolesUiTheme.applyPrimaryFlowActionBar(this, themeColors)
             val menu = createMenu()
             val saveItem = menu.addItem(MENU_SAVE, getString(R.string.clan_roles_detail_save))
+            this@RoleDetailFragment.saveItem = saveItem
+            saveItem.visibility = View.GONE
             val saveLabel = TextView(context).apply {
                 text = getString(R.string.clan_roles_detail_save)
                 setTextColor(themeColors.blurple)
@@ -158,6 +164,7 @@ class RoleDetailFragment : BaseFragment() {
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(LayoutHelper.dp(16f), 0, LayoutHelper.dp(16f), 0)
             }
+            saveText = saveLabel
             saveItem.addView(
                 saveLabel,
                 LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.MATCH_PARENT, Gravity.CENTER_VERTICAL, 0f, 3f, 0f, 0f)
@@ -186,8 +193,26 @@ class RoleDetailFragment : BaseFragment() {
             setMaxCharacter(ROLE_NAME_MAX)
             setShowCharacterCount(true)
         }
-        nameInput.onTextChanged = { draftName = it }
-        inner.addView(nameInput, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 14f, 0f, 14f))
+        nameInput.onTextChanged = {
+            draftName = it
+            updateSaveActionState()
+        }
+        val nameWrap = FrameLayout(context)
+        nameWrap.addView(nameInput, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+        nameLock = ImageView(context).apply {
+            visibility = View.GONE
+            setImageDrawable(
+                MezonIcon.lockIcon.getDrawable(context).apply {
+                    colorFilter = PorterDuffColorFilter(themeColors.textDisabled, PorterDuff.Mode.SRC_IN)
+                }
+            )
+            scaleType = ImageView.ScaleType.FIT_CENTER
+        }
+        nameWrap.addView(
+            nameLock,
+            LayoutHelper.createFrame(16, 16, Gravity.END or Gravity.CENTER_VERTICAL, 0f, 12f, 14f, 0f),
+        )
+        inner.addView(nameWrap, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 14f, 0f, 14f))
 
         colorRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -273,7 +298,11 @@ class RoleDetailFragment : BaseFragment() {
             isClickable = true
             setOnClickListener { showRoleIconPickerFromHit() }
         }
-        iconRow.addView(
+        val iconLabelWrap = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        iconLabelWrap.addView(
             TextView(context).apply {
                 text = getString(R.string.clan_roles_detail_icon)
                 textSize = 13f
@@ -282,6 +311,23 @@ class RoleDetailFragment : BaseFragment() {
                 isClickable = false
                 isFocusable = false
             },
+            LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.CENTER_VERTICAL),
+        )
+        iconLock = ImageView(context).apply {
+            visibility = View.GONE
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setImageDrawable(
+                MezonIcon.lockIcon.getDrawable(context).apply {
+                    colorFilter = PorterDuffColorFilter(themeColors.textDisabled, PorterDuff.Mode.SRC_IN)
+                },
+            )
+        }
+        iconLabelWrap.addView(
+            iconLock,
+            LayoutHelper.createLinear(16, 16, 0f, Gravity.CENTER_VERTICAL, 6f, 0f, 0f, 0f),
+        )
+        iconRow.addView(
+            iconLabelWrap,
             LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL),
         )
         val iconTail = LinearLayout(context).apply {
@@ -412,6 +458,7 @@ class RoleDetailFragment : BaseFragment() {
         actionBar?.setSubtitleColor(headerTone)
         nameInput.setText(role.title)
         applyDetailEditableState(role)
+        updateSaveActionState(role)
         refreshColorRowUi()
         iconAvatar.setInfo(role.roleId, role.title)
         refreshIconPreview()
@@ -422,6 +469,7 @@ class RoleDetailFragment : BaseFragment() {
         val can = canEdit(role)
         logEditabilityDiag(role, can)
         nameInput.isEnabled = can && !role.isEveryoneRole()
+        nameLock.visibility = if (can && !role.isEveryoneRole()) View.GONE else View.VISIBLE
         colorRow.isClickable = can
         colorRow.alpha = if (can) 1f else 0.55f
         colorLock.visibility = if (can) View.GONE else View.VISIBLE
@@ -434,8 +482,11 @@ class RoleDetailFragment : BaseFragment() {
         iconRow.isClickable = can
         iconRow.alpha = if (can) 1f else 0.55f
         iconRemoveBtn.isEnabled = can
+        iconRemoveBtn.visibility = if (can && draftIconUrl.isNotBlank()) View.VISIBLE else View.GONE
+        iconLock.visibility = if (can) View.GONE else View.VISIBLE
         val showDelete = !role.isEveryoneRole() && can
         deleteBtn.visibility = if (showDelete) View.VISIBLE else View.GONE
+        updateSaveActionState(role)
     }
 
     private fun updateEditableChrome() {
@@ -483,7 +534,7 @@ class RoleDetailFragment : BaseFragment() {
         val clan = clansController.clans.value.firstOrNull { it.clanId == clanId } ?: return false
         val perm = permissionPolicy.clanSettingsPermissionState(clanId)
         if (userController.userId != 0L && userController.userId == clan.creatorId) return true
-        if (perm.isCanEditRole) return true
+        if (!perm.isCanEditRole) return false
         return effectiveSelfMaxPermissionLevel() >= role.maxLevelPermission
     }
 
@@ -521,6 +572,7 @@ class RoleDetailFragment : BaseFragment() {
         ) { picked ->
             draftColorHex = normalizeColorForApi(picked)
             refreshColorRowUi()
+            updateSaveActionState()
         }
         colorPickerSheet = sheet
         sheet.show()
@@ -548,6 +600,7 @@ class RoleDetailFragment : BaseFragment() {
         draftIconUrl = ""
         refreshIconPreview()
         refreshRemoveIconVisibility()
+        updateSaveActionState()
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -581,6 +634,7 @@ class RoleDetailFragment : BaseFragment() {
                     draftIconUrl = url
                     refreshIconPreview()
                     refreshRemoveIconVisibility()
+                    updateSaveActionState()
                 }.onFailure { e ->
                     if (e is ContentUriTooLargeException) {
                         MezonToast.show(this@RoleDetailFragment, ToastOverlay.ToastType.ERROR, getString(R.string.clan_roles_icon_too_large))
@@ -641,6 +695,14 @@ class RoleDetailFragment : BaseFragment() {
             LayoutHelper.createLinear(16, 16, 0f, Gravity.CENTER_VERTICAL)
         )
         return row to lock
+    }
+
+    private fun updateSaveActionState(role: ClanRole? = roleController.getRole(clanId, roleId)) {
+        val canSave = role != null && canEdit(role) && hasUnsavedChanges()
+        saveItem?.visibility = if (canSave) View.VISIBLE else View.GONE
+        saveItem?.isEnabled = canSave
+        saveItem?.alpha = if (canSave) 1f else 0.4f
+        saveText?.setTextColor(if (canSave) themeColors.blurple else themeColors.textDisabled)
     }
 
     private fun hasUnsavedChanges(): Boolean =
@@ -706,6 +768,10 @@ class RoleDetailFragment : BaseFragment() {
         val clan = clansController.clans.value.firstOrNull { it.clanId == clanId } ?: return
         val members = userClanController.getClanMembers(clanId)
         val role = roleController.getRole(clanId, roleId) ?: return
+        if (!canEdit(role) || !hasUnsavedChanges()) {
+            updateSaveActionState(role)
+            return
+        }
         val title = draftName.trim().ifEmpty { role.title }
         val color = normHex(draftColorHex)
         val trimmedIcon = draftIconUrl.trim()

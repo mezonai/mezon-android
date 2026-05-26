@@ -71,6 +71,7 @@ import com.mezon.mezon.api.listChannelDescsRequest
 import com.mezon.mezon.api.SdTopic
 import com.mezon.mezon.api.SdTopicList
 import com.mezon.mezon.api.listSdTopicRequest
+import com.mezon.mezon.api.sdTopicRequest
 import com.mezon.mezon.api.sdTopicDetailRequest
 import com.mezon.mezon.api.listThreadRequest
 import com.mezon.mezon.api.ListFavoriteChannelResponse
@@ -1257,6 +1258,22 @@ class MezonApi @Inject constructor(
             this.topicId = topicId
         }
         val bytes = rpc(apiUrl, token, "GetTopicDetail", request.toByteArray())
+        return SdTopic.parseFrom(bytes)
+    }
+
+    suspend fun createSdTopic(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        channelId: Long,
+        messageId: Long
+    ): SdTopic {
+        val request = sdTopicRequest {
+            this.clanId = clanId
+            this.channelId = channelId
+            this.messageId = messageId
+        }
+        val bytes = rpc(apiUrl, token, "CreateSdTopic", request.toByteArray())
         return SdTopic.parseFrom(bytes)
     }
 

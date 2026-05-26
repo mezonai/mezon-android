@@ -120,6 +120,10 @@ class ChannelPermissionsFragment : BaseFragment() {
         observe(NotificationCenter.channelPermissionsDidLoad) { _, _, args ->
             if ((args.firstOrNull() as? Long) == channelId) renderCurrentTab()
         }
+        observe(NotificationCenter.userClansDidLoad) { _, _, _ ->
+            renderCurrentTab()
+        }
+        userClanController.loadUsers()
         permissionController.loadChannelPermissionData(clanId, channelId, channelType)
         return true
     }
@@ -547,13 +551,21 @@ class ChannelPermissionsFragment : BaseFragment() {
 
     private fun showAddSheet(context: Context) {
         val selectedMembers = userClanController.getDirectChannelMembers(channelId).map { it.userId }.toHashSet()
-        ownerUserId().takeIf { it != 0L }?.let { selectedMembers.add(it) }
         val roles = permissionController.getAvailableRoles(clanId, channelId)
-        val members = userClanController.getClanMembers(clanId).filter { it.userId !in selectedMembers }
+        val members = availableClanMembersForAdd(selectedMembers)
         val sheet = AddMemberOrRoleBottomSheet(context, themeColors, roles, members) { memberIds, roleIds ->
             addMembersAndRoles(memberIds, roleIds)
         }
         showDialog(sheet)
+    }
+
+    private fun availableClanMembersForAdd(excludedUserIds: Set<Long>): List<ClanMember> {
+        val byId = LinkedHashMap<Long, ClanMember>()
+        for (member in userClanController.getClanMembers(clanId)) {
+            if (member.userId != 0L) byId[member.userId] = member
+        }
+        ownerMember()?.let { byId[it.userId] = it }
+        return byId.values.filter { it.userId !in excludedUserIds }
     }
 
     private fun addMembersAndRoles(memberIds: List<Long>, roleIds: List<Long>) {
@@ -609,7 +621,42 @@ class ChannelPermissionsFragment : BaseFragment() {
     private fun ownerMember(): ClanMember? {
         val ownerId = ownerUserId()
         if (ownerId == 0L) return null
-        return userClanController.getClanMembers(clanId).firstOrNull { it.userId == ownerId }
+        userClanController.getClanMembers(clanId).firstOrNull { it.userId == ownerId }?.let { return it }
+        if (ownerId == userController.userId) {
+            return ClanMember(
+                userId = ownerId,
+                username = userController.username,
+                displayName = userController.displayName.ifBlank { userController.username },
+                avatarUrl = userController.avatarUrl,
+                isOnline = true,
+                clanNick = "",
+                clanAvatar = "",
+                clanId = clanId,
+                roleIds = emptyList()
+            )
+        }
+        val user = userClanController.getUserById(ownerId) ?: return ClanMember(
+            userId = ownerId,
+            username = getString(R.string.channel_permissions_creator_badge),
+            displayName = getString(R.string.channel_permissions_creator_badge),
+            avatarUrl = "",
+            isOnline = false,
+            clanNick = "",
+            clanAvatar = "",
+            clanId = clanId,
+            roleIds = emptyList()
+        )
+        return ClanMember(
+            userId = ownerId,
+            username = user.username,
+            displayName = user.displayName.ifBlank { user.username },
+            avatarUrl = user.avatarUrl,
+            isOnline = user.isOnline,
+            clanNick = "",
+            clanAvatar = "",
+            clanId = clanId,
+            roleIds = emptyList()
+        )
     }
 
     private fun memberDisplayName(member: ClanMember): String =
