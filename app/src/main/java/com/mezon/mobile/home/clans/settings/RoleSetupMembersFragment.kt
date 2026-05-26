@@ -2,8 +2,7 @@ package com.mezon.mobile.home.clans.settings
 
 import android.content.Context
 import android.os.Bundle
-import android.text.Editable
-import android.text.TextWatcher
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
@@ -20,7 +19,7 @@ import com.mezon.mobile.home.clans.ClansController
 import com.mezon.mobile.home.clans.RoleController
 import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.ui.cells.ActionBarView
-import com.mezon.mobile.ui.cells.InputCell
+import com.mezon.mobile.ui.cells.SearchCell
 import com.mezon.mobile.ui.cells.TextCheckCell
 import com.mezon.mobile.ui.cells.ToastOverlay
 import kotlinx.coroutines.Dispatchers
@@ -60,7 +59,7 @@ class RoleSetupMembersFragment : BaseFragment() {
     private lateinit var userClanController: UserClanController
     private lateinit var clansController: ClansController
     private lateinit var recyclerView: RecyclerView
-    private lateinit var searchInput: InputCell
+    private lateinit var searchInput: SearchCell
     private lateinit var adapter: MembersAdapter
     private var filter = ""
     private val selectedUserIds = LinkedHashSet<Long>()
@@ -77,7 +76,10 @@ class RoleSetupMembersFragment : BaseFragment() {
         clanId = arguments?.getLong(ARG_CLAN_ID) ?: 0L
         roleId = arguments?.getLong(ARG_ROLE_ID) ?: 0L
         isEditMode = arguments?.getBoolean(ARG_EDIT_MODE, false) == true
-        if (clanId != 0L) userClanController.loadClanMembers(clanId)
+        if (clanId != 0L) {
+            userClanController.loadClanMembers(clanId)
+            roleController.loadUserMaxPermissionForClan(clanId)
+        }
         return true
     }
 
@@ -131,34 +133,31 @@ class RoleSetupMembersFragment : BaseFragment() {
                     text = getString(R.string.clan_roles_members_heading)
                     textSize = 24f
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
+                    gravity = Gravity.CENTER_HORIZONTAL
                     setTextColor(ClanRolesUiTheme.secondaryCardTitleColor(themeColors))
                 },
-                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT)
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.CENTER_HORIZONTAL)
             )
             introBlock.addView(
                 android.widget.TextView(context).apply {
                     text = getString(R.string.clan_roles_members_body)
                     textSize = 14f
                     setTextColor(ClanRolesUiTheme.textOnScreenMuted(themeColors))
+                    gravity = Gravity.CENTER_HORIZONTAL
                 },
-                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, android.view.Gravity.NO_GRAVITY, 0f, 8f, 0f, 0f)
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.CENTER_HORIZONTAL, 0f, 8f, 0f, 0f)
             )
             root.addView(introBlock, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
         }
 
-        searchInput = InputCell(context, themeColors).apply {
-            setHint(getString(R.string.clan_roles_members_search))
-        }
-        root.addView(searchInput, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, android.view.Gravity.NO_GRAVITY, 14f, 8f, 14f, 0f))
-
-        searchInput.editText.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-            override fun afterTextChanged(s: Editable?) {
-                filter = s?.toString().orEmpty().trim()
+        searchInput = SearchCell(context, themeColors).apply {
+            setPlaceholder(getString(R.string.clan_roles_members_search))
+            onTextChanged = {
+                filter = it.trim()
                 adapter.refresh()
             }
-        })
+        }
+        root.addView(searchInput, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 14f, 8f, 14f, 0f))
 
         recyclerView = RecyclerView(context).apply {
             layoutManager = LinearLayoutManager(context)
@@ -234,6 +233,10 @@ class RoleSetupMembersFragment : BaseFragment() {
 
         private var rows: List<ClanMember> = emptyList()
 
+        init {
+            setHasStableIds(true)
+        }
+
         fun refresh() {
             val all = userClanController.getClanMembers(clanId)
             val q = filter.lowercase()
@@ -248,6 +251,9 @@ class RoleSetupMembersFragment : BaseFragment() {
         override fun getItemCount(): Int = if (rows.isEmpty()) 1 else rows.size
 
         override fun getItemViewType(position: Int): Int = if (rows.isEmpty()) 1 else 0
+
+        override fun getItemId(position: Int): Long =
+            if (rows.isEmpty()) Long.MIN_VALUE else rows[position].userId
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder {
             if (viewType == 1) {
@@ -273,11 +279,17 @@ class RoleSetupMembersFragment : BaseFragment() {
             val cell = holder.cell ?: return
             val label = m.clanNick.ifBlank { m.displayName.ifBlank { m.username } }
             val checked = selectedUserIds.contains(m.userId)
+            cell.onCheckedChange = null
             cell.setTextAndCheck(label, m.username, checked, position < rows.lastIndex)
+            cell.setCheckEnabled(true)
+            val applyChecked: (Boolean) -> Unit = { next ->
+                if (next) selectedUserIds.add(m.userId) else selectedUserIds.remove(m.userId)
+            }
+            cell.onCheckedChange = { next -> applyChecked(next) }
             cell.setOnClickListener {
                 val next = !cell.isChecked()
                 cell.setChecked(next)
-                if (next) selectedUserIds.add(m.userId) else selectedUserIds.remove(m.userId)
+                applyChecked(next)
             }
         }
 

@@ -4,6 +4,22 @@ import android.content.Context
 import com.mezon.mobile.R
 
 object RolePermissionLabels {
+    private val orderedSlugs = listOf(
+        "administrator",
+        "manage-clan",
+        "manage-channel",
+        "manage-thread",
+        "view-channel",
+        "send-message",
+        "delete-message",
+        "clan-owner",
+    )
+
+    fun sortWeight(slug: String): Int {
+        val index = orderedSlugs.indexOf(slug)
+        return if (index >= 0) index else Int.MAX_VALUE
+    }
+
     fun titleForSlug(context: Context, slug: String, fallbackTitle: String): String {
         val res = when (slug) {
             "administrator" -> R.string.clan_roles_perm_title_administrator
