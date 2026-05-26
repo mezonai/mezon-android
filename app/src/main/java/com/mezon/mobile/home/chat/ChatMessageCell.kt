@@ -148,6 +148,14 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private val shareContactLayout = ShareContactCardLayout(context).also {
         it.invalidateCallback = { invalidate() }
     }
+    private val topicButtonLayout = TopicMessageButtonLayout(context, theme).also {
+        it.setInvalidateCallback { invalidate() }
+    }
+    var topicCreatorResolver: ((Long) -> Pair<String, String>?)? = null
+    var topicLastMessageIdResolver: ((Long) -> Long)? = null
+    var topicBadgeResolver: ((Long) -> Int)? = null
+    var onTopicClick: ((topicId: Long, rootMessageId: Long) -> Unit)? = null
+    var topicButtonEnabled = true
     private var shareContactParsed: ShareContactData? = null
     private var hasShareContactCard = false
     private val shareContactHitRect = RectF()
@@ -185,6 +193,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var errorLayout: StaticLayout? = null
     private var hasReply = false
     private var parsedContent: String = ""
+    private var hasExplicitTextBody: Boolean = false
     private var timeText: String = ""
     var channelType: Int = 0
     var clanId: Long = 0L
@@ -335,6 +344,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         ogpImage.onDetachedFromWindow()
         linkInviteBlock.onDetachedFromWindow()
         embedMessage.onDetachedFromWindow()
+        topicButtonLayout.cancelAvatarLoad()
         avatarCancellable?.cancel()
         avatarCancellable = null
         senderRoleIconCancellable?.cancel()
@@ -450,6 +460,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             val contentHash = msg.content.hashCode() xor msg.timestampSeconds.hashCode() xor
                 msg.code xor (if (msg.isForwarded) 1 else 0) xor
                 msg.updateTimeSeconds.hashCode() xor (if (msg.hideEditted) 2 else 0) xor
+                msg.rplCount xor msg.topicId.hashCode() xor
                 (pollBridge?.stateFingerprint(msg.id) ?: 0)
             if (msg.id == lastBoundId && contentHash == lastBoundContentHash && isCombined == lastBoundCombined) {
                 return false
@@ -460,6 +471,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
             if (newMsg != null) messageEntity = newMsg
             parsedContent = parseContentText(msg.content)
+            hasExplicitTextBody = messageHasExplicitTextBody(msg.content)
             timeText = formatRelativeTime(msg.timestampSeconds)
             drawPhotoImage = msg.hasAnyMedia
             val isAudioAtt = msg.isAudioAttachment && !msg.hasAnyMedia
@@ -494,6 +506,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 if (isAnon) loadAnonymousAvatar() else loadAvatar(msg.senderAvatar)
             }
             if (drawPhotoImage) loadPhotoImage(msg) else clearPhotoReceivers()
+            buildTopicButton(msg, width)
             if (BuildConfig.DEBUG && drawPhotoImage) {
                 Log.d(
                     TAG,
@@ -511,6 +524,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             val newParsed = parseContentText(msg.content)
             if (newParsed != parsedContent || msg.content != prevRaw) {
                 parsedContent = newParsed
+                hasExplicitTextBody = messageHasExplicitTextBody(msg.content)
                 rebuildLayout = true
             }
         }
@@ -551,6 +565,16 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 if (isAnon) loadAnonymousAvatar() else loadAvatar(msg.senderAvatar)
                 needInvalidate = true
             }
+        }
+
+        if ((mask and NotificationCenter.UPDATE_MASK_TOPIC) != 0) {
+            val m = newMsg ?: messageEntity ?: return false
+            if (newMsg != null) messageEntity = newMsg
+            buildTopicButton(m, width = cachedMeasuredWidth.takeIf { it > 0 } ?: currentWidth())
+            measuredCellHeight = computeHeight(m)
+            requestLayout()
+            invalidate()
+            return true
         }
 
         if ((mask and NotificationCenter.UPDATE_MASK_REACTIONS) != 0) {
@@ -1125,7 +1149,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val hasText = !hasCallLogCard && !msg.isPollMessage && !hasShareContactCard &&
             parsedContent.isNotBlank() && parsedContent != "[file]" && parsedContent != "[embed]" &&
             parsedContent != "[contact]" &&
-            (!hasEmbedPayload || messageHasExplicitTextBody(msg.content))
+            (!hasEmbedPayload || hasExplicitTextBody)
         contentLayout = if (hasText) {
             val content = msg.content
             val linkColor = theme.blurple
@@ -1305,7 +1329,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         if (msg.isPollMessage && pollParsed != null) {
             val st = pollBridge?.getLocalState(msg.id) ?: PollLocalState()
             val forLayout = pollBridge?.pollForLayout(msg.id, pollParsed!!) ?: pollParsed!!
-            pollLayoutHelper.prepare(forLayout, st, currentUserId, theme, bubbleMaxW)
+            pollLayoutHelper.prepare(forLayout, st, currentUserId, theme, bubbleMaxW, this)
         }
 
         val replyW = if (hasReply) cachedReplyNameW + cachedReplyTextW + REPLY_AVATAR_SIZE + REPLY_H_GAP * 2 else 0f
@@ -1350,9 +1374,49 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             hasEphemeralDecor = false
         }
 
+        buildTopicButton(msg, width)
         measuredCellHeight = computeHeight(msg)
         updatedContent = true
         syncPollHitRect()
+    }
+
+    private fun buildTopicButton(msg: MessageEntity, width: Int) {
+        if (!topicButtonEnabled || !msg.isTopicRootMessage) {
+            topicButtonLayout.bind(msg, "", "", "", "", "")
+            return
+        }
+        val creator = topicCreatorResolver?.invoke(msg.topicCreatorId)
+        val creatorName = creator?.first ?: msg.senderName
+        val creatorAvatar = creator?.second ?: msg.senderAvatar
+        val lastTopicMessageId = topicLastMessageIdResolver?.invoke(msg.effectiveTopicId) ?: 0L
+        val count = resolveTopicReplyCount(msg.rplCount, lastTopicMessageId)
+        val countLabel = when {
+            count > 99 -> "99+ ${context.getString(R.string.topic_replies)}"
+            count <= 1 -> "$count ${context.getString(R.string.topic_reply_one)}"
+            else -> "$count ${context.getString(R.string.topic_replies)}"
+        }
+        topicButtonLayout.bind(
+            msg,
+            creatorName,
+            creatorAvatar,
+            context.getString(R.string.topic_creator),
+            context.getString(R.string.topic_view),
+            countLabel,
+            topicBadgeResolver?.invoke(msg.effectiveTopicId) ?: 0
+        )
+        if (width > 0) {
+            val contentLeft = if (isInPinMode) PIN_PAD_H else PAD_H + AVATAR_SIZE + GAP_AVATAR
+            topicButtonLayout.layout(contentLeft.toFloat(), yOffsetBeforeTopicButton(msg), width)
+        }
+    }
+
+    private fun yOffsetBeforeTopicButton(msg: MessageEntity): Float {
+        var yOff = yOffsetTopOfMainContent(msg)
+        yOff += mainContentStackHeight().toFloat()
+        if (reactionGroups.isNotEmpty()) {
+            yOff += REACTION_TOP_PAD + reactionRowHeight
+        }
+        return yOff
     }
 
     private fun verticalOffsetBeforePollCard(): Float {
@@ -1492,6 +1556,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
         if (reactionGroups.isNotEmpty()) {
             h += REACTION_TOP_PAD + reactionRowHeight
+        }
+
+        if (topicButtonLayout.visible) {
+            h += topicButtonLayout.blockHeight + TOPIC_BLOCK_MARGIN
         }
 
         if (drawError) {
@@ -1997,6 +2065,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                         return true
                     }
                 }
+                if (topicButtonLayout.hitTest(x, y)) {
+                    return true
+                }
                 if (hasShareContactCard && shareContactParsed != null) {
                     if (!shareContactCardDrawTopY.isNaN()) {
                         val cl = shareContactContentLeft()
@@ -2255,6 +2326,14 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                             return true
                         }
                     }
+                }
+                if (topicButtonLayout.hitTest(x, y)) {
+                    val tid = topicButtonLayout.topicId
+                    val rootId = topicButtonLayout.rootMessageId
+                    if (tid != 0L && rootId != 0L) {
+                        onTopicClick?.invoke(tid, rootId)
+                    }
+                    return true
                 }
                 val scMsg = messageEntity
                 val scData = shareContactParsed
@@ -2702,6 +2781,12 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             yOff += REACTION_TOP_PAD
             drawReactionRow(canvas, contentLeft.toFloat(), yOff)
             yOff += reactionRowHeight
+        }
+
+        if (topicButtonLayout.visible) {
+            topicButtonLayout.layout(contentLeft.toFloat(), yOff, width)
+            topicButtonLayout.draw(canvas)
+            yOff += topicButtonLayout.blockHeight + TOPIC_BLOCK_MARGIN
         }
 
     }
@@ -4100,6 +4185,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             style = android.graphics.Paint.Style.FILL
         }
         private val GAP_V_INNER = LayoutHelper.dp(6)
+        private val TOPIC_BLOCK_MARGIN = LayoutHelper.dp(4)
         private val ROLE_ICON_SIZE = LayoutHelper.dp(20f)
         private val ROLE_ICON_GAP = LayoutHelper.dp(4f)
         private val LINK_INVITE_V_MARGIN = LayoutHelper.dp(12) 

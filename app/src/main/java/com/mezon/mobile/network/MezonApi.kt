@@ -12,6 +12,8 @@ import com.mezon.mezon.api.allUsersAddChannelRequest
 import com.mezon.mezon.api.addChannelUsersRequest
 import com.mezon.mezon.api.addRoleChannelDescRequest
 import com.mezon.mezon.api.CategoryDesc
+import com.mezon.mezon.api.CategoryDescList
+import com.mezon.mezon.api.categoryDesc
 import com.mezon.mezon.api.ClanDesc
 import com.mezon.mezon.api.EmojiListedResponse
 import com.mezon.mezon.api.StickerListedResponse
@@ -79,14 +81,20 @@ import com.mezon.mezon.api.ListChannelBadgeCountResponse
 import com.mezon.mezon.api.ListClanBadgeCountResponse
 import com.mezon.mezon.api.listChannelBadgeCountRequest
 import com.mezon.mezon.api.listChannelDescsRequest
+import com.mezon.mezon.api.SdTopic
+import com.mezon.mezon.api.SdTopicList
+import com.mezon.mezon.api.listSdTopicRequest
+import com.mezon.mezon.api.sdTopicDetailRequest
 import com.mezon.mezon.api.listThreadRequest
 import com.mezon.mezon.api.ListFavoriteChannelResponse
 import com.mezon.mezon.api.AddFavoriteChannelResponse
 import com.mezon.mezon.api.addFavoriteChannelRequest
 import com.mezon.mezon.api.listFavoriteChannelRequest
 import com.mezon.mezon.api.removeFavoriteChannelRequest
+import com.mezon.mezon.api.CreatePollResponse
 import com.mezon.mezon.api.GetPollResponse
 import com.mezon.mezon.api.VotePollResponse
+import com.mezon.mezon.api.createPollRequest
 import com.mezon.mezon.api.getPollRequest
 import com.mezon.mezon.api.listChannelMessagesRequest
 import com.mezon.mezon.api.votePollRequest
@@ -331,6 +339,7 @@ class MezonApi @Inject constructor(
             "ListAuditLog",
             "ListChannelApps",
             "ListChannelAttachment",
+            "ListCategoryDescs",
             "ListChannelBadgeCount",
             "ListChannelByUserId",
             "ListChannelDescs",
@@ -982,6 +991,18 @@ class MezonApi @Inject constructor(
         return CategoryDesc.parseFrom(bytes)
     }
 
+    suspend fun listCategoryDescs(
+        apiUrl: String,
+        token: String,
+        clanId: Long
+    ): CategoryDescList {
+        val request = categoryDesc {
+            this.clanId = clanId
+        }
+        val bytes = rpc(apiUrl, token, "ListCategoryDescs", request.toByteArray())
+        return CategoryDescList.parseFrom(bytes)
+    }
+
     suspend fun listChannelBadgeCount(
         apiUrl: String,
         token: String,
@@ -1207,6 +1228,32 @@ class MezonApi @Inject constructor(
         }
         val bytes = rpc(apiUrl, token, "ListThreadDescs", request.toByteArray())
         return ChannelDescList.parseFrom(bytes)
+    }
+
+    suspend fun listSdTopic(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        limit: Int = 50
+    ): SdTopicList {
+        val request = listSdTopicRequest {
+            this.clanId = clanId
+            this.limit = limit
+        }
+        val bytes = rpc(apiUrl, token, "ListSdTopic", request.toByteArray())
+        return SdTopicList.parseFrom(bytes)
+    }
+
+    suspend fun getTopicDetail(
+        apiUrl: String,
+        token: String,
+        topicId: Long
+    ): SdTopic {
+        val request = sdTopicDetailRequest {
+            this.topicId = topicId
+        }
+        val bytes = rpc(apiUrl, token, "GetTopicDetail", request.toByteArray())
+        return SdTopic.parseFrom(bytes)
     }
 
     suspend fun listClanDiscover(
@@ -1586,6 +1633,28 @@ class MezonApi @Inject constructor(
         rpc(apiUrl, token, "MessageButtonClick", body)
     }
 
+    suspend fun createPoll(
+        apiUrl: String,
+        token: String,
+        channelId: Long,
+        clanId: Long,
+        question: String,
+        answerLabels: List<String>,
+        expireHours: Int,
+        type: Int
+    ): CreatePollResponse {
+        val request = createPollRequest {
+            this.channelId = channelId
+            this.clanId = clanId
+            this.question = question
+            answers.addAll(answerLabels)
+            this.expireHours = expireHours
+            this.typeValue = type
+        }
+        val bytes = rpc(apiUrl, token, "CreatePoll", request.toByteArray())
+        return CreatePollResponse.parseFrom(bytes)
+    }
+
     suspend fun votePoll(
         apiUrl: String,
         token: String,
@@ -1628,6 +1697,7 @@ class MezonApi @Inject constructor(
         messageId: Long = 0L,
         direction: Int = 0,
         limit: Int = 50,
+        topicId: Long = 0L,
         preferHttp: Boolean = false
     ): ChannelMessageList {
         val request = listChannelMessagesRequest {
@@ -1636,6 +1706,7 @@ class MezonApi @Inject constructor(
             if (messageId != 0L) this.messageId = messageId
             if (direction != 0) this.direction = direction
             this.limit = limit
+            if (topicId != 0L) this.topicId = topicId
         }
         val bytes = rpc(
             apiUrl,
