@@ -7,10 +7,12 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.R
 import com.mezon.mobile.core.BaseFragment
+import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.ClanMember
@@ -80,7 +82,34 @@ class RoleSetupMembersFragment : BaseFragment() {
             userClanController.loadClanMembers(clanId)
             roleController.loadUserMaxPermissionForClan(clanId)
         }
+        observe(NotificationCenter.clanRolesDidLoad) { _, _, args ->
+            if (isPaused) return@observe
+            val id = args.firstOrNull() as? Long ?: return@observe
+            if (id != clanId || !::adapter.isInitialized) return@observe
+            reloadRoleMemberSelection()
+        }
         return true
+    }
+
+    override fun onBecomeFullyVisible() {
+        super.onBecomeFullyVisible()
+        if (isEditMode && ::adapter.isInitialized) {
+            reloadRoleMemberSelection()
+        }
+    }
+
+    private fun reloadRoleMemberSelection() {
+        if (!isEditMode || !::adapter.isInitialized) return
+        fragmentScope.launch {
+            val ids = roleController.loadAllRoleMemberUserIds(roleId)
+            withContext(Dispatchers.Main.immediate) {
+                initialMemberIds.clear()
+                initialMemberIds.addAll(ids)
+                selectedUserIds.clear()
+                selectedUserIds.addAll(ids)
+                adapter.refresh()
+            }
+        }
     }
 
     override fun createView(context: Context): View {
@@ -166,18 +195,10 @@ class RoleSetupMembersFragment : BaseFragment() {
         recyclerView.adapter = adapter
         root.addView(recyclerView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
         if (isEditMode) {
-            fragmentScope.launch {
-                val ids = roleController.loadAllRoleMemberUserIds(roleId)
-                withContext(Dispatchers.Main) {
-                    initialMemberIds.clear()
-                    initialMemberIds.addAll(ids)
-                    selectedUserIds.clear()
-                    selectedUserIds.addAll(ids)
-                    adapter.refresh()
-                }
-            }
+            reloadRoleMemberSelection()
+        } else {
+            adapter.refresh()
         }
-        adapter.refresh()
         fragmentView = root
         return root
     }
@@ -218,6 +239,8 @@ class RoleSetupMembersFragment : BaseFragment() {
                     }
                     MezonToast.show(this@RoleSetupMembersFragment, ToastOverlay.ToastType.SUCCESS, ok)
                     if (isEditMode) {
+                        initialMemberIds.clear()
+                        initialMemberIds.addAll(selectedUserIds)
                         finishFragment()
                     } else {
                         parentLayout?.closeLastFragment(animated = true)
@@ -229,9 +252,15 @@ class RoleSetupMembersFragment : BaseFragment() {
         }
     }
 
+    private fun applyMemberChecked(userId: Long, checked: Boolean) {
+        if (checked) selectedUserIds.add(userId) else selectedUserIds.remove(userId)
+    }
+
     private inner class MembersAdapter : RecyclerView.Adapter<MembersAdapter.Holder>() {
 
         private var rows: List<ClanMember> = emptyList()
+        private var showEmpty = false
+        private var selectionSnapshot: Set<Long> = emptySet()
 
         init {
             setHasStableIds(true)
@@ -240,20 +269,33 @@ class RoleSetupMembersFragment : BaseFragment() {
         fun refresh() {
             val all = userClanController.getClanMembers(clanId)
             val q = filter.lowercase()
-            rows = if (q.isEmpty()) all else all.filter { m ->
+            val nextRows = if (q.isEmpty()) all else all.filter { m ->
                 m.displayName.lowercase().contains(q) ||
                     m.username.lowercase().contains(q) ||
                     m.clanNick.lowercase().contains(q)
             }
-            notifyDataSetChanged()
+            val nextEmpty = nextRows.isEmpty()
+            if (showEmpty != nextEmpty) {
+                showEmpty = nextEmpty
+                rows = nextRows
+                selectionSnapshot = selectedUserIds.toSet()
+                notifyDataSetChanged()
+                return
+            }
+            val diff = DiffUtil.calculateDiff(
+                MemberDiffCallback(rows, nextRows, selectionSnapshot, selectedUserIds)
+            )
+            rows = nextRows
+            selectionSnapshot = selectedUserIds.toSet()
+            diff.dispatchUpdatesTo(this)
         }
 
-        override fun getItemCount(): Int = if (rows.isEmpty()) 1 else rows.size
+        override fun getItemCount(): Int = if (showEmpty) 1 else rows.size
 
-        override fun getItemViewType(position: Int): Int = if (rows.isEmpty()) 1 else 0
+        override fun getItemViewType(position: Int): Int = if (showEmpty) 1 else 0
 
         override fun getItemId(position: Int): Long =
-            if (rows.isEmpty()) Long.MIN_VALUE else rows[position].userId
+            if (showEmpty) Long.MIN_VALUE else rows[position].userId
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder {
             if (viewType == 1) {
@@ -270,29 +312,51 @@ class RoleSetupMembersFragment : BaseFragment() {
                 RecyclerView.LayoutParams.MATCH_PARENT,
                 RecyclerView.LayoutParams.WRAP_CONTENT
             )
-            return Holder(cell, cell)
+            val holder = Holder(cell, cell)
+            cell.onCheckedChange = { next ->
+                val pos = holder.bindingAdapterPosition
+                if (pos != RecyclerView.NO_POSITION && !showEmpty) {
+                    applyMemberChecked(rows[pos].userId, next)
+                }
+            }
+            cell.setOnClickListener {
+                val pos = holder.bindingAdapterPosition
+                if (pos != RecyclerView.NO_POSITION && !showEmpty) {
+                    val next = !cell.isChecked()
+                    cell.setChecked(next)
+                    applyMemberChecked(rows[pos].userId, next)
+                }
+            }
+            return holder
         }
 
         override fun onBindViewHolder(holder: Holder, position: Int) {
-            if (rows.isEmpty()) return
+            if (showEmpty) return
             val m = rows[position]
             val cell = holder.cell ?: return
             val label = m.clanNick.ifBlank { m.displayName.ifBlank { m.username } }
-            val checked = selectedUserIds.contains(m.userId)
-            cell.onCheckedChange = null
-            cell.setTextAndCheck(label, m.username, checked, position < rows.lastIndex)
+            cell.setTextAndCheck(label, m.username, selectedUserIds.contains(m.userId), position < rows.lastIndex)
             cell.setCheckEnabled(true)
-            val applyChecked: (Boolean) -> Unit = { next ->
-                if (next) selectedUserIds.add(m.userId) else selectedUserIds.remove(m.userId)
-            }
-            cell.onCheckedChange = { next -> applyChecked(next) }
-            cell.setOnClickListener {
-                val next = !cell.isChecked()
-                cell.setChecked(next)
-                applyChecked(next)
-            }
         }
 
         inner class Holder(itemView: View, val cell: TextCheckCell?) : RecyclerView.ViewHolder(itemView)
+    }
+
+    private class MemberDiffCallback(
+        private val old: List<ClanMember>,
+        private val new: List<ClanMember>,
+        private val oldSelected: Set<Long>,
+        private val newSelected: Set<Long>,
+    ) : DiffUtil.Callback() {
+        override fun getOldListSize(): Int = old.size
+        override fun getNewListSize(): Int = new.size
+        override fun areItemsTheSame(oldPos: Int, newPos: Int): Boolean =
+            old[oldPos].userId == new[newPos].userId
+        override fun areContentsTheSame(oldPos: Int, newPos: Int): Boolean {
+            val o = old[oldPos]
+            val n = new[newPos]
+            return o == n &&
+                (o.userId in oldSelected) == (n.userId in newSelected)
+        }
     }
 }

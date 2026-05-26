@@ -1189,6 +1189,7 @@ open class ChatFragment : BaseFragment() {
                 refreshPermissionGates()
             }
             if (clanId == 0L && (channelType == CHANNEL_TYPE_DM || channelType == CHANNEL_TYPE_GROUP)) {
+                refreshDmHeaderTitleFromDialog()
                 refreshWelcomeFromDialog()
             }
             if (clanId != 0L || channelType != CHANNEL_TYPE_DM) return@observe
@@ -3522,11 +3523,25 @@ open class ChatFragment : BaseFragment() {
         return dm.otherUserId == myId
     }
 
+    private fun refreshDmHeaderTitleFromDialog() {
+        if (clanId != 0L) return
+        if (channelType != CHANNEL_TYPE_DM && channelType != CHANNEL_TYPE_GROUP) return
+        val dm = dialogsController.getDialog(channelId) ?: return
+        val nextName = dm.displayName.ifBlank { dm.label }.ifBlank { channelName }
+        if (nextName.isBlank()) return
+        if (nextName != channelName) {
+            channelName = nextName
+        }
+        actionBar?.setTitle(nextName)
+    }
+
     private fun refreshWelcomeFromDialog() {
         if (clanId != 0L || !::adapter.isInitialized) return
         if (channelType != CHANNEL_TYPE_DM && channelType != CHANNEL_TYPE_GROUP) return
         val dm = dialogsController.getDialog(channelId)
         val nextChannelName = if (channelType == CHANNEL_TYPE_DM) {
+            dm?.displayName?.ifBlank { dm.label }?.ifBlank { channelName } ?: channelName
+        } else if (channelType == CHANNEL_TYPE_GROUP) {
             dm?.displayName?.ifBlank { dm.label }?.ifBlank { channelName } ?: channelName
         } else {
             adapter.channelName
@@ -3552,7 +3567,7 @@ open class ChatFragment : BaseFragment() {
         lastWelcomePlaceholderKey = nextPlaceholderKey
         lastWelcomePeerUsername = nextPeerUsername
         lastWelcomeChannelName = nextChannelName
-        if (channelType == CHANNEL_TYPE_DM && nextChannelName.isNotEmpty()) {
+        if ((channelType == CHANNEL_TYPE_DM || channelType == CHANNEL_TYPE_GROUP) && nextChannelName.isNotEmpty()) {
             adapter.channelName = nextChannelName
         }
         adapter.welcomeAvatarUrl = nextAvatarUrl
@@ -5187,16 +5202,12 @@ open class ChatFragment : BaseFragment() {
 
     private fun profileRolesFor(member: ClanMember?): List<UserProfileBottomSheet.UserProfileRole> {
         if (member == null || clanId == 0L || member.roleIds.isEmpty()) return emptyList()
-        val rolesById = (roleController.getRoles(clanId) + listOfNotNull(roleController.getEveryoneRole(clanId)))
-            .associateBy { it.roleId }
-        return member.roleIds.mapNotNull { roleId ->
-            val role = rolesById[roleId] ?: return@mapNotNull null
-            if (role.isEveryoneRole()) return@mapNotNull null
+        return roleController.profileRoleChipsForMember(clanId, member.roleIds).map { chip ->
             UserProfileBottomSheet.UserProfileRole(
-                id = role.roleId,
-                title = role.title,
-                color = role.color,
-                iconUrl = role.iconUrl,
+                id = chip.roleId,
+                title = chip.title,
+                color = chip.color,
+                iconUrl = chip.iconUrl,
             )
         }
     }

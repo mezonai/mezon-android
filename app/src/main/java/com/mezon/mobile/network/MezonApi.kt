@@ -50,6 +50,7 @@ import com.mezon.mezon.api.getSystemMessage
 import com.mezon.mezon.api.notificationClan
 import com.mezon.mezon.api.setDefaultNotificationRequest
 import com.mezon.mezon.api.updateClanDescRequest
+import com.mezon.mezon.api.updateChannelDescRequest
 import com.mezon.mezon.api.deleteFriendsRequest
 import com.mezon.mezon.api.deleteNotificationsRequest
 import com.mezon.mezon.api.filterParam
@@ -857,6 +858,23 @@ class MezonApi @Inject constructor(
         }
         val bytes = rpc(apiUrl, token, "CreateChannelDesc", request.toByteArray())
         return ChannelDescription.parseFrom(bytes)
+    }
+
+    suspend fun updateChannelDesc(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        channelId: Long,
+        channelLabel: String? = null,
+        channelAvatar: String? = null
+    ): ByteArray {
+        val request = updateChannelDescRequest {
+            this.clanId = clanId
+            this.channelId = channelId
+            channelLabel?.let { this.channelLabel = StringValue.of(it) }
+            channelAvatar?.let { this.channelAvatar = StringValue.of(it) }
+        }
+        return rpc(apiUrl, token, "UpdateChannelDesc", request.toByteArray())
     }
 
     suspend fun createClanDesc(

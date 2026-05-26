@@ -504,14 +504,20 @@ class UserProfileBottomSheet(
         }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
             bottomMargin = LayoutHelper.dp(10)
         })
+        val rolesWrap = RoleWrapLayout(context).apply {
+            horizontalSpacing = LayoutHelper.dp(10)
+            verticalSpacing = LayoutHelper.dp(8)
+        }
         roles.forEach { role ->
-            card.addView(buildRoleRow(role), LinearLayout.LayoutParams(
+            rolesWrap.addView(buildRoleRow(role))
+        }
+        card.addView(
+            rolesWrap,
+            LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                bottomMargin = LayoutHelper.dp(6)
-            })
-        }
+            )
+        )
         return card
     }
 
@@ -539,8 +545,73 @@ class UserProfileBottomSheet(
             setTextColor(textStrongColor)
             setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14f)
             maxLines = 1
-        }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            maxWidth = LayoutHelper.dp(200)
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         return row
+    }
+
+    private class RoleWrapLayout(context: android.content.Context) : ViewGroup(context) {
+        var horizontalSpacing: Int = 0
+        var verticalSpacing: Int = 0
+
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            val widthMode = MeasureSpec.getMode(widthMeasureSpec)
+            val widthSize = MeasureSpec.getSize(widthMeasureSpec)
+            val maxWidth = if (widthMode == MeasureSpec.UNSPECIFIED) Int.MAX_VALUE else widthSize - paddingLeft - paddingRight
+            var x = 0
+            var y = 0
+            var lineHeight = 0
+            var usedWidth = 0
+            for (i in 0 until childCount) {
+                val child = getChildAt(i)
+                if (child.visibility == GONE) continue
+                measureChild(child, widthMeasureSpec, heightMeasureSpec)
+                val childWidth = child.measuredWidth
+                val childHeight = child.measuredHeight
+                if (x > 0 && x + childWidth > maxWidth) {
+                    x = 0
+                    y += lineHeight + verticalSpacing
+                    lineHeight = 0
+                }
+                if (x > 0) x += horizontalSpacing
+                x += childWidth
+                lineHeight = maxOf(lineHeight, childHeight)
+                usedWidth = maxOf(usedWidth, x)
+            }
+            val measuredWidth = when (widthMode) {
+                MeasureSpec.EXACTLY -> widthSize
+                MeasureSpec.AT_MOST -> (paddingLeft + usedWidth + paddingRight).coerceAtMost(widthSize)
+                else -> paddingLeft + usedWidth + paddingRight
+            }
+            val measuredHeight = y + lineHeight + paddingTop + paddingBottom
+            setMeasuredDimension(
+                measuredWidth,
+                resolveSize(measuredHeight, heightMeasureSpec)
+            )
+        }
+
+        override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
+            val maxWidth = width - paddingLeft - paddingRight
+            var x = paddingLeft
+            var y = paddingTop
+            var lineHeight = 0
+            for (i in 0 until childCount) {
+                val child = getChildAt(i)
+                if (child.visibility == GONE) continue
+                val childWidth = child.measuredWidth
+                val childHeight = child.measuredHeight
+                if (x > paddingLeft && (x - paddingLeft) + horizontalSpacing + childWidth > maxWidth) {
+                    x = paddingLeft
+                    y += lineHeight + verticalSpacing
+                    lineHeight = 0
+                }
+                if (x > paddingLeft) x += horizontalSpacing
+                child.layout(x, y, x + childWidth, y + childHeight)
+                x += childWidth
+                lineHeight = maxOf(lineHeight, childHeight)
+            }
+        }
     }
 
 

@@ -163,33 +163,40 @@ class UserClanController @Inject constructor(
         if (clanId == 0L || roleId == 0L || (addUserIds.isEmpty() && removeUserIds.isEmpty())) return
         val add = addUserIds.toHashSet()
         val remove = removeUserIds.toHashSet()
-        var clanChanged = false
-        val changedChannels = ArrayList<Long>()
+        val clanMembersSnapshot: List<ClanMember>?
+        val channelSnapshots = ArrayList<Pair<Long, List<ClanMember>>>()
         synchronized(this) {
-            val clanMembers = membersByClan[clanId]
-            if (clanMembers != null) {
-                val next = updateMemberRoleList(clanMembers, roleId, add, remove)
-                if (next !== clanMembers) {
-                    membersByClan.put(clanId, next)
-                    clanChanged = true
-                }
-            }
+            clanMembersSnapshot = membersByClan[clanId]
             for (i in 0 until membersByChannel.size()) {
                 val channelId = membersByChannel.keyAt(i)
                 val list = membersByChannel.valueAt(i)
-                if (list.none { it.clanId == clanId }) continue
-                val next = updateMemberRoleList(list, roleId, add, remove)
-                if (next !== list) {
-                    membersByChannel.put(channelId, next)
-                    changedChannels.add(channelId)
+                if (list.any { it.clanId == clanId }) {
+                    channelSnapshots.add(channelId to list)
                 }
             }
         }
-        if (clanChanged) {
+        var clanNext: List<ClanMember>? = null
+        if (clanMembersSnapshot != null) {
+            val next = updateMemberRoleList(clanMembersSnapshot, roleId, add, remove)
+            if (next !== clanMembersSnapshot) clanNext = next
+        }
+        val channelNext = ArrayList<Pair<Long, List<ClanMember>>>()
+        for ((channelId, list) in channelSnapshots) {
+            val next = updateMemberRoleList(list, roleId, add, remove)
+            if (next !== list) channelNext.add(channelId to next)
+        }
+        if (clanNext == null && channelNext.isEmpty()) return
+        synchronized(this) {
+            if (clanNext != null) membersByClan.put(clanId, clanNext)
+            for ((channelId, next) in channelNext) {
+                membersByChannel.put(channelId, next)
+            }
+        }
+        if (clanNext != null) {
             notificationCenter.postNotificationOnMainThread(NotificationCenter.clanMembersDidLoad, clanId)
         }
-        changedChannels.forEach {
-            notificationCenter.postNotificationOnMainThread(NotificationCenter.channelMembersDidLoad, it)
+        for ((channelId, _) in channelNext) {
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.channelMembersDidLoad, channelId)
         }
     }
 

@@ -3,6 +3,8 @@ package com.mezon.mobile.home.clans.settings
 import android.content.Context
 import com.mezon.mobile.R
 
+import com.mezon.mobile.home.clans.PermissionCatalogEntry
+
 object RolePermissionLabels {
     private val orderedSlugs = listOf(
         "administrator",
@@ -19,6 +21,13 @@ object RolePermissionLabels {
         val index = orderedSlugs.indexOf(slug)
         return if (index >= 0) index else Int.MAX_VALUE
     }
+
+    fun sortCatalog(items: List<PermissionCatalogEntry>): List<PermissionCatalogEntry> =
+        items.sortedWith(
+            compareBy<PermissionCatalogEntry> { sortWeight(it.slug) }
+                .thenBy { it.level }
+                .thenBy { it.title.lowercase() }
+        )
 
     fun titleForSlug(context: Context, slug: String, fallbackTitle: String): String {
         val res = when (slug) {
