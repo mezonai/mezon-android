@@ -5,6 +5,7 @@ import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
@@ -24,7 +25,7 @@ import com.mezon.mobile.home.clans.PermissionPolicy
 import com.mezon.mobile.home.clans.RoleController
 import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.ui.cells.ActionBarView
-import com.mezon.mobile.ui.cells.AvatarView
+import com.mezon.mobile.ui.cells.CdnIconView
 import com.mezon.mobile.ui.cells.MezonIcon
 
 class ServerRolesFragment : BaseFragment() {
@@ -275,6 +276,7 @@ class ServerRolesFragment : BaseFragment() {
                 textSize = 13f
                 setTextColor(themeColors.colorText)
                 maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
             },
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT)
         )
@@ -322,13 +324,11 @@ class ServerRolesFragment : BaseFragment() {
         }
         val iconSlot = FrameLayout(context)
         if (role.iconUrl.isNotBlank()) {
-            val av = AvatarView(context).apply {
+            val icon = CdnIconView(context, themeColors).apply {
                 setSizeDp(ROLE_ROW_ICON_DP)
-                setRoundRadius(6f)
-                setInfo(role.roleId, role.title)
                 setImageUrl(role.iconUrl)
             }
-            iconSlot.addView(av, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.CENTER))
+            iconSlot.addView(icon, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.CENTER))
         } else {
             val shield = ImageView(context).apply {
                 val d = MezonIcon.shieldUserIcon.getDrawable(context).mutate()
@@ -357,6 +357,8 @@ class ServerRolesFragment : BaseFragment() {
                 textSize = 16f
                 setTextColor(ClanRolesUiTheme.secondaryCardTitleColor(themeColors))
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
             },
             LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL)
         )
@@ -371,11 +373,8 @@ class ServerRolesFragment : BaseFragment() {
             )
         }
         mid.addView(titleRow)
-        val sub = if (role.memberCount == 1) {
-            getString(R.string.clan_roles_member_count_one)
-        } else {
-            getString(R.string.clan_roles_member_count, role.memberCount)
-        }
+        val memberCount = role.memberCount
+        val sub = context.resources.getQuantityString(R.plurals.clan_roles_member_count, memberCount, memberCount)
         mid.addView(
             TextView(context).apply {
                 text = sub

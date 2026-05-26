@@ -55,7 +55,7 @@ class ChannelPermissionOverridesFragment : BaseFragment() {
             channelId: Long,
             targetId: Long,
             targetType: Int,
-            targetTitle: String,
+            targetTitle: String = "",
         ): ChannelPermissionOverridesFragment =
             ChannelPermissionOverridesFragment().apply {
                 arguments = Bundle().apply {
@@ -119,8 +119,6 @@ class ChannelPermissionOverridesFragment : BaseFragment() {
         }
         ClanRolesUiTheme.applyPrimaryFlowRoot(root, themeColors)
         actionBar = ActionBarView(context, themeColors).apply {
-            setTitle(getString(R.string.channel_permissions_overrides))
-            setSubtitle(targetTitle)
             setBackButtonImage(R.drawable.ic_arrow_back)
             setBackButtonContentDescription(getString(R.string.clan_roles_back_content_desc))
             setCenterTitle(true)
@@ -147,6 +145,7 @@ class ChannelPermissionOverridesFragment : BaseFragment() {
             })
         }
         root.addView(actionBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+        configureActionBarTitle()
 
         val scroll = ScrollView(context).apply {
             isFillViewport = false
@@ -173,11 +172,7 @@ class ChannelPermissionOverridesFragment : BaseFragment() {
             withContext(Dispatchers.Main.immediate) {
                 catalog = roleController.getPermissionCatalog()
                     .filter { it.scope == CHANNEL_PERMISSION_SCOPE }
-                    .sortedWith(
-                        compareBy<PermissionCatalogEntry> { RolePermissionLabels.sortWeight(it.slug) }
-                            .thenBy { it.level }
-                            .thenBy { it.title.lowercase() }
-                    )
+                    .let { RolePermissionLabels.sortCatalog(it) }
                 val mapped = overrides.getOrNull()?.associate {
                     it.permissionId to if (it.active) CHANNEL_PERMISSION_STATUS_ALLOW else CHANNEL_PERMISSION_STATUS_DENY
                 }.orEmpty()
@@ -365,6 +360,19 @@ class ChannelPermissionOverridesFragment : BaseFragment() {
             return
         }
         promptUnsaved()
+    }
+
+    private fun configureActionBarTitle() {
+        val bar = actionBar ?: return
+        if (targetType == CHANNEL_PERMISSION_TARGET_ROLE) {
+            val roleTitle = roleController.getRole(clanId, targetId)?.title?.takeIf { it.isNotBlank() } ?: targetTitle
+            bar.setTitle(roleTitle)
+            bar.setSubtitle(getString(R.string.channel_permissions_role_badge))
+            bar.setSubtitleColor(themeColors.colorText)
+        } else {
+            bar.setTitle(getString(R.string.channel_permissions_overrides))
+            bar.setSubtitle(null)
+        }
     }
 
     private fun promptUnsaved() {

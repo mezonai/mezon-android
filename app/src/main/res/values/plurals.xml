@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <plurals name="clan_roles_member_count">
+        <item quantity="one">%1$d - Member</item>
+        <item quantity="other">%1$d - Members</item>
+    </plurals>
+</resources>

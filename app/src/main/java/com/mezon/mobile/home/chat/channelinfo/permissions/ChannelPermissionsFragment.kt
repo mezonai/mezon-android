@@ -313,10 +313,20 @@ class ChannelPermissionsFragment : BaseFragment() {
     private fun buildRoleItem(context: Context, role: ClanRole, advanced: Boolean): LinearLayout {
         val row = baseItemRow(context).apply {
             if (advanced) setOnClickListener {
-                presentFragment(ChannelPermissionOverridesFragment.newInstance(clanId, channelId, role.roleId, CHANNEL_PERMISSION_TARGET_ROLE, role.title))
+                presentFragment(
+                    ChannelPermissionOverridesFragment.newInstance(
+                        clanId,
+                        channelId,
+                        role.roleId,
+                        CHANNEL_PERMISSION_TARGET_ROLE,
+                        role.title,
+                    )
+                )
             }
         }
-        row.addView(iconCircle(context, MezonIcon.bravePermission, role.color.takeIf { it != 0 } ?: themeColors.blurple))
+        if (!advanced) {
+            row.addView(iconCircle(context, MezonIcon.bravePermission, role.color.takeIf { it != 0 } ?: themeColors.blurple))
+        }
         row.addView(
             TextView(context).apply {
                 text = role.title
@@ -325,9 +335,23 @@ class ChannelPermissionsFragment : BaseFragment() {
                 maxLines = 1
                 ellipsize = TextUtils.TruncateAt.END
             },
-            LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL, 12f, 0f, 8f, 0f)
+            LayoutHelper.createLinear(
+                0,
+                LayoutHelper.WRAP_CONTENT,
+                1f,
+                Gravity.CENTER_VERTICAL,
+                if (advanced) 0f else 12f,
+                0f,
+                8f,
+                0f,
+            )
         )
-        row.addView(chip(context, getString(R.string.channel_permissions_role_badge)), LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, 8f, 0f))
+        if (!advanced) {
+            row.addView(
+                chip(context, getString(R.string.channel_permissions_role_badge)),
+                LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, 8f, 0f)
+            )
+        }
         if (advanced) {
             row.addView(chevron(context), LayoutHelper.createLinear(16, 16, 0f, Gravity.CENTER_VERTICAL))
         } else {
@@ -337,6 +361,7 @@ class ChannelPermissionsFragment : BaseFragment() {
     }
 
     private fun buildMemberItem(context: Context, member: ClanMember, advanced: Boolean): LinearLayout {
+        val displayName = memberDisplayName(member)
         val row = baseItemRow(context).apply {
             if (advanced) setOnClickListener {
                 presentFragment(
@@ -345,7 +370,6 @@ class ChannelPermissionsFragment : BaseFragment() {
                         channelId,
                         member.userId,
                         CHANNEL_PERMISSION_TARGET_MEMBER,
-                        member.displayName.ifBlank { member.username },
                     )
                 )
             }
@@ -353,23 +377,30 @@ class ChannelPermissionsFragment : BaseFragment() {
         row.addView(
             AvatarView(context).apply {
                 setSizeDp(34)
-                setInfo(member.userId, member.displayName.ifBlank { member.username })
+                setInfo(member.userId, displayName)
                 setImageUrl(member.clanAvatar.ifBlank { member.avatarUrl })
             },
             LayoutHelper.createLinear(34, 34, 0f, Gravity.CENTER_VERTICAL)
         )
         row.addView(
             TextView(context).apply {
-                text = member.displayName.ifBlank { member.username }
+                text = displayName
                 textSize = 15f
                 setTextColor(themeColors.textStrong)
                 maxLines = 1
                 ellipsize = TextUtils.TruncateAt.END
             },
-            LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL, 12f, 0f, 8f, 0f)
+            LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL, 12f, 0f, 4f, 0f)
         )
         if (member.userId == ownerUserId()) {
-            row.addView(chip(context, getString(R.string.channel_permissions_creator_badge)), LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, 8f, 0f))
+            row.addView(
+                ImageView(context).apply {
+                    setImageDrawable(MezonIcon.ownerIcon.getDrawable(context).apply {
+                        colorFilter = PorterDuffColorFilter(0xFFFAA61A.toInt(), PorterDuff.Mode.SRC_IN)
+                    })
+                },
+                LayoutHelper.createLinear(16, 16, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, 8f, 0f)
+            )
         }
         if (advanced) {
             row.addView(chevron(context), LayoutHelper.createLinear(16, 16, 0f, Gravity.CENTER_VERTICAL))
@@ -580,6 +611,9 @@ class ChannelPermissionsFragment : BaseFragment() {
         if (ownerId == 0L) return null
         return userClanController.getClanMembers(clanId).firstOrNull { it.userId == ownerId }
     }
+
+    private fun memberDisplayName(member: ClanMember): String =
+        member.clanNick.ifBlank { member.displayName.ifBlank { member.username } }
 
     private fun baseItemRow(context: Context): LinearLayout =
         LinearLayout(context).apply {

@@ -8,6 +8,7 @@
     <string name="common_cancel">Hủy</string>
     <string name="common_delete">Xóa</string>
     <string name="common_save">Lưu</string>
+    <string name="common_create">Tạo</string>
     <string name="common_confirm">Xác nhận</string>
     <string name="common_close">Đóng</string>
     <string name="common_open_settings">Mở cài đặt</string>
@@ -195,6 +196,12 @@
     <string name="dm_new_dm_failed">Không thể tạo cuộc trò chuyện. Vui lòng thử lại.</string>
     <string name="dm_create_group_failed">Không thể tạo nhóm. Vui lòng thử lại.</string>
     <string name="dm_add_members_failed">Không thể thêm thành viên. Vui lòng thử lại.</string>
+    <string name="dm_group_customize">Tùy chỉnh nhóm</string>
+    <string name="dm_group_name">Tên nhóm</string>
+    <string name="dm_group_upload_image">Tải lên hình ảnh</string>
+    <string name="dm_group_remove_avatar">Xóa ảnh</string>
+    <string name="dm_group_invalid_name">Tên nhóm không hợp lệ</string>
+    <string name="dm_group_update_failed">Cập nhật nhóm thất bại</string>
 
     <!-- message -->
     <string name="message_actions_edit">Chỉnh sửa tin nhắn</string>
@@ -336,8 +343,6 @@
     <string name="clan_roles_description">Dùng vai trò để nhóm thành viên clan và gán quyền</string>
     <string name="clan_roles_default_role">Quyền mặc định cho mọi thành viên clan</string>
     <string name="clan_roles_header_count">Vai trò - %1$d</string>
-    <string name="clan_roles_member_count">%1$d - Thành viên</string>
-    <string name="clan_roles_member_count_one">1 - Thành viên</string>
     <string name="clan_roles_no_roles">Hiện chưa có vai trò</string>
     <string name="clan_roles_all_members">Mọi thành viên clan</string>
     <string name="clan_roles_add_content_desc">Thêm vai trò</string>
@@ -1020,6 +1025,8 @@
     <string name="channel_settings_title">Cài đặt kênh</string>
     <string name="channel_settings_save">Lưu</string>
     <string name="channel_settings_channel_topic">Chủ đề kênh</string>
+    <string name="channel_settings_age_restricted_title">Kênh giới hạn độ tuổi</string>
+    <string name="channel_settings_age_restricted_description">Người dùng cần xác nhận đủ độ tuổi hợp pháp để xem nội dung trong kênh này. Kênh giới hạn độ tuổi được miễn bộ lọc nội dung nhạy cảm.</string>
     <string name="channel_settings_change_category">Đổi danh mục</string>
     <string name="channel_settings_permissions">Quyền kênh</string>
     <string name="channel_settings_quick_action">Thao tác nhanh</string>
@@ -1027,6 +1034,51 @@
     <string name="channel_settings_permission_description">Thay đổi thiết lập riêng tư và tùy chỉnh cách thành viên tương tác với kênh này.</string>
     <string name="channel_settings_webhooks">Webhook</string>
     <string name="channel_settings_delete_channel">Xóa kênh</string>
+
+    <string name="channel_category_picker_title">Đổi danh mục</string>
+    <string name="channel_category_picker_empty">Không có danh mục khác</string>
+    <string name="channel_category_management_title">Danh mục</string>
+    <string name="channel_category_management_channel_name">Tên kênh</string>
+    <string name="channel_category_management_category">Danh mục</string>
+    <string name="channel_category_move_to">Chuyển sang danh mục</string>
+    <string name="channel_change_category_title">Đổi danh mục</string>
+    <string name="channel_change_category_move_header">CHUYỂN TỪ %1$s SANG</string>
+    <string name="channel_change_category_confirm">Xác nhận</string>
+    <string name="channel_change_category_confirm_message">Chuyển \"%1$s\" từ \"%2$s\" sang \"%3$s\"?</string>
+    <string name="channel_change_category_error">Đổi danh mục thất bại</string>
+    <string name="channel_quick_action_title">Thao tác nhanh</string>
+    <string name="channel_quick_action_flash_tab">Tin nhanh</string>
+    <string name="channel_quick_action_menu_tab">Menu nhanh</string>
+    <string name="channel_quick_action_empty">Chưa có thao tác nhanh</string>
+    <string name="channel_quick_action_empty_flash_title">Chưa có tin nhanh</string>
+    <string name="channel_quick_action_empty_flash_subtitle">Tạo lệnh tin nhanh đầu tiên để bắt đầu</string>
+    <string name="channel_quick_action_empty_menu_title">Chưa có menu nhanh</string>
+    <string name="channel_quick_action_empty_menu_subtitle">Tạo menu nhanh đầu tiên để bắt đầu</string>
+    <string name="channel_quick_action_add">Thêm thao tác nhanh</string>
+    <string name="channel_quick_action_name_hint">Tên</string>
+    <string name="channel_quick_action_msg_hint_flash">Nội dung tin</string>
+    <string name="channel_quick_action_msg_hint_menu">Hành động (để trống cho bot event)</string>
+    <string name="channel_quick_action_create_flash_title">Tạo tin nhanh</string>
+    <string name="channel_quick_action_edit_flash_title">Sửa tin nhanh</string>
+    <string name="channel_quick_action_create_menu_title">Tạo menu nhanh</string>
+    <string name="channel_quick_action_edit_menu_title">Sửa menu nhanh</string>
+    <string name="channel_quick_action_flash_key_hint">Key (Ví dụ: hello)</string>
+    <string name="channel_quick_action_flash_content_hint">Nội dung (Ví dụ: Chào buổi sáng, Chúc bạn một ngày tốt lành!)</string>
+    <string name="channel_quick_action_menu_name_label">Tên menu *</string>
+    <string name="channel_quick_action_menu_name_hint">menu-name</string>
+    <string name="channel_quick_action_menu_name_desc">Tên hiển thị cho mục menu nhanh này</string>
+    <string name="channel_quick_action_bot_event_title">Kích hoạt Bot Event</string>
+    <string name="channel_quick_action_bot_event_desc">Menu nhanh này sẽ tự động kích hoạt bot event khi được chọn.</string>
+    <string name="channel_quick_action_triggers_bot">Kích hoạt Bot Event</string>
+    <string name="channel_quick_action_delete_message">Xóa %1$s?</string>
+    <string name="channel_quick_action_create_title">Thao tác nhanh mới</string>
+    <string name="channel_quick_action_edit_title">Sửa thao tác nhanh</string>
+    <string name="channel_ban_list_title">Danh sách cấm</string>
+    <string name="channel_ban_list_empty">Không có người bị cấm</string>
+    <string name="channel_ban_unban">Bỏ cấm</string>
+    <string name="channel_ban_unban_confirm_title">Bỏ cấm người dùng?</string>
+    <string name="channel_ban_unban_confirm_message">Bỏ cấm %s?</string>
+    <string name="channel_ban_unban_success">Đã bỏ cấm</string>
 
     <!-- Channel permission (Basic / Advanced) -->
     <string name="channel_permission_title">Quyền kênh</string>

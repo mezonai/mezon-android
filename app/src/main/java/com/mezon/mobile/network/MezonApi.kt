@@ -43,6 +43,20 @@ import com.mezon.mezon.api.AddFriendsResponse
 import com.mezon.mezon.api.addFriendsRequest
 import com.mezon.mezon.api.blockFriendsRequest
 import com.mezon.mezon.api.changeChannelPrivateRequest
+import com.mezon.mezon.api.changeChannelCategoryRequest
+import com.mezon.mezon.api.checkDuplicateNameRequest
+import com.mezon.mezon.api.deleteChannelDescRequest
+import com.mezon.mezon.api.updateChannelDescRequest
+import com.mezon.mezon.api.listCategoryDescsRequest
+import com.mezon.mezon.api.CategoryDescList
+import com.mezon.mezon.api.CheckDuplicateNameResponse
+import com.mezon.mezon.api.listQuickMenuAccessRequest
+import com.mezon.mezon.api.QuickMenuAccessList
+import com.mezon.mezon.api.quickMenuAccess
+import com.mezon.mezon.api.bannedUserListRequest
+import com.mezon.mezon.api.BannedUserList
+import com.mezon.mezon.api.banClanUsersRequest
+import com.mezon.mezon.api.leaveThreadRequest
 import com.mezon.mezon.api.createCategoryDescRequest
 import com.mezon.mezon.api.createClanDescRequest
 import com.mezon.mezon.api.deleteClanDescRequest
@@ -50,6 +64,7 @@ import com.mezon.mezon.api.getSystemMessage
 import com.mezon.mezon.api.notificationClan
 import com.mezon.mezon.api.setDefaultNotificationRequest
 import com.mezon.mezon.api.updateClanDescRequest
+import com.mezon.mezon.api.updateChannelDescRequest
 import com.mezon.mezon.api.deleteFriendsRequest
 import com.mezon.mezon.api.deleteNotificationsRequest
 import com.mezon.mezon.api.filterParam
@@ -857,6 +872,23 @@ class MezonApi @Inject constructor(
         }
         val bytes = rpc(apiUrl, token, "CreateChannelDesc", request.toByteArray())
         return ChannelDescription.parseFrom(bytes)
+    }
+
+    suspend fun updateChannelDesc(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        channelId: Long,
+        channelLabel: String? = null,
+        channelAvatar: String? = null
+    ): ByteArray {
+        val request = updateChannelDescRequest {
+            this.clanId = clanId
+            this.channelId = channelId
+            channelLabel?.let { this.channelLabel = StringValue.of(it) }
+            channelAvatar?.let { this.channelAvatar = StringValue.of(it) }
+        }
+        return rpc(apiUrl, token, "UpdateChannelDesc", request.toByteArray())
     }
 
     suspend fun createClanDesc(
@@ -2414,6 +2446,191 @@ class MezonApi @Inject constructor(
         }
         val bytes = rpc(apiUrl, token, "GenerateHashChannelApps", request.toByteArray())
         return GenerateHashChannelAppsResponse.parseFrom(bytes)
+    }
+
+    suspend fun updateChannelDesc(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        channelId: Long,
+        channelLabel: String,
+        categoryId: Long,
+        topic: String,
+        appId: Long = 0L,
+        ageRestricted: Int = 0,
+        e2ee: Int = 0,
+    ): ChannelDescription {
+        val request = updateChannelDescRequest {
+            this.clanId = clanId
+            this.channelId = channelId
+            this.channelLabel = StringValue.of(channelLabel)
+            this.categoryId = categoryId
+            this.topic = topic
+            this.appId = appId
+            this.ageRestricted = ageRestricted
+            this.e2Ee = e2ee
+        }
+        val bytes = rpc(apiUrl, token, "UpdateChannelDesc", request.toByteArray())
+        return ChannelDescription.parseFrom(bytes)
+    }
+
+    suspend fun deleteChannelDesc(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        channelId: Long,
+    ) {
+        val request = deleteChannelDescRequest {
+            this.clanId = clanId
+            this.channelId = channelId
+        }
+        rpc(apiUrl, token, "DeleteChannelDesc", request.toByteArray())
+    }
+
+    suspend fun checkDuplicateName(
+        apiUrl: String,
+        token: String,
+        name: String,
+        type: Int,
+        conditionId: Long,
+    ): Boolean {
+        val request = checkDuplicateNameRequest {
+            this.name = name
+            this.type = type
+            this.conditionId = conditionId
+        }
+        val bytes = rpc(apiUrl, token, "CheckDuplicateName", request.toByteArray())
+        return CheckDuplicateNameResponse.parseFrom(bytes).isDuplicate
+    }
+
+    suspend fun changeChannelCategory(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        channelId: Long,
+        newCategoryId: Long,
+    ) {
+        val request = changeChannelCategoryRequest {
+            this.clanId = clanId
+            this.channelId = channelId
+            this.newCategoryId = newCategoryId
+        }
+        rpc(apiUrl, token, "ChangeChannelCategory", request.toByteArray())
+    }
+
+    suspend fun listCategoryDescs(
+        apiUrl: String,
+        token: String,
+        limit: Int = 100,
+        state: Int = 1,
+        cursor: String = "",
+    ): CategoryDescList {
+        val request = listCategoryDescsRequest {
+            this.limit = limit
+            this.state = state
+            this.cursor = cursor
+        }
+        val bytes = rpc(apiUrl, token, "ListCategoryDescs", request.toByteArray())
+        return CategoryDescList.parseFrom(bytes)
+    }
+
+    suspend fun listQuickMenuAccess(
+        apiUrl: String,
+        token: String,
+        channelId: Long,
+        menuType: Int,
+        botId: Long = 0L,
+    ): QuickMenuAccessList {
+        val request = listQuickMenuAccessRequest {
+            this.channelId = channelId
+            this.menuType = menuType
+            this.botId = botId
+        }
+        val bytes = rpc(apiUrl, token, "ListQuickMenuAccess", request.toByteArray())
+        return QuickMenuAccessList.parseFrom(bytes)
+    }
+
+    suspend fun addQuickMenuAccess(
+        apiUrl: String,
+        token: String,
+        item: com.mezon.mezon.api.QuickMenuAccess,
+    ) {
+        rpc(apiUrl, token, "AddQuickMenuAccess", item.toByteArray())
+    }
+
+    suspend fun updateQuickMenuAccess(
+        apiUrl: String,
+        token: String,
+        item: com.mezon.mezon.api.QuickMenuAccess,
+    ) {
+        rpc(apiUrl, token, "UpdateQuickMenuAccess", item.toByteArray())
+    }
+
+    suspend fun deleteQuickMenuAccess(
+        apiUrl: String,
+        token: String,
+        item: com.mezon.mezon.api.QuickMenuAccess,
+    ) {
+        rpc(apiUrl, token, "DeleteQuickMenuAccess", item.toByteArray())
+    }
+
+    suspend fun listBannedUsers(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        channelId: Long,
+    ): BannedUserList {
+        val request = bannedUserListRequest {
+            this.clanId = clanId
+            this.channelId = channelId
+        }
+        val bytes = rpc(apiUrl, token, "ListBannedUsers", request.toByteArray())
+        return BannedUserList.parseFrom(bytes)
+    }
+
+    suspend fun banClanUsers(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        channelId: Long,
+        userIds: List<Long>,
+        banTime: Int = 0,
+    ) {
+        val request = banClanUsersRequest {
+            this.clanId = clanId
+            this.channelId = channelId
+            this.userIds.addAll(userIds)
+            this.banTime = banTime
+        }
+        rpc(apiUrl, token, "BanClanUsers", request.toByteArray())
+    }
+
+    suspend fun unbanClanUsers(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        channelId: Long,
+        userIds: List<Long>,
+    ) {
+        val request = banClanUsersRequest {
+            this.clanId = clanId
+            this.channelId = channelId
+            this.userIds.addAll(userIds)
+        }
+        rpc(apiUrl, token, "UnbanClanUsers", request.toByteArray())
+    }
+
+    suspend fun leaveThread(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        threadId: Long,
+    ) {
+        val request = leaveThreadRequest {
+            this.clanId = clanId
+            this.channelId = threadId
+        }
+        rpc(apiUrl, token, "LeaveThread", request.toByteArray())
     }
 
     suspend fun putFileToPresignedUrl(

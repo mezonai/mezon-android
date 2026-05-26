@@ -22,7 +22,7 @@ import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.clans.ClanRole
 import com.mezon.mobile.ui.cells.AvatarView
-import com.mezon.mobile.ui.cells.InputCell
+import com.mezon.mobile.ui.cells.SearchCell
 import com.mezon.mobile.ui.cells.MezonIcon
 
 class AddMemberOrRoleBottomSheet(
@@ -68,14 +68,14 @@ class AddMemberOrRoleBottomSheet(
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 0f, 0f, 12f)
         )
 
-        val input = InputCell(context, theme).apply {
-            setHint(context.getString(R.string.channel_permissions_role_member_placeholder))
+        val searchInput = SearchCell(context, theme).apply {
+            setPlaceholder(context.getString(R.string.channel_permissions_role_member_placeholder))
             onTextChanged = {
                 query = it.trim().lowercase()
                 rebuildRows(context)
             }
         }
-        root.addView(input, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+        root.addView(searchInput, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         listAdapter = PickerAdapter(context)
         val recyclerView = RecyclerView(context).apply {
@@ -333,7 +333,7 @@ class AddMemberOrRoleBottomSheet(
             private val checkbox = row.findViewWithTag<FrameLayout>("checkbox")
 
             fun bind(member: ClanMember) {
-                val display = member.displayName.ifBlank { member.username }
+                val display = member.clanNick.ifBlank { member.displayName.ifBlank { member.username } }
                 title.text = display
                 avatar.setInfo(member.userId, display)
                 avatar.setImageUrl(member.clanAvatar.ifBlank { member.avatarUrl })

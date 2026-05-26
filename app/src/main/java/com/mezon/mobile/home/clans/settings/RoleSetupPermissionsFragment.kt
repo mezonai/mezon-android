@@ -26,7 +26,7 @@ import com.mezon.mobile.home.clans.everyoneSlugForClan
 import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.ui.cells.ActionBarView
-import com.mezon.mobile.ui.cells.InputCell
+import com.mezon.mobile.ui.cells.SearchCell
 import com.mezon.mobile.ui.cells.TextCheckCell
 import com.mezon.mobile.ui.cells.ToastOverlay
 import kotlinx.coroutines.Dispatchers
@@ -70,7 +70,7 @@ class RoleSetupPermissionsFragment : BaseFragment() {
     private lateinit var permissionPolicy: PermissionPolicy
     private lateinit var recyclerView: RecyclerView
     private lateinit var adapter: PermAdapter
-    private lateinit var searchInput: InputCell
+    private lateinit var searchInput: SearchCell
     private var actionItem: View? = null
     private var actionText: TextView? = null
     private var catalog: List<PermissionCatalogEntry> = emptyList()
@@ -176,8 +176,8 @@ class RoleSetupPermissionsFragment : BaseFragment() {
             root.addView(permIntro, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
         }
 
-        searchInput = InputCell(context, themeColors).apply {
-            setHint(getString(R.string.clan_roles_perm_search))
+        searchInput = SearchCell(context, themeColors).apply {
+            setPlaceholder(getString(R.string.clan_roles_perm_search))
         }
         root.addView(searchInput, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 14f, 8f, 14f, 0f))
 
@@ -200,7 +200,7 @@ class RoleSetupPermissionsFragment : BaseFragment() {
         fragmentScope.launch {
             roleController.ensurePermissionCatalogLoaded()
             withContext(Dispatchers.Main.immediate) {
-                catalog = orderedPermissions(roleController.getPermissionCatalog())
+                catalog = RolePermissionLabels.sortCatalog(roleController.getPermissionCatalog())
                 roleSnapshot = roleController.getRole(clanId, roleId)
                 initSelection(roleSnapshot)
                 applyHeader(roleSnapshot)
@@ -219,17 +219,11 @@ class RoleSetupPermissionsFragment : BaseFragment() {
         selectedIds = LinkedHashSet(fromRole)
     }
 
-    private fun orderedPermissions(items: List<PermissionCatalogEntry>): List<PermissionCatalogEntry> =
-        items.sortedWith(
-            compareBy<PermissionCatalogEntry> { RolePermissionLabels.sortWeight(it.slug) }
-                .thenBy { it.level }
-                .thenBy { it.title.lowercase() }
-        )
-
     private fun applyHeader(role: ClanRole?) {
         if (wizardMode || role == null) return
         actionBar?.setTitle(role.title)
         actionBar?.setSubtitle(getString(R.string.clan_roles_detail_role))
+        actionBar?.setSubtitleColor(themeColors.colorText)
     }
 
     private fun hasSelectionChanges(): Boolean = selectedIds != originIds
