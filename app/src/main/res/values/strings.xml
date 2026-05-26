@@ -302,6 +302,9 @@
     <string name="message_attachment_video">Video</string>
     <string name="message_attachment_gif">GIF</string>
     <string name="message_attachment_file">File</string>
+    <string name="message_attachment_contact">Contact</string>
+    <string name="message_attachment_location">Location</string>
+    <string name="message_attachment_poll">Poll</string>
     <string name="action_copy_text">Copy Text</string>
     <string name="tokens_sent_title">Funds Transferred: %1$s₫</string>
     <string name="give_coffee_action">Give coffee action</string>

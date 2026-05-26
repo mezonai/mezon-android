@@ -104,19 +104,19 @@ fun messagePreviewForDialog(
     val base = parseContentPreview(content)
     if (base.isNotBlank()) {
         if (base == "[contact]") {
-            return "[${context.getString(R.string.advanced_share_contact)}]"
+            return "[${context.getString(R.string.message_attachment_contact)}]"
         }
         return base
     }
     when (code) {
         MessageEntity.CODE_SHARE_CONTACT -> {
-            return "[${context.getString(R.string.advanced_share_contact)}]"
+            return "[${context.getString(R.string.message_attachment_contact)}]"
         }
         MessageEntity.CODE_LOCATION -> {
-            return "[${context.getString(R.string.advanced_location)}]"
+            return "[${context.getString(R.string.message_attachment_location)}]"
         }
         MessageEntity.CODE_POLL -> {
-            return "[${context.getString(R.string.advanced_poll)}]"
+            return "[${context.getString(R.string.message_attachment_poll)}]"
         }
     }
     if (!attachments.isEmpty) {
