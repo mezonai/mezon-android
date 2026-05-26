@@ -90,7 +90,6 @@ import com.mezon.mobile.util.MentionData
 import com.mezon.mobile.util.parseContentText
 import com.mezon.mobile.util.parseMarkdownAndStrip
 import com.mezon.mobile.util.resolveStickerSourceUrl
-import com.mezon.mobile.util.restoreInputFromContent
 import com.mezon.mezon.api.messageRef
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -643,7 +642,6 @@ class CreateThreadFragment : BaseFragment() {
             layoutParams = LinearLayout.LayoutParams(LayoutHelper.MATCH_PARENT, LayoutHelper.dp(1))
         }
         box.addView(bottomLine)
-        applySeedToComposer(msg)
     }
 
     private fun seedPreviewText(msg: MessageEntity): String {
@@ -664,67 +662,6 @@ class CreateThreadFragment : BaseFragment() {
 
     private fun parentChannelType(): Int =
         channelController.findChannelById(parentChannelId, clanId)?.type ?: CHANNEL_TYPE_CHANNEL
-
-    private fun applySeedToComposer(msg: MessageEntity?) {
-        if (msg == null || !fromMessageFlow) return
-        val restored = restoreInputFromContent(msg.content)
-        if (restored.rawText.isBlank()) return
-        mentionTrackers.clear()
-        hashtagTrackers.clear()
-        emojiObjPicked.clear()
-        mentionTrackers.addAll(restored.mentions)
-        hashtagTrackers.addAll(restored.hashtags)
-        emojiObjPicked.putAll(restored.emojis)
-        composerField.setText(restored.rawText)
-        applyComposerHighlightSpans()
-        composerField.setSelection(composerField.text?.length ?: 0)
-        updateSendButtonState()
-        scrollFormToComposerArea()
-    }
-
-    private fun applyComposerHighlightSpans() {
-        val editable = composerField.text ?: return
-        val len = editable.length
-        for (m in mentionTrackers) {
-            if (m.startOffset < 0 || m.endOffset > len || m.startOffset >= m.endOffset) continue
-            val color = if (m.roleId.isNotBlank()) themeColors.textRoleLink else themeColors.textLink
-            editable.setSpan(
-                ForegroundColorSpan(color),
-                m.startOffset, m.endOffset,
-                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-            )
-            editable.setSpan(
-                StyleSpan(android.graphics.Typeface.BOLD),
-                m.startOffset, m.endOffset,
-                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-            )
-        }
-        for (h in hashtagTrackers) {
-            if (h.startOffset < 0 || h.endOffset > len || h.startOffset >= h.endOffset) continue
-            editable.setSpan(
-                HashtagSpan(h.channelId, themeColors.textLink),
-                h.startOffset, h.endOffset,
-                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-            )
-            editable.setSpan(
-                StyleSpan(android.graphics.Typeface.BOLD),
-                h.startOffset, h.endOffset,
-                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-            )
-        }
-        for ((shortname, _) in emojiObjPicked) {
-            var searchFrom = 0
-            while (searchFrom < editable.length) {
-                val idx = editable.indexOf(shortname, searchFrom)
-                if (idx < 0) break
-                val end = idx + shortname.length
-                editable.setSpan(EmojiTokenSpan(), idx, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                editable.setSpan(ForegroundColorSpan(0xFF5A62F4.toInt()), idx, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                editable.setSpan(StyleSpan(android.graphics.Typeface.BOLD), idx, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                searchFrom = end
-            }
-        }
-    }
 
     private fun buildMessageComposerSection(context: Context): LinearLayout {
         val outer = LinearLayout(context).apply {
@@ -1768,13 +1705,9 @@ class CreateThreadFragment : BaseFragment() {
         }
     }
 
-    private fun sendComposerToTopic(
-        topicId: Long,
-        seed: MessageEntity?
-    ) {
+    private fun sendComposerToTopic(topicId: Long) {
         val rawInput = composerField.text?.toString() ?: ""
         val text = rawInput.trim()
-        val refs = buildSeedRefs(seed)
         val ctx = getContext() ?: return
         val parentType = parentChannelType()
         val parentPrivate = channelController.findChannelById(parentChannelId, clanId)?.isPrivate == true
@@ -1788,22 +1721,11 @@ class CreateThreadFragment : BaseFragment() {
                     st.url,
                     st.filetype,
                     st.filename,
-                    refs,
+                    null,
                     topicId = topicId
                 )
                 pendingStickerSend = null
                 return
-            }
-            if (refs != null) {
-                chatController.sendMessage(
-                    parentChannelId,
-                    clanId,
-                    parentType,
-                    parentPrivate,
-                    "",
-                    refs,
-                    topicId = topicId
-                )
             }
             return
         }
@@ -1839,7 +1761,7 @@ class CreateThreadFragment : BaseFragment() {
                 cleanedText,
                 ArrayList(pendingAttachments),
                 ctx.contentResolver,
-                refs,
+                null,
                 mentions,
                 hashtags,
                 emojiMarkers,
@@ -1854,7 +1776,7 @@ class CreateThreadFragment : BaseFragment() {
                 parentType,
                 parentPrivate,
                 cleanedText,
-                refs,
+                null,
                 mentions,
                 emojiMarkers,
                 mdMarkers,
@@ -1876,7 +1798,7 @@ class CreateThreadFragment : BaseFragment() {
                 st.url,
                 st.filetype,
                 st.filename,
-                refs,
+                null,
                 topicId = topicId
             )
             pendingStickerSend = null
@@ -1952,9 +1874,8 @@ class CreateThreadFragment : BaseFragment() {
                         )
                     } ?: throw IllegalStateException("create topic failed")
                     val topicRootMessageId = createdTopic.messageId.takeIf { it != 0L } ?: seedMessageId
-                    val seed = seedMessage
                     withContext(mainDispatcher) {
-                        sendComposerToTopic(createdTopic.id, seed)
+                        sendComposerToTopic(createdTopic.id)
                     }
                     delay(80)
                     withContext(mainDispatcher) {
