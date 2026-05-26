@@ -12,7 +12,8 @@ class TopicFragment : ChatFragment() {
             clanId: Long,
             parentChannelId: Long,
             channelType: Int = CHANNEL_TYPE_THREAD,
-            isChannelPrivate: Boolean = false
+            isChannelPrivate: Boolean = false,
+            openedFromNotification: Boolean = false
         ): TopicFragment = TopicFragment().apply {
             arguments = Bundle().apply {
                 putLong(ARG_CHANNEL_ID, parentChannelId)
@@ -21,6 +22,7 @@ class TopicFragment : ChatFragment() {
                 putLong(ARG_TOPIC_ID, topicId)
                 putLong(ARG_ROOT_MESSAGE_ID, rootMessageId)
                 if (isChannelPrivate) putBoolean(ARG_CHANNEL_PRIVATE, true)
+                if (openedFromNotification) putBoolean(ARG_OPENED_FROM_NOTIFICATION, true)
             }
         }
     }

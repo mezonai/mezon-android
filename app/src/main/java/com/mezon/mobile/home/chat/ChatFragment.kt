@@ -171,7 +171,7 @@ open class ChatFragment : BaseFragment() {
         private const val ARG_PARENT_ID = "parentId"
         private const val ARG_MESSAGE_ID = "message_id"
         private const val ARG_FORCE_LATEST = "force_latest"
-        private const val ARG_OPENED_FROM_NOTIFICATION = "opened_from_notification"
+        internal const val ARG_OPENED_FROM_NOTIFICATION = "opened_from_notification"
         private const val VIEWPORT_LIMIT = 300
         private const val PAGE_DOWN_SCROLL_THRESHOLD = 2
         private const val REQUEST_CODE_LOCATION_PERMISSION = 1002
