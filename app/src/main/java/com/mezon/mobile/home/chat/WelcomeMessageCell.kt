@@ -72,11 +72,6 @@ class WelcomeMessageCell(context: Context, private val theme: ThemeColors) : Vie
 
     private fun resolveChannelIcon(): Drawable? {
         if (isDM) return null
-        val icon = when {
-            isAgeRestricted -> MezonIcon.channelTextWarning
-            isPrivate -> MezonIcon.channelTextLock
-            else -> MezonIcon.channelText
-        }
         if (isThread) {
             return if (isPrivate) {
                 MezonIcon.threadLockIcon.getDrawable(context, theme)
@@ -84,7 +79,11 @@ class WelcomeMessageCell(context: Context, private val theme: ThemeColors) : Vie
                 MezonIcon.threadIcon.getDrawable(context)
             }
         }
-        val icon = if (isPrivate) MezonIcon.channelTextLock else MezonIcon.channelText
+        val icon = when {
+            isAgeRestricted -> MezonIcon.channelTextWarning
+            isPrivate -> MezonIcon.channelTextLock
+            else -> MezonIcon.channelText
+        }
         return icon.getDrawable(context)
     }
 

@@ -758,7 +758,7 @@ class ChannelController @Inject constructor(
                     parentId = if (apiNorm.parentId != 0L) apiNorm.parentId else cached.parentId,
                     categoryId = if (apiNorm.categoryId != 0L) apiNorm.categoryId else cached.categoryId,
                     isPrivate = if (apiNorm.type != 0) apiNorm.isPrivate else cached.isPrivate,
-                    isAgeRestricted = apiNorm.isAgeRestricted || cached.isAgeRestricted,
+                    isAgeRestricted = apiNorm.isAgeRestricted,
                     ageRestricted = if (apiNorm.ageRestricted != 0) apiNorm.ageRestricted else cached.ageRestricted,
                     categoryOrder = if (apiNorm.categoryOrder != 0) apiNorm.categoryOrder else cached.categoryOrder,
                     lastSeenMessageId = maxOf(cached.lastSeenMessageId, apiNorm.lastSeenMessageId),
