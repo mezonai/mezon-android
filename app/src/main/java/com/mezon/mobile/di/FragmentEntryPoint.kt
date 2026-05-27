@@ -16,6 +16,8 @@ import com.mezon.mobile.home.call.CallController
 import com.mezon.mobile.home.call.CallManager
 import com.mezon.mobile.home.call.WebRtcInfra
 import com.mezon.mobile.home.chat.EmojiController
+import com.mezon.mobile.home.clans.settings.SoundEffectSettingsController
+import com.mezon.mobile.home.clans.settings.StickerSettingsController
 import com.mezon.mobile.home.chat.ImageClipboardCoordinator
 import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.ForwardTargetUsageStore
@@ -82,6 +84,8 @@ interface FragmentEntryPoint {
     fun searchController(): SearchController
     fun userClanController(): UserClanController
     fun emojiController(): EmojiController
+    fun soundEffectSettingsController(): SoundEffectSettingsController
+    fun stickerSettingsController(): StickerSettingsController
     fun imageClipboardCoordinator(): ImageClipboardCoordinator
     fun audioPlayerController(): AudioPlayerController
     fun voiceController(): VoiceController

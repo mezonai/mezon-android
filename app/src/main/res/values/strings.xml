@@ -1375,4 +1375,46 @@
     <string name="call_full_screen_intent_open_settings">Turn on</string>
     <string name="call_full_screen_intent_start_call_anyway">Start call anyway</string>
     <string name="call_full_screen_intent_incoming_hint">Fullscreen while locked off — tap to turn on</string>
+
+    <!-- Sound Effect Settings -->
+    <string name="sound_upload_instructions_title">Upload Instructions</string>
+    <string name="sound_upload_requirements">Supported: mp3, wav — Max 1 MB</string>
+    <string name="sound_upload_btn">Upload voice sticker</string>
+    <string name="sound_upload_title">Upload Voice Effect</string>
+    <string name="sound_edit_title">Edit Voice Effect</string>
+    <string name="sound_btn_upload">Upload</string>
+    <string name="sound_btn_update">Update</string>
+    <string name="sound_name_hint">Sound name (3–64 characters)</string>
+    <string name="sound_name_error">Name must be between 3 and 64 characters</string>
+    <string name="sound_empty_state">No voice stickers yet. Upload the first one!</string>
+    <string name="sound_pick_file">Select audio file</string>
+    <string name="sound_file_too_large">File is too large. Max 1 MB.</string>
+    <string name="sound_upload_failed">Upload failed. Please try again.</string>
+    <string name="sound_edit_failed">Update failed. Please try again.</string>
+    <string name="sound_delete_failed">Delete failed. Please try again.</string>
+    <string name="sound_delete_confirm_title">Delete sound?</string>
+    <string name="sound_delete_confirm_msg">Are you sure you want to delete \"%1$s\"?</string>
+    <string name="sound_edit_or_upload_new">Or upload a new file</string>
+
+    <!-- Sticker Settings -->
+    <string name="sticker_upload_instructions_title">Upload Instructions</string>
+    <string name="sticker_upload_requirements">PNG/JPG/GIF, max 512 KB, 320×320 px</string>
+    <string name="sticker_upload_btn">Upload sticker</string>
+    <string name="sticker_upload_title">Upload a Sticker</string>
+    <string name="sticker_edit_title">Edit Sticker</string>
+    <string name="sticker_btn_upload">Upload</string>
+    <string name="sticker_btn_save">Save</string>
+    <string name="sticker_name_hint">Sticker name (3–64 characters)</string>
+    <string name="sticker_name_error">Name must be between 3 and 64 characters</string>
+    <string name="sticker_is_for_sale">This sticker is for sale</string>
+    <string name="sticker_edit_file_note">Note: the image cannot be changed after upload.</string>
+    <string name="sticker_pick_file">Select image file</string>
+    <string name="sticker_file_too_large">File is too large. Max 512 KB.</string>
+    <string name="sticker_file_invalid">Could not process the selected image.</string>
+    <string name="sticker_upload_failed">Upload failed. Please try again.</string>
+    <string name="sticker_rename_failed">Rename failed. Please try again.</string>
+    <string name="sticker_delete_failed">Delete failed. Please try again.</string>
+    <string name="sticker_delete_confirm_title">Delete sticker?</string>
+    <string name="sticker_delete_confirm_msg">Are you sure you want to delete \"%1$s\"?</string>
+    <string name="sticker_add_label">Add sticker</string>
 </resources>
