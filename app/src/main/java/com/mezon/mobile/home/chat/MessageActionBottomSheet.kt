@@ -19,6 +19,7 @@ import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BottomSheet
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.ui.cells.MezonIcon
 
 
 class MessageActionBottomSheet(
@@ -318,7 +319,7 @@ class MessageActionBottomSheet(
             actions.add(ActionItem(
                 ActionType.CreateThread,
                 context.getString(R.string.action_create_thread),
-                R.drawable.ic_thread_new_icon,
+                MezonIcon.threadCreateIcon.resId,
                 applyIconTint = false
             ))
         }
@@ -327,7 +328,7 @@ class MessageActionBottomSheet(
             actions.add(ActionItem(
                 ActionType.TopicDiscussion,
                 context.getString(R.string.topic_discussion),
-                R.drawable.ic_thread_new_icon,
+                MezonIcon.notificationTabTopic.resId,
                 applyIconTint = false
             ))
         }

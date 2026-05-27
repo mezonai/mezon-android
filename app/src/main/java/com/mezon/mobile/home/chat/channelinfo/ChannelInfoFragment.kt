@@ -8,8 +8,6 @@ import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
-import android.text.SpannableString
-import android.text.Spanned
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -54,7 +52,6 @@ import com.mezon.mobile.MainActivity
 import com.mezon.mobile.search.GlobalSearchFragment
 import com.mezon.mobile.ui.cells.ActionBarView
 import com.mezon.mobile.ui.cells.AvatarView
-import com.mezon.mobile.ui.cells.ColoredImageSpan
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.ScreenStateView
 import com.mezon.mobile.util.CreateChannelNameValidator
@@ -134,6 +131,11 @@ class ChannelInfoFragment : BaseFragment() {
         channelType = arguments?.getInt(ARG_CHANNEL_TYPE) ?: 0
         routeChannelPrivate = arguments?.getBoolean(ARG_CHANNEL_PRIVATE) ?: false
         routeParentId = arguments?.getLong(ARG_PARENT_ID) ?: 0L
+        val initialEntity = channelController.findChannelById(channelId, clanId)
+            ?: channelController.findChannelById(channelId)
+        if (!isDm && !initialEntity?.channelLabel.isNullOrBlank()) {
+            channelName = initialEntity!!.channelLabel
+        }
 
         observe(NotificationCenter.clanMembersDidLoad) { _, _, args ->
             if (isPaused) return@observe
@@ -143,6 +145,12 @@ class ChannelInfoFragment : BaseFragment() {
         observe(NotificationCenter.channelMembersDidLoad) { _, _, args ->
             if (isPaused) return@observe
             reloadMembers()
+        }
+
+        observe(NotificationCenter.channelsDidLoad) { _, _, args ->
+            val changedClanId = args.firstOrNull() as? Long ?: return@observe
+            if (changedClanId != clanId || isDm) return@observe
+            refreshClanHeader()
         }
 
         observe(NotificationCenter.dialogsNeedReload) { _, _, _ ->
@@ -234,8 +242,21 @@ class ChannelInfoFragment : BaseFragment() {
         val chatActionBar = ActionBarView(context, themeColors).apply {
             setBackClickListener { finishFragment() }
             setBackgroundColor(themeColors.surface)
-            setTitle(buildActionBarTitle(context))
-            setCenterTitle(true)
+            setCenterTitle(false)
+            if (isDm) {
+                setTitle(channelName)
+                setTitleStartIcon(null, 0, 0)
+            } else {
+                val entity = channelController.findChannelById(channelId)
+                val iconEnum = resolveChannelTypeIcon(entity)
+                val iconPx = LayoutHelper.dp(20)
+                val iconDrawable = iconEnum.getDrawable(context, themeColors)
+                if (!iconEnum.shouldKeepOriginalFill()) {
+                    iconDrawable.colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
+                }
+                setTitle(channelName)
+                setTitleStartIcon(iconDrawable, iconPx, LayoutHelper.dp(6))
+            }
         }
         actionBar = chatActionBar
         root.addView(chatActionBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 56))
@@ -296,24 +317,6 @@ class ChannelInfoFragment : BaseFragment() {
         return root
     }
 
-    private fun buildActionBarTitle(context: Context): CharSequence {
-        if (isDm) return channelName
-        val entity = channelController.findChannelById(channelId)
-        val iconEnum = resolveChannelTypeIcon(entity)
-        val iconSize = LayoutHelper.dp(20)
-        val d = iconEnum.getDrawable(context, themeColors)
-        val span = ColoredImageSpan(d, ColoredImageSpan.ALIGN_CENTER)
-        span.setSize(iconSize)
-        if (iconEnum == MezonIcon.threadIcon || iconEnum == MezonIcon.threadLockIcon) {
-            span.usePaintColor = false
-        } else {
-            span.overrideColor = themeColors.onSurface
-        }
-        val text = SpannableString("\u200B $channelName")
-        text.setSpan(span, 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        return text
-    }
-
     private fun buildDmHeader(context: Context): LinearLayout {
         val container = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -363,7 +366,7 @@ class ChannelInfoFragment : BaseFragment() {
         if (entity == null) {
             val isThreadLike = channelType != CHANNEL_TYPE_CHANNEL || routeParentId != 0L
             if (isThreadLike) {
-                return if (routeChannelPrivate || routeParentId != 0L) MezonIcon.threadLockIcon else MezonIcon.threadIcon
+                return if (routeChannelPrivate) MezonIcon.threadLockIcon else MezonIcon.threadIcon
             }
             return if (routeChannelPrivate) MezonIcon.channelTextLock else MezonIcon.channelText
         }
@@ -776,6 +779,35 @@ class ChannelInfoFragment : BaseFragment() {
         } else {
             avatar.setInfo(channelId, displayName)
             avatar.setImageUrl(avatarUrl)
+        }
+    }
+
+    private fun refreshClanHeader() {
+        if (isDm) return
+        val bar = actionBar as? ActionBarView ?: return
+        val entity = channelController.findChannelById(channelId, clanId)
+            ?: channelController.findChannelById(channelId)
+            ?: return
+        val nextName = entity.channelLabel.ifBlank { channelName }
+        if (nextName.isNotBlank()) {
+            channelName = nextName
+        }
+        val iconEnum = resolveChannelTypeIcon(entity)
+        val iconPx = LayoutHelper.dp(20)
+        val iconDrawable = iconEnum.getDrawable(bar.context, themeColors)
+        if (!iconEnum.shouldKeepOriginalFill()) {
+            iconDrawable.colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
+        }
+        bar.setTitle(channelName)
+        bar.setTitleStartIcon(iconDrawable, iconPx, LayoutHelper.dp(6))
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (isDm) {
+            refreshDmHeader()
+        } else {
+            refreshClanHeader()
         }
     }
 

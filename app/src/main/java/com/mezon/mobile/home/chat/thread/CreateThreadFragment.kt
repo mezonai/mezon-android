@@ -15,6 +15,7 @@ import android.os.Build
 import android.os.Bundle
 import android.text.Editable
 import android.text.Spanned
+import android.text.TextUtils
 import android.text.TextWatcher
 import android.text.style.ForegroundColorSpan
 import android.text.style.StyleSpan
@@ -319,8 +320,9 @@ class CreateThreadFragment : BaseFragment() {
             privateRow?.visibility = View.GONE
             titleSub?.visibility = View.VISIBLE
             titleSub?.text = parentLabel
-            channelIconSlot?.visibility = View.GONE
-            titleMain?.text = getString(R.string.create_thread_new_title)
+            channelIconSlot?.visibility = View.VISIBLE
+            updateHeaderTopicIcon()
+            titleMain?.text = getString(R.string.topic_discussion)
             fragmentScope.launch {
                 val msg = chatController.getMessageById(parentChannelId, seedMessageId)
                 withContext(mainDispatcher) {
@@ -383,6 +385,7 @@ class CreateThreadFragment : BaseFragment() {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
             typeface = android.graphics.Typeface.DEFAULT_BOLD
             maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
         }
         titleRow.addView(titleMain, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL))
 
@@ -399,6 +402,7 @@ class CreateThreadFragment : BaseFragment() {
             setTextColor(themeColors.onSurface)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
             visibility = View.GONE
         }
         titleCol.addView(titleSub, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
@@ -424,6 +428,18 @@ class CreateThreadFragment : BaseFragment() {
             } else {
                 d.colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
             }
+            setImageDrawable(d)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+        }
+        slot.addView(iv, LayoutHelper.createFrame(20, 20, Gravity.CENTER))
+    }
+
+    private fun updateHeaderTopicIcon() {
+        val slot = channelIconSlot ?: return
+        val ctx = slot.context
+        slot.removeAllViews()
+        val iv = ImageView(ctx).apply {
+            val d = MezonIcon.notificationTabTopic.getDrawable(ctx)
             setImageDrawable(d)
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
@@ -456,7 +472,8 @@ class CreateThreadFragment : BaseFragment() {
             }
         }
         val icon = ImageView(context).apply {
-            setImageDrawable(MezonIcon.threadIcon.getDrawable(context))
+            val iconType = if (fromMessageFlow) MezonIcon.notificationTabTopic else MezonIcon.threadIcon
+            setImageDrawable(iconType.getDrawable(context))
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
         val slot = LayoutHelper.dp(26)

@@ -134,6 +134,15 @@ class ChatAdapter(
         if (idx >= 0) notifyItemChanged(messagesStartRow + idx)
     }
 
+    fun notifyChannelNameDependentCellsChanged() {
+        for (i in messages.indices) {
+            val msg = messages[i]
+            if (msg.isWelcomeMessage || (msg.isSystemMessage && msg.code == MessageEntity.CODE_FIRST_MESSAGE)) {
+                notifyItemChanged(messagesStartRow + i)
+            }
+        }
+    }
+
     fun getMessage(position: Int): MessageEntity? {
         val idx = position - messagesStartRow
         return if (idx in messages.indices) messages[idx] else null
@@ -260,6 +269,7 @@ class ChatAdapter(
                 holder.cell.channelName = channelName
                 holder.cell.delegate = systemMessageDelegate
                 holder.cell.mentionInteractiveGate = systemMessageMentionGate
+                holder.cell.creatorNameResolver = systemMessageCreatorResolver
                 holder.cell.update(0, messages[idx])
             }
             is SendTokenViewHolder -> {
@@ -300,6 +310,7 @@ class ChatAdapter(
     var sendTokenDelegate: SendTokenMessageCell.Delegate? = null
     var systemMessageDelegate: SystemMessageCell.Delegate? = null
     var systemMessageMentionGate: ((userId: String?, roleId: String?, segmentText: String) -> Boolean)? = null
+    var systemMessageCreatorResolver: ((Long) -> String)? = null
 
     class MessageViewHolder(val cell: ChatMessageCell) : RecyclerView.ViewHolder(cell)
     class WelcomeViewHolder(val cell: WelcomeMessageCell) : RecyclerView.ViewHolder(cell)

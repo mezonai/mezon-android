@@ -586,7 +586,7 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
 
         var menuWidth = 0
         menu?.let { m ->
-            if (m.visibility != GONE) {
+            if (m.visibility == VISIBLE) {
                 m.measure(
                     MeasureSpec.makeMeasureSpec(widthSize, MeasureSpec.AT_MOST),
                     MeasureSpec.makeMeasureSpec(actionBarHeight, MeasureSpec.EXACTLY)
@@ -651,7 +651,7 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
         }
 
         menu?.let { m ->
-            if (m.visibility != GONE) {
+            if (m.visibility == VISIBLE) {
                 val menuLeft = w - m.measuredWidth
                 m.layout(menuLeft, statusBarOffset, w, statusBarOffset + actionBarHeight)
             }
@@ -664,7 +664,7 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
         }
 
         val backWidth = if (backButtonImageView != null && backButtonImageView!!.visibility != GONE) TEXT_LEFT_WITH_BACK else LayoutHelper.dp(16)
-        val menuWidth = if (menu != null && menu!!.visibility != GONE) menu!!.measuredWidth else 0
+        val menuWidth = if (menu != null && menu!!.visibility == VISIBLE) menu!!.measuredWidth else 0
         val titleLeft = backWidth
         val titleRight = w - menuWidth - LayoutHelper.dp(8)
 
@@ -704,15 +704,13 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
 
             titleTextView?.let { tv ->
                 if (tv.visibility != GONE) {
-                    val r = (textStart + tv.measuredWidth).coerceAtMost(titleRight)
-                    tv.layout(textStart, topMargin, r, topMargin + titleH)
+                    tv.layout(textStart, topMargin, titleRight, topMargin + titleH)
                 }
             }
 
             subtitleTextView?.let { sv ->
                 val subTop = topMargin + titleH
-                val r = (textStart + sv.measuredWidth).coerceAtMost(titleRight)
-                sv.layout(textStart, subTop, r, subTop + subH)
+                sv.layout(textStart, subTop, titleRight, subTop + subH)
             }
         } else {
             titleTextView?.let { tv ->
@@ -726,8 +724,7 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
                             iv.layout(titleLeft, iconTop, titleLeft + titleStartIconSize, iconTop + titleStartIconSize)
                         }
                     }
-                    val r = (textStart + tv.measuredWidth).coerceAtMost(titleRight)
-                    tv.layout(textStart, topMargin, r, topMargin + titleH)
+                    tv.layout(textStart, topMargin, titleRight, topMargin + titleH)
                 }
             }
         }

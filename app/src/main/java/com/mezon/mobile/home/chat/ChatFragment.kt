@@ -287,6 +287,8 @@ open class ChatFragment : BaseFragment() {
     private var lastWelcomePlaceholderKey = ""
     private var lastWelcomePeerUsername = ""
     private var lastWelcomeChannelName = ""
+    private var updateInterfacesChatNameTriggerCount = 0
+    private var refreshClanHeaderFromChannelCallCount = 0
     private var clanId = 0L
     private var chatCachedCreatorId: Long? = null
     private var displayRoleCacheRefreshJob: Job? = null
@@ -421,6 +423,14 @@ open class ChatFragment : BaseFragment() {
         routeParentId = arguments?.getLong(ARG_PARENT_ID) ?: 0L
         forceLatest = arguments?.getBoolean(ARG_FORCE_LATEST) ?: false
         openedFromNotification = arguments?.getBoolean(ARG_OPENED_FROM_NOTIFICATION) ?: false
+        if (clanId != 0L) {
+            val cachedEntity = channelController.findChannelById(channelId, clanId)
+                ?: channelController.findChannelById(channelId)
+            val cachedName = cachedEntity?.channelLabel
+            if (!cachedName.isNullOrBlank()) {
+                channelName = cachedName
+            }
+        }
         startLoadFromMessageId = 0L
         startLoadFromMessageOffset = Int.MAX_VALUE
         needScrollRestore = false
@@ -746,6 +756,7 @@ open class ChatFragment : BaseFragment() {
                     }
 
                     refreshUI()
+                    refreshThreadWelcomeCreator()
 
                     if (wasFirstLoad && !isTopicMode && clanId != 0L) {
                         requestTopicBadgeHydrate(0L)
@@ -903,6 +914,7 @@ open class ChatFragment : BaseFragment() {
                 )
             }
             messages.add(insertIndex, entity)
+            refreshThreadWelcomeCreator()
             val trimmed = trimViewportOldest()
             if (fragmentView != null) {
                 if (messages.size == 1 || trimmed) {
@@ -1033,6 +1045,26 @@ open class ChatFragment : BaseFragment() {
         observe(NotificationCenter.updateInterfaces) { _, _, args ->
             if (fragmentView == null) return@observe
             val mask = args.firstOrNull() as? Int ?: 0
+            if (
+                clanId != 0L &&
+                !isTopicMode &&
+                (mask and NotificationCenter.UPDATE_MASK_CHAT_NAME) != 0
+            ) {
+                updateInterfacesChatNameTriggerCount++
+                val targetChannelId = args.getOrNull(1) as? Long
+                val targetClanId = args.getOrNull(2) as? Long
+                val sameChannel = targetChannelId == null || targetChannelId == 0L || targetChannelId == channelId
+                val sameClan = targetClanId == null || targetClanId == 0L || targetClanId == clanId
+                Log.d(
+                    TAG,
+                    "updateInterfaces CHAT_NAME count=$updateInterfacesChatNameTriggerCount " +
+                        "mask=$mask targetChannelId=$targetChannelId targetClanId=$targetClanId " +
+                        "currentChannelId=$channelId currentClanId=$clanId sameChannel=$sameChannel sameClan=$sameClan"
+                )
+                if (sameChannel && sameClan) {
+                    refreshClanHeaderFromChannel()
+                }
+            }
             updateVisibleRows(mask)
         }
 
@@ -1278,8 +1310,8 @@ open class ChatFragment : BaseFragment() {
             }
             val entity = channelController.findChannelById(channelId)
             val isDmHeader = channelType == CHANNEL_TYPE_DM || channelType == CHANNEL_TYPE_GROUP
-            val clanThreadHeader = !isDmHeader && clanId != 0L && entity?.isThread == true
-            if (clanThreadHeader) {
+            val clanChannelHeader = !isDmHeader && clanId != 0L
+            if (clanChannelHeader) {
                 val iconEnum = resolveChannelIcon(entity)
                 val iconPx = channelTitleIconSizePx()
                 val d = iconEnum.getDrawable(context, themeColors)
@@ -1287,9 +1319,16 @@ open class ChatFragment : BaseFragment() {
                 setTitle(channelName)
                 setSubtitleStartPadding(0)
                 setSubtitleColor(themeColors.onSurfaceVariant)
-                if (entity != null && entity.parentId != 0L) {
+                if (entity?.parentId != null && entity.parentId != 0L) {
                     val parent = channelController.findChannelById(entity.parentId)
                     if (parent != null) setSubtitle(parent.channelLabel)
+                    else setSubtitle(null)
+                } else if (channelType == CHANNEL_TYPE_THREAD || routeParentId != 0L) {
+                    val parent = channelController.findChannelById(routeParentId)
+                    if (parent != null) setSubtitle(parent.channelLabel)
+                    else setSubtitle(null)
+                } else {
+                    setSubtitle(null)
                 }
             } else {
                 setTitleStartIcon(null, 0, 0)
@@ -1310,7 +1349,9 @@ open class ChatFragment : BaseFragment() {
             if (isTopicMode) {
                 setTitle(getString(R.string.topic_discussion))
                 setSubtitle(null)
-                setTitleStartIcon(null, 0, 0)
+                val iconPx = channelTitleIconSizePx()
+                val topicIcon = MezonIcon.notificationTabTopic.getDrawable(context)
+                setTitleStartIcon(topicIcon, iconPx, LayoutHelper.dp(6))
                 setTitleOnClickListener(null)
             }
         }
@@ -1911,6 +1952,11 @@ open class ChatFragment : BaseFragment() {
                 ?: 0L
         }
         adapter.topicBadgeResolver = { tid -> topicBadgeTracker.getTopicBadge(tid) }
+        adapter.systemMessageCreatorResolver = { creatorId ->
+            memberResolver.resolveMember(creatorId, clanId, channelId, channelType)?.let { member ->
+                member.clanNick.ifBlank { member.displayName.ifBlank { member.username } }
+            }.orEmpty()
+        }
         if (!isTopicMode && clanId != 0L) {
             requestTopicBadgeHydrate(0L)
         }
@@ -2084,10 +2130,18 @@ open class ChatFragment : BaseFragment() {
     override fun onResume() {
         super.onResume()
         lastResumeTime = android.os.SystemClock.elapsedRealtime()
+        if (clanId == 0L) {
+            refreshDmHeaderTitleFromDialog()
+        }
     }
 
     override fun onBecomeFullyVisible() {
         super.onBecomeFullyVisible()
+        actionBar?.post {
+            if (clanId == 0L) {
+                refreshDmHeaderTitleFromDialog()
+            }
+        }
         if (pendingDisplayRoleUiRefresh) {
             pendingDisplayRoleUiRefresh = false
             refreshChatSenderRoleRows()
@@ -3557,6 +3611,73 @@ open class ChatFragment : BaseFragment() {
             channelName = nextName
         }
         actionBar?.setTitle(nextName)
+    }
+
+    private fun refreshClanHeaderFromChannel() {
+        if (clanId == 0L || isTopicMode) return
+        refreshClanHeaderFromChannelCallCount++
+        val entity = channelController.findChannelById(channelId, clanId)
+            ?: channelController.findChannelById(channelId)
+        val nextName = entity?.channelLabel?.ifBlank { channelName } ?: channelName
+        Log.d(
+            TAG,
+            "refreshClanHeaderFromChannel count=$refreshClanHeaderFromChannelCallCount " +
+                "channelId=$channelId clanId=$clanId currentName='$channelName' nextName='$nextName'"
+        )
+        if (nextName.isBlank()) return
+        val channelNameChanged = nextName != channelName
+        if (channelNameChanged) {
+            channelName = nextName
+        }
+        if (::adapter.isInitialized) {
+            val adapterNameChanged = adapter.channelName != nextName
+            adapter.channelName = nextName
+            if (channelNameChanged || adapterNameChanged) {
+                adapter.notifyChannelNameDependentCellsChanged()
+            }
+        }
+        val bar = actionBar as? ActionBarView ?: return
+        val iconEnum = resolveChannelIcon(entity)
+        val iconPx = channelTitleIconSizePx()
+        val d = iconEnum.getDrawable(bar.context, themeColors)
+        bar.setTitleStartIcon(d, iconPx, LayoutHelper.dp(6))
+        bar.setTitle(channelName)
+        bar.setSubtitleStartPadding(0)
+        bar.setSubtitleColor(themeColors.onSurfaceVariant)
+        if (entity?.parentId != null && entity.parentId != 0L) {
+            val parent = channelController.findChannelById(entity.parentId)
+            if (parent != null) {
+                bar.setSubtitle(parent.channelLabel)
+            } else {
+                bar.setSubtitle(null)
+            }
+        } else if (channelType == CHANNEL_TYPE_THREAD || routeParentId != 0L) {
+            val parent = channelController.findChannelById(routeParentId)
+            if (parent != null) {
+                bar.setSubtitle(parent.channelLabel)
+            } else {
+                bar.setSubtitle(null)
+            }
+        } else {
+            bar.setSubtitle(null)
+        }
+    }
+
+    private fun refreshThreadWelcomeCreator() {
+        if (channelType != CHANNEL_TYPE_THREAD || !::adapter.isInitialized) return
+        val creator = messages.lastOrNull { it.isNormalMessage && it.senderId != 0L }
+        val nextName = if (creator != null) {
+            val member = memberResolver.resolveMember(creator.senderId, clanId, channelId, channelType)
+            member?.let { it.clanNick.ifBlank { it.displayName.ifBlank { it.username } } }
+                ?: creator.senderName
+        } else {
+            ""
+        }
+        val sanitized = if (nextName.equals("system", ignoreCase = true)) "" else nextName
+        if (sanitized != adapter.welcomeCreatorName) {
+            adapter.welcomeCreatorName = sanitized
+            adapter.notifyWelcomeCellChanged()
+        }
     }
 
     private fun refreshWelcomeFromDialog() {
@@ -5450,8 +5571,7 @@ open class ChatFragment : BaseFragment() {
                     CreateThreadFragment.newInstance(
                         channelId,
                         channelName,
-                        clanId,
-                        seedMessageId = msg.id
+                        clanId
                     )
                 )
             }
@@ -6168,7 +6288,7 @@ open class ChatFragment : BaseFragment() {
     private fun resolveChannelIcon(entity: com.mezon.mobile.home.clans.ClanChannelEntity?): MezonIcon {
         if (entity == null) {
             if (channelType == CHANNEL_TYPE_THREAD || routeParentId != 0L) {
-                return ChannelItemCell.resolveChannelIcon(CHANNEL_TYPE_THREAD, routeChannelPrivate || routeParentId != 0L)
+                return ChannelItemCell.resolveChannelIcon(CHANNEL_TYPE_THREAD, routeChannelPrivate)
             }
             if (channelType == CHANNEL_TYPE_CHANNEL) {
                 return ChannelItemCell.resolveChannelIcon(CHANNEL_TYPE_CHANNEL, routeChannelPrivate)
