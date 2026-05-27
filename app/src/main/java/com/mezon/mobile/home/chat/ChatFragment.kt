@@ -425,12 +425,13 @@ open class ChatFragment : BaseFragment() {
         startLoadFromMessageOffset = Int.MAX_VALUE
         needScrollRestore = false
 
+        val readStateChannelId = if (isTopicMode && topicId != 0L) topicId else channelId
         if (clanId == 0L) {
-            val dm = dialogsController.getDialog(channelId)
+            val dm = dialogsController.getDialog(readStateChannelId)
             lastSeenMessageId = dm?.lastSeenMessageId ?: 0L
             lastSentMessageId = dm?.lastSentMessageId ?: 0L
         } else {
-            val ch = channelController.findChannelById(channelId)
+            val ch = channelController.findChannelById(readStateChannelId)
             lastSeenMessageId = ch?.lastSeenMessageId ?: 0L
             lastSentMessageId = ch?.lastSentMessageId ?: 0L
         }
@@ -2116,6 +2117,18 @@ open class ChatFragment : BaseFragment() {
             if (isTopicMode) {
                 channelController.setCurrentTopic(topicId)
                 channelController.markChannelAsRead(topicId, seenMessageId = lastSeenMessageId)
+                if (lastSeenMessageId != 0L) {
+                    val topicSeenTs = channelController.findChannelById(topicId)?.lastSeenMessageTs?.toInt() ?: 0
+                    chatController.updateLastSeenMessage(
+                        channelId,
+                        clanId,
+                        channelType,
+                        lastSeenMessageId,
+                        topicSeenTs,
+                        badgeCount = 0,
+                        applyLocal = false
+                    )
+                }
             } else {
                 channelController.markChannelAsRead(channelId, seenMessageId = lastSeenMessageId)
                 channelController.clearCurrentTopic()
@@ -2811,13 +2824,24 @@ open class ChatFragment : BaseFragment() {
         val badge = pendingBadgeCount
         pendingSeenMessageId = 0L
         val readChannelId = if (isTopicMode) topicId else channelId
+        if (isTopicMode) {
+            channelController.updateLastSeen(topicId, msgId, ts)
+            chatController.updateLastSeenMessage(
+                channelId,
+                clanId,
+                channelType,
+                msgId,
+                ts,
+                badgeCount = 0,
+                applyLocal = false
+            )
+            topicBadgeTracker.resetTopic(topicId)
+            return
+        }
         chatController.updateLastSeenMessage(
             readChannelId, clanId, channelType,
             msgId, ts, badgeCount = badge
         )
-        if (isTopicMode) {
-            topicBadgeTracker.resetTopic(topicId)
-        }
     }
 
     private fun requestTopicBadgeHydrate(debounceMs: Long) {
@@ -4981,6 +5005,7 @@ open class ChatFragment : BaseFragment() {
     }
 
     private fun canShowCreateThreadInMessageMenu(): Boolean {
+        if (isTopicMode) return false
         if (clanId == 0L) return false
         if (channelType != CHANNEL_TYPE_CHANNEL) return false
         if (routeParentId != 0L) return false
@@ -5050,6 +5075,23 @@ open class ChatFragment : BaseFragment() {
         return permissionPolicy.canCreateThreadFromMessage(channelId, clanId)
     }
 
+    private fun canShowTopicDiscussionInMessageMenu(msg: MessageEntity): Boolean {
+        if (isTopicMode) return false
+        if (clanId == 0L) return false
+        if (channelType == CHANNEL_TYPE_DM || channelType == CHANNEL_TYPE_GROUP) return false
+        if (channelType == CHANNEL_TYPE_STREAMING || channelType == CHANNEL_TYPE_APP || channelType == CHANNEL_TYPE_VOICE) return false
+        if (!canSendMessageInCurrentChannel()) return false
+        if (msg.isPollMessage) return false
+        if (msg.code == MessageEntity.CODE_TOPIC) return false
+        if (msg.code == MessageEntity.CODE_CREATE_THREAD) return false
+        if (msg.code == MessageEntity.CODE_CREATE_PIN) return false
+        if (msg.code == MessageEntity.CODE_MESSAGE_BUZZ) return false
+        if (msg.code == MessageEntity.CODE_AUDIT_LOG) return false
+        if (msg.code == MessageEntity.CODE_WELCOME) return false
+        if (msg.code == MessageEntity.CODE_UPCOMING_EVENT) return false
+        return true
+    }
+
     private fun showMessageActionSheet(msg: MessageEntity) {
         val ctx = getContext() ?: return
         val activity = getParentActivity() ?: return
@@ -5076,6 +5118,8 @@ open class ChatFragment : BaseFragment() {
             showForwardSingle = allowFwd,
             showForwardAllNearby = allowFwd && collectForwardNearbyMessages(msg).size > 1,
             showEditMessage = showEditMessage,
+            showTopicDiscussion = canShowTopicDiscussionInMessageMenu(msg),
+            showPinActions = !isTopicMode,
             listener = object : MessageActionBottomSheet.MessageActionListener {
                 override fun onActionSelected(action: MessageActionBottomSheet.ActionType, message: MessageEntity) {
                     handleMessageAction(action, message)
@@ -5405,20 +5449,34 @@ open class ChatFragment : BaseFragment() {
                 openForwardAllNearbyScreen(msg)
             }
             MessageActionBottomSheet.ActionType.PinMessage -> {
+                if (isTopicMode) return
                 showPinConfirmation(msg, isUnpin = false)
             }
             MessageActionBottomSheet.ActionType.UnPinMessage -> {
+                if (isTopicMode) return
                 showPinConfirmation(msg, isUnpin = true)
             }
             MessageActionBottomSheet.ActionType.DeleteMessage -> {
                 showDeleteConfirmation(msg)
             }
             MessageActionBottomSheet.ActionType.CreateThread -> {
+                if (isTopicMode) return
                 if (!canManageThreadInCurrentChannel()) {
                     refreshPermissionGates()
                     MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.channel_permissions_no_access))
                     return
                 }
+                presentFragment(
+                    CreateThreadFragment.newInstance(
+                        channelId,
+                        channelName,
+                        clanId,
+                        seedMessageId = msg.id
+                    )
+                )
+            }
+            MessageActionBottomSheet.ActionType.TopicDiscussion -> {
+                if (!canShowTopicDiscussionInMessageMenu(msg)) return
                 presentFragment(
                     CreateThreadFragment.newInstance(
                         channelId,
@@ -6318,7 +6376,7 @@ open class ChatFragment : BaseFragment() {
                 rootMessageId = rootMessageId,
                 clanId = clanId,
                 parentChannelId = channelId,
-                channelType = CHANNEL_TYPE_THREAD,
+                channelType = channelType,
                 isChannelPrivate = resolveChannelPrivate()
             )
         )

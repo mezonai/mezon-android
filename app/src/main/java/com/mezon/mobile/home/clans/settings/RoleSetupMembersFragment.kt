@@ -17,6 +17,7 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.UserClanController
+import com.mezon.mobile.home.clans.ClanRole
 import com.mezon.mobile.home.clans.ClansController
 import com.mezon.mobile.home.clans.RoleController
 import com.mezon.mobile.ui.MezonToast
@@ -63,6 +64,8 @@ class RoleSetupMembersFragment : BaseFragment() {
     private lateinit var recyclerView: RecyclerView
     private lateinit var searchInput: SearchCell
     private lateinit var adapter: MembersAdapter
+    private var actionItem: View? = null
+    private var actionText: TextView? = null
     private var filter = ""
     private val selectedUserIds = LinkedHashSet<Long>()
     private val initialMemberIds = LinkedHashSet<Long>()
@@ -81,12 +84,19 @@ class RoleSetupMembersFragment : BaseFragment() {
         if (clanId != 0L) {
             userClanController.loadClanMembers(clanId)
             roleController.loadUserMaxPermissionForClan(clanId)
+            roleController.loadRolesForClan(clanId)
         }
         observe(NotificationCenter.clanRolesDidLoad) { _, _, args ->
             if (isPaused) return@observe
             val id = args.firstOrNull() as? Long ?: return@observe
             if (id != clanId || !::adapter.isInitialized) return@observe
-            reloadRoleMemberSelection()
+            applyHeader(roleController.getRole(clanId, roleId))
+            if (!hasMemberChanges()) reloadRoleMemberSelection()
+        }
+        observe(NotificationCenter.clanMembersDidLoad) { _, _, args ->
+            if (isPaused) return@observe
+            val id = args.firstOrNull() as? Long ?: return@observe
+            if (id == clanId && ::adapter.isInitialized) adapter.refresh()
         }
         return true
     }
@@ -108,6 +118,7 @@ class RoleSetupMembersFragment : BaseFragment() {
                 selectedUserIds.clear()
                 selectedUserIds.addAll(ids)
                 adapter.refresh()
+                updateActionState()
             }
         }
     }
@@ -118,16 +129,15 @@ class RoleSetupMembersFragment : BaseFragment() {
         }
         ClanRolesUiTheme.applyPrimaryFlowRoot(root, themeColors)
         actionBar = ActionBarView(context, themeColors).apply {
-            setTitle(
-                if (isEditMode) getString(R.string.clan_roles_detail_members)
-                else getString(R.string.clan_roles_members_step_title)
-            )
+            setTitle(getString(if (isEditMode) R.string.clan_roles_detail_members else R.string.clan_roles_members_step_title))
+            if (isEditMode) setSubtitle(getString(R.string.clan_roles_detail_role))
             setBackButtonImage(R.drawable.ic_close_24)
             setBackButtonContentDescription(getString(R.string.clan_roles_back_content_desc))
             setCenterTitle(true)
             ClanRolesUiTheme.applyPrimaryFlowActionBar(this, themeColors)
             val actionLabel = if (isEditMode) getString(R.string.clan_roles_detail_save) else getString(R.string.clan_roles_members_finish)
             val actionItem = createMenu().addItem(1, actionLabel)
+            this@RoleSetupMembersFragment.actionItem = actionItem
             val actionText = TextView(context).apply {
                 text = actionLabel
                 setTextColor(themeColors.blurple)
@@ -136,6 +146,7 @@ class RoleSetupMembersFragment : BaseFragment() {
                 gravity = android.view.Gravity.CENTER_VERTICAL
                 setPadding(LayoutHelper.dp(16f), 0, LayoutHelper.dp(16f), 0)
             }
+            this@RoleSetupMembersFragment.actionText = actionText
             actionItem.addView(
                 actionText,
                 LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.MATCH_PARENT, android.view.Gravity.CENTER_VERTICAL, 0f, 3f, 0f, 0f)
@@ -150,6 +161,7 @@ class RoleSetupMembersFragment : BaseFragment() {
             })
         }
         root.addView(actionBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+        applyHeader(roleController.getRole(clanId, roleId))
 
         val pad = LayoutHelper.dp(14f)
         if (!isEditMode) {
@@ -199,11 +211,41 @@ class RoleSetupMembersFragment : BaseFragment() {
         } else {
             adapter.refresh()
         }
+        updateActionState()
         fragmentView = root
         return root
     }
 
+    private fun applyHeader(role: ClanRole?) {
+        if (!isEditMode || role == null) return
+        actionBar?.setTitle(role.title)
+        actionBar?.setSubtitle(getString(R.string.clan_roles_detail_role))
+        actionBar?.setSubtitleColor(themeColors.colorText)
+    }
+
+    private fun hasMemberChanges(): Boolean = selectedUserIds != initialMemberIds
+
+    private fun updateActionState() {
+        val item = actionItem ?: return
+        if (!isEditMode) {
+            item.visibility = View.VISIBLE
+            item.isEnabled = true
+            item.alpha = 1f
+            actionText?.setTextColor(themeColors.blurple)
+            return
+        }
+        val changed = hasMemberChanges()
+        item.visibility = if (changed) View.VISIBLE else View.GONE
+        item.isEnabled = changed
+        item.alpha = if (changed) 1f else 0.4f
+        actionText?.setTextColor(if (changed) themeColors.blurple else themeColors.textDisabled)
+    }
+
     private fun applyMemberChanges() {
+        if (isEditMode && !hasMemberChanges()) {
+            updateActionState()
+            return
+        }
         val clan = clansController.clans.value.firstOrNull { it.clanId == clanId } ?: return
         val members = userClanController.getClanMembers(clanId)
         val role = roleController.getRole(clanId, roleId) ?: return
@@ -254,6 +296,7 @@ class RoleSetupMembersFragment : BaseFragment() {
 
     private fun applyMemberChecked(userId: Long, checked: Boolean) {
         if (checked) selectedUserIds.add(userId) else selectedUserIds.remove(userId)
+        updateActionState()
     }
 
     private inner class MembersAdapter : RecyclerView.Adapter<MembersAdapter.Holder>() {
@@ -303,7 +346,12 @@ class RoleSetupMembersFragment : BaseFragment() {
                     text = getString(R.string.clan_roles_members_none)
                     textSize = 14f
                     setTextColor(ClanRolesUiTheme.textOnScreenMuted(themeColors))
-                    setPadding(LayoutHelper.dp(16f), LayoutHelper.dp(24f), LayoutHelper.dp(16f), LayoutHelper.dp(24f))
+                    gravity = Gravity.CENTER
+                    setPadding(LayoutHelper.dp(16f), 0, LayoutHelper.dp(16f), 0)
+                    layoutParams = RecyclerView.LayoutParams(
+                        RecyclerView.LayoutParams.MATCH_PARENT,
+                        RecyclerView.LayoutParams.MATCH_PARENT
+                    )
                 }
                 return Holder(tv, null)
             }

@@ -120,6 +120,40 @@ class TopicController @Inject constructor(
         }
     }
 
+    suspend fun createTopic(
+        clanId: Long,
+        parentChannelId: Long,
+        messageId: Long
+    ): SdTopicEntity? {
+        if (clanId == 0L || parentChannelId == 0L || messageId == 0L) return null
+        return try {
+            val created = sessionManager.withAutoRefresh { session ->
+                api.createSdTopic(
+                    apiUrl = session.apiUrl,
+                    token = session.token,
+                    clanId = clanId,
+                    channelId = parentChannelId,
+                    messageId = messageId
+                )
+            }.toSdTopicEntity()
+            synchronized(this) {
+                if (currentClanId == clanId) {
+                    val index = topics.indexOfFirst { it.id == created.id }
+                    if (index >= 0) topics.removeAt(index)
+                    topics.add(0, created)
+                    topicsDict.put(created.id, created)
+                    clanBound = true
+                }
+            }
+            channelController.get().registerSdTopicChannel(created)
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.topicsNeedReload)
+            created
+        } catch (e: Exception) {
+            Log.e(TAG, "createTopic failed clanId=$clanId parentChannelId=$parentChannelId messageId=$messageId", e)
+            null
+        }
+    }
+
     private suspend fun observeSdTopicEvents() {
         dispatcher.sdTopicEvents.collect { event ->
             val clanId = event.clanId

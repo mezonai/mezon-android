@@ -825,7 +825,7 @@ class DialogsController @Inject constructor(
                 val newPreview = if (!isContentMutation ||
                     msg.code == CODE_CHAT_UPDATE ||
                     msg.code == MessageEntity.CODE_UPDATE_EPHEMERAL)
-                    messagePreviewForDialog(appContext, msg.content) else baseDm.lastMessageContent
+                    messagePreviewForDialog(appContext, msg.content, msg.attachments, msg.code) else baseDm.lastMessageContent
 
                 val canAdvanceTimeline = !isContentMutation && !isEphemeralControl && msg.messageId > 0L
 

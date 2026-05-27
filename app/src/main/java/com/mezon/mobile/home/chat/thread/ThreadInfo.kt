@@ -12,6 +12,8 @@ data class ThreadInfo(
     val channelLabel: String,
     val active: Int,
     val isPrivate: Boolean,
+    val creatorId: Long,
+    val creatorName: String,
     val lastSenderId: Long,
     val lastMessageContent: String,
     val lastMessageTs: Long
@@ -30,6 +32,8 @@ fun ChannelDescription.toThreadInfo(): ThreadInfo {
         channelLabel = channelLabel,
         active = active,
         isPrivate = channelPrivate != 0,
+        creatorId = creatorId,
+        creatorName = creatorName,
         lastSenderId = senderId,
         lastMessageContent = msgContent,
         lastMessageTs = msgTs

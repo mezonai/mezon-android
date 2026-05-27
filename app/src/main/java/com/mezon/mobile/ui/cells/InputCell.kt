@@ -247,5 +247,8 @@ class InputCell(context: Context, private val theme: ThemeColors) : LinearLayout
         super.setEnabled(enabled)
         editText.isEnabled = enabled
         editText.alpha = if (enabled) 1f else 0.5f
+        inputContainer.alpha = if (enabled) 1f else 0.55f
+        clearButton.isEnabled = enabled
+        clearButton.visibility = if (enabled && getText().isNotEmpty() && !isTextarea) View.VISIBLE else View.GONE
     }
 }

@@ -135,7 +135,12 @@ fun ChannelDescription.toDirectMessage(currentUserId: Long, previewContext: andr
         participantName
     }
     val lastMsgContent = if (hasLastSentMessage()) {
-        if (previewContext != null) messagePreviewForDialog(previewContext, lastSentMessage.content)
+        if (previewContext != null) {
+            messagePreviewForDialog(
+                previewContext,
+                lastSentMessage.content
+            )
+        }
         else parseContentPreview(lastSentMessage.content)
     } else ""
 
@@ -176,7 +181,7 @@ fun ChannelMessage.toDirectMessageFromIncoming(
         !isFromMe -> senderName.ifBlank { channelLabel }
         else -> channelLabel.ifBlank { senderName }
     }
-    val preview = messagePreviewForDialog(previewContext, content)
+    val preview = messagePreviewForDialog(previewContext, content, attachments, code)
     val ts = createTimeSeconds.toLong() and 0xFFFF_FFFFL
     val unread = when {
         isOpen -> 0

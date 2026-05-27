@@ -1402,6 +1402,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             count <= 1 -> "$count ${context.getString(R.string.topic_reply_one)}"
             else -> "$count ${context.getString(R.string.topic_replies)}"
         }
+        val topicBadgeCount = topicBadgeResolver?.invoke(msg.effectiveTopicId) ?: 0
         topicButtonLayout.bind(
             msg,
             creatorName,
@@ -1409,7 +1410,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             context.getString(R.string.topic_creator),
             context.getString(R.string.topic_view),
             countLabel,
-            topicBadgeResolver?.invoke(msg.effectiveTopicId) ?: 0
+            topicBadgeCount
         )
         if (width > 0) {
             val contentLeft = if (isInPinMode) PIN_PAD_H else PAD_H + AVATAR_SIZE + GAP_AVATAR

@@ -10,6 +10,7 @@ import android.graphics.drawable.Drawable
 import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.TextUtils
+import com.mezon.mobile.R
 import com.mezon.mobile.core.BaseCell
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
@@ -100,7 +101,7 @@ class ThreadCell(context: Context, private val theme: ThemeColors) : BaseCell(co
             val msgText = if (senderName.isNotEmpty() && info.lastMessageContent.isNotEmpty()) {
                 "$senderName: ${info.lastMessageContent}"
             } else if (senderName.isNotEmpty()) {
-                senderName
+                context.getString(R.string.chat_welcome_start_of_thread, senderName)
             } else {
                 info.lastMessageContent
             }

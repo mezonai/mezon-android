@@ -254,6 +254,7 @@ class ChatAdapter(
                 holder.cell.avatarUserId = welcomeAvatarId
                 holder.cell.avatarPlaceholderKey = welcomePlaceholderKey
                 holder.cell.peerUsername = welcomePeerUsername
+                holder.cell.creatorName = welcomeCreatorName
                 holder.cell.update(messages[idx])
             }
             is SystemViewHolder -> {
@@ -296,6 +297,7 @@ class ChatAdapter(
     var welcomeAvatarId: Long = 0L
     var welcomePlaceholderKey: String = ""
     var welcomePeerUsername: String = ""
+    var welcomeCreatorName: String = ""
     var loadLinkInvitePreview: (suspend (Long) -> LinkInvitePreview?)? = null
     var sendTokenDelegate: SendTokenMessageCell.Delegate? = null
     var systemMessageDelegate: SystemMessageCell.Delegate? = null

@@ -8,6 +8,7 @@ import android.graphics.drawable.Drawable
 import android.text.StaticLayout
 import android.text.TextPaint
 import android.view.View
+import com.mezon.mobile.R
 import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
@@ -16,6 +17,7 @@ import com.mezon.mobile.home.messages.ChannelAvatarRequest
 import com.mezon.mobile.home.messages.loadChannelAvatar
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
+import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
 import com.mezon.mobile.ui.cells.MezonIcon
 
 class WelcomeMessageCell(context: Context, private val theme: ThemeColors) : View(context) {
@@ -29,6 +31,7 @@ class WelcomeMessageCell(context: Context, private val theme: ThemeColors) : Vie
     var avatarUserId = 0L
     var avatarPlaceholderKey = ""
     var peerUsername = ""
+    var creatorName = ""
 
     private var messageEntity: MessageEntity? = null
     private var titleLayout: StaticLayout? = null
@@ -44,6 +47,7 @@ class WelcomeMessageCell(context: Context, private val theme: ThemeColors) : Vie
 
     private val isDM: Boolean get() = clanId == 0L
     private val isGroup: Boolean get() = channelType == CHANNEL_TYPE_GROUP
+    private val isThread: Boolean get() = !isDM && channelType == CHANNEL_TYPE_THREAD
     private val showDmAvatar: Boolean get() = isDM
 
     fun update(msg: MessageEntity) {
@@ -73,6 +77,14 @@ class WelcomeMessageCell(context: Context, private val theme: ThemeColors) : Vie
             isPrivate -> MezonIcon.channelTextLock
             else -> MezonIcon.channelText
         }
+        if (isThread) {
+            return if (isPrivate) {
+                MezonIcon.threadLockIcon.getDrawable(context, theme)
+            } else {
+                MezonIcon.threadIcon.getDrawable(context)
+            }
+        }
+        val icon = if (isPrivate) MezonIcon.channelTextLock else MezonIcon.channelText
         return icon.getDrawable(context)
     }
 
@@ -140,6 +152,7 @@ class WelcomeMessageCell(context: Context, private val theme: ThemeColors) : Vie
     private fun buildTitleText(): String = when {
         isDM && isGroup -> channelName.ifEmpty { "Group" }
         isDM -> channelName.ifEmpty { "Direct Message" }
+        isThread -> channelName.ifEmpty { "Thread" }
         else -> if (channelName.isNotEmpty()) "Welcome to #$channelName" else "Welcome!"
     }
 
@@ -153,6 +166,10 @@ class WelcomeMessageCell(context: Context, private val theme: ThemeColors) : Vie
         isDM -> if (channelName.isNotEmpty()) {
             "This is the beginning of your direct message history with $channelName."
         } else ""
+        isThread -> {
+            val name = creatorName.trim()
+            if (name.isNotEmpty()) context.getString(R.string.chat_welcome_start_of_thread, name) else ""
+        }
         else -> {
             val chType = if (isPrivate) "private " else ""
             if (channelName.isNotEmpty()) "This is the start of the #$channelName ${chType}channel."

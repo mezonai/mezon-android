@@ -34,7 +34,8 @@ private data class PendingLastSeen(
     val channelType: Int,
     val messageId: Long,
     val timestampSeconds: Int,
-    val badgeCount: Int
+    val badgeCount: Int,
+    val applyLocal: Boolean
 )
 
 private data class ChannelActivityTick(
@@ -101,11 +102,12 @@ class BadgeCoordinator @Inject constructor(
         messageId: Long,
         timestampSeconds: Int,
         badgeCount: Int = 0,
+        applyLocal: Boolean = true,
         skipDefer: Boolean = false
     ) {
         val key = "${clanId}_$channelId"
         val pending = PendingLastSeen(
-            channelId, clanId, channelType, messageId, timestampSeconds, badgeCount
+            channelId, clanId, channelType, messageId, timestampSeconds, badgeCount, applyLocal
         )
         if (!skipDefer && shouldDeferLastSeen(pending)) {
             deferredLastSeenByKey[key] = pending
@@ -134,6 +136,7 @@ class BadgeCoordinator @Inject constructor(
                         p.messageId,
                         p.timestampSeconds,
                         p.badgeCount,
+                        p.applyLocal,
                         skipDefer = true
                     )
                 }
@@ -160,7 +163,7 @@ class BadgeCoordinator @Inject constructor(
         val p = pendingLastSeen.remove(key) ?: return
         retryLastSeenJobs.remove(key)?.cancel()
         retryLastSeenByKey.remove(key)
-        if (shouldSkipDuplicateFullRead(key, p)) {
+        if (p.applyLocal && shouldSkipDuplicateFullRead(key, p)) {
             Log.d(TAG, "flushLastSeen: skip dedup key=$key")
             return
         }
@@ -169,28 +172,34 @@ class BadgeCoordinator @Inject constructor(
         } else {
             p.badgeCount
         }
-        if (p.badgeCount == 0) {
-            fullReadDedupAt[key] = SystemClock.elapsedRealtime()
-        }
-        if (p.badgeCount == 0) {
-            if (p.clanId != 0L) {
-                channelController.get().markChannelAsRead(p.channelId, p.timestampSeconds, p.messageId)
-            } else {
-                dialogsController.markDialogAsRead(p.channelId, seenTimestampSeconds = p.timestampSeconds, seenMessageId = p.messageId)
+        if (p.applyLocal) {
+            if (p.badgeCount == 0) {
+                fullReadDedupAt[key] = SystemClock.elapsedRealtime()
             }
-        } else {
-            if (p.clanId != 0L) {
-                channelController.get().updateChannelLastSeen(
-                    p.channelId, p.messageId, p.badgeCount, p.timestampSeconds
-                )
+            if (p.badgeCount == 0) {
+                if (p.clanId != 0L) {
+                    channelController.get().markChannelAsRead(p.channelId, p.timestampSeconds, p.messageId)
+                } else {
+                    dialogsController.markDialogAsRead(
+                        p.channelId,
+                        seenTimestampSeconds = p.timestampSeconds,
+                        seenMessageId = p.messageId
+                    )
+                }
             } else {
-                dialogsController.updateDialogLastSeen(
-                    p.channelId, p.messageId, p.badgeCount, p.timestampSeconds
-                )
+                if (p.clanId != 0L) {
+                    channelController.get().updateChannelLastSeen(
+                        p.channelId, p.messageId, p.badgeCount, p.timestampSeconds
+                    )
+                } else {
+                    dialogsController.updateDialogLastSeen(
+                        p.channelId, p.messageId, p.badgeCount, p.timestampSeconds
+                    )
+                }
             }
         }
         sendLastSeenToSocket(key, p, socketBadgeCount)
-        if (p.clanId != 0L) {
+        if (p.clanId != 0L && p.applyLocal) {
             scheduleClanReconcile(p.clanId)
         }
     }

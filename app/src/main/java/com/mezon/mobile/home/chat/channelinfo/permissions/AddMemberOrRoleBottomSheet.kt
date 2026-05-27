@@ -13,9 +13,11 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.R
+import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BottomSheet
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
@@ -39,6 +41,7 @@ class AddMemberOrRoleBottomSheet(
     private var query = ""
 
     init {
+        containerHeight = (AndroidUtilities.displaySize.y * 0.72f).toInt()
         setCustomView(buildContent(context))
     }
 
@@ -81,11 +84,13 @@ class AddMemberOrRoleBottomSheet(
         val recyclerView = RecyclerView(context).apply {
             layoutManager = LinearLayoutManager(context)
             adapter = listAdapter
+            itemAnimator = null
             overScrollMode = RecyclerView.OVER_SCROLL_NEVER
             clipToPadding = false
             setPadding(0, LayoutHelper.dp(12f), 0, LayoutHelper.dp(12f))
+            setItemViewCacheSize(18)
         }
-        root.addView(recyclerView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 360))
+        root.addView(recyclerView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
 
         val addButton = TextView(context).apply {
             text = context.getString(R.string.channel_permissions_add)
@@ -114,7 +119,7 @@ class AddMemberOrRoleBottomSheet(
             query.isEmpty() || it.title.lowercase().contains(query) || it.slug.lowercase().contains(query)
         }
         val filteredMembers = members.filter {
-            val display = it.displayName.ifBlank { it.username }
+            val display = it.clanNick.ifBlank { it.displayName.ifBlank { it.username } }
             query.isEmpty() || display.lowercase().contains(query) || it.username.lowercase().contains(query)
         }
         val rows = ArrayList<PickerRow>(filteredRoles.size + filteredMembers.size + 2)
@@ -193,10 +198,16 @@ class AddMemberOrRoleBottomSheet(
     private inner class PickerAdapter(private val context: Context) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
         private val rows = ArrayList<PickerRow>()
 
+        init {
+            setHasStableIds(true)
+        }
+
         fun setRows(nextRows: List<PickerRow>) {
+            val oldRows = rows.toList()
+            val diff = DiffUtil.calculateDiff(PickerDiffCallback(oldRows, nextRows))
             rows.clear()
             rows.addAll(nextRows)
-            notifyDataSetChanged()
+            diff.dispatchUpdatesTo(this)
         }
 
         override fun getItemViewType(position: Int): Int {
@@ -227,6 +238,15 @@ class AddMemberOrRoleBottomSheet(
         }
 
         override fun getItemCount(): Int = rows.size
+
+        override fun getItemId(position: Int): Long {
+            return when (val row = rows[position]) {
+                is PickerRow.Header -> row.title.hashCode().toLong()
+                is PickerRow.RoleItem -> Long.MIN_VALUE + row.role.roleId
+                is PickerRow.MemberItem -> row.member.userId
+                is PickerRow.Empty -> Long.MIN_VALUE + 2
+            }
+        }
 
         private fun createHeaderView(context: Context): TextView =
             TextView(context).apply {
@@ -351,6 +371,29 @@ class AddMemberOrRoleBottomSheet(
                 textView.text = text
             }
         }
+    }
+
+    private class PickerDiffCallback(
+        private val oldRows: List<PickerRow>,
+        private val newRows: List<PickerRow>,
+    ) : DiffUtil.Callback() {
+        override fun getOldListSize(): Int = oldRows.size
+        override fun getNewListSize(): Int = newRows.size
+
+        override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean {
+            val old = oldRows[oldItemPosition]
+            val new = newRows[newItemPosition]
+            return when {
+                old is PickerRow.Header && new is PickerRow.Header -> old.title == new.title
+                old is PickerRow.RoleItem && new is PickerRow.RoleItem -> old.role.roleId == new.role.roleId
+                old is PickerRow.MemberItem && new is PickerRow.MemberItem -> old.member.userId == new.member.userId
+                old is PickerRow.Empty && new is PickerRow.Empty -> true
+                else -> false
+            }
+        }
+
+        override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean =
+            oldRows[oldItemPosition] == newRows[newItemPosition]
     }
 
     private fun bindCheckbox(frame: FrameLayout, checked: Boolean) {
