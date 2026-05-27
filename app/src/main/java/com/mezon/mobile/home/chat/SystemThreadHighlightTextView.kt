@@ -40,8 +40,19 @@ class SystemThreadHighlightTextView(
         setLineSpacing(LayoutHelper.dpf(2f), 1f)
     }
 
-    fun setThreadCreatedHighlight(listener: Listener, label: String, threadChannelId: Long, mentionColors: MentionColors) {
+    fun setThreadCreatedHighlight(
+        listener: Listener,
+        label: String,
+        threadChannelId: Long,
+        mentionColors: MentionColors,
+        creatorName: String = ""
+    ) {
         val sb = SpannableStringBuilder()
+        val creator = creatorName.trim()
+        if (creator.isNotEmpty()) {
+            sb.append(creator)
+            sb.append(' ')
+        }
         sb.append(context.getString(R.string.system_msg_started_thread_lead))
         sb.append(' ')
         val titleStart = sb.length

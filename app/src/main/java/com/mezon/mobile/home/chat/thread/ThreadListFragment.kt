@@ -125,6 +125,23 @@ class ThreadListFragment : BaseFragment() {
             val changedClanId = args.firstOrNull() as? Long ?: return@observe
             if (changedClanId == clanId) refreshCachedThreadList()
         }
+        observe(NotificationCenter.updateInterfaces) { _, _, args ->
+            val mask = args.firstOrNull() as? Int ?: return@observe
+            val interestedMask = NotificationCenter.UPDATE_MASK_NEW_MESSAGE or
+                NotificationCenter.UPDATE_MASK_BADGE or
+                NotificationCenter.UPDATE_MASK_READ_DIALOG_MESSAGE or
+                NotificationCenter.UPDATE_MASK_MESSAGE_TEXT or
+                NotificationCenter.UPDATE_MASK_CHAT
+            if ((mask and interestedMask) != 0) {
+                refreshCachedThreadList(animateChanges = false)
+                val refetchMask = NotificationCenter.UPDATE_MASK_NEW_MESSAGE or
+                    NotificationCenter.UPDATE_MASK_MESSAGE_TEXT or
+                    NotificationCenter.UPDATE_MASK_CHAT
+                if ((mask and refetchMask) != 0 && !isSearchMode) {
+                    fetchThreads(currentPage)
+                }
+            }
+        }
         return true
     }
 
@@ -220,7 +237,10 @@ class ThreadListFragment : BaseFragment() {
 
     override fun onResume() {
         super.onResume()
-        if (fragmentView != null) refreshCachedThreadList(animateChanges = false)
+        if (fragmentView != null) {
+            refreshCachedThreadList(animateChanges = false)
+            fetchThreads(currentPage)
+        }
     }
 
     private fun updateCreateThreadActions() {
@@ -266,8 +286,9 @@ class ThreadListFragment : BaseFragment() {
         container.addView(searchInput, LayoutHelper.createLinear(0, LayoutHelper.MATCH_PARENT, 1f))
 
         val clearButton = ImageView(context).apply {
-            setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
-            setColorFilter(themeColors.textDisabled)
+            setImageDrawable(MezonIcon.closeSmallBold.getDrawable(context).apply {
+                colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
+            })
             visibility = View.GONE
         }
         container.addView(clearButton, LayoutHelper.createLinear(20, 20, 0f, Gravity.CENTER_VERTICAL, 8f, 0f, 0f, 0f))
@@ -292,21 +313,18 @@ class ThreadListFragment : BaseFragment() {
     private fun buildEmptyView(context: Context): View {
         val container = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
+            gravity = Gravity.CENTER
             setPadding(LayoutHelper.dp(10), 0, LayoutHelper.dp(10), 0)
         }
-
-        val spacer = View(context)
-        container.addView(spacer, LayoutHelper.createLinear(0, 0, 0.3f))
 
         val iconCircle = FrameLayout(context).apply {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(themeColors.channelPanelBg)
+                setColor(themeColors.surfaceVariant)
             }
         }
         val iconView = ImageView(context).apply {
-            setImageDrawable(MezonIcon.threadPlusIcon.getDrawable(context))
+            setImageDrawable(MezonIcon.threadIcon.getDrawable(context))
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
         iconCircle.addView(iconView, LayoutHelper.createFrame(22, 22, Gravity.CENTER))
@@ -528,7 +546,7 @@ class ThreadListFragment : BaseFragment() {
             } else {
                 current.copy(
                     parentId = current.parentId.takeIf { it != 0L } ?: local.parentId,
-                    channelLabel = current.channelLabel.ifBlank { local.channelLabel },
+                    channelLabel = local.channelLabel.ifBlank { current.channelLabel },
                     active = if (current.active != 0) current.active else local.active,
                     isPrivate = current.isPrivate || local.isPrivate,
                     lastMessageTs = maxOf(current.lastMessageTs, local.lastMessageTs)

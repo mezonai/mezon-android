@@ -7,6 +7,7 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.core.LayoutHelper
+import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.clans.channelapp.ChannelAppUiModel
@@ -192,6 +193,27 @@ class ChannelListView(
     fun updateVisibleRows(mask: Int, freshChannels: Map<Long, ClanChannelEntity>? = null) {
         if (freshChannels != null) {
             adapter.updateRowData(freshChannels)
+        }
+        val visibilityMask = NotificationCenter.UPDATE_MASK_NEW_MESSAGE or
+            NotificationCenter.UPDATE_MASK_READ_DIALOG_MESSAGE or
+            NotificationCenter.UPDATE_MASK_BADGE
+        val hasCollapsedCategory = !allExpanded && currentSections.any {
+            it.categoryName.isNotEmpty() && it.categoryId !in expandedCategories
+        }
+        if (hasCollapsedCategory && currentSections.isNotEmpty() && (mask and visibilityMask) != 0) {
+            if (freshChannels != null) {
+                currentSections = currentSections.map { section ->
+                    if (section.categoryId == FAVORITE_CATEGORY_ID) {
+                        section
+                    } else {
+                        section.copy(channels = section.channels.map { freshChannels[it.channelId] ?: it })
+                    }
+                }
+            }
+            val newRows = buildRows(currentSections)
+            if (!adapter.rowsEqual(newRows)) {
+                adapter.submitRows(newRows)
+            }
         }
         val count = recyclerView.childCount
         for (i in 0 until count) {

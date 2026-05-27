@@ -22,6 +22,7 @@ import com.mezon.mobile.util.formatRelativeTime
 import com.mezon.mobile.util.parseContentText
 import com.mezon.mobile.util.parseContentToSpannable
 import com.mezon.mobile.util.parseThreadInfoFromPlainText
+import org.json.JSONObject
 
 class SystemMessageCell(context: Context, private val theme: ThemeColors) : LinearLayout(context) {
 
@@ -34,6 +35,7 @@ class SystemMessageCell(context: Context, private val theme: ThemeColors) : Line
     var delegate: Delegate? = null
 
     var mentionInteractiveGate: ((userId: String?, roleId: String?, segmentText: String) -> Boolean)? = null
+    var creatorNameResolver: ((Long) -> String)? = null
 
     var messageEntity: MessageEntity? = null
         private set
@@ -169,7 +171,8 @@ class SystemMessageCell(context: Context, private val theme: ThemeColors) : Line
                 highlightBridge,
                 threadInfo.label,
                 threadInfo.channelId,
-                mentionColors
+                mentionColors,
+                resolveThreadCreatorName(msg)
             )
             timeTextView.text = timeStr
         } else {
@@ -211,7 +214,7 @@ class SystemMessageCell(context: Context, private val theme: ThemeColors) : Line
         val icon = when (msg.code) {
             MessageEntity.CODE_FIRST_MESSAGE -> MezonIcon.auditLog
             MessageEntity.CODE_WELCOME -> MezonIcon.auditLog
-            MessageEntity.CODE_CREATE_THREAD -> MezonIcon.channelText
+            MessageEntity.CODE_CREATE_THREAD -> MezonIcon.threadIcon
             MessageEntity.CODE_CREATE_PIN -> MezonIcon.pinIcon
             MessageEntity.CODE_AUDIT_LOG -> MezonIcon.auditLog
             MessageEntity.CODE_UPCOMING_EVENT -> MezonIcon.auditLog
@@ -219,6 +222,9 @@ class SystemMessageCell(context: Context, private val theme: ThemeColors) : Line
         } ?: return null
 
         val d = icon.getDrawable(context).mutate()
+        if (msg.code == MessageEntity.CODE_CREATE_THREAD) {
+            return d
+        }
         val tint = when (msg.code) {
             MessageEntity.CODE_FIRST_MESSAGE -> theme.success
             MessageEntity.CODE_WELCOME -> theme.success
@@ -228,6 +234,57 @@ class SystemMessageCell(context: Context, private val theme: ThemeColors) : Line
         }
         d.setTint(tint)
         return d
+    }
+
+    private fun resolveThreadCreatorName(msg: MessageEntity): String {
+        val base = msg.senderName.ifBlank { msg.senderUsername }.trim()
+        if (base.isNotEmpty() && !base.equals("system", ignoreCase = true)) {
+            return formatCreatorName(base)
+        }
+        if (msg.senderId != 0L) {
+            val resolved = creatorNameResolver?.invoke(msg.senderId)?.trim().orEmpty()
+            if (resolved.isNotEmpty()) return formatCreatorName(resolved)
+        }
+        val fallbackUsername = msg.senderUsername.trim()
+        if (fallbackUsername.isNotEmpty() && !fallbackUsername.equals("system", ignoreCase = true)) {
+            return formatCreatorName(fallbackUsername)
+        }
+        val fromContent = resolveThreadCreatorNameFromContent(msg)
+        if (fromContent.isNotEmpty()) return formatCreatorName(fromContent)
+        return ""
+    }
+
+    private fun resolveThreadCreatorNameFromContent(msg: MessageEntity): String {
+        return runCatching {
+            val obj = JSONObject(msg.content)
+            val mentions = obj.optJSONArray("mentions")
+            if (mentions != null) {
+                for (i in 0 until mentions.length()) {
+                    val item = mentions.optJSONObject(i) ?: continue
+                    val userId = item.optString("user_id").toLongOrNull() ?: 0L
+                    if (userId != 0L) {
+                        val resolved = creatorNameResolver?.invoke(userId)?.trim().orEmpty()
+                        if (resolved.isNotEmpty()) return@runCatching resolved
+                    }
+                    val username = item.optString("username")
+                        .ifBlank { item.optString("display") }
+                        .trim()
+                    if (username.isNotEmpty() && !username.equals("system", ignoreCase = true)) {
+                        return@runCatching username
+                    }
+                }
+            }
+            val cid = obj.optString("cid").toLongOrNull() ?: 0L
+            if (cid != 0L) {
+                val resolved = creatorNameResolver?.invoke(cid)?.trim().orEmpty()
+                if (resolved.isNotEmpty()) return@runCatching resolved
+            }
+            ""
+        }.getOrDefault("")
+    }
+
+    private fun formatCreatorName(value: String): String {
+        return value.removePrefix("@").trim()
     }
 
     private fun systemFallbackText(msg: MessageEntity): String = when (msg.code) {

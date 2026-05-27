@@ -32,6 +32,7 @@ enum class MezonIcon(@DrawableRes val resId: Int) {
     bellIcon(R.drawable.ic_bell_icon),
     bellSlashIcon(R.drawable.ic_bell_slash_icon),
     threadIcon(R.drawable.ic_thread_bubble_icon),
+    threadCreateIcon(R.drawable.ic_thread_new_icon),
     threadLockIcon(R.drawable.ic_threadlockicon),
     backArrowLarge(R.drawable.ic_arrow_left_svgrepo_com),
     inbox(R.drawable.ic_inbox),
@@ -89,7 +90,6 @@ enum class MezonIcon(@DrawableRes val resId: Int) {
     keyboardIcon(R.drawable.ic_keyboard_icon),
     attachmentIcon(R.drawable.ic_attachment_icon),
     atIcon(R.drawable.ic_at_icon),
-    threadPlusIcon(R.drawable.ic_thread_plus_icon),
     sendMessageIcon(R.drawable.ic_send_message_icon),
     callLogCancel(R.drawable.ic_call_cancel),
     callLogOutgoing(R.drawable.ic_call_outgoing),
@@ -276,6 +276,9 @@ enum class MezonIcon(@DrawableRes val resId: Int) {
         getDrawable(context).apply {
             colorFilter = PorterDuffColorFilter(tintColor, PorterDuff.Mode.SRC_IN)
         }
+
+    fun shouldKeepOriginalFill(): Boolean =
+        this == threadIcon || this == threadLockIcon
 
     companion object {
 

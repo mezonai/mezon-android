@@ -87,10 +87,11 @@ class ThreadListAdapter(
                 (holder.itemView as ThreadSectionCell).setTitle(item)
             }
             is ThreadInfo -> {
+                val creatorName = item.creatorName.ifBlank { senderNameResolver(item.creatorId) }
                 val senderName = if (item.lastSenderId != 0L) {
-                    senderNameResolver(item.lastSenderId)
+                    senderNameResolver(item.lastSenderId).ifBlank { creatorName }
                 } else {
-                    item.creatorName.ifBlank { senderNameResolver(item.creatorId) }
+                    creatorName
                 }
                 (holder.itemView as ThreadCell).setData(item, senderName)
             }

@@ -161,8 +161,14 @@ class WelcomeMessageCell(context: Context, private val theme: ThemeColors) : Vie
             "This is the beginning of your direct message history with $channelName."
         } else ""
         isThread -> {
-            val name = creatorName.trim()
-            if (name.isNotEmpty()) context.getString(R.string.chat_welcome_start_of_thread, name) else ""
+            val fallbackCreator = messageEntity?.senderName.orEmpty().trim()
+            val name = creatorName.trim().ifEmpty { fallbackCreator }
+            val creator = name.removePrefix("@").trim()
+            if (creator.isNotEmpty()) {
+                context.getString(R.string.chat_welcome_start_of_thread, creator)
+            } else {
+                ""
+            }
         }
         else -> {
             val chType = if (isPrivate) "private " else ""

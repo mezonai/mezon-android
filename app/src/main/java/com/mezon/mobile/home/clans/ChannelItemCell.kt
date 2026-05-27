@@ -157,8 +157,11 @@ class ChannelItemCell(
         }
 
         val icon = resolveIconDrawable(ch.type, ch.isPrivate)
+        val iconEnum = resolveChannelIcon(ch.type, ch.isPrivate)
         val isVoiceType = ch.type == CHANNEL_TYPE_VOICE || ch.type == CHANNEL_TYPE_STREAMING || ch.type == CHANNEL_TYPE_APP
-        icon.colorFilter = if (isVoiceType && voiceActive) {
+        icon.colorFilter = if (iconEnum.shouldKeepOriginalFill()) {
+            null
+        } else if (isVoiceType && voiceActive) {
             voiceActiveColorFilter
         } else {
             if (cachedIconColorFilter == null || cachedIconColor != textColor) {

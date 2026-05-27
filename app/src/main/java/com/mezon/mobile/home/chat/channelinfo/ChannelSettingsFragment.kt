@@ -212,12 +212,6 @@ class ChannelSettingsFragment : BaseFragment() {
                 buildInput(context, originalTopic, multiline = true, isName = false),
                 LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 150, 0f, Gravity.NO_GRAVITY, 0f, 10f, 0f, 40f)
             )
-        } else {
-            content.addView(sectionLabel(context, getString(R.string.channel_settings_topic_title)))
-            content.addView(
-                buildInput(context, originalTopic, multiline = true, isName = false),
-                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 120, 0f, Gravity.NO_GRAVITY, 0f, 10f, 0f, 40f)
-            )
         }
 
         if (showAgeRestrictedToggle()) {
@@ -398,7 +392,7 @@ class ChannelSettingsFragment : BaseFragment() {
                 )
             )
         }
-        if (!isThread && showBanList()) {
+        if (showBanList()) {
             rows.add(
                 ClanSettingsUiHelpers.buildMezonChevronRow(
                     context, themeColors, MezonIcon.hammerIcon,
@@ -412,7 +406,7 @@ class ChannelSettingsFragment : BaseFragment() {
 
     private fun buildBottomRows(context: Context): List<View> {
         val rows = ArrayList<View>()
-        if (!isThread && showWebhooks()) {
+        if (showWebhooks()) {
             rows.add(
                 ClanSettingsUiHelpers.buildMezonChevronRow(
                     context, themeColors, MezonIcon.webhookIcon,
@@ -465,7 +459,7 @@ class ChannelSettingsFragment : BaseFragment() {
 
     private fun showChangeCategory(): Boolean = !isRestrictedChannelType()
     private fun showPermissions(): Boolean = !isThread && !isRestrictedChannelType()
-    private fun showQuickAction(): Boolean = !isThread && channelType != CHANNEL_TYPE_VOICE && channelType != CHANNEL_TYPE_STREAMING && channelType != CHANNEL_TYPE_APP
+    private fun showQuickAction(): Boolean = channelType != CHANNEL_TYPE_VOICE && channelType != CHANNEL_TYPE_STREAMING && channelType != CHANNEL_TYPE_APP
     private fun showBanList(): Boolean = !isRestrictedChannelType()
     private fun showWebhooks(): Boolean = channelType != CHANNEL_TYPE_VOICE && channelType != CHANNEL_TYPE_STREAMING
     private fun showPermissionDescription(): Boolean = showPermissions()
@@ -542,7 +536,7 @@ class ChannelSettingsFragment : BaseFragment() {
     private fun onSavePressed() {
         if (saving) return
         val label = nameField?.text?.toString()?.trim().orEmpty()
-        val topic = topicField?.text?.toString().orEmpty()
+        val topic = topicDraftValue()
         nameValidationError = validateNameLocal(label)
         if (nameValidationError != null || isDuplicateName) {
             updateNameErrorUi()
@@ -739,7 +733,7 @@ class ChannelSettingsFragment : BaseFragment() {
             originalAgeRestricted
         }
         return nameField?.text?.toString()?.trim().orEmpty() != originalName.trim() ||
-            topicField?.text?.toString().orEmpty() != originalTopic ||
+            topicDraftValue() != originalTopic ||
             ageRestrictedDraft != originalAgeRestricted
     }
 
@@ -765,12 +759,15 @@ class ChannelSettingsFragment : BaseFragment() {
             originalAgeRestricted
         }
         val changed = nameField?.text?.toString()?.trim().orEmpty() != originalName.trim() ||
-            topicField?.text?.toString().orEmpty() != originalTopic ||
+            topicDraftValue() != originalTopic ||
             ageRestrictedDraft != originalAgeRestricted
         val canSave = changed && nameValidationError == null && !isDuplicateName && !saving
         saveText?.isEnabled = canSave
         saveText?.setTextColor(if (canSave) themeColors.blurple else themeColors.textDisabled)
     }
+
+    private fun topicDraftValue(): String =
+        if (isThread) originalTopic else topicField?.text?.toString().orEmpty()
 
     private fun rounded(color: Int, radiusDp: Float): GradientDrawable =
         GradientDrawable().apply {

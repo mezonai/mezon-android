@@ -659,14 +659,14 @@ class ClansFragment : BaseFragment() {
 
         val clans = clansController.clans.value
         val selectedId = clansController.selectedClanId.value
-        
+
         if ((mask and NotificationCenter.UPDATE_MASK_CLAN_BANNER) != 0) {
             clans.find { it.clanId == selectedId }?.let { updateClanHeader(it) }
         }
-        
+
         val clanMap = HashMap<Long, ClanEntity>(clans.size)
         for (c in clans) clanMap[c.clanId] = c
-        
+
         val count = serverRail.childCount
         for (i in 0 until count) {
             val child = serverRail.getChildAt(i)
