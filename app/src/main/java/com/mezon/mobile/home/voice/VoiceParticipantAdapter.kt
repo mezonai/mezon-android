@@ -17,6 +17,7 @@ data class ParticipantInfo(
     val hasVideo: Boolean,
     val videoTrack: VideoTrack? = null,
     val isScreenShare: Boolean = false,
+    val mirrorVideo: Boolean = false,
     val contentAspectRatio: Float = 16f / 9f,
     val reactionBadge: ParticipantCell.ReactionBadgeType = ParticipantCell.ReactionBadgeType.NONE
 )
@@ -66,7 +67,7 @@ class VoiceParticipantAdapter(
 
         val room = getRoom()
         if (participant.videoTrack != null && room != null) {
-            holder.cell.attachVideoTrack(room, participant.videoTrack)
+            holder.cell.attachVideoTrack(room, participant.videoTrack, participant.mirrorVideo)
         } else {
             holder.cell.detachVideoTrack()
         }

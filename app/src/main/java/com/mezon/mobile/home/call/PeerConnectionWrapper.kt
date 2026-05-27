@@ -62,6 +62,7 @@ class PeerConnectionWrapper(
     private val attachedLocalSinks = mutableSetOf<SurfaceViewRenderer>()
     private val attachedRemoteSinks = mutableSetOf<SurfaceViewRenderer>()
     private var captureStarted = false
+    @Volatile private var localCameraFrontFacing = true
 
     private fun VideoTrack.addRemoteVideoSinks() {
         attachedRemoteSinks.forEach { addSink(it) }
@@ -422,10 +423,23 @@ class PeerConnectionWrapper(
     }
 
     fun switchCamera() {
-        videoCapturer?.switchCamera(null)
+        videoCapturer?.switchCamera(object : CameraVideoCapturer.CameraSwitchHandler {
+            override fun onCameraSwitchDone(isFrontCamera: Boolean) {
+                mainHandler.post {
+                    if (disposed) return@post
+                    localCameraFrontFacing = isFrontCamera
+                    applyLocalRendererMirror()
+                }
+            }
+
+            override fun onCameraSwitchError(errorDescription: String?) {
+                android.util.Log.w(TAG, "switchCamera failed: $errorDescription")
+            }
+        })
     }
 
     fun attachLocalRenderer(renderer: SurfaceViewRenderer) {
+        renderer.setMirror(localCameraFrontFacing)
         if (!attachedLocalSinks.add(renderer)) return
         localVideoTrack?.addSink(renderer)
     }
@@ -527,6 +541,7 @@ class PeerConnectionWrapper(
             val enumerator = Camera2Enumerator(context)
             val frontCamera = enumerator.deviceNames.firstOrNull { enumerator.isFrontFacing(it) }
             frontCamera?.let { cameraName ->
+                localCameraFrontFacing = enumerator.isFrontFacing(cameraName)
                 videoCapturer = enumerator.createCapturer(cameraName, null)
                 videoCapturer?.let { addLocalVideoTrackWithoutStartingCapture(it) }
             }
@@ -593,6 +608,10 @@ class PeerConnectionWrapper(
         localVideoTrack = factory.createVideoTrack("video0", vs)
         localVideoTrack?.setEnabled(false)
         peerConnection?.addTrack(localVideoTrack, listOf("stream0"))
+    }
+
+    private fun applyLocalRendererMirror() {
+        attachedLocalSinks.forEach { it.setMirror(localCameraFrontFacing) }
     }
 
     private fun startIceReconnectTimer() {

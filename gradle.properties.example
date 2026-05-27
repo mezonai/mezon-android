@@ -1,5 +1,9 @@
 # Project-wide Gradle settings.
 org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+org.gradle.parallel=true
+org.gradle.caching=true
+# Set to true after publishing local binary modules when core-proto/mmn-client-kotlin are unchanged.
+# mezon.usePrebuiltLocalModules=true
 android.useAndroidX=true
 kotlin.code.style=official
 android.nonTransitiveRClass=true

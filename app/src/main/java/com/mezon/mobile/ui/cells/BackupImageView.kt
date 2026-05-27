@@ -84,6 +84,7 @@ class BackupImageView(context: Context) : View(context) {
     }
 
     fun setImage(url: String?, filter: String?, placeholder: Drawable?) {
+        if (url != null && url == imageUrl && (cancellable != null || (loadedDrawable != null && loadedDrawable !== placeholder))) return
         imageUrl = url
         loadedDrawable = placeholder
         if (placeholder != null) invalidate()
@@ -93,6 +94,7 @@ class BackupImageView(context: Context) : View(context) {
 
     fun setImage(url: String?, id: Long = 0, username: String = "") {
         if (id != 0L) avatarDrawable.setInfo(id, username)
+        if (url != null && url == imageUrl && (cancellable != null || loadedDrawable != null)) return
         imageUrl = url
         loadedDrawable = null
         if (attached && url != null) loadImage(url)

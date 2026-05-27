@@ -77,6 +77,7 @@ class ParticipantCell(
     private var avatarDisposable: MezonImageLoader.Cancellable? = null
     private var attachedToWindow = false
     private var isScreenShare = false
+    private var mirrorVideo = false
     private val nameOverlay: LinearLayout
     private val nameOverlayIcon: ImageView
     private val nameOverlayText: TextView
@@ -252,8 +253,11 @@ class ParticipantCell(
         avatarDisposable = null
     }
 
-    fun attachVideoTrack(room: Room, videoTrack: VideoTrack) {
-        if (currentVideoTrack == videoTrack && surfaceRenderer != null) return
+    fun attachVideoTrack(room: Room, videoTrack: VideoTrack, mirror: Boolean) {
+        if (currentVideoTrack == videoTrack && surfaceRenderer != null) {
+            updateVideoMirror(mirror)
+            return
+        }
         detachVideoTrack()
 
         val renderer = surfaceRenderer ?: SurfaceViewRenderer(context).apply {
@@ -283,7 +287,7 @@ class ParticipantCell(
             )
             renderer.setEnableHardwareScaler(true)
         }
-        renderer.setMirror(!isScreenShare)
+        updateVideoMirror(mirror)
         renderer.requestLayout()
         renderer.invalidate()
         renderer.visibility = VISIBLE
@@ -295,9 +299,15 @@ class ParticipantCell(
     fun detachVideoTrack() {
         currentVideoTrack?.removeRenderer(surfaceRenderer ?: return)
         currentVideoTrack = null
+        mirrorVideo = false
         surfaceRenderer?.visibility = GONE
         nameOverlay.visibility = GONE
         avatarView.visibility = VISIBLE
+    }
+
+    private fun updateVideoMirror(mirror: Boolean) {
+        mirrorVideo = mirror
+        surfaceRenderer?.setMirror(mirrorVideo)
     }
 
     fun releaseRenderer() {

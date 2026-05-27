@@ -41,9 +41,9 @@ import com.mezon.mobile.home.clans.PermissionPolicy
 import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.ui.cells.MezonIcon
 import io.livekit.android.LiveKit
-import io.livekit.android.renderer.SurfaceViewRenderer
 import io.livekit.android.room.Room
 import io.livekit.android.room.participant.Participant
+import io.livekit.android.room.track.CameraPosition
 import io.livekit.android.room.track.LocalVideoTrack
 import io.livekit.android.room.track.Track
 import io.livekit.android.room.track.VideoTrack
@@ -1032,8 +1032,15 @@ class VoiceRoomFragment : BaseFragment() {
             hasVideo = cameraTrack != null,
             videoTrack = cameraTrack,
             isScreenShare = false,
+            mirrorVideo = shouldMirrorCameraTrack(participant, cameraTrack),
             reactionBadge = badge
         ))
+    }
+
+    private fun shouldMirrorCameraTrack(participant: Participant, track: VideoTrack?): Boolean {
+        if (participant !== room?.localParticipant) return false
+        val localTrack = track as? LocalVideoTrack ?: return false
+        return localTrack.options.position == CameraPosition.FRONT
     }
 
     private fun resolveScreenShareAspectRatio(publication: Any?, track: Any?): Float {
@@ -1295,6 +1302,11 @@ class VoiceRoomFragment : BaseFragment() {
         if (now - lastSwitchCameraElapsedMs < SWITCH_CAMERA_THROTTLE_MS) return
         lastSwitchCameraElapsedMs = now
         localVideo.switchCamera()
+        scheduleUpdateParticipantList()
+        roomScope?.launch {
+            delay(600)
+            doUpdateParticipantList()
+        }
     }
 
     private fun showFocusedShare(participant: ParticipantInfo) {
