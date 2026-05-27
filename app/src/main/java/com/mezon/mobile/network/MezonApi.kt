@@ -920,6 +920,11 @@ class MezonApi @Inject constructor(
         welcomeChannelId: Long? = null,
         isOnboarding: Boolean? = null,
         isCommunity: Boolean? = null,
+        communityBanner: String? = null,
+        clearCommunityBanner: Boolean = false,
+        about: String? = null,
+        description: String? = null,
+        shortUrl: String? = null,
     ): ClanDesc {
         val request = updateClanDescRequest {
             this.clanId = clanId
@@ -939,6 +944,13 @@ class MezonApi @Inject constructor(
             welcomeChannelId?.let { this.welcomeChannelId = it }
             isOnboarding?.let { this.isOnboarding = BoolValue.of(it) }
             isCommunity?.let { this.isCommunity = BoolValue.of(it) }
+            when {
+                communityBanner != null -> this.communityBanner = StringValue.of(communityBanner)
+                clearCommunityBanner -> this.communityBanner = StringValue.of("")
+            }
+            about?.let { this.about = StringValue.of(it) }
+            description?.let { this.description = StringValue.of(it) }
+            shortUrl?.let { this.shortUrl = StringValue.of(it) }
         }
         val bytes = rpc(apiUrl, token, "UpdateClanDesc", request.toByteArray())
         return ClanDesc.parseFrom(bytes)

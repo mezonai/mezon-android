@@ -434,6 +434,15 @@ class ClanSettingFragment : BaseFragment() {
                         navigationRow(ctx, row.icon, row.labelRes, Runnable {
                             presentFragment(EmojiSettingFragment.newInstance(clanId))
                         })
+                    R.string.clan_settings_enable_community ->
+                        navigationRow(ctx, row.icon, row.labelRes, Runnable {
+                            val perm = permissionPolicy.clanSettingsPermissionState(clanId)
+                            if (!perm.hasManageClanPermission) {
+                                MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.community_settings_permission_denied))
+                                return@Runnable
+                            }
+                            presentFragment(CommunitySettingsFragment.newInstance(clanId))
+                        })
                     else ->
                         navigationRow(ctx, row.icon, row.labelRes, Runnable {
                             MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.feature_coming_soon))

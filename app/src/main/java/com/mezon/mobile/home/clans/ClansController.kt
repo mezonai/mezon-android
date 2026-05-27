@@ -667,6 +667,15 @@ class ClansController @Inject constructor(
         }
     }
 
+    fun mergeCommunityFlag(clanId: Long, enabled: Boolean) {
+        val idx = _clans.value.indexOfFirst { it.clanId == clanId }
+        if (idx < 0) return
+        val updated = _clans.value[idx].copy(isCommunity = enabled)
+        _clans.value = _clans.value.toMutableList().also { it[idx] = updated }
+        appScope.launch(ioDispatcher) { clanDao.upsert(updated) }
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.clanInfoUpdated, clanId)
+    }
+
     private fun preWarmClanLogos(clans: List<ClanEntity>) {
         val loader = MezonImageLoader.getInstance(appContext)
         val sizePx = CLAN_ICON_SIZE_PX
