@@ -21,10 +21,29 @@ private fun parseContentObject(raw: String): JSONObject? {
     }
 }
 
+const val SHARE_CONTACT_PREVIEW_LABEL = "[Contact]"
+
+private fun JSONObject.hasShareContactEmbed(): Boolean {
+    val embedArr = optJSONArray("embed") ?: return false
+    if (embedArr.length() == 0) return false
+    val embed = embedArr.optJSONObject(0) ?: return false
+    val fields = embed.optJSONArray("fields") ?: return false
+    for (i in 0 until fields.length()) {
+        val f = fields.optJSONObject(i) ?: continue
+        if (f.optString("name", "") == "key" && f.optString("value", "").trim() == SHARE_CONTACT_KEY) {
+            return true
+        }
+    }
+    return false
+}
+
 private fun textFromContentObject(obj: JSONObject, preview: Boolean): String {
     val t = obj.optString("t", "").trim()
     if (t.isNotBlank()) {
         return if (preview) t.replace("\n", " ").take(200) else t
+    }
+    if (obj.hasShareContactEmbed()) {
+        return if (preview) SHARE_CONTACT_PREVIEW_LABEL else ""
     }
     val embedPreview = parseEmbedPreview(obj)
     if (embedPreview.isNotBlank()) {
@@ -77,8 +96,12 @@ private fun parseEmbedPreview(obj: JSONObject): String {
     if (description.isNotBlank()) return description
     val fields = embed.optJSONArray("fields") ?: return ""
     if (fields.length() == 0) return ""
-    val firstVal = fields.optJSONObject(0)?.optString("value", "")?.trim().orEmpty()
-    if (firstVal == SHARE_CONTACT_KEY) return "[contact]"
+    for (i in 0 until fields.length()) {
+        val f = fields.optJSONObject(i) ?: continue
+        if (f.optString("name", "") == "key" && f.optString("value", "").trim() == SHARE_CONTACT_KEY) {
+            return SHARE_CONTACT_PREVIEW_LABEL
+        }
+    }
     return ""
 }
 

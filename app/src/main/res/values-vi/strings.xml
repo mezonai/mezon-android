@@ -1252,4 +1252,5 @@
     <string name="contact_shared_error">Không thể chia sẻ danh thiếp</string>
     <string name="cannot_call_yourself">Bạn không thể gọi chính mình.</string>
     <string name="no_permission_call_blocked">Bạn không thể thực hiện hành động này.</string>
+    <string name="share_contact_blocked_notice">Người dùng này đã bị chặn</string>
 </resources>

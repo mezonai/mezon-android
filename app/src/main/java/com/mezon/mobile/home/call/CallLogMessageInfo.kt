@@ -103,7 +103,7 @@ fun messagePreviewForDialog(
 ): String {
     val base = parseContentPreview(content)
     if (base.isNotBlank()) {
-        if (base == "[contact]") {
+        if (base.equals("[contact]", ignoreCase = true)) {
             return "[${context.getString(R.string.message_attachment_contact)}]"
         }
         return base

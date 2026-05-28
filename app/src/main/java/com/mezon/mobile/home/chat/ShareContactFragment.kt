@@ -262,8 +262,9 @@ class ShareContactFragment : BaseFragment() {
     }
 
     private fun reloadFriends() {
+        val myId = chatController.getCurrentUserId()
         allFriends = friendController.friends.value
-            .filter { it.state == FRIEND_STATE_FRIEND }
+            .filter { it.state == FRIEND_STATE_FRIEND && it.user.id != myId }
             .sortedBy { f ->
                 f.user.displayName.ifBlank { f.user.username }.lowercase(Locale.getDefault())
             }

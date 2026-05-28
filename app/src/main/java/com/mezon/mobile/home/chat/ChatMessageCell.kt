@@ -146,6 +146,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var hasPollCard = false
     var pollBridge: ChatPollBridge? = null
     var shareContactOnlineResolver: ((Long) -> Boolean)? = null
+    var shareContactBlockedResolver: ((Long) -> Boolean)? = null
+    var shareContactCallEnabledResolver: (() -> Boolean)? = null
     private val shareContactLayout = ShareContactCardLayout(context).also {
         it.invalidateCallback = { invalidate() }
     }
@@ -1142,14 +1144,30 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         if (hasShareContactCard) {
             val scData = shareContactParsed!!
             val isOnline = shareContactOnlineResolver?.invoke(scData.userId) == true
-            shareContactLayout.prepare(scData, theme, bubbleMaxW, isOnline)
+            val blocked = shareContactBlockedResolver?.invoke(scData.userId) == true
+            val callEnabled = shareContactCallEnabledResolver?.invoke() != false
+            val messageEnabled = !blocked
+            val blockedNotice = if (blocked) {
+                context.getString(com.mezon.mobile.R.string.share_contact_blocked_notice)
+            } else {
+                null
+            }
+            shareContactLayout.prepare(
+                scData,
+                theme,
+                bubbleMaxW,
+                isOnline,
+                messageEnabled = messageEnabled,
+                callEnabled = callEnabled && !blocked,
+                blockedNotice = blockedNotice
+            )
         } else {
             shareContactLayout.clear()
         }
         val hasEmbedPayload = !hasCallLogCard && !hasShareContactCard && isEmbedOrComponentsPayload(msg.content)
         val hasText = !hasCallLogCard && !msg.isPollMessage && !hasShareContactCard &&
             parsedContent.isNotBlank() && parsedContent != "[file]" && parsedContent != "[embed]" &&
-            parsedContent != "[contact]" &&
+            !parsedContent.equals("[contact]", ignoreCase = true) &&
             (!hasEmbedPayload || hasExplicitTextBody)
         contentLayout = if (hasText) {
             val content = msg.content

@@ -1991,6 +1991,8 @@ open class ChatFragment : BaseFragment() {
             friendController.friends.value.find { it.user.id == userId }?.user?.online == true ||
                 userClanController.getUserById(userId)?.isOnline == true
         }
+        adapter.shareContactBlockedResolver = { userId -> isShareContactUserBlocked(userId) }
+        adapter.shareContactCallEnabledResolver = { !callController.isCallSessionActive() }
         refreshSystemMessageMemberGateCache()
         recyclerView.adapter = adapter
 
@@ -5304,7 +5306,17 @@ open class ChatFragment : BaseFragment() {
         sheet.show()
     }
 
+    private fun isShareContactUserBlocked(userId: Long): Boolean =
+        friendController.isUserBlocked(userId) ||
+            friendController.allFriendRelations.value.any {
+                it.user.id == userId && it.state == FRIEND_STATE_BLOCKED
+            }
+
     private fun openShareContactDm(data: ShareContactData) {
+        if (isShareContactUserBlocked(data.userId)) {
+            MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.no_permission_call_blocked))
+            return
+        }
         fragmentScope.launch {
             val dmId = dialogsController.getOrCreateDm(data.userId)
             withContext(mainDispatcher) {
@@ -5328,10 +5340,7 @@ open class ChatFragment : BaseFragment() {
             MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.cannot_call_yourself))
             return
         }
-        val blocked = friendController.allFriendRelations.value.any {
-            it.user.id == data.userId && it.state == FRIEND_STATE_BLOCKED
-        }
-        if (blocked) {
+        if (isShareContactUserBlocked(data.userId)) {
             MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.no_permission_call_blocked))
             return
         }

@@ -48,6 +48,9 @@ class ShareContactCardLayout(private val context: Context) {
     private var actionRowHeight = 0
     private var textBlockTop = 0f
     private var showOnline = false
+    private var messageEnabled = true
+    private var callEnabled = true
+    private var blockedNoticeLayout: StaticLayout? = null
     private var pressedAction = ShareContactHit.None
     private var rippleLight = false
 
@@ -68,9 +71,19 @@ class ShareContactCardLayout(private val context: Context) {
         invalidateCallback?.invoke()
     }
 
-    fun prepare(data: ShareContactData, theme: ThemeColors, maxBubbleWidth: Int, isOnline: Boolean = false) {
+    fun prepare(
+        data: ShareContactData,
+        theme: ThemeColors,
+        maxBubbleWidth: Int,
+        isOnline: Boolean = false,
+        messageEnabled: Boolean = true,
+        callEnabled: Boolean = true,
+        blockedNotice: String? = null
+    ) {
         cardWidth = (maxBubbleWidth * 0.9f).toInt().coerceAtLeast(LayoutHelper.dp(200))
         showOnline = isOnline
+        this.messageEnabled = messageEnabled
+        this.callEnabled = callEnabled
         rippleLight = theme.resolvedMode == com.mezon.mobile.ui.theme.ThemeMode.LIGHT
         val innerPadH = LayoutHelper.dp(12)
         val headerPadV = LayoutHelper.dp(16)
@@ -97,6 +110,16 @@ class ShareContactCardLayout(private val context: Context) {
             .setMaxLines(1)
             .setEllipsize(TextUtils.TruncateAt.END)
             .build()
+        val notice = blockedNotice?.trim().orEmpty()
+        blockedNoticeLayout = if (notice.isNotEmpty()) {
+            NOTICE_PAINT.color = theme.redStrong
+            StaticLayout.Builder.obtain(notice, 0, notice.length, NOTICE_PAINT, textBlockW)
+                .setMaxLines(2)
+                .setEllipsize(TextUtils.TruncateAt.END)
+                .build()
+        } else {
+            null
+        }
 
         avatarDrawable.setInfo(data.userId, data.username)
         loadAvatar(data.avatarUrl)
@@ -106,29 +129,39 @@ class ShareContactCardLayout(private val context: Context) {
         dividerPaint.color = theme.border
         actionTopDividerPaint.color = theme.borderDim
         onlineDotPaint.color = theme.onlineGreen
-        actionTint = theme.tabLabelInactive
+        val actionsEnabled = messageEnabled || callEnabled
+        actionTint = if (actionsEnabled) theme.tabLabelInactive else theme.textDisabled
 
-        val textStackH = (displayLayout?.height ?: 0) + USERNAME_GAP + (usernameLayout?.height ?: 0)
+        val noticeH = if (blockedNoticeLayout != null) {
+            BLOCKED_NOTICE_GAP + (blockedNoticeLayout?.height ?: 0)
+        } else {
+            0
+        }
+        val textStackH = (displayLayout?.height ?: 0) + USERNAME_GAP + (usernameLayout?.height ?: 0) + noticeH
         val headerContentH = maxOf(AVATAR_SIZE, textStackH)
         headerHeight = headerPadV * 2 + headerContentH
         textBlockTop = headerPadV + (headerContentH - textStackH) / 2f
 
+        val callTint = if (callEnabled) actionTint else theme.textDisabled
+        val messageTint = if (messageEnabled) actionTint else theme.textDisabled
         callIcon = MezonIcon.phoneCallIcon.getDrawable(context).mutate().apply {
-            setColorFilter(actionTint, android.graphics.PorterDuff.Mode.SRC_IN)
+            setColorFilter(callTint, android.graphics.PorterDuff.Mode.SRC_IN)
         }
         messageIcon = MezonIcon.chatIcon.getDrawable(context).mutate().apply {
-            setColorFilter(actionTint, android.graphics.PorterDuff.Mode.SRC_IN)
+            setColorFilter(messageTint, android.graphics.PorterDuff.Mode.SRC_IN)
         }
 
         val callLabel = context.getString(R.string.user_profile_voice_call)
         val msgLabel = context.getString(R.string.share_contact_message)
-        ACTION_PAINT.color = actionTint
+        ACTION_PAINT.color = callTint
         callLabelLayout = StaticLayout.Builder.obtain(callLabel, 0, callLabel.length, ACTION_PAINT, LayoutHelper.dp(140))
             .setMaxLines(1)
             .build()
+        ACTION_PAINT.color = messageTint
         messageLabelLayout = StaticLayout.Builder.obtain(msgLabel, 0, msgLabel.length, ACTION_PAINT, LayoutHelper.dp(140))
             .setMaxLines(1)
             .build()
+        ACTION_PAINT.color = callTint
 
         val labelH = maxOf(callLabelLayout?.height ?: 0, messageLabelLayout?.height ?: 0)
         actionRowHeight = ACTION_ROW_PAD_V * 2 + maxOf(ACTION_ICON_SIZE, labelH)
@@ -174,12 +207,19 @@ class ShareContactCardLayout(private val context: Context) {
             canvas.translate(textLeft, textY + USERNAME_GAP)
             it.draw(canvas)
             canvas.restore()
+            textY += USERNAME_GAP + it.height
+        }
+        blockedNoticeLayout?.let {
+            canvas.save()
+            canvas.translate(textLeft, textY + BLOCKED_NOTICE_GAP)
+            it.draw(canvas)
+            canvas.restore()
         }
 
-        if (pressedAction == ShareContactHit.Call) {
+        if (callEnabled && pressedAction == ShareContactHit.Call) {
             drawActionRipple(canvas, callHitRect)
         }
-        if (pressedAction == ShareContactHit.Message) {
+        if (messageEnabled && pressedAction == ShareContactHit.Message) {
             drawActionRipple(canvas, messageHitRect)
         }
         drawActionButton(canvas, callHitRect, callIcon, callLabelLayout)
@@ -260,8 +300,8 @@ class ShareContactCardLayout(private val context: Context) {
 
     fun hitTest(localX: Float, localY: Float): ShareContactHit {
         if (profileHitRect.contains(localX, localY)) return ShareContactHit.Profile
-        if (callHitRect.contains(localX, localY)) return ShareContactHit.Call
-        if (messageHitRect.contains(localX, localY)) return ShareContactHit.Message
+        if (callEnabled && callHitRect.contains(localX, localY)) return ShareContactHit.Call
+        if (messageEnabled && messageHitRect.contains(localX, localY)) return ShareContactHit.Message
         return ShareContactHit.None
     }
 
@@ -299,6 +339,9 @@ class ShareContactCardLayout(private val context: Context) {
         avatarCancellable = null
         currentAvatarUrl = ""
         showOnline = false
+        messageEnabled = true
+        callEnabled = true
+        blockedNoticeLayout = null
         pressedAction = ShareContactHit.None
         displayLayout = null
         usernameLayout = null
@@ -321,6 +364,10 @@ class ShareContactCardLayout(private val context: Context) {
         private val AVATAR_GAP = LayoutHelper.dp(12)
         private val TEXT_RIGHT_PAD = LayoutHelper.dp(10)
         private val USERNAME_GAP = LayoutHelper.dp(2)
+        private val BLOCKED_NOTICE_GAP = LayoutHelper.dp(4)
+        private val NOTICE_PAINT = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = LayoutHelper.sp(11f)
+        }
         private val CARD_RADIUS = LayoutHelper.dpf(12f)
         private val ACTION_ROW_PAD_V = LayoutHelper.dp(10)
         private val ACTION_ICON_SIZE = LayoutHelper.dp(18)
