@@ -32,7 +32,6 @@ import com.mezon.mobile.home.clans.CreateClanRnUiTokens
 import com.mezon.mobile.home.clans.PermissionPolicy
 import com.mezon.mobile.home.clans.RoleController
 import com.mezon.mobile.home.profile.UserController
-import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
 import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.ui.cells.AvatarView
 import com.mezon.mobile.ui.cells.MezonIcon
@@ -57,6 +56,7 @@ class ClanSettingFragment : BaseFragment() {
     private lateinit var roleController: RoleController
     private lateinit var userController: UserController
     private lateinit var permissionPolicy: PermissionPolicy
+    private lateinit var invitePeopleController: InvitePeopleController
 
     private lateinit var scrollInner: LinearLayout
     private lateinit var logoContainer: LinearLayout
@@ -69,6 +69,7 @@ class ClanSettingFragment : BaseFragment() {
         roleController = entryPoint.roleController()
         userController = entryPoint.userController()
         permissionPolicy = entryPoint.permissionPolicy()
+        invitePeopleController = entryPoint.invitePeopleController()
     }
 
     override fun onFragmentCreate(): Boolean {
@@ -446,7 +447,7 @@ class ClanSettingFragment : BaseFragment() {
                     MezonIcon.linkIcon,
                     getString(R.string.clan_settings_invites),
                     null,
-                    Runnable { openInviteSheet() }
+                    Runnable { openInvitePeople() }
                 )
         }
     }
@@ -462,20 +463,18 @@ class ClanSettingFragment : BaseFragment() {
         )
     }
 
-    private fun openInviteSheet() {
+    private fun openInvitePeople() {
         val ctx = getContext() ?: return
-        val ch = channelController.getChannels(clanId).firstOrNull { it.type == CHANNEL_TYPE_CHANNEL }
-        if (ch == null) {
-            MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.clan_invite_need_channel))
-            return
-        }
-        val sheet = com.mezon.mobile.home.chat.channelinfo.InviteMembersBottomSheet(
+        val clan = clansController.clans.value.firstOrNull { it.clanId == clanId } ?: return
+        InvitePeopleBottomSheet(
             ctx,
+            invitePeopleController,
             clanId,
-            ch.channelId,
-            ch.channelLabel
-        )
-        sheet.setDrawNavigationBar(true)
-        sheet.show()
+            clan.clanName,
+            clan.logo,
+        ).apply {
+            setDrawNavigationBar(true)
+            show()
+        }
     }
 }

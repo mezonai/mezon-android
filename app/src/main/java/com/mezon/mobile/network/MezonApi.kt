@@ -127,7 +127,9 @@ import com.mezon.mezon.api.webhookDeleteRequestById
 import com.mezon.mezon.api.webhookListRequest
 import com.mezon.mezon.api.webhookUpdateRequestById
 import com.mezon.mezon.api.InviteUserRes
+import com.mezon.mezon.api.LinkInviteUser
 import com.mezon.mezon.api.inviteUserRequest
+import com.mezon.mezon.api.linkInviteUserRequest
 import com.mezon.mezon.api.clanDiscover as clanDiscoverProto
 import com.mezon.mezon.api.listClanDiscover
 import com.mezon.mezon.api.clanEmojiCreateRequest
@@ -952,6 +954,22 @@ class MezonApi @Inject constructor(
         val request = getSystemMessage { this.clanId = clanId }
         val bytes = rpc(apiUrl, token, "GetSystemMessageByClanId", request.toByteArray())
         return SystemMessage.parseFrom(bytes)
+    }
+
+    suspend fun createLinkInviteUser(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        channelId: Long,
+        expiryTime: Int = 10,
+    ): LinkInviteUser {
+        val request = linkInviteUserRequest {
+            this.clanId = clanId
+            this.channelId = channelId
+            this.expiryTime = expiryTime
+        }
+        val bytes = rpc(apiUrl, token, "CreateLinkInviteUser", request.toByteArray())
+        return LinkInviteUser.parseFrom(bytes)
     }
 
     suspend fun updateSystemMessage(
