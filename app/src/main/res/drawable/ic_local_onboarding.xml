@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- Person: head + body (filled — đọc rõ ở 24dp) -->
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M5.5,5.75 m-2.35,0 a2.35,2.35 0 1,1 4.7,0 a2.35,2.35 0 1,1 -4.7,0" />
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M3.85,8.6c0,-0.7 0.75,-1.15 1.65,-1.15h0c0.9,0 1.65,0.45 1.65,1.15v7.55c0,0.75 -0.75,1.35 -1.65,1.35h0c-0.9,0 -1.65,-0.6 -1.65,-1.35V8.6z" />
+
+    <!-- 3 ô checkbox (người nhìn sang phải) -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M13.75,4h4.75v4.25h-4.75zM13.75,9.9h4.75v4.25h-4.75zM13.75,15.8h4.75v4.25h-4.75z"
+        android:strokeColor="@android:color/white"
+        android:strokeLineJoin="round"
+        android:strokeWidth="2.35" />
+</vector>

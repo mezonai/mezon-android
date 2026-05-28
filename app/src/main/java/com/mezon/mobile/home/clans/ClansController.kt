@@ -354,6 +354,16 @@ class ClansController @Inject constructor(
         }
     }
 
+    fun mergeClanOnboardingFlag(clanId: Long, enabled: Boolean) {
+        val list = _clans.value
+        val idx = list.indexOfFirst { it.clanId == clanId }
+        if (idx < 0) return
+        val updated = list[idx].copy(isOnboarding = enabled)
+        _clans.value = list.toMutableList().also { it[idx] = updated }
+        appScope.launch(ioDispatcher) { clanDao.upsert(updated) }
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.clanInfoUpdated, clanId)
+    }
+
     fun mergeClanFromDesc(desc: ClanDesc, trustedBanner: String? = null, knownClanId: Long = 0L) {
         val list = _clans.value
         val mergeKey = when {

@@ -224,6 +224,7 @@ enum class MezonIcon(@DrawableRes val resId: Int) {
     gamingIcon(R.drawable.ic_gaming),
     studyIcon(R.drawable.ic_study),
     localCommunityIcon(R.drawable.ic_local_community),
+    localOnboardingIcon(R.drawable.ic_local_onboarding),
     artistIcon(R.drawable.ic_artist),
     businessIcon(R.drawable.ic_business_card),
     devicesIcon(R.drawable.ic_devices),

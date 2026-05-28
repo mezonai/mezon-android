@@ -17,6 +17,13 @@ import com.mezon.mezon.api.categoryDesc
 import com.mezon.mezon.api.ClanDesc
 import com.mezon.mezon.api.EmojiListedResponse
 import com.mezon.mezon.api.StickerListedResponse
+import com.mezon.mezon.api.ListOnboardingResponse
+import com.mezon.mezon.api.OnboardingItem
+import com.mezon.mezon.api.OnboardingContent
+import com.mezon.mezon.api.listOnboardingRequest
+import com.mezon.mezon.api.createOnboardingRequest
+import com.mezon.mezon.api.updateOnboardingRequest
+import com.mezon.mezon.api.onboardingRequest
 import com.mezon.mezon.api.ChannelDescList
 import com.mezon.mezon.api.ChannelDescription
 import com.mezon.mezon.api.ChannelMessageList
@@ -2311,6 +2318,61 @@ class MezonApi @Inject constructor(
     ): StickerListedResponse {
         val bytes = rpc(apiUrl, token, "GetListStickersByUserId", ByteArray(0))
         return StickerListedResponse.parseFrom(bytes)
+    }
+
+    suspend fun listOnboarding(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        guideType: Int = 0,
+        limit: Int = 100,
+        page: Int = 0,
+    ): ListOnboardingResponse {
+        val request = listOnboardingRequest {
+            this.clanId = clanId
+            if (guideType != 0) this.guideType = guideType
+            this.limit = limit
+            this.page = page
+        }
+        val bytes = rpc(apiUrl, token, "ListOnboarding", request.toByteArray())
+        return if (bytes.isEmpty()) ListOnboardingResponse.getDefaultInstance()
+        else ListOnboardingResponse.parseFrom(bytes)
+    }
+
+    suspend fun createOnboarding(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        contents: List<OnboardingContent>,
+    ): ListOnboardingResponse {
+        val request = createOnboardingRequest {
+            this.clanId = clanId
+            this.contents.addAll(contents)
+        }
+        val bytes = rpc(apiUrl, token, "CreateOnboarding", request.toByteArray())
+        return ListOnboardingResponse.parseFrom(bytes)
+    }
+
+    suspend fun updateOnboarding(
+        apiUrl: String,
+        token: String,
+        request: com.mezon.mezon.api.UpdateOnboardingRequest,
+    ): OnboardingItem {
+        val bytes = rpc(apiUrl, token, "UpdateOnboarding", request.toByteArray())
+        return OnboardingItem.parseFrom(bytes)
+    }
+
+    suspend fun deleteOnboarding(
+        apiUrl: String,
+        token: String,
+        onboardingId: Long,
+        clanId: Long,
+    ): ByteArray {
+        val request = onboardingRequest {
+            this.id = onboardingId
+            this.clanId = clanId
+        }
+        return rpc(apiUrl, token, "DeleteOnboarding", request.toByteArray())
     }
 
     suspend fun generateMeetToken(

@@ -47,6 +47,13 @@ object ClanSetting {
             add(MenuRow.Navigate(MezonIcon.faceIcon, R.string.clan_settings_emoji, R.string.menu_clan_emoji))
             add(MenuRow.Navigate(MezonIcon.sticker, R.string.clan_settings_sticker, R.string.menu_clan_sticker))
             add(MenuRow.Navigate(MezonIcon.voiceLowIcon, R.string.clan_settings_sound, R.string.menu_clan_sound))
+            add(
+                MenuRow.Navigate(
+                    MezonIcon.localOnboardingIcon,
+                    R.string.clan_settings_onboarding,
+                    R.string.menu_clan_onboarding,
+                )
+            )
             if (perm.hasManageClanPermission) {
                 add(
                     MenuRow.Navigate(
