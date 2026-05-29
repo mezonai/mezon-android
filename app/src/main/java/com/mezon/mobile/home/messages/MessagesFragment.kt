@@ -25,6 +25,7 @@ import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.DialogsController
+import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.friends.AddFriendFragment
 import com.mezon.mobile.home.friends.FriendController
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
@@ -38,6 +39,7 @@ private const val TAG = "MessagesFragment"
 class MessagesFragment : BaseFragment() {
 
     private lateinit var controller: DialogsController
+    private lateinit var userClanController: UserClanController
     private lateinit var friendController: FriendController
     private lateinit var messageActivitiesController: MessageActivitiesController
     private lateinit var appScope: CoroutineScope
@@ -61,6 +63,7 @@ class MessagesFragment : BaseFragment() {
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
         controller = entryPoint.dialogsController()
+        userClanController = entryPoint.userClanController()
         friendController = entryPoint.friendController()
         messageActivitiesController = entryPoint.messageActivitiesController()
         appScope = entryPoint.applicationScope()
@@ -112,9 +115,22 @@ class MessagesFragment : BaseFragment() {
             if (fragmentView == null) return@observe
             syncMessageActivitiesStrip()
         }
+        observe(NotificationCenter.channelMembersDidLoad) { _, _, _ ->
+            if (fragmentView == null || dialogsListFrozen) return@observe
+            updateDialogsList()
+        }
+        observe(NotificationCenter.userClansDidLoad) { _, _, _ ->
+            if (fragmentView == null || dialogsListFrozen) return@observe
+            updateDialogsList()
+        }
+        observe(NotificationCenter.userDataLoaded) { _, _, _ ->
+            if (fragmentView == null || dialogsListFrozen) return@observe
+            updateDialogsList()
+        }
 
         if (!StartupCache.suppressHomeListApiForIncomingCallWake) {
             controller.loadDialogs()
+            userClanController.loadUsers()
         }
         return true
     }

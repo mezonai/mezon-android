@@ -19,7 +19,10 @@ import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.home.chat.MessageEntity
 import com.mezon.mobile.home.messages.DirectMessage
 import com.mezon.mobile.home.messages.DmParticipant
+import com.mezon.mobile.home.messages.enrichAvatarFromParticipants
 import com.mezon.mobile.home.messages.extractParticipants
+import com.mezon.mobile.home.messages.resolveDmPeerAvatar
+import com.mezon.mobile.home.messages.resolveDmPeerUserId
 import com.mezon.mobile.home.messages.toDirectMessage
 import com.mezon.mobile.home.messages.toDirectMessageFromIncoming
 import com.mezon.mobile.network.ApiCacheTracker
@@ -36,6 +39,7 @@ import com.mezon.mobile.network.SocketEventDispatcher
 import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.notification.ActiveChannelTracker
 import com.mezon.mobile.notification.NotificationHelper
+import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.session.StoredSession
 import com.mezon.mobile.util.ContentUriTooLargeException
@@ -80,6 +84,8 @@ class DialogsController @Inject constructor(
     private val activeChannelTracker: ActiveChannelTracker,
     private val notificationHelper: NotificationHelper,
     private val badgeCoordinator: Lazy<BadgeCoordinator>,
+    private val userClanController: UserClanController,
+    private val userController: UserController,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     @ApplicationScope private val appScope: CoroutineScope
 ) {
@@ -131,14 +137,70 @@ class DialogsController @Inject constructor(
     }
 
     @Synchronized
-    fun getDialogs(): List<DirectMessage> = ArrayList(dialogs)
+    fun getDialogs(): List<DirectMessage> {
+        val currentUserId = StartupCache.userId.toLongOrNull() ?: 0L
+        return dialogs.map { resolveDmDisplayAvatar(it, currentUserId) }
+    }
 
     @Synchronized
-    fun getDialog(channelId: Long): DirectMessage? = dialogsDict[channelId]
+    fun getDialog(channelId: Long): DirectMessage? {
+        val currentUserId = StartupCache.userId.toLongOrNull() ?: 0L
+        val dm = dialogsDict[channelId] ?: return null
+        return resolveDmDisplayAvatar(dm, currentUserId)
+    }
+
+    @Synchronized
+    private fun resolveDmDisplayAvatar(dm: DirectMessage, currentUserId: Long): DirectMessage {
+        if (dm.type != CHANNEL_TYPE_DM || dm.avatarUrl.isNotBlank()) return dm
+        val participants = participantsByChannel[dm.channelId] ?: emptyList()
+        val enriched = enrichDmAvatar(dm, participants, currentUserId)
+        if (enriched.avatarUrl.isBlank()) return dm
+        return persistResolvedDmAvatar(enriched, enriched.avatarUrl)
+    }
+
+    @Synchronized
+    fun noteDmAvatarHint(channelId: Long, avatarUrl: String) {
+        if (avatarUrl.isBlank()) return
+        val existing = dialogsDict[channelId] ?: return
+        if (existing.avatarUrl.isNotBlank()) return
+        persistResolvedDmAvatar(existing, avatarUrl)
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
+    }
+
+    @Synchronized
+    private fun persistResolvedDmAvatar(dm: DirectMessage, avatarUrl: String): DirectMessage {
+        val resolved = if (dm.avatarUrl == avatarUrl) dm else dm.copy(avatarUrl = avatarUrl)
+        val stored = dialogsDict[resolved.channelId]
+        if (stored != null && stored.avatarUrl.isBlank()) {
+            dialogsDict.put(resolved.channelId, resolved)
+            val idx = dialogs.indexOfFirst { it.channelId == resolved.channelId }
+            if (idx >= 0) dialogs[idx] = resolved
+            appScope.launch(ioDispatcher) { directMessageDao.upsert(resolved) }
+        }
+        return resolved
+    }
 
     @Synchronized
     fun getParticipants(channelId: Long): List<DmParticipant> =
         participantsByChannel[channelId] ?: emptyList()
+
+    private fun resolveSelfAvatar(userId: Long): String? {
+        userController.avatarUrl.takeIf { it.isNotBlank() }?.let { return it }
+        return userClanController.getUserById(userId)?.avatarUrl?.takeIf { it.isNotBlank() }
+    }
+
+    private fun enrichDmAvatar(
+        dm: DirectMessage,
+        participants: List<DmParticipant>,
+        currentUserId: Long
+    ): DirectMessage = dm.enrichAvatarFromParticipants(
+        participants,
+        currentUserId,
+        userController.username
+    ) { userId ->
+        if (userId == currentUserId) resolveSelfAvatar(userId)
+        else userClanController.getUserById(userId)?.avatarUrl
+    }
 
     private fun UserProfileRedis.toDmParticipant(): DmParticipant = DmParticipant(
         userId = userId,
@@ -159,7 +221,22 @@ class DialogsController @Inject constructor(
         }
         val mergedById = LinkedHashMap<Long, DmParticipant>(current.size + incoming.size)
         for (p in current) mergedById[p.userId] = p
-        for (p in incoming) mergedById[p.userId] = p
+        for (p in incoming) {
+            val existing = mergedById[p.userId]
+            mergedById[p.userId] = when {
+                existing == null -> p
+                existing.avatarUrl.isBlank() && p.avatarUrl.isNotBlank() -> existing.copy(
+                    avatarUrl = p.avatarUrl,
+                    username = p.username.ifBlank { existing.username },
+                    displayName = p.displayName.ifBlank { existing.displayName }
+                )
+                else -> p.copy(
+                    username = p.username.ifBlank { existing.username },
+                    displayName = p.displayName.ifBlank { existing.displayName },
+                    avatarUrl = p.avatarUrl.ifBlank { existing.avatarUrl }
+                )
+            }
+        }
         participantsByChannel.put(channelId, ArrayList(mergedById.values))
     }
 
@@ -182,19 +259,45 @@ class DialogsController @Inject constructor(
         participants: List<DmParticipant>
     ): DirectMessage {
         if (row.type != CHANNEL_TYPE_DM) return row
-        if (row.otherUserId != 0L && row.otherUserId != currentUserId) return row
-        val peer = users.firstOrNull { it.userId != 0L && it.userId != currentUserId }?.toDmParticipant()
-            ?: participants.firstOrNull { it.userId != 0L && it.userId != currentUserId }
-            ?: return row
+
+        val peerId = when {
+            row.otherUserId != 0L && row.otherUserId != currentUserId -> row.otherUserId
+            else -> users.firstOrNull { it.userId != 0L && it.userId != currentUserId }?.userId
+                ?: participants.firstOrNull { it.userId != 0L && it.userId != currentUserId }?.userId
+                ?: 0L
+        }
+        val peer = when {
+            peerId != 0L -> users.firstOrNull { it.userId == peerId }?.toDmParticipant()
+                ?: participants.firstOrNull { it.userId == peerId }
+            else -> users.firstOrNull { it.userId != 0L && it.userId != currentUserId }?.toDmParticipant()
+                ?: participants.firstOrNull { it.userId != 0L && it.userId != currentUserId }
+        }
+
+        if (peer == null) {
+            return enrichDmAvatar(row, participants, currentUserId)
+        }
+
         val name = peer.displayName.ifBlank { peer.username }
-        if (name.isBlank()) return row
-        return row.copy(
-            label = name,
-            displayName = name,
-            username = peer.username.ifBlank { name },
-            avatarUrl = peer.avatarUrl.ifBlank { row.avatarUrl },
-            otherUserId = peer.userId
-        )
+        val avatar = peer.avatarUrl.ifBlank { row.avatarUrl }.ifBlank {
+            resolveDmPeerAvatar(participants, currentUserId, peer.userId)
+        }
+        if (name.isBlank() && avatar.isBlank()) return row
+
+        var next = row
+        if (name.isNotBlank()) {
+            if (next.label != name) next = next.copy(label = name)
+            if (next.displayName != name) next = next.copy(displayName = name)
+            if (peer.username.isNotBlank() && next.username != peer.username) {
+                next = next.copy(username = peer.username)
+            }
+        }
+        if (avatar.isNotBlank() && next.avatarUrl != avatar) {
+            next = next.copy(avatarUrl = avatar)
+        }
+        if (peer.userId != 0L && peer.userId != currentUserId && next.otherUserId != peer.userId) {
+            next = next.copy(otherUserId = peer.userId)
+        }
+        return next
     }
 
     private fun groupNameFallbackFromUsers(
@@ -278,22 +381,97 @@ class DialogsController @Inject constructor(
 
     fun loadDmParticipants(channelId: Long, force: Boolean) {
         if (channelId == 0L) return
-        val hasCache: Boolean
-        synchronized(this) { hasCache = participantsByChannel[channelId] != null }
-        if (hasCache && !force) return
+        val shouldFetch = synchronized(this) {
+            if (force) return@synchronized true
+            val cached = participantsByChannel[channelId] ?: return@synchronized true
+            val dm = dialogsDict[channelId]
+            val needsAvatar = dm?.type == CHANNEL_TYPE_DM && dm.avatarUrl.isBlank()
+            if (!needsAvatar) return@synchronized false
+            cached.none { it.avatarUrl.isNotBlank() }
+        }
+        if (!shouldFetch) return
         appScope.launch(ioDispatcher) {
             try {
                 sessionManager.withAutoRefresh { session ->
+                    val currentUserId = session.userId.toLongOrNull() ?: 0L
                     val response = api.listChannelUsersUC(session.apiUrl, session.token, channelId)
                     val participants = response.toDmParticipants()
                     if (participants.isEmpty()) return@withAutoRefresh
+                    var shouldReloadDialogs = false
                     synchronized(this@DialogsController) {
                         participantsByChannel.put(channelId, participants)
+                        shouldReloadDialogs = patchDmDialogAvatar(channelId, currentUserId, participants)
                     }
                     notificationCenter.postNotificationOnMainThread(NotificationCenter.channelMembersDidLoad, channelId)
+                    if (shouldReloadDialogs) {
+                        notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "loadDmParticipants failed for channel $channelId", e)
+            }
+        }
+    }
+
+    private fun patchDmDialogAvatar(
+        channelId: Long,
+        currentUserId: Long,
+        participants: List<DmParticipant>
+    ): Boolean {
+        val existing = dialogsDict[channelId] ?: return false
+        val enriched = enrichDmAvatar(existing, participants, currentUserId)
+        if (enriched.avatarUrl == existing.avatarUrl) return false
+        dialogsDict.put(channelId, enriched)
+        val idx = dialogs.indexOfFirst { it.channelId == channelId }
+        if (idx >= 0) dialogs[idx] = enriched
+        appScope.launch(ioDispatcher) { directMessageDao.upsert(enriched) }
+        return true
+    }
+
+    private fun prefetchMissingDmAvatars(currentUserId: Long) {
+        val channelIds = synchronized(this) {
+            dialogs.filter { it.type == CHANNEL_TYPE_DM && it.avatarUrl.isBlank() }.map { it.channelId }
+        }
+        if (channelIds.isNotEmpty()) {
+            userClanController.loadUsers()
+        }
+        for (channelId in channelIds) {
+            loadDmParticipants(channelId)
+        }
+        hydrateDmAvatarsFromMessages(currentUserId)
+    }
+
+    private fun hydrateDmAvatarsFromMessages(currentUserId: Long) {
+        appScope.launch(ioDispatcher) {
+            val targets = synchronized(this@DialogsController) {
+                dialogs.filter { it.type == CHANNEL_TYPE_DM && it.avatarUrl.isBlank() }.toList()
+            }
+            if (targets.isEmpty()) return@launch
+            var anyChanged = false
+            for (dm in targets) {
+                val participants = synchronized(this@DialogsController) {
+                    participantsByChannel[dm.channelId] ?: emptyList()
+                }
+                val peerId = dm.resolveDmPeerUserId(participants, currentUserId)
+                val avatar = messageDao.getLatestByChannel(dm.channelId, 40)
+                    .let { rows ->
+                        if (peerId != 0L) {
+                            rows.firstOrNull { it.senderId == peerId && it.senderAvatar.isNotBlank() }?.senderAvatar
+                        } else {
+                            rows.firstOrNull { it.senderId != currentUserId && it.senderAvatar.isNotBlank() }?.senderAvatar
+                                ?: rows.firstOrNull { it.senderAvatar.isNotBlank() }?.senderAvatar
+                        }
+                    }
+                    ?: continue
+                synchronized(this@DialogsController) {
+                    val existing = dialogsDict[dm.channelId] ?: return@synchronized
+                    if (existing.avatarUrl.isNotBlank()) return@synchronized
+                    persistResolvedDmAvatar(existing, avatar)
+                    anyChanged = true
+                }
+            }
+            if (anyChanged) {
+                notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
             }
         }
     }
@@ -558,12 +736,19 @@ class DialogsController @Inject constructor(
                     }
 
                     val merged = activeDescs
-                        .map { it.toDirectMessage(currentUserId, appContext) }
+                        .map { desc ->
+                            val participants = desc.extractParticipants()
+                            desc.toDirectMessage(currentUserId, appContext)
+                                .let { dm ->
+                                    enrichDmAvatar(dm, participants, currentUserId)
+                                }
+                        }
                         .sortedByDescending { it.lastSentMessageTs }
 
                     putDialogs(merged)
                     cacheTracker.markCalled(cacheKey)
                     syncDmBadgesWithApi(session)
+                    prefetchMissingDmAvatars(currentUserId)
                 }
 
                 dialogsLoaded = true
@@ -904,12 +1089,19 @@ class DialogsController @Inject constructor(
                 val newSentTs = if (canAdvanceTimeline && msg.createTimeSeconds > 0) {
                     maxOf(baseDm.lastSentMessageTs, msg.createTimeSeconds.toLong() and 0xFFFF_FFFFL)
                 } else baseDm.lastSentMessageTs
+                var nextAvatarUrl = baseDm.avatarUrl
+                if (baseDm.type == CHANNEL_TYPE_DM && nextAvatarUrl.isBlank() && msg.avatar.isNotBlank()) {
+                    if (!isFromMe || baseDm.otherUserId == currentUserId || baseDm.otherUserId == 0L) {
+                        nextAvatarUrl = msg.avatar
+                    }
+                }
                 val result = baseDm.copy(
                     lastMessageContent = newPreview.ifBlank { baseDm.lastMessageContent },
                     lastSentMessageId = newSentMessageId.takeIf { it > 0 } ?: baseDm.lastSentMessageId,
                     lastSentMessageTs = newSentTs,
                     lastSeenMessageId = newLastSeenId,
-                    unreadCount = newUnread
+                    unreadCount = newUnread,
+                    avatarUrl = nextAvatarUrl
                 )
                 updatedDm = result
                 dialogsDict.put(msg.channelId, result)
@@ -1200,6 +1392,7 @@ class DialogsController @Inject constructor(
             }
             dialogsLoaded = true
             notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
+            prefetchMissingDmAvatars(StartupCache.userId.toLongOrNull() ?: 0L)
         }
     }
 

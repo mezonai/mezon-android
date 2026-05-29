@@ -49,9 +49,16 @@ class WelcomeMessageCell(context: Context, private val theme: ThemeColors) : Vie
     private val isThread: Boolean get() = !isDM && channelType == CHANNEL_TYPE_THREAD
     private val showDmAvatar: Boolean get() = isDM
 
+    private var lastLoadedAvatarUrl: String? = null
+
     fun update(msg: MessageEntity) {
         messageEntity = msg
         iconDrawable = resolveChannelIcon()
+        if (avatarUrl != lastLoadedAvatarUrl) {
+            avatarLoadState.cancel()
+            avatarLoadState.loadKey = null
+            lastLoadedAvatarUrl = avatarUrl
+        }
         loadAvatar()
         requestLayout()
         invalidate()
@@ -88,7 +95,7 @@ class WelcomeMessageCell(context: Context, private val theme: ThemeColors) : Vie
             avatarDrawable.setPhoto(null)
             return
         }
-        val placeholderKey = avatarPlaceholderKey.ifEmpty { channelName }
+        val placeholderKey = avatarPlaceholderKey.ifEmpty { peerUsername.ifEmpty { channelName } }
         val avatarId = if (avatarUserId != 0L) avatarUserId else channelName.hashCode().toLong()
         loadChannelAvatar(
             context,

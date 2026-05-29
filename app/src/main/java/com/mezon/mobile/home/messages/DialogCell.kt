@@ -21,6 +21,7 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
 
     private val avatarDrawable = AvatarDrawable()
     private val avatarLoadState = ChannelAvatarLoadState()
+    private var lastLoadedAvatarUrl: String? = null
     private var attachedToWindow = false
     private var needsLayout = false
     private var visibleOnScreen = true
@@ -208,6 +209,11 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
     }
 
     private fun loadAvatar(dm: DirectMessage) {
+        if (dm.avatarUrl != lastLoadedAvatarUrl) {
+            avatarLoadState.cancel()
+            avatarLoadState.loadKey = null
+            lastLoadedAvatarUrl = dm.avatarUrl
+        }
         loadChannelAvatar(
             context,
             avatarDrawable,

@@ -61,6 +61,8 @@ import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.LOAD_TYPE_INITIAL
 import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.MemberResolver
+import com.mezon.mobile.home.messages.DirectMessage
+import com.mezon.mobile.home.messages.isSelfDmChannel
 import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.friends.FRIEND_STATE_BLOCKED
 import com.mezon.mobile.home.friends.FriendController
@@ -468,7 +470,7 @@ open class ChatFragment : BaseFragment() {
                 userClanController.loadChannelMembers(clanId, channelId, CHANNEL_TYPE_CHANNEL)
                 Log.d(TAG, "onFragmentCreate loadChannelMembers channel clanId=$clanId channelId=$channelId")
             }
-        } else if (channelType == CHANNEL_TYPE_GROUP) {
+        } else if (channelType == CHANNEL_TYPE_DM || channelType == CHANNEL_TYPE_GROUP) {
             dialogsController.loadDmParticipants(channelId)
         }
         if (!isTopicMode) {
@@ -793,7 +795,9 @@ open class ChatFragment : BaseFragment() {
                     }
                 }
 
-            
+            if (clanId == 0L && channelType == CHANNEL_TYPE_DM) {
+                refreshWelcomeFromDialog()
+            }
             }
         }
 
@@ -1054,6 +1058,9 @@ open class ChatFragment : BaseFragment() {
                 refreshDmHeaderTitleFromDialog()
                 refreshWelcomeFromDialog()
             }
+            if ((mask and NotificationCenter.UPDATE_MASK_AVATAR) != 0) {
+                refreshMessageSenderAvatars()
+            }
             if (
                 clanId != 0L &&
                 !isTopicMode &&
@@ -1190,6 +1197,10 @@ open class ChatFragment : BaseFragment() {
             if (loadedChannelId == targetChannelId) {
                 checkSuggestionTrigger()
             }
+            if (loadedChannelId == channelId && (channelType == CHANNEL_TYPE_DM || channelType == CHANNEL_TYPE_GROUP)) {
+                refreshMessageSenderAvatars()
+                refreshWelcomeFromDialog()
+            }
         }
 
         observe(NotificationCenter.closeChats) { _, _, args ->
@@ -1226,9 +1237,18 @@ open class ChatFragment : BaseFragment() {
             if (clanId == 0L && (channelType == CHANNEL_TYPE_DM || channelType == CHANNEL_TYPE_GROUP)) {
                 refreshDmHeaderTitleFromDialog()
                 refreshWelcomeFromDialog()
+                refreshMessageSenderAvatars()
             }
             if (clanId != 0L || channelType != CHANNEL_TYPE_DM) return@observe
             actionBar?.let { setupDmHeaderCallMenu(it) }
+        }
+
+        observe(NotificationCenter.userDataLoaded) { _, _, _ ->
+            if (isPaused) return@observe
+            if (clanId == 0L && channelType == CHANNEL_TYPE_DM) {
+                refreshWelcomeFromDialog()
+                refreshMessageSenderAvatars()
+            }
         }
 
         observe(NotificationCenter.jumpToMessage) { _, _, args ->
@@ -1937,6 +1957,8 @@ open class ChatFragment : BaseFragment() {
         adapter.isChannelPrivate = resolveChannelPrivate()
         adapter.currentUserId = StartupCache.userId
         adapter.displayRoleResolver = chatDisplayRoleResolver()
+        adapter.senderAvatarResolver = { msg -> resolveMessageSenderAvatar(msg) }
+        adapter.senderUsernameResolver = { msg -> resolveMessageSenderUsername(msg) }
         adapter.onTopicClick = { tid, rootId ->
             if (!isTopicMode) openTopicDiscussion(tid, rootId)
         }
@@ -3344,6 +3366,22 @@ open class ChatFragment : BaseFragment() {
         else roleController.resolveHighestDisplayRole(clanId, userId, chatClanCreatorId())
     }
 
+    private fun resolveMessageSenderAvatar(msg: MessageEntity): String {
+        if (msg.senderAvatar.isNotBlank()) return msg.senderAvatar
+        val member = memberResolver.resolveMember(msg.senderId, clanId, channelId, channelType) ?: return ""
+        return member.clanAvatar.ifBlank { member.avatarUrl }
+    }
+
+    private fun resolveMessageSenderUsername(msg: MessageEntity): String {
+        val member = memberResolver.resolveMember(msg.senderId, clanId, channelId, channelType)
+        return member?.username?.ifBlank { msg.senderUsername } ?: msg.senderUsername
+    }
+
+    private fun refreshMessageSenderAvatars() {
+        if (isPaused || fragmentView == null) return
+        updateVisibleRows(NotificationCenter.UPDATE_MASK_AVATAR)
+    }
+
     private fun refreshChatDisplayRoleCache(refreshUi: Boolean = true) {
         if (clanId == 0L) return
         displayRoleCacheRefreshJob?.cancel()
@@ -3597,12 +3635,74 @@ open class ChatFragment : BaseFragment() {
         val myId = chatController.getCurrentUserId()
         if (myId == 0L) return false
         val participants = dialogsController.getParticipants(channelId)
-        if (participants.isNotEmpty()) {
-            return participants.all { it.userId == myId }
+        val dm = dialogsController.getDialog(channelId)
+        return dm?.isSelfDmChannel(myId, participants, userController.username) == true
+    }
+
+    private fun resolveWelcomeAvatarUrl(dm: DirectMessage?): String {
+        dialogsController.getDialog(channelId)?.avatarUrl?.takeIf { it.isNotBlank() }?.let { return it }
+
+        val myId = chatController.getCurrentUserId()
+        val peerId = dm?.otherUserId?.takeIf { it != 0L && it != myId }
+            ?: dmHeaderCallOtherUserId()?.takeIf { it != myId }
+            ?: 0L
+
+        if (peerId != 0L) {
+            messages.firstOrNull { it.senderId == peerId && it.senderAvatar.isNotBlank() }?.senderAvatar?.let { return it }
+            memberResolver.resolveMember(peerId, 0L, channelId, CHANNEL_TYPE_DM)?.let { member ->
+                val avatar = member.clanAvatar.ifBlank { member.avatarUrl }
+                if (avatar.isNotBlank()) return avatar
+            }
         }
-        val dm = dialogsController.getDialog(channelId) ?: return false
-        if (dm.otherUserId == 0L) return false
-        return dm.otherUserId == myId
+
+        messages.firstOrNull { it.senderId != myId && it.senderAvatar.isNotBlank() }?.senderAvatar?.let { return it }
+        return messages.firstOrNull { it.senderAvatar.isNotBlank() }?.senderAvatar.orEmpty()
+    }
+
+    private fun refreshWelcomeFromDialog() {
+        if (clanId != 0L || !::adapter.isInitialized) return
+        if (channelType != CHANNEL_TYPE_DM && channelType != CHANNEL_TYPE_GROUP) return
+        val dm = dialogsController.getDialog(channelId)
+        val nextChannelName = when (channelType) {
+            CHANNEL_TYPE_DM, CHANNEL_TYPE_GROUP ->
+                dm?.displayName?.ifBlank { dm.label }?.ifBlank { channelName } ?: channelName
+            else -> adapter.channelName
+        }
+        val nextAvatarUrl = resolveWelcomeAvatarUrl(dm)
+        val nextAvatarId = if (channelType == CHANNEL_TYPE_DM) {
+            when {
+                isDmSelfOnlyChat() -> userController.userId.takeIf { it != 0L } ?: channelId
+                else -> dm?.otherUserId?.takeIf { it != 0L } ?: channelId
+            }
+        } else {
+            channelId
+        }
+        val nextPlaceholderKey = dm?.avatarPlaceholderKey() ?: channelName
+        val nextPeerUsername = if (channelType == CHANNEL_TYPE_DM) dm?.username.orEmpty() else ""
+        if (nextAvatarUrl == lastWelcomeAvatarUrl &&
+            nextAvatarId == lastWelcomeAvatarId &&
+            nextPlaceholderKey == lastWelcomePlaceholderKey &&
+            nextPeerUsername == lastWelcomePeerUsername &&
+            nextChannelName == lastWelcomeChannelName
+        ) {
+            return
+        }
+        lastWelcomeAvatarUrl = nextAvatarUrl
+        lastWelcomeAvatarId = nextAvatarId
+        lastWelcomePlaceholderKey = nextPlaceholderKey
+        lastWelcomePeerUsername = nextPeerUsername
+        lastWelcomeChannelName = nextChannelName
+        if ((channelType == CHANNEL_TYPE_DM || channelType == CHANNEL_TYPE_GROUP) && nextChannelName.isNotEmpty()) {
+            adapter.channelName = nextChannelName
+        }
+        adapter.welcomeAvatarUrl = nextAvatarUrl
+        adapter.welcomeAvatarId = nextAvatarId
+        adapter.welcomePlaceholderKey = nextPlaceholderKey
+        adapter.welcomePeerUsername = nextPeerUsername
+        if (nextAvatarUrl.isNotBlank() && dm?.avatarUrl.isNullOrBlank()) {
+            dialogsController.noteDmAvatarHint(channelId, nextAvatarUrl)
+        }
+        adapter.notifyWelcomeCellChanged()
     }
 
     private fun refreshDmHeaderTitleFromDialog() {
@@ -3676,48 +3776,6 @@ open class ChatFragment : BaseFragment() {
             adapter.welcomeCreatorName = sanitized
             adapter.notifyWelcomeCellChanged()
         }
-    }
-
-    private fun refreshWelcomeFromDialog() {
-        if (clanId != 0L || !::adapter.isInitialized) return
-        if (channelType != CHANNEL_TYPE_DM && channelType != CHANNEL_TYPE_GROUP) return
-        val dm = dialogsController.getDialog(channelId)
-        val nextChannelName = if (channelType == CHANNEL_TYPE_DM) {
-            dm?.displayName?.ifBlank { dm.label }?.ifBlank { channelName } ?: channelName
-        } else if (channelType == CHANNEL_TYPE_GROUP) {
-            dm?.displayName?.ifBlank { dm.label }?.ifBlank { channelName } ?: channelName
-        } else {
-            adapter.channelName
-        }
-        val nextAvatarUrl = dm?.avatarUrl.orEmpty()
-        val nextAvatarId = if (channelType == CHANNEL_TYPE_DM) {
-            dm?.otherUserId?.takeIf { it != 0L } ?: channelId
-        } else {
-            channelId
-        }
-        val nextPlaceholderKey = dm?.avatarPlaceholderKey() ?: channelName
-        val nextPeerUsername = if (channelType == CHANNEL_TYPE_DM) dm?.username.orEmpty() else ""
-        if (nextAvatarUrl == lastWelcomeAvatarUrl &&
-            nextAvatarId == lastWelcomeAvatarId &&
-            nextPlaceholderKey == lastWelcomePlaceholderKey &&
-            nextPeerUsername == lastWelcomePeerUsername &&
-            nextChannelName == lastWelcomeChannelName
-        ) {
-            return
-        }
-        lastWelcomeAvatarUrl = nextAvatarUrl
-        lastWelcomeAvatarId = nextAvatarId
-        lastWelcomePlaceholderKey = nextPlaceholderKey
-        lastWelcomePeerUsername = nextPeerUsername
-        lastWelcomeChannelName = nextChannelName
-        if ((channelType == CHANNEL_TYPE_DM || channelType == CHANNEL_TYPE_GROUP) && nextChannelName.isNotEmpty()) {
-            adapter.channelName = nextChannelName
-        }
-        adapter.welcomeAvatarUrl = nextAvatarUrl
-        adapter.welcomeAvatarId = nextAvatarId
-        adapter.welcomePlaceholderKey = nextPlaceholderKey
-        adapter.welcomePeerUsername = nextPeerUsername
-        adapter.notifyWelcomeCellChanged()
     }
 
     private fun dmHeaderCallOtherUserId(): Long? {

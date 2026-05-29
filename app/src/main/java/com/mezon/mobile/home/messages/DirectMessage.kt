@@ -78,9 +78,88 @@ data class DirectMessage(
 ) {
     fun avatarPlaceholderKey(): String = when (type) {
         CHANNEL_TYPE_GROUP -> displayName.ifEmpty { label }
-        CHANNEL_TYPE_DM -> label.ifEmpty { username }
+        CHANNEL_TYPE_DM -> username.ifEmpty { label }
         else -> displayName.ifEmpty { label }.ifEmpty { username }
     }
+}
+
+fun resolveDmPeerAvatar(
+    participants: List<DmParticipant>,
+    currentUserId: Long,
+    otherUserId: Long = 0L
+): String {
+    val peerId = resolveDmPeerUserId(participants, currentUserId, otherUserId)
+    if (peerId == 0L) return ""
+    return participants.firstOrNull { it.userId == peerId }?.avatarUrl.orEmpty()
+}
+
+fun resolveDmPeerUserId(
+    participants: List<DmParticipant>,
+    currentUserId: Long,
+    otherUserId: Long = 0L
+): Long {
+    if (otherUserId != 0L && otherUserId != currentUserId) return otherUserId
+    return participants.firstOrNull { it.userId != 0L && it.userId != currentUserId }?.userId ?: 0L
+}
+
+fun DirectMessage.resolveDmPeerUserId(
+    participants: List<DmParticipant>,
+    currentUserId: Long
+): Long = resolveDmPeerUserId(participants, currentUserId, otherUserId)
+
+fun DirectMessage.isSelfDmChannel(
+    currentUserId: Long,
+    participants: List<DmParticipant> = emptyList(),
+    currentUsername: String = ""
+): Boolean {
+    if (type != CHANNEL_TYPE_DM || currentUserId == 0L) return false
+    if (participants.isNotEmpty()) {
+        return participants.all { it.userId == currentUserId }
+    }
+    if (otherUserId != 0L) return otherUserId == currentUserId
+    if (currentUsername.isBlank()) return false
+    val normalized = currentUsername.removePrefix("@")
+    return username.equals(normalized, ignoreCase = true) ||
+        label.equals(normalized, ignoreCase = true) ||
+        displayName.equals(normalized, ignoreCase = true)
+}
+
+fun DirectMessage.enrichAvatarFromParticipants(
+    participants: List<DmParticipant>,
+    currentUserId: Long,
+    currentUsername: String = "",
+    userAvatarLookup: (Long) -> String? = { null }
+): DirectMessage {
+    if (avatarUrl.isNotBlank() || type != CHANNEL_TYPE_DM) return this
+
+    if (isSelfDmChannel(currentUserId, participants, currentUsername)) {
+        userAvatarLookup(currentUserId)?.takeIf { it.isNotBlank() }?.let { selfAvatar ->
+            return copy(avatarUrl = selfAvatar)
+        }
+    }
+
+    val peerAvatar = resolveDmPeerAvatar(participants, currentUserId, otherUserId)
+    if (peerAvatar.isNotBlank()) return copy(avatarUrl = peerAvatar)
+
+    var peerId = resolveDmPeerUserId(participants, currentUserId, otherUserId)
+    if (peerId == 0L && otherUserId != 0L) {
+        peerId = otherUserId
+    }
+    if (peerId == 0L && username.isNotBlank()) {
+        participants.firstOrNull { it.username.equals(username, ignoreCase = true) }?.let { match ->
+            if (match.avatarUrl.isNotBlank()) return copy(avatarUrl = match.avatarUrl)
+            if (match.userId != 0L) peerId = match.userId
+        }
+    }
+    if (peerId == 0L) {
+        participants.firstOrNull { it.avatarUrl.isNotBlank() && it.userId != 0L }?.let { match ->
+            return copy(avatarUrl = match.avatarUrl)
+        }
+    }
+    if (peerId == 0L) return this
+    val userAvatar = userAvatarLookup(peerId).orEmpty()
+    if (userAvatar.isBlank()) return this
+    return copy(avatarUrl = userAvatar)
 }
 
 

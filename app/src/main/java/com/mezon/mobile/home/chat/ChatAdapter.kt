@@ -19,6 +19,8 @@ class ChatAdapter(
     var pollBridge: com.mezon.mobile.home.chat.poll.ChatPollBridge? = null
     var shareContactOnlineResolver: ((Long) -> Boolean)? = null
     var displayRoleResolver: ((Long) -> UserDisplayRole?)? = null
+    var senderAvatarResolver: ((MessageEntity) -> String)? = null
+    var senderUsernameResolver: ((MessageEntity) -> String)? = null
     var onTopicClick: ((topicId: Long, rootMessageId: Long) -> Unit)? = null
     var topicCreatorResolver: ((Long) -> Pair<String, String>?)? = null
     var topicLastMessageIdResolver: ((Long) -> Long)? = null
@@ -244,6 +246,8 @@ class ChatAdapter(
                 holder.cell.isChannelPrivate = isChannelPrivate
                 val msg = messages[idx]
                 holder.cell.displayRoleResolver = displayRoleResolver
+                holder.cell.senderAvatarResolver = senderAvatarResolver
+                holder.cell.senderUsernameResolver = senderUsernameResolver
                 holder.cell.onTopicClick = onTopicClick
                 holder.cell.topicCreatorResolver = topicCreatorResolver
                 holder.cell.topicLastMessageIdResolver = topicLastMessageIdResolver

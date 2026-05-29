@@ -36,8 +36,10 @@ import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.ChannelPermissionController
 import com.mezon.mobile.home.clans.PermissionPolicy
+import com.mezon.mobile.home.messages.DirectMessage
 import com.mezon.mobile.home.messages.GroupAvatar
 import com.mezon.mobile.home.messages.isDefaultGroupAvatarUrl
+import com.mezon.mobile.home.messages.isSelfDmChannel
 import com.mezon.mobile.home.clans.CHANNEL_TYPE_APP
 import com.mezon.mobile.home.clans.CHANNEL_TYPE_STREAMING
 import com.mezon.mobile.home.profile.UserController
@@ -120,8 +122,12 @@ class ChannelInfoFragment : BaseFragment() {
     private val isDm get() = channelType == CHANNEL_TYPE_DM || channelType == CHANNEL_TYPE_GROUP
     private val isSelfDm: Boolean
         get() = channelType == CHANNEL_TYPE_DM && run {
-            val participants = dialogsController.getParticipants(channelId)
-            participants.size <= 1 || participants.all { it.userId == userController.userId }
+            val dm = dialogsController.getDialog(channelId)
+            dm?.isSelfDmChannel(
+                userController.userId,
+                dialogsController.getParticipants(channelId),
+                userController.username
+            ) == true
         }
 
     override fun onFragmentCreate(): Boolean {
@@ -157,6 +163,11 @@ class ChannelInfoFragment : BaseFragment() {
         observe(NotificationCenter.dialogsNeedReload) { _, _, _ ->
             if (isPaused) return@observe
             refreshDmHeader()
+        }
+
+        observe(NotificationCenter.userDataLoaded) { _, _, _ ->
+            if (isPaused) return@observe
+            if (isDm) refreshDmHeader()
         }
 
         observe(NotificationCenter.pinMessagesDidLoad) { _, _, args ->
@@ -337,8 +348,8 @@ class ChannelInfoFragment : BaseFragment() {
         val avatarContainer = FrameLayout(context)
 
         val dm = dialogsController.getDialog(channelId)
-        val avatarUrl = dm?.avatarUrl ?: ""
         val displayName = dm?.displayName?.ifBlank { dm.label } ?: channelName
+        val avatarUrl = dm?.avatarUrl.orEmpty()
 
         if (channelType == CHANNEL_TYPE_GROUP) {
             val av = AvatarView(context).apply {
@@ -354,9 +365,10 @@ class ChannelInfoFragment : BaseFragment() {
             avatarContainer.addView(av, LayoutHelper.createFrame(avatarSize, avatarSize, Gravity.CENTER))
             avatarContainer.setOnClickListener { showGroupEditSheet(context) }
         } else {
+            val placeholderKey = dm?.avatarPlaceholderKey()?.ifBlank { displayName } ?: displayName
             val av = AvatarView(context).apply {
                 setSizeDp(avatarSize)
-                setInfo(channelId, displayName)
+                setInfo(dmHeaderAvatarId(dm), placeholderKey)
                 setImageUrl(avatarUrl)
             }
             dmHeaderAvatarView = av
@@ -785,9 +797,15 @@ class ChannelInfoFragment : BaseFragment() {
                 avatar.setImageUrl(avatarUrl)
             }
         } else {
-            avatar.setInfo(channelId, displayName)
+            val placeholderKey = dm?.avatarPlaceholderKey()?.ifBlank { displayName } ?: displayName
+            avatar.setInfo(dmHeaderAvatarId(dm), placeholderKey)
             avatar.setImageUrl(avatarUrl)
         }
+    }
+
+    private fun dmHeaderAvatarId(dm: DirectMessage?): Long = when {
+        isSelfDm -> userController.userId.takeIf { it != 0L } ?: channelId
+        else -> dm?.otherUserId?.takeIf { it != 0L } ?: channelId
     }
 
     private fun refreshClanHeader() {
