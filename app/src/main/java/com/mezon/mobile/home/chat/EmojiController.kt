@@ -97,6 +97,8 @@ class EmojiController @Inject constructor(
     init {
         appScope.launch { observeEmojiEvents() }
         appScope.launch { observeStickerEvents() }
+        appScope.launch { observeStickerUpdateEvents() }
+        appScope.launch { observeStickerDeleteEvents() }
     }
 
     fun getEmojiById(id: String): EmojiItem? = synchronized(this) { emojisDict[id] }
@@ -277,9 +279,37 @@ class EmojiController @Inject constructor(
         }
     }
 
+    fun invalidateStickerCacheAndReload() {
+        cacheTracker.invalidate("stickers_by_user")
+        synchronized(this) { stickersLoaded = false }
+        loadStickers()
+    }
+
+    fun soundsForClan(clanId: Long): List<StickerItem> = synchronized(this) {
+        stickers.filter { it.clanId == clanId.toString() && it.isAudio }
+    }
+
+    fun imageStickersForClan(clanId: Long): List<StickerItem> = synchronized(this) {
+        stickers.filter { it.clanId == clanId.toString() && !it.isAudio }
+    }
+
     private suspend fun observeStickerEvents() {
         dispatcher.stickerCreateEvents.collect {
             Log.d(TAG, "StickerCreateEvent: ${it.clanId}")
+            loadStickers()
+        }
+    }
+
+    private suspend fun observeStickerUpdateEvents() {
+        dispatcher.stickerUpdateEvents.collect {
+            Log.d(TAG, "StickerUpdateEvent: ${it.stickerId}")
+            loadStickers()
+        }
+    }
+
+    private suspend fun observeStickerDeleteEvents() {
+        dispatcher.stickerDeleteEvents.collect {
+            Log.d(TAG, "StickerDeleteEvent: ${it.stickerId}")
             loadStickers()
         }
     }

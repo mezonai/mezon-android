@@ -3,6 +3,8 @@ package com.mezon.mobile.home.chat
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffColorFilter
 import android.graphics.RectF
 import android.graphics.drawable.Drawable
 import android.text.StaticLayout
@@ -78,15 +80,16 @@ class WelcomeMessageCell(context: Context, private val theme: ThemeColors) : Vie
 
     private fun resolveChannelIcon(): Drawable? {
         if (isDM) return null
-        if (isThread) {
-            return if (isPrivate) {
-                MezonIcon.threadLockIcon.getDrawable(context, theme)
-            } else {
-                MezonIcon.threadIcon.getDrawable(context)
-            }
+        val iconEnum = if (isThread) {
+            if (isPrivate) MezonIcon.threadLockIcon else MezonIcon.threadIcon
+        } else {
+            if (isPrivate) MezonIcon.channelTextLock else MezonIcon.channelText
         }
-        val icon = if (isPrivate) MezonIcon.channelTextLock else MezonIcon.channelText
-        return icon.getDrawable(context)
+        val drawable = iconEnum.getDrawable(context, theme)
+        if (!iconEnum.shouldKeepOriginalFill()) {
+            drawable.colorFilter = PorterDuffColorFilter(theme.tabLabelInactive, PorterDuff.Mode.SRC_IN)
+        }
+        return drawable
     }
 
     private fun loadAvatar() {

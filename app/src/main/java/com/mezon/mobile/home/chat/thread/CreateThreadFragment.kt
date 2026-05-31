@@ -88,10 +88,14 @@ import com.mezon.mobile.home.chat.EmojiController
 import com.mezon.mobile.util.FileUtils
 import com.mezon.mobile.util.HashtagData
 import com.mezon.mobile.util.MentionData
-import com.mezon.mobile.util.parseContentText
+import com.mezon.mobile.util.isEmbedOrComponentsPayload
+import com.mezon.mobile.util.parseContentPreview
 import com.mezon.mobile.util.parseMarkdownAndStrip
+import com.mezon.mobile.home.chat.AttachmentInfo
+import com.mezon.mobile.home.chat.CreateThreadSeedStash
+import com.mezon.mobile.home.chat.isMediaAttachment
+import com.mezon.mobile.home.sharing.ForwardPreviewThumbHost
 import com.mezon.mobile.util.resolveStickerSourceUrl
-import com.mezon.mezon.api.messageRef
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -106,19 +110,22 @@ class CreateThreadFragment : BaseFragment() {
         private const val ARG_PARENT_LABEL = "parentLabel"
         private const val ARG_CLAN_ID = "clanId"
         private const val ARG_SEED_MESSAGE_ID = "seedMessageId"
+        private const val ARG_USE_TOPIC_FLOW = "useTopicFlow"
         private const val REQUEST_CODE_PICK_FILE = 1012
 
         fun newInstance(
             parentChannelId: Long,
             parentLabel: String,
             clanId: Long,
-            seedMessageId: Long = 0L
+            seedMessageId: Long = 0L,
+            useTopicFlow: Boolean = false
         ): CreateThreadFragment = CreateThreadFragment().apply {
             arguments = Bundle().apply {
                 putLong(ARG_PARENT_CHANNEL_ID, parentChannelId)
                 putString(ARG_PARENT_LABEL, parentLabel)
                 putLong(ARG_CLAN_ID, clanId)
                 if (seedMessageId != 0L) putLong(ARG_SEED_MESSAGE_ID, seedMessageId)
+                if (useTopicFlow) putBoolean(ARG_USE_TOPIC_FLOW, true)
             }
         }
     }
@@ -127,6 +134,7 @@ class CreateThreadFragment : BaseFragment() {
     private var parentLabel = ""
     private var clanId = 0L
     private var seedMessageId = 0L
+    private var useTopicFlow = false
 
     private lateinit var chatController: ChatController
     private lateinit var topicController: TopicController
@@ -205,7 +213,8 @@ class CreateThreadFragment : BaseFragment() {
     private var nameTouched = false
     private var submitAttempted = false
 
-    private val fromMessageFlow: Boolean get() = seedMessageId != 0L
+    private val fromTopicFlow: Boolean get() = useTopicFlow && seedMessageId != 0L
+    private val hasSeedMessage: Boolean get() = seedMessageId != 0L
 
     override fun onFragmentCreate(): Boolean {
         super.onFragmentCreate()
@@ -213,6 +222,7 @@ class CreateThreadFragment : BaseFragment() {
         parentLabel = arguments?.getString(ARG_PARENT_LABEL) ?: ""
         clanId = arguments?.getLong(ARG_CLAN_ID) ?: 0L
         seedMessageId = arguments?.getLong(ARG_SEED_MESSAGE_ID) ?: 0L
+        useTopicFlow = arguments?.getBoolean(ARG_USE_TOPIC_FLOW) == true
         permissionPolicy.ensurePermissionChecker(
             listOf(PermissionPolicy.CLAN_OWNER, PermissionPolicy.MANAGE_THREAD, PermissionPolicy.MANAGE_CHANNEL),
             parentChannelId,
@@ -315,7 +325,7 @@ class CreateThreadFragment : BaseFragment() {
 
         fragmentView = root
 
-        if (fromMessageFlow) {
+        if (fromTopicFlow) {
             nameBlock?.visibility = View.GONE
             privateRow?.visibility = View.GONE
             titleSub?.visibility = View.VISIBLE
@@ -323,18 +333,15 @@ class CreateThreadFragment : BaseFragment() {
             channelIconSlot?.visibility = View.VISIBLE
             updateHeaderTopicIcon()
             titleMain?.text = getString(R.string.topic_discussion)
-            fragmentScope.launch {
-                val msg = chatController.getMessageById(parentChannelId, seedMessageId)
-                withContext(mainDispatcher) {
-                    seedMessage = msg
-                    bindPreview(msg)
-                }
-            }
+            loadSeedMessageForPreview()
         } else {
             titleSub?.visibility = View.GONE
             channelIconSlot?.visibility = View.VISIBLE
             titleMain?.text = parentLabel
             updateHeaderChannelIcon()
+            if (hasSeedMessage) {
+                loadSeedMessageForPreview()
+            }
         }
 
         refreshNameError()
@@ -472,7 +479,7 @@ class CreateThreadFragment : BaseFragment() {
             }
         }
         val icon = ImageView(context).apply {
-            val iconType = if (fromMessageFlow) MezonIcon.notificationTabTopic else MezonIcon.threadIcon
+            val iconType = if (fromTopicFlow) MezonIcon.notificationTabTopic else MezonIcon.threadIcon
             setImageDrawable(iconType.getDrawable(context))
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
@@ -596,11 +603,32 @@ class CreateThreadFragment : BaseFragment() {
         return box
     }
 
+    private fun loadSeedMessageForPreview() {
+        if (seedMessageId == 0L) return
+        val stashed = CreateThreadSeedStash.takeSeedMessage(seedMessageId)
+        if (stashed != null) {
+            seedMessage = stashed
+            bindPreview(stashed)
+            return
+        }
+        fragmentScope.launch {
+            var msg = chatController.getMessageById(parentChannelId, seedMessageId)
+            if (msg == null) {
+                chatController.reloadChannelMessageIfMissing(parentChannelId, clanId, seedMessageId)
+                msg = chatController.getMessageById(parentChannelId, seedMessageId)
+            }
+            withContext(mainDispatcher) {
+                seedMessage = msg
+                bindPreview(msg)
+            }
+        }
+    }
+
     private fun bindPreview(msg: MessageEntity?) {
         val box = previewBox ?: return
         val ctx = box.context
         box.removeAllViews()
-        if (msg == null || !fromMessageFlow) {
+        if (msg == null || !hasSeedMessage) {
             box.visibility = View.GONE
             return
         }
@@ -650,6 +678,38 @@ class CreateThreadFragment : BaseFragment() {
             visibility = if (previewText.isEmpty()) View.GONE else View.VISIBLE
         }
         textCol.addView(body, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.START, 0f, 4f, 0f, 0f))
+        val mediaAttachments = seedMediaAttachments(msg)
+        if (mediaAttachments.isNotEmpty()) {
+            val mediaRow = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            val thumbSize = LayoutHelper.dp(56)
+            val thumbHost = ForwardPreviewThumbHost(ctx)
+            mediaRow.addView(thumbHost, LayoutHelper.createLinear(thumbSize, thumbSize, 0f, Gravity.START, 0f, 4f, 8f, 0f))
+            val first = mediaAttachments[0]
+            thumbHost.bind(first.url, first.thumb.takeIf { it.isNotBlank() } ?: first.url)
+            val extra = mediaAttachments.size - 1
+            if (extra > 0) {
+                val plus = TextView(ctx).apply {
+                    text = getString(R.string.forward_thumb_more, extra)
+                    setTextColor(themeColors.onSurfaceVariant)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                }
+                mediaRow.addView(plus, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT))
+            }
+            textCol.addView(mediaRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.START, 0f, 4f, 0f, 0f))
+        } else {
+            val attachmentSummary = seedAttachmentSummary(msg)
+            if (attachmentSummary.isNotEmpty() && previewText.isEmpty()) {
+                val summary = TextView(ctx).apply {
+                    text = attachmentSummary
+                    setTextColor(themeColors.onSurface)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+                }
+                textCol.addView(summary, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.START, 0f, 4f, 0f, 0f))
+            }
+        }
         inner.addView(textCol, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f))
 
         box.addView(inner, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
@@ -662,19 +722,58 @@ class CreateThreadFragment : BaseFragment() {
     }
 
     private fun seedPreviewText(msg: MessageEntity): String {
-        val text = parseContentText(msg.content).trim()
+        val text = parseContentPreview(msg.content).trim()
         if (text.isNotEmpty()) return text
-        val attachment = msg.allAttachmentsInfo.firstOrNull()
-        val filename = attachment?.filename?.trim().orEmpty().ifBlank { msg.attachmentFilename.trim() }
-        if (filename.isNotEmpty()) return filename
-        val filetype = attachment?.filetype?.lowercase().orEmpty().ifBlank { msg.attachmentFiletype.lowercase() }
-        return when {
-            msg.messageType == MessageEntity.TYPE_GIF || filetype.contains("gif") -> getString(R.string.message_attachment_gif)
-            msg.messageType == MessageEntity.TYPE_VIDEO || filetype.startsWith("video/") -> getString(R.string.message_attachment_video)
-            msg.messageType == MessageEntity.TYPE_PHOTO || filetype.startsWith("image/") -> getString(R.string.message_attachment_photo)
-            msg.messageType == MessageEntity.TYPE_FILE || msg.hasFileAttachments -> getString(R.string.message_attachment_file)
-            else -> ""
+        if (seedMediaAttachments(msg).isNotEmpty()) return ""
+        return seedAttachmentSummary(msg)
+    }
+
+    private fun seedMediaAttachments(msg: MessageEntity): List<AttachmentInfo> {
+        if (!msg.hasAnyMedia) return emptyList()
+        val withUrl = msg.allAttachmentsInfo.filter { it.url.isNotEmpty() }
+        if (withUrl.isEmpty()) return emptyList()
+        val media = withUrl.filter { isMediaAttachment(it.filetype, it.url) }
+        return media.ifEmpty { withUrl.take(1) }
+    }
+
+    private fun seedAttachmentSummary(msg: MessageEntity): String {
+        val all = msg.allAttachmentsInfo.filter { it.url.isNotEmpty() }
+        if (all.isEmpty()) {
+            if (isEmbedOrComponentsPayload(msg.content)) return getString(R.string.message_attachment_file)
+            return ""
         }
+        var img = 0
+        var vid = 0
+        var fil = 0
+        for (a in all) {
+            when {
+                a.filetype.startsWith("image/", ignoreCase = true) ||
+                    a.filetype.contains("gif", ignoreCase = true) ||
+                    a.url.contains("tenor.com", ignoreCase = true) -> img++
+                a.filetype.startsWith("video/", ignoreCase = true) -> vid++
+                else -> fil++
+            }
+        }
+        val parts = ArrayList<String>(3)
+        if (img > 0) {
+            parts.add(
+                if (img == 1) getString(R.string.forward_meta_photo, img)
+                else getString(R.string.forward_meta_photos, img)
+            )
+        }
+        if (vid > 0) {
+            parts.add(
+                if (vid == 1) getString(R.string.forward_meta_video, vid)
+                else getString(R.string.forward_meta_videos, vid)
+            )
+        }
+        if (fil > 0) {
+            parts.add(
+                if (fil == 1) getString(R.string.forward_meta_file, fil)
+                else getString(R.string.forward_meta_files, fil)
+            )
+        }
+        return parts.joinToString(", ")
     }
 
     private fun parentChannelType(): Int =
@@ -1623,47 +1722,21 @@ class CreateThreadFragment : BaseFragment() {
         return markers.ifEmpty { null }
     }
 
-    private fun buildSeedRefs(seed: MessageEntity?): List<com.mezon.mezon.api.MessageRef>? {
-        val s = seed ?: return null
-        return listOf(
-            messageRef {
-                messageId = 0L
-                messageRefId = s.id
-                refType = 0
-                messageSenderId = s.senderId
-                messageSenderUsername = s.senderUsername.ifBlank { s.senderName }
-                messageSenderAvatar = s.senderAvatar
-                messageSenderClanNick = if (clanId != 0L) s.senderName else ""
-                messageSenderDisplayName = s.senderName
-                content = s.content
-                hasAttachment = s.hasAnyMedia || s.hasFileAttachments
-            }
-        )
-    }
-
     private fun sendComposerToThread(
         threadChannelId: Long,
-        threadPrivate: Boolean,
-        seed: MessageEntity?
+        threadPrivate: Boolean
     ) {
         val rawInput = composerField.text?.toString() ?: ""
         val text = rawInput.trim()
-        val refs = buildSeedRefs(seed)
         val ctx = getContext() ?: return
         if (text.isBlank() && pendingAttachments.isEmpty()) {
             pendingStickerSend?.let { st ->
                 chatController.sendDirectAttachment(
                     threadChannelId, clanId, CHANNEL_TYPE_THREAD, threadPrivate,
-                    st.url, st.filetype, st.filename, refs
+                    st.url, st.filetype, st.filename, null
                 )
                 pendingStickerSend = null
                 return
-            }
-            if (refs != null) {
-                chatController.sendMessage(
-                    threadChannelId, clanId, CHANNEL_TYPE_THREAD, threadPrivate,
-                    "", refs
-                )
             }
             return
         }
@@ -1695,7 +1768,7 @@ class CreateThreadFragment : BaseFragment() {
                 threadChannelId, clanId, CHANNEL_TYPE_THREAD, threadPrivate, cleanedText,
                 ArrayList(pendingAttachments),
                 ctx.contentResolver,
-                refs,
+                null,
                 mentions,
                 hashtags,
                 emojiMarkers
@@ -1705,7 +1778,7 @@ class CreateThreadFragment : BaseFragment() {
         } else {
             chatController.sendMessage(
                 threadChannelId, clanId, CHANNEL_TYPE_THREAD, threadPrivate, cleanedText,
-                refs, mentions, emojiMarkers, mdMarkers, hashtags
+                null, mentions, emojiMarkers, mdMarkers, null, hashtags
             )
         }
         composerField.text?.clear()
@@ -1716,7 +1789,7 @@ class CreateThreadFragment : BaseFragment() {
         pendingStickerSend?.let { st ->
             chatController.sendDirectAttachment(
                 threadChannelId, clanId, CHANNEL_TYPE_THREAD, threadPrivate,
-                st.url, st.filetype, st.filename, refs
+                st.url, st.filetype, st.filename, null
             )
             pendingStickerSend = null
         }
@@ -1797,6 +1870,7 @@ class CreateThreadFragment : BaseFragment() {
                 mentions,
                 emojiMarkers,
                 mdMarkers,
+                null,
                 hashtags,
                 topicId = topicId
             )
@@ -1846,7 +1920,7 @@ class CreateThreadFragment : BaseFragment() {
     }
 
     private fun canCreateThreadForCurrentFlow(): Boolean {
-        return if (fromMessageFlow) {
+        return if (fromTopicFlow) {
             permissionPolicy.canCreateThreadFromMessage(parentChannelId, clanId)
         } else {
             permissionPolicy.canCreateThreadFromThreadList(parentChannelId, clanId)
@@ -1860,7 +1934,7 @@ class CreateThreadFragment : BaseFragment() {
             return
         }
         submitAttempted = true
-        if (!fromMessageFlow) {
+        if (!fromTopicFlow) {
             val nameErr = validateThreadName(nameField?.text?.toString().orEmpty())
             if (nameErr.isNotEmpty()) {
                 errorText?.text = nameErr
@@ -1877,12 +1951,16 @@ class CreateThreadFragment : BaseFragment() {
 
         fragmentScope.launch {
             try {
-                if (fromMessageFlow && seedMessageId != 0L && seedMessage == null) {
-                    val loaded = chatController.getMessageById(parentChannelId, seedMessageId)
+                if (hasSeedMessage && seedMessage == null) {
+                    var loaded = chatController.getMessageById(parentChannelId, seedMessageId)
+                    if (loaded == null) {
+                        chatController.reloadChannelMessageIfMissing(parentChannelId, clanId, seedMessageId)
+                        loaded = chatController.getMessageById(parentChannelId, seedMessageId)
+                    }
                     seedMessage = loaded
                     withContext(mainDispatcher) { bindPreview(loaded) }
                 }
-                if (fromMessageFlow) {
+                if (fromTopicFlow) {
                     val createdTopic = withContext(ioDispatcher) {
                         topicController.createTopic(
                             clanId = clanId,
@@ -1946,20 +2024,20 @@ class CreateThreadFragment : BaseFragment() {
                 val threadPrivate = entity.isPrivate
                 val seed = seedMessage
                 if (seed != null) {
-                    val seedPlain = parseContentText(seed.content).trim()
-                    if (seedPlain.isNotEmpty()) {
-                        chatController.sendMessage(
+                    val seedOk = withContext(ioDispatcher) {
+                        chatController.sendThreadSeedMessage(
                             desc.channelId,
                             clanId,
                             CHANNEL_TYPE_THREAD,
                             threadPrivate,
-                            seedPlain
+                            seed
                         )
-                        delay(80)
                     }
+                    if (!seedOk) throw IllegalStateException("seed message send failed")
+                    delay(80)
                 }
                 withContext(mainDispatcher) {
-                    sendComposerToThread(desc.channelId, threadPrivate, seed)
+                    sendComposerToThread(desc.channelId, threadPrivate)
                 }
                 delay(80)
                 withContext(mainDispatcher) {

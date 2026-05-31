@@ -28,6 +28,7 @@ import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.MemberResolver
+import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.ClanChannelEntity
 import com.mezon.mobile.home.clans.PermissionPolicy
@@ -75,6 +76,7 @@ class ThreadListFragment : BaseFragment() {
     private lateinit var api: MezonApi
     private lateinit var sessionManager: SessionManager
     private lateinit var memberResolver: MemberResolver
+    private lateinit var userClanController: UserClanController
     private lateinit var channelController: ChannelController
     private lateinit var permissionPolicy: PermissionPolicy
     private lateinit var ioDispatcher: CoroutineDispatcher
@@ -125,6 +127,10 @@ class ThreadListFragment : BaseFragment() {
             val changedClanId = args.firstOrNull() as? Long ?: return@observe
             if (changedClanId == clanId) refreshCachedThreadList()
         }
+        observe(NotificationCenter.clanMembersDidLoad) { _, _, args ->
+            val changedClanId = args.firstOrNull() as? Long ?: return@observe
+            if (changedClanId == clanId) refreshCachedThreadList(animateChanges = false)
+        }
         observe(NotificationCenter.updateInterfaces) { _, _, args ->
             val mask = args.firstOrNull() as? Int ?: return@observe
             val interestedMask = NotificationCenter.UPDATE_MASK_NEW_MESSAGE or
@@ -143,6 +149,7 @@ class ThreadListFragment : BaseFragment() {
         api = entryPoint.mezonApi()
         sessionManager = entryPoint.sessionManager()
         memberResolver = entryPoint.memberResolver()
+        userClanController = entryPoint.userClanController()
         channelController = entryPoint.channelController()
         permissionPolicy = entryPoint.permissionPolicy()
         ioDispatcher = entryPoint.ioDispatcher()
@@ -195,6 +202,7 @@ class ThreadListFragment : BaseFragment() {
 
         adapter = ThreadListAdapter(
             theme = themeColors,
+            creatorNameResolver = { creatorId, apiCreatorName -> resolveCreatorName(creatorId, apiCreatorName) },
             senderNameResolver = { senderId -> resolveSenderName(senderId) },
             onThreadClick = { thread -> navigateToThread(thread) }
         )
@@ -225,6 +233,9 @@ class ThreadListFragment : BaseFragment() {
 
         fragmentView = root
         updateCreateThreadActions()
+        if (clanId != 0L) {
+            userClanController.loadClanMembers(clanId)
+        }
         fetchThreads(1)
         return root
     }
@@ -645,10 +656,34 @@ class ThreadListFragment : BaseFragment() {
 
     private fun resolveSenderName(senderId: Long): String {
         if (senderId == 0L) return ""
-        val member = memberResolver.resolveMember(senderId, clanId, channelId, CHANNEL_TYPE_THREAD)
+        val member = memberResolver.resolveClanScopedMember(senderId, clanId, channelId, CHANNEL_TYPE_THREAD)
+            ?: memberResolver.resolveMember(senderId, clanId, channelId, CHANNEL_TYPE_THREAD)
         return member?.let {
             it.clanNick.ifBlank { it.displayName.ifBlank { it.username } }
         } ?: ""
+    }
+
+    private fun resolveCreatorName(creatorId: Long, apiCreatorName: String): String {
+        val apiName = apiCreatorName.trim()
+        if (clanId == 0L) {
+            return if (isSystemCreatorName(apiName)) "" else apiName
+        }
+        if (creatorId == 0L) {
+            return if (isSystemCreatorName(apiName)) "" else apiName
+        }
+        val member = memberResolver.resolveClanScopedMember(creatorId, clanId, channelId, CHANNEL_TYPE_THREAD)
+            ?: memberResolver.resolveMember(creatorId, clanId, channelId, CHANNEL_TYPE_THREAD)
+        val clanPreferred = member?.clanNick?.trim().orEmpty().ifBlank {
+            member?.displayName?.trim().orEmpty()
+        }
+        if (clanPreferred.isNotBlank()) return clanPreferred
+        if (!isSystemCreatorName(apiName) && apiName.isNotBlank()) return apiName
+        return member?.username.orEmpty()
+    }
+
+    private fun isSystemCreatorName(name: String): Boolean {
+        if (name.isBlank()) return false
+        return name.equals("system", ignoreCase = true)
     }
 
     private fun navigateToThread(thread: ThreadInfo) {

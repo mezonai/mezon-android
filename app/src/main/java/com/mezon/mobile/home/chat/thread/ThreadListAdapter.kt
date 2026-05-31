@@ -13,11 +13,13 @@ import kotlinx.coroutines.withContext
 
 class ThreadListAdapter(
     private val theme: ThemeColors,
+    private val creatorNameResolver: (Long, String) -> String,
     private val senderNameResolver: (Long) -> String,
     private val onThreadClick: (ThreadInfo) -> Unit
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     private var items = ArrayList<Any>()
+    private var displayNames = HashMap<Long, String>()
     private var adapterScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var diffJob: kotlinx.coroutines.Job? = null
 
@@ -27,29 +29,56 @@ class ThreadListAdapter(
 
     fun setData(sections: List<ThreadSection>, animateChanges: Boolean = true) {
         val newItems = ArrayList<Any>()
+        val threads = ArrayList<ThreadInfo>()
         for (section in sections) {
             newItems.add(section.title)
-            newItems.addAll(section.threads)
+            for (thread in section.threads) {
+                newItems.add(thread)
+                threads.add(thread)
+            }
         }
         diffJob?.cancel()
         if (!animateChanges) {
             items.clear()
             items.addAll(newItems)
+            displayNames = resolveNames(threads)
             notifyDataSetChanged()
             return
         }
         if (items.size > 50 || newItems.size > 50) {
+            val old = items
             diffJob = adapterScope.launch {
                 val result = withContext(Dispatchers.Default) {
-                    DiffUtil.calculateDiff(ThreadDiffCallback(items, newItems))
+                    DiffUtil.calculateDiff(ThreadDiffCallback(old, newItems))
                 }
+                val newNames = withContext(Dispatchers.Default) { resolveNames(threads) }
                 items = newItems
+                displayNames = newNames
                 result.dispatchUpdatesTo(this@ThreadListAdapter)
             }
         } else {
+            val newNames = resolveNames(threads)
             val result = DiffUtil.calculateDiff(ThreadDiffCallback(items, newItems))
             items = newItems
+            displayNames = newNames
             result.dispatchUpdatesTo(this)
+        }
+    }
+
+    private fun resolveNames(threads: List<ThreadInfo>): HashMap<Long, String> {
+        val names = HashMap<Long, String>(threads.size)
+        for (thread in threads) {
+            names[thread.channelId] = resolveDisplayName(thread)
+        }
+        return names
+    }
+
+    private fun resolveDisplayName(thread: ThreadInfo): String {
+        val creatorName = creatorNameResolver(thread.creatorId, thread.creatorName)
+        return if (thread.lastSenderId != 0L) {
+            senderNameResolver(thread.lastSenderId).ifBlank { creatorName }
+        } else {
+            creatorName
         }
     }
 
@@ -87,12 +116,7 @@ class ThreadListAdapter(
                 (holder.itemView as ThreadSectionCell).setTitle(item)
             }
             is ThreadInfo -> {
-                val creatorName = item.creatorName.ifBlank { senderNameResolver(item.creatorId) }
-                val senderName = if (item.lastSenderId != 0L) {
-                    senderNameResolver(item.lastSenderId).ifBlank { creatorName }
-                } else {
-                    creatorName
-                }
+                val senderName = displayNames[item.channelId] ?: item.creatorName
                 (holder.itemView as ThreadCell).setData(item, senderName)
             }
         }

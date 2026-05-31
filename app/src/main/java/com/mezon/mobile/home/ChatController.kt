@@ -45,12 +45,15 @@ import com.mezon.mobile.util.MentionData
 import com.mezon.mobile.util.buildTextContent
 import com.mezon.mobile.util.EmojiMarker
 import com.mezon.mobile.util.MarkdownMarker
+import com.mezon.mobile.util.OgpMarker
 import com.mezon.mobile.util.ShareContactData
 import com.mezon.mobile.util.buildShareContactContent
 import com.mezon.mobile.util.buildTextContentWithEmojis
 import com.mezon.mobile.util.mergePendingMentionsIntoContent
 import com.mezon.mobile.util.mergeShareContactEmbedIntoContent
 import com.mezon.mobile.util.isShareContactMessage
+import com.mezon.mobile.util.isEmbedOrComponentsPayload
+import com.mezon.mobile.util.parseContentText
 import com.mezon.mezon.api.ChannelMessage
 import com.mezon.mezon.api.CreatePollResponse
 import com.mezon.mobile.home.chat.poll.buildPollMessageContent
@@ -320,6 +323,8 @@ class ChatController @Inject constructor(
                         session.token,
                         channelId,
                         clanId,
+                        messageId = messageId,
+                        direction = DIRECTION_AROUND,
                         limit = PAGE_SIZE
                     )
                     val entity = response.messagesList
@@ -740,15 +745,16 @@ class ChatController @Inject constructor(
         mentions: List<MentionData>? = null,
         emojiMarkers: List<EmojiMarker>? = null,
         markdownMarkers: List<MarkdownMarker>? = null,
+        ogpMarker: OgpMarker? = null,
         hashtags: List<com.mezon.mobile.util.HashtagData>? = null,
         topicId: Long = 0L
     ) {
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
         val cacheKey = messageCacheKey(channelId, topicId)
-        val hasContentExtras = !emojiMarkers.isNullOrEmpty() || !markdownMarkers.isNullOrEmpty() || !hashtags.isNullOrEmpty()
+        val hasContentExtras = !emojiMarkers.isNullOrEmpty() || !markdownMarkers.isNullOrEmpty() || ogpMarker != null || !hashtags.isNullOrEmpty()
         val content = if (!hasContentExtras) buildTextContent(text)
-            else buildTextContentWithEmojis(text, null, emojiMarkers, markdownMarkers, hashtags)
+            else buildTextContentWithEmojis(text, null, emojiMarkers, markdownMarkers, hashtags, ogpMarker)
         val mentionEveryone = mentions?.any { it.userId == ID_MENTION_HERE } == true
         val protoMentions = mentions?.map { m ->
             messageMention {
@@ -1248,15 +1254,16 @@ class ChatController @Inject constructor(
         mentions: List<MentionData>? = null,
         hashtags: List<com.mezon.mobile.util.HashtagData>? = null,
         emojiMarkers: List<EmojiMarker>? = null,
+        ogpMarker: OgpMarker? = null,
         topicId: Long = 0L
     ) {
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
         val cacheKey = messageCacheKey(channelId, topicId)
-        val hasContentExtras = !hashtags.isNullOrEmpty() || !emojiMarkers.isNullOrEmpty()
+        val hasContentExtras = !hashtags.isNullOrEmpty() || !emojiMarkers.isNullOrEmpty() || ogpMarker != null
         val wireBase = when {
             text.isBlank() -> "{\"t\":\"\"}"
-            hasContentExtras -> buildTextContentWithEmojis(text, null, emojiMarkers, null, hashtags)
+            hasContentExtras -> buildTextContentWithEmojis(text, null, emojiMarkers, null, hashtags, ogpMarker)
             else -> buildTextContent(text)
         }
         val optimisticContent = mergePendingMentionsIntoContent(
@@ -2212,6 +2219,55 @@ class ChatController @Inject constructor(
             } finally {
                 pendingKey?.let { clearPendingApiReaction(it) }
             }
+        }
+    }
+
+    suspend fun sendThreadSeedMessage(
+        channelId: Long,
+        clanId: Long,
+        channelType: Int,
+        isChannelPrivate: Boolean,
+        seed: MessageEntity
+    ): Boolean {
+        val wire = seed.content
+        val attProtos = attachmentsFromEntity(seed)
+        val hasText = parseContentText(wire).trim().isNotEmpty() ||
+            isEmbedOrComponentsPayload(wire) ||
+            wire.contains("\"lk\"")
+        if (!hasText && attProtos.isEmpty()) return true
+        val mode = channelTypeToStreamMode(channelType)
+        val isPublic = !isChannelPrivate
+        val mentionsProto = mentionsFromForwardContent(wire).takeUnless { it.isEmpty() }
+        val mentionsData = messageMentionsToData(mentionsProto)
+        return try {
+            sessionManager.withAutoRefresh { session ->
+                ensureActiveArchivedThreadIfNeeded(session.apiUrl, session.token, channelId, clanId, channelType)
+                ensureMentionedUsersInThread(
+                    session.apiUrl,
+                    session.token,
+                    channelId,
+                    clanId,
+                    channelType,
+                    mentionsData
+                )
+                val request = channelMessageSend {
+                    this.clanId = clanId
+                    this.channelId = channelId
+                    this.mode = mode
+                    this.isPublic = isPublic
+                    this.content = wire
+                    this.code = seed.code
+                    mentionsProto?.let { if (it.isNotEmpty()) mentions.addAll(it) }
+                    if (attProtos.isNotEmpty()) attachments.addAll(attProtos)
+                    mentionEveryone = extractMentionEveryoneFromForwardContent(wire)
+                }
+                channelSend(session.apiUrl, session.token, request)
+                markForwardTargetUsed(channelId, channelType)
+            }
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "sendThreadSeedMessage failed channel=$channelId msg=${seed.id}", e)
+            false
         }
     }
 

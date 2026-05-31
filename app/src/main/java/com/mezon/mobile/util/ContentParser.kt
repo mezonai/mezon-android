@@ -262,6 +262,15 @@ data class EmojiMarker(val emojiId: String, val startIndex: Int, val endIndex: I
 
 data class MarkdownMarker(val type: String, val s: Int, val e: Int)
 
+data class OgpMarker(
+    val s: Int,
+    val e: Int,
+    val index: Int,
+    val title: String,
+    val description: String,
+    val image: String
+)
+
 data class HashtagData(
     val channelId: String,
     val startOffset: Int,
@@ -552,7 +561,8 @@ fun buildTextContentWithEmojis(
     mentions: List<MentionData>?,
     emojis: List<EmojiMarker>?,
     markdowns: List<MarkdownMarker>? = null,
-    hashtags: List<HashtagData>? = null
+    hashtags: List<HashtagData>? = null,
+    ogp: OgpMarker? = null
 ): String {
     val escaped = text
         .replace("\\", "\\\\")
@@ -580,11 +590,36 @@ fun buildTextContentWithEmojis(
         }
         parts.add("\"ej\":[$ejJson]")
     }
-    if (!markdowns.isNullOrEmpty()) {
-        val mkJson = markdowns.joinToString(",") {
-            "{\"type\":\"${it.type}\",\"s\":${it.s},\"e\":${it.e}}"
+    if (!markdowns.isNullOrEmpty() || ogp != null) {
+        val mkEntries = ArrayList<String>((markdowns?.size ?: 0) + 1)
+        markdowns?.forEach {
+            mkEntries.add("{\"type\":\"${it.type}\",\"s\":${it.s},\"e\":${it.e}}")
         }
-        parts.add("\"mk\":[$mkJson]")
+        ogp?.let {
+            val escapedTitle = it.title
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t")
+            val escapedDescription = it.description
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t")
+            val escapedImage = it.image
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t")
+            mkEntries.add(
+                "{\"type\":\"lk_ogp\",\"s\":${it.s},\"e\":${it.e},\"index\":${it.index}," +
+                    "\"title\":\"$escapedTitle\",\"description\":\"$escapedDescription\",\"image\":\"$escapedImage\"}"
+            )
+        }
+        parts.add("\"mk\":[${mkEntries.joinToString(",")}]")
     }
     if (!hashtags.isNullOrEmpty()) {
         val hgJson = hashtags.joinToString(",") {

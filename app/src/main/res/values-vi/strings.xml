@@ -337,9 +337,24 @@
     <string name="clan_settings_sticker">Nhãn dán</string>
     <string name="clan_settings_sound">Hiệu ứng âm thanh</string>
     <string name="clan_settings_enable_community">Kích hoạt cộng đồng</string>
+    <string name="community_settings_enabled_success">Đã bật cộng đồng thành công!</string>
+    <string name="community_settings_saved_success">Đã cập nhật cài đặt cộng đồng!</string>
     <string name="clan_settings_members">Thành viên</string>
     <string name="clan_settings_roles">Vai trò</string>
     <string name="clan_settings_invites">Lời mời</string>
+    <string name="invite_modal_title">Mời bạn bè vào %1$s</string>
+    <string name="invite_search_placeholder">Tìm bạn bè</string>
+    <string name="invite_send_link_label">Hoặc gửi link mời clan cho bạn bè</string>
+    <string name="invite_copy">Sao chép</string>
+    <string name="invite_copied">Đã sao chép</string>
+    <string name="invite_share_qr">Chia sẻ QR</string>
+    <string name="invite_save_qr">Lưu QR</string>
+    <string name="invite_qr_saved">Đã lưu QR vào thư viện</string>
+    <string name="invite_btn_invite">Mời</string>
+    <string name="invite_btn_sent">Đã gửi</string>
+    <string name="invite_create_link_error">Không tạo được link mời. Thử lại.</string>
+    <string name="invite_send_error">Không gửi được lời mời. Thử lại.</string>
+    <string name="invite_clan_not_loaded">Chưa có thông tin clan. Thử lại.</string>
     <string name="clan_roles_description">Dùng vai trò để nhóm thành viên clan và gán quyền</string>
     <string name="clan_roles_default_role">Quyền mặc định cho mọi thành viên clan</string>
     <string name="clan_roles_header_count">Vai trò - %1$d</string>
@@ -1252,4 +1267,46 @@
     <string name="contact_shared_error">Không thể chia sẻ danh thiếp</string>
     <string name="cannot_call_yourself">Bạn không thể gọi chính mình.</string>
     <string name="no_permission_call_blocked">Bạn không thể thực hiện hành động này.</string>
+
+    <!-- Sound Effect Settings -->
+    <string name="sound_upload_instructions_title">Hướng dẫn tải lên</string>
+    <string name="sound_upload_requirements">Hỗ trợ: mp3, wav — Tối đa 1 MB</string>
+    <string name="sound_upload_btn">Tải hiệu ứng âm thanh</string>
+    <string name="sound_upload_title">Tải hiệu ứng âm thanh</string>
+    <string name="sound_edit_title">Chỉnh sửa hiệu ứng âm thanh</string>
+    <string name="sound_btn_upload">Tải lên</string>
+    <string name="sound_btn_update">Cập nhật</string>
+    <string name="sound_name_hint">Tên âm thanh (3–64 ký tự)</string>
+    <string name="sound_name_error">Tên phải từ 3 đến 64 ký tự</string>
+    <string name="sound_empty_state">Chưa có hiệu ứng âm thanh. Hãy tải lên cái đầu tiên!</string>
+    <string name="sound_pick_file">Chọn file âm thanh</string>
+    <string name="sound_file_too_large">File quá lớn. Tối đa 1 MB.</string>
+    <string name="sound_upload_failed">Tải lên thất bại. Vui lòng thử lại.</string>
+    <string name="sound_edit_failed">Cập nhật thất bại. Vui lòng thử lại.</string>
+    <string name="sound_delete_failed">Xóa thất bại. Vui lòng thử lại.</string>
+    <string name="sound_delete_confirm_title">Xóa âm thanh?</string>
+    <string name="sound_delete_confirm_msg">Bạn có chắc muốn xóa \"%1$s\"?</string>
+    <string name="sound_edit_or_upload_new">Hoặc tải lên file mới</string>
+
+    <!-- Sticker Settings -->
+    <string name="sticker_upload_instructions_title">Hướng dẫn tải lên</string>
+    <string name="sticker_upload_requirements">PNG/JPG/GIF, tối đa 512 KB, 320×320 px</string>
+    <string name="sticker_upload_btn">Tải nhãn dán</string>
+    <string name="sticker_upload_title">Tải nhãn dán</string>
+    <string name="sticker_edit_title">Chỉnh sửa nhãn dán</string>
+    <string name="sticker_btn_upload">Tải lên</string>
+    <string name="sticker_btn_save">Lưu</string>
+    <string name="sticker_name_hint">Tên nhãn dán (3–64 ký tự)</string>
+    <string name="sticker_name_error">Tên phải từ 3 đến 64 ký tự</string>
+    <string name="sticker_is_for_sale">Nhãn dán này đang bán</string>
+    <string name="sticker_edit_file_note">Lưu ý: không thể đổi ảnh sau khi tải lên.</string>
+    <string name="sticker_pick_file">Chọn file ảnh</string>
+    <string name="sticker_file_too_large">File quá lớn. Tối đa 512 KB.</string>
+    <string name="sticker_file_invalid">Không thể xử lý ảnh đã chọn.</string>
+    <string name="sticker_upload_failed">Tải lên thất bại. Vui lòng thử lại.</string>
+    <string name="sticker_rename_failed">Đổi tên thất bại. Vui lòng thử lại.</string>
+    <string name="sticker_delete_failed">Xóa thất bại. Vui lòng thử lại.</string>
+    <string name="sticker_delete_confirm_title">Xóa nhãn dán?</string>
+    <string name="sticker_delete_confirm_msg">Bạn có chắc muốn xóa \"%1$s\"?</string>
+    <string name="sticker_add_label">Thêm nhãn dán</string>
 </resources>

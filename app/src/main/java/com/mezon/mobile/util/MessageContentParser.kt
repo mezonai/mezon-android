@@ -880,7 +880,9 @@ data class EmbedData(
     val timestamp: String
 )
 
-private const val MESSAGE_COMPONENT_TYPE_BUTTON = 1
+private const val MESSAGE_COMPONENT_TYPE_ACTION_ROW = 1
+private const val MESSAGE_COMPONENT_TYPE_BUTTON_LEGACY = 1
+private const val MESSAGE_COMPONENT_TYPE_BUTTON_V2 = 2
 
 enum class EmbedButtonStyle(val value: Int) {
     PRIMARY(1),
@@ -929,21 +931,45 @@ private fun parseEmbedActionRowsFromObject(obj: JSONObject): List<EmbedActionRow
     val out = ArrayList<EmbedActionRow>(rows.length())
     for (r in 0 until rows.length()) {
         val rowObj = rows.optJSONObject(r) ?: continue
+        val rowType = rowObj.optInt("type", -1)
+        if (rowType > 0 && rowType != MESSAGE_COMPONENT_TYPE_ACTION_ROW) continue
         val comps = rowObj.optJSONArray("components") ?: continue
         val buttons = ArrayList<EmbedComponentButton>(comps.length())
         for (c in 0 until comps.length()) {
             val comp = comps.optJSONObject(c) ?: continue
-            if (comp.optInt("type", -1) != MESSAGE_COMPONENT_TYPE_BUTTON) continue
+            val compType = comp.optInt("type", -1)
+            val isButton = compType == MESSAGE_COMPONENT_TYPE_BUTTON_LEGACY ||
+                compType == MESSAGE_COMPONENT_TYPE_BUTTON_V2
+            if (!isButton) continue
+            val inner = comp.optJSONObject("component")
             val id = comp.optString("id", "")
+                .ifEmpty { comp.optString("custom_id", "") }
+                .ifEmpty { comp.optString("component_id", "") }
+                .ifEmpty {
+                    inner?.optString("id", "")
+                        ?.ifEmpty { inner.optString("custom_id", "") }
+                        ?.ifEmpty { inner.optString("component_id", "") }
+                        .orEmpty()
+                }
             if (id.isEmpty()) continue
-            val inner = comp.optJSONObject("component") ?: continue
-            val label = inner.optString("label", "")
+            val label = inner?.optString("label", "")?.ifEmpty { comp.optString("label", "") }
+                ?: comp.optString("label", "")
             if (label.isEmpty()) continue
-            val url = inner.optString("url", "").takeIf { it.isNotEmpty() }
-            val style = EmbedButtonStyle.fromInt(inner.optInt("style", EmbedButtonStyle.PRIMARY.value))
-            val disabled = inner.optBoolean("disable", false) ||
-                inner.optBoolean("disabled", false) ||
-                inner.optBoolean("isDisabled", false)
+            val url = inner?.optString("url", "")?.takeIf { it.isNotEmpty() }
+                ?: comp.optString("url", "").takeIf { it.isNotEmpty() }
+            val style = EmbedButtonStyle.fromInt(
+                if (inner != null && inner.has("style")) {
+                    inner.optInt("style", EmbedButtonStyle.PRIMARY.value)
+                } else {
+                    comp.optInt("style", EmbedButtonStyle.PRIMARY.value)
+                }
+            )
+            val disabled = comp.optBoolean("disable", false) ||
+                comp.optBoolean("disabled", false) ||
+                comp.optBoolean("isDisabled", false) ||
+                inner?.optBoolean("disable", false) == true ||
+                inner?.optBoolean("disabled", false) == true ||
+                inner?.optBoolean("isDisabled", false) == true
             buttons.add(EmbedComponentButton(id, label, url, style, disabled))
         }
         if (buttons.isNotEmpty()) out.add(EmbedActionRow(buttons))

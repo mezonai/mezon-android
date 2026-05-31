@@ -269,6 +269,21 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var ogpBlockTop = 0
     private var ogpBlockRight = 0
     private var ogpBlockBottom = 0
+    private val ogpCardRect = RectF()
+    private val ogpCardPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+    }
+    private val ogpAccentPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+    }
+    private val ogpTitlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = LayoutHelper.sp(14f)
+        typeface = Typeface.DEFAULT_BOLD
+        isFakeBoldText = true
+    }
+    private val ogpDescPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = LayoutHelper.sp(12f)
+    }
 
     private var pressedOnInviteJoin = false
 
@@ -638,6 +653,19 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val maxW = if (isInPinMode) rawMaxW.coerceAtMost(maxBubbleWidth(width)) else rawMaxW
         val maxH = maxW + LayoutHelper.dp(100)
 
+        // Multi-image grids (2/3/4) use a fixed grid geometry instead of the first
+        // image's aspect ratio: cells are square-ish and center-cropped, so deriving
+        // height from a single image squeezes the thumbnails (issue mezonai/mezon#13176).
+        val gridCount = msg.allImageAttachments.size.coerceAtMost(4)
+        if (gridCount > 1) {
+            val gap = LayoutHelper.dp(2)
+            val cellW = (maxW - gap) / 2
+            photoWidth = maxW
+            // 2 images -> two square cells side by side; 3/4 -> square container.
+            photoHeight = if (gridCount == 2) cellW else maxW
+            return
+        }
+
         val firstMedia = msg.allImageAttachments.firstOrNull()
         var imgW = firstMedia?.width ?: msg.attachmentWidth
         var imgH = firstMedia?.height ?: msg.attachmentHeight
@@ -755,16 +783,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     }
 
     private fun computeMediaGridHeight() {
-        val gap = LayoutHelper.dp(2)
-        mediaGridTotalH = when (mediaGridCount) {
-            1 -> photoHeight
-            2 -> photoHeight
-            3, 4 -> {
-                val halfH = photoHeight / 2
-                halfH + gap + halfH
-            }
-            else -> photoHeight
-        }
+        // drawMediaGrid always lays the grid out within photoHeight for every cell
+        // count, so the measured height must match to avoid extra vertical padding.
+        mediaGridTotalH = photoHeight
     }
 
     private var spinnerAngle = 0f
@@ -1251,19 +1272,23 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         } else null
         if (ogpData != null) {
             val ogp = ogpData!!
-            val ogpTextW = (textWidth * 0.9f).toInt().coerceAtLeast(1)
+            val ogpTextW = (textWidth - OGP_ACCENT_W - OGP_PADDING * 2).coerceAtLeast(1)
+            ogpTitlePaint.color = theme.textLink
+            ogpTitlePaint.textSize = currentContentPaint.textSize
+            ogpDescPaint.color = theme.colorText
+            ogpDescPaint.textSize = theme.chatTimePaint.textSize
             val truncTitle = if (ogp.title.length > OGP_MAX_CHARS) ogp.title.substring(0, OGP_MAX_CHARS) else ogp.title
-            ogpTitleLayout = StaticLayout.Builder.obtain(truncTitle, 0, truncTitle.length, currentContentPaint, ogpTextW)
+            ogpTitleLayout = StaticLayout.Builder.obtain(truncTitle, 0, truncTitle.length, ogpTitlePaint, ogpTextW)
                 .setMaxLines(2)
                 .setEllipsize(TextUtils.TruncateAt.END)
                 .build()
             val truncDesc = if (ogp.description.length > OGP_MAX_CHARS) ogp.description.substring(0, OGP_MAX_CHARS) else ogp.description
-            ogpDescLayout = StaticLayout.Builder.obtain(truncDesc, 0, truncDesc.length, theme.chatTimePaint, ogpTextW)
+            ogpDescLayout = StaticLayout.Builder.obtain(truncDesc, 0, truncDesc.length, ogpDescPaint, ogpTextW)
                 .setMaxLines(2)
                 .setEllipsize(TextUtils.TruncateAt.END)
                 .build()
-            ogpImageW = (textWidth * 0.6f).toInt().coerceAtLeast(LayoutHelper.dp(120))
-            ogpImageH = (ogpImageW * 0.6f).toInt().coerceAtLeast(LayoutHelper.dp(80))
+            ogpImageW = ogpTextW
+            ogpImageH = min((ogpImageW * 0.6f).toInt(), OGP_IMAGE_MAX_H).coerceAtLeast(1)
             ogpImage.setRoundRadius(OGP_RADIUS.toInt())
             val proxiedImg = createImgproxyUrl(ogp.image, ogpImageW, ogpImageH, "fill")
             ogpImage.setImage(proxiedImg, null, context)
@@ -1342,7 +1367,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
 
         val replyW = if (hasReply) cachedReplyNameW + cachedReplyTextW + REPLY_AVATAR_SIZE + REPLY_H_GAP * 2 else 0f
-        val ogpW = if (ogpData != null) maxOf(cachedOgpTitleW, cachedOgpDescW, ogpImageW.toFloat()) else 0f
+        val ogpW = if (ogpData != null) maxOf(cachedOgpTitleW, cachedOgpDescW, ogpImageW.toFloat()) + OGP_ACCENT_W + OGP_PADDING * 2 else 0f
         val fileW = if (drawFileAttachment) fileRowWidth.toFloat() else 0f
         val audioW = if (drawAudioAttachment) audioPillWidth.toFloat() else 0f
         val embedW = if (hasEmbedContent) (bubbleMaxW).toFloat() else 0f
@@ -1511,6 +1536,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
         if (ogpData != null) {
             h += GAP_V_INNER
+            h += OGP_PADDING * 2
             ogpTitleLayout?.let { block -> h += block.height + GAP_V_INNER }
             ogpDescLayout?.let { block -> h += block.height + GAP_V_INNER }
             h += ogpImageH + GAP_V_INNER
@@ -2219,6 +2245,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     }
                     if (ogpData != null) {
                         reacBaseY += GAP_V_INNER
+                        reacBaseY += OGP_PADDING * 2
                         ogpTitleLayout?.let { reacBaseY += it.height + GAP_V_INNER }
                         ogpDescLayout?.let { reacBaseY += it.height + GAP_V_INNER }
                         reacBaseY += ogpImageH + GAP_V_INNER
@@ -3024,30 +3051,41 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     }
 
     private fun drawOgpBlock(canvas: Canvas, left: Float, top: Float): Float {
-        val data = ogpData ?: return top
-        var y = top
+        if (ogpData == null) return top
+        val innerLeft = left + OGP_ACCENT_W + OGP_PADDING
+        var y = top + OGP_PADDING
+        val contentW = maxOf(cachedOgpTitleW, cachedOgpDescW, ogpImageW.toFloat())
+        val cardRight = left + OGP_ACCENT_W + OGP_PADDING * 2 + contentW
+        val cardBottom = top + OGP_PADDING * 2 +
+            (ogpTitleLayout?.let { it.height + GAP_V_INNER } ?: 0) +
+            (ogpDescLayout?.let { it.height + GAP_V_INNER } ?: 0) +
+            ogpImageH
+        ogpCardPaint.color = theme.border
+        ogpAccentPaint.color = theme.blurple
+        ogpCardRect.set(left, top, cardRight, cardBottom)
+        canvas.drawRoundRect(ogpCardRect, OGP_CARD_RADIUS, OGP_CARD_RADIUS, ogpCardPaint)
+        canvas.drawRect(left, top, left + OGP_ACCENT_W, cardBottom, ogpAccentPaint)
         ogpBlockLeft = left.toInt()
-        ogpBlockTop = y.toInt()
+        ogpBlockTop = top.toInt()
         ogpTitleLayout?.let {
             canvas.save()
-            canvas.translate(left, y)
+            canvas.translate(innerLeft, y)
             it.draw(canvas)
             canvas.restore()
             y += it.height + GAP_V_INNER
         }
         ogpDescLayout?.let {
             canvas.save()
-            canvas.translate(left, y)
+            canvas.translate(innerLeft, y)
             it.draw(canvas)
             canvas.restore()
             y += it.height + GAP_V_INNER
         }
-        ogpImage.setImageCoords(left, y, ogpImageW.toFloat(), ogpImageH.toFloat())
+        ogpImage.setImageCoords(innerLeft, y, ogpImageW.toFloat(), ogpImageH.toFloat())
         ogpImage.draw(canvas)
-        y += ogpImageH
-        ogpBlockRight = (left + maxOf(cachedOgpTitleW, cachedOgpDescW, ogpImageW.toFloat())).toInt()
-        ogpBlockBottom = y.toInt()
-        return y
+        ogpBlockRight = cardRight.toInt()
+        ogpBlockBottom = cardBottom.toInt()
+        return cardBottom
     }
 
     private var gridExtraCount = 0
@@ -4212,6 +4250,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         private val LINK_INVITE_V_MARGIN = LayoutHelper.dp(12) 
         private val MEDIA_RADIUS = LayoutHelper.dp(12).toFloat()
         private val OGP_RADIUS = LayoutHelper.dp(8).toFloat()
+        private val OGP_CARD_RADIUS = LayoutHelper.dp(4).toFloat()
+        private val OGP_PADDING = LayoutHelper.dp(10)
+        private val OGP_ACCENT_W = LayoutHelper.dp(4)
+        private val OGP_IMAGE_MAX_H = LayoutHelper.dp(150)
         private const val OGP_MAX_CHARS = 200
         private val PLAY_BTN_SIZE = LayoutHelper.dp(48).toFloat()
         private val REPLY_AVATAR_SIZE = LayoutHelper.dp(16)

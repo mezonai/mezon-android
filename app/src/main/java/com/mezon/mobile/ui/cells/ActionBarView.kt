@@ -141,7 +141,12 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
     fun setTitle(title: CharSequence?) {
         if (title != null && titleTextView == null) createTitleTextView()
         titleTextView?.visibility = if (title != null && !isSearchFieldVisible) VISIBLE else INVISIBLE
+        val changed = titleTextView?.text?.toString() != title?.toString()
         titleTextView?.text = title
+        if (changed) {
+            titleTextView?.requestLayout()
+            requestLayout()
+        }
     }
 
     fun getTitle(): CharSequence? = titleTextView?.text
@@ -166,7 +171,12 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
     fun setSubtitle(subtitle: CharSequence?) {
         if (subtitle != null && subtitleTextView == null) createSubtitleTextView()
         subtitleTextView?.visibility = if (!subtitle.isNullOrEmpty() && !isSearchFieldVisible) VISIBLE else GONE
+        val changed = subtitleTextView?.text?.toString() != subtitle?.toString()
         subtitleTextView?.text = subtitle
+        if (changed) {
+            subtitleTextView?.requestLayout()
+            requestLayout()
+        }
     }
 
     fun getSubtitle(): CharSequence? = subtitleTextView?.text
@@ -606,7 +616,8 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
 
         val backWidth = if (backButtonImageView != null && backButtonImageView!!.visibility != GONE) BACK_BUTTON_SIZE else 0
         val lead = titleStartLeadWidth()
-        val titleAvailableWidth = (widthSize - backWidth - menuWidth - LayoutHelper.dp(16) - lead).coerceAtLeast(0)
+        val horizontalPadding = LayoutHelper.dp(16)
+        val titleAvailableWidth = (widthSize - backWidth - menuWidth - horizontalPadding - lead).coerceAtLeast(0)
 
         titleStartImageView?.let { iv ->
             if (iv.visibility != GONE && titleStartIconSize > 0) {
@@ -623,6 +634,13 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
                     MeasureSpec.makeMeasureSpec(titleAvailableWidth, MeasureSpec.AT_MOST),
                     MeasureSpec.makeMeasureSpec(actionBarHeight, MeasureSpec.AT_MOST)
                 )
+                if (centerTitle && tv.measuredWidth < titleAvailableWidth) {
+                    val slackWidth = (tv.measuredWidth + LayoutHelper.dp(4)).coerceAtMost(titleAvailableWidth)
+                    tv.measure(
+                        MeasureSpec.makeMeasureSpec(slackWidth, MeasureSpec.EXACTLY),
+                        MeasureSpec.makeMeasureSpec(actionBarHeight, MeasureSpec.AT_MOST)
+                    )
+                }
             }
         }
 
@@ -632,6 +650,13 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
                     MeasureSpec.makeMeasureSpec(titleAvailableWidth, MeasureSpec.AT_MOST),
                     MeasureSpec.makeMeasureSpec(actionBarHeight, MeasureSpec.AT_MOST)
                 )
+                if (centerTitle && sv.measuredWidth < titleAvailableWidth) {
+                    val slackWidth = (sv.measuredWidth + LayoutHelper.dp(4)).coerceAtMost(titleAvailableWidth)
+                    sv.measure(
+                        MeasureSpec.makeMeasureSpec(slackWidth, MeasureSpec.EXACTLY),
+                        MeasureSpec.makeMeasureSpec(actionBarHeight, MeasureSpec.AT_MOST)
+                    )
+                }
             }
         }
 
@@ -676,16 +701,32 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
             val subH = if (hasSubtitle) subtitleTextView?.measuredHeight ?: 0 else 0
             val totalH = titleH + subH
             val topMargin = statusBarOffset + (actionBarHeight - totalH) / 2
+            val titleW = titleTextView?.measuredWidth ?: 0
+            val subW = if (hasSubtitle) subtitleTextView?.measuredWidth ?: 0 else 0
+            val textW = if (hasSubtitle) maxOf(titleW, subW) else titleW
+            val blockWidth = lead + textW
+            val minBlockLeft = backWidth
+            val maxBlockLeft = (w - menuWidth - LayoutHelper.dp(8) - blockWidth).coerceAtLeast(minBlockLeft)
+            val blockLeft = ((w - blockWidth) / 2).coerceIn(minBlockLeft, maxBlockLeft)
+
+            titleStartImageView?.let { iv ->
+                if (iv.visibility != GONE && titleStartIconSize > 0) {
+                    val iconTop = topMargin + (totalH - titleStartIconSize) / 2
+                    iv.layout(blockLeft, iconTop, blockLeft + titleStartIconSize, iconTop + titleStartIconSize)
+                }
+            }
+
+            val textStart = blockLeft + lead
+
             titleTextView?.let { tv ->
                 if (tv.visibility != GONE) {
-                    val tLeft = (w - tv.measuredWidth) / 2
-                    tv.layout(tLeft, topMargin, tLeft + tv.measuredWidth, topMargin + titleH)
+                    tv.layout(textStart, topMargin, textStart + titleW, topMargin + titleH)
                 }
             }
             if (hasSubtitle) {
                 subtitleTextView?.let { sv ->
-                    val sLeft = (w - sv.measuredWidth) / 2
-                    sv.layout(sLeft, topMargin + titleH, sLeft + sv.measuredWidth, topMargin + totalH)
+                    val sLeft = textStart + (titleW - subW) / 2
+                    sv.layout(sLeft, topMargin + titleH, sLeft + subW, topMargin + totalH)
                 }
             }
         } else if (hasSubtitle) {
