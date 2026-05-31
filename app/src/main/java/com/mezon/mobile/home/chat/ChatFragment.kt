@@ -3374,7 +3374,12 @@ open class ChatFragment : BaseFragment() {
 
     private fun resolveMessageSenderUsername(msg: MessageEntity): String {
         val member = memberResolver.resolveMember(msg.senderId, clanId, channelId, channelType)
-        return member?.username?.ifBlank { msg.senderUsername } ?: msg.senderUsername
+        if (member != null) {
+            return member.username.ifBlank { msg.senderUsername }.ifBlank {
+                member.displayName.ifBlank { member.clanNick }.ifBlank { msg.senderName }
+            }
+        }
+        return msg.senderUsername.ifBlank { msg.senderName }
     }
 
     private fun refreshMessageSenderAvatars() {
@@ -3656,7 +3661,11 @@ open class ChatFragment : BaseFragment() {
         }
 
         messages.firstOrNull { it.senderId != myId && it.senderAvatar.isNotBlank() }?.senderAvatar?.let { return it }
-        return messages.firstOrNull { it.senderAvatar.isNotBlank() }?.senderAvatar.orEmpty()
+        return if (isDmSelfOnlyChat()) {
+            messages.firstOrNull { it.senderAvatar.isNotBlank() }?.senderAvatar.orEmpty()
+        } else {
+            ""
+        }
     }
 
     private fun refreshWelcomeFromDialog() {

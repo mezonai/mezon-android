@@ -11,7 +11,7 @@ import com.mezon.mobile.home.extractLastSeenMessageTs
 import com.mezon.mobile.home.extractLastSentMessageId
 import com.mezon.mobile.home.extractLastSentMessageTs
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
-import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
+import com.mezon.mobile.network.CHANNEL_TYPE_GROUP  
 import com.mezon.mobile.network.streamModeToChannelType
 import com.mezon.mobile.util.parseContentPreview
 
@@ -152,7 +152,9 @@ fun DirectMessage.enrichAvatarFromParticipants(
         }
     }
     if (peerId == 0L) {
-        participants.firstOrNull { it.avatarUrl.isNotBlank() && it.userId != 0L }?.let { match ->
+        participants.firstOrNull {
+            it.avatarUrl.isNotBlank() && it.userId != 0L && it.userId != currentUserId
+        }?.let { match ->
             return copy(avatarUrl = match.avatarUrl)
         }
     }
