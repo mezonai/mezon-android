@@ -38,7 +38,7 @@ class MezonApplication : Application() {
         sentryReporter.init(this)
         StartupCache.init(this)
 
-        runBlocking(Dispatchers.IO) {
+        val seedStartupCacheFromDataStore: suspend () -> Unit = {
             runCatching {
                 val prefs = dataStore.data.first()
                 StartupCache.seed(
@@ -47,6 +47,13 @@ class MezonApplication : Application() {
                     locale = prefs[stringPreferencesKey("app_language")] ?: "en"
                 )
             }
+            Unit
+        }
+
+        if (StartupCache.isSeeded) {
+            appStartScope.launch { seedStartupCacheFromDataStore() }
+        } else {
+            runBlocking(Dispatchers.IO) { seedStartupCacheFromDataStore() }
         }
 
         val systemDark =

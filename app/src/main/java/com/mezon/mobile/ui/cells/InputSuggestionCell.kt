@@ -343,11 +343,8 @@ class InputSuggestionCell(
     }
 
     private fun resolveChannelIcon(entity: ClanChannelEntity): MezonIcon {
-        if (entity.isAgeRestricted) {
-            return MezonIcon.ageRestrictedIcon
-        }
         val type = if (entity.isThread) CHANNEL_TYPE_THREAD else entity.type
-        return ChannelItemCell.resolveChannelIcon(type, entity.isPrivate)
+        return ChannelItemCell.resolveChannelIcon(type, entity.isPrivate, entity.isAgeRestricted)
     }
 
     companion object {

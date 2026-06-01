@@ -133,6 +133,7 @@ class VoiceController @Inject constructor(
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "fetchVoiceChannelMembers failed", e)
+                cacheTracker.invalidate(key)
             } finally {
                 if (!noCache) voiceMemberListFetchInflight.remove(clanId)
             }

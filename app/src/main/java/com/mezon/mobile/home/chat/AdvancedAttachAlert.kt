@@ -115,13 +115,17 @@ class AdvancedAttachAlert(
             cell.layoutParams = RecyclerView.LayoutParams(
                 RecyclerView.LayoutParams.MATCH_PARENT, LayoutHelper.dp(100f)
             )
-            return Holder(cell)
+            val holder = Holder(cell)
+            cell.setOnClickListener {
+                val pos = holder.bindingAdapterPosition
+                if (pos != RecyclerView.NO_POSITION) onFunctionClicked(functions[pos])
+            }
+            return holder
         }
 
         override fun onBindViewHolder(holder: Holder, position: Int) {
             val item = functions[position]
             holder.cell.setData(item.labelResId, item.icon)
-            holder.cell.setOnClickListener { onFunctionClicked(item) }
         }
 
         override fun getItemCount() = functions.size

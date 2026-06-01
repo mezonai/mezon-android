@@ -85,6 +85,7 @@ class MainActivity : BasePermissionsActivity(),
     private data class ChatRouteMeta(
         val channelType: Int,
         val isPrivate: Boolean,
+        val isAgeRestricted: Boolean,
         val parentId: Long
     )
 
@@ -843,6 +844,7 @@ class MainActivity : BasePermissionsActivity(),
             channelType = routeMeta.channelType,
             messageId = messageId,
             isChannelPrivate = routeMeta.isPrivate,
+            isChannelAgeRestricted = routeMeta.isAgeRestricted,
             parentId = routeMeta.parentId,
             openedFromNotification = fromNotification
         )
@@ -910,6 +912,7 @@ class MainActivity : BasePermissionsActivity(),
             return ChatRouteMeta(
                 channelType = resolvedType,
                 isPrivate = false,
+                isAgeRestricted = false,
                 parentId = 0L
             )
         }
@@ -930,6 +933,7 @@ class MainActivity : BasePermissionsActivity(),
         return ChatRouteMeta(
             channelType = resolvedType,
             isPrivate = resolvedPrivate,
+            isAgeRestricted = channelEntity?.isAgeRestricted == true,
             parentId = resolvedParent
         )
     }

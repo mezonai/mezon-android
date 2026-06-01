@@ -11,6 +11,7 @@ object StartupCache {
     var suppressHomeListApiForIncomingCallWake: Boolean = false
 
     private const val PREFS_NAME = "mezon_startup_cache"
+    private const val KEY_SEEDED = "seeded"
     private const val KEY_HAS_SESSION = "has_session"
     private const val KEY_THEME = "theme"
     private const val KEY_LOCALE = "locale"
@@ -21,6 +22,9 @@ object StartupCache {
     private const val KEY_CACHED_USER_AVATAR_URL = "cached_user_avatar_url"
 
     private lateinit var prefs: SharedPreferences
+
+    val isSeeded: Boolean
+        get() = prefs.getBoolean(KEY_SEEDED, false)
 
     var hasSession: Boolean
         get() = prefs.getBoolean(KEY_HAS_SESSION, false)
@@ -86,6 +90,7 @@ object StartupCache {
 
     fun seed(hasSession: Boolean, themeMode: String, locale: String) {
         prefs.edit()
+            .putBoolean(KEY_SEEDED, true)
             .putBoolean(KEY_HAS_SESSION, hasSession)
             .putString(KEY_THEME, themeMode)
             .putString(KEY_LOCALE, locale)

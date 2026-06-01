@@ -24,6 +24,9 @@ import com.mezon.mezon.api.listOnboardingRequest
 import com.mezon.mezon.api.createOnboardingRequest
 import com.mezon.mezon.api.updateOnboardingRequest
 import com.mezon.mezon.api.onboardingRequest
+import com.mezon.mezon.api.clanStickerAddRequest
+import com.mezon.mezon.api.clanStickerUpdateByIdRequest
+import com.mezon.mezon.api.clanStickerDeleteRequest
 import com.mezon.mezon.api.ChannelDescList
 import com.mezon.mezon.api.ChannelDescription
 import com.mezon.mezon.api.ChannelMessageList
@@ -134,7 +137,9 @@ import com.mezon.mezon.api.webhookDeleteRequestById
 import com.mezon.mezon.api.webhookListRequest
 import com.mezon.mezon.api.webhookUpdateRequestById
 import com.mezon.mezon.api.InviteUserRes
+import com.mezon.mezon.api.LinkInviteUser
 import com.mezon.mezon.api.inviteUserRequest
+import com.mezon.mezon.api.linkInviteUserRequest
 import com.mezon.mezon.api.clanDiscover as clanDiscoverProto
 import com.mezon.mezon.api.listClanDiscover
 import com.mezon.mezon.api.clanEmojiCreateRequest
@@ -927,6 +932,11 @@ class MezonApi @Inject constructor(
         welcomeChannelId: Long? = null,
         isOnboarding: Boolean? = null,
         isCommunity: Boolean? = null,
+        communityBanner: String? = null,
+        clearCommunityBanner: Boolean = false,
+        about: String? = null,
+        description: String? = null,
+        shortUrl: String? = null,
     ): ClanDesc {
         val request = updateClanDescRequest {
             this.clanId = clanId
@@ -946,6 +956,13 @@ class MezonApi @Inject constructor(
             welcomeChannelId?.let { this.welcomeChannelId = it }
             isOnboarding?.let { this.isOnboarding = BoolValue.of(it) }
             isCommunity?.let { this.isCommunity = BoolValue.of(it) }
+            when {
+                communityBanner != null -> this.communityBanner = StringValue.of(communityBanner)
+                clearCommunityBanner -> this.communityBanner = StringValue.of("")
+            }
+            about?.let { this.about = StringValue.of(it) }
+            description?.let { this.description = StringValue.of(it) }
+            shortUrl?.let { this.shortUrl = StringValue.of(it) }
         }
         val bytes = rpc(apiUrl, token, "UpdateClanDesc", request.toByteArray())
         return ClanDesc.parseFrom(bytes)
@@ -959,6 +976,22 @@ class MezonApi @Inject constructor(
         val request = getSystemMessage { this.clanId = clanId }
         val bytes = rpc(apiUrl, token, "GetSystemMessageByClanId", request.toByteArray())
         return SystemMessage.parseFrom(bytes)
+    }
+
+    suspend fun createLinkInviteUser(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        channelId: Long,
+        expiryTime: Int = 10,
+    ): LinkInviteUser {
+        val request = linkInviteUserRequest {
+            this.clanId = clanId
+            this.channelId = channelId
+            this.expiryTime = expiryTime
+        }
+        val bytes = rpc(apiUrl, token, "CreateLinkInviteUser", request.toByteArray())
+        return LinkInviteUser.parseFrom(bytes)
     }
 
     suspend fun updateSystemMessage(
@@ -2373,6 +2406,63 @@ class MezonApi @Inject constructor(
             this.clanId = clanId
         }
         return rpc(apiUrl, token, "DeleteOnboarding", request.toByteArray())
+    }
+
+    suspend fun addClanSticker(
+        apiUrl: String,
+        token: String,
+        id: Long,
+        clanId: Long,
+        source: String,
+        shortname: String,
+        category: String,
+        mediaType: Int,
+        isForSale: Boolean = false,
+    ) {
+        val request = clanStickerAddRequest {
+            this.id = id
+            this.clanId = clanId
+            this.source = source
+            this.shortname = shortname
+            this.category = category
+            this.mediaType = mediaType
+            this.isForSale = isForSale
+        }
+        rpc(apiUrl, token, "AddClanSticker", request.toByteArray())
+    }
+
+    suspend fun updateClanStickerById(
+        apiUrl: String,
+        token: String,
+        id: Long,
+        clanId: Long,
+        source: String,
+        shortname: String,
+        category: String,
+    ) {
+        val request = clanStickerUpdateByIdRequest {
+            this.id = id
+            this.clanId = clanId
+            this.source = source
+            this.shortname = shortname
+            this.category = category
+        }
+        rpc(apiUrl, token, "UpdateClanStickerById", request.toByteArray())
+    }
+
+    suspend fun deleteClanStickerById(
+        apiUrl: String,
+        token: String,
+        id: Long,
+        clanId: Long,
+        stickerLabel: String,
+    ) {
+        val request = clanStickerDeleteRequest {
+            this.id = id
+            this.clanId = clanId
+            this.stickerLabel = stickerLabel
+        }
+        rpc(apiUrl, token, "DeleteClanStickerById", request.toByteArray())
     }
 
     suspend fun generateMeetToken(

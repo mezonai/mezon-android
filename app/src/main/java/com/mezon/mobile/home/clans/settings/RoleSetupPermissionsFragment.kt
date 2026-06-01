@@ -386,7 +386,18 @@ class RoleSetupPermissionsFragment : BaseFragment() {
                 RecyclerView.LayoutParams.MATCH_PARENT,
                 RecyclerView.LayoutParams.WRAP_CONTENT
             )
-            return Holder(cell, cell)
+            val holder = Holder(cell, cell)
+            cell.setOnClickListener {
+                val pos = holder.bindingAdapterPosition
+                if (pos == RecyclerView.NO_POSITION || pos !in rows.indices) return@setOnClickListener
+                val item = rows[pos]
+                if (disabledForSlug(item.slug, roleSnapshot, permState())) return@setOnClickListener
+                val next = !cell.isChecked()
+                cell.setChecked(next)
+                if (next) selectedIds.add(item.permissionId) else selectedIds.remove(item.permissionId)
+                updateActionState()
+            }
+            return holder
         }
 
         override fun onBindViewHolder(holder: Holder, position: Int) {
@@ -416,12 +427,6 @@ class RoleSetupPermissionsFragment : BaseFragment() {
                 } else {
                     applyChecked(next)
                 }
-            }
-            cell.setOnClickListener {
-                if (disabled) return@setOnClickListener
-                val next = !cell.isChecked()
-                cell.setChecked(next)
-                applyChecked(next)
             }
         }
 

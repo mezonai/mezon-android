@@ -33,6 +33,7 @@ class DmLogoCell(
     private var logoCancellable: MezonImageLoader.Cancellable? = null
     private val clipPath = Path()
     private val clipRect = RectF()
+    private val bitmapDestRect = android.graphics.Rect()
 
     private val badgeBgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val badgeTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -113,7 +114,8 @@ class DmLogoCell(
 
         val bmp = logoBitmap
         if (bmp != null && !bmp.isRecycled) {
-            canvas.drawBitmap(bmp, null, android.graphics.Rect(left, top, right, bottom), null)
+            bitmapDestRect.set(left, top, right, bottom)
+            canvas.drawBitmap(bmp, null, bitmapDestRect, null)
         } else {
             fallbackDrawable.setBounds(left, top, right, bottom)
             fallbackDrawable.draw(canvas)

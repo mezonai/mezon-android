@@ -32,6 +32,7 @@ class ClanMenuBottomSheet(
     showEmptyCategories: Boolean,
     private val onOpenClanSettings: Runnable,
     private val onOpenAuditLog: Runnable,
+    private val onOpenInvite: Runnable,
 ) : BottomSheet(context) {
 
     private fun showComingSoon() {
@@ -146,7 +147,7 @@ class ClanMenuBottomSheet(
         val inviteBtn = ClanSettingsUiHelpers.buildHorizontalActionButton(
             context, theme, MezonIcon.groupPlusIcon,
             context.getString(R.string.clan_menu_action_invite),
-            Runnable { showComingSoon() }
+            Runnable { onOpenInvite.run() }
         )
         val notifyBtn = ClanSettingsUiHelpers.buildHorizontalActionButton(
             context,

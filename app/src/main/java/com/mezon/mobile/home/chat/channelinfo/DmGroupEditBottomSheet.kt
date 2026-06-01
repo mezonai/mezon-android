@@ -1,6 +1,7 @@
 package com.mezon.mobile.home.chat.channelinfo
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.Typeface
@@ -40,6 +41,7 @@ class DmGroupEditBottomSheet(
 
     private val initialAvatar = normalizeAvatar(initialAvatarUrl)
     private var draftAvatar = initialAvatar
+    private var previewBitmap: Bitmap? = null
     private var uploading = false
     private var saving = false
 
@@ -49,6 +51,7 @@ class DmGroupEditBottomSheet(
     private lateinit var nameInput: EditText
     private lateinit var clearButton: ImageView
     private lateinit var saveButton: TextView
+    private lateinit var nameCounterText: TextView
 
     init {
         containerHeight = (AndroidUtilities.displaySize.y * 0.9f).toInt()
@@ -56,9 +59,15 @@ class DmGroupEditBottomSheet(
     }
 
     fun setDraftAvatar(url: String) {
+        previewBitmap = null
         draftAvatar = normalizeAvatar(url)
         bindAvatar()
         updateSaveState()
+    }
+
+    fun setPreviewBitmap(bitmap: Bitmap?) {
+        previewBitmap = bitmap
+        bindAvatar()
     }
 
     fun setUploading(value: Boolean) {
@@ -101,6 +110,10 @@ class DmGroupEditBottomSheet(
             LayoutHelper.WRAP_CONTENT
         ))
 
+        val labelRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
         val label = TextView(context).apply {
             text = context.getString(R.string.dm_group_name)
             setTextColor(themeColors.onSurface)
@@ -108,7 +121,14 @@ class DmGroupEditBottomSheet(
             setTypeface(Typeface.DEFAULT, Typeface.BOLD)
             includeFontPadding = false
         }
-        outer.addView(label, LayoutHelper.createLinear(
+        labelRow.addView(label, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f))
+        nameCounterText = TextView(context).apply {
+            setTextColor(themeColors.onSurfaceVariant)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            includeFontPadding = false
+        }
+        labelRow.addView(nameCounterText, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT))
+        outer.addView(labelRow, LayoutHelper.createLinear(
             LayoutHelper.MATCH_PARENT,
             LayoutHelper.WRAP_CONTENT,
             bottomMargin = 10f
@@ -144,6 +164,7 @@ class DmGroupEditBottomSheet(
 
         bindAvatar()
         updateClearButton()
+        updateNameCounter()
         updateSaveState()
         return outer
     }
@@ -187,6 +208,7 @@ class DmGroupEditBottomSheet(
                     onPickAvatar()
                 } else {
                     draftAvatar = ""
+                    previewBitmap = null
                     bindAvatar()
                     updateSaveState()
                 }
@@ -233,6 +255,7 @@ class DmGroupEditBottomSheet(
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
                     updateClearButton()
+                    updateNameCounter()
                     updateSaveState()
                 }
                 override fun afterTextChanged(s: Editable?) = Unit
@@ -261,11 +284,13 @@ class DmGroupEditBottomSheet(
 
     private fun bindAvatar() {
         avatarView.setInfo(0L, nameInputOrInitial())
-        if (draftAvatar.isBlank()) {
+        val preview = previewBitmap
+        if (preview != null) {
+            avatarView.setPhoto(preview)
+        } else if (draftAvatar.isBlank()) {
             avatarView.setImageUrl(null)
             avatarView.setPhoto(GroupAvatar.bitmap(context))
         } else {
-            avatarView.setPhoto(null)
             avatarView.setImageUrl(draftAvatar)
         }
         avatarActionText.text = if (shouldShowUploadAction()) {
@@ -285,9 +310,15 @@ class DmGroupEditBottomSheet(
         val trimmed = nameInput.text?.toString().orEmpty().trim()
         val nameChanged = trimmed.isNotEmpty() && trimmed != initialName
         val avatarChanged = draftAvatar != initialAvatar
-        val enabled = (nameChanged || avatarChanged) && !uploading && !saving
+        val enabled = trimmed.isNotEmpty() && (nameChanged || avatarChanged) && !uploading && !saving
         saveButton.isEnabled = enabled
         saveButton.alpha = if (enabled) 1f else 0.5f
+    }
+
+    private fun updateNameCounter() {
+        if (!::nameCounterText.isInitialized || !::nameInput.isInitialized) return
+        val length = nameInput.text?.length ?: 0
+        nameCounterText.text = context.getString(R.string.poll_question_counter, length, 64)
     }
 
     private fun shouldShowUploadAction(): Boolean =

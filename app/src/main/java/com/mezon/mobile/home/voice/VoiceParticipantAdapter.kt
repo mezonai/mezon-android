@@ -47,11 +47,27 @@ class VoiceParticipantAdapter(
         val cell = ParticipantCell(parent.context, themeColors).apply {
             layoutParams = createLayoutParams(isCompactMode())
         }
-        return ParticipantVH(cell)
+        val holder = ParticipantVH(cell)
+        cell.setOnClickListener {
+            val participant = holder.participant ?: return@setOnClickListener
+            if (participant.isScreenShare && participant.videoTrack != null) {
+                onScreenShareClick(participant)
+            }
+        }
+        cell.setOnLongClickListener {
+            val participant = holder.participant ?: return@setOnLongClickListener false
+            if (participant.isScreenShare) {
+                return@setOnLongClickListener false
+            }
+            onParticipantLongPress(participant)
+            true
+        }
+        return holder
     }
 
     override fun onBindViewHolder(holder: ParticipantVH, position: Int) {
         val participant = getParticipants()[position]
+        holder.participant = participant
         holder.cell.layoutParams = createLayoutParams(isCompactMode())
         holder.cell.setParticipant(
             participant.identity.toLongOrNull() ?: 0L,
@@ -71,19 +87,6 @@ class VoiceParticipantAdapter(
         } else {
             holder.cell.detachVideoTrack()
         }
-
-        holder.cell.setOnClickListener {
-            if (participant.isScreenShare && participant.videoTrack != null) {
-                onScreenShareClick(participant)
-            }
-        }
-        holder.cell.setOnLongClickListener {
-            if (participant.isScreenShare) {
-                return@setOnLongClickListener false
-            }
-            onParticipantLongPress(participant)
-            true
-        }
     }
 
     override fun onViewRecycled(holder: ParticipantVH) {
@@ -101,5 +104,7 @@ class VoiceParticipantAdapter(
         }
     }
 
-    class ParticipantVH(val cell: ParticipantCell) : RecyclerView.ViewHolder(cell)
+    class ParticipantVH(val cell: ParticipantCell) : RecyclerView.ViewHolder(cell) {
+        var participant: ParticipantInfo? = null
+    }
 }

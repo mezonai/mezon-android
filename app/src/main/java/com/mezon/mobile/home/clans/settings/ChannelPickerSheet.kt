@@ -23,6 +23,7 @@ import com.mezon.mobile.core.BottomSheet
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.home.clans.ChannelItemCell
 import com.mezon.mobile.home.clans.ClanChannelEntity
 import com.mezon.mobile.home.clans.CreateClanRnUiTokens
 import com.mezon.mobile.ui.cells.EditTextBoldCursor
@@ -202,8 +203,14 @@ class ChannelPickerSheet(
 
         override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
             val row = holder.itemView as LinearLayout
+            val ch = filtered[position]
+            val iconView = row.getChildAt(0) as ImageView
+            val iconEnum = ChannelItemCell.resolveChannelIcon(ch.type, ch.isPrivate, ch.isAgeRestricted)
+            val d = iconEnum.getDrawable(row.context).mutate()
+            d.colorFilter = PorterDuffColorFilter(CreateClanRnUiTokens.menuText(themeColors), PorterDuff.Mode.SRC_IN)
+            iconView.setImageDrawable(d)
             val label = row.getChildAt(1) as TextView
-            label.text = filtered[position].channelLabel
+            label.text = ch.channelLabel
         }
     }
 }

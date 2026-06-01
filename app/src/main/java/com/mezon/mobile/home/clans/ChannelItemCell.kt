@@ -49,14 +49,22 @@ class ChannelItemCell(
         private val BADGE_GAP = LayoutHelper.dp(4)
         private val BADGE_TEXT_PAD = LayoutHelper.dp(8).toFloat()
 
-        fun resolveChannelIcon(type: Int, isPrivate: Boolean): MezonIcon = when (type) {
+        fun resolveChannelIcon(
+            type: Int,
+            isPrivate: Boolean,
+            isAgeRestricted: Boolean = false
+        ): MezonIcon = when (type) {
             CHANNEL_TYPE_VOICE -> MezonIcon.channelVoice
             CHANNEL_TYPE_STREAMING -> MezonIcon.channelStream
             CHANNEL_TYPE_APP -> MezonIcon.channelApp
             CHANNEL_TYPE_FORUM -> MezonIcon.forumIcon
             CHANNEL_TYPE_ANNOUNCEMENT -> MezonIcon.announcementIcon
             CHANNEL_TYPE_THREAD -> if (isPrivate) MezonIcon.threadLockIcon else MezonIcon.threadIcon
-            else -> if (isPrivate) MezonIcon.channelTextLock else MezonIcon.channelText
+            else -> when {
+                isAgeRestricted -> MezonIcon.channelTextWarning
+                isPrivate -> MezonIcon.channelTextLock
+                else -> MezonIcon.channelText
+            }
         }
     }
 
@@ -68,6 +76,7 @@ class ChannelItemCell(
     private var currentIconDrawable: Drawable? = null
     private var currentIconType: Int = -1
     private var currentIconPrivate: Boolean = false
+    private var currentIconAgeRestricted: Boolean = false
     private var cachedIconColorFilter: PorterDuffColorFilter? = null
     private var cachedIconColor: Int = 0
     private val voiceActiveColorFilter = PorterDuffColorFilter(VOICE_ACTIVE_GREEN, PorterDuff.Mode.SRC_IN)
@@ -156,8 +165,8 @@ class ChannelItemCell(
             canvas.drawCircle(0f, cy, unreadDotRadius, unreadDotPaint)
         }
 
-        val icon = resolveIconDrawable(ch.type, ch.isPrivate)
-        val iconEnum = resolveChannelIcon(ch.type, ch.isPrivate)
+        val icon = resolveIconDrawable(ch.type, ch.isPrivate, ch.isAgeRestricted)
+        val iconEnum = resolveChannelIcon(ch.type, ch.isPrivate, ch.isAgeRestricted)
         val isVoiceType = ch.type == CHANNEL_TYPE_VOICE || ch.type == CHANNEL_TYPE_STREAMING || ch.type == CHANNEL_TYPE_APP
         icon.colorFilter = if (iconEnum.shouldKeepOriginalFill()) {
             null
@@ -201,13 +210,14 @@ class ChannelItemCell(
         }
     }
 
-    private fun resolveIconDrawable(type: Int, isPrivate: Boolean): Drawable {
-        if (currentIconDrawable != null && currentIconType == type && currentIconPrivate == isPrivate) {
+    private fun resolveIconDrawable(type: Int, isPrivate: Boolean, isAgeRestricted: Boolean = false): Drawable {
+        if (currentIconDrawable != null && currentIconType == type && currentIconPrivate == isPrivate && currentIconAgeRestricted == isAgeRestricted) {
             return currentIconDrawable!!
         }
         currentIconType = type
         currentIconPrivate = isPrivate
-        currentIconDrawable = resolveChannelIcon(type, isPrivate).getDrawable(context)
+        currentIconAgeRestricted = isAgeRestricted
+        currentIconDrawable = resolveChannelIcon(type, isPrivate, isAgeRestricted).getDrawable(context)
         return currentIconDrawable!!
     }
 

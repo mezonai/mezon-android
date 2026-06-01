@@ -959,7 +959,11 @@ class EmojiSettingFragment : BaseFragment() {
                 LayoutHelper.createLinear(40, LayoutHelper.WRAP_CONTENT, 0f, Gravity.CENTER_VERTICAL),
             )
 
-            return RowVH(row, emojiIv, edit, av, deleteBtn)
+            val vh = RowVH(row, emojiIv, edit, av, deleteBtn)
+            deleteBtn.setOnClickListener {
+                vh.item?.let { confirmDelete(it) }
+            }
+            return vh
         }
 
         override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
@@ -1004,9 +1008,6 @@ class EmojiSettingFragment : BaseFragment() {
             val del = MezonIcon.closeSmallBold.getDrawable(holder.deleteBtn.context, themeColors.error)
             holder.deleteBtn.setImageDrawable(del)
             holder.deleteBtn.visibility = if (allow) View.VISIBLE else View.INVISIBLE
-            holder.deleteBtn.setOnClickListener {
-                confirmDelete(item)
-            }
         }
 
         private inner class RowVH(

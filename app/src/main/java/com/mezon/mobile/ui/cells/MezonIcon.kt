@@ -13,7 +13,7 @@ import com.mezon.mobile.ui.theme.ThemeMode
 import java.util.concurrent.ConcurrentHashMap
 
 enum class MezonIcon(@DrawableRes val resId: Int) {
-    channelText(R.drawable.ic_channel_open),
+    channelText(R.drawable.ic_channel_text),
     channelTextLock(R.drawable.ic_channel_lock),
     channelTextWarning(R.drawable.ic_channel_open),
     voiceWaveIcon(R.drawable.ic_speaker_single_wave),

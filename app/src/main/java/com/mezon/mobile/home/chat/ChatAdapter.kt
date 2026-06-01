@@ -258,6 +258,7 @@ class ChatAdapter(
                 holder.cell.channelType = channelType
                 holder.cell.clanId = clanId
                 holder.cell.isPrivate = isChannelPrivate
+                holder.cell.isAgeRestricted = isChannelAgeRestricted
                 holder.cell.avatarUrl = welcomeAvatarUrl
                 holder.cell.avatarUserId = welcomeAvatarId
                 holder.cell.avatarPlaceholderKey = welcomePlaceholderKey
@@ -301,6 +302,7 @@ class ChatAdapter(
     var channelType = 0
     var clanId = 0L
     var isChannelPrivate = false
+    var isChannelAgeRestricted = false
     var welcomeAvatarUrl: String = ""
     var welcomeAvatarId: Long = 0L
     var welcomePlaceholderKey: String = ""

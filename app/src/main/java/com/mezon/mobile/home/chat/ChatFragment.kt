@@ -11,11 +11,13 @@ import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.Rect
 import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.Drawable
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.text.Editable
+import android.text.Html
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.TextWatcher
@@ -56,6 +58,7 @@ import com.mezon.mobile.home.ChatController
 import com.mezon.mobile.home.TopicBadgeTracker
 import com.mezon.mobile.home.TopicController
 import com.mezon.mobile.home.chat.thread.CreateThreadFragment
+import com.mezon.mobile.home.chat.CreateThreadSeedStash
 import com.mezon.mobile.home.chat.thread.ThreadListFragment
 import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.LOAD_TYPE_INITIAL
@@ -117,6 +120,8 @@ import com.mezon.mobile.util.parseMarkdownAndStrip
 import com.mezon.mobile.util.restoreInputFromContent
 import com.mezon.mobile.util.resolveStickerSourceUrl
 import com.mezon.mobile.util.firstReferenceMessageId
+import com.mezon.mobile.util.createImgproxyUrl
+import com.mezon.mobile.util.OgpMarker
 import com.mezon.mobile.core.SharedConfig
 import com.mezon.mobile.home.chat.poll.ChatPollBridge
 import com.mezon.mobile.home.chat.poll.CreatePollFragment
@@ -149,6 +154,8 @@ import com.mezon.mobile.home.chat.emoji.EmojiView
 import com.mezon.mobile.util.EmbedFormUtil
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import java.net.HttpURLConnection
+import java.net.URL
 
 private const val TAG = "ChatFragment"
 private const val FORWARD_NEARBY_WINDOW_SECONDS = 10 * 60L
@@ -158,6 +165,7 @@ private const val POLL_TALLY_TICK_MS = 15_000L
 private const val POLL_TALLY_MIN_GAP_MS = 12_000L
 private const val POLL_TALLY_MAX_PER_TICK = 8
 private const val TOPIC_BADGE_HYDRATE_DEBOUNCE_MS = 500L
+private val AT_HERE_INPUT_REGEX = Regex("(?<!\\w)@here(?!\\w)")
 
 open class ChatFragment : BaseFragment() {
 
@@ -167,6 +175,7 @@ open class ChatFragment : BaseFragment() {
         internal const val ARG_CLAN_ID = "clanId"
         internal const val ARG_CHANNEL_TYPE = "channelType"
         internal const val ARG_CHANNEL_PRIVATE = "channelPrivate"
+        internal const val ARG_CHANNEL_AGE_RESTRICTED = "channelAgeRestricted"
         internal const val ARG_TOPIC_ID = "topicId"
         internal const val ARG_ROOT_MESSAGE_ID = "rootMessageId"
         private const val ARG_PARENT_ID = "parentId"
@@ -192,6 +201,10 @@ open class ChatFragment : BaseFragment() {
         private const val REQUEST_CALL_PERMISSIONS = 9002
         private const val MENU_DM_VOICE_CALL = 8801
         private const val DM_HEADER_CALL_ICON_DP = 22f
+        private val INPUT_OGP_IMAGE_SIZE = LayoutHelper.dp(40f)
+        private val INPUT_OGP_BAR_CORNER = LayoutHelper.dp(12f).toFloat()
+        private val INPUT_OGP_URL_REGEX = Regex("""https?://[^\s]+""", RegexOption.IGNORE_CASE)
+        private val INPUT_OGP_META_TAG_REGEX = Regex("""<meta\s+[^>]*>""", RegexOption.IGNORE_CASE)
 
         fun newInstance(
             channelId: Long,
@@ -201,6 +214,7 @@ open class ChatFragment : BaseFragment() {
             messageId: Long = 0L,
             forceLatest: Boolean = false,
             isChannelPrivate: Boolean = false,
+            isChannelAgeRestricted: Boolean = false,
             parentId: Long = 0L,
             openedFromNotification: Boolean = false
         ): ChatFragment = ChatFragment().apply {
@@ -210,6 +224,7 @@ open class ChatFragment : BaseFragment() {
                 putLong(ARG_CLAN_ID, clanId)
                 putInt(ARG_CHANNEL_TYPE, channelType)
                 if (isChannelPrivate) putBoolean(ARG_CHANNEL_PRIVATE, true)
+                if (isChannelAgeRestricted) putBoolean(ARG_CHANNEL_AGE_RESTRICTED, true)
                 if (parentId != 0L) putLong(ARG_PARENT_ID, parentId)
                 if (messageId != 0L) putLong(ARG_MESSAGE_ID, messageId)
                 if (forceLatest) putBoolean(ARG_FORCE_LATEST, true)
@@ -293,6 +308,7 @@ open class ChatFragment : BaseFragment() {
     private var pendingDisplayRoleUiRefresh = false
     private var channelType = 0
     private var routeChannelPrivate = false
+    private var routeChannelAgeRestricted = false
     private var routeParentId = 0L
     private var forceLatest = false
     private var openedFromNotification = false
@@ -338,6 +354,17 @@ open class ChatFragment : BaseFragment() {
     private var editBar: LinearLayout? = null
     private var editNameView: TextView? = null
     private var editCloseButton: ImageButton? = null
+    private var inputOgpBar: LinearLayout? = null
+    private var inputOgpImage: ImageView? = null
+    private var inputOgpTitle: TextView? = null
+    private var inputOgpDesc: TextView? = null
+    private var inputOgpClose: ImageButton? = null
+    private var inputOgpUrl: String? = null
+    private var inputOgpPreviewData: InputOgpPreview? = null
+    private var dismissedInputOgpUrl: String? = null
+    private var failedInputOgpUrl: String? = null
+    private var inputOgpFetchJob: Job? = null
+    private var inputOgpImageLoad: MezonImageLoader.Cancellable = MezonImageLoader.Cancellable.EMPTY
 
     private lateinit var userClanController: UserClanController
     private lateinit var userController: com.mezon.mobile.home.profile.UserController
@@ -418,6 +445,7 @@ open class ChatFragment : BaseFragment() {
         chatCachedCreatorId = null
         channelType = arguments?.getInt(ARG_CHANNEL_TYPE) ?: 0
         routeChannelPrivate = arguments?.getBoolean(ARG_CHANNEL_PRIVATE) ?: false
+        routeChannelAgeRestricted = arguments?.getBoolean(ARG_CHANNEL_AGE_RESTRICTED) ?: false
         routeParentId = arguments?.getLong(ARG_PARENT_ID) ?: 0L
         forceLatest = arguments?.getBoolean(ARG_FORCE_LATEST) ?: false
         openedFromNotification = arguments?.getBoolean(ARG_OPENED_FROM_NOTIFICATION) ?: false
@@ -1039,6 +1067,12 @@ open class ChatFragment : BaseFragment() {
             }
         }
 
+        observe(NotificationCenter.channelsDidLoad) { _, _, args ->
+            if (fragmentView == null || isPaused || isTopicMode) return@observe
+            val changedClanId = args.firstOrNull() as? Long ?: return@observe
+            if (changedClanId != clanId || clanId == 0L) return@observe
+            refreshClanHeaderFromChannel()
+        }
 
         observe(NotificationCenter.updateInterfaces) { _, _, args ->
             if (fragmentView == null) return@observe
@@ -1124,6 +1158,21 @@ open class ChatFragment : BaseFragment() {
             emojiButton.setColorFilter(themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary))
             micButton.setColorFilter(themeColors.getColor(com.mezon.mobile.core.ThemeColors.key_icon_secondary))
             attachmentPreviewScroll?.setBackgroundColor(themeColors.surface)
+            inputOgpBar?.background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(themeColors.tertiary)
+                cornerRadius = INPUT_OGP_BAR_CORNER
+            }
+            inputOgpImage?.background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(themeColors.surface)
+                cornerRadius = LayoutHelper.dp(8f).toFloat()
+            }
+            inputOgpTitle?.setTextColor(themeColors.onSurface)
+            inputOgpDesc?.setTextColor(themeColors.onSurfaceVariant)
+            inputOgpClose?.let { btn ->
+                val d = MezonIcon.closeSmallBold.getDrawable(btn.context)
+                d.colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
+                btn.setImageDrawable(d)
+            }
             replyBar?.setBackgroundColor(themeColors.surface)
             replyNameView?.setTextColor(themeColors.onSurface)
             replyCloseButton?.let { btn ->
@@ -1316,7 +1365,7 @@ open class ChatFragment : BaseFragment() {
             if (clanChannelHeader) {
                 val iconEnum = resolveChannelIcon(entity)
                 val iconPx = channelTitleIconSizePx()
-                val d = iconEnum.getDrawable(context, themeColors)
+                val d = channelTitleIconDrawable(context, iconEnum)
                 setTitleStartIcon(d, iconPx, LayoutHelper.dp(6))
                 setTitle(channelName)
                 setSubtitleStartPadding(0)
@@ -1568,6 +1617,90 @@ open class ChatFragment : BaseFragment() {
         }
         innerLayout.addView(channelAppHotbar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
+        inputOgpBar = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            visibility = View.GONE
+            setPadding(LayoutHelper.dp(10f), LayoutHelper.dp(8f), LayoutHelper.dp(10f), LayoutHelper.dp(8f))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(themeColors.tertiary)
+                cornerRadius = INPUT_OGP_BAR_CORNER
+            }
+        }
+        innerLayout.addView(
+            inputOgpBar,
+            LayoutHelper.createLinear(
+                LayoutHelper.MATCH_PARENT,
+                LayoutHelper.WRAP_CONTENT,
+                0f,
+                Gravity.CENTER_VERTICAL,
+                8f,
+                0f,
+                8f,
+                6f
+            )
+        )
+
+        inputOgpImage = ImageView(context).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            visibility = View.GONE
+            val shape = android.graphics.drawable.GradientDrawable().apply {
+                setColor(themeColors.surface)
+                cornerRadius = LayoutHelper.dp(8f).toFloat()
+            }
+            background = shape
+            clipToOutline = true
+        }
+        inputOgpBar?.addView(
+            inputOgpImage,
+            LinearLayout.LayoutParams(INPUT_OGP_IMAGE_SIZE, INPUT_OGP_IMAGE_SIZE).apply {
+                marginEnd = LayoutHelper.dp(10f)
+            }
+        )
+
+        val inputOgpTextWrap = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        inputOgpBar?.addView(
+            inputOgpTextWrap,
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        )
+
+        inputOgpTitle = TextView(context).apply {
+            setTextColor(themeColors.onSurface)
+            textSize = 13f
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        inputOgpTextWrap.addView(inputOgpTitle)
+
+        inputOgpDesc = TextView(context).apply {
+            setTextColor(themeColors.onSurfaceVariant)
+            textSize = 12f
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        inputOgpTextWrap.addView(inputOgpDesc)
+
+        inputOgpClose = ImageButton(context).apply {
+            val drawable = MezonIcon.closeSmallBold.getDrawable(context)
+            drawable.colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
+            setImageDrawable(drawable)
+            setBackgroundColor(Color.TRANSPARENT)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            setPadding(LayoutHelper.dp(12f), LayoutHelper.dp(12f), LayoutHelper.dp(12f), LayoutHelper.dp(12f))
+            setOnClickListener {
+                dismissedInputOgpUrl = inputOgpUrl
+                clearInputOgpPreview()
+            }
+        }
+        inputOgpBar?.addView(
+            inputOgpClose,
+            LinearLayout.LayoutParams(INPUT_OGP_IMAGE_SIZE, INPUT_OGP_IMAGE_SIZE).apply {
+                marginStart = LayoutHelper.dp(6f)
+            }
+        )
+
         inputBar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.BOTTOM
@@ -1717,6 +1850,7 @@ open class ChatFragment : BaseFragment() {
                 pruneMentionTrackersAgainstText()
                 pruneHashtagTrackersAgainstText()
                 updateSendButtonState()
+                updateInputOgpPreview(s?.toString().orEmpty())
                 checkSuggestionTrigger()
             }
         })
@@ -1935,6 +2069,7 @@ open class ChatFragment : BaseFragment() {
         adapter.channelType = channelType
         adapter.clanId = clanId
         adapter.isChannelPrivate = resolveChannelPrivate()
+        adapter.isChannelAgeRestricted = resolveChannelAgeRestricted()
         adapter.currentUserId = StartupCache.userId
         adapter.displayRoleResolver = chatDisplayRoleResolver()
         adapter.onTopicClick = { tid, rootId ->
@@ -2135,6 +2270,8 @@ open class ChatFragment : BaseFragment() {
         if (clanId == 0L) {
             refreshDmHeaderTitleFromDialog()
             refreshWelcomeFromDialog()
+        } else if (!isTopicMode) {
+            refreshClanHeaderFromChannel()
         }
     }
 
@@ -2144,6 +2281,8 @@ open class ChatFragment : BaseFragment() {
             if (clanId == 0L) {
                 refreshDmHeaderTitleFromDialog()
                 refreshWelcomeFromDialog()
+            } else if (!isTopicMode) {
+                refreshClanHeaderFromChannel()
             }
         }
         if (pendingDisplayRoleUiRefresh) {
@@ -2526,6 +2665,19 @@ open class ChatFragment : BaseFragment() {
         editingMessage = null
         mentionTrackers.clear()
         hashtagTrackers.clear()
+        inputOgpFetchJob?.cancel()
+        inputOgpFetchJob = null
+        inputOgpImageLoad.cancel()
+        inputOgpImageLoad = MezonImageLoader.Cancellable.EMPTY
+        inputOgpBar = null
+        inputOgpImage = null
+        inputOgpTitle = null
+        inputOgpDesc = null
+        inputOgpClose = null
+        inputOgpUrl = null
+        inputOgpPreviewData = null
+        dismissedInputOgpUrl = null
+        failedInputOgpUrl = null
         suggestionsPopup = null
         suggestionsAdapter = null
         EmbedFormUtil.clearAll()
@@ -2749,17 +2901,10 @@ open class ChatFragment : BaseFragment() {
     }
 
     private fun onPageDownClicked() {
-        if (returnToMessageId != 0L) {
-            val retId = returnToMessageId
-            returnToMessageId = 0L
-            scrollToReplyMessage(retId)
-        } else {
-            jumpToPresent()
-        }
+        jumpToPresent()
     }
 
     private fun jumpToPresent() {
-        returnToMessageId = 0L
         newUnreadCount = 0
         isViewingOlder = false
         hasMoreBottom = false
@@ -2781,13 +2926,8 @@ open class ChatFragment : BaseFragment() {
             markAsRead()
         } else {
             jumpingToPresent = true
-            messages.clear()
-            messagesDict.clear()
-            EmbedFormUtil.clearAll()
-            adapter.notifyMessagesUpdated()
-            recyclerView.visibility = View.INVISIBLE
             firstLoad = true
-            Log.d(TAG, "jumpToPresent: cleared list, calling loadMessages forceRefresh=true")
+            Log.d(TAG, "jumpToPresent: keeping current list until reload completes, loadMessages forceRefresh=true")
             chatController.loadMessages(channelId, clanId, forceRefresh = true, preferHttp = false, topicId = topicId)
         }
     }
@@ -3637,7 +3777,7 @@ open class ChatFragment : BaseFragment() {
         val bar = actionBar as? ActionBarView ?: return
         val iconEnum = resolveChannelIcon(entity)
         val iconPx = channelTitleIconSizePx()
-        val d = iconEnum.getDrawable(bar.context, themeColors)
+        val d = channelTitleIconDrawable(bar.context, iconEnum)
         bar.setTitleStartIcon(d, iconPx, LayoutHelper.dp(6))
         bar.setTitle(channelName)
         bar.setSubtitleStartPadding(0)
@@ -3659,15 +3799,14 @@ open class ChatFragment : BaseFragment() {
         } else {
             bar.setSubtitle(null)
         }
+        bar.requestLayout()
     }
 
     private fun refreshThreadWelcomeCreator() {
         if (channelType != CHANNEL_TYPE_THREAD || !::adapter.isInitialized) return
         val creator = messages.lastOrNull { it.isNormalMessage && it.senderId != 0L }
         val nextName = if (creator != null) {
-            val member = memberResolver.resolveMember(creator.senderId, clanId, channelId, channelType)
-            member?.let { it.clanNick.ifBlank { it.displayName.ifBlank { it.username } } }
-                ?: creator.senderName
+            resolveCreatorDisplayName(creator.senderId, creator.senderName)
         } else {
             ""
         }
@@ -3676,6 +3815,28 @@ open class ChatFragment : BaseFragment() {
             adapter.welcomeCreatorName = sanitized
             adapter.notifyWelcomeCellChanged()
         }
+    }
+
+    private fun resolveCreatorDisplayName(userId: Long, fallbackName: String): String {
+        if (userId == 0L) return fallbackName
+        val member = if (clanId != 0L) {
+            memberResolver.resolveClanScopedMember(userId, clanId, channelId, channelType)
+        } else {
+            memberResolver.resolveMember(userId, clanId, channelId, channelType)
+        }
+        val clanNick = member?.clanNick?.trim().orEmpty()
+        if (clanNick.isNotBlank()) return clanNick
+        val fromMessage = fallbackName.trim()
+        if (fromMessage.isNotBlank()) return fromMessage
+        val memberDisplay = member?.displayName?.trim().orEmpty()
+        if (memberDisplay.isNotBlank()) return memberDisplay
+        if (userId == userController.userId) {
+            val self = userController.displayName.trim()
+            if (self.isNotBlank()) return self
+        }
+        val global = userClanController.getUserById(userId)?.displayName?.trim().orEmpty()
+        if (global.isNotBlank()) return global
+        return fallbackName
     }
 
     private fun refreshWelcomeFromDialog() {
@@ -3841,6 +4002,13 @@ open class ChatFragment : BaseFragment() {
         return false
     }
 
+    private fun resolveChannelAgeRestricted(): Boolean {
+        if (clanId != 0L) {
+            return channelController.findChannelById(channelId)?.isAgeRestricted ?: routeChannelAgeRestricted
+        }
+        return false
+    }
+
     private fun resolveMentionMembers(): List<ClanMember> {
         return memberResolver.resolveMentionMembers(clanId, channelId, channelType)
     }
@@ -3958,6 +4126,16 @@ open class ChatFragment : BaseFragment() {
         val mdResult = parseMarkdownAndStrip(text)
         val cleanedText = mdResult.cleanedText
         val mdMarkers = mdResult.markers.ifEmpty { null }
+        val ogpMarker = buildInputOgpMarker(cleanedText, inputOgpPreviewData)
+        val filteredMdMarkers = if (ogpMarker == null) mdMarkers else {
+            mdMarkers
+                ?.filterNot {
+                    it.type == "lk" &&
+                        it.s < ogpMarker.e &&
+                        ogpMarker.s < it.e
+                }
+                ?.ifEmpty { null }
+        }
 
         val fromTrackers = mentionTrackers.mapNotNull { m ->
             val inTrimmed = mentionOffsetsForTrimmed(rawInput, text, m) ?: return@mapNotNull null
@@ -3995,14 +4173,14 @@ open class ChatFragment : BaseFragment() {
             val emojiMarkers = buildEmojiMarkers(cleanedText)
             chatController.editMessage(
                 channelId, clanId, channelType, isPrivate, editMsg.id,
-                cleanedText, mentions, emojiMarkers, mdMarkers, hashtags,
+                cleanedText, mentions, emojiMarkers, filteredMdMarkers, hashtags,
                 existingMessage = editMsg
             )
             clearEditState()
             return
         }
 
-        Log.d(TAG, "sendMessage channelId=$channelId clanId=$clanId channelType=$channelType isPrivate=$isPrivate textLen=${cleanedText.length} attachments=${pendingAttachments.size} hasReply=${references != null} mdMarkers=${mdMarkers?.size ?: 0} hashtags=${hashtags?.size ?: 0}")
+        Log.d(TAG, "sendMessage channelId=$channelId clanId=$clanId channelType=$channelType isPrivate=$isPrivate textLen=${cleanedText.length} attachments=${pendingAttachments.size} hasReply=${references != null} mdMarkers=${filteredMdMarkers?.size ?: 0} ogp=${ogpMarker != null} hashtags=${hashtags?.size ?: 0}")
 
         if (pendingAttachments.isNotEmpty()) {
             val ctx = getContext() ?: return
@@ -4015,6 +4193,7 @@ open class ChatFragment : BaseFragment() {
                 mentions,
                 hashtags,
                 emojiMarkers,
+                ogpMarker,
                 topicId = topicId
             )
             clearPendingAttachments()
@@ -4022,7 +4201,7 @@ open class ChatFragment : BaseFragment() {
             val emojiMarkers = buildEmojiMarkers(cleanedText)
             chatController.sendMessage(
                 channelId, clanId, channelType, isPrivate, cleanedText,
-                references, mentions, emojiMarkers, mdMarkers, hashtags,
+                references, mentions, emojiMarkers, filteredMdMarkers, ogpMarker, hashtags,
                 topicId = topicId
             )
         }
@@ -4030,6 +4209,9 @@ open class ChatFragment : BaseFragment() {
         emojiObjPicked.clear()
         mentionTrackers.clear()
         hashtagTrackers.clear()
+        dismissedInputOgpUrl = null
+        failedInputOgpUrl = null
+        clearInputOgpPreview()
         clearReplyState()
     }
 
@@ -4534,6 +4716,224 @@ open class ChatFragment : BaseFragment() {
         } else {
             micButton.visibility = if (canSend && !showSend) View.VISIBLE else View.GONE
         }
+    }
+
+    private data class InputOgpPreview(
+        val url: String,
+        val title: String,
+        val description: String,
+        val imageUrl: String
+    )
+
+    private fun updateInputOgpPreview(rawText: String) {
+        val candidate = extractFirstInputUrl(rawText)
+        if (candidate == null) {
+            inputOgpUrl = null
+            dismissedInputOgpUrl = null
+            failedInputOgpUrl = null
+            clearInputOgpPreview()
+            return
+        }
+        if (dismissedInputOgpUrl != null && dismissedInputOgpUrl == candidate) {
+            return
+        }
+        if (failedInputOgpUrl != null && failedInputOgpUrl == candidate) {
+            return
+        }
+        if (candidate == inputOgpUrl && inputOgpBar?.visibility == View.VISIBLE) {
+            return
+        }
+        inputOgpUrl = candidate
+        showInputOgpLoading(candidate)
+        inputOgpFetchJob?.cancel()
+        inputOgpFetchJob = fragmentScope.launch(mainDispatcher) {
+            delay(320)
+            val preview = withContext(ioDispatcher) { fetchInputOgpPreview(candidate) }
+            if (!isActive) return@launch
+            if (inputOgpUrl != candidate) return@launch
+            if (preview == null) {
+                failedInputOgpUrl = candidate
+                clearInputOgpPreview()
+                return@launch
+            }
+            renderInputOgpPreview(preview)
+        }
+    }
+
+    private fun showInputOgpLoading(url: String) {
+        inputOgpBar?.visibility = View.VISIBLE
+        inputOgpTitle?.text = getString(R.string.common_loading_data)
+        inputOgpDesc?.text = url
+        inputOgpImageLoad.cancel()
+        inputOgpImageLoad = MezonImageLoader.Cancellable.EMPTY
+        inputOgpImage?.setImageDrawable(null)
+        inputOgpImage?.visibility = View.GONE
+    }
+
+    private fun clearInputOgpPreview() {
+        inputOgpFetchJob?.cancel()
+        inputOgpFetchJob = null
+        inputOgpPreviewData = null
+        inputOgpImageLoad.cancel()
+        inputOgpImageLoad = MezonImageLoader.Cancellable.EMPTY
+        inputOgpImage?.setImageDrawable(null)
+        inputOgpImage?.visibility = View.GONE
+        inputOgpTitle?.text = ""
+        inputOgpDesc?.text = ""
+        inputOgpBar?.visibility = View.GONE
+    }
+
+    private fun renderInputOgpPreview(preview: InputOgpPreview) {
+        inputOgpPreviewData = preview
+        inputOgpBar?.visibility = View.VISIBLE
+        inputOgpTitle?.text = preview.title.ifBlank { preview.url }
+        inputOgpDesc?.text = preview.description.ifBlank { preview.url }
+        inputOgpImageLoad.cancel()
+        inputOgpImageLoad = MezonImageLoader.Cancellable.EMPTY
+        if (preview.imageUrl.isBlank()) {
+            inputOgpImage?.setImageDrawable(null)
+            inputOgpImage?.visibility = View.GONE
+            return
+        }
+        val imgView = inputOgpImage ?: return
+        imgView.visibility = View.VISIBLE
+        val requestUrl = createImgproxyUrl(preview.imageUrl, INPUT_OGP_IMAGE_SIZE, INPUT_OGP_IMAGE_SIZE, "fill")
+        val targetUrl = requestUrl.ifBlank { preview.imageUrl }
+        val loader = MezonImageLoader.getInstance(imgView.context)
+        inputOgpImageLoad = loader.load(
+            targetUrl,
+            INPUT_OGP_IMAGE_SIZE,
+            INPUT_OGP_IMAGE_SIZE,
+            onSuccess = { bmp ->
+                if (inputOgpUrl != preview.url) return@load
+                imgView.setImageBitmap(bmp)
+                imgView.visibility = View.VISIBLE
+            },
+            onError = {
+                if (inputOgpUrl != preview.url) return@load
+                imgView.setImageDrawable(null)
+                imgView.visibility = View.GONE
+            }
+        )
+    }
+
+    private fun fetchInputOgpPreview(url: String): InputOgpPreview? {
+        return try {
+            val conn = (URL(url).openConnection() as? HttpURLConnection) ?: return null
+            conn.instanceFollowRedirects = true
+            conn.connectTimeout = 5000
+            conn.readTimeout = 6000
+            conn.requestMethod = "GET"
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0")
+            conn.connect()
+            val contentType = conn.contentType
+            if (contentType != null && !contentType.contains("html", ignoreCase = true)) {
+                conn.disconnect()
+                return null
+            }
+            val html = conn.inputStream.bufferedReader().use { reader ->
+                val sb = StringBuilder()
+                val buffer = CharArray(4096)
+                var total = 0
+                val maxChars = 200_000
+                while (true) {
+                    val read = reader.read(buffer)
+                    if (read <= 0) break
+                    sb.append(buffer, 0, read)
+                    total += read
+                    if (total >= maxChars) break
+                }
+                sb.toString()
+            }
+            conn.disconnect()
+            if (html.isBlank()) return null
+            val ogTitle = findMetaContent(html, "og:title")
+            val ogDesc = findMetaContent(html, "og:description")
+            val ogImage = findMetaContent(html, "og:image")
+            val titleTag = Regex("""<title[^>]*>(.*?)</title>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+                .find(html)
+                ?.groupValues
+                ?.getOrNull(1)
+                ?.let(::decodeHtml)
+                .orEmpty()
+                .trim()
+            val title = ogTitle.ifBlank { titleTag }
+            val desc = ogDesc.trim()
+            val image = ogImage.trim()
+            if (title.isBlank() || desc.isBlank() || image.isBlank()) return null
+            InputOgpPreview(url = url, title = title, description = desc, imageUrl = image)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun findMetaContent(html: String, key: String): String {
+        for (match in INPUT_OGP_META_TAG_REGEX.findAll(html)) {
+            val tag = match.value
+            val property = extractMetaAttr(tag, "property")
+            val name = extractMetaAttr(tag, "name")
+            val content = extractMetaAttr(tag, "content")
+            if (content.isBlank()) continue
+            if (property.equals(key, ignoreCase = true) || name.equals(key, ignoreCase = true)) {
+                return decodeHtml(content).trim()
+            }
+        }
+        return ""
+    }
+
+    private fun extractMetaAttr(tag: String, attr: String): String {
+        val re = Regex("""$attr\s*=\s*(['"])(.*?)\1""", RegexOption.IGNORE_CASE)
+        return re.find(tag)?.groupValues?.getOrNull(2).orEmpty()
+    }
+
+    private fun decodeHtml(raw: String): String {
+        return Html.fromHtml(raw, Html.FROM_HTML_MODE_LEGACY).toString()
+    }
+
+    private fun extractFirstInputUrl(rawText: String): String? {
+        val match = INPUT_OGP_URL_REGEX.find(rawText) ?: return null
+        var candidate = match.value.trim()
+        while (candidate.isNotEmpty() && candidate.last() in ".,;:!?)]}\\\"") {
+            candidate = candidate.dropLast(1)
+        }
+        return candidate.takeIf { it.startsWith("http://", true) || it.startsWith("https://", true) }
+    }
+
+    private fun buildInputOgpMarker(cleanedText: String, preview: InputOgpPreview?): OgpMarker? {
+        val p = preview ?: return null
+        if (cleanedText.isBlank()) return null
+        val targetUrl = p.url.trim()
+        if (targetUrl.isEmpty()) return null
+        val startByExact = cleanedText.indexOf(targetUrl)
+        val match = INPUT_OGP_URL_REGEX.find(cleanedText)
+        val start = when {
+            startByExact >= 0 -> startByExact
+            match != null -> match.range.first
+            else -> -1
+        }
+        if (start < 0) return null
+        val urlInText = if (startByExact >= 0) targetUrl else {
+            var detected = match!!.value.trim()
+            while (detected.isNotEmpty() && detected.last() in ".,;:!?)]}\\\"") {
+                detected = detected.dropLast(1)
+            }
+            detected
+        }
+        if (urlInText.isEmpty()) return null
+        val end = (start + urlInText.length).coerceAtMost(cleanedText.length)
+        if (end <= start) return null
+        val title = p.title.trim()
+        val description = p.description.trim()
+        val image = p.imageUrl.trim()
+        if (title.isEmpty() || description.isEmpty() || image.isEmpty()) return null
+        return OgpMarker(
+            s = start,
+            e = end,
+            index = start,
+            title = title,
+            description = description,
+            image = image
+        )
     }
 
     @SuppressWarnings("ClickableViewAccessibility")
@@ -5565,22 +5965,26 @@ open class ChatFragment : BaseFragment() {
                     MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.channel_permissions_no_access))
                     return
                 }
-                presentFragment(
-                    CreateThreadFragment.newInstance(
-                        channelId,
-                        channelName,
-                        clanId
-                    )
-                )
-            }
-            MessageActionBottomSheet.ActionType.TopicDiscussion -> {
-                if (!canShowTopicDiscussionInMessageMenu(msg)) return
+                CreateThreadSeedStash.pendingSeedMessage = msg
                 presentFragment(
                     CreateThreadFragment.newInstance(
                         channelId,
                         channelName,
                         clanId,
                         seedMessageId = msg.id
+                    )
+                )
+            }
+            MessageActionBottomSheet.ActionType.TopicDiscussion -> {
+                if (!canShowTopicDiscussionInMessageMenu(msg)) return
+                CreateThreadSeedStash.pendingSeedMessage = msg
+                presentFragment(
+                    CreateThreadFragment.newInstance(
+                        channelId,
+                        channelName,
+                        clanId,
+                        seedMessageId = msg.id,
+                        useTopicFlow = true
                     )
                 )
             }
@@ -5931,7 +6335,10 @@ open class ChatFragment : BaseFragment() {
             Log.d(TAG, "applyRealId tempId=$tempId realId=$realId already present, dropping optimistic")
             messagesDict.delete(tempId)
             messages.removeAt(idx)
-            if (fragmentView != null) adapter.notifyMessagesUpdated()
+            if (fragmentView != null) {
+                adapter.notifyMessageRemovedAt(idx)
+                updateUnreadDividerPosition()
+            }
             return
         }
 
@@ -5987,10 +6394,8 @@ open class ChatFragment : BaseFragment() {
 
     private var pendingHighlightMessageId = 0L
     private var pendingJumpMessageId = 0L
-    private var returnToMessageId = 0L
 
     private fun scrollToReplyMessage(messageId: Long) {
-        saveReturnPosition()
         val idx = messages.indexOfFirst { it.id == messageId }
         if (idx >= 0) {
             scrollToAndHighlight(idx)
@@ -6005,22 +6410,6 @@ open class ChatFragment : BaseFragment() {
                 preferHttp = openedFromNotification,
                 topicId = topicId
             )
-        }
-    }
-
-    private fun saveReturnPosition() {
-        if (messages.isEmpty()) return
-        val lm = recyclerView.layoutManager as? LinearLayoutManager ?: return
-        val firstPos = lm.findFirstVisibleItemPosition()
-        if (firstPos == RecyclerView.NO_POSITION) return
-        val v = recyclerView.findViewHolderForAdapterPosition(firstPos)?.itemView
-        val msgId = when (v) {
-            is ChatMessageCell -> v.messageEntity?.id
-            is SystemMessageCell -> v.messageEntity?.id
-            else -> null
-        }
-        if (msgId != null && msgId != 0L) {
-            returnToMessageId = msgId
         }
     }
 
@@ -6109,8 +6498,7 @@ open class ChatFragment : BaseFragment() {
     private fun mergeAtHereMentionsFromText(cleanedText: String, existing: List<MentionData>): List<MentionData> {
         val result = existing.toMutableList()
         if (cleanedText.isEmpty()) return result
-        val atHere = "(?<!\\w)@here(?!\\w)".toRegex()
-        for (match in atHere.findAll(cleanedText)) {
+        for (match in AT_HERE_INPUT_REGEX.findAll(cleanedText)) {
             val s = match.range.first
             val e = match.range.last + 1
             if (result.any { mentionIntervalsOverlap(it.startOffset, it.endOffset, s, e) }) continue
@@ -6261,6 +6649,14 @@ open class ChatFragment : BaseFragment() {
 
     private fun channelTitleIconSizePx(): Int = LayoutHelper.dp(20)
 
+    private fun channelTitleIconDrawable(context: Context, iconEnum: MezonIcon): Drawable {
+        val drawable = iconEnum.getDrawable(context, themeColors)
+        if (!iconEnum.shouldKeepOriginalFill()) {
+            drawable.colorFilter = PorterDuffColorFilter(themeColors.textStrong, PorterDuff.Mode.SRC_IN)
+        }
+        return drawable
+    }
+
     private fun buildChannelTitle(context: Context): CharSequence {
         val isDmChannel = channelType == CHANNEL_TYPE_DM || channelType == CHANNEL_TYPE_GROUP
         if (isDmChannel || clanId == 0L) return channelName
@@ -6275,7 +6671,7 @@ open class ChatFragment : BaseFragment() {
         if (isThread) {
             span.usePaintColor = false
         } else {
-            span.overrideColor = themeColors.onSurface
+            span.overrideColor = themeColors.textStrong
         }
 
         val text = SpannableString("\u200B $channelName")
@@ -6284,17 +6680,18 @@ open class ChatFragment : BaseFragment() {
     }
 
     private fun resolveChannelIcon(entity: com.mezon.mobile.home.clans.ClanChannelEntity?): MezonIcon {
+        val isAgeRestricted = entity?.isAgeRestricted ?: resolveChannelAgeRestricted()
         if (entity == null) {
             if (channelType == CHANNEL_TYPE_THREAD || routeParentId != 0L) {
-                return ChannelItemCell.resolveChannelIcon(CHANNEL_TYPE_THREAD, routeChannelPrivate)
+                return ChannelItemCell.resolveChannelIcon(CHANNEL_TYPE_THREAD, routeChannelPrivate, isAgeRestricted)
             }
             if (channelType == CHANNEL_TYPE_CHANNEL) {
-                return ChannelItemCell.resolveChannelIcon(CHANNEL_TYPE_CHANNEL, routeChannelPrivate)
+                return ChannelItemCell.resolveChannelIcon(CHANNEL_TYPE_CHANNEL, routeChannelPrivate, isAgeRestricted)
             }
-            return MezonIcon.channelText
+            return ChannelItemCell.resolveChannelIcon(channelType, routeChannelPrivate, isAgeRestricted)
         }
         val type = if (entity.isThread) CHANNEL_TYPE_THREAD else entity.type
-        return ChannelItemCell.resolveChannelIcon(type, entity.isPrivate)
+        return ChannelItemCell.resolveChannelIcon(type, entity.isPrivate, isAgeRestricted)
     }
 
     private fun navigateToChannelFromHashtag(channelIdStr: String?) {

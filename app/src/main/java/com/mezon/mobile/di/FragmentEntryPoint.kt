@@ -16,6 +16,8 @@ import com.mezon.mobile.home.call.CallController
 import com.mezon.mobile.home.call.CallManager
 import com.mezon.mobile.home.call.WebRtcInfra
 import com.mezon.mobile.home.chat.EmojiController
+import com.mezon.mobile.home.clans.settings.SoundEffectSettingsController
+import com.mezon.mobile.home.clans.settings.StickerSettingsController
 import com.mezon.mobile.home.chat.ImageClipboardCoordinator
 import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.ForwardTargetUsageStore
@@ -29,9 +31,11 @@ import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.ChannelPermissionController
 import com.mezon.mobile.home.clans.ClansController
 import com.mezon.mobile.home.clans.PermissionPolicy
+import com.mezon.mobile.home.clans.settings.CommunitySettingsController
 import com.mezon.mobile.home.clans.channelapp.ChannelAppController
 import com.mezon.mobile.home.friends.FriendController
 import com.mezon.mobile.home.clans.RoleController
+import com.mezon.mobile.home.clans.settings.InvitePeopleController
 import com.mezon.mobile.home.clans.settings.OnboardingSettingsController
 import com.mezon.mobile.home.notifications.NotificationStore
 import com.mezon.mobile.home.profile.AccountController
@@ -83,6 +87,8 @@ interface FragmentEntryPoint {
     fun searchController(): SearchController
     fun userClanController(): UserClanController
     fun emojiController(): EmojiController
+    fun soundEffectSettingsController(): SoundEffectSettingsController
+    fun stickerSettingsController(): StickerSettingsController
     fun imageClipboardCoordinator(): ImageClipboardCoordinator
     fun audioPlayerController(): AudioPlayerController
     fun voiceController(): VoiceController
@@ -90,6 +96,8 @@ interface FragmentEntryPoint {
     fun memberResolver(): MemberResolver
     fun roleController(): RoleController
     fun onboardingSettingsController(): OnboardingSettingsController
+    fun communitySettingsController(): CommunitySettingsController
+    fun invitePeopleController(): InvitePeopleController
     fun pinMessageController(): PinMessageController
     fun channelFilesController(): ChannelFilesController
     fun channelGalleryController(): ChannelGalleryController

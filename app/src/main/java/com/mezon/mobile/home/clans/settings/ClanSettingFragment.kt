@@ -32,7 +32,6 @@ import com.mezon.mobile.home.clans.CreateClanRnUiTokens
 import com.mezon.mobile.home.clans.PermissionPolicy
 import com.mezon.mobile.home.clans.RoleController
 import com.mezon.mobile.home.profile.UserController
-import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
 import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.ui.cells.AvatarView
 import com.mezon.mobile.ui.cells.MezonIcon
@@ -57,6 +56,7 @@ class ClanSettingFragment : BaseFragment() {
     private lateinit var roleController: RoleController
     private lateinit var userController: UserController
     private lateinit var permissionPolicy: PermissionPolicy
+    private lateinit var invitePeopleController: InvitePeopleController
 
     private lateinit var scrollInner: LinearLayout
     private lateinit var logoContainer: LinearLayout
@@ -69,6 +69,7 @@ class ClanSettingFragment : BaseFragment() {
         roleController = entryPoint.roleController()
         userController = entryPoint.userController()
         permissionPolicy = entryPoint.permissionPolicy()
+        invitePeopleController = entryPoint.invitePeopleController()
     }
 
     override fun onFragmentCreate(): Boolean {
@@ -438,6 +439,23 @@ class ClanSettingFragment : BaseFragment() {
                         navigationRow(ctx, row.icon, row.labelRes, Runnable {
                             presentFragment(OnboardingSettingsFragment.newInstance(clanId))
                         })
+                    R.string.clan_settings_enable_community ->
+                        navigationRow(ctx, row.icon, row.labelRes, Runnable {
+                            val perm = permissionPolicy.clanSettingsPermissionState(clanId)
+                            if (!perm.hasManageClanPermission) {
+                                MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.community_settings_permission_denied))
+                                return@Runnable
+                            }
+                            presentFragment(CommunitySettingsFragment.newInstance(clanId))
+                        })
+                    R.string.clan_settings_sticker ->
+                        navigationRow(ctx, row.icon, row.labelRes, Runnable {
+                            presentFragment(StickerSettingsFragment.newInstance(clanId))
+                        })
+                    R.string.clan_settings_sound ->
+                        navigationRow(ctx, row.icon, row.labelRes, Runnable {
+                            presentFragment(SoundEffectSettingsFragment.newInstance(clanId))
+                        })
                     else ->
                         navigationRow(ctx, row.icon, row.labelRes, Runnable {
                             MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.feature_coming_soon))
@@ -450,7 +468,7 @@ class ClanSettingFragment : BaseFragment() {
                     MezonIcon.linkIcon,
                     getString(R.string.clan_settings_invites),
                     null,
-                    Runnable { openInviteSheet() }
+                    Runnable { openInvitePeople() }
                 )
         }
     }
@@ -466,20 +484,22 @@ class ClanSettingFragment : BaseFragment() {
         )
     }
 
-    private fun openInviteSheet() {
+    private fun openInvitePeople() {
         val ctx = getContext() ?: return
-        val ch = channelController.getChannels(clanId).firstOrNull { it.type == CHANNEL_TYPE_CHANNEL }
-        if (ch == null) {
-            MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.clan_invite_need_channel))
+        val clan = clansController.clans.value.firstOrNull { it.clanId == clanId }
+        if (clan == null) {
+            MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.invite_clan_not_loaded))
             return
         }
-        val sheet = com.mezon.mobile.home.chat.channelinfo.InviteMembersBottomSheet(
+        InvitePeopleBottomSheet(
             ctx,
+            invitePeopleController,
             clanId,
-            ch.channelId,
-            ch.channelLabel
-        )
-        sheet.setDrawNavigationBar(true)
-        sheet.show()
+            clan.clanName,
+            clan.logo,
+        ).apply {
+            setDrawNavigationBar(true)
+            show()
+        }
     }
 }

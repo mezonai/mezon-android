@@ -618,7 +618,12 @@ private class AuditLogPickerListAdapter(
             setPadding(0, LayoutHelper.dp(1), 0, LayoutHelper.dp(1))
             addView(tv, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
         }
-        return VH(row, tv)
+        val vh = VH(row, tv)
+        row.setOnClickListener {
+            val pos = vh.bindingAdapterPosition
+            if (pos != RecyclerView.NO_POSITION) onRow(filtered[pos])
+        }
+        return vh
     }
 
     override fun getItemCount(): Int = filtered.size
@@ -638,7 +643,6 @@ private class AuditLogPickerListAdapter(
         } else {
             null
         }
-        holder.itemView.setOnClickListener { onRow(row) }
     }
 
     class VH(val wrap: FrameLayout, val text: TextView) : RecyclerView.ViewHolder(wrap)

@@ -65,6 +65,8 @@ class AvatarView(context: Context) : View(context) {
     }
 
     fun setPhoto(bitmap: android.graphics.Bitmap?) {
+        cancellable?.cancel()
+        cancellable = null
         avatarDrawable.setPhoto(bitmap)
         invalidate()
     }

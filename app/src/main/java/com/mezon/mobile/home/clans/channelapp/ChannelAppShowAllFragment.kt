@@ -216,13 +216,17 @@ class ChannelAppShowAllFragment : BaseFragment() {
         }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): AppHolder {
-            return AppHolder(AppRowView(parent.context, themeColors))
+            val holder = AppHolder(AppRowView(parent.context, themeColors))
+            holder.itemView.setOnClickListener {
+                val pos = holder.bindingAdapterPosition
+                if (pos != RecyclerView.NO_POSITION) onClick(items[pos])
+            }
+            return holder
         }
 
         override fun onBindViewHolder(holder: AppHolder, position: Int) {
             val item = items[position]
             (holder.itemView as AppRowView).bind(item)
-            holder.itemView.setOnClickListener { onClick(item) }
         }
 
         override fun getItemCount(): Int = items.size

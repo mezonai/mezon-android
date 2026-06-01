@@ -467,7 +467,12 @@ class AppearanceThemeFragment : BaseFragment() {
                 }
             )
             cell.addView(swatch)
-            return ThemeViewHolder(cell, swatch, icon)
+            val holder = ThemeViewHolder(cell, swatch, icon)
+            cell.setOnClickListener {
+                val pos = holder.bindingAdapterPosition
+                if (pos != RecyclerView.NO_POSITION) onItemClick(pos)
+            }
+            return holder
         }
 
         override fun getItemCount(): Int = options.size
@@ -499,7 +504,6 @@ class AppearanceThemeFragment : BaseFragment() {
                 holder.icon.setImageDrawable(null)
                 holder.icon.colorFilter = null
             }
-            holder.itemView.setOnClickListener { onItemClick(position) }
         }
 
         class ThemeViewHolder(

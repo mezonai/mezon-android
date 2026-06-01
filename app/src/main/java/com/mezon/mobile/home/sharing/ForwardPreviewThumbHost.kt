@@ -19,6 +19,16 @@ internal class ForwardPreviewThumbHost(context: Context) : View(context) {
         receiver.setRequestedSize(w, h)
     }
 
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        receiver.onAttachedToWindow()
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        receiver.onDetachedFromWindow()
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         receiver.draw(canvas)
