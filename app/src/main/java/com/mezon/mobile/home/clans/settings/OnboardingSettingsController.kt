@@ -12,6 +12,7 @@ import com.mezon.mezon.api.OnboardingItem
 import com.mezon.mezon.api.updateOnboardingRequest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -91,6 +92,36 @@ class OnboardingSettingsController @Inject constructor(
         _state.update { it.copy(draft = OnboardingFormDraft()) }
     }
 
+    /** Update an existing draft question in-place (by localId). */
+    fun updateDraftQuestion(localId: String, title: String, answers: List<OnboardingAnswerDraft>) {
+        _state.update { s ->
+            val updated = s.draft.questions.map { q ->
+                if (q.localId == localId) q.copy(title = title, answers = answers) else q
+            }
+            s.copy(draft = s.draft.copy(questions = updated))
+        }
+    }
+
+    /** Update an existing draft mission in-place (by localId). */
+    fun updateDraftMission(localId: String, title: String, content: String, channelId: Long, taskType: Int) {
+        _state.update { s ->
+            val updated = s.draft.tasks.map { m ->
+                if (m.localId == localId) m.copy(title = title, content = content, channelId = channelId, taskType = taskType) else m
+            }
+            s.copy(draft = s.draft.copy(tasks = updated))
+        }
+    }
+
+    /** Update an existing draft rule in-place (by localId). */
+    fun updateDraftRule(localId: String, title: String, content: String, imageUrl: String?, localFilePath: String?) {
+        _state.update { s ->
+            val updated = s.draft.rules.map { r ->
+                if (r.localId == localId) r.copy(title = title, content = content, imageUrl = imageUrl, localFilePath = localFilePath) else r
+            }
+            s.copy(draft = s.draft.copy(rules = updated))
+        }
+    }
+
     suspend fun load(clanId: Long) {
         _state.update { it.copy(isLoading = true, errorMessage = null) }
         try {
@@ -116,7 +147,12 @@ class OnboardingSettingsController @Inject constructor(
     suspend fun confirmEnableAndSave(): Result<Unit> {
         val s = _state.value
         if (!s.hasAtLeastOneItem) {
+            // A3.1: show red highlight border for 2 seconds then auto-reset
             _state.update { it.copy(showHighlightNeedItem = true) }
+            appScope.launch {
+                delay(2_000L)
+                _state.update { it.copy(showHighlightNeedItem = false) }
+            }
             return Result.failure(NeedAtLeastOneItemException())
         }
         return saveInternal(enableOnboarding = true, closeSetup = true)
@@ -349,6 +385,43 @@ class OnboardingSettingsController @Inject constructor(
             )
             api.putFileToPresignedUrl(presign.url, bytes, "image/webp")
             "${BuildConfig.MEZON_BASE_IMG_URL}/${presign.filename}"
+        }
+    }
+
+    /** A5.1: Fetch this user's onboarding progress for the current clan. */
+    suspend fun listOnboardingStep(): Result<com.mezon.mezon.api.ListOnboardingStepResponse> {
+        val clanId = _state.value.clanId
+        if (clanId == 0L) return Result.failure(IllegalStateException("no clan"))
+        return try {
+            val response = sessionManager.withAutoRefresh { session ->
+                withContext(ioDispatcher) {
+                    api.listOnboardingStep(session.apiUrl, session.token, clanId)
+                }
+            }
+            Result.success(response)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /** A4/A5.1: Mark onboarding as done (onboarding_step = DONE_ONBOARDING_STATUS = 3). */
+    suspend fun markOnboardingDone(): Result<Unit> {
+        val clanId = _state.value.clanId
+        if (clanId == 0L) return Result.failure(IllegalStateException("no clan"))
+        return try {
+            sessionManager.withAutoRefresh { session ->
+                withContext(ioDispatcher) {
+                    api.updateOnboardingStepByClanId(
+                        session.apiUrl,
+                        session.token,
+                        clanId,
+                        onboardingStep = 3  // DONE_ONBOARDING_STATUS
+                    )
+                }
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
         }
     }
 

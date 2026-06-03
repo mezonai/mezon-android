@@ -24,6 +24,10 @@ import com.mezon.mezon.api.listOnboardingRequest
 import com.mezon.mezon.api.createOnboardingRequest
 import com.mezon.mezon.api.updateOnboardingRequest
 import com.mezon.mezon.api.onboardingRequest
+import com.mezon.mezon.api.ListOnboardingStepResponse
+import com.mezon.mezon.api.OnboardingSteps
+import com.mezon.mezon.api.listOnboardingStepRequest
+import com.mezon.mezon.api.updateOnboardingStepRequest
 import com.mezon.mezon.api.clanStickerAddRequest
 import com.mezon.mezon.api.clanStickerUpdateByIdRequest
 import com.mezon.mezon.api.clanStickerDeleteRequest
@@ -2406,6 +2410,39 @@ class MezonApi @Inject constructor(
             this.clanId = clanId
         }
         return rpc(apiUrl, token, "DeleteOnboarding", request.toByteArray())
+    }
+
+    /** A5.1: listOnboardingStep — get user's onboarding progress for a clan */
+    suspend fun listOnboardingStep(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        limit: Int = 100,
+        page: Int = 0,
+    ): ListOnboardingStepResponse {
+        val request = listOnboardingStepRequest {
+            this.clanId = clanId
+            this.limit = limit
+            this.page = page
+        }
+        val bytes = rpc(apiUrl, token, "ListOnboardingStep", request.toByteArray())
+        return if (bytes.isEmpty()) ListOnboardingStepResponse.getDefaultInstance()
+        else ListOnboardingStepResponse.parseFrom(bytes)
+    }
+
+    /** A5.1: updateOnboardingStepByClanId — mark onboarding done (step=3) */
+    suspend fun updateOnboardingStepByClanId(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        onboardingStep: Int,   // DONE_ONBOARDING_STATUS = 3
+    ): OnboardingSteps {
+        val request = updateOnboardingStepRequest {
+            this.clanId = clanId
+            this.onboardingStep = onboardingStep
+        }
+        val bytes = rpc(apiUrl, token, "UpdateOnboardingStepByClanId", request.toByteArray())
+        return OnboardingSteps.parseFrom(bytes)
     }
 
     suspend fun addClanSticker(
