@@ -50,7 +50,7 @@ object ClanSetting {
             if (perm.hasManageClanPermission || perm.hasAdminPermission) {
                 add(
                     MenuRow.Navigate(
-                        MezonIcon.localOnboardingIcon,
+                        MezonIcon.guideIcon,
                         R.string.clan_settings_onboarding,
                         R.string.menu_clan_onboarding,
                     )

@@ -57,7 +57,9 @@ object ClanSettingsUiHelpers {
         val iconView = ImageView(context).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
             val d = icon.getDrawable(context)
-            d.colorFilter = PorterDuffColorFilter(theme.textStrong, PorterDuff.Mode.SRC_IN)
+            if (!icon.shouldKeepOriginalFill()) {
+                d.colorFilter = PorterDuffColorFilter(theme.textStrong, PorterDuff.Mode.SRC_IN)
+            }
             setImageDrawable(d)
         }
         circle.addView(iconView, LayoutHelper.createFrame(iconSz, iconSz, Gravity.CENTER))
@@ -140,7 +142,9 @@ object ClanSettingsUiHelpers {
             scaleType = ImageView.ScaleType.FIT_CENTER
             val d = icon.getDrawable(context)
             d.mutate()
-            d.colorFilter = PorterDuffColorFilter(theme.colorText, PorterDuff.Mode.SRC_IN)
+            if (!icon.shouldKeepOriginalFill()) {
+                d.colorFilter = PorterDuffColorFilter(theme.colorText, PorterDuff.Mode.SRC_IN)
+            }
             setImageDrawable(d)
         }
         row.addView(iconIv, LayoutHelper.createLinear(menuRowLeadingIconDp, menuRowLeadingIconDp, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, 10f, 0f))
@@ -184,7 +188,9 @@ object ClanSettingsUiHelpers {
             scaleType = ImageView.ScaleType.FIT_CENTER
             val d = icon.getDrawable(context)
             d.mutate()
-            d.colorFilter = PorterDuffColorFilter(theme.colorText, PorterDuff.Mode.SRC_IN)
+            if (!icon.shouldKeepOriginalFill()) {
+                d.colorFilter = PorterDuffColorFilter(theme.colorText, PorterDuff.Mode.SRC_IN)
+            }
             setImageDrawable(d)
         }
         row.addView(iconIv, LayoutHelper.createLinear(menuRowLeadingIconDp, menuRowLeadingIconDp, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, 10f, 0f))

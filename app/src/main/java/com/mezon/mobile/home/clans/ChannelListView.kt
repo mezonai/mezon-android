@@ -7,6 +7,20 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.core.LayoutHelper
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Color
+import android.content.res.ColorStateList
+import android.graphics.drawable.Drawable
+import android.graphics.drawable.RippleDrawable
+import android.graphics.drawable.GradientDrawable
+import android.view.Gravity
+import android.view.View
+import android.widget.FrameLayout
+import android.widget.TextView
+import com.mezon.mobile.R
+import com.mezon.mobile.core.BaseCell
+import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.core.ThemeColors
@@ -28,6 +42,8 @@ private const val ROW_THREAD = 2
 private const val ROW_VOICE_MEMBER = 3
 private const val ROW_VOICE_COLLAPSED = 4
 private const val ROW_CHANNEL_APPS = 5
+private const val ROW_ONBOARDING_BANNER = 6
+
 private const val DIFF_BG_THRESHOLD = 50
 
 class ChannelListView(
@@ -39,7 +55,13 @@ class ChannelListView(
     var onChannelClick: ((channel: ClanChannelEntity) -> Unit)? = null
     var onChannelLongClick: ((channel: ClanChannelEntity, anchorView: android.view.View) -> Unit)? = null
     var onSectionLongClick: ((categoryId: Long, categoryName: String, anchorView: android.view.View) -> Unit)? = null
+    var onBannerClick: (() -> Unit)? = null
     var activeChannelId: Long = 0L
+
+    private var onboardingEnabled = false
+    private var onboardingStep = 0
+    private var onboardingDoneMissions = 0
+    private var onboardingTotalMissions = 0
 
     private val recyclerView: RecyclerListView
     private val adapter = Adapter()
@@ -83,6 +105,7 @@ class ChannelListView(
                 }
                 is ChannelItemCell -> view.channel?.let { onChannelClick?.invoke(it) }
                 is ChannelThreadCell -> view.thread?.let { onChannelClick?.invoke(it) }
+                is OnboardingBannerCell -> onBannerClick?.invoke()
             }
         })
         recyclerView.setOnItemLongClickListener(RecyclerListView.OnItemLongClickListener { view, _ ->
@@ -109,7 +132,7 @@ class ChannelListView(
                 else -> false
             }
         })
-        addView(recyclerView, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
+        addView(recyclerView, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
     }
 
     fun setChannelApps(
@@ -129,6 +152,10 @@ class ChannelListView(
     fun bind(clanId: Long, sections: List<ChannelSection>) {
         if (clanId != boundClanId) {
             boundClanId = clanId
+            onboardingEnabled = false
+            onboardingStep = 0
+            onboardingDoneMissions = 0
+            onboardingTotalMissions = 0
             applyExpandState(expandStore.load(clanId))
         }
         val prevCategoryIds = currentSections.mapNotNull { if (it.categoryId != FAVORITE_CATEGORY_ID) it.categoryId else null }.toSet()
@@ -150,6 +177,10 @@ class ChannelListView(
         boundClanId = 0L
         allExpanded = true
         expandedCategories.clear()
+        onboardingEnabled = false
+        onboardingStep = 0
+        onboardingDoneMissions = 0
+        onboardingTotalMissions = 0
         adapter.swapRows(emptyList())
     }
 
@@ -250,10 +281,23 @@ class ChannelListView(
     private fun isVoiceType(type: Int) =
         type == CHANNEL_TYPE_VOICE || type == CHANNEL_TYPE_STREAMING || type == CHANNEL_TYPE_APP
 
+    fun setOnboardingState(enabled: Boolean, step: Int, done: Int, total: Int) {
+        if (onboardingEnabled == enabled && onboardingStep == step &&
+            onboardingDoneMissions == done && onboardingTotalMissions == total) return
+        onboardingEnabled = enabled
+        onboardingStep = step
+        onboardingDoneMissions = done
+        onboardingTotalMissions = total
+        adapter.submitRows(buildRows(currentSections))
+    }
+
     private fun buildRows(sections: List<ChannelSection>): List<ChannelRow> {
         val rows = mutableListOf<ChannelRow>()
         if (currentChannelApps.isNotEmpty()) {
             rows.add(ChannelRow.ChannelApps(currentChannelApps))
+        }
+        if (onboardingEnabled && onboardingStep != 3 && onboardingTotalMissions > 0) {
+            rows.add(ChannelRow.OnboardingBanner(onboardingDoneMissions, onboardingTotalMissions))
         }
         for (section in sections) {
             val isFav = section.categoryId == FAVORITE_CATEGORY_ID
@@ -406,6 +450,7 @@ class ChannelListView(
                     is ChannelRow.VoiceMember -> {}
                     is ChannelRow.VoiceCollapsedMembers -> {}
                     is ChannelRow.Section -> {}
+                    is ChannelRow.OnboardingBanner -> {}
                 }
             }
         }
@@ -454,6 +499,7 @@ class ChannelListView(
             is ChannelRow.Thread -> row.thread.channelId
             is ChannelRow.VoiceMember -> Long.MAX_VALUE - row.member.userId xor row.channelId
             is ChannelRow.VoiceCollapsedMembers -> Long.MIN_VALUE xor row.channelId
+            is ChannelRow.OnboardingBanner -> Long.MIN_VALUE + 2L
         }
 
         override fun getItemViewType(pos: Int) = when (rows[pos]) {
@@ -463,6 +509,7 @@ class ChannelListView(
             is ChannelRow.Thread -> ROW_THREAD
             is ChannelRow.VoiceMember -> ROW_VOICE_MEMBER
             is ChannelRow.VoiceCollapsedMembers -> ROW_VOICE_COLLAPSED
+            is ChannelRow.OnboardingBanner -> ROW_ONBOARDING_BANNER
         }
 
         override fun getItemCount() = rows.size
@@ -485,6 +532,13 @@ class ChannelListView(
                 ROW_THREAD -> ThreadVH(ChannelThreadCell(parent.context, themeColors))
                 ROW_VOICE_MEMBER -> VoiceMemberVH(VoiceUserAvatarCell(parent.context, themeColors))
                 ROW_VOICE_COLLAPSED -> VoiceCollapsedVH(VoiceCollapsedMembersCell(parent.context, themeColors))
+                ROW_ONBOARDING_BANNER -> OnboardingBannerVH(OnboardingBannerCell(parent.context, themeColors).apply {
+                    layoutParams = RecyclerView.LayoutParams(
+                        RecyclerView.LayoutParams.MATCH_PARENT,
+                        RecyclerView.LayoutParams.WRAP_CONTENT
+                    )
+                })
+
                 else -> ChannelVH(ChannelItemCell(parent.context, themeColors))
             }
 
@@ -517,6 +571,10 @@ class ChannelListView(
                 is ChannelRow.VoiceCollapsedMembers -> {
                     (holder as VoiceCollapsedVH).cell.setMembers(row.members)
                 }
+                is ChannelRow.OnboardingBanner -> {
+                    (holder as OnboardingBannerVH).cell.bind(row.done, row.total)
+                }
+
             }
         }
 
@@ -526,6 +584,8 @@ class ChannelListView(
         inner class ThreadVH(val cell: ChannelThreadCell) : RecyclerView.ViewHolder(cell)
         inner class VoiceMemberVH(val cell: VoiceUserAvatarCell) : RecyclerView.ViewHolder(cell)
         inner class VoiceCollapsedVH(val cell: VoiceCollapsedMembersCell) : RecyclerView.ViewHolder(cell)
+        inner class OnboardingBannerVH(val cell: OnboardingBannerCell) : RecyclerView.ViewHolder(cell)
+
     }
 
     fun destroy() {
@@ -547,6 +607,7 @@ private class RowDiffCallback(
         if (a is ChannelRow.Thread && b is ChannelRow.Thread) return a.thread.channelId == b.thread.channelId
         if (a is ChannelRow.VoiceMember && b is ChannelRow.VoiceMember) return a.channelId == b.channelId && a.member.userId == b.member.userId
         if (a is ChannelRow.VoiceCollapsedMembers && b is ChannelRow.VoiceCollapsedMembers) return a.channelId == b.channelId
+        if (a is ChannelRow.OnboardingBanner && b is ChannelRow.OnboardingBanner) return true
         return false
     }
     override fun areContentsTheSame(o: Int, n: Int) = old[o] == new[n]
@@ -576,4 +637,96 @@ sealed class ChannelRow {
     data class Thread(val thread: ClanChannelEntity, val isFirst: Boolean, val isLast: Boolean, val isActive: Boolean) : ChannelRow()
     data class VoiceMember(val channelId: Long, val member: VoiceMemberDisplay) : ChannelRow()
     data class VoiceCollapsedMembers(val channelId: Long, val members: List<VoiceMemberDisplay>) : ChannelRow()
+    data class OnboardingBanner(val done: Int, val total: Int) : ChannelRow()
 }
+
+class OnboardingBannerCell(context: Context, private val themeColors: ThemeColors) : FrameLayout(context) {
+    private val titleText: TextView
+    private val progressText: TextView
+    private val progressBar: View
+    private val chevronText: TextView
+
+    init {
+        val container = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                cornerRadius = LayoutHelper.dpf(12f)
+                setColor(themeColors.tertiary)
+                setStroke(LayoutHelper.dp(1), themeColors.borderDim)
+            }
+            setPadding(LayoutHelper.dp(12), LayoutHelper.dp(10), LayoutHelper.dp(12), LayoutHelper.dp(10))
+        }
+
+        val header = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        titleText = TextView(context).apply {
+            text = context.getString(R.string.onboarding_get_started)
+            setTextColor(themeColors.onSurface)
+            textSize = 14f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+        header.addView(titleText, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f))
+
+        progressText = TextView(context).apply {
+            setTextColor(themeColors.textDisabled)
+            textSize = 12f
+        }
+        header.addView(progressText, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT).apply {
+            rightMargin = LayoutHelper.dp(4)
+        })
+
+        chevronText = TextView(context).apply {
+            text = "›"
+            setTextColor(themeColors.textDisabled)
+            textSize = 16f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+        header.addView(chevronText, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT))
+
+        container.addView(header, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+
+        progressBar = View(context).apply {
+            background = GradientDrawable().apply {
+                cornerRadius = LayoutHelper.dpf(4f)
+                setColor(themeColors.borderDim)
+            }
+        }
+        container.addView(progressBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 4).apply {
+            topMargin = LayoutHelper.dp(8)
+        })
+
+        addView(container, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
+            leftMargin = LayoutHelper.dp(8)
+            rightMargin = LayoutHelper.dp(8)
+            topMargin = LayoutHelper.dp(2)
+            bottomMargin = LayoutHelper.dp(2)
+        })
+    }
+
+    fun bind(done: Int, total: Int) {
+        val ofString = context.getString(R.string.onboarding_of) ?: "of"
+        progressText.text = "$done $ofString $total"
+        val percent = if (total > 0) done.toFloat() / total else 0f
+        progressBar.background = object : Drawable() {
+            private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+            override fun draw(canvas: Canvas) {
+                val r = bounds.height() / 2f
+                paint.color = themeColors.borderDim
+                canvas.drawRoundRect(0f, 0f, bounds.width().toFloat(), bounds.height().toFloat(), r, r, paint)
+                if (percent > 0f) {
+                    paint.color = themeColors.onlineGreen
+                    canvas.drawRoundRect(0f, 0f, bounds.width().toFloat() * percent, bounds.height().toFloat(), r, r, paint)
+                }
+            }
+            override fun setAlpha(alpha: Int) {}
+            override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) {}
+            override fun getOpacity(): Int = android.graphics.PixelFormat.TRANSLUCENT
+        }
+        progressBar.invalidate()
+    }
+}
+
+

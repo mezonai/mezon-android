@@ -38,6 +38,7 @@ import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.di.FragmentEntryPoint
+import kotlinx.coroutines.launch
 import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.chat.MezonImageLoader
@@ -66,6 +67,7 @@ import com.mezon.mobile.search.GlobalSearchFragment
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.home.qr.QrScanFragment
 import com.mezon.mobile.home.profile.UserController
+import androidx.lifecycle.lifecycleScope
 
 private const val TAG_CHANNEL_OPEN = "ClansFragment"
 
@@ -84,6 +86,7 @@ class ClansFragment : BaseFragment() {
     private lateinit var roleController: RoleController
     private lateinit var permissionPolicy: PermissionPolicy
     private lateinit var invitePeopleController: InvitePeopleController
+    private lateinit var onboardingUserController: com.mezon.mobile.home.clans.settings.OnboardingUserController
     private var clanMenuSheet: ClanMenuBottomSheet? = null
 
     var onOpenChat: ((channelId: Long, channelName: String, clanId: Long, channelType: Int) -> Unit)? = null
@@ -100,6 +103,7 @@ class ClansFragment : BaseFragment() {
     private var bannerCancellable: MezonImageLoader.Cancellable? = null
     private lateinit var clanNameText: TextView
     private var verifiedIcon: ImageView? = null
+    private var guideButton: ImageView? = null
     private lateinit var memberCountText: TextView
     private var viewJustCreated = false
 
@@ -132,10 +136,25 @@ class ClansFragment : BaseFragment() {
         roleController = entryPoint.roleController()
         permissionPolicy = entryPoint.permissionPolicy()
         invitePeopleController = entryPoint.invitePeopleController()
+        onboardingUserController = entryPoint.onboardingUserController()
     }
 
     override fun onFragmentCreate(): Boolean {
         super.onFragmentCreate()
+
+        fragmentScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+            onboardingUserController.uiState.collect { state ->
+                val selectedId = clansController.selectedClanId.value
+                if (state.clanId == selectedId && ::channelListView.isInitialized) {
+                    channelListView.setOnboardingState(
+                        enabled = state.isOnboardingEnabled,
+                        step = state.onboardingStep,
+                        done = state.missionDoneIndex,
+                        total = state.totalMissions
+                    )
+                }
+            }
+        }
 
         observe(NotificationCenter.clansDidLoad) { _, _, _ ->
             if (fragmentView == null || isPaused || listFrozen) return@observe
@@ -306,6 +325,12 @@ class ClansFragment : BaseFragment() {
 
         channelListView = ChannelListView(context, themeColors, channelCategoryExpandStore).apply {
             onChannelClick = { channel -> onChannelSelected(channel) }
+            onBannerClick = {
+                val selClan = clansController.selectedClanId.value
+                if (selClan != 0L) {
+                    presentFragment(com.mezon.mobile.home.clans.settings.ClanGuideFragment.newInstance(selClan))
+                }
+            }
             onSectionLongClick = sectionLongClick@ { catId, _, _ ->
                 val selClan = clansController.selectedClanId.value
                 if (selClan == 0L || catId == 0L) return@sectionLongClick
@@ -543,6 +568,38 @@ class ClansFragment : BaseFragment() {
             LayoutHelper.dp(32), LayoutHelper.dp(32)
         ).apply { leftMargin = LayoutHelper.dp(8) })
 
+        val guideView = ImageView(context).apply {
+            val circleBg = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(themeColors.tertiary)
+            }
+            val rippleMask = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(0xFFFFFFFF.toInt())
+            }
+            background = RippleDrawable(
+                ColorStateList.valueOf(themeColors.onSurface and 0x1AFFFFFF),
+                circleBg,
+                rippleMask
+            )
+            setImageDrawable(MezonIcon.guideIcon.getDrawable(context))
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            val pad = LayoutHelper.dp(7)
+            setPadding(pad, pad, pad, pad)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                val selClan = clansController.selectedClanId.value
+                if (selClan != 0L) {
+                    presentFragment(com.mezon.mobile.home.clans.settings.ClanGuideFragment.newInstance(selClan))
+                }
+            }
+        }
+        guideButton = guideView
+        navBar.addView(guideView, LinearLayout.LayoutParams(
+            LayoutHelper.dp(32), LayoutHelper.dp(32)
+        ).apply { leftMargin = LayoutHelper.dp(8) })
+
         content.addView(navBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         header.addView(content, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
@@ -728,6 +785,7 @@ class ClansFragment : BaseFragment() {
         renderedClanName = clan.clanName
 
         verifiedIcon?.visibility = if (clan.isCommunity) View.VISIBLE else View.GONE
+        guideButton?.visibility = if (clan.isOnboarding) View.VISIBLE else View.GONE
         if (renderedIsCommunity != clan.isCommunity) {
             renderedIsCommunity = clan.isCommunity
             renderedSubtitleKey = null
@@ -921,6 +979,11 @@ class ClansFragment : BaseFragment() {
         }
         updateVoiceMembers(clanId)
         updateChannelAppsStrip(clanId)
+        if (clanId != 0L) {
+            fragmentScope.launch {
+                onboardingUserController.loadOnboarding(clanId)
+            }
+        }
     }
 
     private fun updateChannelAppsStrip(clanId: Long) {

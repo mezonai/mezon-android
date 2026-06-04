@@ -96,6 +96,7 @@ interface FragmentEntryPoint {
     fun memberResolver(): MemberResolver
     fun roleController(): RoleController
     fun onboardingSettingsController(): OnboardingSettingsController
+    fun onboardingUserController(): com.mezon.mobile.home.clans.settings.OnboardingUserController
     fun communitySettingsController(): CommunitySettingsController
     fun invitePeopleController(): InvitePeopleController
     fun pinMessageController(): PinMessageController

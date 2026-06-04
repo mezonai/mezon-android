@@ -53,6 +53,7 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
+import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.ChatController
 import com.mezon.mobile.home.TopicBadgeTracker
@@ -156,6 +157,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.net.HttpURLConnection
 import java.net.URL
+import androidx.lifecycle.lifecycleScope
 
 private const val TAG = "ChatFragment"
 private const val FORWARD_NEARBY_WINDOW_SECONDS = 10 * 60L
@@ -244,6 +246,8 @@ open class ChatFragment : BaseFragment() {
     private lateinit var callController: com.mezon.mobile.home.call.CallController
     private lateinit var callManager: CallManager
     private lateinit var friendController: FriendController
+    private lateinit var onboardingUserController: com.mezon.mobile.home.clans.settings.OnboardingUserController
+    private var onboardingBannerView: OnboardingChannelBannerView? = null
 
     private lateinit var recyclerView: RecyclerListView
     private lateinit var loadingView: ProgressBar
@@ -979,6 +983,7 @@ open class ChatFragment : BaseFragment() {
             } else {
                 markMessageSent(tempId)
             }
+            checkAndCompleteSendMessageMission()
         }
 
         observe(NotificationCenter.pendingMessageError) { _, _, args ->
@@ -1310,6 +1315,7 @@ open class ChatFragment : BaseFragment() {
         callController = entryPoint.callController()
         callManager = entryPoint.callManager()
         friendController = entryPoint.friendController()
+        onboardingUserController = entryPoint.onboardingUserController()
         emojiController = entryPoint.emojiController()
         anonymousController = entryPoint.anonymousController()
         pinMessageController = entryPoint.pinMessageController()
@@ -1700,6 +1706,9 @@ open class ChatFragment : BaseFragment() {
                 marginStart = LayoutHelper.dp(6f)
             }
         )
+
+        onboardingBannerView = OnboardingChannelBannerView(context, themeColors)
+        innerLayout.addView(onboardingBannerView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         inputBar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -2254,8 +2263,19 @@ open class ChatFragment : BaseFragment() {
             emojiView?.onStickersReloaded()
         }
 
-        observe(NotificationCenter.gifsNeedReload) { _, _, _ ->
+        observe(NotificationCenter.gifsNeedReload) { _, _, args ->
             emojiView?.onGifsReloaded()
+        }
+
+        fragmentScope.launch(mainDispatcher) {
+            onboardingUserController.uiState.collect { state ->
+                updateOnboardingBanner(state)
+            }
+        }
+        if (clanId != 0L) {
+            appScope.launch {
+                onboardingUserController.loadOnboarding(clanId)
+            }
         }
 
         fragmentView = rootView
@@ -6919,4 +6939,124 @@ open class ChatFragment : BaseFragment() {
         }
     }
 
+    private fun updateOnboardingBanner(state: com.mezon.mobile.home.clans.settings.OnboardingUserState) {
+        val banner = onboardingBannerView ?: return
+        if (clanId == 0L || state.clanId != clanId || !state.isOnboardingEnabled || state.isCompleted) {
+            banner.visibility = View.GONE
+            return
+        }
+
+        val currentMission = state.currentMission
+        if (currentMission == null) {
+            banner.visibility = View.GONE
+            return
+        }
+
+        banner.visibility = View.VISIBLE
+        banner.bind(currentMission, state.missionDoneIndex, state.totalMissions)
+        banner.setOnClickListener {
+            when (currentMission.taskType) {
+                1 -> { 
+                    if (channelId != currentMission.channelId) {
+                        val targetChannel = channelController.findChannelById(currentMission.channelId)
+                        val targetType = targetChannel?.type ?: 1
+                        val targetLabel = targetChannel?.channelLabel ?: currentMission.title
+                        (getParentActivity() as? MainActivity)?.openChat(currentMission.channelId, targetLabel, clanId, targetType, replaceLastFragment = true)
+                    }
+                }
+                2 -> { 
+                    onboardingUserController.completeMission(clanId, state.missionDoneIndex)
+                    if (channelId != currentMission.channelId) {
+                        val targetChannel = channelController.findChannelById(currentMission.channelId)
+                        val targetType = targetChannel?.type ?: 1
+                        val targetLabel = targetChannel?.channelLabel ?: currentMission.title
+                        (getParentActivity() as? MainActivity)?.openChat(currentMission.channelId, targetLabel, clanId, targetType, replaceLastFragment = true)
+                    }
+                }
+                else -> { 
+                    onboardingUserController.completeMission(clanId, state.missionDoneIndex)
+                }
+            }
+        }
+    }
+
+    private fun checkAndCompleteSendMessageMission() {
+        val state = onboardingUserController.uiState.value
+        if (clanId != 0L && state.clanId == clanId && state.isOnboardingEnabled && !state.isCompleted) {
+            val currentMission = state.currentMission
+            if (currentMission != null && currentMission.taskType == 1 && currentMission.channelId == channelId) {
+                onboardingUserController.completeMission(clanId, state.missionDoneIndex)
+            }
+        }
+    }
+
+}
+
+class OnboardingChannelBannerView(
+    context: Context,
+    private val themeColors: ThemeColors
+) : LinearLayout(context) {
+
+    private val titleText: TextView
+    private val descText: TextView
+    private val iconView: TextView
+
+    init {
+        orientation = HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        
+        setBackgroundColor(themeColors.tertiary)
+        setPadding(LayoutHelper.dp(12), LayoutHelper.dp(8), LayoutHelper.dp(12), LayoutHelper.dp(8))
+        visibility = GONE
+
+        iconView = TextView(context).apply {
+            text = "#"
+            setTextColor(themeColors.onlineGreen)
+            textSize = 18f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            setPadding(0, 0, LayoutHelper.dp(8), 0)
+        }
+        addView(iconView, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT))
+
+        val textLayout = LinearLayout(context).apply {
+            orientation = VERTICAL
+        }
+
+        titleText = TextView(context).apply {
+            setTextColor(themeColors.onSurface)
+            textSize = 13f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+        textLayout.addView(titleText, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+
+        descText = TextView(context).apply {
+            setTextColor(themeColors.textDisabled)
+            textSize = 11f
+        }
+        textLayout.addView(descText, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
+            topMargin = LayoutHelper.dp(2)
+        })
+
+        addView(textLayout, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f))
+        
+        val chevron = TextView(context).apply {
+            text = "›"
+            setTextColor(themeColors.textDisabled)
+            textSize = 16f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+        addView(chevron, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT))
+    }
+
+    fun bind(mission: com.mezon.mezon.api.OnboardingItem, done: Int, total: Int) {
+        titleText.text = mission.title
+        val typeDesc = when (mission.taskType) {
+            1 -> context.getString(R.string.onboarding_mission_type_send_message) ?: "Send message"
+            2 -> context.getString(R.string.onboarding_mission_type_visit) ?: "Visit channel"
+            else -> context.getString(R.string.onboarding_step_done) ?: "Complete task"
+        }
+        
+        descText.text = "$typeDesc #${mission.title}"
+        iconView.text = if (mission.taskType == 1) "#" else "🎯"
+    }
 }

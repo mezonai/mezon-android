@@ -247,7 +247,8 @@ enum class MezonIcon(@DrawableRes val resId: Int) {
     threadPlusIconGray(R.drawable.ic_thread_plus_icon_gray),
     anonymousIconGray(R.drawable.ic_anonymous_icon_gray),
     ephemeralIconGray(R.drawable.ic_ephemeral_icon_gray),
-    pollIconGray(R.drawable.ic_poll_icon_gray);
+    pollIconGray(R.drawable.ic_poll_icon_gray),
+    guideIcon(R.drawable.ic_guide_icon);
 
     fun getDrawable(context: Context): Drawable =
         loadDrawable(context, resId)
@@ -279,7 +280,7 @@ enum class MezonIcon(@DrawableRes val resId: Int) {
         }
 
     fun shouldKeepOriginalFill(): Boolean =
-        this == threadIcon || this == threadLockIcon
+        this == threadIcon || this == threadLockIcon || this == guideIcon
 
     companion object {
 
