@@ -144,6 +144,7 @@ class NotificationCenter(val currentAccount: Int) {
 
         val topicsNeedReload = nextId()
         val ownerOnboardingStateChanged = nextId()
+        val attachmentUploadProgress = nextId()
 
         const val UPDATE_MASK_NAME = 1
         const val UPDATE_MASK_AVATAR = 2
@@ -165,6 +166,7 @@ class NotificationCenter(val currentAccount: Int) {
         const val UPDATE_MASK_REACTIONS = 524288
         const val UPDATE_MASK_TOPIC = 1048576
         const val UPDATE_MASK_ATTACHMENTS = 2097152
+        const val UPDATE_MASK_UPLOAD_PROGRESS = 4194304
         const val UPDATE_MASK_ALL = UPDATE_MASK_AVATAR or UPDATE_MASK_STATUS or
             UPDATE_MASK_NAME or UPDATE_MASK_CHAT_AVATAR or UPDATE_MASK_CHAT_NAME or
             UPDATE_MASK_CLAN_BANNER or UPDATE_MASK_CHAT_MEMBERS or UPDATE_MASK_USER_PRINT or

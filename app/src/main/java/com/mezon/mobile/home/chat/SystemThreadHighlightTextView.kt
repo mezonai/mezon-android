@@ -22,6 +22,9 @@ class SystemThreadHighlightTextView(
     interface Listener {
         fun onThreadTitleClick(threadChannelId: Long, threadTitle: String)
         fun onAllThreadsClick()
+        fun onJumpToPinnedMessage(messageRefId: Long)
+        fun onAllPinsClick()
+        fun onMentionClick(userId: String?, roleId: String?)
     }
 
     init {
@@ -35,7 +38,7 @@ class SystemThreadHighlightTextView(
         includeFontPadding = false
         val paint = themeColors.systemMessageTextPaint
         setTextSize(TypedValue.COMPLEX_UNIT_PX, paint.textSize)
-        setTextColor(themeColors.primary)
+        setTextColor(paint.color)
         typeface = paint.typeface
         setLineSpacing(LayoutHelper.dpf(2f), 1f)
     }
@@ -76,6 +79,63 @@ class SystemThreadHighlightTextView(
         sb.setSpan(StyleSpan(Typeface.BOLD), allStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         text = sb
     }
+
+    fun setPinCreatedHighlight(
+        listener: Listener,
+        creatorLabel: String,
+        mentionUserId: String?,
+        pinnedMessageRefId: Long,
+        mentionColors: MentionColors,
+        themeColors: ThemeColors
+    ) {
+        val sb = SpannableStringBuilder()
+        val creator = creatorLabel.trim()
+        val mentionTextColor = mentionColors.userText
+        val mentionBgColor = mentionColors.userBg
+        val pinPhraseColor = themeColors.onSurface
+        val allPinsColor = themeColors.onSurface
+        if (creator.isNotEmpty()) {
+            val creatorStart = sb.length
+            sb.append(creator)
+            if (!mentionUserId.isNullOrBlank()) {
+                sb.setSpan(
+                    PinCreatedMentionSpan(listener, mentionUserId, mentionTextColor, mentionBgColor),
+                    creatorStart,
+                    sb.length,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+            }
+            sb.append(' ')
+        }
+        sb.append(context.getString(R.string.system_msg_pin_pinned_lead))
+        sb.append(' ')
+        val messageStart = sb.length
+        sb.append(context.getString(R.string.system_msg_pin_link_phrase))
+        if (pinnedMessageRefId != 0L) {
+            sb.setSpan(
+                PinCreatedMessageSpan(listener, pinnedMessageRefId, pinPhraseColor),
+                messageStart,
+                sb.length,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+            sb.setSpan(StyleSpan(Typeface.BOLD), messageStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        sb.append(' ')
+        sb.append(context.getString(R.string.system_msg_pin_to_channel_see))
+        sb.append(' ')
+        val allStart = sb.length
+        sb.append(context.getString(R.string.system_msg_all_pins))
+        sb.setSpan(
+            PinCreatedAllPinsSpan(listener, allPinsColor),
+            allStart,
+            sb.length,
+            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
+        sb.setSpan(StyleSpan(Typeface.BOLD), allStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        sb.append(' ')
+        sb.append(context.getString(R.string.system_msg_pin_messages_suffix))
+        text = sb
+    }
 }
 
 private class ThreadCreatedTitleSpan(
@@ -108,6 +168,52 @@ private class ThreadCreatedAllThreadsSpan(
     override fun updateDrawState(ds: android.text.TextPaint) {
         ds.color = textColor
         ds.bgColor = bgColor
+        ds.isUnderlineText = false
+    }
+}
+
+private class PinCreatedMentionSpan(
+    private val listener: SystemThreadHighlightTextView.Listener,
+    private val userId: String,
+    private val textColor: Int,
+    private val bgColor: Int
+) : ClickableSpan() {
+    override fun onClick(widget: android.view.View) {
+        listener.onMentionClick(userId, null)
+    }
+
+    override fun updateDrawState(ds: android.text.TextPaint) {
+        ds.color = textColor
+        ds.bgColor = bgColor
+        ds.isUnderlineText = false
+    }
+}
+
+private class PinCreatedAllPinsSpan(
+    private val listener: SystemThreadHighlightTextView.Listener,
+    private val textColor: Int
+) : ClickableSpan() {
+    override fun onClick(widget: android.view.View) {
+        listener.onAllPinsClick()
+    }
+
+    override fun updateDrawState(ds: android.text.TextPaint) {
+        ds.color = textColor
+        ds.isUnderlineText = false
+    }
+}
+
+private class PinCreatedMessageSpan(
+    private val listener: SystemThreadHighlightTextView.Listener,
+    private val messageRefId: Long,
+    private val textColor: Int
+) : ClickableSpan() {
+    override fun onClick(widget: android.view.View) {
+        listener.onJumpToPinnedMessage(messageRefId)
+    }
+
+    override fun updateDrawState(ds: android.text.TextPaint) {
+        ds.color = textColor
         ds.isUnderlineText = false
     }
 }

@@ -1001,6 +1001,11 @@
     <string name="message_attachment_location">Vị trí</string>
     <string name="message_attachment_poll">Bình chọn</string>
     <string name="system_msg_started_thread_lead">Đã tạo thread:</string>
+    <string name="system_msg_pin_link_phrase">một tin nhắn</string>
+    <string name="system_msg_pin_pinned_lead">đã ghim</string>
+    <string name="system_msg_pin_to_channel_see">vào kênh này. Xem</string>
+    <string name="system_msg_all_pins">tất cả tin nhắn</string>
+    <string name="system_msg_pin_messages_suffix">đã ghim.</string>
     <string name="system_msg_thread_sentence_see">Xem</string>
     <string name="system_msg_all_threads">tất cả thread</string>
     <string name="channel_files_search_placeholder">Tìm kiếm tệp</string>

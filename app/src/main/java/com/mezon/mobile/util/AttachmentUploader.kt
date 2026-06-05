@@ -15,7 +15,6 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
-import java.io.RandomAccessFile
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -25,9 +24,10 @@ import kotlinx.coroutines.sync.withPermit
 object AttachmentUploader {
 
     private const val TAG = "AttachmentUploader"
-    private const val PARALLEL_PART_UPLOADS = 3
-    private const val MULTIPART_PART_SIZE = 5 * 1024 * 1024
-    private const val MULTIPART_MIN_FILE_SIZE = 5 * 1024 * 1024
+    private const val PARALLEL_PART_UPLOADS_BYTES = 3
+    private const val PARALLEL_PART_UPLOADS_FILE = 5
+    private const val MULTIPART_PART_SIZE = 10 * 1024 * 1024
+    private const val MULTIPART_MIN_FILE_SIZE = 50L * 1024 * 1024
     private const val MULTIPART_UPLOAD_ENABLED = true
 
     private class MultipartNotApplicable : Exception()
@@ -38,6 +38,14 @@ object AttachmentUploader {
     fun resetMultipartAvailabilityForSession() {
         skipMultipartStartForSession = false
     }
+
+    private fun multipartPartCount(fileSize: Long): Int =
+        maxOf(1, ((fileSize + MULTIPART_PART_SIZE - 1) / MULTIPART_PART_SIZE).toInt())
+
+    private fun willUseMultipart(sizeBytes: Long): Boolean =
+        MULTIPART_UPLOAD_ENABLED &&
+            sizeBytes >= MULTIPART_MIN_FILE_SIZE &&
+            !skipMultipartStartForSession
 
     data class UploadedFileResult(
         val serverFilename: String,
@@ -247,7 +255,9 @@ object AttachmentUploader {
         cdnBaseUrl: String,
         onProgress: ((uploaded: Long, total: Long) -> Unit)? = null,
     ): UploadedFileResult {
-        if (MULTIPART_UPLOAD_ENABLED && bytes.size >= MULTIPART_MIN_FILE_SIZE && !skipMultipartStartForSession) {
+        val totalBytes = bytes.size.toLong()
+        onProgress?.invoke(0, totalBytes)
+        if (willUseMultipart(totalBytes)) {
             try {
                 return uploadMultipart(
                     api, apiUrl, token, uploadFilename, mimeType, bytes,
@@ -255,11 +265,6 @@ object AttachmentUploader {
                 )
             } catch (_: MultipartNotApplicable) {
                 skipMultipartStartForSession = true
-                Log.i(
-                    TAG,
-                    "Multipart start returned no part URLs (size=${bytes.size}); " +
-                        "skipping start RPC for rest of session",
-                )
             } catch (e: Exception) {
                 Log.w(TAG, "Multipart upload failed, falling back to single PUT: $uploadFilename", e)
             }
@@ -343,7 +348,8 @@ object AttachmentUploader {
         cdnBaseUrl: String,
         onProgress: ((uploaded: Long, total: Long) -> Unit)? = null,
     ): UploadedFileResult {
-        if (MULTIPART_UPLOAD_ENABLED && fileSize >= MULTIPART_MIN_FILE_SIZE && !skipMultipartStartForSession) {
+        onProgress?.invoke(0, fileSize)
+        if (willUseMultipart(fileSize)) {
             try {
                 return uploadMultipartFromFile(
                     api, apiUrl, token, uploadFilename, mimeType, file, fileSize,
@@ -351,11 +357,6 @@ object AttachmentUploader {
                 )
             } catch (_: MultipartNotApplicable) {
                 skipMultipartStartForSession = true
-                Log.i(
-                    TAG,
-                    "Multipart start returned no part URLs (size=$fileSize); " +
-                        "skipping start RPC for rest of session",
-                )
             } catch (e: Exception) {
                 Log.w(TAG, "Multipart upload failed, falling back to single PUT: $uploadFilename", e)
             }
@@ -403,19 +404,22 @@ object AttachmentUploader {
         cdnBaseUrl: String,
         onProgress: ((uploaded: Long, total: Long) -> Unit)?,
     ): UploadedFileResult {
+        val requestedPartCount = multipartPartCount(fileSize)
         val start = api.multipartUploadAttachmentFileStart(
             apiUrl, token, uploadFilename, mimeType, fileSize.toInt(), width, height,
+            partCount = requestedPartCount,
         )
         val urls = start.urlsList
         val uploadId = start.uploadId
+        val serverFilename = start.filename.ifEmpty { uploadFilename }
+        val cdnUrl = "$cdnBaseUrl/$serverFilename"
 
         if (urls.size == 1 && uploadId.isEmpty()) {
             api.putFileToPresignedUrlFromFile(urls[0], file, mimeType)
             onProgress?.invoke(fileSize, fileSize)
-            val serverFilename = start.filename.ifEmpty { uploadFilename }
             return UploadedFileResult(
                 serverFilename = serverFilename,
-                cdnUrl = "$cdnBaseUrl/$serverFilename",
+                cdnUrl = cdnUrl,
             )
         }
 
@@ -424,23 +428,19 @@ object AttachmentUploader {
         }
 
         val partCount = urls.size
-        val semaphore = Semaphore(PARALLEL_PART_UPLOADS)
+        val semaphore = Semaphore(PARALLEL_PART_UPLOADS_FILE)
         val uploadedLock = Any()
         var uploadedBytes = 0L
-
         val partResults = coroutineScope {
             urls.mapIndexed { index, url ->
                 async {
                     semaphore.withPermit {
                         val offset = index.toLong() * MULTIPART_PART_SIZE
-                        val end = if (index == partCount - 1) fileSize else offset + MULTIPART_PART_SIZE
-                        val len = (end - offset).toInt()
-                        val partBytes = ByteArray(len)
-                        RandomAccessFile(file, "r").use { raf ->
-                            raf.seek(offset)
-                            raf.readFully(partBytes)
-                        }
-                        val etag = api.putFilePartToPresignedUrl(url, partBytes, mimeType)
+                        val endExclusive = if (index == partCount - 1) fileSize else offset + MULTIPART_PART_SIZE
+                        val len = endExclusive - offset
+                        val etag = api.putFilePartRangeToPresignedUrl(
+                            url, file, offset, len, mimeType,
+                        )
                         synchronized(uploadedLock) {
                             uploadedBytes += len
                             onProgress?.invoke(uploadedBytes, fileSize)
@@ -450,14 +450,11 @@ object AttachmentUploader {
                 }
             }.awaitAll().sortedBy { it.first }
         }
-
-        val finish = api.multipartUploadAttachmentFileFinish(
-            apiUrl, token, start.uploadId, partResults,
-        )
-        val serverFilename = finish.filename.ifEmpty { start.filename.ifEmpty { uploadFilename } }
+        val finish = api.multipartUploadAttachmentFileFinish(apiUrl, token, uploadId, partResults, serverFilename)
+        val finalFilename = finish.filename.ifEmpty { serverFilename }
         return UploadedFileResult(
-            serverFilename = serverFilename,
-            cdnUrl = "$cdnBaseUrl/$serverFilename",
+            serverFilename = finalFilename,
+            cdnUrl = "$cdnBaseUrl/$finalFilename",
         )
     }
 
@@ -536,15 +533,18 @@ object AttachmentUploader {
         cdnBaseUrl: String,
         onProgress: ((uploaded: Long, total: Long) -> Unit)?,
     ): UploadedFileResult {
+        val totalSize = bytes.size.toLong()
+        val requestedPartCount = multipartPartCount(totalSize)
         val start = api.multipartUploadAttachmentFileStart(
             apiUrl, token, uploadFilename, mimeType, bytes.size, width, height,
+            partCount = requestedPartCount,
         )
         val urls = start.urlsList
         val uploadId = start.uploadId
 
         if (urls.size == 1 && uploadId.isEmpty()) {
             api.putFileToPresignedUrl(urls[0], bytes, mimeType)
-            onProgress?.invoke(bytes.size.toLong(), bytes.size.toLong())
+            onProgress?.invoke(totalSize, totalSize)
             val serverFilename = start.filename.ifEmpty { uploadFilename }
             return UploadedFileResult(
                 serverFilename = serverFilename,
@@ -556,9 +556,8 @@ object AttachmentUploader {
             throw MultipartNotApplicable()
         }
 
-        val totalSize = bytes.size.toLong()
         val partCount = urls.size
-        val semaphore = Semaphore(PARALLEL_PART_UPLOADS)
+        val semaphore = Semaphore(PARALLEL_PART_UPLOADS_BYTES)
         val uploadedLock = Any()
         var uploadedBytes = 0L
 
@@ -584,10 +583,11 @@ object AttachmentUploader {
             }.awaitAll().sortedBy { it.first }
         }
 
+        val finishFilename = start.filename.ifEmpty { uploadFilename }
         val finish = api.multipartUploadAttachmentFileFinish(
-            apiUrl, token, start.uploadId, partResults,
+            apiUrl, token, start.uploadId, partResults, finishFilename,
         )
-        val serverFilename = finish.filename.ifEmpty { start.filename.ifEmpty { uploadFilename } }
+        val serverFilename = finish.filename.ifEmpty { finishFilename }
         return UploadedFileResult(
             serverFilename = serverFilename,
             cdnUrl = "$cdnBaseUrl/$serverFilename",

@@ -25,7 +25,7 @@ class SystemMessagePlainTextView(
         highlightColor = 0x335865F2
         val paint = themeColors.systemMessageTextPaint
         setTextSize(TypedValue.COMPLEX_UNIT_PX, paint.textSize)
-        setTextColor(themeColors.primary)
+        setTextColor(paint.color)
         typeface = paint.typeface
         setLineSpacing(LayoutHelper.dpf(2f), 1f)
     }

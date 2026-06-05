@@ -13,6 +13,7 @@ import com.mezon.mobile.home.call.parseCallLogMessage
 import com.mezon.mobile.home.chat.poll.isPollContentJson
 import com.mezon.mobile.network.STREAM_MODE_CHANNEL
 import com.mezon.mobile.network.STREAM_MODE_THREAD
+import com.mezon.mobile.util.AttachmentUploadProgressStore
 import com.mezon.mobile.util.MENTION_HERE_USER_ID
 
 data class AttachmentInfo(
@@ -316,6 +317,16 @@ data class MessageEntity(
         return url.startsWith("content://") || url.startsWith("file://")
     }
 
+    fun isAttachmentUploadPending(url: String): Boolean {
+        if (!isLocalAttachmentUrl(url)) return false
+        if (attachmentUploadFailed(url)) return false
+        if (url == attachmentUrl && isError) return false
+        return true
+    }
+
+    fun attachmentUploadProgress(url: String): Float =
+        AttachmentUploadProgressStore.progress(url)
+
     private fun parseUploadErrorUrls(): Set<String> {
         if (extraAttachmentsJson.isEmpty()) return emptySet()
         return try {
@@ -359,6 +370,28 @@ data class MessageEntity(
         if (media.isEmpty()) return false
         val errorUrls = parseUploadErrorUrls()
         return media.indices.any { isMediaUploadPending(media[it], it, errorUrls) }
+    }
+
+    val hasPartialAttachmentUploadFailure: Boolean
+        get() = isError && sendState == SEND_STATE_SENT
+
+    private fun isUrlUploadFailed(url: String, errorUrls: Set<String>): Boolean {
+        if (url in errorUrls) return true
+        return url == attachmentUrl && isLocalAttachmentUrl(url) && isError
+    }
+
+    fun mediaUploadFailedFlags(): List<Boolean> {
+        val media = allImageAttachments
+        if (media.isEmpty()) return emptyList()
+        val errorUrls = parseUploadErrorUrls()
+        return media.map { isUrlUploadFailed(it.url, errorUrls) }
+    }
+
+    fun fileUploadFailedFlags(): List<Boolean> {
+        val files = allFileAttachments
+        if (files.isEmpty()) return emptyList()
+        val errorUrls = parseUploadErrorUrls()
+        return files.map { isUrlUploadFailed(it.url, errorUrls) }
     }
 
     fun buildAttachmentJson(): String {

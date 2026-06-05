@@ -59,6 +59,7 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
     private var urls = emptyList<String>()
     private var currentIndex = 0
     private var preferDrawableLoaderForSingle = false
+    private var oldestEdgeBaselinePosition = -1
     private val currentUrl get() = urls.getOrElse(currentIndex) { "" }
 
     var onReachedOldestEdge: (() -> Unit)? = null
@@ -164,6 +165,27 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
         root.addView(bottomBar, bottomBarParams)
 
         setContentView(root)
+
+        viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
+            override fun onPageSelected(position: Int) {
+                currentIndex = position
+                updateCounter()
+                onCurrentUrlChanged?.invoke(currentUrl)
+                maybeNotifyOldestEdge(position)
+            }
+        })
+    }
+
+    private fun maybeNotifyOldestEdge(position: Int) {
+        if (urls.size < 2) return
+        if (oldestEdgeBaselinePosition < 0) {
+            oldestEdgeBaselinePosition = position
+            return
+        }
+        if (position <= oldestEdgeBaselinePosition) return
+        if (position < urls.size - 2) return
+        oldestEdgeBaselinePosition = position
+        onReachedOldestEdge?.invoke()
     }
 
     fun show(
@@ -183,16 +205,9 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
         val thumbUrl = urls[0]
         val singleAnimated = urlNeedsAnimatedDrawable(thumbUrl) || preferDrawableLoaderForSingle
         val singleShowsThumb = single && !singleAnimated
+        oldestEdgeBaselinePosition = -1
         viewPager.adapter = PhotoPagerAdapter(thumbBitmap.takeIf { singleShowsThumb })
         viewPager.setCurrentItem(currentIndex, false)
-        viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
-            override fun onPageSelected(position: Int) {
-                currentIndex = position
-                updateCounter()
-                onCurrentUrlChanged?.invoke(currentUrl)
-                if (position >= urls.size - 2) onReachedOldestEdge?.invoke()
-            }
-        })
 
         updateCounter()
         backgroundDrawable.alpha = 0

@@ -171,13 +171,13 @@ class SessionManager @Inject constructor(
             )
 
             val newSession = StoredSession(
-                token = protoSession.token,
-                refreshToken = protoSession.refreshToken,
-                apiUrl = protoSession.apiUrl.ifEmpty { current.apiUrl },
-                wsUrl = protoSession.wsUrl.ifEmpty { current.wsUrl },
+                token = protoSession.getToken(),
+                refreshToken = protoSession.getRefreshToken(),
+                apiUrl = protoSession.getApiUrl().ifEmpty { current.apiUrl },
+                wsUrl = protoSession.getWsUrl().ifEmpty { current.wsUrl },
                 userId = current.userId,
-                idToken = protoSession.idToken.ifEmpty { current.idToken },
-                isRemember = current.isRemember
+                idToken = protoSession.getIdToken().ifEmpty { current.idToken },
+                isRemember = current.isRemember,
             )
 
             saveSession(newSession)

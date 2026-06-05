@@ -1032,6 +1032,11 @@
     <string name="advanced_files">Files</string>
     <string name="advanced_threads">Threads</string>
     <string name="system_msg_started_thread_lead">started a thread:</string>
+    <string name="system_msg_pin_link_phrase">a message</string>
+    <string name="system_msg_pin_pinned_lead">pinned</string>
+    <string name="system_msg_pin_to_channel_see">to this channel. See</string>
+    <string name="system_msg_all_pins">all pinned</string>
+    <string name="system_msg_pin_messages_suffix">messages.</string>
     <string name="system_msg_thread_sentence_see">See</string>
     <string name="system_msg_all_threads">all threads</string>
     <string name="advanced_anonymous">Anonymous</string>

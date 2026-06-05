@@ -1907,7 +1907,8 @@ class MezonApi @Inject constructor(
         filetype: String,
         size: Int,
         width: Int = 0,
-        height: Int = 0
+        height: Int = 0,
+        partCount: Int = 1,
     ): MultipartUploadAttachment {
         val request = uploadAttachmentRequest {
             this.filename = filename
@@ -1915,6 +1916,7 @@ class MezonApi @Inject constructor(
             this.size = size
             if (width > 0) this.width = width
             if (height > 0) this.height = height
+            if (partCount > 0) this.partCount = partCount
         }
         val bytes = rpc(apiUrl, token, "MultipartUploadAttachmentFileStart", request.toByteArray())
         return MultipartUploadAttachment.parseFrom(bytes)
@@ -1924,10 +1926,12 @@ class MezonApi @Inject constructor(
         apiUrl: String,
         token: String,
         uploadId: String,
-        parts: List<Pair<Int, String>>
+        parts: List<Pair<Int, String>>,
+        filename: String = "",
     ): UploadAttachment {
         val request = multipartUploadAttachmentFinishRequest {
             this.uploadId = uploadId
+            if (filename.isNotEmpty()) this.filename = filename
             parts.forEach { (partNumber, eTag) ->
                 this.parts.add(
                     multipartUploadAttachmentPart {
@@ -2827,6 +2831,35 @@ class MezonApi @Inject constructor(
         val response = httpClient.put(presignedUrl) {
             header(HttpHeaders.ContentType, contentType)
             setBody(partBytes)
+        }
+        if (!response.status.isSuccess()) {
+            throw RuntimeException("File part upload failed (${response.status.value})")
+        }
+        return response.headers[HttpHeaders.ETag]
+            ?.trim()
+            ?.trim('"')
+            ?.takeIf { it.isNotEmpty() }
+            ?: throw RuntimeException("File part upload missing ETag")
+    }
+
+    suspend fun putFilePartRangeToPresignedUrl(
+        presignedUrl: String,
+        file: java.io.File,
+        offset: Long,
+        length: Long,
+        contentType: String,
+    ): String {
+        if (length <= 0L) throw IllegalArgumentException("part length must be positive")
+        val endInclusive = offset + length - 1L
+        val parsedType = ContentType.parse(contentType)
+        val body = object : OutgoingContent.ReadChannelContent() {
+            override val contentLength: Long = length
+            override val contentType: ContentType = parsedType
+            override fun readFrom(): ByteReadChannel =
+                file.readChannel(start = offset, endInclusive = endInclusive)
+        }
+        val response = httpClient.put(presignedUrl) {
+            setBody(body)
         }
         if (!response.status.isSuccess()) {
             throw RuntimeException("File part upload failed (${response.status.value})")

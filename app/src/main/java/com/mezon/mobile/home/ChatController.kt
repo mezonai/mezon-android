@@ -37,6 +37,8 @@ import com.mezon.mobile.home.chat.thread.ThreadStatus
 import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.BuildConfig
+import com.mezon.mobile.util.AttachmentUploadProgressStore
+import com.mezon.mobile.util.AttachmentUploader
 import com.mezon.mobile.util.MENTION_HERE_USER_ID
 import com.mezon.mobile.util.MezonSnowflake
 import com.mezon.mobile.util.firstReferenceMessageId
@@ -196,6 +198,16 @@ class ChatController @Inject constructor(
         pendingAttachmentEntityByTempId.get(tempId)?.also {
             pendingAttachmentEntityByTempId.remove(tempId)
         }
+    }
+
+    fun getActivePendingAttachmentMessages(cacheKey: Long): List<MessageEntity> = synchronized(this) {
+        val result = ArrayList<MessageEntity>()
+        for (i in 0 until attachmentJobsByTempId.size()) {
+            if (attachmentJobsByTempId.valueAt(i).cacheKey != cacheKey) continue
+            val entity = pendingAttachmentEntityByTempId.get(attachmentJobsByTempId.keyAt(i)) ?: continue
+            result.add(entity)
+        }
+        result
     }
 
     fun mergeSelfSentMessageEcho(existing: MessageEntity, incoming: MessageEntity): MessageEntity {
@@ -1287,7 +1299,7 @@ class ChatController @Inject constructor(
         private const val ATTACHMENT_UPLOAD_PARALLELISM = 4
         private const val IMAGE_COMPRESSION_PARALLELISM = 2
         private const val LARGE_ATTACHMENT_BYTES = 50L * 1024 * 1024
-        private const val LARGE_ATTACHMENT_PARALLELISM = 2
+        private const val LARGE_ATTACHMENT_PARALLELISM = 3
         private const val PENDING_API_REACTION_DEDUP_MS = 5000L
     }
 
@@ -1792,6 +1804,24 @@ class ChatController @Inject constructor(
         }
     }
 
+    private fun attachmentUploadProgressCallback(progressKey: String): (uploaded: Long, total: Long) -> Unit {
+        return { uploaded, total ->
+            if (total > 0L) {
+                val fraction = (uploaded.toFloat() / total.toFloat()).coerceIn(0f, 1f)
+                if (AttachmentUploadProgressStore.setProgressIfBucketChanged(progressKey, fraction)) {
+                    notificationCenter.postNotificationOnMainThread(
+                        NotificationCenter.attachmentUploadProgress,
+                        progressKey,
+                    )
+                }
+            }
+        }
+    }
+
+    private fun clearAttachmentUploadProgress(progressKey: String) {
+        AttachmentUploadProgressStore.clear(progressKey)
+    }
+
     private suspend fun loadAndUploadAttachment(
         item: AttachmentPickerItem,
         contentResolver: android.content.ContentResolver,
@@ -1800,39 +1830,46 @@ class ChatController @Inject constructor(
         cdnBaseUrl: String,
         maxRetries: Int,
     ): MessageAttachment? {
-        val uploader = com.mezon.mobile.util.AttachmentUploader
-
-        if (!item.isVideo && uploader.isCompressibleImage(item.mimeType)) {
-            val compressed = imageCompressionSlots.withPermit {
-                uploader.compressImageFromUri(
-                    contentResolver, item.uri, item.mimeType, item.filename, item.size,
-                )
+        val progressKey = item.uri.toString()
+        val onProgress = attachmentUploadProgressCallback(progressKey)
+        try {
+            if (!item.isVideo && AttachmentUploader.isCompressibleImage(item.mimeType)) {
+                val compressed = imageCompressionSlots.withPermit {
+                    AttachmentUploader.compressImageFromUri(
+                        contentResolver, item.uri, item.mimeType, item.filename, item.size,
+                    )
+                }
+                if (compressed != null) {
+                    val uploadItem = item.copy(
+                        filename = compressed.filename,
+                        mimeType = compressed.mimeType,
+                        width = compressed.width,
+                        height = compressed.height,
+                        size = compressed.bytes.size.toLong(),
+                    )
+                    return uploadCachedAttachment(
+                        CachedAttachment(uploadItem, compressed.bytes),
+                        apiUrl, token, cdnBaseUrl, maxRetries, onProgress,
+                    )
+                }
             }
-            if (compressed != null) {
-                val uploadItem = item.copy(
-                    filename = compressed.filename,
-                    mimeType = compressed.mimeType,
-                    width = compressed.width,
-                    height = compressed.height,
-                    size = compressed.bytes.size.toLong(),
-                )
-                return uploadCachedAttachment(
-                    CachedAttachment(uploadItem, compressed.bytes), apiUrl, token, cdnBaseUrl, maxRetries,
-                )
-            }
-        }
 
-        val tmpFile = uploader.copyUriToTempFile(
-            contentResolver, item.uri, item.mimeType, appContext.cacheDir,
-        )
-        if (tmpFile == null) {
-            Log.e(TAG, "Failed to read file or over size: ${item.filename}")
-            return null
-        }
-        return try {
-            uploadStreamedAttachment(item, tmpFile, apiUrl, token, cdnBaseUrl, maxRetries)
+            val tmpFile = AttachmentUploader.copyUriToTempFile(
+                contentResolver, item.uri, item.mimeType, appContext.cacheDir,
+            )
+            if (tmpFile == null) {
+                Log.e(TAG, "Failed to read file or over size: ${item.filename}")
+                return null
+            }
+            return try {
+                uploadStreamedAttachment(
+                    item, tmpFile, apiUrl, token, cdnBaseUrl, maxRetries, onProgress,
+                )
+            } finally {
+                runCatching { tmpFile.delete() }
+            }
         } finally {
-            runCatching { tmpFile.delete() }
+            clearAttachmentUploadProgress(progressKey)
         }
     }
 
@@ -1871,6 +1908,7 @@ class ChatController @Inject constructor(
         token: String,
         cdnBaseUrl: String,
         maxRetries: Int,
+        onProgress: ((uploaded: Long, total: Long) -> Unit)? = null,
     ): MessageAttachment? {
         val fileSize = file.length()
         for (attempt in 1..maxRetries) {
@@ -1880,7 +1918,7 @@ class ChatController @Inject constructor(
                 val uploadFilename = "${timestamp}_$sanitizedName"
                 val uploadResult = com.mezon.mobile.util.AttachmentUploader.uploadAttachmentFromFile(
                     api, apiUrl, token, uploadFilename, item.mimeType, file, fileSize,
-                    item.width, item.height, cdnBaseUrl,
+                    item.width, item.height, cdnBaseUrl, onProgress,
                 )
                 val thumbUrl = uploadVideoThumbnailIfNeeded(
                     item, file, apiUrl, token, cdnBaseUrl, timestamp, sanitizedName,
@@ -1910,6 +1948,7 @@ class ChatController @Inject constructor(
         token: String,
         cdnBaseUrl: String,
         maxRetries: Int,
+        onProgress: ((uploaded: Long, total: Long) -> Unit)? = null,
     ): MessageAttachment? {
         val item = cached.item
         for (attempt in 1..maxRetries) {
@@ -1919,7 +1958,7 @@ class ChatController @Inject constructor(
                 val uploadFilename = "${timestamp}_$sanitizedName"
                 val uploadResult = com.mezon.mobile.util.AttachmentUploader.uploadAttachmentBytes(
                     api, apiUrl, token, uploadFilename, item.mimeType, cached.bytes,
-                    item.width, item.height, cdnBaseUrl,
+                    item.width, item.height, cdnBaseUrl, onProgress,
                 )
                 return messageAttachment {
                     this.filename = item.filename
@@ -2303,49 +2342,11 @@ class ChatController @Inject constructor(
         if (!preserveLocalAttachments) {
             return incoming.copy(content = resolveEchoContent(incoming.content, base.content))
         }
-        val incomingFields = entityAttachmentFieldsFromProto(
-            incoming.allAttachmentsInfo.map { att ->
-                messageAttachment {
-                    filename = att.filename
-                    url = att.url
-                    filetype = att.filetype
-                    size = att.size
-                    width = att.width
-                    height = att.height
-                    thumbnail = att.thumb
-                    duration = att.duration
-                }
-            }
-        )
-        val primaryUrl = when {
-            incomingFields.attachmentUrl.isNotBlank() && isLocalAttachmentUrl(base.attachmentUrl) ->
-                incomingFields.attachmentUrl
-            incomingFields.attachmentUrl.isNotBlank() -> incomingFields.attachmentUrl
-            else -> base.attachmentUrl
-        }
         return base.copy(
             content = resolveEchoContent(base.content, incoming.content),
             updateTimeSeconds = incoming.updateTimeSeconds,
             hideEditted = incoming.hideEditted,
             code = incoming.code,
-            attachmentUrl = primaryUrl,
-            attachmentThumb = incomingFields.attachmentThumb.ifBlank { base.attachmentThumb },
-            attachmentWidth = if (incomingFields.attachmentWidth > 0) incomingFields.attachmentWidth else base.attachmentWidth,
-            attachmentHeight = if (incomingFields.attachmentHeight > 0) incomingFields.attachmentHeight else base.attachmentHeight,
-            attachmentFilename = incomingFields.attachmentFilename.ifBlank { base.attachmentFilename },
-            attachmentFiletype = incomingFields.attachmentFiletype.ifBlank { base.attachmentFiletype },
-            attachmentSize = if (incomingFields.attachmentSize > 0) incomingFields.attachmentSize else base.attachmentSize,
-            attachmentDuration = if (incomingFields.attachmentDuration > 0) incomingFields.attachmentDuration else base.attachmentDuration,
-            extraAttachmentsJson = if (incomingCount >= expectedTotal) {
-                incomingFields.extraAttachmentsJson
-            } else {
-                base.extraAttachmentsJson
-            },
-            messageType = if (primaryUrl.isNotEmpty()) {
-                if (incomingFields.attachmentUrl.isNotEmpty()) incomingFields.messageType else base.messageType
-            } else {
-                base.messageType
-            },
         )
     }
 

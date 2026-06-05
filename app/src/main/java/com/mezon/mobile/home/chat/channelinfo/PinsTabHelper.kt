@@ -16,12 +16,17 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.home.ChatController
 import com.mezon.mobile.home.MemberResolver
 import com.mezon.mobile.home.PinMessageController
 import com.mezon.mobile.home.PinMessageData
+import com.mezon.mobile.home.chat.MessageEntity
 import com.mezon.mobile.home.chat.PinMessageAdapter
 import com.mezon.mobile.home.chat.PinMessageCell
 import com.mezon.mobile.ui.cells.MezonIcon
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class PinsTabHelper(
     private val channelId: Long,
@@ -29,6 +34,8 @@ class PinsTabHelper(
     private val channelType: Int,
     private val themeColors: ThemeColors,
     private val pinMessageController: PinMessageController,
+    private val chatController: ChatController,
+    private val scope: CoroutineScope,
     private val memberResolver: MemberResolver,
     private val notificationCenter: NotificationCenter,
     private val hostActivity: Activity,
@@ -40,6 +47,7 @@ class PinsTabHelper(
     private var recyclerView: RecyclerListView? = null
     private var emptyView: View? = null
     private var loadingView: View? = null
+    private val cachedMessagesById = HashMap<Long, MessageEntity>()
 
     override fun buildView(context: Context): View {
         val container = FrameLayout(context)
@@ -89,20 +97,72 @@ class PinsTabHelper(
         loadingView = progress
         container.addView(progress, LayoutHelper.createFrame(48, 48, Gravity.CENTER))
 
-        pinMessageController.loadPinMessages(channelId, clanId)
+        val cachedPins = pinMessageController.getPinMessages(channelId)
+        if (cachedPins.isNotEmpty()) {
+            applyPinList(cachedPins)
+            refreshFromServer(showLoading = false)
+        } else {
+            showLoading()
+            refreshFromServer(showLoading = true)
+        }
         return container
     }
 
+    fun refreshFromServer(showLoading: Boolean = false) {
+        if (showLoading) showLoading()
+        pinMessageController.loadPinMessages(channelId, clanId, noCache = false)
+    }
+
+    fun onPinRemoved(messageId: Long) {
+        val removed = adapter?.removeByMessageId(messageId) == true
+        cachedMessagesById.remove(messageId)
+        updateEmptyState()
+        if (!removed) reload()
+    }
+
     override fun reload() {
-        val items = pinMessageController.getPinMessages(channelId)
-        adapter?.setData(items)
+        applyPinList(pinMessageController.getPinMessages(channelId))
+    }
+
+    private fun showLoading() {
+        loadingView?.visibility = View.VISIBLE
+        recyclerView?.visibility = View.GONE
+        emptyView?.visibility = View.GONE
+    }
+
+    private fun updateEmptyState() {
+        val hasItems = (adapter?.pinCount ?: 0) > 0
         loadingView?.visibility = View.GONE
-        if (items.isEmpty()) {
-            emptyView?.visibility = View.VISIBLE
-            recyclerView?.visibility = View.GONE
-        } else {
+        if (hasItems) {
             emptyView?.visibility = View.GONE
             recyclerView?.visibility = View.VISIBLE
+        } else {
+            emptyView?.visibility = View.VISIBLE
+            recyclerView?.visibility = View.GONE
+        }
+    }
+
+    private fun applyPinList(items: List<PinMessageData>) {
+        if (items.isEmpty()) {
+            cachedMessagesById.clear()
+            adapter?.setData(emptyList())
+            updateEmptyState()
+            return
+        }
+        val messageIds = items.map { it.messageId }.filter { it != 0L }.distinct()
+        val missingIds = messageIds.filter { !cachedMessagesById.containsKey(it) }
+        if (missingIds.isEmpty()) {
+            cachedMessagesById.keys.retainAll(messageIds.toSet())
+            adapter?.setData(items, HashMap(cachedMessagesById), mergeMessages = true)
+            updateEmptyState()
+            return
+        }
+        scope.launch(Dispatchers.Main.immediate) {
+            val fetched = chatController.getMessagesByIds(channelId, missingIds)
+            cachedMessagesById.putAll(fetched)
+            cachedMessagesById.keys.retainAll(messageIds.toSet())
+            adapter?.setData(items, HashMap(cachedMessagesById), mergeMessages = true)
+            updateEmptyState()
         }
     }
 

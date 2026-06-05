@@ -228,6 +228,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var drawError = false
     private var drawSending = false
     private var hasPendingMediaUploads = false
+    private var hasPendingFileUploads = false
+    private val fileUploadPending = ArrayList<Boolean>()
+    private val fileUploadFailed = ArrayList<Boolean>()
+    private val fileAttachmentUrls = ArrayList<String>()
     private var fileIconDrawable: Drawable? = null
     private val fileRoundRect = RectF()
     private var fileRowWidth = 0
@@ -466,6 +470,11 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
         slotIsVideo.fill(false)
         slotUploadPending.fill(false)
+        slotUploadFailed.fill(false)
+        fileUploadPending.clear()
+        fileUploadFailed.clear()
+        fileAttachmentUrls.clear()
+        hasPendingFileUploads = false
         mediaGridCount = 0
         mediaGridTotalH = 0
         mediaGroupSlots = emptyList()
@@ -489,6 +498,11 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var lastBoundId = 0L
     private var lastBoundContentHash = 0
     private var lastBoundCombined = false
+
+    fun resetForRebind() {
+        lastBoundId = 0L
+        lastBoundContentHash = 0
+    }
 
     fun update(mask: Int, newMsg: MessageEntity? = null): Boolean {
         val msg = newMsg ?: messageEntity ?: return false
@@ -526,9 +540,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             drawForwardHeader = msg.isForwarded
             drawEdited = msg.isEdited && !msg.hideEditted
             drawEphemeral = msg.isEphemeral
-            drawError = msg.isError
+            drawError = msg.isError && !msg.hasPartialAttachmentUploadFailure
             drawSending = msg.isSending
             hasPendingMediaUploads = msg.hasPendingMediaAttachmentUploads()
+            hasPendingFileUploads = msg.allFileAttachments.any { msg.isAttachmentUploadPending(it.url) }
             hasReply = if (isInPinMode) false else parseReply(msg)
             if (isInPinMode) {
                 drawForwardHeader = false
@@ -537,6 +552,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 drawError = false
                 drawSending = false
                 hasPendingMediaUploads = false
+                hasPendingFileUploads = false
             }
             updateColors(msg)
             if (drawPhotoImage) computePhotoSize(msg)
@@ -574,8 +590,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         if ((mask and NotificationCenter.UPDATE_MASK_SEND_STATE) != 0) {
             val prevError = drawError
             drawSending = msg.isSending
-            drawError = msg.isError
+            drawError = msg.isError && !msg.hasPartialAttachmentUploadFailure
             hasPendingMediaUploads = msg.hasPendingMediaAttachmentUploads()
+            hasPendingFileUploads = msg.allFileAttachments.any { msg.isAttachmentUploadPending(it.url) }
             if (BuildConfig.DEBUG) {
                 Log.d(
                     TAG,
@@ -620,10 +637,15 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             return true
         }
 
+        if ((mask and NotificationCenter.UPDATE_MASK_UPLOAD_PROGRESS) != 0) {
+            needInvalidate = true
+        }
+
         if ((mask and NotificationCenter.UPDATE_MASK_ATTACHMENTS) != 0) {
             val m = newMsg ?: messageEntity ?: return false
             if (newMsg != null) messageEntity = newMsg
             hasPendingMediaUploads = m.hasPendingMediaAttachmentUploads()
+            hasPendingFileUploads = m.allFileAttachments.any { m.isAttachmentUploadPending(it.url) }
             drawPhotoImage = m.hasAnyMedia
             val isAudioAtt = m.isAudioAttachment && !m.hasAnyMedia
             drawAudioAttachment = isAudioAtt
@@ -662,9 +684,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             drawForwardHeader = m.isForwarded
             drawEdited = m.isEdited && !m.hideEditted
             drawEphemeral = m.isEphemeral
-            drawError = m.isError
+            drawError = m.isError && !m.hasPartialAttachmentUploadFailure
             drawSending = m.isSending
             hasPendingMediaUploads = m.hasPendingMediaAttachmentUploads()
+            hasPendingFileUploads = m.allFileAttachments.any { m.isAttachmentUploadPending(it.url) }
             updateColors(m)
             buildLayouts(m)
             if (!drawPhotoImage) clearPhotoReceivers()
@@ -776,10 +799,14 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private val videoThumbJobs = ArrayList<Job?>()
     private val slotIsVideo = ArrayList<Boolean>()
     private val slotUploadPending = ArrayList<Boolean>()
+    private val slotUploadFailed = ArrayList<Boolean>()
+    private val mediaSlotUrls = ArrayList<String>()
 
     private fun ensureSlotCapacity(count: Int) {
         while (slotIsVideo.size < count) slotIsVideo.add(false)
         while (slotUploadPending.size < count) slotUploadPending.add(false)
+        while (slotUploadFailed.size < count) slotUploadFailed.add(false)
+        while (mediaSlotUrls.size < count) mediaSlotUrls.add("")
         while (videoThumbJobs.size < count) videoThumbJobs.add(null)
     }
 
@@ -823,10 +850,17 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         ensureSlotCapacity(mediaGridCount)
         for (i in 0 until slotIsVideo.size) slotIsVideo[i] = false
         for (i in 0 until slotUploadPending.size) slotUploadPending[i] = false
+        for (i in 0 until slotUploadFailed.size) slotUploadFailed[i] = false
+        for (i in 0 until mediaSlotUrls.size) mediaSlotUrls[i] = ""
 
         if (mediaGridCount == 0) return
 
         val uploadPendingFlags = msg.mediaUploadPendingFlags()
+        val uploadFailedFlags = if (msg.hasPartialAttachmentUploadFailure) {
+            msg.mediaUploadFailedFlags()
+        } else {
+            emptyList()
+        }
 
         if (mediaGridCount > 1 && mediaGroupSlots.size != mediaGridCount) {
             val parentW = currentWidth()
@@ -853,6 +887,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             val isVideo = att.filetype.startsWith("video/", true)
             slotIsVideo[i] = isVideo
             slotUploadPending[i] = uploadPendingFlags.getOrElse(i) { false }
+            slotUploadFailed[i] = uploadFailedFlags.getOrElse(i) { false }
+            mediaSlotUrls[i] = att.url
             if (isLocalUri && isVideo) {
                 receiver.recycle()
                 loadLocalVideoThumbnail(att.url, i)
@@ -1726,6 +1762,19 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val fileTextW = (cardInnerW - FILE_ROW_H_PAD * 2 - FILE_ICON_SIZE - FILE_ICON_GAP).coerceAtLeast(1)
 
         val files = msg.allFileAttachments
+        fileUploadPending.clear()
+        fileUploadFailed.clear()
+        fileAttachmentUrls.clear()
+        val fileFailedFlags = if (msg.hasPartialAttachmentUploadFailure) {
+            msg.fileUploadFailedFlags()
+        } else {
+            emptyList()
+        }
+        for ((index, att) in files.withIndex()) {
+            fileAttachmentUrls.add(att.url)
+            fileUploadPending.add(msg.isAttachmentUploadPending(att.url))
+            fileUploadFailed.add(fileFailedFlags.getOrElse(index) { false })
+        }
         val first = files.firstOrNull()
         val name = first?.filename?.ifEmpty { "File" } ?: msg.attachmentFilename.ifEmpty { "File" }
         fileNameLayout = StaticLayout.Builder.obtain(name, 0, name.length, theme.chatFileNamePaint, fileTextW)
@@ -2699,7 +2748,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
         val alpha = when {
             drawError -> 0.6f
-            drawSending || hasPendingMediaUploads -> 0.7f
+            drawSending || hasPendingMediaUploads || hasPendingFileUploads -> 0.7f
             else -> 1f
         }
         if (alpha < 1f) {
@@ -2739,7 +2788,44 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         canvas.drawLine(cx, cy, cx + handLen * 0.7f, cy, SENDING_HAND_PAINT)
     }
 
-    private fun drawAttachmentUploadSpinner(canvas: Canvas, x: Float, y: Float, w: Float, h: Float, radius: Float) {
+    private fun drawAttachmentUploadSpinner(
+        canvas: Canvas, x: Float, y: Float, w: Float, h: Float, radius: Float, progress: Float = 0f,
+    ) {
+        tmpRect.set(x, y, x + w, y + h)
+        if (radius > 0) {
+            canvas.drawRoundRect(tmpRect, radius, radius, SPINNER_OVERLAY_PAINT)
+        } else {
+            canvas.drawRect(tmpRect, SPINNER_OVERLAY_PAINT)
+        }
+        val cx = x + w / 2f
+        val midY = y + h / 2f
+        val arcCy: Float
+        if (progress > 0f) {
+            val stackH = UPLOAD_PROGRESS_SPINNER_D + UPLOAD_PROGRESS_GAP + UPLOAD_PROGRESS_TEXT_H
+            val stackTop = midY - stackH / 2f
+            arcCy = stackTop + SPINNER_RADIUS
+        } else {
+            arcCy = midY
+        }
+        spinnerArcRect.set(cx - SPINNER_RADIUS, arcCy - SPINNER_RADIUS, cx + SPINNER_RADIUS, arcCy + SPINNER_RADIUS)
+        val now = android.os.SystemClock.elapsedRealtime()
+        val rotation = (now % SPINNER_ROT_PERIOD_MS).toFloat() / SPINNER_ROT_PERIOD_MS * 360f
+        val sweepProgress = (now % SPINNER_SWEEP_PERIOD_MS).toFloat() / SPINNER_SWEEP_PERIOD_MS
+        val osc = (0.5 - 0.5 * Math.cos(2.0 * Math.PI * sweepProgress)).toFloat()
+        val sweep = SPINNER_MIN_SWEEP + (SPINNER_MAX_SWEEP - SPINNER_MIN_SWEEP) * osc
+        canvas.drawArc(spinnerArcRect, rotation - sweep / 2f, sweep, false, SPINNER_ARC_PAINT)
+        if (progress > 0f) {
+            val pct = UPLOAD_PROGRESS_PCT_STRINGS[(progress * 100f).toInt().coerceIn(0, 100)]
+            val stackH = UPLOAD_PROGRESS_SPINNER_D + UPLOAD_PROGRESS_GAP + UPLOAD_PROGRESS_TEXT_H
+            val stackTop = midY - stackH / 2f
+            val textBaseline = stackTop + UPLOAD_PROGRESS_SPINNER_D + UPLOAD_PROGRESS_GAP - UPLOAD_PROGRESS_TEXT_ASCENT
+            UPLOAD_PROGRESS_TEXT_PAINT.color = UPLOAD_PROGRESS_TEXT_COLOR
+            canvas.drawText(pct, cx, textBaseline, UPLOAD_PROGRESS_TEXT_PAINT)
+        }
+        scheduleSpinnerRedraw()
+    }
+
+    private fun drawAttachmentUploadFailed(canvas: Canvas, x: Float, y: Float, w: Float, h: Float, radius: Float) {
         tmpRect.set(x, y, x + w, y + h)
         if (radius > 0) {
             canvas.drawRoundRect(tmpRect, radius, radius, SPINNER_OVERLAY_PAINT)
@@ -2748,14 +2834,13 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
         val cx = x + w / 2f
         val cy = y + h / 2f
-        spinnerArcRect.set(cx - SPINNER_RADIUS, cy - SPINNER_RADIUS, cx + SPINNER_RADIUS, cy + SPINNER_RADIUS)
-        val now = android.os.SystemClock.elapsedRealtime()
-        val rotation = (now % SPINNER_ROT_PERIOD_MS).toFloat() / SPINNER_ROT_PERIOD_MS * 360f
-        val sweepProgress = (now % SPINNER_SWEEP_PERIOD_MS).toFloat() / SPINNER_SWEEP_PERIOD_MS
-        val osc = (0.5 - 0.5 * Math.cos(2.0 * Math.PI * sweepProgress)).toFloat()
-        val sweep = SPINNER_MIN_SWEEP + (SPINNER_MAX_SWEEP - SPINNER_MIN_SWEEP) * osc
-        canvas.drawArc(spinnerArcRect, rotation - sweep / 2f, sweep, false, SPINNER_ARC_PAINT)
-        scheduleSpinnerRedraw()
+        canvas.drawCircle(cx, cy, UPLOAD_FAILED_BADGE_RADIUS, UPLOAD_FAILED_BADGE_PAINT)
+        val baseline = cy - (UPLOAD_FAILED_ICON_PAINT.descent() + UPLOAD_FAILED_ICON_PAINT.ascent()) / 2f
+        canvas.drawText(UPLOAD_FAILED_ICON_TEXT, cx, baseline, UPLOAD_FAILED_ICON_PAINT)
+    }
+
+    private fun isSlotUploadFailed(slot: Int): Boolean {
+        return slotUploadFailed.getOrNull(slot) == true
     }
 
     private fun drawStickerOnly(canvas: Canvas, msg: MessageEntity) {
@@ -2794,8 +2879,14 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         photoImage.setRoundRadius(0)
         photoImage.setImageCoords(imgX, yOff, photoWidth.toFloat(), photoHeight.toFloat())
         photoImage.draw(canvas)
-        if (isSlotUploadPending(0)) {
-            drawAttachmentUploadSpinner(canvas, imgX, yOff, photoWidth.toFloat(), photoHeight.toFloat(), 0f)
+        if (isSlotUploadFailed(0)) {
+            drawAttachmentUploadFailed(canvas, imgX, yOff, photoWidth.toFloat(), photoHeight.toFloat(), 0f)
+        } else if (isSlotUploadPending(0)) {
+            val url = mediaSlotUrls.getOrNull(0).orEmpty()
+            val progress = if (url.isNotEmpty()) msg.attachmentUploadProgress(url) else 0f
+            drawAttachmentUploadSpinner(
+                canvas, imgX, yOff, photoWidth.toFloat(), photoHeight.toFloat(), 0f, progress,
+            )
         } else if (!photoImage.hasMainImage() && photoImage.shouldAnimateLoadingPlaceholder()) {
             shimmerEffect.draw(canvas, imgX, yOff, imgX + photoWidth, yOff + photoHeight, 0f,
                 theme.resolvedMode != com.mezon.mobile.ui.theme.ThemeMode.LIGHT)
@@ -2962,17 +3053,25 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private fun drawFileBlock(canvas: Canvas, x: Float, y: Float): Float {
         val iconD = fileIconDrawable ?: return y
+        val msg = messageEntity ?: return y
         var yOff = y
-        yOff = drawSingleFileCard(canvas, x, yOff, iconD, fileNameLayout, fileSizeLayout, isFirst = true)
+        yOff = drawSingleFileCard(
+            canvas, x, yOff, iconD, fileNameLayout, fileSizeLayout, isFirst = true, fileIndex = 0, msg = msg,
+        )
+        var extraIndex = 1
         for ((nl, sl) in extraFileLayouts) {
-            yOff = drawSingleFileCard(canvas, x, yOff, iconD, nl, sl, isFirst = false)
+            yOff = drawSingleFileCard(
+                canvas, x, yOff, iconD, nl, sl, isFirst = false, fileIndex = extraIndex, msg = msg,
+            )
+            extraIndex++
         }
         return yOff
     }
 
     private fun drawSingleFileCard(
         canvas: Canvas, x: Float, y: Float, iconD: Drawable,
-        nameLayout: StaticLayout?, sizeLayout: StaticLayout?, isFirst: Boolean
+        nameLayout: StaticLayout?, sizeLayout: StaticLayout?, isFirst: Boolean,
+        fileIndex: Int, msg: MessageEntity,
     ): Float {
         val cardW = fileRowWidth.toFloat()
         val textH = (nameLayout?.height ?: 0) + (sizeLayout?.height ?: 0)
@@ -3002,18 +3101,48 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val textX = innerX + FILE_ICON_SIZE + FILE_ICON_GAP
         val totalTextH = textH.toFloat()
         var textY = innerY + (cardH - FILE_ROW_V_PAD * 2 - totalTextH) / 2f
+        val filePending = fileUploadPending.getOrNull(fileIndex) == true
+        val fileFailed = fileUploadFailed.getOrNull(fileIndex) == true
+        val spinnerReserve = if (filePending || fileFailed) {
+            UPLOAD_PROGRESS_INDICATOR_W + UPLOAD_SPINNER_TRAILING_GAP
+        } else {
+            0f
+        }
+        val nameAvailableW = cardW - FILE_ROW_H_PAD * 2 - FILE_ICON_SIZE - FILE_ICON_GAP -
+            spinnerReserve
         nameLayout?.let {
+            val nameW = minOf(it.width.toFloat(), nameAvailableW.coerceAtLeast(1f))
             canvas.save()
             canvas.translate(textX, textY)
+            canvas.clipRect(0f, 0f, nameW, it.height.toFloat())
             it.draw(canvas)
             canvas.restore()
             textY += it.height
         }
         sizeLayout?.let {
+            val sizeW = minOf(it.width.toFloat(), nameAvailableW.coerceAtLeast(1f))
             canvas.save()
             canvas.translate(textX, textY)
+            canvas.clipRect(0f, 0f, sizeW, it.height.toFloat())
             it.draw(canvas)
             canvas.restore()
+        }
+        if (fileFailed) {
+            val badgeCx = x + cardW - FILE_ROW_H_PAD - UPLOAD_FAILED_BADGE_RADIUS
+            val badgeCy = y + cardH / 2f
+            canvas.drawCircle(badgeCx, badgeCy, UPLOAD_FAILED_BADGE_RADIUS, UPLOAD_FAILED_BADGE_PAINT)
+            val baseline = badgeCy - (UPLOAD_FAILED_ICON_PAINT.descent() + UPLOAD_FAILED_ICON_PAINT.ascent()) / 2f
+            canvas.drawText(UPLOAD_FAILED_ICON_TEXT, badgeCx, baseline, UPLOAD_FAILED_ICON_PAINT)
+        } else if (filePending) {
+            val url = fileAttachmentUrls.getOrNull(fileIndex).orEmpty()
+            val progress = msg.attachmentUploadProgress(url)
+            val indicatorW = UPLOAD_PROGRESS_INDICATOR_W
+            val indicatorH = if (progress > 0f) UPLOAD_PROGRESS_INDICATOR_H else SPINNER_SIDE * 2
+            val sx = x + cardW - FILE_ROW_H_PAD - indicatorW
+            val centerY = y + cardH / 2f
+            drawAttachmentUploadSpinner(
+                canvas, sx, centerY - indicatorH / 2f, indicatorW, indicatorH, FILE_ROW_RADIUS, progress,
+            )
         }
         return y + cardH + GAP_V_INNER
     }
@@ -3197,8 +3326,15 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private fun drawGridCell(canvas: Canvas, slot: Int, x: Float, y: Float, w: Float, h: Float, isDark: Boolean): Boolean {
         var needsRedraw = false
         val receiver = mediaReceiver(slot)
+        if (isSlotUploadFailed(slot)) {
+            drawAttachmentUploadFailed(canvas, x, y, w, h, MEDIA_RADIUS)
+            return needsRedraw
+        }
         if (isSlotUploadPending(slot)) {
-            drawAttachmentUploadSpinner(canvas, x, y, w, h, MEDIA_RADIUS)
+            val msg = messageEntity
+            val url = mediaSlotUrls.getOrNull(slot).orEmpty()
+            val progress = if (msg != null && url.isNotEmpty()) msg.attachmentUploadProgress(url) else 0f
+            drawAttachmentUploadSpinner(canvas, x, y, w, h, MEDIA_RADIUS, progress)
         } else if (!receiver.hasMainImage()) {
             if (slotIsVideo.getOrNull(slot) == true) {
                 drawVideoPlaceholder(canvas, x, y, w, h, MEDIA_RADIUS)
@@ -3235,8 +3371,14 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val w = photoWidth.toFloat()
         val h = photoHeight.toFloat()
         val isVideo = msg.messageType == MessageEntity.TYPE_VIDEO || slotIsVideo.getOrNull(0) == true
+        if (isSlotUploadFailed(0)) {
+            drawAttachmentUploadFailed(canvas, imgX, imgY, w, h, MEDIA_RADIUS)
+            return
+        }
         if (isSlotUploadPending(0)) {
-            drawAttachmentUploadSpinner(canvas, imgX, imgY, w, h, MEDIA_RADIUS)
+            val url = mediaSlotUrls.getOrNull(0).orEmpty()
+            val progress = if (url.isNotEmpty()) msg.attachmentUploadProgress(url) else 0f
+            drawAttachmentUploadSpinner(canvas, imgX, imgY, w, h, MEDIA_RADIUS, progress)
         } else if (!photoImage.hasMainImage()) {
             if (isVideo) {
                 drawVideoPlaceholder(canvas, imgX, imgY, w, h, MEDIA_RADIUS)
@@ -4413,6 +4555,26 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         private const val SPINNER_MAX_SWEEP = 300f
         private val SPINNER_RADIUS = LayoutHelper.dp(9).toFloat()
         private val SPINNER_STROKE = LayoutHelper.dpf(2f)
+        private val SPINNER_SIDE = SPINNER_RADIUS * 2f
+        private val UPLOAD_SPINNER_TRAILING_GAP = LayoutHelper.dp(8).toFloat()
+        private val UPLOAD_PROGRESS_GAP = LayoutHelper.dp(4).toFloat()
+        private val UPLOAD_PROGRESS_INDICATOR_W = LayoutHelper.dp(44).toFloat()
+        private val UPLOAD_PROGRESS_SPINNER_D = SPINNER_SIDE
+        private const val UPLOAD_PROGRESS_TEXT_COLOR = 0xFFFFFFFF.toInt()
+        private val UPLOAD_PROGRESS_PCT_STRINGS = Array(101) { "$it%" }
+        private val UPLOAD_PROGRESS_TEXT_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = LayoutHelper.dp(12).toFloat()
+            textAlign = Paint.Align.CENTER
+            typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+        }
+        private val UPLOAD_PROGRESS_TEXT_FM = android.graphics.Paint.FontMetrics().also {
+            UPLOAD_PROGRESS_TEXT_PAINT.getFontMetrics(it)
+        }
+        private val UPLOAD_PROGRESS_TEXT_H =
+            UPLOAD_PROGRESS_TEXT_FM.descent - UPLOAD_PROGRESS_TEXT_FM.ascent
+        private val UPLOAD_PROGRESS_TEXT_ASCENT = UPLOAD_PROGRESS_TEXT_FM.ascent
+        private val UPLOAD_PROGRESS_INDICATOR_H =
+            UPLOAD_PROGRESS_SPINNER_D + UPLOAD_PROGRESS_GAP + UPLOAD_PROGRESS_TEXT_H + LayoutHelper.dp(4).toFloat()
         private val SPINNER_OVERLAY_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.FILL
             color = 0x55000000
@@ -4423,6 +4585,19 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             strokeWidth = SPINNER_STROKE
             strokeCap = Paint.Cap.ROUND
         }
+
+        private val UPLOAD_FAILED_BADGE_RADIUS = LayoutHelper.dp(11).toFloat()
+        private val UPLOAD_FAILED_BADGE_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFFE0245E.toInt()
+            style = Paint.Style.FILL
+        }
+        private val UPLOAD_FAILED_ICON_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFFFFFFFF.toInt()
+            textAlign = Paint.Align.CENTER
+            textSize = LayoutHelper.dp(14).toFloat()
+            typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+        }
+        private const val UPLOAD_FAILED_ICON_TEXT = "!"
 
         private val GRID_GAP = LayoutHelper.dp(2).toFloat()
         private val BADGE_PAD = LayoutHelper.dp(6).toFloat()
