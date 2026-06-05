@@ -87,6 +87,7 @@ import com.mezon.mobile.home.chat.input.VoiceRecordingOverlay
 import com.mezon.mobile.home.sharing.SharingFragment
 import com.mezon.mobile.home.sharing.SharingPayload
 import com.mezon.mobile.home.clans.ChannelItemCell
+import com.mezon.mobile.home.clans.OwnerOnboardingManager
 import com.mezon.mobile.home.clans.CHANNEL_TYPE_APP
 import com.mezon.mobile.home.clans.CHANNEL_TYPE_STREAMING
 import com.mezon.mobile.home.clans.CHANNEL_TYPE_VOICE
@@ -4215,6 +4216,26 @@ open class ChatFragment : BaseFragment() {
             refreshPermissionGates()
             MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.message_no_send_permission))
             return
+        }
+
+        val ctx = getContext()
+        if (editMsg == null && clanId != 0L && ctx != null) {
+            val clan = clansController.clans.value.firstOrNull { it.clanId == clanId }
+            if (clan != null) {
+                val currentUserId = com.mezon.mobile.core.StartupCache.userId.toLongOrNull() ?: 0L
+                val isOwner = clan.creatorId == currentUserId && currentUserId != 0L
+                if (isOwner) {
+                    OwnerOnboardingManager.setSentMessage(ctx, clanId, true)
+                } else {
+                    val channels = channelController.getChannels(clanId)
+                    val welcomeChannel = OwnerOnboardingManager.resolveWelcomeChannel(clan, channels)
+                    if (welcomeChannel != null && welcomeChannel.channelId == channelId) {
+                        OwnerOnboardingManager.setUserSentWelcome(ctx, clanId, true)
+                        OwnerOnboardingManager.setUserVisitedWelcome(ctx, clanId, true)
+                    }
+                }
+                notificationCenter.postNotificationName(NotificationCenter.ownerOnboardingStateChanged)
+            }
         }
 
         val isPrivate = resolveChannelPrivate()

@@ -2,12 +2,14 @@ package com.mezon.mobile.home.clans
 
 import android.content.Context
 import android.util.Log
+import android.util.TypedValue
 import android.content.res.ColorStateList
 import android.graphics.Canvas
 import android.graphics.Outline
 import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.os.Handler
@@ -104,6 +106,9 @@ class ClansFragment : BaseFragment() {
     private var viewJustCreated = false
 
     private var headerSwitch: FrameLayout? = null
+    private var ownerOnboardingBanner: View? = null
+    private var ownerOnboardingTitle: TextView? = null
+    private var ownerOnboardingSubtitle: TextView? = null
     private var normalClanHeaderRoot: View? = null
     private var emptyClanHeaderRoot: LinearLayout? = null
     private lateinit var discoverListSection: DiscoverClansListSection
@@ -165,6 +170,8 @@ class ClansFragment : BaseFragment() {
             if (clanId == clansController.selectedClanId.value) {
                 updateMemberCount()
                 syncVoiceMembersUi()
+                updateOwnerOnboardingBanner()
+                notificationCenter.postNotificationName(NotificationCenter.ownerOnboardingStateChanged)
             }
         }
         observe(NotificationCenter.dialogsNeedReload) { _, _, _ ->
@@ -219,6 +226,10 @@ class ClansFragment : BaseFragment() {
                 userClanController.loadClanMembers(clanId)
                 updateChannelList()
             }
+        }
+        observe(NotificationCenter.ownerOnboardingStateChanged) { _, _, _ ->
+            if (fragmentView == null || listFrozen) return@observe
+            updateOwnerOnboardingBanner()
         }
         return true
     }
@@ -326,7 +337,14 @@ class ClansFragment : BaseFragment() {
             }
         }
 
+        ownerOnboardingBanner = buildOwnerOnboardingBanner(context)
         channelPanel.addView(headerSwitch, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+        channelPanel.addView(ownerOnboardingBanner!!, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
+            leftMargin = LayoutHelper.dp(16)
+            rightMargin = LayoutHelper.dp(16)
+            topMargin = LayoutHelper.dp(8)
+            bottomMargin = LayoutHelper.dp(8)
+        })
         channelPanel.addView(channelListView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
         channelPanel.addView(discoverListSection.rootView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
         discoverListSection.rootView.visibility = View.GONE
@@ -921,6 +939,7 @@ class ClansFragment : BaseFragment() {
         }
         updateVoiceMembers(clanId)
         updateChannelAppsStrip(clanId)
+        updateOwnerOnboardingBanner()
     }
 
     private fun updateChannelAppsStrip(clanId: Long) {
@@ -1026,6 +1045,25 @@ class ClansFragment : BaseFragment() {
 
     private fun onChannelSelected(channel: ClanChannelEntity) {
         val clanIdForJoin = if (channel.clanId != 0L) channel.clanId else clansController.selectedClanId.value
+
+        if (clanIdForJoin != 0L) {
+            val clan = clansController.clans.value.firstOrNull { it.clanId == clanIdForJoin }
+            if (clan != null) {
+                val currentUserId = com.mezon.mobile.core.StartupCache.userId.toLongOrNull() ?: 0L
+                val isOwner = clan.creatorId == currentUserId && currentUserId != 0L
+                if (!isOwner) {
+                    val channels = channelController.getChannels(clanIdForJoin)
+                    val welcomeChannel = OwnerOnboardingManager.resolveWelcomeChannel(clan, channels)
+                    if (welcomeChannel != null && welcomeChannel.channelId == channel.channelId) {
+                        val ctx = fragmentView?.context
+                        if (ctx != null && !OwnerOnboardingManager.isUserVisitedWelcome(ctx, clanIdForJoin)) {
+                            OwnerOnboardingManager.setUserVisitedWelcome(ctx, clanIdForJoin, true)
+                            notificationCenter.postNotificationName(NotificationCenter.ownerOnboardingStateChanged)
+                        }
+                    }
+                }
+            }
+        }
 
         if (clanIdForJoin != 0L && channel.isPrivate) {
             val selectedClan = clansController.selectedClanId.value
@@ -1269,6 +1307,188 @@ class ClansFragment : BaseFragment() {
                     view.setEmbeddedDiscoverHighlight(embeddedRailDiscoverHighlight)
                 }
             }
+        }
+    }
+
+    private fun buildOwnerOnboardingBanner(context: Context): View {
+        val banner = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(LayoutHelper.dp(12), LayoutHelper.dp(12), LayoutHelper.dp(12), LayoutHelper.dp(12))
+            background = RippleDrawable(
+                ColorStateList.valueOf(themeColors.onSurface and 0x1AFFFFFF),
+                GradientDrawable().apply {
+                    cornerRadius = LayoutHelper.dp(12f).toFloat()
+                    setColor(themeColors.surfaceVariant)
+                },
+                null
+            )
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                openOwnerOnboardingBottomSheet()
+            }
+        }
+
+        val iconCircle = FrameLayout(context).apply {
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor((themeColors.primary and 0x00FFFFFF) or 0x1F000000)
+            }
+        }
+        val popperEmoji = TextView(context).apply {
+            text = "🎉"
+            textSize = 18f
+            gravity = Gravity.CENTER
+        }
+        iconCircle.addView(popperEmoji, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER))
+        banner.addView(iconCircle, LayoutHelper.createLinear(36, 36).apply {
+            marginEnd = LayoutHelper.dp(12)
+        })
+
+        val textContainer = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        val titleText = TextView(context).apply {
+            text = "Hoàn thành hướng dẫn"
+            setTextColor(themeColors.textStrong)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            typeface = Typeface.DEFAULT_BOLD
+        }
+        ownerOnboardingTitle = titleText
+        val subtitleText = TextView(context).apply {
+            setTextColor(themeColors.onSurfaceVariant)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+        }
+        ownerOnboardingSubtitle = subtitleText
+        textContainer.addView(titleText)
+        textContainer.addView(subtitleText)
+        banner.addView(textContainer, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f).apply {
+            marginEnd = LayoutHelper.dp(12)
+        })
+
+        val arrow = ImageView(context).apply {
+            setImageDrawable(MezonIcon.chevronSmallRightIcon.getDrawable(context, themeColors.onSurfaceVariant))
+        }
+        banner.addView(arrow, LayoutHelper.createLinear(16, 16))
+
+        return banner
+    }
+
+    private fun openOwnerOnboardingBottomSheet() {
+        val clanId = clansController.selectedClanId.value
+        if (clanId == 0L) return
+        val clan = clansController.clans.value.firstOrNull { it.clanId == clanId } ?: return
+        val ctx = fragmentView?.context ?: return
+        val currentUserId = com.mezon.mobile.core.StartupCache.userId.toLongOrNull() ?: 0L
+        val isOwner = clan.creatorId == currentUserId && currentUserId != 0L
+        OwnerOnboardingBottomSheet(
+            ctx,
+            clanId,
+            clan.creatorId,
+            isOwner,
+            channelController,
+            userClanController,
+            notificationCenter,
+            onCreateChannel = {
+                val sections = channelController.getChannelSections(clanId)
+                var categoryId = sections.firstOrNull { it.categoryId != 0L }?.categoryId ?: 0L
+                if (categoryId == 0L) {
+                    val categories = channelController.getCachedCategories(clanId)
+                    categoryId = categories.firstOrNull()?.categoryId ?: 0L
+                }
+                if (categoryId == 0L) {
+                    val channels = channelController.getChannels(clanId)
+                    categoryId = channels.firstOrNull { it.categoryId != 0L }?.categoryId ?: 0L
+                }
+                presentFragment(CreateChannelFragment.newInstance(categoryId))
+            },
+            onInviteFriends = {
+                openInvitePeopleSheet(clanId, clan.clanName, clan.logo)
+            },
+            onSendFirstMessage = {
+                val channels = channelController.getChannels(clanId)
+                val textChannel = channels.firstOrNull { it.type == 1 }
+                if (textChannel != null) {
+                    onChannelSelected(textChannel)
+                }
+            },
+            onVisitWelcomeChannel = {
+                val channels = channelController.getChannels(clanId)
+                val welcomeChannel = OwnerOnboardingManager.resolveWelcomeChannel(clan, channels)
+                if (welcomeChannel != null) {
+                    onChannelSelected(welcomeChannel)
+                    OwnerOnboardingManager.setUserVisitedWelcome(ctx, clanId, true)
+                    notificationCenter.postNotificationName(NotificationCenter.ownerOnboardingStateChanged)
+                }
+            },
+            onSendWelcomeMessage = {
+                val channels = channelController.getChannels(clanId)
+                val welcomeChannel = OwnerOnboardingManager.resolveWelcomeChannel(clan, channels)
+                if (welcomeChannel != null) {
+                    onChannelSelected(welcomeChannel)
+                }
+            },
+            onInstallApps = {
+                OwnerOnboardingManager.setUserInstalledApps(ctx, clanId, true)
+                notificationCenter.postNotificationName(NotificationCenter.ownerOnboardingStateChanged)
+                try {
+                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://mezon.ai"))
+                    ctx.startActivity(intent)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        ).apply {
+            setDrawNavigationBar(true)
+            show()
+        }
+    }
+
+    private fun updateOwnerOnboardingBanner() {
+        val banner = ownerOnboardingBanner ?: return
+        val clanId = clansController.selectedClanId.value
+        if (clanId == 0L) {
+            banner.visibility = View.GONE
+            return
+        }
+        val clan = clansController.clans.value.firstOrNull { it.clanId == clanId }
+        if (clan == null) {
+            banner.visibility = View.GONE
+            return
+        }
+
+        val currentUserId = com.mezon.mobile.core.StartupCache.userId.toLongOrNull() ?: 0L
+        val isOwner = clan.creatorId == currentUserId && currentUserId != 0L
+        val channels = channelController.getChannels(clanId)
+        val members = userClanController.getClanMembers(clanId)
+        val hasOtherMember = members.any { it.userId != clan.creatorId && it.userId != 0L }
+
+        val completedAll = if (isOwner) {
+            OwnerOnboardingManager.isCompletedAll(banner.context, clanId, channels, hasOtherMember)
+        } else {
+            OwnerOnboardingManager.isUserCompletedAll(banner.context, clanId)
+        }
+
+        val onboardingActive = if (isOwner) {
+            OwnerOnboardingManager.isOnboardingActive(banner.context, clanId) || clan.isOnboarding
+        } else {
+            true
+        }
+
+        val shouldShow = onboardingActive && !completedAll
+
+        if (shouldShow) {
+            banner.visibility = View.VISIBLE
+            val completedCount = if (isOwner) {
+                OwnerOnboardingManager.getCompletedCount(banner.context, clanId, channels, hasOtherMember)
+            } else {
+                OwnerOnboardingManager.getUserCompletedCount(banner.context, clanId)
+            }
+            ownerOnboardingTitle?.text = if (isOwner) "Hoàn thành hướng dẫn" else "Nhiệm vụ cho bạn"
+            ownerOnboardingSubtitle?.text = "Bước $completedCount trên 3"
+        } else {
+            banner.visibility = View.GONE
         }
     }
 

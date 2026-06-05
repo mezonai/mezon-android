@@ -482,7 +482,11 @@ class CreateClanCustomizeFragment : BaseFragment() {
             }
             runCatching {
                 clansController.createClan(clanName = clanName, logo = logoUrl, template = selectedTemplate)
-            }.onSuccess {
+            }.onSuccess { createdClan ->
+                val ctx = getContext()
+                if (ctx != null) {
+                    OwnerOnboardingManager.setOnboardingActive(ctx, createdClan.clanId, true)
+                }
                 parentLayout?.findFragment(CreateClanTemplateFragment::class.java)
                     ?.let { parentLayout?.removeFragmentFromStack(it) }
                 finishFragment()

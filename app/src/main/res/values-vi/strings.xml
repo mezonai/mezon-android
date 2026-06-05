@@ -1314,4 +1314,21 @@
     <string name="sticker_delete_confirm_msg">Bạn có chắc muốn xóa \"%1$s\"?</string>
     <string name="sticker_add_label">Thêm nhãn dán</string>
     <string name="advanced_anonymous_off">Tắt ẩn danh</string>
+
+    <!-- Clan Onboarding -->
+    <string name="clan_onboarding_owner_title">Hoàn thành hướng dẫn\ncho clan của bạn</string>
+    <string name="clan_onboarding_member_title">Nhiệm vụ cho bạn</string>
+    <string name="clan_onboarding_progress">Đã hoàn thành %1$d trên 3 bước</string>
+    <string name="clan_onboarding_owner_task_create_channel_title">Tạo kênh của bạn</string>
+    <string name="clan_onboarding_owner_task_create_channel_desc">Tạo kênh chat hoặc kênh thoại mới</string>
+    <string name="clan_onboarding_owner_task_invite_friends_title">Mời một vài người bạn</string>
+    <string name="clan_onboarding_owner_task_invite_friends_desc">Chia sẻ link để bạn bè cùng tham gia</string>
+    <string name="clan_onboarding_owner_task_send_message_title">Gửi tin nhắn đầu tiên</string>
+    <string name="clan_onboarding_owner_task_send_message_desc">Bắt đầu cuộc trò chuyện đầu tiên</string>
+    <string name="clan_onboarding_member_task_visit_welcome_title">Tham gia vào channel #welcome</string>
+    <string name="clan_onboarding_member_task_visit_welcome_desc">Visit a channel #welcome</string>
+    <string name="clan_onboarding_member_task_send_welcome_title">Gửi lời chào tới channel welcome</string>
+    <string name="clan_onboarding_member_task_send_welcome_desc">Send a message in #welcome</string>
+    <string name="clan_onboarding_member_task_install_apps_title">Cài đặt mezon trên Máy tính và điện thoại</string>
+    <string name="clan_onboarding_member_task_install_apps_desc">Do anything you want #welcome</string>
 </resources>

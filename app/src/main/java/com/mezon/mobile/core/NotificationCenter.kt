@@ -143,6 +143,7 @@ class NotificationCenter(val currentAccount: Int) {
         val callEnded = nextId()
 
         val topicsNeedReload = nextId()
+        val ownerOnboardingStateChanged = nextId()
 
         const val UPDATE_MASK_NAME = 1
         const val UPDATE_MASK_AVATAR = 2

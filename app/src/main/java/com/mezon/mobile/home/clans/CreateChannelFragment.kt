@@ -18,6 +18,7 @@ import android.widget.TextView
 import com.mezon.mobile.MainActivity
 import com.mezon.mobile.R
 import com.mezon.mobile.core.BaseFragment
+import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
@@ -415,6 +416,11 @@ class CreateChannelFragment : BaseFragment() {
     }
 
     private fun afterCreateSuccess(channelId: Long, label: String, clanIdParam: Long, channelType: Int) {
+        val ctx = fragmentView?.context
+        if (ctx != null) {
+            OwnerOnboardingManager.setCreatedChannel(ctx, clanIdParam, true)
+            notificationCenter.postNotificationName(NotificationCenter.ownerOnboardingStateChanged)
+        }
         fragmentView?.post {
             val act = getParentActivity() as? MainActivity ?: return@post
             when (channelType) {
