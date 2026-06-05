@@ -162,7 +162,7 @@ class OwnerOnboardingBottomSheet(
             })
         } else {
             createChannelRow = createTaskRow(
-                MezonIcon.target,
+                MezonIcon.helloChat,
                 "",
                 context.getString(R.string.clan_onboarding_member_task_visit_welcome_title),
                 context.getString(R.string.clan_onboarding_member_task_visit_welcome_desc)
@@ -175,7 +175,7 @@ class OwnerOnboardingBottomSheet(
             })
 
             inviteFriendsRow = createTaskRow(
-                MezonIcon.target,
+                MezonIcon.ownerChat,
                 "",
                 context.getString(R.string.clan_onboarding_member_task_send_welcome_title),
                 context.getString(R.string.clan_onboarding_member_task_send_welcome_desc)

@@ -252,7 +252,8 @@ enum class MezonIcon(@DrawableRes val resId: Int) {
     ownerCreateChannel(R.drawable.ic_ownercreatechannel),
     ownerInvite(R.drawable.ic_ownerinvite),
     ownerMission(R.drawable.ic_ownermission),
-    target(R.drawable.ic_target);
+    target(R.drawable.ic_target),
+    helloChat(R.drawable.ic_hellochat);
 
     fun getDrawable(context: Context): Drawable =
         loadDrawable(context, resId)
