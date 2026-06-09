@@ -1336,4 +1336,8 @@
     <string name="clan_onboarding_member_task_send_welcome_desc">Send a message in #welcome</string>
     <string name="clan_onboarding_member_task_install_apps_title">Cài đặt mezon trên Máy tính và điện thoại</string>
     <string name="clan_onboarding_member_task_install_apps_desc">Do anything you want #welcome</string>
+    <string name="clan_onboarding_member_progress">Đã hoàn thành %1$d trên %2$d bước</string>
+    <string name="clan_onboarding_member_task_send_message">Gửi tin nhắn trong</string>
+    <string name="clan_onboarding_member_task_visit">Truy cập kênh</string>
+    <string name="clan_onboarding_member_task_do_something">Làm bất cứ điều gì bạn muốn</string>
 </resources>

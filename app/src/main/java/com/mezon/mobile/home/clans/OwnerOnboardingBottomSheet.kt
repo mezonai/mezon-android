@@ -21,6 +21,7 @@ import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.home.UserClanController
+import com.mezon.mezon.api.OnboardingItem
 
 class OwnerOnboardingBottomSheet(
     context: Context,
@@ -30,6 +31,8 @@ class OwnerOnboardingBottomSheet(
     private val channelController: ChannelController,
     private val userClanController: UserClanController,
     private val notificationCenter: NotificationCenter,
+    private val memberOnboardingRepository: MemberOnboardingRepository,
+    private val onNavigateToChannel: (Long) -> Unit,
     private val onCreateChannel: () -> Unit,
     private val onInviteFriends: () -> Unit,
     private val onSendFirstMessage: () -> Unit,
@@ -40,10 +43,7 @@ class OwnerOnboardingBottomSheet(
 
     private val themeColors = ThemeColors.instance
     private lateinit var subtitleView: TextView
-
-    private lateinit var createChannelRow: TaskRowViews
-    private lateinit var inviteFriendsRow: TaskRowViews
-    private lateinit var sendMessageRow: TaskRowViews
+    private lateinit var tasksContainer: LinearLayout
 
     private class TaskRowViews(
         val row: LinearLayout,
@@ -121,99 +121,41 @@ class OwnerOnboardingBottomSheet(
             bottomMargin = LayoutHelper.dp(24)
         })
 
-        if (isOwner) {
-            createChannelRow = createTaskRow(
-                MezonIcon.ownerCreateChannel,
-                "",
-                context.getString(R.string.clan_onboarding_owner_task_create_channel_title),
-                context.getString(R.string.clan_onboarding_owner_task_create_channel_desc)
-            ) {
-                dismiss()
-                onCreateChannel()
-            }
-            root.addView(createChannelRow.row, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
-                bottomMargin = LayoutHelper.dp(12)
-            })
-
-            inviteFriendsRow = createTaskRow(
-                MezonIcon.ownerInvite,
-                "",
-                context.getString(R.string.clan_onboarding_owner_task_invite_friends_title),
-                context.getString(R.string.clan_onboarding_owner_task_invite_friends_desc)
-            ) {
-                dismiss()
-                onInviteFriends()
-            }
-            root.addView(inviteFriendsRow.row, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
-                bottomMargin = LayoutHelper.dp(12)
-            })
-
-            sendMessageRow = createTaskRow(
-                MezonIcon.ownerChat,
-                "",
-                context.getString(R.string.clan_onboarding_owner_task_send_message_title),
-                context.getString(R.string.clan_onboarding_owner_task_send_message_desc)
-            ) {
-                dismiss()
-                onSendFirstMessage()
-            }
-            root.addView(sendMessageRow.row, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
-                bottomMargin = LayoutHelper.dp(12)
-            })
-        } else {
-            createChannelRow = createTaskRow(
-                MezonIcon.helloChat,
-                "",
-                context.getString(R.string.clan_onboarding_member_task_visit_welcome_title),
-                context.getString(R.string.clan_onboarding_member_task_visit_welcome_desc)
-            ) {
-                dismiss()
-                onVisitWelcomeChannel()
-            }
-            root.addView(createChannelRow.row, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
-                bottomMargin = LayoutHelper.dp(12)
-            })
-
-            inviteFriendsRow = createTaskRow(
-                MezonIcon.ownerChat,
-                "",
-                context.getString(R.string.clan_onboarding_member_task_send_welcome_title),
-                context.getString(R.string.clan_onboarding_member_task_send_welcome_desc)
-            ) {
-                dismiss()
-                onSendWelcomeMessage()
-            }
-            root.addView(inviteFriendsRow.row, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
-                bottomMargin = LayoutHelper.dp(12)
-            })
-
-            sendMessageRow = createTaskRow(
-                MezonIcon.target,
-                "",
-                context.getString(R.string.clan_onboarding_member_task_install_apps_title),
-                context.getString(R.string.clan_onboarding_member_task_install_apps_desc)
-            ) {
-                OwnerOnboardingManager.setUserInstalledApps(context, clanId, true)
-                updateStates()
-            }
-            root.addView(sendMessageRow.row, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
-                bottomMargin = LayoutHelper.dp(12)
-            })
+        tasksContainer = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
         }
+        root.addView(tasksContainer, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         setCustomView(root)
         super.onCreate(savedInstanceState)
 
         setOnDismissListener {
             notificationCenter.removeObserver(onboardingObserver, NotificationCenter.ownerOnboardingStateChanged)
+            notificationCenter.removeObserver(onboardingObserver, NotificationCenter.memberOnboardingStateChanged)
             notificationCenter.removeObserver(onboardingObserver, NotificationCenter.channelsDidLoad)
             notificationCenter.removeObserver(onboardingObserver, NotificationCenter.clanMembersDidLoad)
         }
         notificationCenter.addObserver(onboardingObserver, NotificationCenter.ownerOnboardingStateChanged)
+        notificationCenter.addObserver(onboardingObserver, NotificationCenter.memberOnboardingStateChanged)
         notificationCenter.addObserver(onboardingObserver, NotificationCenter.channelsDidLoad)
         notificationCenter.addObserver(onboardingObserver, NotificationCenter.clanMembersDidLoad)
 
         updateStates()
+    }
+
+    private fun getMissionSubtitle(mission: OnboardingItem): String {
+        val action = when (mission.taskType) {
+            1 -> context.getString(R.string.clan_onboarding_member_task_send_message)
+            2 -> context.getString(R.string.clan_onboarding_member_task_visit)
+            else -> context.getString(R.string.clan_onboarding_member_task_do_something)
+        }
+        val channel = channelController.findChannelById(mission.channelId)
+        val label = channel?.channelLabel ?: ""
+        return if (label.isNotEmpty() && (mission.taskType == 1 || mission.taskType == 2)) {
+            "$action #$label"
+        } else {
+            action
+        }
     }
 
     private fun createTaskRow(
@@ -312,34 +254,127 @@ class OwnerOnboardingBottomSheet(
     }
 
     private fun updateStates() {
-        val completedCount: Int
-        val task1Completed: Boolean
-        val task2Completed: Boolean
-        val task3Completed: Boolean
-
+        tasksContainer.removeAllViews()
         if (isOwner) {
             val channels = channelController.getChannels(clanId)
             val members = userClanController.getClanMembers(clanId)
             val hasOtherMember = members.any { it.userId != creatorId && it.userId != 0L }
-            task1Completed = OwnerOnboardingManager.isCreatedChannel(context, clanId, channels)
-            task2Completed = OwnerOnboardingManager.isInvitedFriends(context, clanId, hasOtherMember)
-            task3Completed = OwnerOnboardingManager.isSentMessage(context, clanId)
-            completedCount = OwnerOnboardingManager.getCompletedCount(context, clanId, channels, hasOtherMember)
+            
+            val task1Completed = OwnerOnboardingManager.isCreatedChannel(context, clanId, channels)
+            val task2Completed = OwnerOnboardingManager.isInvitedFriends(context, clanId, hasOtherMember)
+            val task3Completed = OwnerOnboardingManager.isSentMessage(context, clanId)
+            val completedCount = OwnerOnboardingManager.getCompletedCount(context, clanId, channels, hasOtherMember)
+
+            subtitleView.text = context.getString(R.string.clan_onboarding_progress, completedCount)
+
+            val row1 = createTaskRow(
+                MezonIcon.ownerCreateChannel,
+                "",
+                context.getString(R.string.clan_onboarding_owner_task_create_channel_title),
+                context.getString(R.string.clan_onboarding_owner_task_create_channel_desc),
+                clickable = !task1Completed
+            ) {
+                dismiss()
+                onCreateChannel()
+            }
+            updateTaskStatus(row1.statusContainer, row1.arrow, task1Completed)
+            tasksContainer.addView(row1.row, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
+                bottomMargin = LayoutHelper.dp(12)
+            })
+
+            val row2 = createTaskRow(
+                MezonIcon.ownerInvite,
+                "",
+                context.getString(R.string.clan_onboarding_owner_task_invite_friends_title),
+                context.getString(R.string.clan_onboarding_owner_task_invite_friends_desc),
+                clickable = !task2Completed
+            ) {
+                dismiss()
+                onInviteFriends()
+            }
+            updateTaskStatus(row2.statusContainer, row2.arrow, task2Completed)
+            tasksContainer.addView(row2.row, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
+                bottomMargin = LayoutHelper.dp(12)
+            })
+
+            val row3 = createTaskRow(
+                MezonIcon.ownerChat,
+                "",
+                context.getString(R.string.clan_onboarding_owner_task_send_message_title),
+                context.getString(R.string.clan_onboarding_owner_task_send_message_desc),
+                clickable = !task3Completed
+            ) {
+                dismiss()
+                onSendFirstMessage()
+            }
+            updateTaskStatus(row3.statusContainer, row3.arrow, task3Completed)
+            tasksContainer.addView(row3.row, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
+                bottomMargin = LayoutHelper.dp(12)
+            })
+
+            if (completedCount == 3) {
+                AndroidUtilities.runOnUIThread({ dismiss() }, 1000L)
+            }
         } else {
-            task1Completed = OwnerOnboardingManager.isUserVisitedWelcome(context, clanId)
-            task2Completed = OwnerOnboardingManager.isUserSentWelcome(context, clanId)
-            task3Completed = OwnerOnboardingManager.isUserInstalledApps(context, clanId)
-            completedCount = OwnerOnboardingManager.getUserCompletedCount(context, clanId)
-        }
+            val missions = memberOnboardingRepository.getMissions(clanId)
+            val completedSteps = memberOnboardingRepository.getDoneMissionsCount(clanId)
+            
+            subtitleView.text = context.getString(R.string.clan_onboarding_member_progress, completedSteps, missions.size)
 
-        subtitleView.text = context.getString(R.string.clan_onboarding_progress, completedCount)
+            missions.forEachIndexed { i, mission ->
+                val isCompleted = i < completedSteps
+                val isActive = i == completedSteps
+                val isLocked = i > completedSteps
 
-        updateTaskStatus(createChannelRow.statusContainer, createChannelRow.arrow, task1Completed)
-        updateTaskStatus(inviteFriendsRow.statusContainer, inviteFriendsRow.arrow, task2Completed)
-        updateTaskStatus(sendMessageRow.statusContainer, sendMessageRow.arrow, task3Completed)
+                val icon = when (mission.taskType) {
+                    1 -> MezonIcon.ownerChat
+                    2 -> MezonIcon.helloChat
+                    3 -> MezonIcon.target
+                    else -> MezonIcon.target
+                }
 
-        if (completedCount == 3) {
-            AndroidUtilities.runOnUIThread({ dismiss() }, 1000L)
+                val title = mission.title.ifEmpty { mission.content }
+                val desc = getMissionSubtitle(mission)
+
+                val row = createTaskRow(
+                    icon = icon,
+                    emoji = "",
+                    title = title,
+                    description = desc,
+                    clickable = isActive
+                ) {
+                    when (mission.taskType) {
+                        1 -> {
+                            dismiss()
+                            onNavigateToChannel(mission.channelId)
+                        }
+                        2 -> {
+                            memberOnboardingRepository.completeVisitTask(clanId, mission.channelId)
+                            dismiss()
+                            onNavigateToChannel(mission.channelId)
+                        }
+                        else -> {
+                            memberOnboardingRepository.completeTask(clanId, completedSteps)
+                            updateStates()
+                        }
+                    }
+                }
+
+                if (isLocked) {
+                    row.row.alpha = 0.5f
+                } else {
+                    row.row.alpha = 1.0f
+                }
+
+                updateTaskStatus(row.statusContainer, row.arrow, isCompleted)
+                tasksContainer.addView(row.row, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
+                    bottomMargin = LayoutHelper.dp(12)
+                })
+            }
+
+            if (missions.isNotEmpty() && completedSteps >= missions.size) {
+                AndroidUtilities.runOnUIThread({ dismiss() }, 1000L)
+            }
         }
     }
 

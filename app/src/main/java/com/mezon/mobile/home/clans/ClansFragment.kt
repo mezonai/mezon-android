@@ -58,6 +58,9 @@ import com.mezon.mobile.home.voice.VoiceRoomFragment
 import com.mezon.mobile.home.clans.discover.DiscoverClansListSection
 import com.mezon.mobile.home.clans.discover.buildDiscoverCommunitySearchToolbar
 import com.mezon.mobile.home.clans.discover.DiscoverRailCell
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.mezon.mobile.home.clans.CreateClanRnUiTokens
 import com.mezon.mobile.home.clans.PermissionPolicy
 import com.mezon.mobile.home.clans.settings.AuditLogSettingFragment
@@ -123,6 +126,9 @@ class ClansFragment : BaseFragment() {
     private var renderedSubtitleKey: String? = null
     private var clanHeaderBannerLoadSeq = 0
 
+    private lateinit var memberOnboardingRepository: MemberOnboardingRepository
+    private lateinit var appScope: kotlinx.coroutines.CoroutineScope
+
     override fun onInject(entryPoint: FragmentEntryPoint) {
         clansController = entryPoint.clansController()
         channelController = entryPoint.channelController()
@@ -137,6 +143,8 @@ class ClansFragment : BaseFragment() {
         roleController = entryPoint.roleController()
         permissionPolicy = entryPoint.permissionPolicy()
         invitePeopleController = entryPoint.invitePeopleController()
+        memberOnboardingRepository = entryPoint.memberOnboardingRepository()
+        appScope = entryPoint.applicationScope()
     }
 
     override fun onFragmentCreate(): Boolean {
@@ -151,6 +159,9 @@ class ClansFragment : BaseFragment() {
             val clanId = args.firstOrNull() as? Long ?: return@observe
             if (clanId == clansController.selectedClanId.value) {
                 updateChannelList()
+                appScope.launch {
+                    memberOnboardingRepository.fetchOnboardingData(clanId)
+                }
             }
         }
         observe(NotificationCenter.channelAppsDidLoad) { _, _, args ->
@@ -225,9 +236,16 @@ class ClansFragment : BaseFragment() {
             if (clanId != 0L) {
                 userClanController.loadClanMembers(clanId)
                 updateChannelList()
+                appScope.launch {
+                    memberOnboardingRepository.fetchOnboardingData(clanId)
+                }
             }
         }
         observe(NotificationCenter.ownerOnboardingStateChanged) { _, _, _ ->
+            if (fragmentView == null || listFrozen) return@observe
+            updateOwnerOnboardingBanner()
+        }
+        observe(NotificationCenter.memberOnboardingStateChanged) { _, _, _ ->
             if (fragmentView == null || listFrozen) return@observe
             updateOwnerOnboardingBanner()
         }
@@ -360,6 +378,9 @@ class ClansFragment : BaseFragment() {
             if (selectedId != 0L) {
                 updateChannelList()
                 userClanController.loadClanMembers(selectedId)
+                appScope.launch {
+                    memberOnboardingRepository.fetchOnboardingData(selectedId)
+                }
             }
         }
         viewJustCreated = true
@@ -1061,6 +1082,7 @@ class ClansFragment : BaseFragment() {
                             notificationCenter.postNotificationName(NotificationCenter.ownerOnboardingStateChanged)
                         }
                     }
+                    memberOnboardingRepository.completeVisitTask(clanIdForJoin, channel.channelId)
                 }
             }
         }
@@ -1390,6 +1412,38 @@ class ClansFragment : BaseFragment() {
             channelController,
             userClanController,
             notificationCenter,
+            memberOnboardingRepository,
+            onNavigateToChannel = { channelId ->
+                val cached = channelController.findChannelById(channelId)
+                if (cached != null) {
+                    onChannelSelected(cached)
+                } else {
+                    appScope.launch {
+                        channelController.findOrFetchChannelLabel(channelId, clanId)
+                        withContext(Dispatchers.Main) {
+                            val loaded = channelController.findChannelById(channelId)
+                            if (loaded != null) {
+                                onChannelSelected(loaded)
+                            } else {
+                                val fallback = ClanChannelEntity(
+                                    clanId = clanId,
+                                    channelId = channelId,
+                                    parentId = 0L,
+                                    categoryId = 0L,
+                                    categoryName = "",
+                                    channelLabel = "",
+                                    type = 1,
+                                    isPrivate = false,
+                                    topic = "",
+                                    unreadCount = 0,
+                                    isMuted = false
+                                )
+                                onChannelSelected(fallback)
+                            }
+                        }
+                    }
+                }
+            },
             onCreateChannel = {
                 val sections = channelController.getChannelSections(clanId)
                 var categoryId = sections.firstOrNull { it.categoryId != 0L }?.categoryId ?: 0L
@@ -1464,29 +1518,26 @@ class ClansFragment : BaseFragment() {
         val members = userClanController.getClanMembers(clanId)
         val hasOtherMember = members.any { it.userId != clan.creatorId && it.userId != 0L }
 
-        val completedAll = if (isOwner) {
-            OwnerOnboardingManager.isCompletedAll(banner.context, clanId, channels, hasOtherMember)
-        } else {
-            OwnerOnboardingManager.isUserCompletedAll(banner.context, clanId)
-        }
+        val shouldShow: Boolean
+        val completedCount: Int
+        val totalCount: Int
 
-        val onboardingActive = if (isOwner) {
-            OwnerOnboardingManager.isOnboardingActive(banner.context, clanId) || clan.isOnboarding
+        if (isOwner) {
+            val completedAll = OwnerOnboardingManager.isCompletedAll(banner.context, clanId, channels, hasOtherMember)
+            val onboardingActive = OwnerOnboardingManager.isOnboardingActive(banner.context, clanId) || clan.isOnboarding
+            shouldShow = onboardingActive && !completedAll
+            completedCount = OwnerOnboardingManager.getCompletedCount(banner.context, clanId, channels, hasOtherMember)
+            totalCount = 3
         } else {
-            true
+            shouldShow = memberOnboardingRepository.isEligible(clanId, clan.creatorId, clan.isOnboarding)
+            completedCount = memberOnboardingRepository.getDoneMissionsCount(clanId)
+            totalCount = memberOnboardingRepository.getMissions(clanId).size
         }
-
-        val shouldShow = onboardingActive && !completedAll
 
         if (shouldShow) {
             banner.visibility = View.VISIBLE
-            val completedCount = if (isOwner) {
-                OwnerOnboardingManager.getCompletedCount(banner.context, clanId, channels, hasOtherMember)
-            } else {
-                OwnerOnboardingManager.getUserCompletedCount(banner.context, clanId)
-            }
-            ownerOnboardingTitle?.text = if (isOwner) "Hoàn thành hướng dẫn" else "Nhiệm vụ cho bạn"
-            ownerOnboardingSubtitle?.text = "Bước $completedCount trên 3"
+            ownerOnboardingTitle?.text = if (isOwner) "Hoàn thành hướng dẫn" else "Bắt đầu nào"
+            ownerOnboardingSubtitle?.text = "Bước $completedCount trên $totalCount"
         } else {
             banner.visibility = View.GONE
         }

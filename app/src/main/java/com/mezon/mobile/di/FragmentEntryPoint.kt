@@ -107,6 +107,7 @@ interface FragmentEntryPoint {
     fun webRtcInfra(): WebRtcInfra
     fun okHttpClient(): OkHttpClient
     fun sentryReporter(): SentryReporter
+    fun memberOnboardingRepository(): com.mezon.mobile.home.clans.MemberOnboardingRepository
 
     @IoDispatcher
     fun ioDispatcher(): CoroutineDispatcher
