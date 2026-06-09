@@ -83,6 +83,9 @@ import com.mezon.mezon.api.ListChannelAppsResponse
 import com.mezon.mezon.api.GenerateHashChannelAppsResponse
 import com.mezon.mezon.api.listChannelAppsRequest
 import com.mezon.mezon.api.generateHashChannelAppsRequest
+import com.mezon.mezon.api.App
+import com.mezon.mezon.api.appId
+import com.mezon.mezon.api.appClan
 import com.mezon.mezon.api.ListChannelBadgeCountResponse
 import com.mezon.mezon.api.ListClanBadgeCountResponse
 import com.mezon.mezon.api.listChannelBadgeCountRequest
@@ -404,6 +407,13 @@ class MezonApi @Inject constructor(
             val v = response.headers[k]
             if (!v.isNullOrBlank()) meta.append(k).append('=').append(v).append("; ")
         }
+        if (errorBody.isEmpty() && meta.isEmpty()) {
+            response.headers.forEach { name, values ->
+                if (values.isNotEmpty()) {
+                    meta.append(name).append('=').append(values.joinToString(",")).append("; ")
+                }
+            }
+        }
         val errPreview = if (errorBody.isEmpty()) "(empty)" else errorBody.take(1500)
         Log.w(
             "MezonApi",
@@ -459,10 +469,12 @@ class MezonApi @Inject constructor(
             val logo = obj.optString("clan_logo", "")
                 .ifEmpty { obj.optString("clanLogo", "") }
                 .trim()
+            val memberCount = obj.optInt("member_count", obj.optInt("memberCount", 0))
             val preview = LinkInvitePreview(
                 clanName = clanName,
                 channelLabel = channelLabel,
-                logoUrl = logo
+                logoUrl = logo,
+                memberCount = memberCount,
             )
             synchronized(linkInvitePreviewCache) {
                 linkInvitePreviewCache.put(inviteId, preview)
@@ -2619,6 +2631,31 @@ class MezonApi @Inject constructor(
         }
         val bytes = rpc(apiUrl, token, "GenerateHashChannelApps", request.toByteArray())
         return GenerateHashChannelAppsResponse.parseFrom(bytes)
+    }
+
+    suspend fun getApp(
+        apiUrl: String,
+        token: String,
+        appId: Long
+    ): App {
+        val request = appId {
+            id = appId
+        }
+        val bytes = rpc(apiUrl, token, "GetApp", request.toByteArray())
+        return App.parseFrom(bytes)
+    }
+
+    suspend fun addAppToClan(
+        apiUrl: String,
+        token: String,
+        appId: Long,
+        clanId: Long
+    ) {
+        val request = appClan {
+            this.appId = appId
+            this.clanId = clanId
+        }
+        rpc(apiUrl, token, "AddAppToClan", request.toByteArray())
     }
 
     suspend fun updateChannelDesc(

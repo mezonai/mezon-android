@@ -15,7 +15,6 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 private const val TAG = "IncomingCallFcm"
-private const val INCOMING_CALL_FCM_MAX_AGE_MS = 60_000L
 private val mainHandler = Handler(Looper.getMainLooper())
 
 @Singleton
@@ -36,7 +35,6 @@ class IncomingCallFcmHandler @Inject constructor(
     }
 
     fun handleOfferExtraFromNotificationIntent(offerJson: String) {
-        Log.i(TAG, "offer from notification intent, len=${offerJson.length}")
         dispatchOffer(offerJson, sentTimeMs = 0L)
     }
 
@@ -49,44 +47,25 @@ class IncomingCallFcmHandler @Inject constructor(
     }
 
     private fun dispatchOffer(offerJson: String, sentTimeMs: Long) {
-        if (!StartupCache.hasSession) {
-            Log.w(TAG, "dispatchOffer: no session")
-            return
-        }
+        if (!StartupCache.hasSession) return
         val parsed = try {
             JSONObject(offerJson)
-        } catch (e: Exception) {
-            Log.w(TAG, "dispatchOffer: invalid offer JSON", e)
+        } catch (_: Exception) {
             return
         }
         val innerOffer = parsed.optString("offer", parsed.optString("sdp", ""))
-        if (innerOffer != "CANCEL_CALL") {
-            if (sentTimeMs > 0L) {
-                val now = System.currentTimeMillis()
-                val ageMs = now - sentTimeMs
-                if (ageMs > INCOMING_CALL_FCM_MAX_AGE_MS) {
-                    Log.w(
-                        TAG,
-                        "ignoring stale offer ageMs=$ageMs max=$INCOMING_CALL_FCM_MAX_AGE_MS now=$now sentTimeMs=$sentTimeMs"
-                    )
-                    return
-                }
-            }
+        if (innerOffer != "CANCEL_CALL" && IncomingCallStaleness.isStaleOffer(offerJson, sentTimeMs)) {
+            appContext.getSharedPreferences("call_data", Context.MODE_PRIVATE).edit()
+                .remove("incoming_call")
+                .apply()
+            CallNotificationManager(appContext).dismissIncomingNotification()
+            return
         }
         if (innerOffer == "CANCEL_CALL") {
             val answeredElsewhere = parsed.optBoolean("isConnected", false)
             val ctrl = CallController.instance
-            val stateLabel = ctrl?.callState?.let { it::class.simpleName } ?: "null"
-            Log.d(
-                TAG,
-                "CANCEL_CALL FCM: answeredElsewhere=$answeredElsewhere controller=${ctrl != null} callState=$stateLabel"
-            )
             CallNotificationManager(appContext).dismissIncomingNotification()
             if (answeredElsewhere && ctrl?.shouldIgnoreCancelCallFcmAnsweredElsewhere() == true) {
-                Log.i(
-                    TAG,
-                    "CANCEL_CALL FCM: ignored — local session active ($stateLabel), do not endCall"
-                )
                 return
             }
             MezonCallConnection.activeConnection?.let {
@@ -97,29 +76,21 @@ class IncomingCallFcmHandler @Inject constructor(
             if (answeredElsewhere) {
                 if (ctrl?.callState is CallState.Idle) {
                     ctrl.clearIdleIncomingArtifactsAfterAnsweredElsewhere()
-                    Log.d(TAG, "CANCEL_CALL FCM: answeredElsewhere + Idle → cleared stale incoming artifacts")
                 } else {
                     ctrl?.endCall(CallEndReason.CLEAR_CALL)
-                    Log.d(TAG, "CANCEL_CALL FCM: answeredElsewhere → endCall(CLEAR_CALL)")
                 }
             } else {
                 ctrl?.endCall(CallEndReason.CANCELLED)
-                Log.d(TAG, "CANCEL_CALL FCM: real cancel → endCall(CANCELLED)")
             }
             return
         }
-        if (callController.callState !is CallState.Idle) {
-            Log.d(TAG, "skip offer, callState=${callController.callState::class.simpleName}")
-            return
-        }
+        if (callController.callState !is CallState.Idle) return
         val callerName = parsed.optString("callerName", "Unknown")
         val callerAvatar = parsed.optString("callerAvatar", "")
         val callerId = parsed.optString("callerId", "")
         val channelId = parsed.optString("channelId", "")
-        Log.i(TAG, "dispatchOffer: offer filters passed (not cancel, session ok) → reconnect socket for signaling")
         connectionController.reconnectSocketForOfferSignaling()
         webRtcInfra.ensureFactoryReady()
-        Log.d(TAG, "feeding offer to CallController")
         callController.handleIncomingOfferFromFcm(
             callerName,
             callerAvatar = callerAvatar,
@@ -127,10 +98,7 @@ class IncomingCallFcmHandler @Inject constructor(
             channelId,
             offerJson
         )
-        if (callController.callState !is CallState.Incoming) {
-            Log.d(TAG, "dispatchOffer: offer consumed without incoming UI, state=${callController.callState::class.simpleName}")
-            return
-        }
+        if (callController.callState !is CallState.Incoming) return
         StartupCache.suppressHomeListApiForIncomingCallWake = true
         appContext.getSharedPreferences("call_data", Context.MODE_PRIVATE).edit()
             .putString("incoming_call", offerJson)
@@ -157,7 +125,6 @@ class IncomingCallFcmHandler @Inject constructor(
                     offerJson,
                     useFsi
                 )
-                Log.i(TAG, "incoming ring via FGS+Telecom notified")
             } catch (e: Exception) {
                 Log.e(TAG, "ring FGS failed, notify fallback", e)
                 CallNotificationManager(appContext).showIncomingCallNotification(

@@ -855,6 +855,25 @@ class ClansController @Inject constructor(
 
     private fun observeSocketEvents() {
         appScope.launch {
+            dispatcher.userClanRemovedEvents.collect { event ->
+                val uid = userController.userId
+                if (uid == 0L) return@collect
+                if (!event.userIdsList.contains(uid)) return@collect
+                if (_clans.value.none { it.clanId == event.clanId }) return@collect
+                withContext(Dispatchers.Main.immediate) {
+                    applyClanLeftLocally(event.clanId)
+                }
+            }
+        }
+        appScope.launch {
+            dispatcher.clanDeletedEvents.collect { event ->
+                if (_clans.value.none { it.clanId == event.clanId }) return@collect
+                withContext(Dispatchers.Main.immediate) {
+                    applyClanLeftLocally(event.clanId)
+                }
+            }
+        }
+        appScope.launch {
             dispatcher.clanUpdatedEvents.collect { event ->
                 val existing = _clans.value.find { it.clanId == event.clanId } ?: return@collect
                 val updated = existing.copy(

@@ -52,6 +52,27 @@ object AttachmentUploader {
         val cdnUrl: String,
     )
 
+    sealed class UploadExecutionPlan {
+        data class SinglePut(
+            val presignedUrl: String,
+            val mimeType: String,
+        ) : UploadExecutionPlan()
+
+        data class Multipart(
+            val uploadId: String,
+            val presignedUrls: List<String>,
+            val serverFilename: String,
+            val mimeType: String,
+            val fileSize: Long,
+        ) : UploadExecutionPlan()
+    }
+
+    data class PresignedFileResult(
+        val serverFilename: String,
+        val cdnUrl: String,
+        val plan: UploadExecutionPlan,
+    )
+
     fun isOverSizeLimit(sizeBytes: Long, mimeType: String): Boolean =
         AttachmentPickerItem.isOverSizeLimit(sizeBytes, mimeType)
 
@@ -243,6 +264,106 @@ object AttachmentUploader {
         return "$base.$newExt"
     }
 
+    suspend fun presignAttachmentBytes(
+        api: MezonApi,
+        apiUrl: String,
+        token: String,
+        uploadFilename: String,
+        mimeType: String,
+        sizeBytes: Long,
+        width: Int = 0,
+        height: Int = 0,
+        cdnBaseUrl: String,
+    ): PresignedFileResult {
+        if (willUseMultipart(sizeBytes)) {
+            try {
+                return presignMultipartBytes(
+                    api, apiUrl, token, uploadFilename, mimeType, sizeBytes.toInt(),
+                    width, height, cdnBaseUrl,
+                )
+            } catch (_: MultipartNotApplicable) {
+                skipMultipartStartForSession = true
+            } catch (e: Exception) {
+                Log.w(TAG, "Multipart presign failed, falling back to single PUT: $uploadFilename", e)
+            }
+        }
+        val presign = api.uploadAttachmentFile(
+            apiUrl, token, uploadFilename, mimeType, sizeBytes.toInt(), width, height,
+        )
+        val cdnUrl = "$cdnBaseUrl/${presign.filename}"
+        Log.d(TAG, "presign bytes file=$uploadFilename cdnUrl=$cdnUrl minioUrl=${presign.url}")
+        return PresignedFileResult(
+            serverFilename = presign.filename,
+            cdnUrl = cdnUrl,
+            plan = UploadExecutionPlan.SinglePut(presign.url, mimeType),
+        )
+    }
+
+    suspend fun presignAttachmentFromFile(
+        api: MezonApi,
+        apiUrl: String,
+        token: String,
+        uploadFilename: String,
+        mimeType: String,
+        fileSize: Long,
+        width: Int = 0,
+        height: Int = 0,
+        cdnBaseUrl: String,
+    ): PresignedFileResult {
+        if (willUseMultipart(fileSize)) {
+            try {
+                return presignMultipartFromFile(
+                    api, apiUrl, token, uploadFilename, mimeType, fileSize.toInt(),
+                    width, height, cdnBaseUrl,
+                )
+            } catch (_: MultipartNotApplicable) {
+                skipMultipartStartForSession = true
+            } catch (e: Exception) {
+                Log.w(TAG, "Multipart presign failed, falling back to single PUT: $uploadFilename", e)
+            }
+        }
+        val presign = api.uploadAttachmentFile(
+            apiUrl, token, uploadFilename, mimeType, fileSize.toInt(), width, height,
+        )
+        val cdnUrl = "$cdnBaseUrl/${presign.filename}"
+        Log.d(TAG, "presign file=$uploadFilename cdnUrl=$cdnUrl minioUrl=${presign.url}")
+        return PresignedFileResult(
+            serverFilename = presign.filename,
+            cdnUrl = cdnUrl,
+            plan = UploadExecutionPlan.SinglePut(presign.url, mimeType),
+        )
+    }
+
+    suspend fun executeUploadPlan(
+        api: MezonApi,
+        apiUrl: String,
+        token: String,
+        plan: UploadExecutionPlan,
+        bytes: ByteArray? = null,
+        file: File? = null,
+        onProgress: ((uploaded: Long, total: Long) -> Unit)? = null,
+    ) {
+        when (plan) {
+            is UploadExecutionPlan.SinglePut -> {
+                Log.d(TAG, "minio PUT start url=${plan.presignedUrl}")
+                val total = bytes?.size?.toLong() ?: file?.length() ?: 0L
+                onProgress?.invoke(0, total)
+                when {
+                    bytes != null -> api.putFileToPresignedUrl(plan.presignedUrl, bytes, plan.mimeType)
+                    file != null -> api.putFileToPresignedUrlFromFile(plan.presignedUrl, file, plan.mimeType)
+                    else -> throw IllegalArgumentException("executeUploadPlan SinglePut requires bytes or file")
+                }
+                onProgress?.invoke(total, total)
+                Log.d(TAG, "minio PUT done url=${plan.presignedUrl}")
+            }
+            is UploadExecutionPlan.Multipart -> {
+                Log.d(TAG, "minio multipart PUT start uploadId=${plan.uploadId} cdnFile=${plan.serverFilename} parts=${plan.presignedUrls.size}")
+                executeMultipartPlan(api, apiUrl, token, plan, bytes, file, onProgress)
+                Log.d(TAG, "minio multipart PUT done uploadId=${plan.uploadId} cdnFile=${plan.serverFilename}")
+            }
+        }
+    }
+
     suspend fun uploadAttachmentBytes(
         api: MezonApi,
         apiUrl: String,
@@ -257,21 +378,13 @@ object AttachmentUploader {
     ): UploadedFileResult {
         val totalBytes = bytes.size.toLong()
         onProgress?.invoke(0, totalBytes)
-        if (willUseMultipart(totalBytes)) {
-            try {
-                return uploadMultipart(
-                    api, apiUrl, token, uploadFilename, mimeType, bytes,
-                    width, height, cdnBaseUrl, onProgress,
-                )
-            } catch (_: MultipartNotApplicable) {
-                skipMultipartStartForSession = true
-            } catch (e: Exception) {
-                Log.w(TAG, "Multipart upload failed, falling back to single PUT: $uploadFilename", e)
-            }
-        }
-        return uploadSinglePut(
-            api, apiUrl, token, uploadFilename, mimeType, bytes,
-            width, height, cdnBaseUrl, onProgress,
+        val presigned = presignAttachmentBytes(
+            api, apiUrl, token, uploadFilename, mimeType, totalBytes, width, height, cdnBaseUrl,
+        )
+        executeUploadPlan(api, apiUrl, token, presigned.plan, bytes = bytes, onProgress = onProgress)
+        return UploadedFileResult(
+            serverFilename = presigned.serverFilename,
+            cdnUrl = presigned.cdnUrl,
         )
     }
 
@@ -349,112 +462,174 @@ object AttachmentUploader {
         onProgress: ((uploaded: Long, total: Long) -> Unit)? = null,
     ): UploadedFileResult {
         onProgress?.invoke(0, fileSize)
-        if (willUseMultipart(fileSize)) {
-            try {
-                return uploadMultipartFromFile(
-                    api, apiUrl, token, uploadFilename, mimeType, file, fileSize,
-                    width, height, cdnBaseUrl, onProgress,
-                )
-            } catch (_: MultipartNotApplicable) {
-                skipMultipartStartForSession = true
-            } catch (e: Exception) {
-                Log.w(TAG, "Multipart upload failed, falling back to single PUT: $uploadFilename", e)
-            }
-        }
-        return uploadSinglePutFromFile(
-            api, apiUrl, token, uploadFilename, mimeType, file, fileSize,
-            width, height, cdnBaseUrl, onProgress,
+        val presigned = presignAttachmentFromFile(
+            api, apiUrl, token, uploadFilename, mimeType, fileSize, width, height, cdnBaseUrl,
         )
-    }
-
-    private suspend fun uploadSinglePutFromFile(
-        api: MezonApi,
-        apiUrl: String,
-        token: String,
-        uploadFilename: String,
-        mimeType: String,
-        file: File,
-        fileSize: Long,
-        width: Int,
-        height: Int,
-        cdnBaseUrl: String,
-        onProgress: ((uploaded: Long, total: Long) -> Unit)?,
-    ): UploadedFileResult {
-        val presign = api.uploadAttachmentFile(
-            apiUrl, token, uploadFilename, mimeType, fileSize.toInt(), width, height,
-        )
-        api.putFileToPresignedUrlFromFile(presign.url, file, mimeType)
-        onProgress?.invoke(fileSize, fileSize)
+        executeUploadPlan(api, apiUrl, token, presigned.plan, file = file, onProgress = onProgress)
         return UploadedFileResult(
-            serverFilename = presign.filename,
-            cdnUrl = "$cdnBaseUrl/${presign.filename}",
+            serverFilename = presigned.serverFilename,
+            cdnUrl = presigned.cdnUrl,
         )
     }
 
-    private suspend fun uploadMultipartFromFile(
+    private suspend fun presignMultipartFromFile(
         api: MezonApi,
         apiUrl: String,
         token: String,
         uploadFilename: String,
         mimeType: String,
-        file: File,
-        fileSize: Long,
+        sizeBytes: Int,
         width: Int,
         height: Int,
         cdnBaseUrl: String,
-        onProgress: ((uploaded: Long, total: Long) -> Unit)?,
-    ): UploadedFileResult {
-        val requestedPartCount = multipartPartCount(fileSize)
+    ): PresignedFileResult {
+        val requestedPartCount = multipartPartCount(sizeBytes.toLong())
         val start = api.multipartUploadAttachmentFileStart(
-            apiUrl, token, uploadFilename, mimeType, fileSize.toInt(), width, height,
+            apiUrl, token, uploadFilename, mimeType, sizeBytes, width, height,
             partCount = requestedPartCount,
         )
         val urls = start.urlsList
         val uploadId = start.uploadId
         val serverFilename = start.filename.ifEmpty { uploadFilename }
         val cdnUrl = "$cdnBaseUrl/$serverFilename"
-
         if (urls.size == 1 && uploadId.isEmpty()) {
-            api.putFileToPresignedUrlFromFile(urls[0], file, mimeType)
-            onProgress?.invoke(fileSize, fileSize)
-            return UploadedFileResult(
+            Log.d(TAG, "presign multipart→single file=$uploadFilename cdnUrl=$cdnUrl minioUrl=${urls[0]}")
+            return PresignedFileResult(
                 serverFilename = serverFilename,
                 cdnUrl = cdnUrl,
+                plan = UploadExecutionPlan.SinglePut(urls[0], mimeType),
             )
         }
-
         if (urls.isEmpty() || uploadId.isEmpty()) {
             throw MultipartNotApplicable()
         }
+        Log.d(TAG, "presign multipart file=$uploadFilename cdnUrl=$cdnUrl uploadId=$uploadId parts=${urls.size}")
+        return PresignedFileResult(
+            serverFilename = serverFilename,
+            cdnUrl = cdnUrl,
+            plan = UploadExecutionPlan.Multipart(
+                uploadId = uploadId,
+                presignedUrls = urls,
+                serverFilename = serverFilename,
+                mimeType = mimeType,
+                fileSize = sizeBytes.toLong(),
+            ),
+        )
+    }
 
-        val partCount = urls.size
-        val semaphore = Semaphore(PARALLEL_PART_UPLOADS_FILE)
-        val uploadedLock = Any()
-        var uploadedBytes = 0L
-        val partResults = coroutineScope {
-            urls.mapIndexed { index, url ->
-                async {
-                    semaphore.withPermit {
-                        val offset = index.toLong() * MULTIPART_PART_SIZE
-                        val endExclusive = if (index == partCount - 1) fileSize else offset + MULTIPART_PART_SIZE
-                        val len = endExclusive - offset
-                        val etag = api.putFilePartRangeToPresignedUrl(
-                            url, file, offset, len, mimeType,
-                        )
-                        synchronized(uploadedLock) {
-                            uploadedBytes += len
-                            onProgress?.invoke(uploadedBytes, fileSize)
-                        }
-                        (index + 1) to etag
-                    }
-                }
-            }.awaitAll().sortedBy { it.first }
+    private suspend fun presignMultipartBytes(
+        api: MezonApi,
+        apiUrl: String,
+        token: String,
+        uploadFilename: String,
+        mimeType: String,
+        sizeBytes: Int,
+        width: Int,
+        height: Int,
+        cdnBaseUrl: String,
+    ): PresignedFileResult {
+        val requestedPartCount = multipartPartCount(sizeBytes.toLong())
+        val start = api.multipartUploadAttachmentFileStart(
+            apiUrl, token, uploadFilename, mimeType, sizeBytes, width, height,
+            partCount = requestedPartCount,
+        )
+        val urls = start.urlsList
+        val uploadId = start.uploadId
+        val serverFilename = start.filename.ifEmpty { uploadFilename }
+        val cdnUrl = "$cdnBaseUrl/$serverFilename"
+        if (urls.size == 1 && uploadId.isEmpty()) {
+            Log.d(TAG, "presign multipart→single bytes file=$uploadFilename cdnUrl=$cdnUrl minioUrl=${urls[0]}")
+            return PresignedFileResult(
+                serverFilename = serverFilename,
+                cdnUrl = cdnUrl,
+                plan = UploadExecutionPlan.SinglePut(urls[0], mimeType),
+            )
         }
-        val finish = api.multipartUploadAttachmentFileFinish(apiUrl, token, uploadId, partResults, serverFilename)
-        val finalFilename = finish.filename.ifEmpty { serverFilename }
-        return UploadedFileResult(
-            serverFilename = finalFilename,
-            cdnUrl = "$cdnBaseUrl/$finalFilename",
+        if (urls.isEmpty() || uploadId.isEmpty()) {
+            throw MultipartNotApplicable()
+        }
+        Log.d(TAG, "presign multipart bytes file=$uploadFilename cdnUrl=$cdnUrl uploadId=$uploadId parts=${urls.size}")
+        return PresignedFileResult(
+            serverFilename = serverFilename,
+            cdnUrl = cdnUrl,
+            plan = UploadExecutionPlan.Multipart(
+                uploadId = uploadId,
+                presignedUrls = urls,
+                serverFilename = serverFilename,
+                mimeType = mimeType,
+                fileSize = sizeBytes.toLong(),
+            ),
+        )
+    }
+
+    private suspend fun executeMultipartPlan(
+        api: MezonApi,
+        apiUrl: String,
+        token: String,
+        plan: UploadExecutionPlan.Multipart,
+        bytes: ByteArray?,
+        file: File?,
+        onProgress: ((uploaded: Long, total: Long) -> Unit)?,
+    ) {
+        val urls = plan.presignedUrls
+        val partCount = urls.size
+        onProgress?.invoke(0, plan.fileSize)
+        val partResults = if (file != null) {
+            val semaphore = Semaphore(PARALLEL_PART_UPLOADS_FILE)
+            val uploadedLock = Any()
+            var uploadedBytes = 0L
+            coroutineScope {
+                urls.mapIndexed { index, url ->
+                    async {
+                        semaphore.withPermit {
+                            val offset = index.toLong() * MULTIPART_PART_SIZE
+                            val endExclusive = if (index == partCount - 1) {
+                                plan.fileSize
+                            } else {
+                                offset + MULTIPART_PART_SIZE
+                            }
+                            val len = endExclusive - offset
+                            val etag = api.putFilePartRangeToPresignedUrl(
+                                url, file, offset, len, plan.mimeType,
+                            )
+                            synchronized(uploadedLock) {
+                                uploadedBytes += len
+                                onProgress?.invoke(uploadedBytes, plan.fileSize)
+                            }
+                            (index + 1) to etag
+                        }
+                    }
+                }.awaitAll().sortedBy { it.first }
+            }
+        } else {
+            val data = bytes ?: throw IllegalArgumentException("executeMultipartPlan requires bytes or file")
+            val semaphore = Semaphore(PARALLEL_PART_UPLOADS_BYTES)
+            val uploadedLock = Any()
+            var uploadedBytes = 0L
+            coroutineScope {
+                urls.mapIndexed { index, url ->
+                    async {
+                        semaphore.withPermit {
+                            val offset = index * MULTIPART_PART_SIZE
+                            val end = if (index == partCount - 1) {
+                                data.size
+                            } else {
+                                offset + MULTIPART_PART_SIZE
+                            }
+                            val partBytes = data.copyOfRange(offset, end)
+                            val etag = api.putFilePartToPresignedUrl(url, partBytes, plan.mimeType)
+                            synchronized(uploadedLock) {
+                                uploadedBytes += partBytes.size
+                                onProgress?.invoke(uploadedBytes, plan.fileSize)
+                            }
+                            (index + 1) to etag
+                        }
+                    }
+                }.awaitAll().sortedBy { it.first }
+            }
+        }
+        api.multipartUploadAttachmentFileFinish(
+            apiUrl, token, plan.uploadId, partResults, plan.serverFilename,
         )
     }
 
@@ -496,102 +671,6 @@ object AttachmentUploader {
         } finally {
             runCatching { tmpFile.delete() }
         }
-    }
-
-    private suspend fun uploadSinglePut(
-        api: MezonApi,
-        apiUrl: String,
-        token: String,
-        uploadFilename: String,
-        mimeType: String,
-        bytes: ByteArray,
-        width: Int,
-        height: Int,
-        cdnBaseUrl: String,
-        onProgress: ((uploaded: Long, total: Long) -> Unit)?,
-    ): UploadedFileResult {
-        val presign = api.uploadAttachmentFile(
-            apiUrl, token, uploadFilename, mimeType, bytes.size, width, height,
-        )
-        api.putFileToPresignedUrl(presign.url, bytes, mimeType)
-        onProgress?.invoke(bytes.size.toLong(), bytes.size.toLong())
-        return UploadedFileResult(
-            serverFilename = presign.filename,
-            cdnUrl = "$cdnBaseUrl/${presign.filename}",
-        )
-    }
-
-    private suspend fun uploadMultipart(
-        api: MezonApi,
-        apiUrl: String,
-        token: String,
-        uploadFilename: String,
-        mimeType: String,
-        bytes: ByteArray,
-        width: Int,
-        height: Int,
-        cdnBaseUrl: String,
-        onProgress: ((uploaded: Long, total: Long) -> Unit)?,
-    ): UploadedFileResult {
-        val totalSize = bytes.size.toLong()
-        val requestedPartCount = multipartPartCount(totalSize)
-        val start = api.multipartUploadAttachmentFileStart(
-            apiUrl, token, uploadFilename, mimeType, bytes.size, width, height,
-            partCount = requestedPartCount,
-        )
-        val urls = start.urlsList
-        val uploadId = start.uploadId
-
-        if (urls.size == 1 && uploadId.isEmpty()) {
-            api.putFileToPresignedUrl(urls[0], bytes, mimeType)
-            onProgress?.invoke(totalSize, totalSize)
-            val serverFilename = start.filename.ifEmpty { uploadFilename }
-            return UploadedFileResult(
-                serverFilename = serverFilename,
-                cdnUrl = "$cdnBaseUrl/$serverFilename",
-            )
-        }
-
-        if (urls.isEmpty() || uploadId.isEmpty()) {
-            throw MultipartNotApplicable()
-        }
-
-        val partCount = urls.size
-        val semaphore = Semaphore(PARALLEL_PART_UPLOADS_BYTES)
-        val uploadedLock = Any()
-        var uploadedBytes = 0L
-
-        val partResults = coroutineScope {
-            urls.mapIndexed { index, url ->
-                async {
-                    semaphore.withPermit {
-                        val offset = index * MULTIPART_PART_SIZE
-                        val end = if (index == partCount - 1) {
-                            totalSize.toInt()
-                        } else {
-                            offset + MULTIPART_PART_SIZE
-                        }
-                        val partBytes = bytes.copyOfRange(offset, end)
-                        val etag = api.putFilePartToPresignedUrl(url, partBytes, mimeType)
-                        synchronized(uploadedLock) {
-                            uploadedBytes += partBytes.size
-                            onProgress?.invoke(uploadedBytes, totalSize)
-                        }
-                        (index + 1) to etag
-                    }
-                }
-            }.awaitAll().sortedBy { it.first }
-        }
-
-        val finishFilename = start.filename.ifEmpty { uploadFilename }
-        val finish = api.multipartUploadAttachmentFileFinish(
-            apiUrl, token, start.uploadId, partResults, finishFilename,
-        )
-        val serverFilename = finish.filename.ifEmpty { finishFilename }
-        return UploadedFileResult(
-            serverFilename = serverFilename,
-            cdnUrl = "$cdnBaseUrl/$serverFilename",
-        )
     }
 
     private fun stripExifSensitive(file: File) {

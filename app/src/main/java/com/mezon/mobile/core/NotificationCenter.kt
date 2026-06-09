@@ -146,6 +146,7 @@ class NotificationCenter(val currentAccount: Int) {
         val ownerOnboardingStateChanged = nextId()
         val memberOnboardingStateChanged = nextId()
         val attachmentUploadProgress = nextId()
+        val attachmentUploadFinished = nextId()
 
         const val UPDATE_MASK_NAME = 1
         const val UPDATE_MASK_AVATAR = 2

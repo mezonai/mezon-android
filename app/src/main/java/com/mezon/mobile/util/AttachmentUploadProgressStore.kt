@@ -4,6 +4,7 @@ object AttachmentUploadProgressStore {
 
     private val lock = Any()
     private val progressByKey = HashMap<String, Float>()
+    private val uploadCompleteByKey = HashSet<String>()
 
     fun setProgressIfBucketChanged(key: String, value: Float): Boolean {
         if (key.isEmpty()) return false
@@ -24,10 +25,33 @@ object AttachmentUploadProgressStore {
         }
     }
 
+    fun markUploadComplete(key: String) {
+        if (key.isEmpty()) return
+        synchronized(lock) {
+            uploadCompleteByKey.add(key)
+            progressByKey.remove(key)
+        }
+    }
+
+    fun isUploadComplete(key: String): Boolean {
+        if (key.isEmpty()) return false
+        synchronized(lock) {
+            return key in uploadCompleteByKey
+        }
+    }
+
+    fun clearProgress(key: String) {
+        if (key.isEmpty()) return
+        synchronized(lock) {
+            progressByKey.remove(key)
+        }
+    }
+
     fun clear(key: String) {
         if (key.isEmpty()) return
         synchronized(lock) {
             progressByKey.remove(key)
+            uploadCompleteByKey.remove(key)
         }
     }
 }

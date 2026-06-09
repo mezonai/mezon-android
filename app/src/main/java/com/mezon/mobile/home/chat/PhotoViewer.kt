@@ -15,7 +15,6 @@ import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
-import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -42,7 +41,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
 
-private const val TAG = "PhotoViewer"
 private const val LOADING_SHOW_DELAY_MS = 300L
 private const val MIN_LOADING_VISIBLE_MS = 300L
 private const val LOADING_FADE_MS = 150L
@@ -198,8 +196,6 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
         urls = if (gallery.isEmpty()) listOf(url) else gallery
         currentIndex = if (index in urls.indices) index else 0
         preferDrawableLoaderForSingle = preferDrawableLoader && urls.size == 1
-        val dm = context.resources.displayMetrics
-        Log.d(TAG, "show() url=$url gallerySize=${gallery.size} index=$index thumb=${thumbBitmap?.let { "${it.width}x${it.height}" } ?: "null"} preferDrawable=$preferDrawableLoader screen=${dm.widthPixels}x${dm.heightPixels} density=${dm.density}")
 
         val single = urls.size == 1
         val thumbUrl = urls[0]

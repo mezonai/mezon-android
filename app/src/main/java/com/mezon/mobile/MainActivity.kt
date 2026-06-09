@@ -40,6 +40,7 @@ import com.mezon.mobile.core.SharedConfig
 import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.di.FragmentEntryPoint
+import com.mezon.mobile.deeplink.DeepLinkRouter
 import com.mezon.mobile.home.ConnectionController
 import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.messages.MessageActivitiesController
@@ -125,6 +126,7 @@ class MainActivity : BasePermissionsActivity(),
     @Inject lateinit var incomingCallFcmHandler: IncomingCallFcmHandler
     @Inject lateinit var callController: CallController
     @Inject lateinit var networkMonitor: NetworkMonitor
+    @Inject lateinit var deepLinkRouter: DeepLinkRouter
 
     lateinit var actionBarLayout: ActionBarLayout
     lateinit var drawerLayoutContainer: DrawerLayoutContainer
@@ -214,13 +216,16 @@ class MainActivity : BasePermissionsActivity(),
             } else {
                 showLogin()
             }
-            if (!handleShareIntent(intent)) {
-                handleNotificationIntent(intent)
-            }
         } else {
             actionBarLayout.showLastFragment()
             rewireTopFragmentCallbacks()
         }
+        if (!handleShareIntent(intent)) {
+            if (!handleDeepLinkIntent(intent)) {
+                handleNotificationIntent(intent)
+            }
+        }
+        flushPendingDeepLink()
         if (hasSession) {
             val run = Runnable {
                 appUpdateGateManager.checkAndShowIfNeeded(
@@ -253,6 +258,7 @@ class MainActivity : BasePermissionsActivity(),
         if (StartupCache.hasSession) {
             connectionController.handleAppForeground()
         }
+        flushPendingDeepLink()
     }
 
     override fun onPause() {
@@ -345,7 +351,12 @@ class MainActivity : BasePermissionsActivity(),
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        setIntent(intent)
         if (handleShareIntent(intent)) return
+        if (handleDeepLinkIntent(intent)) {
+            flushPendingDeepLink()
+            return
+        }
         handleNotificationIntent(intent)
     }
 
@@ -660,6 +671,26 @@ class MainActivity : BasePermissionsActivity(),
         }
     }
 
+    fun popToHomeTabs() {
+        showHome()
+    }
+
+    fun popToMainTabsIfPresent() {
+        val stack = actionBarLayout.getFragmentStack()
+        if (stack.none { it is MainTabsActivity }) {
+            showHome()
+            return
+        }
+        while (actionBarLayout.getFragmentStack().size > 1) {
+            val top = actionBarLayout.getLastFragment() ?: break
+            if (top is MainTabsActivity) break
+            val sizeBefore = actionBarLayout.getFragmentStack().size
+            actionBarLayout.closeLastFragment(animated = false, forceNoAnimation = true)
+            if (actionBarLayout.getFragmentStack().size >= sizeBefore) break
+        }
+        rewireTopFragmentCallbacks()
+    }
+
     private fun showHome() {
         val mainTabsActivity = MainTabsActivity().apply {
             onLogout = { switchToLogin() }
@@ -678,11 +709,13 @@ class MainActivity : BasePermissionsActivity(),
             messageActivitiesController.loadListActivities()
             
         }
+        flushPendingDeepLink()
     }
 
     private fun switchToLogin() {
         StartupCache.needsUsernameSetup = false
         StartupCache.suppressHomeListApiForIncomingCallWake = false
+        deepLinkRouter.clearPending()
         notificationHelper.cancelAllNotifications()
         dismissVoiceRoom()
         val entryPoint = EntryPointAccessors.fromApplication(
@@ -1097,6 +1130,19 @@ class MainActivity : BasePermissionsActivity(),
                 false
             }
         }
+    }
+
+    private fun handleDeepLinkIntent(intent: Intent?): Boolean {
+        if (intent == null || intent.action != Intent.ACTION_VIEW) return false
+        val uri = intent.data ?: return false
+        if (deepLinkRouter.ingest(uri) == null) return false
+        intent.data = null
+        return true
+    }
+
+    private fun flushPendingDeepLink() {
+        if (!StartupCache.hasSession || StartupCache.needsUsernameSetup) return
+        deepLinkRouter.dispatchPending(this)
     }
 
     private fun handleNotificationIntent(intent: Intent?) {

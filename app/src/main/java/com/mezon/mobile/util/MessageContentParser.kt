@@ -191,17 +191,16 @@ private val EMBED_INLINE_ITALIC_UNDERSCORE_REGEX = Regex("(?<!_)_([^_\n]+)_(?!_)
 
 private fun appendCodeFenceBlock(sb: SpannableStringBuilder, innerRaw: String, theme: ThemeColors) {
     val inner = stripMarkdownFenceLanguage(innerRaw)
+    if (inner.isEmpty()) return
+    if (sb.isNotEmpty() && sb.last() != '\n') sb.append('\n')
     val start = sb.length
-    sb.append('\n')
     sb.append(inner)
-    sb.append('\n')
     val end = sb.length
-    if (end > start) {
-        sb.setExclusiveSpan(TypefaceSpan("monospace"), start, end)
-        sb.setExclusiveSpan(RelativeSizeSpan(0.875f), start, end)
-        sb.setExclusiveSpan(ForegroundColorSpan(theme.codeInlineText), start, end)
-        sb.setExclusiveSpan(CodeFenceSpan(theme.codeFenceBg), start, end)
-    }
+    sb.setExclusiveSpan(TypefaceSpan("monospace"), start, end)
+    sb.setExclusiveSpan(RelativeSizeSpan(0.875f), start, end)
+    sb.setExclusiveSpan(ForegroundColorSpan(theme.codeInlineText), start, end)
+    sb.setExclusiveSpan(CodeFenceSpan(theme.codeFenceBg), start, end)
+    sb.append('\n')
 }
 
 private fun appendEmbedPlainMultiline(sb: SpannableStringBuilder, plain: String, theme: ThemeColors) {
@@ -455,17 +454,17 @@ fun parseContentToSpannable(
                         .removeSurrounding("```")
                         .replace(CODE_BLOCK_EDGE_REGEX, "")
                         .trim()
-                    if (sb.isNotEmpty() && sb.last() != '\n') sb.append("\n")
-                    val fenceStart = sb.length
-                    sb.append('\n')
-                    sb.append(stripped)
-                    sb.append('\n')
-                    val fenceEnd = sb.length
-                    sb.append("\n")
-                    sb.setExclusiveSpan(TypefaceSpan("monospace"), fenceStart, fenceEnd)
-                    sb.setExclusiveSpan(RelativeSizeSpan(0.875f), fenceStart, fenceEnd)
-                    sb.setExclusiveSpan(ForegroundColorSpan(theme.codeInlineText), fenceStart, fenceEnd)
-                    sb.setExclusiveSpan(CodeFenceSpan(theme.codeFenceBg), fenceStart, fenceEnd)
+                    if (stripped.isNotEmpty()) {
+                        if (sb.isNotEmpty() && sb.last() != '\n') sb.append("\n")
+                        val fenceStart = sb.length
+                        sb.append(stripped)
+                        val fenceEnd = sb.length
+                        sb.setExclusiveSpan(TypefaceSpan("monospace"), fenceStart, fenceEnd)
+                        sb.setExclusiveSpan(RelativeSizeSpan(0.875f), fenceStart, fenceEnd)
+                        sb.setExclusiveSpan(ForegroundColorSpan(theme.codeInlineText), fenceStart, fenceEnd)
+                        sb.setExclusiveSpan(CodeFenceSpan(theme.codeFenceBg), fenceStart, fenceEnd)
+                        sb.append("\n")
+                    }
                 }
                 "lk", "vk", "lk_yt", "lk_fb", "lk_tt" -> {
                     val linkStartInText = (clampedS - schemeMergeLen).coerceAtLeast(0)

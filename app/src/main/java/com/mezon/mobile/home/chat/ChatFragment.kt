@@ -126,6 +126,7 @@ import com.mezon.mobile.util.resolveStickerSourceUrl
 import com.mezon.mobile.util.firstReferenceMessageId
 import com.mezon.mobile.util.createImgproxyUrl
 import com.mezon.mobile.util.OgpMarker
+import com.mezon.mobile.util.PresignFinishContent
 import com.mezon.mobile.core.SharedConfig
 import com.mezon.mobile.home.chat.poll.ChatPollBridge
 import com.mezon.mobile.home.chat.poll.CreatePollFragment
@@ -282,6 +283,7 @@ open class ChatFragment : BaseFragment() {
 
     private val pendingAttachments = ArrayList<AttachmentPickerItem>()
     private var mediaPermissionDeniedOnce = false
+    private var locationPermissionAskedBefore = false
     private val pendingAttachmentThumbTasks = ArrayList<Runnable?>()
     private var attachmentProgressReloadRunnable: Runnable? = null
     private var buzzMediaPlayer: android.media.MediaPlayer? = null
@@ -1026,6 +1028,13 @@ open class ChatFragment : BaseFragment() {
             }
             attachmentProgressReloadRunnable = work
             AndroidUtilities.runOnUIThread(work, 250L)
+        }
+
+        observe(NotificationCenter.attachmentUploadFinished) { _, _, args ->
+            if (isPaused || fragmentView == null) return@observe
+            val cdnUrl = args.firstOrNull() as? String ?: return@observe
+            if (!messageListHasAttachmentUrl(cdnUrl)) return@observe
+            updateVisibleRows(NotificationCenter.UPDATE_MASK_UPLOAD_PROGRESS)
         }
 
         observe(NotificationCenter.messageDidUpdate) { _, _, args ->
@@ -3717,10 +3726,20 @@ open class ChatFragment : BaseFragment() {
     private fun messageListHasPendingUploadKey(key: String): Boolean {
         if (key.isEmpty()) return false
         for (msg in messages) {
-            if (msg.attachmentUrl == key && msg.isAttachmentUploadPending(key)) return true
+            val filter = PresignFinishContent.PresignFilterContext.from(msg.content, msg.timestampSeconds)
+            if (msg.attachmentUrl == key && msg.isAttachmentUploadPending(key, filter)) return true
             for (extra in msg.extraAttachments) {
-                if (extra.url == key && msg.isAttachmentUploadPending(extra.url)) return true
+                if (extra.url == key && msg.isAttachmentUploadPending(extra.url, filter)) return true
             }
+        }
+        return false
+    }
+
+    private fun messageListHasAttachmentUrl(url: String): Boolean {
+        if (url.isEmpty()) return false
+        for (msg in messages) {
+            if (msg.attachmentUrl == url) return true
+            if (msg.extraAttachments.any { it.url == url }) return true
         }
         return false
     }
@@ -4832,11 +4851,19 @@ open class ChatFragment : BaseFragment() {
             return
         }
 
-        if (activity.shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_FINE_LOCATION)) {
+        val canShowRationale = activity.shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_FINE_LOCATION)
+
+        if (!canShowRationale && locationPermissionAskedBefore) {
+            showOpenLocationSettingsDialog()
+            return
+        }
+
+        if (canShowRationale) {
             com.mezon.mobile.core.AlertDialog.Builder(activity)
                 .setTitle(getString(R.string.share_location_title, ""))
                 .setMessage(getString(R.string.permission_no_location))
                 .setPositiveButton(getString(R.string.common_ok)) { _, _ ->
+                    locationPermissionAskedBefore = true
                     activity.requestPermissions(
                         arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
                         REQUEST_CODE_LOCATION_PERMISSION
@@ -4848,6 +4875,7 @@ open class ChatFragment : BaseFragment() {
             return
         }
 
+        locationPermissionAskedBefore = true
         activity.requestPermissions(
             arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
             REQUEST_CODE_LOCATION_PERMISSION
