@@ -436,7 +436,8 @@
     <string name="clan_settings_logo_update_failed">Không cập nhật được biểu tượng clan. Thử lại.</string>
 
     <string name="clan_emoji_upload_button">Tải lên biểu cảm</string>
-    <string name="clan_emoji_description_body">Thêm biểu cảm tùy chỉnh mà mọi người trong clan đều có thể dùng. Biểu cảm GIF động có thể dùng trên Mezon.</string>
+    <string name="clan_emoji_description_body">Thêm biểu cảm tùy chỉnh mà mọi người trong clan đều có thể dùng. Tất cả thành viên Mezon có thể dùng biểu cảm GIF động.</string>
+    <string name="clan_emoji_empty_list">Không tìm thấy biểu cảm nào.</string>
     <string name="clan_emoji_requirements_title">YÊU CẦU TẢI LÊN</string>
     <string name="clan_emoji_requirements_list">• Loại tệp: JPEG, PNG, GIF\n• Kích thước đề xuất: 256 KB\n• Kích cỡ đề nghị: 128×128\n• Đặt tên: Tên emoji phải có ít nhất 3 ký tự và chỉ gồm chữ cái, chữ số, gạch dưới (_) và gạch ngang (-).</string>
     <string name="clan_emoji_column_image">HÌNH ẢNH</string>
