@@ -42,6 +42,7 @@ import com.mezon.mobile.home.profile.DeviceController
 import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.network.ApiCacheTracker
 import com.mezon.mobile.network.MezonApi
+import com.mezon.mobile.deeplink.DeepLinkRouter
 import com.mezon.mobile.network.NetworkMonitor
 import com.mezon.mobile.notification.FcmRepository
 import com.mezon.mobile.search.SearchController
@@ -80,6 +81,7 @@ interface FragmentEntryPoint {
     fun friendController(): FriendController
     fun userController(): UserController
     fun mezonApi(): MezonApi
+    fun deepLinkRouter(): DeepLinkRouter
     fun networkMonitor(): NetworkMonitor
     fun fcmRepository(): FcmRepository
     fun mediaController(): MediaController

@@ -56,9 +56,11 @@ class TransferSuccessFragment : BaseFragment() {
         }
     }
 
-    /** Called by parent SendTokenFragment so Done/New-transfer can propagate navigation up. */
     var onDone: (() -> Unit)? = null
     var onNewTransfer: (() -> Unit)? = null
+    var onNewTransferAfterClose: (() -> Unit)? = null
+
+    private var pendingNewTransferAfterClose = false
 
     private lateinit var amount: String
     private lateinit var symbol: String
@@ -193,7 +195,7 @@ class TransferSuccessFragment : BaseFragment() {
             isFocusable = true
             setOnClickListener {
                 onDone?.invoke()
-                fragmentView?.post { finishFragment() }
+                finishFragment()
             }
         }
         outer.addView(doneBtn, LinearLayout.LayoutParams(
@@ -323,7 +325,16 @@ class TransferSuccessFragment : BaseFragment() {
 
     private fun onNewTransferClick() {
         onNewTransfer?.invoke()
-        fragmentView?.post { finishFragment() }
+        pendingNewTransferAfterClose = true
+        finishFragment()
+    }
+
+    override fun onTransitionAnimationEnd(isOpen: Boolean, backward: Boolean) {
+        super.onTransitionAnimationEnd(isOpen, backward)
+        if (!isOpen && backward && pendingNewTransferAfterClose) {
+            pendingNewTransferAfterClose = false
+            onNewTransferAfterClose?.invoke()
+        }
     }
 
     private fun captureCardBitmap(): Bitmap? {

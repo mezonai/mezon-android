@@ -13,7 +13,9 @@ import com.mezon.mobile.home.call.parseCallLogMessage
 import com.mezon.mobile.home.chat.poll.isPollContentJson
 import com.mezon.mobile.network.STREAM_MODE_CHANNEL
 import com.mezon.mobile.network.STREAM_MODE_THREAD
+import com.mezon.mobile.util.AttachmentUploadProgressStore
 import com.mezon.mobile.util.MENTION_HERE_USER_ID
+import com.mezon.mobile.util.PresignFinishContent
 
 data class AttachmentInfo(
     val url: String,
@@ -143,6 +145,39 @@ data class MessageEntity(
             if (attachmentUrl.isNotEmpty() && isMediaAttachment(attachmentFiletype, attachmentUrl)) return true
             return extraAttachments.any { isMediaAttachment(it.filetype, it.url) }
         }
+
+    data class DisplayAttachmentSnapshot(
+        val filter: PresignFinishContent.PresignFilterContext,
+        val media: List<AttachmentInfo>,
+        val files: List<AttachmentInfo>,
+    ) {
+        val hasMedia: Boolean get() = media.isNotEmpty()
+        val hasFiles: Boolean get() = files.isNotEmpty()
+        val hasActivePresignPending: Boolean
+            get() = filter.hasActivePending(media, { it.url }) ||
+                filter.hasActivePending(files, { it.url })
+    }
+
+    fun displayAttachmentSnapshot(
+        nowSeconds: Long = System.currentTimeMillis() / 1000L,
+    ): DisplayAttachmentSnapshot {
+        val filter = PresignFinishContent.PresignFilterContext.from(content, timestampSeconds, nowSeconds)
+        val mediaSource = allImageAttachments
+        val filesSource = allFileAttachments
+        return DisplayAttachmentSnapshot(
+            filter = filter,
+            media = filter.filterDisplayable(mediaSource) { it.url },
+            files = filter.filterDisplayable(filesSource) { it.url },
+        )
+    }
+
+    fun hasPendingDisplayableMediaUploads(snapshot: DisplayAttachmentSnapshot): Boolean {
+        val media = snapshot.media
+        if (media.isEmpty()) return false
+        val errorUrls = parseUploadErrorUrls()
+        val filter = snapshot.filter
+        return media.indices.any { isMediaUploadPending(media[it], it, errorUrls, filter) }
+    }
 
     val isWelcomeMessage: Boolean
         get() = code == CODE_FIRST_MESSAGE || (
@@ -316,6 +351,34 @@ data class MessageEntity(
         return url.startsWith("content://") || url.startsWith("file://")
     }
 
+    fun presignFinishKeys(): List<String>? = PresignFinishContent.parseKeys(content)
+
+    fun isPresignAttachmentPending(
+        url: String,
+        filter: PresignFinishContent.PresignFilterContext,
+    ): Boolean {
+        if (isMe) return false
+        if (isLocalAttachmentUrl(url)) return false
+        return filter.isUnfinished(url)
+    }
+
+    fun isAttachmentUploadPending(
+        url: String,
+        filter: PresignFinishContent.PresignFilterContext,
+    ): Boolean {
+        if (attachmentUploadFailed(url)) return false
+        if (isLocalAttachmentUrl(url)) {
+            if (url == attachmentUrl && isError) return false
+            return true
+        }
+        if (!isMe) return false
+        if (!filter.isUnfinished(url)) return false
+        return !AttachmentUploadProgressStore.isUploadComplete(url)
+    }
+
+    fun attachmentUploadProgress(url: String): Float =
+        AttachmentUploadProgressStore.progress(url)
+
     private fun parseUploadErrorUrls(): Set<String> {
         if (extraAttachmentsJson.isEmpty()) return emptySet()
         return try {
@@ -333,32 +396,54 @@ data class MessageEntity(
 
     fun attachmentUploadFailed(url: String): Boolean = url in parseUploadErrorUrls()
 
-    private fun isMediaUploadPending(att: AttachmentInfo, index: Int, errorUrls: Set<String>): Boolean {
+    private fun isMediaUploadPending(
+        att: AttachmentInfo,
+        index: Int,
+        errorUrls: Set<String>,
+        filter: PresignFinishContent.PresignFilterContext,
+    ): Boolean {
         val url = att.url
-        if (!isLocalAttachmentUrl(url)) return false
+        if (isPresignAttachmentPending(url, filter)) return false
+        if (!isLocalAttachmentUrl(url)) {
+            return isAttachmentUploadPending(url, filter)
+        }
         if (url in errorUrls) return false
         if (index == 0 && attachmentUrl == url && isError) return false
         return true
     }
 
-    fun isMediaAttachmentUploadPending(mediaIndex: Int): Boolean {
-        val media = allImageAttachments
+    fun isMediaAttachmentUploadPending(
+        mediaIndex: Int,
+        snapshot: DisplayAttachmentSnapshot,
+    ): Boolean {
+        val media = snapshot.media
         if (mediaIndex !in media.indices) return false
-        return isMediaUploadPending(media[mediaIndex], mediaIndex, parseUploadErrorUrls())
+        return isMediaUploadPending(media[mediaIndex], mediaIndex, parseUploadErrorUrls(), snapshot.filter)
     }
 
-    fun mediaUploadPendingFlags(): List<Boolean> {
+    fun hasPendingMediaAttachmentUploads(snapshot: DisplayAttachmentSnapshot): Boolean =
+        hasPendingDisplayableMediaUploads(snapshot)
+
+    val hasPartialAttachmentUploadFailure: Boolean
+        get() = isError && sendState == SEND_STATE_SENT
+
+    private fun isUrlUploadFailed(url: String, errorUrls: Set<String>): Boolean {
+        if (url in errorUrls) return true
+        return url == attachmentUrl && isLocalAttachmentUrl(url) && isError
+    }
+
+    fun mediaUploadFailedFlags(): List<Boolean> {
         val media = allImageAttachments
         if (media.isEmpty()) return emptyList()
         val errorUrls = parseUploadErrorUrls()
-        return media.indices.map { isMediaUploadPending(media[it], it, errorUrls) }
+        return media.map { isUrlUploadFailed(it.url, errorUrls) }
     }
 
-    fun hasPendingMediaAttachmentUploads(): Boolean {
-        val media = allImageAttachments
-        if (media.isEmpty()) return false
+    fun fileUploadFailedFlags(): List<Boolean> {
+        val files = allFileAttachments
+        if (files.isEmpty()) return emptyList()
         val errorUrls = parseUploadErrorUrls()
-        return media.indices.any { isMediaUploadPending(media[it], it, errorUrls) }
+        return files.map { isUrlUploadFailed(it.url, errorUrls) }
     }
 
     fun buildAttachmentJson(): String {

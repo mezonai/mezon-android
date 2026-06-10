@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.graphics.Canvas
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.Typeface
@@ -26,22 +27,23 @@ import android.widget.Toast
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.mezon.mobile.MainActivity
 import com.mezon.mobile.R
-import com.mezon.mobile.core.AlertDialog
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BottomSheet
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.core.ThemeColors
-import com.mezon.mobile.home.qr.QrCodeUtils
+import com.mezon.mobile.home.qr.InviteQrBottomSheet
+import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.ui.cells.AvatarView
 import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.ui.cells.ToastOverlay
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class InvitePeopleBottomSheet(
@@ -50,149 +52,187 @@ class InvitePeopleBottomSheet(
     private val clanId: Long,
     private val clanName: String,
     private val clanLogo: String,
-) : BottomSheet(context) {
+) : BottomSheet(context, needFocusable = true) {
 
     companion object {
         private const val PAYLOAD_ACTION = "action"
-        private const val VID_DIVIDER = 0x2201
+        private const val GROUP_AVATAR_COLOR = 0xFFF58C29.toInt()
+        private const val SEARCH_HEIGHT_DP = 40f
+        private const val SEARCH_ICON_SIZE_DP = 18f
+        private const val SEARCH_ICON_INSET_DP = 8f
+        private const val SEARCH_TEXT_GAP_DP = 8f
+        private const val SEARCH_CLEAR_SIZE_DP = 20f
+        private const val SEARCH_CLEAR_INSET_DP = 8f
     }
 
     private val theme = ThemeColors.instance
     private val sheetScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var collectJob: Job? = null
-    private var copiedResetJob: Job? = null
     private var linkErrorHandled = false
 
     private lateinit var searchField: EditText
+    private lateinit var searchClearBtn: ImageView
     private lateinit var recycler: RecyclerListView
     private lateinit var adapter: TargetAdapter
-    private lateinit var loadingOverlay: FrameLayout
-
-    private lateinit var copyLinkBtn: LinearLayout
-    private lateinit var copyLinkLabel: TextView
+    private lateinit var listContainer: FrameLayout
+    private lateinit var emptyStateView: LinearLayout
+    private lateinit var targetsLoadingView: FrameLayout
+    private lateinit var shareActionBtn: View
+    private lateinit var copyActionBtn: View
+    private lateinit var qrActionBtn: View
 
     init {
         containerHeight = (AndroidUtilities.displaySize.y * 0.88f).toInt()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        setTitle(context.getString(R.string.invite_a_friend))
-
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(theme.background)
+            setPadding(LayoutHelper.dp(16f), 0, LayoutHelper.dp(16f), LayoutHelper.dp(16f))
         }
+
+        root.addView(TextView(context).apply {
+            text = context.getString(R.string.invite_sheet_title)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(theme.colorText)
+            gravity = Gravity.CENTER
+        }, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
+            topMargin = LayoutHelper.dp(12f)
+            bottomMargin = LayoutHelper.dp(16f)
+        })
 
         val actionsRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
-
-        val shareBtn = makeActionButton(
-            icon = MezonIcon.shareIcon,
-            label = context.getString(R.string.invite_action_share),
-        ) { shareInviteLink() }
-
-        copyLinkBtn = makeActionButton(
-            icon = MezonIcon.copyIcon,
-            label = context.getString(R.string.invite_action_copy_link),
-        ) { copyInviteLink() }
-        copyLinkLabel = copyLinkBtn.getChildAt(1) as TextView
-
-        val qrBtn = makeActionButton(
-            icon = MezonIcon.scanQR,
-            label = context.getString(R.string.invite_action_qr),
-        ) { showQrDialog() }
-
-        actionsRow.addView(shareBtn, actionColParams())
-        actionsRow.addView(copyLinkBtn, actionColParams())
-        actionsRow.addView(qrBtn, actionColParams())
-
-        root.addView(
-            actionsRow,
-            LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
-                topMargin = LayoutHelper.dp(8f)
-                bottomMargin = LayoutHelper.dp(16f)
-            },
-        )
-
-        root.addView(
-            View(context).apply { setBackgroundColor(theme.borderDim) },
-            LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 1),
-        )
-
-        val searchWrapper = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+            setPadding(LayoutHelper.dp(4f), 0, LayoutHelper.dp(4f), 0)
+        }
+        shareActionBtn = addActionButton(
+            actionsRow,
+            MezonIcon.shareIcon,
+            context.getString(R.string.invite_share),
+        ) { shareInviteLink() }
+        copyActionBtn = addActionButton(
+            actionsRow,
+            MezonIcon.linkIcon,
+            context.getString(R.string.invite_copy_link),
+        ) { copyInviteLink() }
+        qrActionBtn = addActionButton(
+            actionsRow,
+            MezonIcon.scanQR,
+            context.getString(R.string.invite_qr_code),
+        ) { showInviteQrSheet() }
+        root.addView(actionsRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
+            bottomMargin = LayoutHelper.dp(12f)
+        })
+
+        val iconSize = LayoutHelper.dp(SEARCH_ICON_SIZE_DP)
+        val iconInset = LayoutHelper.dp(SEARCH_ICON_INSET_DP)
+        val textGap = LayoutHelper.dp(SEARCH_TEXT_GAP_DP)
+        val clearSize = LayoutHelper.dp(SEARCH_CLEAR_SIZE_DP)
+        val clearInset = LayoutHelper.dp(SEARCH_CLEAR_INSET_DP)
+        val textStartPad = iconInset + iconSize + textGap
+        val textEndPad = clearInset + clearSize + textGap
+
+        val searchWrap = FrameLayout(context).apply {
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dpf(8f)
                 setStroke(LayoutHelper.dp(1), theme.borderDim)
                 setColor(android.graphics.Color.TRANSPARENT)
             }
-            setPadding(LayoutHelper.dp(12f), 0, LayoutHelper.dp(12f), 0)
+            clipChildren = true
         }
-
-        val searchIcon = ImageView(context).apply {
-            val d = MezonIcon.searchIcon.getDrawable(context)
-            d.colorFilter = PorterDuffColorFilter(theme.textDisabled, PorterDuff.Mode.SRC_IN)
-            setImageDrawable(d)
-        }
-        searchWrapper.addView(
-            searchIcon,
-            LinearLayout.LayoutParams(LayoutHelper.dp(18f), LayoutHelper.dp(18f)).apply {
-                rightMargin = LayoutHelper.dp(10f)
-            },
-        )
-
         searchField = EditText(context).apply {
             hint = context.getString(R.string.invite_search_placeholder)
             setHintTextColor(theme.textDisabled)
             setTextColor(theme.colorText)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             setSingleLine(true)
+            maxLines = 1
+            includeFontPadding = false
+            gravity = Gravity.CENTER_VERTICAL
             background = null
-            setPadding(0, 0, 0, 0)
+            minHeight = 0
+            minimumHeight = 0
+            setPadding(textStartPad, 0, textEndPad, 0)
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
                 override fun afterTextChanged(s: Editable?) = Unit
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                    controller.onSearch(s?.toString().orEmpty())
+                    val text = s?.toString().orEmpty()
+                    searchClearBtn.visibility = if (text.isEmpty()) View.GONE else View.VISIBLE
+                    controller.onSearch(text)
                 }
             })
         }
-        searchWrapper.addView(
+        val searchIcon = ImageView(context).apply {
+            val d = MezonIcon.magnifyingIcon.getDrawable(context).mutate()
+            d.colorFilter = PorterDuffColorFilter(theme.textDisabled, PorterDuff.Mode.SRC_IN)
+            d.setBounds(0, 0, iconSize, iconSize)
+            setImageDrawable(d)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+        }
+        searchClearBtn = ImageView(context).apply {
+            val d = MezonIcon.circleXIcon.getDrawable(context).mutate()
+            d.colorFilter = PorterDuffColorFilter(theme.colorText, PorterDuff.Mode.SRC_IN)
+            d.setBounds(0, 0, clearSize, clearSize)
+            setImageDrawable(d)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            visibility = View.GONE
+            isClickable = true
+            setOnClickListener {
+                searchField.setText("")
+                controller.applySearchImmediately("")
+            }
+        }
+        searchWrap.addView(
             searchField,
-            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f),
+            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT),
         )
-
-        root.addView(
-            searchWrapper,
-            LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 40).apply {
-                topMargin = LayoutHelper.dp(14f)
-                leftMargin = LayoutHelper.dp(14f)
-                rightMargin = LayoutHelper.dp(14f)
-                bottomMargin = LayoutHelper.dp(8f)
+        searchWrap.addView(
+            searchIcon,
+            FrameLayout.LayoutParams(iconSize, iconSize, Gravity.START or Gravity.CENTER_VERTICAL).apply {
+                leftMargin = iconInset
             },
         )
+        searchWrap.addView(
+            searchClearBtn,
+            FrameLayout.LayoutParams(clearSize, clearSize, Gravity.END or Gravity.CENTER_VERTICAL).apply {
+                rightMargin = clearInset
+            },
+        )
+        root.addView(searchWrap, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, SEARCH_HEIGHT_DP.toInt()).apply {
+            bottomMargin = LayoutHelper.dp(10f)
+        })
 
+        listContainer = FrameLayout(context).apply {
+            background = GradientDrawable().apply {
+                cornerRadius = LayoutHelper.dpf(10f)
+                setColor(theme.surfaceVariant)
+            }
+            clipToOutline = true
+        }
         adapter = TargetAdapter()
         recycler = RecyclerListView(context).apply {
             layoutManager = LinearLayoutManager(context)
             adapter = this@InvitePeopleBottomSheet.adapter
             overScrollMode = View.OVER_SCROLL_NEVER
+            background = null
+            addItemDecoration(InviteRowDividerDecoration(theme.textDisabled))
         }
+        listContainer.addView(recycler, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
-        val listFrame = FrameLayout(context)
-        listFrame.addView(recycler, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
+        emptyStateView = buildEmptyState()
+        listContainer.addView(emptyStateView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
-        loadingOverlay = FrameLayout(context).apply {
-            setBackgroundColor(0x80000000.toInt())
+        targetsLoadingView = FrameLayout(context).apply {
             visibility = View.GONE
             addView(ProgressBar(context), LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER))
         }
-        listFrame.addView(loadingOverlay, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
+        listContainer.addView(targetsLoadingView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
-        root.addView(listFrame, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
+        root.addView(listContainer, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
 
         setCustomView(root)
         super.onCreate(savedInstanceState)
@@ -203,29 +243,121 @@ class InvitePeopleBottomSheet(
         }
     }
 
-
     override fun dismiss() {
         collectJob?.cancel()
-        copiedResetJob?.cancel()
         sheetScope.cancel()
         controller.reset()
         super.dismiss()
     }
 
+    private fun addActionButton(
+        parent: LinearLayout,
+        icon: MezonIcon,
+        label: String,
+        onClick: () -> Unit,
+    ): View {
+        val column = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { onClick() }
+        }
+        val iconSize = LayoutHelper.dp(40)
+        val innerIconSize = LayoutHelper.dp(24)
+        val iconWrap = FrameLayout(context).apply {
+            clipChildren = true
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(theme.surfaceVariant)
+            }
+        }
+        val iconView = ImageView(context).apply {
+            setImageDrawable(icon.getDrawable(context, theme.colorText))
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            adjustViewBounds = true
+        }
+        iconWrap.addView(
+            iconView,
+            FrameLayout.LayoutParams(innerIconSize, innerIconSize, Gravity.CENTER),
+        )
+        column.addView(iconWrap, LinearLayout.LayoutParams(iconSize, iconSize).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+            bottomMargin = LayoutHelper.dp(6f)
+        })
+        column.addView(TextView(context).apply {
+            text = label
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTextColor(theme.colorText)
+            gravity = Gravity.CENTER_HORIZONTAL
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+        }, LinearLayout.LayoutParams(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT))
+        parent.addView(column, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        return column
+    }
+
+    private fun buildEmptyState(): LinearLayout {
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+            setPadding(LayoutHelper.dp(24f), LayoutHelper.dp(16f), LayoutHelper.dp(24f), LayoutHelper.dp(16f))
+
+            addView(ImageView(context).apply {
+                setImageDrawable(MezonIcon.searchFriendIcon.getDrawable(context, theme.textDisabled))
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                alpha = 0.85f
+            }, LinearLayout.LayoutParams(LayoutHelper.dp(96f), LayoutHelper.dp(96f)).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                bottomMargin = LayoutHelper.dp(10f)
+            })
+
+            addView(TextView(context).apply {
+                text = context.getString(R.string.invite_empty_title)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(theme.colorText)
+                gravity = Gravity.CENTER_HORIZONTAL
+            }, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
+                bottomMargin = LayoutHelper.dp(10f)
+            })
+
+            addView(TextView(context).apply {
+                text = context.getString(R.string.invite_empty_description)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+                setTextColor(theme.textDisabled)
+                gravity = Gravity.CENTER_HORIZONTAL
+            }, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
+                bottomMargin = LayoutHelper.dp(14f)
+            })
+
+            addView(TextView(context).apply {
+                text = context.getString(R.string.invite_empty_action)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(theme.textLink)
+                gravity = Gravity.CENTER_HORIZONTAL
+                isClickable = true
+                setOnClickListener {
+                    showToast(ToastOverlay.ToastType.INFO, context.getString(R.string.invite_empty_action))
+                }
+            }, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.CENTER_HORIZONTAL))
+        }
+    }
 
     private fun render(state: InvitePeopleUiState) {
         val hasLink = state.inviteUrl.isNotBlank() && !state.isLoadingLink
-        loadingOverlay.visibility = if (state.isLoadingLink) View.VISIBLE else View.GONE
-
-        if (state.isCopied) {
-            copyLinkLabel.text = context.getString(R.string.invite_copied)
-            copyLinkLabel.setTextColor(theme.success)
-        } else {
-            copyLinkLabel.text = context.getString(R.string.invite_action_copy_link)
-            copyLinkLabel.setTextColor(theme.colorText)
+        val actionsEnabled = hasLink
+        listOf(shareActionBtn, copyActionBtn, qrActionBtn).forEach { btn ->
+            btn.isEnabled = actionsEnabled
+            btn.alpha = if (actionsEnabled) 1f else 0.45f
         }
-        copyLinkBtn.alpha = if (hasLink) 1f else 0.4f
-        copyLinkBtn.isEnabled = hasLink
+
+        targetsLoadingView.visibility = if (state.isLoadingTargets) View.VISIBLE else View.GONE
+        val showEmpty = !state.isLoadingTargets && state.dmTargets.isEmpty()
+        emptyStateView.visibility = if (showEmpty) View.VISIBLE else View.GONE
+        recycler.visibility = if (showEmpty) View.GONE else View.VISIBLE
 
         if (state.linkError != null && !state.isLoadingLink && !linkErrorHandled) {
             linkErrorHandled = true
@@ -242,186 +374,54 @@ class InvitePeopleBottomSheet(
         adapter.submit(state)
     }
 
-
     private fun copyInviteLink() {
         val url = controller.state.value.inviteUrl
         if (url.isBlank()) return
         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         cm.setPrimaryClip(ClipData.newPlainText("invite", url))
-        controller.markCopied(true)
-        copiedResetJob?.cancel()
-        copiedResetJob = sheetScope.launch {
-            delay(1500)
-            controller.markCopied(false)
-        }
+        showToast(ToastOverlay.ToastType.SUCCESS, context.getString(R.string.invite_link_copied))
     }
 
     private fun shareInviteLink() {
         val url = controller.state.value.inviteUrl
-        if (url.isBlank()) {
-            Toast.makeText(context, context.getString(R.string.invite_create_link_error), Toast.LENGTH_SHORT).show()
-            return
+        if (url.isBlank()) return
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, url)
         }
-        try {
-            val intent = Intent(Intent.ACTION_SEND).apply {
-                type = "text/plain"
-                putExtra(Intent.EXTRA_TEXT, url)
-            }
-            context.startActivity(Intent.createChooser(intent, context.getString(R.string.invite_action_share)))
-        } catch (_: Exception) {
-            copyInviteLink()
-        }
+        context.startActivity(Intent.createChooser(intent, context.getString(R.string.invite_share)))
     }
 
-    private fun showQrDialog() {
+    private fun showInviteQrSheet() {
         val url = controller.state.value.inviteUrl
-        if (url.isBlank()) {
-            Toast.makeText(context, context.getString(R.string.invite_create_link_error), Toast.LENGTH_SHORT).show()
-            return
-        }
-        val size = LayoutHelper.dp(220f)
-        val qr = QrCodeUtils.generateQr(url, size)
-
-        val img = ImageView(context).apply {
-            setImageBitmap(qr)
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            setPadding(LayoutHelper.dp(16f), LayoutHelper.dp(8f), LayoutHelper.dp(16f), LayoutHelper.dp(8f))
-        }
-
-        AlertDialog.Builder(context)
-            .setTitle(context.getString(R.string.invite_share_qr))
-            .setView(img)
-            .setPositiveButton(context.getString(R.string.invite_share_qr)) { d, _ ->
-                d.dismiss()
-                shareQrImage(url, qr)
-            }
-            .setNeutralButton(context.getString(R.string.invite_save_qr)) { d, _ ->
-                d.dismiss()
-                saveQrImage(qr)
-            }
-            .setNegativeButton(context.getString(R.string.common_close)) { d, _ -> d.dismiss() }
-            .show()
-    }
-
-    private fun shareQrImage(url: String, qr: android.graphics.Bitmap) {
-        try {
-            val cache = java.io.File(context.cacheDir, "invite_qr.png")
-            cache.outputStream().use { out ->
-                qr.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
-            }
-            val uri = androidx.core.content.FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.fileprovider",
-                cache,
-            )
-            val intent = Intent(Intent.ACTION_SEND).apply {
-                type = "image/png"
-                putExtra(Intent.EXTRA_STREAM, uri)
-                putExtra(Intent.EXTRA_TEXT, url)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            context.startActivity(Intent.createChooser(intent, context.getString(R.string.invite_share_qr)))
-        } catch (_: Exception) {
-            Toast.makeText(context, context.getString(R.string.invite_create_link_error), Toast.LENGTH_SHORT).show()
+        if (url.isBlank()) return
+        InviteQrBottomSheet(
+            context,
+            theme,
+            url,
+            clanName,
+            clanLogo,
+        ).apply {
+            setDrawNavigationBar(true)
+            show()
         }
     }
 
-    private fun saveQrImage(qr: android.graphics.Bitmap) {
-        try {
-            val filename = "mezon_invite_qr_${System.currentTimeMillis()}.png"
-            val saved = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                val values = android.content.ContentValues().apply {
-                    put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, filename)
-                    put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/png")
-                    put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, android.os.Environment.DIRECTORY_PICTURES)
-                }
-                val resolver = context.contentResolver
-                val uri = resolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
-                if (uri != null) {
-                    resolver.openOutputStream(uri)?.use { out ->
-                        qr.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
-                    }
-                    true
-                } else false
-            } else {
-                val dir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_PICTURES)
-                dir.mkdirs()
-                val file = java.io.File(dir, filename)
-                file.outputStream().use { out ->
-                    qr.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
-                }
-                android.media.MediaScannerConnection.scanFile(context, arrayOf(file.absolutePath), null, null)
-                true
-            }
-            Toast.makeText(
-                context,
-                if (saved) context.getString(R.string.invite_qr_saved)
-                else context.getString(R.string.invite_create_link_error),
-                Toast.LENGTH_SHORT,
-            ).show()
-        } catch (_: Exception) {
-            Toast.makeText(context, context.getString(R.string.invite_create_link_error), Toast.LENGTH_SHORT).show()
-        }
+    private fun showToast(type: ToastOverlay.ToastType, message: String) {
+        val act = context as? MainActivity ?: return
+        ToastOverlay(context, theme).show(act.drawerLayoutContainer, type, message)
     }
-
-
-    private fun makeActionButton(
-        icon: MezonIcon,
-        label: String,
-        onClick: () -> Unit,
-    ): LinearLayout {
-        val col = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            isClickable = true
-            isFocusable = true
-            setOnClickListener { onClick() }
-        }
-
-        val circle = FrameLayout(context).apply {
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(theme.surfaceVariant)
-            }
-        }
-        val iconView = ImageView(context).apply {
-            val d = icon.getDrawable(context)
-            d.colorFilter = PorterDuffColorFilter(theme.onSurface, PorterDuff.Mode.SRC_IN)
-            setImageDrawable(d)
-            scaleType = ImageView.ScaleType.CENTER_INSIDE
-        }
-        circle.addView(iconView, LayoutHelper.createFrame(24, 24, Gravity.CENTER))
-        col.addView(circle, LayoutHelper.createLinear(56, 56, 0f, Gravity.CENTER_HORIZONTAL))
-
-        val tv = TextView(context).apply {
-            text = label
-            setTextColor(theme.colorText)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-            gravity = Gravity.CENTER
-        }
-        col.addView(
-            tv,
-            LayoutHelper.createLinear(
-                LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT,
-                0f, Gravity.CENTER_HORIZONTAL, 0f, 8f, 0f, 0f,
-            ),
-        )
-        return col
-    }
-
-    private fun actionColParams() = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-        topMargin = LayoutHelper.dp(4f)
-        bottomMargin = LayoutHelper.dp(4f)
-    }
-
 
     private inner class InviteTargetViewHolder(
-        itemView: View,
-        val avatar: AvatarView,
+        v: View,
+        val avatarWrap: FrameLayout,
+        val avatar: AvatarView?,
+        val groupIcon: ImageView?,
         val titleTv: TextView,
-        val subTv: TextView,
-        val actionBtn: TextView,
-    ) : RecyclerView.ViewHolder(itemView)
+        val actionBtn: FrameLayout,
+        val actionLabel: TextView,
+        val actionSpinner: ProgressBar,
+    ) : RecyclerView.ViewHolder(v)
 
     private inner class TargetAdapter : RecyclerView.Adapter<InviteTargetViewHolder>() {
         private var rows: List<InviteDmTarget> = emptyList()
@@ -474,75 +474,62 @@ class InvitePeopleBottomSheet(
         override fun getItemCount() = rows.size
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): InviteTargetViewHolder {
-            val wrapper = LinearLayout(context).apply {
-                orientation = LinearLayout.VERTICAL
-                layoutParams = RecyclerView.LayoutParams(
-                    RecyclerView.LayoutParams.MATCH_PARENT,
-                    RecyclerView.LayoutParams.WRAP_CONTENT,
-                )
-            }
-
             val row = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                val padH = LayoutHelper.dp(14f)
-                val padV = LayoutHelper.dp(11f)
-                setPadding(padH, padV, padH, padV)
+                layoutParams = RecyclerView.LayoutParams(
+                    RecyclerView.LayoutParams.MATCH_PARENT,
+                    LayoutHelper.dp(60f),
+                )
+                setPadding(LayoutHelper.dp(20f), 0, LayoutHelper.dp(20f), 0)
             }
 
-            val avatar = AvatarView(context).apply { setSizeDp(44) }
-            row.addView(avatar, LinearLayout.LayoutParams(LayoutHelper.dp(44f), LayoutHelper.dp(44f)).apply {
-                rightMargin = LayoutHelper.dp(12f)
-                gravity = Gravity.CENTER_VERTICAL
+            val avatarWrap = FrameLayout(context)
+            val avatar = AvatarView(context).apply { setSizeDp(40) }
+            avatarWrap.addView(avatar, FrameLayout.LayoutParams(LayoutHelper.dp(40f), LayoutHelper.dp(40f), Gravity.CENTER))
+            val groupIcon = ImageView(context).apply {
+                visibility = View.GONE
+                setImageDrawable(MezonIcon.groupIcon.getDrawable(context, 0xFFFFFFFF.toInt()))
+                scaleType = ImageView.ScaleType.FIT_CENTER
+            }
+            avatarWrap.addView(groupIcon, FrameLayout.LayoutParams(LayoutHelper.dp(20f), LayoutHelper.dp(20f), Gravity.CENTER))
+            row.addView(avatarWrap, LinearLayout.LayoutParams(LayoutHelper.dp(40f), LayoutHelper.dp(40f)).apply {
+                rightMargin = LayoutHelper.dp(10f)
             })
 
-            val textCol = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
             val titleTv = TextView(context).apply {
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
                 setTextColor(theme.colorText)
-                typeface = Typeface.DEFAULT
                 maxLines = 1
                 ellipsize = TextUtils.TruncateAt.END
             }
-            val subTv = TextView(context).apply {
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-                setTextColor(theme.textDisabled)
-                maxLines = 1
-                ellipsize = TextUtils.TruncateAt.END
-                visibility = View.GONE
-            }
-            textCol.addView(titleTv, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-            textCol.addView(subTv, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-            row.addView(textCol, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+            row.addView(titleTv, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
                 gravity = Gravity.CENTER_VERTICAL
                 rightMargin = LayoutHelper.dp(8f)
             })
 
-            val actionBtn = TextView(context).apply {
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-                typeface = Typeface.DEFAULT
+            val actionBtn = FrameLayout(context)
+            val actionLabel = TextView(context).apply {
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+                typeface = Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER
-                setPadding(LayoutHelper.dp(16f), 0, LayoutHelper.dp(16f), 0)
-                background = GradientDrawable().apply {
-                    cornerRadius = LayoutHelper.dpf(8f)
-                    setColor(theme.surfaceVariant)
-                }
+                setTextColor(theme.colorText)
             }
-            row.addView(actionBtn, LinearLayout.LayoutParams(LayoutHelper.dp(76f), LayoutHelper.dp(34f)).apply {
-                gravity = Gravity.CENTER_VERTICAL
-            })
-
-            wrapper.addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-
-            val divider = View(context).apply {
-                id = VID_DIVIDER
-                setBackgroundColor(theme.borderDim)
+            val actionSpinner = ProgressBar(context).apply {
+                visibility = View.GONE
             }
-            wrapper.addView(divider, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1).apply {
-                leftMargin = LayoutHelper.dp(14f)
-            })
+            actionBtn.addView(actionLabel, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            ))
+            actionBtn.addView(actionSpinner, FrameLayout.LayoutParams(
+                LayoutHelper.dp(20f),
+                LayoutHelper.dp(20f),
+                Gravity.CENTER,
+            ))
+            row.addView(actionBtn, LinearLayout.LayoutParams(LayoutHelper.dp(80f), LayoutHelper.dp(32f)))
 
-            return InviteTargetViewHolder(wrapper, avatar, titleTv, subTv, actionBtn)
+            return InviteTargetViewHolder(row, avatarWrap, avatar, groupIcon, titleTv, actionBtn, actionLabel, actionSpinner)
         }
 
         override fun onBindViewHolder(holder: InviteTargetViewHolder, position: Int, payloads: MutableList<Any>) {
@@ -557,23 +544,25 @@ class InvitePeopleBottomSheet(
             val target = rows[position]
 
             holder.titleTv.text = target.title
-            if (!target.subtitle.isNullOrBlank()) {
-                holder.subTv.visibility = View.VISIBLE
-                holder.subTv.text = target.subtitle
-            } else {
-                holder.subTv.visibility = View.GONE
-            }
 
-            val avatarKey = target.userId ?: target.channelId ?: 0L
-            holder.avatar.setInfo(avatarKey, target.title)
-            if (!target.avatarUrl.isNullOrBlank()) {
-                holder.avatar.setImageUrl(target.avatarUrl)
-            } else {
-                holder.avatar.setImageUrl(null)
-            }
+            val isGroup = target.channelType == CHANNEL_TYPE_GROUP
+            val hasAvatar = !target.avatarUrl.isNullOrBlank()
+            holder.avatarWrap.background = null
 
-            holder.itemView.findViewById<View>(VID_DIVIDER)?.visibility =
-                if (position == itemCount - 1) View.INVISIBLE else View.VISIBLE
+            if (isGroup && !hasAvatar) {
+                holder.avatar?.visibility = View.GONE
+                holder.groupIcon?.visibility = View.VISIBLE
+                holder.avatarWrap.background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(GROUP_AVATAR_COLOR)
+                }
+            } else {
+                holder.avatar?.visibility = View.VISIBLE
+                holder.groupIcon?.visibility = View.GONE
+                val avatarKey = target.userId ?: target.channelId ?: 0L
+                holder.avatar?.setInfo(avatarKey, target.title)
+                holder.avatar?.setImageUrl(target.avatarUrl)
+            }
 
             bindActionButton(holder, target)
         }
@@ -581,24 +570,31 @@ class InvitePeopleBottomSheet(
         private fun bindActionButton(holder: InviteTargetViewHolder, target: InviteDmTarget) {
             val sent = sentIds.contains(target.rowId)
             val sending = sendingId == target.rowId
+            holder.itemView.alpha = if (sent) 0.6f else 1f
             holder.actionBtn.setOnClickListener(null)
+
+            holder.actionBtn.background = GradientDrawable().apply {
+                cornerRadius = LayoutHelper.dpf(16f)
+                setColor(theme.tertiary)
+                setStroke(LayoutHelper.dp(1f), theme.borderDim)
+            }
+
             when {
                 sent -> {
-                    holder.actionBtn.text = context.getString(R.string.invite_btn_sent)
-                    holder.actionBtn.setTextColor(theme.textDisabled)
-                    (holder.actionBtn.background as? GradientDrawable)?.setColor(theme.border)
+                    holder.actionLabel.text = context.getString(R.string.invite_btn_invited)
+                    holder.actionLabel.visibility = View.VISIBLE
+                    holder.actionSpinner.visibility = View.GONE
                     holder.actionBtn.isEnabled = false
                 }
                 sending -> {
-                    holder.actionBtn.text = "…"
-                    holder.actionBtn.setTextColor(theme.textDisabled)
-                    (holder.actionBtn.background as? GradientDrawable)?.setColor(theme.surfaceVariant)
+                    holder.actionLabel.visibility = View.INVISIBLE
+                    holder.actionSpinner.visibility = View.VISIBLE
                     holder.actionBtn.isEnabled = false
                 }
                 else -> {
-                    holder.actionBtn.text = context.getString(R.string.invite_btn_invite)
-                    holder.actionBtn.setTextColor(theme.colorText)
-                    (holder.actionBtn.background as? GradientDrawable)?.setColor(theme.surfaceVariant)
+                    holder.actionLabel.text = context.getString(R.string.invite_btn_invite)
+                    holder.actionLabel.visibility = View.VISIBLE
+                    holder.actionSpinner.visibility = View.GONE
                     holder.actionBtn.isEnabled = true
                     holder.actionBtn.setOnClickListener {
                         holder.actionBtn.isEnabled = false
@@ -615,6 +611,26 @@ class InvitePeopleBottomSheet(
                         }
                     }
                 }
+            }
+        }
+    }
+
+    private class InviteRowDividerDecoration(
+        private val dividerColor: Int,
+    ) : RecyclerView.ItemDecoration() {
+        private val paint = android.graphics.Paint().apply {
+            color = dividerColor
+            alpha = (255 * 0.45f).toInt()
+        }
+
+        override fun onDrawOver(c: Canvas, parent: RecyclerView, state: RecyclerView.State) {
+            val left = parent.paddingLeft.toFloat()
+            val right = (parent.width - parent.paddingRight).toFloat()
+            val childCount = parent.childCount
+            for (i in 0 until childCount - 1) {
+                val child = parent.getChildAt(i)
+                val bottom = child.bottom.toFloat()
+                c.drawRect(left, bottom, right, bottom + 1f, paint)
             }
         }
     }

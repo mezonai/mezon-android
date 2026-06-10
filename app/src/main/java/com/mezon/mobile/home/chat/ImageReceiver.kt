@@ -17,6 +17,9 @@ import java.util.LinkedHashSet
 
 class ImageReceiver(private val parentView: View) {
 
+    companion object {
+    }
+
     private var imageBitmap: Bitmap? = null
     private var thumbBitmap: Bitmap? = null
     private var animatedDrawable: Drawable? = null

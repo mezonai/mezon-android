@@ -111,6 +111,10 @@ open class BottomSheet(
 
     private var customView: View? = null
     protected var containerHeight = ViewGroup.LayoutParams.WRAP_CONTENT
+
+    fun setContainerHeightPx(height: Int) {
+        containerHeight = height
+    }
     private var dismissed = false
     private var openAnimationCompleted = false
     private var allowCustomAnimation = true
@@ -231,7 +235,7 @@ open class BottomSheet(
         overlayDrawNavBarColor = color
         navBarColor = color
         if (color != 0) drawNavigationBar = true
-        container.invalidate()
+        if (::container.isInitialized) container.invalidate()
     }
 
     fun setAllowCustomAnimation(value: Boolean) { allowCustomAnimation = value }
@@ -248,8 +252,10 @@ open class BottomSheet(
     fun setAllowDrawContent(value: Boolean) {
         if (allowDrawContent != value) {
             allowDrawContent = value
-            container.background = if (allowDrawContent) backDrawable else null
-            container.invalidate()
+            if (::container.isInitialized) {
+                container.background = if (allowDrawContent) backDrawable else null
+                container.invalidate()
+            }
         }
     }
 
@@ -293,7 +299,7 @@ open class BottomSheet(
 
     fun setCurrentPanTranslationY(y: Float) {
         currentPanTranslationY = y
-        container.invalidate()
+        if (::container.isInitialized) container.invalidate()
     }
 
     fun transitionFromRight(value: Boolean) { transitionFromRight = value }
@@ -1243,10 +1249,18 @@ open class BottomSheet(
 
         override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
             layoutCount--
-            val adjustedBottom = bottom - (if (lastInsets != null && !drawNavigationBar) this@BottomSheet.bottomInset else 0)
+            val layoutBottom = if (lastInsets != null && !drawNavigationBar) {
+                if (this@BottomSheet.needFocusable && this@BottomSheet.keyboardVisible) {
+                    bottom - (lastInsets!!.systemWindowInsetBottom - this@BottomSheet.bottomInset)
+                } else {
+                    bottom - this@BottomSheet.bottomInset
+                }
+            } else {
+                bottom
+            }
 
             containerView?.let { cv ->
-                val t = (adjustedBottom - top) - cv.measuredHeight
+                val t = (layoutBottom - top) - cv.measuredHeight
                 val l = ((right - left) - cv.measuredWidth) / 2 + this@BottomSheet.leftInset
                 cv.layout(l, t, l + cv.measuredWidth, t + cv.measuredHeight)
             }
@@ -1268,8 +1282,8 @@ open class BottomSheet(
                     else -> lp.leftMargin
                 } + this@BottomSheet.leftInset
                 val childTop = when (verticalGravity) {
-                    Gravity.CENTER_VERTICAL -> (adjustedBottom - top - childHeight) / 2 + lp.topMargin - lp.bottomMargin
-                    Gravity.BOTTOM -> (adjustedBottom - top) - childHeight - lp.bottomMargin
+                    Gravity.CENTER_VERTICAL -> (layoutBottom - top - childHeight) / 2 + lp.topMargin - lp.bottomMargin
+                    Gravity.BOTTOM -> (layoutBottom - top) - childHeight - lp.bottomMargin
                     else -> lp.topMargin
                 }
                 child.layout(childLeft, childTop, childLeft + childWidth, childTop + childHeight)

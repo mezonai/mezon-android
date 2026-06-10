@@ -38,6 +38,7 @@ class UserProfileBottomSheet(
     private val memberSince: String? = null,
     private val isOwnProfile: Boolean = false,
     private val isDM: Boolean = false,
+    private val isWebhook: Boolean = false,
     private val roles: List<UserProfileRole> = emptyList(),
     private val listener: UserProfileListener? = null,
     private val voiceParticipantExtras: VoiceParticipantExtras? = null
@@ -47,12 +48,13 @@ class UserProfileBottomSheet(
         fun onSendMessage(userId: Long) {}
         fun onVoiceCall(userId: Long) {}
         fun onAddFriend(userId: Long) {}
+        fun onTransferFunds(userId: Long) {}
     }
 
     data class VoiceParticipantExtras(
         val showHeaderActions: Boolean,
         val onFriendClick: () -> Unit,
-        val onTransferClick: () -> Unit,
+        val onTransferClick: () -> Unit = {},
         val canManageVoiceUser: Boolean,
         val showMuteAction: Boolean,
         val onMuteAction: () -> Unit,
@@ -233,53 +235,21 @@ class UserProfileBottomSheet(
         ))
 
         voiceParticipantExtras?.takeIf { it.showHeaderActions }?.let { ex ->
-            val headerIconTint = textColor
-            val friendBtn = ImageView(context).apply {
-                scaleType = ImageView.ScaleType.CENTER_INSIDE
-                setImageDrawable(MezonIcon.userPlusIcon.getDrawable(context).apply {
-                    colorFilter = PorterDuffColorFilter(headerIconTint, PorterDuff.Mode.SRC_IN)
-                })
-                background = GradientDrawable().apply {
-                    shape = GradientDrawable.OVAL
-                    setColor(theme.serverRailBg)
-                }
-                setPadding(LayoutHelper.dp(6), LayoutHelper.dp(6), LayoutHelper.dp(6), LayoutHelper.dp(6))
-                isClickable = true
-                isFocusable = true
-                setOnClickListener {
+            addHeaderFriendButton(container, textColor, ex.onFriendClick)
+        }
+
+        if (!isOwnProfile && !isWebhook && userId != 0L) {
+            addHeaderTransferButton(
+                container = container,
+                marginEndDp = if (voiceParticipantExtras?.showHeaderActions == true) 50 else 10,
+                onClick = {
                     dismiss()
-                    ex.onFriendClick()
-                }
-            }
-            val transferBtn = ImageView(context).apply {
-                scaleType = ImageView.ScaleType.CENTER_INSIDE
-                setImageDrawable(MezonIcon.transactionIcon.getDrawable(context).apply {
-                    colorFilter = PorterDuffColorFilter(headerIconTint, PorterDuff.Mode.SRC_IN)
-                })
-                background = GradientDrawable().apply {
-                    shape = GradientDrawable.OVAL
-                    setColor(theme.serverRailBg)
-                }
-                setPadding(LayoutHelper.dp(6), LayoutHelper.dp(6), LayoutHelper.dp(6), LayoutHelper.dp(6))
-                isClickable = true
-                isFocusable = true
-                setOnClickListener {
-                    dismiss()
-                    ex.onTransferClick()
-                }
-            }
-            container.addView(
-                transferBtn,
-                FrameLayout.LayoutParams(LayoutHelper.dp(32), LayoutHelper.dp(32), Gravity.TOP or Gravity.END).apply {
-                    topMargin = LayoutHelper.dp(10)
-                    marginEnd = LayoutHelper.dp(50)
-                }
-            )
-            container.addView(
-                friendBtn,
-                FrameLayout.LayoutParams(LayoutHelper.dp(32), LayoutHelper.dp(32), Gravity.TOP or Gravity.END).apply {
-                    topMargin = LayoutHelper.dp(10)
-                    marginEnd = LayoutHelper.dp(10)
+                    val l = listener
+                    if (l != null) {
+                        l.onTransferFunds(userId)
+                    } else {
+                        Toast.makeText(context, R.string.feature_coming_soon, Toast.LENGTH_SHORT).show()
+                    }
                 }
             )
         }
@@ -310,6 +280,63 @@ class UserProfileBottomSheet(
         )
 
         return container
+    }
+
+    private fun addHeaderFriendButton(
+        container: FrameLayout,
+        iconTint: Int,
+        onClick: () -> Unit
+    ) {
+        val friendBtn = ImageView(context).apply {
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            setImageDrawable(MezonIcon.userPlusIcon.getDrawable(context).apply {
+                colorFilter = PorterDuffColorFilter(iconTint, PorterDuff.Mode.SRC_IN)
+            })
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(theme.serverRailBg)
+            }
+            setPadding(LayoutHelper.dp(6), LayoutHelper.dp(6), LayoutHelper.dp(6), LayoutHelper.dp(6))
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                dismiss()
+                onClick()
+            }
+        }
+        container.addView(
+            friendBtn,
+            FrameLayout.LayoutParams(LayoutHelper.dp(32), LayoutHelper.dp(32), Gravity.TOP or Gravity.END).apply {
+                topMargin = LayoutHelper.dp(10)
+                marginEnd = LayoutHelper.dp(10)
+            }
+        )
+    }
+
+    private fun addHeaderTransferButton(
+        container: FrameLayout,
+        marginEndDp: Int,
+        onClick: () -> Unit
+    ) {
+        val transferBtn = ImageView(context).apply {
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            setImageResource(MezonIcon.transferIcon.resId)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(theme.surfaceVariant)
+            }
+            setPadding(LayoutHelper.dp(6), LayoutHelper.dp(6), LayoutHelper.dp(6), LayoutHelper.dp(6))
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { onClick() }
+        }
+        container.addView(
+            transferBtn,
+            FrameLayout.LayoutParams(LayoutHelper.dp(32), LayoutHelper.dp(32), Gravity.TOP or Gravity.END).apply {
+                topMargin = LayoutHelper.dp(10)
+                marginEnd = LayoutHelper.dp(marginEndDp.toFloat())
+            }
+        )
     }
 
     private fun loadProfileAvatarAndBackdropTint() {

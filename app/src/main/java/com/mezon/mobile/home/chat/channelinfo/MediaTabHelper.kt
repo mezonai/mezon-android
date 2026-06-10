@@ -32,7 +32,6 @@ class MediaTabHelper(
     private val memberResolver: MemberResolver,
     private val getString: (Int) -> String,
     private val hostContext: () -> Context?,
-    private val hostIsPaused: () -> Boolean,
 ) : TabHelper {
 
     private companion object {
@@ -115,7 +114,7 @@ class MediaTabHelper(
 
         recyclerView?.visibility = View.GONE
 
-        galleryController.clearAndReload(channelId, clanId)
+        galleryController.ensureLoaded(channelId, clanId)
         applySync(context)
 
         return root
@@ -123,13 +122,12 @@ class MediaTabHelper(
 
     override fun reload() {
         val ctx = hostContext() ?: return
-        galleryController.clearAndReload(channelId, clanId)
+        galleryController.ensureLoaded(channelId, clanId)
         recyclerView?.visibility = View.GONE
         applySync(ctx)
     }
 
     fun syncFromApi(context: Context) {
-        if (hostIsPaused()) return
         applySync(context)
     }
 
@@ -146,11 +144,11 @@ class MediaTabHelper(
 
     private fun applySync(context: Context) {
         val screen = screenState ?: return
-        if (hostIsPaused()) return
 
         val items = galleryController.getItems(channelId)
         val paging = galleryController.isPagingLoading(channelId)
         val initialDone = galleryController.isInitialLoadFinished(channelId)
+        val fetching = galleryController.isFetching(channelId) || galleryController.isInitialLoading(channelId)
 
         val resolverIds = LinkedHashSet<Long>()
         items.forEach {
@@ -167,7 +165,7 @@ class MediaTabHelper(
         rowsAdapter.submit(buildDisplayRows(items, paging))
 
         when {
-            items.isEmpty() && !initialDone -> {
+            items.isEmpty() && (!initialDone || fetching) -> {
                 screen.hide()
                 gallerySkeleton?.visibility = View.VISIBLE
                 recyclerView?.visibility = View.GONE

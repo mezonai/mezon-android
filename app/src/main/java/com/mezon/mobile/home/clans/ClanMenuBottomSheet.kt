@@ -33,6 +33,8 @@ class ClanMenuBottomSheet(
     private val onOpenClanSettings: Runnable,
     private val onOpenAuditLog: Runnable,
     private val onOpenInvite: Runnable,
+    private val onLeaveClan: Runnable,
+    private val onDeleteClan: Runnable,
 ) : BottomSheet(context) {
 
     private fun showComingSoon() {
@@ -231,14 +233,14 @@ class ClanMenuBottomSheet(
                         theme,
                         context.getString(R.string.clan_menu_leave_clan),
                         theme.error,
-                        Runnable { showComingSoon() }
+                        onLeaveClan,
                     ).apply { visibility = if (!permissionState.isClanOwner) View.VISIBLE else View.GONE },
                     ClanSettingsUiHelpers.buildMezonChevronRowWithoutIcon(
                         context,
                         theme,
                         context.getString(R.string.clan_menu_delete_clan),
                         theme.error,
-                        Runnable { showComingSoon() }
+                        onDeleteClan,
                     ).apply { visibility = if (permissionState.isClanOwner) View.VISIBLE else View.GONE }
                 )
             ),

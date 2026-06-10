@@ -15,11 +15,12 @@ import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
-import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewParent
 import android.view.ViewOutlineProvider
 import android.view.Window
 import android.view.WindowManager
@@ -42,10 +43,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
 
-private const val TAG = "PhotoViewer"
 private const val LOADING_SHOW_DELAY_MS = 300L
 private const val MIN_LOADING_VISIBLE_MS = 300L
 private const val LOADING_FADE_MS = 150L
+private const val VIEWPAGER_SWIPE_SCALE_EPSILON = 1.02f
 
 class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Black_NoTitleBar_Fullscreen) {
 
@@ -59,6 +60,7 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
     private var urls = emptyList<String>()
     private var currentIndex = 0
     private var preferDrawableLoaderForSingle = false
+    private var oldestEdgeBaselinePosition = -1
     private val currentUrl get() = urls.getOrElse(currentIndex) { "" }
 
     var onReachedOldestEdge: (() -> Unit)? = null
@@ -70,7 +72,21 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
         window?.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
         window?.setBackgroundDrawable(backgroundDrawable)
 
-        val root = FrameLayout(context)
+        val root = object : FrameLayout(context) {
+            override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+                when (ev.actionMasked) {
+                    MotionEvent.ACTION_POINTER_DOWN -> {
+                        viewPager.isUserInputEnabled = false
+                        setAncestorsDisallowIntercept(viewPager, true)
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        if (ev.pointerCount <= 1) syncViewPagerSwipeWithCurrentPhoto()
+                    }
+                    MotionEvent.ACTION_CANCEL -> syncViewPagerSwipeWithCurrentPhoto()
+                }
+                return super.dispatchTouchEvent(ev)
+            }
+        }
 
         viewPager = ViewPager2(context).apply {
             offscreenPageLimit = 1
@@ -164,6 +180,59 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
         root.addView(bottomBar, bottomBarParams)
 
         setContentView(root)
+
+        viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
+            override fun onPageSelected(position: Int) {
+                currentIndex = position
+                updateCounter()
+                onCurrentUrlChanged?.invoke(currentUrl)
+                maybeNotifyOldestEdge(position)
+                syncViewPagerSwipeWithCurrentPhoto()
+            }
+        })
+    }
+
+    private fun syncViewPagerSwipeWithCurrentPhoto() {
+        viewPager.isUserInputEnabled = urls.size > 1 &&
+            (photoViewAt(currentIndex)?.scale ?: 1f) <= VIEWPAGER_SWIPE_SCALE_EPSILON
+    }
+
+    private fun updateViewPagerSwipeForScale(scale: Float) {
+        viewPager.isUserInputEnabled = urls.size > 1 && scale <= VIEWPAGER_SWIPE_SCALE_EPSILON
+    }
+
+    private fun photoViewAt(position: Int): PhotoView? {
+        val rv = viewPager.getChildAt(0) as? RecyclerView ?: return null
+        val holder = rv.findViewHolderForAdapterPosition(position) as? PhotoPagerAdapter.ViewHolder
+        return holder?.photoView
+    }
+
+    private fun setAncestorsDisallowIntercept(view: View, disallow: Boolean) {
+        var parent: ViewParent? = view.parent
+        while (parent != null) {
+            parent.requestDisallowInterceptTouchEvent(disallow)
+            parent = parent.parent
+        }
+    }
+
+    private fun wirePhotoViewGestures(photoView: PhotoView) {
+        photoView.setOnScaleChangeListener { _, _, _ ->
+            val scale = photoView.scale
+            updateViewPagerSwipeForScale(scale)
+            setAncestorsDisallowIntercept(viewPager, scale > VIEWPAGER_SWIPE_SCALE_EPSILON)
+        }
+    }
+
+    private fun maybeNotifyOldestEdge(position: Int) {
+        if (urls.size < 2) return
+        if (oldestEdgeBaselinePosition < 0) {
+            oldestEdgeBaselinePosition = position
+            return
+        }
+        if (position <= oldestEdgeBaselinePosition) return
+        if (position < urls.size - 2) return
+        oldestEdgeBaselinePosition = position
+        onReachedOldestEdge?.invoke()
     }
 
     fun show(
@@ -176,23 +245,15 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
         urls = if (gallery.isEmpty()) listOf(url) else gallery
         currentIndex = if (index in urls.indices) index else 0
         preferDrawableLoaderForSingle = preferDrawableLoader && urls.size == 1
-        val dm = context.resources.displayMetrics
-        Log.d(TAG, "show() url=$url gallerySize=${gallery.size} index=$index thumb=${thumbBitmap?.let { "${it.width}x${it.height}" } ?: "null"} preferDrawable=$preferDrawableLoader screen=${dm.widthPixels}x${dm.heightPixels} density=${dm.density}")
 
         val single = urls.size == 1
         val thumbUrl = urls[0]
         val singleAnimated = urlNeedsAnimatedDrawable(thumbUrl) || preferDrawableLoaderForSingle
         val singleShowsThumb = single && !singleAnimated
+        oldestEdgeBaselinePosition = -1
         viewPager.adapter = PhotoPagerAdapter(thumbBitmap.takeIf { singleShowsThumb })
         viewPager.setCurrentItem(currentIndex, false)
-        viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
-            override fun onPageSelected(position: Int) {
-                currentIndex = position
-                updateCounter()
-                onCurrentUrlChanged?.invoke(currentUrl)
-                if (position >= urls.size - 2) onReachedOldestEdge?.invoke()
-            }
-        })
+        viewPager.isUserInputEnabled = urls.size > 1
 
         updateCounter()
         backgroundDrawable.alpha = 0
@@ -283,6 +344,7 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
             photoView.setImageDrawable(null)
             photoView.getAttacher().update()
             photoView.setScale(1f, false)
+            updateViewPagerSwipeForScale(1f)
         }
 
         private fun applyLoadedDrawable(holder: ViewHolder, drawable: Drawable) {
@@ -313,9 +375,9 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
                     FrameLayout.LayoutParams.MATCH_PARENT
                 )
                 setBackgroundColor(Color.BLACK)
-                maximumScale = 4f
-                mediumScale = 2f
-                minimumScale = 0.5f
+                maximumScale = 5f
+                mediumScale = 2.5f
+                minimumScale = 1f
                 setOnSingleFlingListener { _, _, velocityX, velocityY ->
                     val absX = kotlin.math.abs(velocityX)
                     val absY = kotlin.math.abs(velocityY)
@@ -331,6 +393,8 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
             val progress = ProgressBar(ctx).apply {
                 isIndeterminate = true
                 indeterminateTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
+                isClickable = false
+                isFocusable = false
                 val size = LayoutHelper.dp(48)
                 layoutParams = FrameLayout.LayoutParams(size, size, Gravity.CENTER)
                 visibility = View.GONE
@@ -344,6 +408,7 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
                 addView(photoView)
                 addView(progress)
             }
+            wirePhotoViewGestures(photoView)
             return ViewHolder(container, photoView, progress)
         }
 

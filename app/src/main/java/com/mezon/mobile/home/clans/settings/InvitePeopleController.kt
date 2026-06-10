@@ -1,5 +1,7 @@
 package com.mezon.mobile.home.clans.settings
 
+import android.content.Context
+import com.mezon.mobile.R
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.home.DialogsController
@@ -18,16 +20,22 @@ import com.mezon.mobile.network.channelTypeToStreamMode
 import com.mezon.mobile.session.SessionManager
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.text.Normalizer
+import java.util.Locale
+import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class InvitePeopleController @Inject constructor(
+    @ApplicationContext private val appContext: Context,
     private val api: MezonApi,
     private val sessionManager: SessionManager,
     private val dialogsController: DialogsController,
@@ -41,6 +49,7 @@ class InvitePeopleController @Inject constructor(
     val state: StateFlow<InvitePeopleUiState> = _state.asStateFlow()
 
     private var allTargets: List<InviteDmTarget> = emptyList()
+    private var searchJob: Job? = null
 
     fun open(clanId: Long, clanName: String, clanLogo: String) {
         scope.launch(io) {
@@ -49,6 +58,7 @@ class InvitePeopleController @Inject constructor(
                 clanName = clanName,
                 clanLogo = clanLogo,
                 isLoadingLink = true,
+                isLoadingTargets = true,
             )
             try {
                 friendController.loadFriendRelations(noCache = false)
@@ -79,17 +89,23 @@ class InvitePeopleController @Inject constructor(
                         inviteToken = inviteToken,
                         dmTargets = filterTargets(allTargets, it.searchQuery),
                         isLoadingLink = false,
+                        isLoadingTargets = false,
                         linkError = null,
                     )
                 }
             } catch (e: NoWelcomeChannelException) {
                 _state.update {
-                    it.copy(isLoadingLink = false, linkError = ERROR_NO_WELCOME_CHANNEL)
+                    it.copy(
+                        isLoadingLink = false,
+                        isLoadingTargets = false,
+                        linkError = ERROR_NO_WELCOME_CHANNEL,
+                    )
                 }
             } catch (e: Exception) {
                 _state.update {
                     it.copy(
                         isLoadingLink = false,
+                        isLoadingTargets = false,
                         linkError = e.message?.takeIf { msg -> msg.isNotBlank() } ?: ERROR_CREATE_LINK,
                     )
                 }
@@ -98,21 +114,34 @@ class InvitePeopleController @Inject constructor(
     }
 
     fun reset() {
+        searchJob?.cancel()
+        searchJob = null
         allTargets = emptyList()
         _state.value = InvitePeopleUiState()
     }
 
     fun onSearch(query: String) {
+        searchJob?.cancel()
+        searchJob = scope.launch(io) {
+            delay(SEARCH_DEBOUNCE_MS)
+            _state.update {
+                it.copy(
+                    searchQuery = query,
+                    dmTargets = filterTargets(allTargets, query),
+                )
+            }
+        }
+    }
+
+    fun applySearchImmediately(query: String) {
+        searchJob?.cancel()
+        searchJob = null
         _state.update {
             it.copy(
                 searchQuery = query,
                 dmTargets = filterTargets(allTargets, query),
             )
         }
-    }
-
-    fun markCopied(copied: Boolean) {
-        _state.update { it.copy(isCopied = copied) }
     }
 
     fun sendInviteToTarget(
@@ -138,7 +167,10 @@ class InvitePeopleController @Inject constructor(
 
                 val inviteId = parseInviteIdFromUrl(url)
                 val preview = inviteId?.let { api.getLinkInvitePreview(it) }
-                val content = buildInviteLinkContent(url, preview)
+                val memberDescription = preview?.memberCount?.takeIf { it > 0 }?.let { count ->
+                    appContext.getString(R.string.clan_action_member_count, count)
+                }
+                val content = buildInviteLinkContent(url, preview, memberDescription)
                 sendInviteMessageDirect(channelId, target.channelType, content)
 
                 _state.update {
@@ -293,5 +325,6 @@ class InvitePeopleController @Inject constructor(
         const val ERROR_NO_WELCOME_CHANNEL = "no_welcome_channel"
         const val ERROR_CREATE_LINK = "create_link_failed"
         const val ERROR_SEND = "send_failed"
+        private const val SEARCH_DEBOUNCE_MS = 150L
     }
 }

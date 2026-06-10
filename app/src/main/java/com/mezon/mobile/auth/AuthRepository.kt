@@ -4,6 +4,7 @@ import android.util.Log
 import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.di.IoDispatcher
+import com.mezon.mezon.api.Session
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.notification.FcmRepository
 import com.mezon.mobile.session.SessionManager
@@ -105,19 +106,19 @@ class AuthRepository @Inject constructor(
         withContext(ioDispatcher) {
             runCatching {
                 val current = sessionManager.requireValidSession()
-                val r = api.updateUsername(current.apiUrl, current.token, username)
-                if (r.token.isBlank() || r.refreshToken.isBlank()) {
+                val session: Session = api.updateUsername(current.apiUrl, current.token, username)
+                if (session.token.isBlank() || session.refreshToken.isBlank()) {
                     throw IllegalStateException("UpdateUsername did not return session tokens")
                 }
-                val userIdStr = if (r.userId != 0L) r.userId.toString() else current.userId
+                val userIdStr = if (session.userId != 0L) session.userId.toString() else current.userId
                 val merged = StoredSession(
-                    token = r.token,
-                    refreshToken = r.refreshToken,
-                    apiUrl = r.apiUrl.ifEmpty { current.apiUrl },
-                    wsUrl = r.wsUrl.ifEmpty { current.wsUrl },
+                    token = session.token,
+                    refreshToken = session.refreshToken,
+                    apiUrl = session.apiUrl.ifEmpty { current.apiUrl },
+                    wsUrl = session.wsUrl.ifEmpty { current.wsUrl },
                     userId = userIdStr,
-                    idToken = r.idToken.ifEmpty { current.idToken },
-                    isRemember = current.isRemember
+                    idToken = session.idToken.ifEmpty { current.idToken },
+                    isRemember = current.isRemember,
                 )
                 walletCacheStore.clear()
                 sessionManager.saveSession(merged)

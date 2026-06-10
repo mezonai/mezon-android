@@ -28,6 +28,12 @@ import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.AlertsCreator
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
+import com.mezon.mobile.deeplink.DeepLinkParser
+import com.mezon.mobile.deeplink.DeepLinkRouter
+import com.mezon.mobile.deeplink.InviteClanFragment
+import com.mezon.mobile.deeplink.InstallClanFragment
+import com.mezon.mobile.deeplink.InstallKind
+import com.mezon.mobile.MainActivity
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.session.SessionExpiredException
 import com.mezon.mobile.ui.cells.MezonIcon
@@ -97,6 +103,11 @@ class QrScanFragment : BaseFragment() {
     }
 
     private val analyzerExecutor = Executors.newSingleThreadExecutor()
+    private lateinit var deepLinkRouter: DeepLinkRouter
+
+    override fun onInject(entryPoint: FragmentEntryPoint) {
+        deepLinkRouter = entryPoint.deepLinkRouter()
+    }
 
     override fun onFragmentCreate(): Boolean {
         super.onFragmentCreate()
@@ -295,6 +306,29 @@ class QrScanFragment : BaseFragment() {
             is QrAction.Transfer -> {
                 stopScanning()
                 presentFragment(SendTokenFragment.newInstance(action.rawJson))
+            }
+            is QrAction.DeepLink -> {
+                val route = DeepLinkParser.parse(action.url)
+                val activity = getParentActivity() as? MainActivity
+                if (route != null && activity != null) {
+                    deepLinkRouter.dispatchRoute(activity, route, action.url)
+                } else {
+                    handleUnsupportedQr(value)
+                }
+            }
+            is QrAction.Invite -> {
+                val inviteId = action.code.toLongOrNull() ?: 0L
+                if (inviteId == 0L) {
+                    handleUnsupportedQr(value)
+                    return
+                }
+                presentFragment(InviteClanFragment.newInstance(inviteId))
+            }
+            is QrAction.BotInstall -> {
+                presentFragment(InstallClanFragment.newInstance(action.appId, InstallKind.BOT, value))
+            }
+            is QrAction.AppInstall -> {
+                presentFragment(InstallClanFragment.newInstance(action.appId, InstallKind.APP, value))
             }
             else -> {
                 handleUnsupportedQr(value)

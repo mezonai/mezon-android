@@ -41,7 +41,7 @@ class SelectPopup(private val context: Context, private val theme: ThemeColors) 
         onItemSelected = { item -> listener(item.id.toIntOrNull() ?: 0) }
     }
 
-    fun show(anchorView: View) {
+    fun show(anchorView: View, matchAnchorWidth: Boolean = false) {
         val container = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(theme.surface)
@@ -68,13 +68,28 @@ class SelectPopup(private val context: Context, private val theme: ThemeColors) 
             ))
         }
 
-        val menuWidth = LayoutHelper.dp(220)
+        val fallbackWidth = LayoutHelper.dp(220)
         val maxHeight = LayoutHelper.dp(300)
-        popupWindow = PopupWindow(scrollView, menuWidth, maxHeight, true).apply {
-            elevation = LayoutHelper.dpf(8f)
-            isOutsideTouchable = true
-            isFocusable = true
-            showAsDropDown(anchorView, 0, 0, Gravity.END or Gravity.TOP)
+        val showPopup: (Int) -> Unit = { menuWidth ->
+            popupWindow = PopupWindow(scrollView, menuWidth, maxHeight, true).apply {
+                elevation = LayoutHelper.dpf(8f)
+                isOutsideTouchable = true
+                isFocusable = true
+                val gravity = if (matchAnchorWidth) Gravity.TOP else Gravity.END or Gravity.TOP
+                showAsDropDown(anchorView, 0, 0, gravity)
+            }
+        }
+        if (matchAnchorWidth) {
+            val anchorWidth = anchorView.width
+            if (anchorWidth > 0) {
+                showPopup(anchorWidth)
+            } else {
+                anchorView.post {
+                    showPopup(anchorView.width.coerceAtLeast(fallbackWidth))
+                }
+            }
+        } else {
+            showPopup(fallbackWidth)
         }
     }
 

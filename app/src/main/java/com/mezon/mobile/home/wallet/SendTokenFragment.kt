@@ -23,11 +23,13 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import com.mezon.mobile.MainActivity
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AlertDialog
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.BottomSheet
+import com.mezon.mobile.core.INavigationLayout
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.FragmentEntryPoint
@@ -66,6 +68,7 @@ class SendTokenFragment : BaseFragment() {
         private const val MAX_NOTE_LENGTH = 512
         private val VI_LOCALE: Locale = Locale("vi", "VN")
         private val CHAIN_UNITS_PER_TOKEN: BigInteger = BigInteger.valueOf(1_000_000L)
+        private const val PROFILE_TRANSFER_DEFAULT_AMOUNT = 10000
 
         fun newInstance(
             formValue: String? = null
@@ -76,6 +79,41 @@ class SendTokenFragment : BaseFragment() {
                         putString(ARG_FORM_VALUE, formValue)
                     }
                 }
+            }
+        }
+
+        fun buildProfileTransferFormJson(
+            context: android.content.Context,
+            receiverId: Long,
+            receiverUsername: String
+        ): String {
+            val receiverName = receiverUsername.ifBlank { receiverId.toString() }
+            return org.json.JSONObject().apply {
+                put("receiver_id", receiverId)
+                put("receiver_name", receiverName)
+                put("amount", PROFILE_TRANSFER_DEFAULT_AMOUNT)
+                put("note", context.getString(R.string.advanced_transfer_funds))
+                put("can_edit", true)
+            }.toString()
+        }
+
+        fun presentForProfile(
+            context: android.content.Context,
+            navigationLayout: INavigationLayout?,
+            receiverId: Long,
+            receiverUsername: String
+        ) {
+            if (receiverId == 0L) return
+            val activity = AndroidUtilities.findActivity(context) as? MainActivity
+            val nav = navigationLayout ?: activity?.actionBarLayout ?: return
+            val present = Runnable {
+                nav.presentFragment(newInstance(buildProfileTransferFormJson(context, receiverId, receiverUsername)))
+            }
+            if (activity?.isVoiceOverlayExpanded() == true) {
+                activity.minimizeVoiceRoom()
+                activity.window?.decorView?.postDelayed(present, 320L)
+            } else {
+                present.run()
             }
         }
     }
@@ -107,10 +145,6 @@ class SendTokenFragment : BaseFragment() {
     private var recipientValueText: TextView? = null
     private var amountFormatSuppress: Boolean = false
 
-    /** Set by TransferSuccessFragment callbacks to control navigation when this fragment resumes. */
-    private var shouldFinishOnResume = false
-    private var pendingNewTransfer = false
-
     /** True when opened with QR / deep-link form payload (only [QrScanFragment] passes this today). */
     private val isQrTransferFlow: Boolean
         get() = !formValue.isNullOrBlank()
@@ -137,26 +171,6 @@ class SendTokenFragment : BaseFragment() {
             refreshWalletBalance()
         }
         return true
-    }
-
-    override fun onResume() {
-        super.onResume()
-        if (shouldFinishOnResume) {
-            shouldFinishOnResume = false
-            val doNewTransfer = pendingNewTransfer.also { pendingNewTransfer = false }
-            val view = fragmentView
-            if (view != null) {
-                view.post {
-                    if (doNewTransfer) presentFragment(SendTokenFragment.newInstance())
-                    finishFragment()
-                }
-            } else {
-                android.os.Handler(android.os.Looper.getMainLooper()).post {
-                    if (doNewTransfer) presentFragment(SendTokenFragment.newInstance())
-                    finishFragment()
-                }
-            }
-        }
     }
 
     private fun parseForm(
@@ -278,7 +292,7 @@ class SendTokenFragment : BaseFragment() {
                 setText(jsonAmountDefault)
             }
             isEnabled = isAmountFieldEditable()
-            if (qr) applyQrTransferPlainEditText(this, singleLine = true)
+            applyQrTransferPlainEditText(this, singleLine = true)
         }
         amountField = amount
         bindAmountTextWatcher(amount)
@@ -950,7 +964,12 @@ class SendTokenFragment : BaseFragment() {
             )
             return
         }
-        val sheet = BottomSheet(act, needFocusable = true)
+        val sheetHeightPx = (AndroidUtilities.displaySize.y * 0.88f).toInt()
+            .coerceAtLeast(LayoutHelper.dp(320f))
+        val sheet = BottomSheet(act, needFocusable = true).apply {
+            setSnapPoints(0.88f)
+            setContainerHeightPx(sheetHeightPx)
+        }
         val content = LinearLayout(act).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(LayoutHelper.dp(16f), LayoutHelper.dp(10f), LayoutHelper.dp(16f), LayoutHelper.dp(16f))
@@ -992,10 +1011,6 @@ class SendTokenFragment : BaseFragment() {
         }
         recycler.adapter = adapter
         adapter.submit(allOptions)
-        recycler.layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            LayoutHelper.dp(320f)
-        )
         fun applyFilter(q: String) {
             val query = q.trim().lowercase(Locale.getDefault())
             val filtered = if (query.isBlank()) {
@@ -1029,12 +1044,14 @@ class SendTokenFragment : BaseFragment() {
             recycler,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                LayoutHelper.dp(320f)
+                0,
+                1f
             ).apply {
                 topMargin = LayoutHelper.dp(8f)
             }
         )
         sheet.setCustomView(content)
+        sheet.fixNavigationBar()
         sheet.delegate = object : BottomSheet.BottomSheetDelegateInterface {
             override fun onOpenAnimationEnd() {
                 searchField.post {
@@ -1491,8 +1508,11 @@ class SendTokenFragment : BaseFragment() {
                                 time = timeStr
                             )
                   
-                            successFrag.onDone = { shouldFinishOnResume = true }
-                            successFrag.onNewTransfer = { shouldFinishOnResume = true; pendingNewTransfer = true }
+                            successFrag.onDone = { removeSelfFromStack() }
+                            successFrag.onNewTransfer = { removeSelfFromStack() }
+                            successFrag.onNewTransferAfterClose = {
+                                parentLayout?.presentFragment(newInstance())
+                            }
                             presentFragment(successFrag)
                             if (!toUserId.isNullOrBlank()) {
                                 fragmentScope.launch(Dispatchers.IO) {

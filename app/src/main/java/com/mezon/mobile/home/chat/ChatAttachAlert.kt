@@ -43,6 +43,7 @@ class ChatAttachAlert(
         fun canSelectMore(): Boolean = true
         fun onSelectionChanged(item: AttachmentPickerItem, selected: Boolean)
         fun onFilesRequested() {}
+        fun onSendRequested() {}
     }
 
     var attachDelegate: ChatAttachAlertDelegate? = null
@@ -276,6 +277,7 @@ class ChatAttachAlert(
     private fun onSendClicked() {
         if (selectedPhotosOrder.isEmpty()) return
         dismiss()
+        attachDelegate?.onSendRequested()
     }
 
     override fun dismiss() {

@@ -196,6 +196,7 @@ class CallController @Inject constructor(
                         put("isVideo", isVideo)
                         put("callerName", callerName)
                         put("callerAvatar", callerAvatar)
+                        put("sentAt", System.currentTimeMillis().toString())
                     }.toString()
                     val compressedPayload = SdpCompressor.compress(offerJson)
 
@@ -372,6 +373,7 @@ class CallController @Inject constructor(
         channelId: String,
         offerJson: String
     ) {
+        if (IncomingCallStaleness.isStaleOffer(offerJson)) return
         val peerIdLong = callerId.toLongOrNull() ?: 0L
         val channelIdLong = channelId.toLongOrNull() ?: 0L
         if (isDuplicateIncomingOffer(peerIdLong, channelIdLong)) {
@@ -803,6 +805,7 @@ class CallController @Inject constructor(
             Log.d(TAG, "handleOffer: suppressed duplicate of rejected offer")
             return
         }
+        if (IncomingCallStaleness.isStaleOffer(jsonData)) return
 
         try {
             val parsed = parseSignalingData(jsonData)

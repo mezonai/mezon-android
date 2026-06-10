@@ -13,6 +13,7 @@ import android.text.style.ForegroundColorSpan
 import android.view.View
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.home.chat.CodeFenceSpan
 import com.mezon.mobile.home.chat.ImageReceiver
 import com.mezon.mobile.home.chat.ShimmerEffect
 import com.mezon.mobile.ui.theme.ThemeMode
@@ -461,47 +462,47 @@ class EmbedMessageRenderer(
 
         val authorLayout = if (d.authorName.isNotEmpty()) {
             val rich = formatEmbedRichText(d.authorName, th)
-            StaticLayout.Builder.obtain(rich, 0, rich.length, AUTHOR_PAINT, authorTextW)
-                .setMaxLines(3)
-                .setEllipsize(TextUtils.TruncateAt.END)
-                .setLineSpacing(LayoutHelper.dpf(2f), 1f)
-                .build()
+            CodeFenceSpan.buildRichStaticLayout(rich, AUTHOR_PAINT, authorTextW) {
+                setMaxLines(3)
+                setEllipsize(TextUtils.TruncateAt.END)
+                setLineSpacing(LayoutHelper.dpf(2f), 1f)
+            }
         } else null
 
         val titlePaint = if (d.url.isNotEmpty()) TITLE_LINK_PAINT else TITLE_PAINT
         val titleLayout = if (d.title.isNotEmpty()) {
             val rich = formatEmbedRichText(d.title, th)
-            StaticLayout.Builder.obtain(rich, 0, rich.length, titlePaint, leftColumnW)
-                .setMaxLines(12)
-                .setEllipsize(TextUtils.TruncateAt.END)
-                .setLineSpacing(LayoutHelper.dpf(2f), 1f)
-                .build()
+            CodeFenceSpan.buildRichStaticLayout(rich, titlePaint, leftColumnW) {
+                setMaxLines(12)
+                setEllipsize(TextUtils.TruncateAt.END)
+                setLineSpacing(LayoutHelper.dpf(2f), 1f)
+            }
         } else null
 
         val descLayout = if (d.description.isNotEmpty()) {
             val rich = formatEmbedRichText(d.description, th)
-            StaticLayout.Builder.obtain(rich, 0, rich.length, DESC_PAINT, leftColumnW)
-                .setMaxLines(32)
-                .setEllipsize(TextUtils.TruncateAt.END)
-                .setLineSpacing(LayoutHelper.dpf(2f), 1f)
-                .build()
+            CodeFenceSpan.buildRichStaticLayout(rich, DESC_PAINT, leftColumnW) {
+                setMaxLines(32)
+                setEllipsize(TextUtils.TruncateAt.END)
+                setLineSpacing(LayoutHelper.dpf(2f), 1f)
+            }
         } else null
 
         val fieldLayouts = d.fields.map { field ->
             val nameLay = embedFieldNameWithRequired(field, th)?.let { rich ->
-                StaticLayout.Builder.obtain(rich, 0, rich.length, FIELD_NAME_PAINT, leftColumnW)
-                    .setMaxLines(4)
-                    .setEllipsize(TextUtils.TruncateAt.END)
-                    .setLineSpacing(LayoutHelper.dpf(2f), 1f)
-                    .build()
+                CodeFenceSpan.buildRichStaticLayout(rich, FIELD_NAME_PAINT, leftColumnW) {
+                    setMaxLines(4)
+                    setEllipsize(TextUtils.TruncateAt.END)
+                    setLineSpacing(LayoutHelper.dpf(2f), 1f)
+                }
             }
             val valLay = if (field.value.isNotEmpty()) {
                 val rich = formatEmbedRichText(field.value, th)
-                StaticLayout.Builder.obtain(rich, 0, rich.length, FIELD_VALUE_PAINT, leftColumnW)
-                    .setMaxLines(16)
-                    .setEllipsize(TextUtils.TruncateAt.END)
-                    .setLineSpacing(LayoutHelper.dpf(2f), 1f)
-                    .build()
+                CodeFenceSpan.buildRichStaticLayout(rich, FIELD_VALUE_PAINT, leftColumnW) {
+                    setMaxLines(16)
+                    setEllipsize(TextUtils.TruncateAt.END)
+                    setLineSpacing(LayoutHelper.dpf(2f), 1f)
+                }
             } else null
             nameLay to valLay
         }
@@ -525,11 +526,11 @@ class EmbedMessageRenderer(
         } else contentW
         val footerLayout = if (footerStr.isNotEmpty()) {
             val rich = formatEmbedRichText(footerStr, th)
-            StaticLayout.Builder.obtain(rich, 0, rich.length, FOOTER_PAINT, footerTextW)
-                .setMaxLines(3)
-                .setEllipsize(TextUtils.TruncateAt.END)
-                .setLineSpacing(LayoutHelper.dpf(2f), 1f)
-                .build()
+            CodeFenceSpan.buildRichStaticLayout(rich, FOOTER_PAINT, footerTextW) {
+                setMaxLines(3)
+                setEllipsize(TextUtils.TruncateAt.END)
+                setLineSpacing(LayoutHelper.dpf(2f), 1f)
+            }
         } else null
 
         val animationSpecsInOrder = d.fields.mapNotNull { f ->
@@ -668,12 +669,12 @@ class EmbedMessageRenderer(
             for (btn in row.buttons) {
                 val innerW = (maxW - BUTTON_PAD_H * 2).toInt().coerceAtLeast(1)
                 val rich = formatEmbedRichText(btn.label, theme())
-                val labelLayout = StaticLayout.Builder.obtain(rich, 0, rich.length, BUTTON_LABEL_PAINT, innerW)
-                    .setMaxLines(2)
-                    .setEllipsize(TextUtils.TruncateAt.END)
-                    .setLineSpacing(LayoutHelper.dpf(1f), 1f)
-                    .setIncludePad(false)
-                    .build()
+                val labelLayout = CodeFenceSpan.buildRichStaticLayout(rich, BUTTON_LABEL_PAINT, innerW) {
+                    setMaxLines(2)
+                    setEllipsize(TextUtils.TruncateAt.END)
+                    setLineSpacing(LayoutHelper.dpf(1f), 1f)
+                    setIncludePad(false)
+                }
                 var textW = 0f
                 for (li in 0 until labelLayout.lineCount) {
                     textW = max(textW, labelLayout.getLineWidth(li))
@@ -1036,20 +1037,20 @@ class EmbedMessageRenderer(
         if (o.label.isNotEmpty()) {
             val raw = if (o.description.isNotEmpty()) "${o.label}\n${o.description}" else o.label.ifEmpty { o.value }
             val rich = formatEmbedRichText(raw, th)
-            val lay = StaticLayout.Builder.obtain(rich, 0, rich.length, FIELD_NAME_PAINT, colW)
-                .setMaxLines(12)
-                .setEllipsize(TextUtils.TruncateAt.END)
-                .setLineSpacing(LayoutHelper.dpf(2f), 1f)
-                .build()
+            val lay = CodeFenceSpan.buildRichStaticLayout(rich, FIELD_NAME_PAINT, colW) {
+                setMaxLines(12)
+                setEllipsize(TextUtils.TruncateAt.END)
+                setLineSpacing(LayoutHelper.dpf(2f), 1f)
+            }
             h += lay.height
         }
         if (o.description.isNotEmpty() && o.label.isEmpty()) {
             val rich = formatEmbedRichText(o.description, th)
-            val lay = StaticLayout.Builder.obtain(rich, 0, rich.length, FIELD_VALUE_PAINT, colW)
-                .setMaxLines(12)
-                .setEllipsize(TextUtils.TruncateAt.END)
-                .setLineSpacing(LayoutHelper.dpf(2f), 1f)
-                .build()
+            val lay = CodeFenceSpan.buildRichStaticLayout(rich, FIELD_VALUE_PAINT, colW) {
+                setMaxLines(12)
+                setEllipsize(TextUtils.TruncateAt.END)
+                setLineSpacing(LayoutHelper.dpf(2f), 1f)
+            }
             h += lay.height
         }
         h += RADIO_CONTROL_ROW_H

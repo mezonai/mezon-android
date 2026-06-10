@@ -13,6 +13,7 @@ import android.widget.LinearLayout
 import com.mezon.mobile.MainActivity
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.friends.AddFriendBottomSheet
+import com.mezon.mobile.home.wallet.SendTokenFragment
 import com.mezon.mobile.ui.cells.ActionBarView
 import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.CoroutineScope
@@ -520,6 +521,11 @@ abstract class BaseFragment {
             setDrawNavigationBar(true)
             show()
         }
+    }
+
+    protected fun openProfileTransferFunds(userId: Long, receiverUsername: String) {
+        val ctx = getContext() ?: return
+        SendTokenFragment.presentForProfile(ctx, parentLayout, userId, receiverUsername)
     }
 
     // ── ActionBar wrapper helper ────────────────────────────────────────────

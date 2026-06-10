@@ -16,6 +16,7 @@ import android.widget.ImageView
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.PinMessageData
+import com.mezon.mobile.home.chat.poll.isPollContentJson
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.theme.ThemeMode
 import org.json.JSONArray
@@ -29,6 +30,11 @@ class PinMessageCell(context: Context, private val theme: ThemeColors) : FrameLa
     }
 
     var delegate: PinMessageCellDelegate? = null
+    var showUnpinAction: Boolean = true
+        set(value) {
+            field = value
+            closeButton.visibility = if (value) View.VISIBLE else View.GONE
+        }
     var pinData: PinMessageData? = null
         private set
 
@@ -77,12 +83,18 @@ class PinMessageCell(context: Context, private val theme: ThemeColors) : FrameLa
         }
     }
 
-    fun setData(data: PinMessageData, displayName: String?, avatarUrl: String?) {
+    fun setData(
+        data: PinMessageData,
+        displayName: String?,
+        avatarUrl: String?,
+        cachedMessage: MessageEntity? = null
+    ) {
         pinData = data
         val name = displayName?.takeIf { it.isNotBlank() } ?: data.username.ifBlank { "Unknown" }
         headerView.setInfo(name, avatarUrl ?: data.avatar, data.messageId, data.username)
 
-        val entity = data.toMessageEntity()
+        messageCell.resetForRebind()
+        val entity = data.toDisplayMessageEntity(cachedMessage)
         messageCell.update(0, entity)
 
         applyColors()
@@ -227,9 +239,21 @@ private class PinHeaderView(context: Context, private val theme: ThemeColors) : 
     }
 }
 
+private fun PinMessageData.toDisplayMessageEntity(cached: MessageEntity?): MessageEntity {
+    if (cached != null && cached.attachmentUrl.isNotEmpty()) {
+        return cached.copy(
+            id = messageId,
+            channelId = channelId
+        )
+    }
+    return toMessageEntity()
+}
+
 private fun PinMessageData.toMessageEntity(): MessageEntity {
     val first = attachments.firstOrNull()
+    val pollCode = if (isPollContentJson(content)) MessageEntity.CODE_POLL else 0
     val type = when {
+        pollCode == MessageEntity.CODE_POLL -> MessageEntity.TYPE_TEXT
         first == null || first.url.isEmpty() -> MessageEntity.TYPE_TEXT
         first.filetype.startsWith("image/gif", true) -> MessageEntity.TYPE_GIF
         first.filetype.equals("sticker", true) -> MessageEntity.TYPE_GIF
@@ -268,7 +292,7 @@ private fun PinMessageData.toMessageEntity(): MessageEntity {
         senderAvatar = avatar,
         content = content,
         timestampSeconds = createTimeSeconds.toLong(),
-        code = 0,
+        code = pollCode,
         isMe = false,
         messageType = type,
         attachmentUrl = first?.url.orEmpty(),

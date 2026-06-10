@@ -1450,14 +1450,19 @@ class VoiceRoomFragment : BaseFragment() {
                 memberSince = null,
                 isOwnProfile = false,
                 isDM = false,
-                listener = null,
+                listener = object : UserProfileBottomSheet.UserProfileListener {
+                    override fun onTransferFunds(userId: Long) {
+                        val transferUsername = when {
+                            member != null -> member.username.ifBlank { participant.username }
+                            else -> participant.username
+                        }.ifBlank { participantSubline }.ifBlank { displayName }
+                        openProfileTransferFunds(userId, transferUsername)
+                    }
+                },
                 voiceParticipantExtras = UserProfileBottomSheet.VoiceParticipantExtras(
                     showHeaderActions = showHeaderActions,
                     onFriendClick = {
                         showAddFriendBottomSheet()
-                    },
-                    onTransferClick = {
-                        Toast.makeText(activity, R.string.feature_coming_soon, Toast.LENGTH_SHORT).show()
                     },
                     canManageVoiceUser = canManageVoiceUser,
                     showMuteAction = showMuteAction,

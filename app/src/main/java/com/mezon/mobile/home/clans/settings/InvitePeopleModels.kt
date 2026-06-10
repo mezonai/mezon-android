@@ -12,11 +12,11 @@ data class InvitePeopleUiState(
     val inviteUrl: String = "",
     val inviteToken: String = "",
     val isLoadingLink: Boolean = false,
+    val isLoadingTargets: Boolean = false,
     val linkError: String? = null,
     val searchQuery: String = "",
     val dmTargets: List<InviteDmTarget> = emptyList(),
     val sentTargetIds: Set<String> = emptySet(),
-    val isCopied: Boolean = false,
     val sendingTargetId: String? = null,
 )
 
@@ -48,14 +48,19 @@ private fun String.escapeJson(): String = replace("\\", "\\\\")
     .replace("\r", "\\r")
     .replace("\t", "\\t")
 
-fun buildInviteLinkContent(url: String, preview: LinkInvitePreview?): String {
+fun buildInviteLinkContent(
+    url: String,
+    preview: LinkInvitePreview?,
+    memberCountDescription: String? = null,
+): String {
     val escaped = url.escapeJson()
     val end = url.length
     if (preview == null) {
         return """{"t":"$escaped","mk":[{"type":"lk","s":0,"e":$end}]}"""
     }
     val title = preview.clanName.escapeJson()
-    val description = preview.channelLabel.ifBlank { preview.clanName }.escapeJson()
+    val description = (memberCountDescription
+        ?: preview.channelLabel.ifBlank { preview.clanName }).escapeJson()
     val image = preview.logoUrl.escapeJson()
-    return """{"t":"$escaped","mk":[{"type":"lk","s":0,"e":$end},{"type":"lk_ogp","s":0,"e":$end,"index":0,"title":"$title","description":"$description","image":"$image"}]}"""
+    return """{"t":"$escaped","mk":[{"type":"lk","s":0,"e":$end},{"type":"lk_ogp","s":$end,"e":${end + 1},"index":0,"title":"$title","description":"$description","image":"$image"}]}"""
 }

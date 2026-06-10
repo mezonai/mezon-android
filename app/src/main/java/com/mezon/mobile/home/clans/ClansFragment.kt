@@ -64,6 +64,8 @@ import com.mezon.mobile.home.clans.settings.InvitePeopleBottomSheet
 import com.mezon.mobile.home.clans.settings.InvitePeopleController
 import com.mezon.mobile.search.GlobalSearchFragment
 import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.ui.cells.ToastOverlay
+import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.home.qr.QrScanFragment
 import com.mezon.mobile.home.profile.UserController
 
@@ -218,6 +220,8 @@ class ClansFragment : BaseFragment() {
             if (clanId != 0L) {
                 userClanController.loadClanMembers(clanId)
                 updateChannelList()
+            } else if (!isPaused && clansController.getClanCount() == 0) {
+                onSwitchToMessages?.invoke()
             }
         }
         return true
@@ -905,9 +909,37 @@ class ClansFragment : BaseFragment() {
                         openInvitePeopleSheet(clanId, clan.clanName, clan.logo)
                     })
                 },
+                Runnable { confirmLeaveOrDeleteClan(clanId, clan.clanName, isLeave = true) },
+                Runnable { confirmLeaveOrDeleteClan(clanId, clan.clanName, isLeave = false) },
             )
             clanMenuSheet = sheet
             sheet.show()
+        })
+    }
+
+    private fun confirmLeaveOrDeleteClan(clanId: Long, clanName: String, isLeave: Boolean) {
+        dismissClanMenuThen(Runnable {
+            Handler(Looper.getMainLooper()).postDelayed({
+                val act = getParentActivity() ?: return@postDelayed
+                DeleteClanConfirmDialog.show(act, themeColors, isLeave, clanName) {
+                    val onResult: (Boolean, String?) -> Unit = { success, _ ->
+                        if (!success) {
+                            MezonToast.show(
+                                this@ClansFragment,
+                                ToastOverlay.ToastType.ERROR,
+                                getString(R.string.clan_leave_delete_failed),
+                            )
+                        } else if (clansController.getClanCount() == 0) {
+                            onSwitchToMessages?.invoke()
+                        }
+                    }
+                    if (isLeave) {
+                        clansController.leaveClan(clanId, onResult)
+                    } else {
+                        clansController.deleteClan(clanId, onResult)
+                    }
+                }
+            }, 500L)
         })
     }
 

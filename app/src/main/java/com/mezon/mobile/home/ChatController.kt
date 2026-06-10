@@ -37,6 +37,9 @@ import com.mezon.mobile.home.chat.thread.ThreadStatus
 import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.BuildConfig
+import com.mezon.mobile.util.AttachmentUploadProgressStore
+import com.mezon.mobile.util.AttachmentUploader
+import com.mezon.mobile.util.PresignFinishContent
 import com.mezon.mobile.util.MENTION_HERE_USER_ID
 import com.mezon.mobile.util.MezonSnowflake
 import com.mezon.mobile.util.firstReferenceMessageId
@@ -75,6 +78,8 @@ import com.mezon.mezon.rtapi.channelMessageUpdate
 import com.mezon.mobile.network.ConnectionState
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
@@ -155,9 +160,13 @@ class ChatController @Inject constructor(
     private val imageCompressionSlots = Semaphore(IMAGE_COMPRESSION_PARALLELISM)
     private val largeUploadSlots = Semaphore(LARGE_ATTACHMENT_PARALLELISM)
 
-    private class CachedAttachment(
-        val item: AttachmentPickerItem,
-        val bytes: ByteArray,
+    private class PreparedAttachmentSlot(
+        val index: Int,
+        val progressKey: String,
+        val attachment: MessageAttachment,
+        val plan: AttachmentUploader.UploadExecutionPlan,
+        val bytes: ByteArray? = null,
+        val file: java.io.File? = null,
     )
 
     private data class IncrementalAttachmentSendParams(
@@ -196,6 +205,16 @@ class ChatController @Inject constructor(
         pendingAttachmentEntityByTempId.get(tempId)?.also {
             pendingAttachmentEntityByTempId.remove(tempId)
         }
+    }
+
+    fun getActivePendingAttachmentMessages(cacheKey: Long): List<MessageEntity> = synchronized(this) {
+        val result = ArrayList<MessageEntity>()
+        for (i in 0 until attachmentJobsByTempId.size()) {
+            if (attachmentJobsByTempId.valueAt(i).cacheKey != cacheKey) continue
+            val entity = pendingAttachmentEntityByTempId.get(attachmentJobsByTempId.keyAt(i)) ?: continue
+            result.add(entity)
+        }
+        result
     }
 
     fun mergeSelfSentMessageEcho(existing: MessageEntity, incoming: MessageEntity): MessageEntity {
@@ -1285,9 +1304,10 @@ class ChatController @Inject constructor(
         private const val SHARE_MAX_RETRIES = 5
         private const val SHARE_RETRY_DELAY_MS = 4000L
         private const val ATTACHMENT_UPLOAD_PARALLELISM = 4
+        private const val PRESIGN_EDIT_BATCH_SIZE = 4
         private const val IMAGE_COMPRESSION_PARALLELISM = 2
         private const val LARGE_ATTACHMENT_BYTES = 50L * 1024 * 1024
-        private const val LARGE_ATTACHMENT_PARALLELISM = 2
+        private const val LARGE_ATTACHMENT_PARALLELISM = 3
         private const val PENDING_API_REACTION_DEDUP_MS = 5000L
     }
 
@@ -1388,9 +1408,11 @@ class ChatController @Inject constructor(
             hasContentExtras -> buildTextContentWithEmojis(text, null, emojiMarkers, null, hashtags, ogpMarker)
             else -> buildTextContent(text)
         }
-        val optimisticContent = mergePendingMentionsIntoContent(
-            mergeRefsIntoOptimisticContent(wireBase, references),
-            mentions
+        val optimisticContent = PresignFinishContent.injectEmptyPresignFinish(
+            mergePendingMentionsIntoContent(
+                mergeRefsIntoOptimisticContent(wireBase, references),
+                mentions
+            )
         )
         val mentionEveryone = mentions?.any { it.userId == ID_MENTION_HERE } == true
         val protoMentions = mentions?.map { m ->
@@ -1630,65 +1652,65 @@ class ChatController @Inject constructor(
         }
 
         val cdnBaseUrl = BuildConfig.MEZON_BASE_IMG_URL
-        val uploadedByIndex = arrayOfNulls<MessageAttachment>(items.size)
-        val failedIndices = HashSet<Int>()
-        var messageSent = false
-        var firstSendStarted = false
-        var realMessageId = 0L
-        var lastSyncedUploadCount = 0
+        val preparedByIndex = arrayOfNulls<PreparedAttachmentSlot>(items.size)
+        val presignFailedIndices = HashSet<Int>()
         val resultMutex = Mutex()
-        val sendMutex = Mutex()
+        val uploadSlots = Semaphore(ATTACHMENT_UPLOAD_PARALLELISM)
+        var realMessageId = 0L
 
-        suspend fun flushAttachmentUpdate(updateError: Boolean = false) {
-            var proceed = false
-            var uploadedSnapshot: List<MessageAttachment?> = emptyList()
-            var failedSnapshot: Set<Int> = emptySet()
-            var uploadedCount = 0
-            var targetMessageId = 0L
-            resultMutex.withLock {
-                if (messageSent && realMessageId != 0L) {
-                    uploadedSnapshot = uploadedByIndex.toList()
-                    failedSnapshot = failedIndices.toSet()
-                    uploadedCount = uploadedSnapshot.count { it != null }
-                    targetMessageId = realMessageId
-                    proceed = updateError || uploadedCount != lastSyncedUploadCount || failedSnapshot.isNotEmpty()
-                }
-            }
-            if (!proceed) return
-            if (uploadedCount > 1) {
-                try {
-                    channelUpdate(
-                        apiUrl, token,
-                        params.clanId, params.channelId, params.mode, params.isPublic,
-                        targetMessageId, params.wireContent, params.protoMentions, uploadedSnapshot.filterNotNull(),
-                        topicId = params.topicId,
-                    )
-                    resultMutex.withLock {
-                        if (uploadedCount > lastSyncedUploadCount) lastSyncedUploadCount = uploadedCount
+        try {
+            coroutineScope {
+                items.mapIndexed { index, item ->
+                    async(ioDispatcher) {
+                        if (item == null) {
+                            resultMutex.withLock { presignFailedIndices.add(index) }
+                            return@async
+                        }
+                        val slot = when {
+                            item.size > LARGE_ATTACHMENT_BYTES -> largeUploadSlots.withPermit {
+                                prepareAndPresignAttachment(
+                                    index, item, contentResolver, apiUrl, token, cdnBaseUrl, params.maxRetriesPerFile,
+                                )
+                            }
+                            else -> uploadSlots.withPermit {
+                                prepareAndPresignAttachment(
+                                    index, item, contentResolver, apiUrl, token, cdnBaseUrl, params.maxRetriesPerFile,
+                                )
+                            }
+                        }
+                        resultMutex.withLock {
+                            if (slot == null) {
+                                presignFailedIndices.add(index)
+                            } else {
+                                preparedByIndex[index] = slot
+                            }
+                        }
                     }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Incremental send: attachment batch update failed messageId=$targetMessageId", e)
-                    applyLocalOrderedAttachmentUpdate(
-                        params.cacheKey, targetMessageId, params.allItems,
-                        uploadedSnapshot, failedSnapshot, updateError = true,
-                    )
-                    return
-                }
+                }.awaitAll()
             }
-            applyLocalOrderedAttachmentUpdate(
-                params.cacheKey, targetMessageId, params.allItems,
-                uploadedSnapshot, failedSnapshot, updateError = updateError,
-            )
-        }
 
-        suspend fun dispatchFirstMessage(attachment: MessageAttachment) {
+            val preparedSlots = preparedByIndex.filterNotNull().sortedBy { it.index }
+            val firstItemValid = items.firstOrNull() != null
+            if (preparedSlots.isEmpty() || (firstItemValid && preparedByIndex[0] == null)) {
+                notificationCenter.postNotificationOnMainThread(
+                    NotificationCenter.pendingMessageError, params.cacheKey, params.tempId
+                )
+                return
+            }
+
+            val attachmentsToSend = preparedSlots.map { it.attachment }
+            val contentWithPresign = PresignFinishContent.injectEmptyPresignFinish(params.wireContent)
+            preparedSlots.forEach { slot ->
+                Log.d(TAG, "presign ready index=${slot.index} filename=${slot.attachment.filename} cdnUrl=${slot.attachment.url} thumb=${slot.attachment.thumbnail}")
+            }
+            Log.d(TAG, "send message with ${attachmentsToSend.size} attachment(s): ${attachmentsToSend.joinToString { it.url }}")
             val request = channelMessageSend {
                 this.clanId = params.clanId
                 this.channelId = params.channelId
                 this.mode = params.mode
                 this.isPublic = params.isPublic
-                this.content = params.wireContent
-                this.attachments.add(attachment)
+                this.content = contentWithPresign
+                this.attachments.addAll(attachmentsToSend)
                 params.protoMentions?.let { this.mentions.addAll(it) }
                 params.references?.let { this.references.addAll(it) }
                 this.mentionEveryone = params.mentionEveryone
@@ -1696,93 +1718,115 @@ class ChatController @Inject constructor(
                 if (params.topicId != 0L) this.topicId = params.topicId
             }
             val ack = channelSend(apiUrl, token, request)
-            val newMessageId = ack.messageId
-            val uploadedSnapshot: List<MessageAttachment?>
-            val failedSnapshot: Set<Int>
-            resultMutex.withLock {
-                realMessageId = newMessageId
-                messageSent = true
-                job.realMessageId = newMessageId
-                lastSyncedUploadCount = 1
-                uploadedSnapshot = uploadedByIndex.toList()
-                failedSnapshot = failedIndices.toSet()
-            }
+            realMessageId = ack.messageId
+            Log.d(TAG, "message sent messageId=$realMessageId cdnUrls=${attachmentsToSend.joinToString { it.url }}")
+            job.realMessageId = realMessageId
             synchronized(this) {
-                attachmentJobsByRealId.put(newMessageId, job)
+                attachmentJobsByRealId.put(realMessageId, job)
             }
             markForwardTargetUsed(params.channelId, params.channelType)
+
+            val uploadedByIndex: List<MessageAttachment?> = items.indices.map { preparedByIndex[it]?.attachment }
             val updatedEntity = applyLocalAfterFirstSendOrdered(
-                params.cacheKey, params.tempId, newMessageId,
-                params.allItems, uploadedSnapshot, failedSnapshot,
+                params.cacheKey, params.tempId, realMessageId,
+                params.allItems, uploadedByIndex, presignFailedIndices, contentWithPresign,
             )
             notificationCenter.postNotificationOnMainThread(
-                NotificationCenter.pendingMessageSent, params.cacheKey, params.tempId, newMessageId
+                NotificationCenter.pendingMessageSent, params.cacheKey, params.tempId, realMessageId
             )
             notificationCenter.postNotificationOnMainThread(
                 NotificationCenter.messageDidUpdate, params.cacheKey, updatedEntity,
-                NotificationCenter.UPDATE_MASK_ATTACHMENTS,
+                NotificationCenter.UPDATE_MASK_ATTACHMENTS or NotificationCenter.UPDATE_MASK_MESSAGE_TEXT,
             )
-        }
 
-        val uploadSlots = Semaphore(ATTACHMENT_UPLOAD_PARALLELISM)
+            val presignFinishedKeys = ArrayList<String>()
+            var lastSyncedPresignCount = 0
+            val presignMutex = Mutex()
+            var isPresignSyncInFlight = false
 
-        suspend fun recordResult(index: Int, attachment: MessageAttachment?) {
-            var firstToSend: MessageAttachment? = null
-            var shouldFlush = false
-            resultMutex.withLock {
-                if (attachment == null) {
-                    failedIndices.add(index)
-                    job.failedCount = failedIndices.size
-                } else {
-                    uploadedByIndex[index] = attachment
-                    job.uploadedCount = uploadedByIndex.count { it != null }
-                    if (!messageSent && !firstSendStarted) {
-                        firstSendStarted = true
-                        firstToSend = attachment
-                    }
-                }
-                if (firstToSend == null && messageSent &&
-                    uploadedByIndex.count { it != null } - lastSyncedUploadCount >= ATTACHMENT_UPLOAD_PARALLELISM
-                ) {
-                    shouldFlush = true
-                }
+            suspend fun applyLocalPresignFinishSnapshot() {
+                val snapshot = presignMutex.withLock { presignFinishedKeys.toList() }
+                if (snapshot.isEmpty()) return
+                val content = PresignFinishContent.injectPresignFinish(params.wireContent, snapshot)
+                applyLocalPresignContentUpdate(params.cacheKey, realMessageId, content)
             }
-            val toSend = firstToSend
-            if (toSend != null) {
-                sendMutex.withLock { dispatchFirstMessage(toSend) }
-            } else if (shouldFlush) {
-                sendMutex.withLock { flushAttachmentUpdate() }
-            }
-        }
 
-        try {
-            coroutineScope {
-                items.forEachIndexed { index, item ->
-                    launch(ioDispatcher) {
-                        val attachment = when {
-                            item == null -> null
-                            item.size > LARGE_ATTACHMENT_BYTES -> largeUploadSlots.withPermit {
-                                loadAndUploadAttachment(
-                                    item, contentResolver, apiUrl, token, cdnBaseUrl, params.maxRetriesPerFile,
-                                )
-                            }
-                            else -> uploadSlots.withPermit {
-                                loadAndUploadAttachment(
-                                    item, contentResolver, apiUrl, token, cdnBaseUrl, params.maxRetriesPerFile,
-                                )
+            suspend fun maybeSyncPresignFinishToServer(forceFlush: Boolean) {
+                val snapshot: List<String>
+                val pendingNew: Int
+                presignMutex.withLock {
+                    if (presignFinishedKeys.isEmpty()) return
+                    pendingNew = presignFinishedKeys.size - lastSyncedPresignCount
+                    if (!forceFlush && pendingNew < PRESIGN_EDIT_BATCH_SIZE) return
+                    if (isPresignSyncInFlight) return
+                    isPresignSyncInFlight = true
+                    snapshot = presignFinishedKeys.toList()
+                }
+                try {
+                    val content = PresignFinishContent.injectPresignFinish(params.wireContent, snapshot)
+                    val maxAttempts = if (forceFlush) 2 else 1
+                    var synced = false
+                    for (attempt in 1..maxAttempts) {
+                        try {
+                            channelUpdate(
+                                apiUrl, token,
+                                params.clanId, params.channelId, params.mode, params.isPublic,
+                                realMessageId, content, params.protoMentions, attachmentsToSend,
+                                hideEditted = true, topicId = params.topicId,
+                            )
+                            synced = true
+                            break
+                        } catch (e: Exception) {
+                            if (attempt == maxAttempts) {
+                                Log.e(TAG, "presign_finish sync failed messageId=$realMessageId", e)
                             }
                         }
-                        recordResult(index, attachment)
                     }
+                    if (synced) {
+                        presignMutex.withLock {
+                            lastSyncedPresignCount = snapshot.size
+                            job.uploadedCount = snapshot.size
+                        }
+                    }
+                } finally {
+                    presignMutex.withLock { isPresignSyncInFlight = false }
                 }
             }
-            if (messageSent) sendMutex.withLock { flushAttachmentUpdate() }
 
-            if (!messageSent) {
-                notificationCenter.postNotificationOnMainThread(
-                    NotificationCenter.pendingMessageError, params.cacheKey, params.tempId
-                )
+            val backgroundUploadFailed = coroutineScope {
+                preparedSlots.map { slot ->
+                    async(ioDispatcher) {
+                        val ok = executeBackgroundAttachmentUpload(slot, apiUrl, token, params.maxRetriesPerFile)
+                        if (ok) {
+                            val key = PresignFinishContent.presignKey(slot.attachment.url)
+                            if (key.isNotEmpty()) {
+                                var shouldApplyLocal = false
+                                presignMutex.withLock {
+                                    if (!presignFinishedKeys.contains(key)) {
+                                        presignFinishedKeys.add(key)
+                                        shouldApplyLocal = true
+                                    }
+                                }
+                                if (shouldApplyLocal) {
+                                    applyLocalPresignFinishSnapshot()
+                                }
+                                maybeSyncPresignFinishToServer(forceFlush = false)
+                            }
+                        }
+                        !ok
+                    }
+                }.awaitAll().any { it }
             }
+            maybeSyncPresignFinishToServer(forceFlush = true)
+            preparedSlots.forEach { AttachmentUploadProgressStore.clear(it.progressKey) }
+            if (backgroundUploadFailed) {
+                applyLocalBackgroundUploadFailure(params.cacheKey, realMessageId)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to send message with presigned attachments", e)
+            notificationCenter.postNotificationOnMainThread(
+                NotificationCenter.pendingMessageError, params.cacheKey, params.tempId
+            )
         } finally {
             synchronized(this) {
                 attachmentJobsByTempId.remove(params.tempId)
@@ -1792,48 +1836,139 @@ class ChatController @Inject constructor(
         }
     }
 
-    private suspend fun loadAndUploadAttachment(
+    private fun attachmentUploadProgressCallback(progressKey: String): (uploaded: Long, total: Long) -> Unit {
+        return { uploaded, total ->
+            if (total > 0L) {
+                val fraction = (uploaded.toFloat() / total.toFloat()).coerceIn(0f, 1f)
+                if (AttachmentUploadProgressStore.setProgressIfBucketChanged(progressKey, fraction)) {
+                    notificationCenter.postNotificationOnMainThread(
+                        NotificationCenter.attachmentUploadProgress,
+                        progressKey,
+                    )
+                }
+            }
+        }
+    }
+
+    private fun clearAttachmentUploadProgress(progressKey: String) {
+        AttachmentUploadProgressStore.clearProgress(progressKey)
+    }
+
+    private suspend fun prepareAndPresignAttachment(
+        index: Int,
         item: AttachmentPickerItem,
         contentResolver: android.content.ContentResolver,
         apiUrl: String,
         token: String,
         cdnBaseUrl: String,
         maxRetries: Int,
-    ): MessageAttachment? {
-        val uploader = com.mezon.mobile.util.AttachmentUploader
+    ): PreparedAttachmentSlot? {
+        for (attempt in 1..maxRetries) {
+            try {
+                if (!item.isVideo && AttachmentUploader.isCompressibleImage(item.mimeType)) {
+                    val compressed = imageCompressionSlots.withPermit {
+                        AttachmentUploader.compressImageFromUri(
+                            contentResolver, item.uri, item.mimeType, item.filename, item.size,
+                        )
+                    }
+                    if (compressed != null) {
+                        val uploadItem = item.copy(
+                            filename = compressed.filename,
+                            mimeType = compressed.mimeType,
+                            width = compressed.width,
+                            height = compressed.height,
+                            size = compressed.bytes.size.toLong(),
+                        )
+                        return presignCachedAttachment(index, uploadItem, compressed.bytes, apiUrl, token, cdnBaseUrl)
+                    }
+                }
 
-        if (!item.isVideo && uploader.isCompressibleImage(item.mimeType)) {
-            val compressed = imageCompressionSlots.withPermit {
-                uploader.compressImageFromUri(
-                    contentResolver, item.uri, item.mimeType, item.filename, item.size,
-                )
-            }
-            if (compressed != null) {
-                val uploadItem = item.copy(
-                    filename = compressed.filename,
-                    mimeType = compressed.mimeType,
-                    width = compressed.width,
-                    height = compressed.height,
-                    size = compressed.bytes.size.toLong(),
-                )
-                return uploadCachedAttachment(
-                    CachedAttachment(uploadItem, compressed.bytes), apiUrl, token, cdnBaseUrl, maxRetries,
-                )
+                val tmpFile = AttachmentUploader.copyUriToTempFile(
+                    contentResolver, item.uri, item.mimeType, appContext.cacheDir,
+                ) ?: return null
+                return try {
+                    presignStreamedAttachment(index, item, tmpFile, apiUrl, token, cdnBaseUrl)
+                } catch (e: Exception) {
+                    runCatching { tmpFile.delete() }
+                    throw e
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to presign attachment: ${item.filename}", e)
+                if (attempt < maxRetries) delay(SHARE_RETRY_DELAY_MS)
             }
         }
+        return null
+    }
 
-        val tmpFile = uploader.copyUriToTempFile(
-            contentResolver, item.uri, item.mimeType, appContext.cacheDir,
+    private suspend fun presignCachedAttachment(
+        index: Int,
+        item: AttachmentPickerItem,
+        bytes: ByteArray,
+        apiUrl: String,
+        token: String,
+        cdnBaseUrl: String,
+    ): PreparedAttachmentSlot {
+        val timestamp = System.currentTimeMillis() / 1000
+        val sanitizedName = item.filename.replace(FILENAME_SANITIZE_REGEX, "_")
+        val uploadFilename = "${timestamp}_$sanitizedName"
+        val presigned = AttachmentUploader.presignAttachmentBytes(
+            api, apiUrl, token, uploadFilename, item.mimeType, item.size,
+            item.width, item.height, cdnBaseUrl,
         )
-        if (tmpFile == null) {
-            Log.e(TAG, "Failed to read file or over size: ${item.filename}")
-            return null
+        val attachment = messageAttachment {
+            this.filename = item.filename
+            this.url = presigned.cdnUrl
+            this.filetype = item.mimeType
+            this.size = item.size.toInt()
+            this.width = item.width
+            this.height = item.height
+            if (item.duration > 0) this.duration = item.duration
         }
-        return try {
-            uploadStreamedAttachment(item, tmpFile, apiUrl, token, cdnBaseUrl, maxRetries)
-        } finally {
-            runCatching { tmpFile.delete() }
+        return PreparedAttachmentSlot(
+            index = index,
+            progressKey = presigned.cdnUrl,
+            attachment = attachment,
+            plan = presigned.plan,
+            bytes = bytes,
+        )
+    }
+
+    private suspend fun presignStreamedAttachment(
+        index: Int,
+        item: AttachmentPickerItem,
+        file: java.io.File,
+        apiUrl: String,
+        token: String,
+        cdnBaseUrl: String,
+    ): PreparedAttachmentSlot {
+        val fileSize = file.length()
+        val timestamp = System.currentTimeMillis() / 1000
+        val sanitizedName = item.filename.replace(FILENAME_SANITIZE_REGEX, "_")
+        val uploadFilename = "${timestamp}_$sanitizedName"
+        val thumbCdnUrl = uploadVideoThumbnailIfNeeded(
+            item, file, apiUrl, token, cdnBaseUrl, timestamp, sanitizedName,
+        )
+        val presigned = AttachmentUploader.presignAttachmentFromFile(
+            api, apiUrl, token, uploadFilename, item.mimeType, fileSize,
+            item.width, item.height, cdnBaseUrl,
+        )
+        val attachment = messageAttachment {
+            this.filename = item.filename
+            this.url = presigned.cdnUrl
+            this.filetype = item.mimeType
+            this.size = fileSize.toInt()
+            this.width = item.width
+            this.height = item.height
+            if (item.duration > 0) this.duration = item.duration
+            if (!thumbCdnUrl.isNullOrEmpty()) thumbnail = thumbCdnUrl
         }
+        return PreparedAttachmentSlot(
+            index = index,
+            progressKey = presigned.cdnUrl,
+            attachment = attachment,
+            plan = presigned.plan,
+            file = file,
+        )
     }
 
     private suspend fun uploadVideoThumbnailIfNeeded(
@@ -1844,105 +1979,77 @@ class ChatController @Inject constructor(
         cdnBaseUrl: String,
         timestamp: Long,
         sanitizedName: String,
-    ): String {
-        if (!item.isVideo && !com.mezon.mobile.util.AttachmentUploader.isVideoMimeType(item.mimeType)) {
-            return ""
+    ): String? {
+        if (!item.isVideo && !AttachmentUploader.isVideoMimeType(item.mimeType)) {
+            return null
         }
-        val thumb = com.mezon.mobile.util.AttachmentUploader.extractVideoThumbnailJpeg(file) ?: return ""
+        val thumb = AttachmentUploader.extractVideoThumbnailJpeg(file) ?: return null
         val dot = sanitizedName.lastIndexOf('.')
         val base = if (dot > 0) sanitizedName.substring(0, dot) else sanitizedName
         val thumbFilename = "${timestamp}_${base}_thumb.jpg"
         return try {
-            val thumbUpload = com.mezon.mobile.util.AttachmentUploader.uploadAttachmentBytes(
-                api, apiUrl, token, thumbFilename, thumb.mimeType, thumb.bytes,
+            val presigned = AttachmentUploader.presignAttachmentBytes(
+                api, apiUrl, token, thumbFilename, thumb.mimeType, thumb.bytes.size.toLong(),
                 thumb.width, thumb.height, cdnBaseUrl,
             )
-            thumbUpload.cdnUrl
+            AttachmentUploader.executeUploadPlan(
+                api, apiUrl, token, presigned.plan, bytes = thumb.bytes,
+            )
+            Log.d(TAG, "Video thumbnail uploaded cdnUrl=${presigned.cdnUrl} file=${item.filename}")
+            presigned.cdnUrl
         } catch (e: Exception) {
             Log.w(TAG, "Video thumbnail upload failed for ${item.filename}", e)
-            ""
+            null
         }
     }
 
-    private suspend fun uploadStreamedAttachment(
-        item: AttachmentPickerItem,
-        file: java.io.File,
+    private suspend fun executeBackgroundAttachmentUpload(
+        slot: PreparedAttachmentSlot,
         apiUrl: String,
         token: String,
-        cdnBaseUrl: String,
         maxRetries: Int,
-    ): MessageAttachment? {
-        val fileSize = file.length()
-        for (attempt in 1..maxRetries) {
-            try {
-                val timestamp = System.currentTimeMillis() / 1000
-                val sanitizedName = item.filename.replace(FILENAME_SANITIZE_REGEX, "_")
-                val uploadFilename = "${timestamp}_$sanitizedName"
-                val uploadResult = com.mezon.mobile.util.AttachmentUploader.uploadAttachmentFromFile(
-                    api, apiUrl, token, uploadFilename, item.mimeType, file, fileSize,
-                    item.width, item.height, cdnBaseUrl,
-                )
-                val thumbUrl = uploadVideoThumbnailIfNeeded(
-                    item, file, apiUrl, token, cdnBaseUrl, timestamp, sanitizedName,
-                )
-                Log.d(TAG, "Uploaded: ${item.filename} → ${uploadResult.cdnUrl}")
-                return messageAttachment {
-                    this.filename = item.filename
-                    this.url = uploadResult.cdnUrl
-                    this.filetype = item.mimeType
-                    this.size = fileSize.toInt()
-                    this.width = item.width
-                    this.height = item.height
-                    if (item.duration > 0) this.duration = item.duration
-                    if (thumbUrl.isNotEmpty()) thumbnail = thumbUrl
+    ): Boolean {
+        val onProgress = attachmentUploadProgressCallback(slot.progressKey)
+        try {
+            Log.d(TAG, "background upload start cdnUrl=${slot.attachment.url}")
+            for (attempt in 1..maxRetries) {
+                try {
+                    AttachmentUploader.executeUploadPlan(
+                        api, apiUrl, token, slot.plan,
+                        bytes = slot.bytes, file = slot.file, onProgress = onProgress,
+                    )
+                    AttachmentUploadProgressStore.markUploadComplete(slot.progressKey)
+                    notificationCenter.postNotificationOnMainThread(
+                        NotificationCenter.attachmentUploadFinished, slot.progressKey,
+                    )
+                    Log.d(TAG, "Background upload done: ${slot.attachment.filename} → ${slot.attachment.url}")
+                    return true
+                } catch (e: Exception) {
+                    Log.e(TAG, "Background upload attempt $attempt failed: ${slot.attachment.filename}", e)
+                    if (attempt < maxRetries) delay(SHARE_RETRY_DELAY_MS)
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to upload attachment: ${item.filename}", e)
-                if (attempt < maxRetries) delay(SHARE_RETRY_DELAY_MS)
             }
+            return false
+        } finally {
+            clearAttachmentUploadProgress(slot.progressKey)
+            runCatching { slot.file?.delete() }
         }
-        return null
     }
 
-    private suspend fun uploadCachedAttachment(
-        cached: CachedAttachment,
-        apiUrl: String,
-        token: String,
-        cdnBaseUrl: String,
-        maxRetries: Int,
-    ): MessageAttachment? {
-        val item = cached.item
-        for (attempt in 1..maxRetries) {
-            try {
-                val timestamp = System.currentTimeMillis() / 1000
-                val sanitizedName = item.filename.replace(FILENAME_SANITIZE_REGEX, "_")
-                val uploadFilename = "${timestamp}_$sanitizedName"
-                val uploadResult = com.mezon.mobile.util.AttachmentUploader.uploadAttachmentBytes(
-                    api, apiUrl, token, uploadFilename, item.mimeType, cached.bytes,
-                    item.width, item.height, cdnBaseUrl,
-                )
-                return messageAttachment {
-                    this.filename = item.filename
-                    this.url = uploadResult.cdnUrl
-                    this.filetype = item.mimeType
-                    this.size = item.size.toInt()
-                    this.width = item.width
-                    this.height = item.height
-                    if (item.duration > 0) this.duration = item.duration
-                }
-            } catch (e: Exception) {
-                if (maxRetries > 1) {
-                    Log.e(TAG, "Upload attempt $attempt failed for ${item.filename}", e)
-                } else {
-                    Log.e(TAG, "Failed to upload attachment: ${item.filename}", e)
-                }
-                if (attempt < maxRetries) delay(SHARE_RETRY_DELAY_MS)
+    private suspend fun applyLocalBackgroundUploadFailure(cacheKey: Long, messageId: Long) {
+        val existing = withContext(ioDispatcher) { messageDao.getById(cacheKey, messageId) } ?: return
+        val updated = existing.copy(isError = true)
+        appScope.launch(ioDispatcher) { messageDao.upsert(updated) }
+        synchronized(this) {
+            val last = dialogMessage.get(cacheKey)
+            if (last != null && last.id == messageId) {
+                dialogMessage.put(cacheKey, updated)
             }
         }
-        if (maxRetries > 1) {
-            Log.e(TAG, "All retries exhausted for ${item.filename}")
-        }
-        return null
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.messageDidUpdate, cacheKey, updated,
+            NotificationCenter.UPDATE_MASK_SEND_STATE,
+        )
     }
 
     private fun buildExtraAttachmentsJson(
@@ -2102,6 +2209,31 @@ class ChatController @Inject constructor(
         return attachmentFieldsFromUploaded(attachments, emptyList())
     }
 
+    private suspend fun applyLocalPresignContentUpdate(
+        cacheKey: Long,
+        messageId: Long,
+        content: String,
+    ) {
+        val existing = withContext(ioDispatcher) { messageDao.getById(cacheKey, messageId) } ?: return
+        val presignOnly = PresignFinishContent.isPresignFinishOnlyChange(content, existing.content)
+        val updated = existing.copy(
+            content = content,
+            hideEditted = true,
+            updateTimeSeconds = if (presignOnly) 0L else existing.updateTimeSeconds,
+        )
+        appScope.launch(ioDispatcher) { messageDao.upsert(updated) }
+        synchronized(this) {
+            val last = dialogMessage.get(cacheKey)
+            if (last != null && last.id == messageId) {
+                dialogMessage.put(cacheKey, updated)
+            }
+        }
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.messageDidUpdate, cacheKey, updated,
+            NotificationCenter.UPDATE_MASK_MESSAGE_TEXT or NotificationCenter.UPDATE_MASK_ATTACHMENTS,
+        )
+    }
+
     private suspend fun applyLocalAfterFirstSendOrdered(
         cacheKey: Long,
         tempId: Long,
@@ -2109,6 +2241,7 @@ class ChatController @Inject constructor(
         allItems: List<AttachmentPickerItem>,
         uploadedByIndex: List<MessageAttachment?>,
         failedIndices: Set<Int>,
+        contentWithPresign: String = "",
     ): MessageEntity {
         val existing = synchronized(this) { pendingAttachmentEntityByTempId.get(tempId) }
             ?: withContext(ioDispatcher) { messageDao.getById(cacheKey, realMessageId) }
@@ -2126,6 +2259,7 @@ class ChatController @Inject constructor(
             isMe = true,
         )).copy(
             id = realMessageId,
+            content = contentWithPresign.ifBlank { existing?.content.orEmpty() },
             attachmentUrl = fields.attachmentUrl,
             attachmentThumb = fields.attachmentThumb,
             attachmentWidth = fields.attachmentWidth,
@@ -2137,6 +2271,7 @@ class ChatController @Inject constructor(
             extraAttachmentsJson = fields.extraAttachmentsJson,
             messageType = fields.messageType,
             sendState = MessageEntity.SEND_STATE_SENT,
+            hideEditted = true,
             isError = hasError,
         )
         appScope.launch(ioDispatcher) { messageDao.upsert(updated) }
@@ -2300,52 +2435,20 @@ class ChatController @Inject constructor(
             existingCount > incomingCount ||
             (expectedTotal > incomingCount && hasAnyLocalAttachmentUrl(existing))
         )
+        val mergedContent = PresignFinishContent.mergePresignFinishContent(base.content, incoming.content)
+        val presignOnly = PresignFinishContent.isPresignFinishOnlyChange(mergedContent, base.content)
         if (!preserveLocalAttachments) {
-            return incoming.copy(content = resolveEchoContent(incoming.content, base.content))
-        }
-        val incomingFields = entityAttachmentFieldsFromProto(
-            incoming.allAttachmentsInfo.map { att ->
-                messageAttachment {
-                    filename = att.filename
-                    url = att.url
-                    filetype = att.filetype
-                    size = att.size
-                    width = att.width
-                    height = att.height
-                    thumbnail = att.thumb
-                    duration = att.duration
-                }
-            }
-        )
-        val primaryUrl = when {
-            incomingFields.attachmentUrl.isNotBlank() && isLocalAttachmentUrl(base.attachmentUrl) ->
-                incomingFields.attachmentUrl
-            incomingFields.attachmentUrl.isNotBlank() -> incomingFields.attachmentUrl
-            else -> base.attachmentUrl
+            return incoming.copy(
+                content = resolveEchoContent(mergedContent, base.content),
+                updateTimeSeconds = if (presignOnly) base.updateTimeSeconds else incoming.updateTimeSeconds,
+                hideEditted = incoming.hideEditted || presignOnly,
+            )
         }
         return base.copy(
-            content = resolveEchoContent(base.content, incoming.content),
-            updateTimeSeconds = incoming.updateTimeSeconds,
-            hideEditted = incoming.hideEditted,
+            content = resolveEchoContent(base.content, mergedContent),
+            updateTimeSeconds = if (presignOnly) base.updateTimeSeconds else incoming.updateTimeSeconds,
+            hideEditted = incoming.hideEditted || presignOnly,
             code = incoming.code,
-            attachmentUrl = primaryUrl,
-            attachmentThumb = incomingFields.attachmentThumb.ifBlank { base.attachmentThumb },
-            attachmentWidth = if (incomingFields.attachmentWidth > 0) incomingFields.attachmentWidth else base.attachmentWidth,
-            attachmentHeight = if (incomingFields.attachmentHeight > 0) incomingFields.attachmentHeight else base.attachmentHeight,
-            attachmentFilename = incomingFields.attachmentFilename.ifBlank { base.attachmentFilename },
-            attachmentFiletype = incomingFields.attachmentFiletype.ifBlank { base.attachmentFiletype },
-            attachmentSize = if (incomingFields.attachmentSize > 0) incomingFields.attachmentSize else base.attachmentSize,
-            attachmentDuration = if (incomingFields.attachmentDuration > 0) incomingFields.attachmentDuration else base.attachmentDuration,
-            extraAttachmentsJson = if (incomingCount >= expectedTotal) {
-                incomingFields.extraAttachmentsJson
-            } else {
-                base.extraAttachmentsJson
-            },
-            messageType = if (primaryUrl.isNotEmpty()) {
-                if (incomingFields.attachmentUrl.isNotEmpty()) incomingFields.messageType else base.messageType
-            } else {
-                base.messageType
-            },
         )
     }
 

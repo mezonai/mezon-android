@@ -177,6 +177,9 @@ class AddFriendFragment : BaseFragment() {
                 override fun onAddFriend(userId: Long) {
                     friendController.sendFriendRequest(userId, friend.user.username) {}
                 }
+                override fun onTransferFunds(userId: Long) {
+                    openProfileTransferFunds(userId, friend.user.username)
+                }
             }
         )
         sheet.setDrawNavigationBar(true)

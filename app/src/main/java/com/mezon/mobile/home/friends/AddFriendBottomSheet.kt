@@ -13,6 +13,7 @@ import android.widget.TextView
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.mezon.mezon.api.Friend
 import com.mezon.mobile.R
+import com.mezon.mobile.MainActivity
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BottomSheet
 import com.mezon.mobile.core.LayoutHelper
@@ -20,6 +21,7 @@ import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.chat.UserProfileBottomSheet
+import com.mezon.mobile.home.wallet.SendTokenFragment
 import com.mezon.mobile.ui.cells.MezonIcon
 
 class AddFriendBottomSheet(
@@ -193,6 +195,14 @@ class AddFriendBottomSheet(
             listener = object : UserProfileBottomSheet.UserProfileListener {
                 override fun onAddFriend(userId: Long) {
                     friendController.sendFriendRequest(userId, friend.user.username) {}
+                }
+                override fun onTransferFunds(userId: Long) {
+                    SendTokenFragment.presentForProfile(
+                        context,
+                        (AndroidUtilities.findActivity(context) as? MainActivity)?.actionBarLayout,
+                        userId,
+                        friend.user.username
+                    )
                 }
             }
         )
