@@ -4,6 +4,8 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffColorFilter
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
@@ -52,6 +54,7 @@ class InvitePeopleBottomSheet(
 
     companion object {
         private const val PAYLOAD_ACTION = "action"
+        private const val VID_DIVIDER = 0x2201
     }
 
     private val theme = ThemeColors.instance
@@ -63,144 +66,135 @@ class InvitePeopleBottomSheet(
     private lateinit var searchField: EditText
     private lateinit var recycler: RecyclerListView
     private lateinit var adapter: TargetAdapter
-    private lateinit var linkField: TextView
-    private lateinit var copyBtn: TextView
-    private lateinit var copyQrBtn: TextView
-    private lateinit var qrRowView: LinearLayout
     private lateinit var loadingOverlay: FrameLayout
+
+    private lateinit var copyLinkBtn: LinearLayout
+    private lateinit var copyLinkLabel: TextView
 
     init {
         containerHeight = (AndroidUtilities.displaySize.y * 0.88f).toInt()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        setTitle(context.getString(R.string.invite_modal_title, clanName))
+        setTitle(context.getString(R.string.invite_a_friend))
 
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(theme.background)
-            setPadding(LayoutHelper.dp(16f), LayoutHelper.dp(4f), LayoutHelper.dp(16f), LayoutHelper.dp(16f))
         }
+
+        val actionsRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+
+        val shareBtn = makeActionButton(
+            icon = MezonIcon.shareIcon,
+            label = context.getString(R.string.invite_action_share),
+        ) { shareInviteLink() }
+
+        copyLinkBtn = makeActionButton(
+            icon = MezonIcon.copyIcon,
+            label = context.getString(R.string.invite_action_copy_link),
+        ) { copyInviteLink() }
+        copyLinkLabel = copyLinkBtn.getChildAt(1) as TextView
+
+        val qrBtn = makeActionButton(
+            icon = MezonIcon.scanQR,
+            label = context.getString(R.string.invite_action_qr),
+        ) { showQrDialog() }
+
+        actionsRow.addView(shareBtn, actionColParams())
+        actionsRow.addView(copyLinkBtn, actionColParams())
+        actionsRow.addView(qrBtn, actionColParams())
+
+        root.addView(
+            actionsRow,
+            LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
+                topMargin = LayoutHelper.dp(8f)
+                bottomMargin = LayoutHelper.dp(16f)
+            },
+        )
+
+        root.addView(
+            View(context).apply { setBackgroundColor(theme.borderDim) },
+            LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 1),
+        )
+
+        val searchWrapper = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = GradientDrawable().apply {
+                cornerRadius = LayoutHelper.dpf(8f)
+                setStroke(LayoutHelper.dp(1), theme.borderDim)
+                setColor(android.graphics.Color.TRANSPARENT)
+            }
+            setPadding(LayoutHelper.dp(12f), 0, LayoutHelper.dp(12f), 0)
+        }
+
+        val searchIcon = ImageView(context).apply {
+            val d = MezonIcon.searchIcon.getDrawable(context)
+            d.colorFilter = PorterDuffColorFilter(theme.textDisabled, PorterDuff.Mode.SRC_IN)
+            setImageDrawable(d)
+        }
+        searchWrapper.addView(
+            searchIcon,
+            LinearLayout.LayoutParams(LayoutHelper.dp(18f), LayoutHelper.dp(18f)).apply {
+                rightMargin = LayoutHelper.dp(10f)
+            },
+        )
 
         searchField = EditText(context).apply {
             hint = context.getString(R.string.invite_search_placeholder)
             setHintTextColor(theme.textDisabled)
             setTextColor(theme.colorText)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             setSingleLine(true)
-            background = roundedFieldBg()
-            setPadding(LayoutHelper.dp(14f), LayoutHelper.dp(10f), LayoutHelper.dp(14f), LayoutHelper.dp(10f))
+            background = null
+            setPadding(0, 0, 0, 0)
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun afterTextChanged(s: Editable?) = Unit
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
                     controller.onSearch(s?.toString().orEmpty())
                 }
-                override fun afterTextChanged(s: Editable?) = Unit
             })
         }
-        root.addView(searchField, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
-            bottomMargin = LayoutHelper.dp(10f)
-        })
+        searchWrapper.addView(
+            searchField,
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f),
+        )
 
-        val listFrame = FrameLayout(context)
+        root.addView(
+            searchWrapper,
+            LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 40).apply {
+                topMargin = LayoutHelper.dp(14f)
+                leftMargin = LayoutHelper.dp(14f)
+                rightMargin = LayoutHelper.dp(14f)
+                bottomMargin = LayoutHelper.dp(8f)
+            },
+        )
+
         adapter = TargetAdapter()
         recycler = RecyclerListView(context).apply {
             layoutManager = LinearLayoutManager(context)
             adapter = this@InvitePeopleBottomSheet.adapter
             overScrollMode = View.OVER_SCROLL_NEVER
         }
+
+        val listFrame = FrameLayout(context)
         listFrame.addView(recycler, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
-        root.addView(listFrame, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.dp(220f)))
-
-        root.addView(View(context).apply { setBackgroundColor(theme.borderDim) },
-            LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 1).apply {
-                topMargin = LayoutHelper.dp(10f)
-                bottomMargin = LayoutHelper.dp(12f)
-            })
-
-        val labelRow = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        labelRow.addView(TextView(context).apply {
-            text = context.getString(R.string.invite_send_link_label)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-            setTextColor(theme.textDisabled)
-        }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-
-        qrRowView = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            isClickable = true
-            isFocusable = true
-            setOnClickListener { showQrDialog() }
-            visibility = View.GONE
-        }
-        qrRowView.addView(ImageView(context).apply {
-            setImageDrawable(MezonIcon.myQRcodeIcon.getDrawable(context, theme.textLink))
-            scaleType = ImageView.ScaleType.CENTER_INSIDE
-        }, LinearLayout.LayoutParams(LayoutHelper.dp(16f), LayoutHelper.dp(16f)).apply {
-            rightMargin = LayoutHelper.dp(5f)
-        })
-        copyQrBtn = TextView(context).apply {
-            text = context.getString(R.string.invite_share_qr)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-            setTextColor(theme.textLink)
-            typeface = Typeface.DEFAULT_BOLD
-        }
-        qrRowView.addView(copyQrBtn, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-        labelRow.addView(qrRowView, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-
-        root.addView(labelRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
-            bottomMargin = LayoutHelper.dp(8f)
-        })
-
-        val linkCard = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            background = GradientDrawable().apply {
-                cornerRadius = LayoutHelper.dpf(10f)
-                setColor(theme.border)
-            }
-        }
-
-        linkField = TextView(context).apply {
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-            setTextColor(theme.textDisabled)
-            maxLines = 1
-            ellipsize = TextUtils.TruncateAt.MIDDLE
-            setPadding(LayoutHelper.dp(12f), LayoutHelper.dp(12f), LayoutHelper.dp(8f), LayoutHelper.dp(12f))
-        }
-        linkCard.addView(linkField, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-
-        copyBtn = TextView(context).apply {
-            text = context.getString(R.string.invite_copy)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(theme.onPrimary)
-            gravity = Gravity.CENTER
-            background = GradientDrawable().apply {
-                cornerRadius = LayoutHelper.dpf(10f)
-                setColor(theme.primary)
-            }
-            setPadding(LayoutHelper.dp(16f), LayoutHelper.dp(12f), LayoutHelper.dp(16f), LayoutHelper.dp(12f))
-            isClickable = true
-            setOnClickListener { copyInviteLink() }
-        }
-        linkCard.addView(copyBtn, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-        root.addView(linkCard, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
-
-        val contentWrap = FrameLayout(context)
-        contentWrap.addView(root, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
         loadingOverlay = FrameLayout(context).apply {
-            setBackgroundColor(0x99000000.toInt())
+            setBackgroundColor(0x80000000.toInt())
             visibility = View.GONE
             addView(ProgressBar(context), LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER))
         }
-        contentWrap.addView(loadingOverlay, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
+        listFrame.addView(loadingOverlay, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
-        setCustomView(contentWrap)
+        root.addView(listFrame, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
+
+        setCustomView(root)
         super.onCreate(savedInstanceState)
 
         controller.open(clanId, clanName, clanLogo)
@@ -208,6 +202,7 @@ class InvitePeopleBottomSheet(
             controller.state.collect { render(it) }
         }
     }
+
 
     override fun dismiss() {
         collectJob?.cancel()
@@ -217,32 +212,20 @@ class InvitePeopleBottomSheet(
         super.dismiss()
     }
 
-    private fun roundedFieldBg() = GradientDrawable().apply {
-        cornerRadius = LayoutHelper.dpf(10f)
-        setColor(theme.border)
-    }
 
     private fun render(state: InvitePeopleUiState) {
         val hasLink = state.inviteUrl.isNotBlank() && !state.isLoadingLink
         loadingOverlay.visibility = if (state.isLoadingLink) View.VISIBLE else View.GONE
-        linkField.text = if (state.inviteUrl.isNotBlank()) state.inviteUrl else "…"
-        copyBtn.isEnabled = hasLink
-        copyBtn.alpha = if (hasLink) 1f else 0.5f
-        qrRowView.visibility = if (hasLink) View.VISIBLE else View.GONE
 
         if (state.isCopied) {
-            copyBtn.text = context.getString(R.string.invite_copied)
-            copyBtn.background = GradientDrawable().apply {
-                cornerRadius = LayoutHelper.dpf(10f)
-                setColor(theme.success)
-            }
+            copyLinkLabel.text = context.getString(R.string.invite_copied)
+            copyLinkLabel.setTextColor(theme.success)
         } else {
-            copyBtn.text = context.getString(R.string.invite_copy)
-            copyBtn.background = GradientDrawable().apply {
-                cornerRadius = LayoutHelper.dpf(10f)
-                setColor(theme.primary)
-            }
+            copyLinkLabel.text = context.getString(R.string.invite_action_copy_link)
+            copyLinkLabel.setTextColor(theme.colorText)
         }
+        copyLinkBtn.alpha = if (hasLink) 1f else 0.4f
+        copyLinkBtn.isEnabled = hasLink
 
         if (state.linkError != null && !state.isLoadingLink && !linkErrorHandled) {
             linkErrorHandled = true
@@ -259,6 +242,7 @@ class InvitePeopleBottomSheet(
         adapter.submit(state)
     }
 
+
     private fun copyInviteLink() {
         val url = controller.state.value.inviteUrl
         if (url.isBlank()) return
@@ -272,9 +256,29 @@ class InvitePeopleBottomSheet(
         }
     }
 
+    private fun shareInviteLink() {
+        val url = controller.state.value.inviteUrl
+        if (url.isBlank()) {
+            Toast.makeText(context, context.getString(R.string.invite_create_link_error), Toast.LENGTH_SHORT).show()
+            return
+        }
+        try {
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, url)
+            }
+            context.startActivity(Intent.createChooser(intent, context.getString(R.string.invite_action_share)))
+        } catch (_: Exception) {
+            copyInviteLink()
+        }
+    }
+
     private fun showQrDialog() {
         val url = controller.state.value.inviteUrl
-        if (url.isBlank()) return
+        if (url.isBlank()) {
+            Toast.makeText(context, context.getString(R.string.invite_create_link_error), Toast.LENGTH_SHORT).show()
+            return
+        }
         val size = LayoutHelper.dp(220f)
         val qr = QrCodeUtils.generateQr(url, size)
 
@@ -353,29 +357,78 @@ class InvitePeopleBottomSheet(
                 context,
                 if (saved) context.getString(R.string.invite_qr_saved)
                 else context.getString(R.string.invite_create_link_error),
-                Toast.LENGTH_SHORT
+                Toast.LENGTH_SHORT,
             ).show()
         } catch (_: Exception) {
             Toast.makeText(context, context.getString(R.string.invite_create_link_error), Toast.LENGTH_SHORT).show()
         }
     }
 
+
+    private fun makeActionButton(
+        icon: MezonIcon,
+        label: String,
+        onClick: () -> Unit,
+    ): LinearLayout {
+        val col = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { onClick() }
+        }
+
+        val circle = FrameLayout(context).apply {
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(theme.surfaceVariant)
+            }
+        }
+        val iconView = ImageView(context).apply {
+            val d = icon.getDrawable(context)
+            d.colorFilter = PorterDuffColorFilter(theme.onSurface, PorterDuff.Mode.SRC_IN)
+            setImageDrawable(d)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+        }
+        circle.addView(iconView, LayoutHelper.createFrame(24, 24, Gravity.CENTER))
+        col.addView(circle, LayoutHelper.createLinear(56, 56, 0f, Gravity.CENTER_HORIZONTAL))
+
+        val tv = TextView(context).apply {
+            text = label
+            setTextColor(theme.colorText)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            gravity = Gravity.CENTER
+        }
+        col.addView(
+            tv,
+            LayoutHelper.createLinear(
+                LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT,
+                0f, Gravity.CENTER_HORIZONTAL, 0f, 8f, 0f, 0f,
+            ),
+        )
+        return col
+    }
+
+    private fun actionColParams() = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+        topMargin = LayoutHelper.dp(4f)
+        bottomMargin = LayoutHelper.dp(4f)
+    }
+
+
     private inner class InviteTargetViewHolder(
-        v: View,
+        itemView: View,
         val avatar: AvatarView,
         val titleTv: TextView,
         val subTv: TextView,
         val actionBtn: TextView,
-    ) : RecyclerView.ViewHolder(v)
+    ) : RecyclerView.ViewHolder(itemView)
 
     private inner class TargetAdapter : RecyclerView.Adapter<InviteTargetViewHolder>() {
         private var rows: List<InviteDmTarget> = emptyList()
         private var sentIds: Set<String> = emptySet()
         private var sendingId: String? = null
 
-        init {
-            setHasStableIds(true)
-        }
+        init { setHasStableIds(true) }
 
         fun submit(state: InvitePeopleUiState) {
             val newRows = state.dmTargets
@@ -413,38 +466,41 @@ class InvitePeopleBottomSheet(
                 val id = target.rowId
                 val sentChanged = prevSent.contains(id) != newSent.contains(id)
                 val sendingChanged = prevSending == id || newSending == id
-                if (sentChanged || sendingChanged) {
-                    notifyItemChanged(index, PAYLOAD_ACTION)
-                }
+                if (sentChanged || sendingChanged) notifyItemChanged(index, PAYLOAD_ACTION)
             }
         }
 
         override fun getItemId(position: Int): Long = rows[position].rowId.hashCode().toLong()
-
         override fun getItemCount() = rows.size
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): InviteTargetViewHolder {
+            val wrapper = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = RecyclerView.LayoutParams(
+                    RecyclerView.LayoutParams.MATCH_PARENT,
+                    RecyclerView.LayoutParams.WRAP_CONTENT,
+                )
+            }
+
             val row = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                layoutParams = RecyclerView.LayoutParams(
-                    RecyclerView.LayoutParams.MATCH_PARENT,
-                    RecyclerView.LayoutParams.WRAP_CONTENT
-                )
-                setPadding(0, LayoutHelper.dp(6f), 0, LayoutHelper.dp(6f))
+                val padH = LayoutHelper.dp(14f)
+                val padV = LayoutHelper.dp(11f)
+                setPadding(padH, padV, padH, padV)
             }
 
-            val avatar = AvatarView(context).apply { setSizeDp(40) }
-            row.addView(avatar, LinearLayout.LayoutParams(LayoutHelper.dp(40f), LayoutHelper.dp(40f)).apply {
+            val avatar = AvatarView(context).apply { setSizeDp(44) }
+            row.addView(avatar, LinearLayout.LayoutParams(LayoutHelper.dp(44f), LayoutHelper.dp(44f)).apply {
                 rightMargin = LayoutHelper.dp(12f)
                 gravity = Gravity.CENTER_VERTICAL
             })
 
-            val texts = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+            val textCol = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
             val titleTv = TextView(context).apply {
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
                 setTextColor(theme.colorText)
-                typeface = Typeface.DEFAULT_BOLD
+                typeface = Typeface.DEFAULT
                 maxLines = 1
                 ellipsize = TextUtils.TruncateAt.END
             }
@@ -453,24 +509,40 @@ class InvitePeopleBottomSheet(
                 setTextColor(theme.textDisabled)
                 maxLines = 1
                 ellipsize = TextUtils.TruncateAt.END
+                visibility = View.GONE
             }
-            texts.addView(titleTv, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-            texts.addView(subTv, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-            row.addView(texts, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                rightMargin = LayoutHelper.dp(8f)
+            textCol.addView(titleTv, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+            textCol.addView(subTv, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+            row.addView(textCol, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
                 gravity = Gravity.CENTER_VERTICAL
+                rightMargin = LayoutHelper.dp(8f)
             })
 
             val actionBtn = TextView(context).apply {
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-                typeface = Typeface.DEFAULT_BOLD
+                typeface = Typeface.DEFAULT
                 gravity = Gravity.CENTER
+                setPadding(LayoutHelper.dp(16f), 0, LayoutHelper.dp(16f), 0)
+                background = GradientDrawable().apply {
+                    cornerRadius = LayoutHelper.dpf(8f)
+                    setColor(theme.surfaceVariant)
+                }
             }
-            row.addView(actionBtn, LinearLayout.LayoutParams(LayoutHelper.dp(80f), LayoutHelper.dp(34f)).apply {
+            row.addView(actionBtn, LinearLayout.LayoutParams(LayoutHelper.dp(76f), LayoutHelper.dp(34f)).apply {
                 gravity = Gravity.CENTER_VERTICAL
             })
 
-            return InviteTargetViewHolder(row, avatar, titleTv, subTv, actionBtn)
+            wrapper.addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+
+            val divider = View(context).apply {
+                id = VID_DIVIDER
+                setBackgroundColor(theme.borderDim)
+            }
+            wrapper.addView(divider, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1).apply {
+                leftMargin = LayoutHelper.dp(14f)
+            })
+
+            return InviteTargetViewHolder(wrapper, avatar, titleTv, subTv, actionBtn)
         }
 
         override fun onBindViewHolder(holder: InviteTargetViewHolder, position: Int, payloads: MutableList<Any>) {
@@ -483,6 +555,7 @@ class InvitePeopleBottomSheet(
 
         override fun onBindViewHolder(holder: InviteTargetViewHolder, position: Int) {
             val target = rows[position]
+
             holder.titleTv.text = target.title
             if (!target.subtitle.isNullOrBlank()) {
                 holder.subTv.visibility = View.VISIBLE
@@ -499,6 +572,9 @@ class InvitePeopleBottomSheet(
                 holder.avatar.setImageUrl(null)
             }
 
+            holder.itemView.findViewById<View>(VID_DIVIDER)?.visibility =
+                if (position == itemCount - 1) View.INVISIBLE else View.VISIBLE
+
             bindActionButton(holder, target)
         }
 
@@ -510,29 +586,19 @@ class InvitePeopleBottomSheet(
                 sent -> {
                     holder.actionBtn.text = context.getString(R.string.invite_btn_sent)
                     holder.actionBtn.setTextColor(theme.textDisabled)
-                    holder.actionBtn.background = GradientDrawable().apply {
-                        cornerRadius = LayoutHelper.dpf(8f)
-                        setColor(theme.surfaceVariant)
-                        setStroke(LayoutHelper.dp(1f), theme.borderDim)
-                    }
+                    (holder.actionBtn.background as? GradientDrawable)?.setColor(theme.border)
                     holder.actionBtn.isEnabled = false
                 }
                 sending -> {
                     holder.actionBtn.text = "…"
                     holder.actionBtn.setTextColor(theme.textDisabled)
-                    holder.actionBtn.background = GradientDrawable().apply {
-                        cornerRadius = LayoutHelper.dpf(8f)
-                        setColor(theme.surfaceVariant)
-                    }
+                    (holder.actionBtn.background as? GradientDrawable)?.setColor(theme.surfaceVariant)
                     holder.actionBtn.isEnabled = false
                 }
                 else -> {
                     holder.actionBtn.text = context.getString(R.string.invite_btn_invite)
-                    holder.actionBtn.setTextColor(theme.onPrimary)
-                    holder.actionBtn.background = GradientDrawable().apply {
-                        cornerRadius = LayoutHelper.dpf(8f)
-                        setColor(theme.primary)
-                    }
+                    holder.actionBtn.setTextColor(theme.colorText)
+                    (holder.actionBtn.background as? GradientDrawable)?.setColor(theme.surfaceVariant)
                     holder.actionBtn.isEnabled = true
                     holder.actionBtn.setOnClickListener {
                         holder.actionBtn.isEnabled = false
@@ -542,7 +608,7 @@ class InvitePeopleBottomSheet(
                                     Toast.makeText(
                                         context,
                                         err ?: context.getString(R.string.invite_send_error),
-                                        Toast.LENGTH_SHORT
+                                        Toast.LENGTH_SHORT,
                                     ).show()
                                 }
                             }
@@ -559,10 +625,8 @@ class InvitePeopleBottomSheet(
     ) : DiffUtil.Callback() {
         override fun getOldListSize() = oldRows.size
         override fun getNewListSize() = newRows.size
-
         override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean =
             oldRows[oldItemPosition].rowId == newRows[newItemPosition].rowId
-
         override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean =
             oldRows[oldItemPosition] == newRows[newItemPosition]
     }

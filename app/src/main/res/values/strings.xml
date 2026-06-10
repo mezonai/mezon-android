@@ -444,6 +444,11 @@
     <string name="invite_create_link_error">Could not create invite link. Try again.</string>
     <string name="invite_send_error">Could not send invite. Try again.</string>
     <string name="invite_clan_not_loaded">Clan information is not available. Try again.</string>
+    <!-- New invite bottom sheet UI strings -->
+    <string name="invite_a_friend">Invite a friend</string>
+    <string name="invite_action_share">Share Invite</string>
+    <string name="invite_action_copy_link">Copy Link</string>
+    <string name="invite_action_qr">QR Code</string>
     <string name="clan_roles_description">Use roles to group your clan members and assign permissions</string>
     <string name="clan_roles_default_role">Default permissions for all clan members</string>
     <string name="clan_roles_header_count">Roles - %1$d</string>
