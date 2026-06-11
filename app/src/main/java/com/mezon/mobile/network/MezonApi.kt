@@ -1938,14 +1938,22 @@ class MezonApi @Inject constructor(
         height: Int = 0,
         partCount: Int = 1,
     ): MultipartUploadAttachment {
-        val request = uploadAttachmentRequest {
+        val builder = com.mezon.mezon.api.UploadAttachmentRequest.newBuilder().apply {
             this.filename = filename
             this.filetype = filetype
             this.size = size
             if (width > 0) this.width = width
             if (height > 0) this.height = height
-            if (partCount > 0) this.partCount = partCount
         }
+        if (partCount > 0) {
+            try {
+                val method = builder.javaClass.getMethod("setPartCount", Int::class.javaPrimitiveType)
+                method.invoke(builder, partCount)
+            } catch (e: Exception) {
+                // Fallback / Ignore if old proto without partCount
+            }
+        }
+        val request = builder.build()
         val bytes = rpc(apiUrl, token, "MultipartUploadAttachmentFileStart", request.toByteArray())
         return MultipartUploadAttachment.parseFrom(bytes)
     }
@@ -1957,18 +1965,26 @@ class MezonApi @Inject constructor(
         parts: List<Pair<Int, String>>,
         filename: String = "",
     ): UploadAttachment {
-        val request = multipartUploadAttachmentFinishRequest {
+        val builder = com.mezon.mezon.api.MultipartUploadAttachmentFinishRequest.newBuilder().apply {
             this.uploadId = uploadId
-            if (filename.isNotEmpty()) this.filename = filename
             parts.forEach { (partNumber, eTag) ->
-                this.parts.add(
-                    multipartUploadAttachmentPart {
+                this.addParts(
+                    com.mezon.mezon.api.MultipartUploadAttachmentPart.newBuilder().apply {
                         this.partNumber = partNumber
                         this.eTag = eTag
-                    }
+                    }.build()
                 )
             }
         }
+        if (filename.isNotEmpty()) {
+            try {
+                val method = builder.javaClass.getMethod("setFilename", String::class.java)
+                method.invoke(builder, filename)
+            } catch (e: Exception) {
+                // Fallback / Ignore if old proto without filename
+            }
+        }
+        val request = builder.build()
         val bytes = rpc(apiUrl, token, "MultipartUploadAttachmentFileFinish", request.toByteArray())
         return UploadAttachment.parseFrom(bytes)
     }
@@ -2922,6 +2938,53 @@ class MezonApi @Inject constructor(
             ?.trim('"')
             ?.takeIf { it.isNotEmpty() }
             ?: throw RuntimeException("File part upload missing ETag")
+    }
+
+    suspend fun listOnboarding(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        guideType: Int = 0,
+        limit: Int = 100,
+        page: Int = 0
+    ): com.mezon.mezon.api.ListOnboardingResponse {
+        val request = com.mezon.mezon.api.ListOnboardingRequest.newBuilder().apply {
+            this.clanId = clanId
+            this.guideType = guideType
+            this.limit = limit
+            this.page = page
+        }.build()
+        val bytes = rpc(apiUrl, token, "ListOnboarding", request.toByteArray())
+        return com.mezon.mezon.api.ListOnboardingResponse.parseFrom(bytes)
+    }
+
+    suspend fun listOnboardingStep(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        limit: Int = 100,
+        page: Int = 0
+    ): com.mezon.mezon.api.ListOnboardingStepResponse {
+        val request = com.mezon.mezon.api.ListOnboardingStepRequest.newBuilder().apply {
+            this.clanId = clanId
+            this.limit = limit
+            this.page = page
+        }.build()
+        val bytes = rpc(apiUrl, token, "ListOnboardingStep", request.toByteArray())
+        return com.mezon.mezon.api.ListOnboardingStepResponse.parseFrom(bytes)
+    }
+
+    suspend fun updateOnboardingStep(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        onboardingStep: Int
+    ): ByteArray {
+        val request = com.mezon.mezon.api.UpdateOnboardingStepRequest.newBuilder().apply {
+            this.clanId = clanId
+            this.onboardingStep = onboardingStep
+        }.build()
+        return rpc(apiUrl, token, "UpdateOnboardingStep", request.toByteArray())
     }
 
 }

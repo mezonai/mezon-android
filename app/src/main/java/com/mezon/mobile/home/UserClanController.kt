@@ -16,6 +16,7 @@ import com.mezon.mobile.session.SessionManager
 import com.mezon.mezon.rtapi.UserChannelAdded
 import com.mezon.mezon.rtapi.UserChannelRemoved
 import com.mezon.mezon.rtapi.UserProfileRedis
+import com.mezon.mezon.rtapi.AddClanUserEvent
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -58,6 +59,7 @@ class UserClanController @Inject constructor(
     init {
         appScope.launch { observeUserChannelAdded() }
         appScope.launch { observeUserChannelRemoved() }
+        appScope.launch { observeAddClanUser() }
     }
 
     // --- All users across all clans (for search) ---
@@ -399,6 +401,43 @@ class UserClanController @Inject constructor(
         socketEventDispatcher.userChannelRemovedEvents.collect { event ->
             applyUserChannelRemoved(event)
         }
+    }
+
+    private suspend fun observeAddClanUser() {
+        socketEventDispatcher.addClanUserEvents.collect { event ->
+            applyAddClanUser(event)
+        }
+    }
+
+    private fun applyAddClanUser(event: AddClanUserEvent) {
+        val clanId = event.clanId
+        if (clanId == 0L || event.user == null) return
+        val newUser = event.user
+        val newMember = newUser.toClanMember(clanId)
+        
+        var clanMembersChanged = false
+        synchronized(this) {
+            val clanUser = newUser.toClanUser()
+            usersDict.put(clanUser.id, clanUser)
+            val idx = users.indexOfFirst { it.id == clanUser.id }
+            if (idx >= 0) users[idx] = clanUser else users.add(clanUser)
+            loaded = users.isNotEmpty()
+
+            val clanMembers = membersByClan[clanId]
+            if (clanMembers != null) {
+                val merged = ArrayList<ClanMember>(clanMembers)
+                if (merged.none { it.userId == newMember.userId }) {
+                    merged.add(newMember)
+                    membersByClan.put(clanId, merged)
+                    clanMembersChanged = true
+                }
+            }
+        }
+        
+        loadClanMembers(clanId, noCache = true)
+
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.userClansDidLoad)
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.clanMembersDidLoad, clanId)
     }
 
     private fun applyUserChannelAdded(event: UserChannelAdded) {

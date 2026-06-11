@@ -1518,4 +1518,25 @@
     <string name="sticker_delete_confirm_title">Delete sticker?</string>
     <string name="sticker_delete_confirm_msg">Are you sure you want to delete \"%1$s\"?</string>
     <string name="sticker_add_label">Add sticker</string>
+
+    <!-- Clan Onboarding -->
+    <string name="clan_onboarding_owner_title">Complete setup\nfor your clan</string>
+    <string name="clan_onboarding_member_title">Missions for you</string>
+    <string name="clan_onboarding_progress">Completed %1$d of 3 steps</string>
+    <string name="clan_onboarding_owner_task_create_channel_title">Create your channels</string>
+    <string name="clan_onboarding_owner_task_create_channel_desc">Create new chat or voice channels</string>
+    <string name="clan_onboarding_owner_task_invite_friends_title">Invite some friends</string>
+    <string name="clan_onboarding_owner_task_invite_friends_desc">Share link so friends can join</string>
+    <string name="clan_onboarding_owner_task_send_message_title">Send first message</string>
+    <string name="clan_onboarding_owner_task_send_message_desc">Start your first conversation</string>
+    <string name="clan_onboarding_member_task_visit_welcome_title">Join channel #welcome</string>
+    <string name="clan_onboarding_member_task_visit_welcome_desc">Visit a channel #welcome</string>
+    <string name="clan_onboarding_member_task_send_welcome_title">Say hello in welcome channel</string>
+    <string name="clan_onboarding_member_task_send_welcome_desc">Send a message in #welcome</string>
+    <string name="clan_onboarding_member_task_install_apps_title">Install Mezon on Desktop &amp; Mobile</string>
+    <string name="clan_onboarding_member_task_install_apps_desc">Do anything you want #welcome</string>
+    <string name="clan_onboarding_member_progress">Completed %1$d of %2$d steps</string>
+    <string name="clan_onboarding_member_task_send_message">Send a message in</string>
+    <string name="clan_onboarding_member_task_visit">Visit a channel</string>
+    <string name="clan_onboarding_member_task_do_something">Do anything you want</string>
 </resources>

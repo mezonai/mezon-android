@@ -143,6 +143,8 @@ class NotificationCenter(val currentAccount: Int) {
         val callEnded = nextId()
 
         val topicsNeedReload = nextId()
+        val ownerOnboardingStateChanged = nextId()
+        val memberOnboardingStateChanged = nextId()
         val attachmentUploadProgress = nextId()
         val attachmentUploadFinished = nextId()
 

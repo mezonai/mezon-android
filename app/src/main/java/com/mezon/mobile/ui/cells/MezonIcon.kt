@@ -247,7 +247,13 @@ enum class MezonIcon(@DrawableRes val resId: Int) {
     threadPlusIconGray(R.drawable.ic_thread_plus_icon_gray),
     anonymousIconGray(R.drawable.ic_anonymous_icon_gray),
     ephemeralIconGray(R.drawable.ic_ephemeral_icon_gray),
-    pollIconGray(R.drawable.ic_poll_icon_gray);
+    pollIconGray(R.drawable.ic_poll_icon_gray),
+    ownerChat(R.drawable.ic_ownerchat),
+    ownerCreateChannel(R.drawable.ic_ownercreatechannel),
+    ownerInvite(R.drawable.ic_ownerinvite),
+    ownerMission(R.drawable.ic_ownermission),
+    target(R.drawable.ic_target),
+    helloChat(R.drawable.ic_hellochat);
 
     fun getDrawable(context: Context): Drawable =
         loadDrawable(context, resId)

@@ -90,6 +90,7 @@ import com.mezon.mobile.home.chat.input.VoiceRecordingOverlay
 import com.mezon.mobile.home.sharing.SharingFragment
 import com.mezon.mobile.home.sharing.SharingPayload
 import com.mezon.mobile.home.clans.ChannelItemCell
+import com.mezon.mobile.home.clans.OwnerOnboardingManager
 import com.mezon.mobile.home.clans.CHANNEL_TYPE_APP
 import com.mezon.mobile.home.clans.CHANNEL_TYPE_STREAMING
 import com.mezon.mobile.home.clans.CHANNEL_TYPE_VOICE
@@ -389,6 +390,11 @@ open class ChatFragment : BaseFragment() {
     private lateinit var channelAppController: ChannelAppController
     private lateinit var clansController: ClansController
     private lateinit var mezonApi: MezonApi
+    private lateinit var memberOnboardingRepository: com.mezon.mobile.home.clans.MemberOnboardingRepository
+    private var memberOnboardingBar: LinearLayout? = null
+    private var memberOnboardingIcon: ImageView? = null
+    private var memberOnboardingTitle: TextView? = null
+    private var memberOnboardingDesc: TextView? = null
     private lateinit var sessionManager: SessionManager
     private lateinit var appScope: CoroutineScope
     private lateinit var ioDispatcher: CoroutineDispatcher
@@ -994,6 +1000,9 @@ open class ChatFragment : BaseFragment() {
             } else {
                 markMessageSent(tempId)
             }
+            if (clanId != 0L && ::memberOnboardingRepository.isInitialized) {
+                memberOnboardingRepository.completeMessageTask(clanId, channelId)
+            }
         }
 
         observe(NotificationCenter.pendingMessageError) { _, _, args ->
@@ -1280,6 +1289,10 @@ open class ChatFragment : BaseFragment() {
             playBuzzSound()
         }
 
+        observe(NotificationCenter.memberOnboardingStateChanged) { _, _, _ ->
+            updateMemberOnboardingBar()
+        }
+
         observe(NotificationCenter.anonymousModeChanged) { _, _, args ->
             val changedClanId = args.firstOrNull() as? Long ?: return@observe
             if (changedClanId != clanId) return@observe
@@ -1382,6 +1395,7 @@ open class ChatFragment : BaseFragment() {
         channelAppController = entryPoint.channelAppController()
         clansController = entryPoint.clansController()
         mezonApi = entryPoint.mezonApi()
+        memberOnboardingRepository = entryPoint.memberOnboardingRepository()
         sessionManager = entryPoint.sessionManager()
         walletController = entryPoint.walletController()
         appScope = entryPoint.applicationScope()
@@ -1753,6 +1767,65 @@ open class ChatFragment : BaseFragment() {
                 marginStart = LayoutHelper.dp(6f)
             }
         )
+
+        memberOnboardingBar = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            visibility = View.GONE
+            setPadding(LayoutHelper.dp(12f), LayoutHelper.dp(8f), LayoutHelper.dp(12f), LayoutHelper.dp(8f))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(themeColors.tertiary)
+                cornerRadius = LayoutHelper.dp(8f).toFloat()
+            }
+            setOnClickListener {
+                handleMemberOnboardingBarClick()
+            }
+        }
+        innerLayout.addView(
+            memberOnboardingBar,
+            LayoutHelper.createLinear(
+                LayoutHelper.MATCH_PARENT,
+                LayoutHelper.WRAP_CONTENT,
+                0f,
+                Gravity.CENTER_VERTICAL,
+                8f,
+                4f,
+                8f,
+                4f
+            )
+        )
+
+        val onboardingIcon = ImageView(context).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+        }
+        memberOnboardingIcon = onboardingIcon
+        memberOnboardingBar?.addView(onboardingIcon, LayoutHelper.createLinear(24, 24).apply {
+            marginEnd = LayoutHelper.dp(10f)
+        })
+
+        val onboardingTextWrap = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        memberOnboardingBar?.addView(onboardingTextWrap, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f))
+
+        val onboardingTitleTv = TextView(context).apply {
+            setTextColor(themeColors.onSurface)
+            textSize = 13f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        memberOnboardingTitle = onboardingTitleTv
+        onboardingTextWrap.addView(onboardingTitleTv)
+
+        val onboardingDescTv = TextView(context).apply {
+            setTextColor(themeColors.onSurfaceVariant)
+            textSize = 11f
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        memberOnboardingDesc = onboardingDescTv
+        onboardingTextWrap.addView(onboardingDescTv)
 
         inputBar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -2354,6 +2427,7 @@ open class ChatFragment : BaseFragment() {
         } else if (!isTopicMode) {
             refreshClanHeaderFromChannel()
         }
+        updateMemberOnboardingBar()
     }
 
     override fun onBecomeFullyVisible() {
@@ -2370,6 +2444,7 @@ open class ChatFragment : BaseFragment() {
             pendingDisplayRoleUiRefresh = false
             refreshChatSenderRoleRows()
         }
+        updateMemberOnboardingBar()
         refreshSystemMessageMemberGateCache()
         if (emojiViewVisible || (emojiView != null && emojiView!!.visibility == View.VISIBLE)) {
             dismissEmojiSilently()
@@ -4001,6 +4076,7 @@ open class ChatFragment : BaseFragment() {
             bar.setSubtitle(null)
         }
         bar.requestLayout()
+        updateMemberOnboardingBar()
     }
 
     private fun refreshThreadWelcomeCreator() {
@@ -4319,6 +4395,26 @@ open class ChatFragment : BaseFragment() {
             refreshPermissionGates()
             MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.message_no_send_permission))
             return
+        }
+
+        val ctx = getContext()
+        if (editMsg == null && clanId != 0L && ctx != null) {
+            val clan = clansController.clans.value.firstOrNull { it.clanId == clanId }
+            if (clan != null) {
+                val currentUserId = com.mezon.mobile.core.StartupCache.userId.toLongOrNull() ?: 0L
+                val isOwner = clan.creatorId == currentUserId && currentUserId != 0L
+                if (isOwner) {
+                    OwnerOnboardingManager.setSentMessage(ctx, clanId, true)
+                } else {
+                    val channels = channelController.getChannels(clanId)
+                    val welcomeChannel = OwnerOnboardingManager.resolveWelcomeChannel(clan, channels)
+                    if (welcomeChannel != null && welcomeChannel.channelId == channelId) {
+                        OwnerOnboardingManager.setUserSentWelcome(ctx, clanId, true)
+                        OwnerOnboardingManager.setUserVisitedWelcome(ctx, clanId, true)
+                    }
+                }
+                notificationCenter.postNotificationName(NotificationCenter.ownerOnboardingStateChanged)
+            }
         }
 
         val isPrivate = resolveChannelPrivate()
@@ -7227,4 +7323,130 @@ open class ChatFragment : BaseFragment() {
         }
     }
 
+    private fun updateMemberOnboardingBar() {
+        val bar = memberOnboardingBar ?: return
+        val ctx = getContext() ?: return
+        
+        val isEligible = clanId != 0L && topicId == 0L && ::memberOnboardingRepository.isInitialized && run {
+            val clan = clansController.clans.value.firstOrNull { it.clanId == clanId }
+            clan != null && memberOnboardingRepository.isEligible(clanId, clan.creatorId, clan.isOnboarding)
+        }
+        
+        if (!isEligible) {
+            bar.visibility = View.GONE
+            return
+        }
+
+        val missions = memberOnboardingRepository.getMissions(clanId)
+        val completedSteps = memberOnboardingRepository.getDoneMissionsCount(clanId)
+        if (completedSteps >= missions.size) {
+            bar.visibility = View.GONE
+            return
+        }
+
+        val currentMission = missions[completedSteps]
+        val title = currentMission.title.ifEmpty { currentMission.content }
+        
+        val action = when (currentMission.taskType) {
+            1 -> getString(R.string.clan_onboarding_member_task_send_message)
+            2 -> getString(R.string.clan_onboarding_member_task_visit)
+            else -> getString(R.string.clan_onboarding_member_task_do_something)
+        }
+        val channel = channelController.findChannelById(currentMission.channelId)
+        val label = channel?.channelLabel ?: ""
+        val desc = if (label.isNotEmpty() && (currentMission.taskType == 1 || currentMission.taskType == 2)) {
+            "$action #$label"
+        } else {
+            action
+        }
+
+        val icon = when (currentMission.taskType) {
+            1 -> MezonIcon.ownerChat
+            2 -> MezonIcon.helloChat
+            3 -> MezonIcon.target
+            else -> MezonIcon.target
+        }
+
+        memberOnboardingIcon?.setImageDrawable(icon.getDrawable(ctx))
+        memberOnboardingTitle?.text = title
+        memberOnboardingDesc?.text = desc
+        bar.visibility = View.VISIBLE
+    }
+
+    private fun handleMemberOnboardingBarClick() {
+        val ctx = getContext() ?: return
+        if (!::memberOnboardingRepository.isInitialized) return
+        val missions = memberOnboardingRepository.getMissions(clanId)
+        val completedSteps = memberOnboardingRepository.getDoneMissionsCount(clanId)
+        if (completedSteps >= missions.size) return
+        val currentMission = missions[completedSteps]
+
+        when (currentMission.taskType) {
+            1 -> {
+                if (currentMission.channelId == channelId) {
+                    inputField.requestFocus()
+                    val imm = ctx.getSystemService(Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
+                    imm?.showSoftInput(inputField, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+                } else {
+                    navigateToChannel(currentMission.channelId)
+                }
+            }
+            2 -> {
+                memberOnboardingRepository.completeVisitTask(clanId, currentMission.channelId)
+                navigateToChannel(currentMission.channelId)
+            }
+            else -> {
+                memberOnboardingRepository.completeTask(clanId, completedSteps)
+                updateMemberOnboardingBar()
+            }
+        }
+    }
+
+    private fun navigateToChannel(targetChannelId: Long) {
+        val cached = channelController.findChannelById(targetChannelId)
+        if (cached != null) {
+            performNavigation(cached)
+        } else {
+            appScope.launch {
+                channelController.findOrFetchChannelLabel(targetChannelId, clanId)
+                withContext(mainDispatcher) {
+                    val loaded = channelController.findChannelById(targetChannelId)
+                    if (loaded != null) {
+                        performNavigation(loaded)
+                    } else {
+                        val fallback = ClanChannelEntity(
+                            clanId = clanId,
+                            channelId = targetChannelId,
+                            parentId = 0L,
+                            categoryId = 0L,
+                            categoryName = "",
+                            channelLabel = "",
+                            type = 1,
+                            isPrivate = false,
+                            topic = "",
+                            unreadCount = 0,
+                            isMuted = false
+                        )
+                        performNavigation(fallback)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun performNavigation(channel: ClanChannelEntity) {
+        if (channel.type == CHANNEL_TYPE_VOICE) {
+            showJoinVoiceBottomSheet(channel, clanId)
+        } else {
+            (getParentActivity() as? MainActivity)?.openChat(
+                channelId = channel.channelId,
+                channelName = channel.channelLabel,
+                clanId = clanId,
+                channelType = channel.type,
+                replaceLastFragment = true
+            )
+        }
+    }
+
 }
+
