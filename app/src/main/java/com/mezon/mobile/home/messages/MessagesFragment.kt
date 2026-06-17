@@ -600,7 +600,7 @@ class MessagesFragment : BaseFragment() {
             options = options,
             onLeaveGroup = { confirmLeaveGroup(dm, deleteIfLastMember = false) },
             onDeleteGroup = { confirmLeaveGroup(dm, deleteIfLastMember = true) },
-            onCloseDm = { performCloseDm(dm.channelId) },
+            onCloseDm = { confirmCloseDm(dm) },
             onAddFriend = { performAddFriend(dm) },
             onRemoveFriend = { performRemoveFriend(dm) },
             onBlockUser = { performBlockUser(dm, block = true) },
@@ -662,6 +662,19 @@ class MessagesFragment : BaseFragment() {
             .setNegativeButton(getString(R.string.common_cancel), null)
             .setPositiveButton(getString(R.string.common_yes)) { _, _ ->
                 performLeaveGroup(dm, deleteIfLastMember)
+            }
+            .show()
+    }
+
+    private fun confirmCloseDm(dm: DirectMessage) {
+        val act = getParentActivity() ?: return
+        val name = dm.displayName.ifBlank { dm.label }
+        AlertDialog.Builder(act)
+            .setTitle(getString(R.string.dm_close_confirm_title, name))
+            .setMessage(getString(R.string.dm_close_confirm_message, name))
+            .setNegativeButton(getString(R.string.common_cancel), null)
+            .setPositiveButton(getString(R.string.common_yes)) { _, _ ->
+                performCloseDm(dm.channelId)
             }
             .show()
     }

@@ -209,6 +209,8 @@
     <string name="dm_leave_group_confirm_message">Please confirm if you would like to leave %1$s? You won\'t be able to rejoin this group unless you are re-invited.</string>
     <string name="dm_delete_group_confirm_title">Delete %1$s</string>
     <string name="dm_delete_group_confirm_message">Please confirm if you would like to delete %1$s? This action cannot be undone.</string>
+    <string name="dm_close_confirm_title">Close %1$s</string>
+    <string name="dm_close_confirm_message">Are you sure you want to close this conversation with %1$s?</string>
     <string name="dm_block_user_success">User blocked successfully</string>
     <string name="dm_block_user_failed">Failed to block user</string>
     <string name="dm_unblock_user_success">User unblocked successfully</string>

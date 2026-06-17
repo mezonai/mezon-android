@@ -204,6 +204,8 @@
     <string name="dm_leave_group_confirm_message">Bạn có chắc muốn rời %1$s? Bạn sẽ không thể tham gia lại nhóm này trừ khi được mời lại.</string>
     <string name="dm_delete_group_confirm_title">Xóa %1$s</string>
     <string name="dm_delete_group_confirm_message">Bạn có chắc muốn xóa %1$s? Hành động này không thể hoàn tác.</string>
+    <string name="dm_close_confirm_title">Đóng %1$s</string>
+    <string name="dm_close_confirm_message">Bạn có chắc chắn muốn đóng cuộc trò chuyện với %1$s không?</string>
     <string name="dm_block_user_success">Đã chặn người dùng</string>
     <string name="dm_block_user_failed">Không thể chặn người dùng</string>
     <string name="dm_unblock_user_success">Đã bỏ chặn người dùng</string>

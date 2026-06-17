@@ -2759,7 +2759,7 @@ class MezonApi @Inject constructor(
         val request = deleteChannelDescRequest {
             this.channelId = channelId
         }
-        rpc(apiUrl, token, "CloseDirectMess", request.toByteArray())
+        rpc(apiUrl, token, "CloseDMByChannelId", request.toByteArray())
     }
 
     suspend fun checkDuplicateName(
