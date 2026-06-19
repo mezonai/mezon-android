@@ -76,6 +76,9 @@ class EmojiSettingFragment : BaseFragment() {
         private const val REQUEST_PICK_EMOJI = 4021
         private const val MAX_CLAN_EMOJI_SLOTS = 250
         private const val MAX_UPLOAD_BYTES = 256 * 1024
+        private const val EMOJI_ROW_IMAGE_WEIGHT = 0.22f
+        private const val EMOJI_ROW_NAME_WEIGHT = 0.5f
+        private const val EMOJI_ROW_UPLOADER_WEIGHT = 0.28f
 
         fun newInstance(clanId: Long): EmojiSettingFragment =
             EmojiSettingFragment().apply {
@@ -177,8 +180,8 @@ class EmojiSettingFragment : BaseFragment() {
 
         actionBar = ActionBarView(context, themeColors).apply {
             setTitle(getString(R.string.menu_clan_emoji))
-            setBackButtonImage(R.drawable.ic_arrow_back)
-            setBackButtonContentDescription(getString(R.string.clan_roles_back_content_desc))
+            setBackButtonImage(R.drawable.ic_close_24)
+            setBackButtonContentDescription(getString(R.string.common_close))
             setCenterTitle(true)
             setMenuOnItemClick(object : ActionBarView.ActionBarMenuOnItemClick() {
                 override fun onItemClick(id: Int) {
@@ -735,6 +738,7 @@ class EmojiSettingFragment : BaseFragment() {
         private val viewTypeHeader = 1
         private val viewTypeRow = 2
         private val viewTypeEmpty = 3
+        private val emptyRowItemId = 1L
 
         private var rows: List<EmojiItem> = emptyList()
         private var appliedBindEpoch = 0
@@ -778,7 +782,7 @@ class EmojiSettingFragment : BaseFragment() {
 
         override fun getItemId(position: Int): Long {
             if (position == 0) return 0L
-            if (rows.isEmpty()) return -1L
+            if (rows.isEmpty()) return emptyRowItemId
             val rowIndex = position - 1
             if (rowIndex !in rows.indices) return RecyclerView.NO_ID
             return rows[rowIndex].id.toLongOrNull() ?: rows[rowIndex].id.hashCode().toLong()
@@ -877,7 +881,7 @@ class EmojiSettingFragment : BaseFragment() {
                         typeface = Typeface.DEFAULT_BOLD
                         setTextColor(themeColors.textDisabled)
                     },
-                    LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 0.22f),
+                    LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, EMOJI_ROW_IMAGE_WEIGHT),
                 )
                 labels.addView(
                     TextView(ctx).apply {
@@ -886,7 +890,7 @@ class EmojiSettingFragment : BaseFragment() {
                         typeface = Typeface.DEFAULT_BOLD
                         setTextColor(themeColors.textDisabled)
                     },
-                    LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 0.38f),
+                    LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, EMOJI_ROW_NAME_WEIGHT),
                 )
                 labels.addView(
                     TextView(ctx).apply {
@@ -896,7 +900,7 @@ class EmojiSettingFragment : BaseFragment() {
                         setTextColor(themeColors.textDisabled)
                         gravity = Gravity.END
                     },
-                    LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 0.4f),
+                    LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, EMOJI_ROW_UPLOADER_WEIGHT),
                 )
                 labels.addView(
                     View(ctx),
@@ -961,28 +965,66 @@ class EmojiSettingFragment : BaseFragment() {
             )
             row.addView(
                 emojiCol,
-                LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 0.22f, Gravity.CENTER_VERTICAL),
+                LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, EMOJI_ROW_IMAGE_WEIGHT, Gravity.CENTER_VERTICAL),
             )
 
-            val nameCol = LinearLayout(ctx).apply {
+            val nameSlot = FrameLayout(ctx)
+            val nameDisplay = TextView(ctx).apply {
+                textSize = 15f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(themeColors.colorText)
+                ellipsize = TextUtils.TruncateAt.END
+                maxLines = 1
+            }
+            val nameEditor = LinearLayout(ctx).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
+                visibility = View.GONE
+            }
+            val colonLabelStyle: TextView.() -> Unit = {
+                text = ":"
+                textSize = 15f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(themeColors.colorText)
+                includeFontPadding = false
+            }
+            val colonSlot = LayoutHelper.dp(8f)
+            val colonPrefix = TextView(ctx).apply {
+                colonLabelStyle()
+                gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            }
+            val colonSuffix = TextView(ctx).apply {
+                colonLabelStyle()
+                gravity = Gravity.START or Gravity.CENTER_VERTICAL
             }
             val edit = EditText(ctx).apply {
                 textSize = 15f
+                typeface = Typeface.DEFAULT_BOLD
                 setTextColor(themeColors.colorText)
                 setBackgroundColor(android.graphics.Color.TRANSPARENT)
                 isSingleLine = true
                 maxLines = 1
-                ellipsize = TextUtils.TruncateAt.END
                 imeOptions = EditorInfo.IME_ACTION_DONE
+                minimumWidth = 0
+                setHorizontallyScrolling(true)
+                setPadding(0, 0, 0, 0)
                 setCompoundDrawables(null, null, null, null)
                 compoundDrawablePadding = 0
             }
-            nameCol.addView(edit, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f))
+            nameEditor.addView(colonPrefix, LayoutHelper.createLinear(colonSlot, LayoutHelper.WRAP_CONTENT))
+            nameEditor.addView(edit, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f))
+            nameEditor.addView(colonSuffix, LayoutHelper.createLinear(colonSlot, LayoutHelper.WRAP_CONTENT))
+            nameSlot.addView(
+                nameDisplay,
+                FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT),
+            )
+            nameSlot.addView(
+                nameEditor,
+                FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT),
+            )
             row.addView(
-                nameCol,
-                LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 0.38f, Gravity.CENTER_VERTICAL),
+                nameSlot,
+                LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, EMOJI_ROW_NAME_WEIGHT, Gravity.CENTER_VERTICAL),
             )
 
             val av = AvatarView(ctx).apply {
@@ -1000,7 +1042,7 @@ class EmojiSettingFragment : BaseFragment() {
             )
             row.addView(
                 uploaderCol,
-                LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 0.4f, Gravity.CENTER_VERTICAL),
+                LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, EMOJI_ROW_UPLOADER_WEIGHT, Gravity.CENTER_VERTICAL),
             )
 
             val deleteBtn = ImageView(ctx).apply {
@@ -1022,7 +1064,17 @@ class EmojiSettingFragment : BaseFragment() {
                 LayoutHelper.createLinear(40, LayoutHelper.WRAP_CONTENT, 0f, Gravity.CENTER_VERTICAL),
             )
 
-            val vh = RowVH(row, emojiIv, edit, av, deleteBtn, forSaleBadge)
+            val vh = RowVH(row, emojiIv, nameDisplay, nameEditor, edit, av, deleteBtn, forSaleBadge)
+            edit.onFocusChangeListener = View.OnFocusChangeListener { _, hasFocus ->
+                if (!hasFocus) {
+                    val item = vh.item ?: return@OnFocusChangeListener
+                    commitEmojiRename(item, edit.text?.toString().orEmpty())
+                    vh.showNameDisplay(item.shortname)
+                }
+            }
+            nameDisplay.setOnClickListener {
+                if (edit.isEnabled) vh.beginNameEdit()
+            }
             deleteBtn.setOnClickListener {
                 vh.item?.let { confirmDelete(it) }
             }
@@ -1051,19 +1103,13 @@ class EmojiSettingFragment : BaseFragment() {
                 holder.emojiIv.setImageDrawable(null)
             }
 
-            val inner = item.shortname.trim(':')
-            holder.edit.setText(inner)
+            holder.showNameDisplay(item.shortname)
 
             val allow = canEditOrDelete(item)
             holder.edit.isEnabled = allow
             holder.edit.isFocusable = allow
             holder.edit.isFocusableInTouchMode = allow
-
-            holder.edit.onFocusChangeListener = View.OnFocusChangeListener { _, hasFocus ->
-                if (!hasFocus && holder.item?.id == item.id) {
-                    commitEmojiRename(item, holder.edit.text?.toString().orEmpty())
-                }
-            }
+            holder.nameDisplay.isClickable = allow
 
             val creatorId = item.creatorId.toLongOrNull() ?: 0L
             val m = resolveMember(creatorId)
@@ -1076,9 +1122,32 @@ class EmojiSettingFragment : BaseFragment() {
             holder.deleteBtn.visibility = if (allow) View.VISIBLE else View.INVISIBLE
         }
 
+        private fun RowVH.showNameDisplay(shortname: String) {
+            edit.clearFocus()
+            edit.setText(shortname.trim(':'))
+            nameDisplay.text = shortname
+            nameDisplay.visibility = View.VISIBLE
+            nameEditor.visibility = View.GONE
+        }
+
+        private fun RowVH.beginNameEdit() {
+            nameDisplay.visibility = View.GONE
+            nameEditor.visibility = View.VISIBLE
+            edit.requestFocus()
+            edit.post {
+                edit.setSelection(edit.text?.length ?: 0)
+                edit.layout?.let { layout ->
+                    val scrollX = layout.getPrimaryHorizontal(edit.selectionStart).toInt()
+                    edit.scrollTo(scrollX.coerceAtLeast(0), 0)
+                }
+            }
+        }
+
         private inner class RowVH(
             view: View,
             val emojiIv: ImageView,
+            val nameDisplay: TextView,
+            val nameEditor: LinearLayout,
             val edit: EditText,
             val avatarView: AvatarView,
             val deleteBtn: ImageView,
