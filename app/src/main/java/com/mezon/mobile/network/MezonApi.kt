@@ -42,6 +42,10 @@ import com.mezon.mezon.api.FriendList
 import com.mezon.mezon.api.NotificationList
 import com.mezon.mezon.api.SearchMessageResponse
 import com.mezon.mezon.api.ChannelAttachmentList
+import com.mezon.mezon.api.ChannelCanvasDetailResponse
+import com.mezon.mezon.api.ChannelCanvasListResponse
+import com.mezon.mezon.api.channelCanvasDetailRequest
+import com.mezon.mezon.api.channelCanvasListRequest
 import com.mezon.mezon.api.UploadAttachment
 import com.mezon.mezon.api.MultipartUploadAttachment
 import com.mezon.mezon.api.listChannelAttachmentRequest
@@ -2018,6 +2022,40 @@ class MezonApi @Inject constructor(
         }
         val bytes = rpc(apiUrl, token, "ListChannelAttachment", request.toByteArray())
         return ChannelAttachmentList.parseFrom(bytes)
+    }
+
+    suspend fun getChannelCanvasList(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        channelId: Long,
+        limit: Int = 50,
+        page: Int = 0
+    ): ChannelCanvasListResponse {
+        val request = channelCanvasListRequest {
+            this.clanId = clanId
+            this.channelId = channelId
+            this.limit = limit.coerceIn(1, 100)
+            this.page = page
+        }
+        val bytes = rpc(apiUrl, token, "GetChannelCanvasList", request.toByteArray())
+        return ChannelCanvasListResponse.parseFrom(bytes)
+    }
+
+    suspend fun getChannelCanvasDetail(
+        apiUrl: String,
+        token: String,
+        canvasId: Long,
+        clanId: Long,
+        channelId: Long
+    ): ChannelCanvasDetailResponse {
+        val request = channelCanvasDetailRequest {
+            this.id = canvasId
+            this.clanId = clanId
+            this.channelId = channelId
+        }
+        val bytes = rpc(apiUrl, token, "GetChannelCanvasDetail", request.toByteArray())
+        return ChannelCanvasDetailResponse.parseFrom(bytes)
     }
 
     suspend fun listUserClansByUserId(

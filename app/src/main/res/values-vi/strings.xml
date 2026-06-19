@@ -379,6 +379,11 @@
     <string name="invite_qr_code">Mã QR</string>
     <string name="invite_qr_hint">Quét mã QR để tham gia clan này</string>
     <string name="invite_link_copied">Đã sao chép link!</string>
+    <string name="channel_canvas_search_placeholder">Tìm canvas</string>
+    <string name="channel_canvas_untitled">Không có tiêu đề</string>
+    <string name="channel_canvas_link_copied">Đã sao chép link canvas!</string>
+    <string name="channel_canvas_empty">Không tìm thấy canvas.</string>
+    <string name="channel_canvas_load_error">Không thể tải canvas. Vui lòng thử lại.</string>
     <string name="invite_search_placeholder">Mời bạn bè vào clan</string>
     <string name="invite_loading_link">Đang tạo link mời…</string>
     <string name="invite_empty_title">Không có bạn bè để mời</string>

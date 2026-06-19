@@ -78,8 +78,8 @@ data class DirectMessage(
 ) {
     fun avatarPlaceholderKey(): String = when (type) {
         CHANNEL_TYPE_GROUP -> displayName.ifEmpty { label }
-        CHANNEL_TYPE_DM -> label.ifEmpty { username }
-        else -> displayName.ifEmpty { label }.ifEmpty { username }
+        CHANNEL_TYPE_DM -> username
+        else -> username.ifEmpty { displayName.ifEmpty { label } }
     }
 }
 

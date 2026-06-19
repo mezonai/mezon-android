@@ -8,6 +8,7 @@ import com.mezon.mobile.home.TopicBadgeTracker
 import com.mezon.mobile.home.TopicController
 import com.mezon.mobile.home.ConnectionController
 import com.mezon.mobile.home.MemberResolver
+import com.mezon.mobile.home.clans.ChannelCanvasController
 import com.mezon.mobile.home.ChannelFilesController
 import com.mezon.mobile.home.ChannelGalleryController
 import com.mezon.mobile.home.PinMessageController
@@ -107,6 +108,7 @@ interface FragmentEntryPoint {
     fun pinMessageController(): PinMessageController
     fun channelFilesController(): ChannelFilesController
     fun channelGalleryController(): ChannelGalleryController
+    fun channelCanvasController(): ChannelCanvasController
     fun sessionManager(): SessionManager
     fun walletController(): WalletController
     fun apiCacheTracker(): ApiCacheTracker

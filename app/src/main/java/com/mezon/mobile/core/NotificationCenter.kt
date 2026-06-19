@@ -126,6 +126,10 @@ class NotificationCenter(val currentAccount: Int) {
         val channelFilesLoadError = nextId()
         val channelGalleryDidLoad = nextId()
         val channelGalleryLoadError = nextId()
+        val channelCanvasesDidLoad = nextId()
+        val channelCanvasesLoadError = nextId()
+        val channelCanvasDetailDidLoad = nextId()
+        val channelCanvasDetailLoadError = nextId()
         val channelPermissionsDidLoad = nextId()
         val channelPermissionOverridesDidLoad = nextId()
 

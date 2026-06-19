@@ -130,7 +130,7 @@ class AvatarDrawable : Drawable() {
     }
 
     private fun getAvatarSymbols(username: String): String {
-        val upper = avatarPlaceholderChar(username) ?: return "?"
+        val upper = avatarPlaceholderChar(username) ?: return ""
         return upper.toString()
     }
 

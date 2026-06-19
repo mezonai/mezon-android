@@ -358,6 +358,11 @@
     <string name="channel_gallery_load_error">Couldn\'t load media. Try again.</string>
 
     <string name="channel_files_search_placeholder">Search Files</string>
+    <string name="channel_canvas_search_placeholder">Search Canvas</string>
+    <string name="channel_canvas_untitled">Untitled</string>
+    <string name="channel_canvas_link_copied">Canvas link copied!</string>
+    <string name="channel_canvas_empty">No canvas found.</string>
+    <string name="channel_canvas_load_error">Couldn\'t load canvas. Try again.</string>
     <string name="channel_files_media_empty_description">We searched far and wide. Unfortunately, no results were found</string>
     <string name="channel_files_shared_by">Shared by %1$s</string>
     <string name="action_mark_unread">Mark Unread</string>

@@ -65,7 +65,7 @@ class CallAvatarView(
 
     fun setData(name: String, username: String, avatarUrl: String?) {
         peerName = name
-        avatarDrawable.setInfo(0L, username)
+        avatarDrawable.setInfo(0L, username.ifEmpty { name })
         if (currentAvatarUrl != avatarUrl) {
             currentAvatarUrl = avatarUrl
             cancellable?.cancel()

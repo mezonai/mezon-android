@@ -512,7 +512,7 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
         nameView?.text = callerName
         statusView?.text = "Incoming voice call..."
         titleView?.text = "Incoming Call"
-        ringingAvatarView?.setInfo(0L, callerUsername)
+        ringingAvatarView?.setInfo(0L, callerUsername.ifEmpty { callerName })
         ringingAvatarView?.setImageUrl(callerAvatar)
     }
 

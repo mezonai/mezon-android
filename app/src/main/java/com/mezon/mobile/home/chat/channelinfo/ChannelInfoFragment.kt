@@ -30,6 +30,7 @@ import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.core.ViewPagerFixed
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.ClanMember
+import com.mezon.mobile.home.clans.ChannelCanvasController
 import com.mezon.mobile.home.ChannelFilesController
 import com.mezon.mobile.home.ChannelGalleryController
 import com.mezon.mobile.home.DialogsController
@@ -124,12 +125,14 @@ class ChannelInfoFragment : BaseFragment() {
 
     private lateinit var channelFilesController: ChannelFilesController
     private lateinit var channelGalleryController: ChannelGalleryController
+    private lateinit var channelCanvasController: ChannelCanvasController
 
     private var memberListAdapter: MemberListAdapter? = null
     private var membersRecyclerView: RecyclerListView? = null
     private var pinsTab: PinsTabHelper? = null
     private var filesTab: FilesTabHelper? = null
     private var mediaTab: MediaTabHelper? = null
+    private var canvasTab: CanvasTabHelper? = null
 
     private val isDm get() = channelType == CHANNEL_TYPE_DM || channelType == CHANNEL_TYPE_GROUP
     private val isSelfDm: Boolean
@@ -235,6 +238,17 @@ class ChannelInfoFragment : BaseFragment() {
             fragmentView?.context?.let { ctx -> mediaTab?.onGalleryLoadFailure(ctx) }
         }
 
+        observe(NotificationCenter.channelCanvasesDidLoad) { _, _, args ->
+            if (isPaused) return@observe
+            val ch = args.firstOrNull() as? Long ?: return@observe
+            if (ch == channelId) canvasTab?.onRemoteCanvasesLoaded(ch)
+        }
+        observe(NotificationCenter.channelCanvasesLoadError) { _, _, args ->
+            if (isPaused) return@observe
+            val ch = args.firstOrNull() as? Long ?: return@observe
+            if (ch == channelId) canvasTab?.onRemoteCanvasesLoadError(ch)
+        }
+
         triggerMemberLoad()
         if (clanId != 0L && channelId != 0L && !isDm) {
             channelPermissionController.loadChannelPermissionData(clanId, channelId, channelType)
@@ -274,6 +288,7 @@ class ChannelInfoFragment : BaseFragment() {
         permissionPolicy = entryPoint.permissionPolicy()
         channelFilesController = entryPoint.channelFilesController()
         channelGalleryController = entryPoint.channelGalleryController()
+        channelCanvasController = entryPoint.channelCanvasController()
     }
 
     override fun createView(context: Context): View {
@@ -560,6 +575,7 @@ class ChannelInfoFragment : BaseFragment() {
             1 -> buildMediaTab(context)
             2 -> buildFilesTab(context)
             3 -> buildPinsTab(context)
+            4 -> buildCanvasTab(context)
             else -> buildComingSoonTab(context)
         }
     }
@@ -709,6 +725,23 @@ class ChannelInfoFragment : BaseFragment() {
             getString = { resId -> getString(resId) }
         )
         pinsTab = helper
+        return helper.buildView(context)
+    }
+
+    private fun buildCanvasTab(context: Context): View {
+        val act = getParentActivity() ?: return buildComingSoonTab(context)
+        val helper = CanvasTabHelper(
+            channelId = channelId,
+            clanId = clanId,
+            channelType = channelType,
+            themeColors = themeColors,
+            channelCanvasController = channelCanvasController,
+            hostActivity = act,
+            hostFragment = this,
+            presentFragment = { presentFragment(it) },
+            getString = { resId -> getString(resId) }
+        )
+        canvasTab = helper
         return helper.buildView(context)
     }
 
@@ -895,6 +928,8 @@ class ChannelInfoFragment : BaseFragment() {
             try { sheet.dismiss() } catch (_: Throwable) {}
         }
         editGroupSheet = null
+        canvasTab?.dispose()
+        canvasTab = null
         super.onFragmentDestroy()
     }
 

@@ -696,8 +696,7 @@ class ClanEventDetailFragment : BaseFragment() {
                 AvatarView(context).apply {
                     setSizeDp(40)
                     setRoundRadius(20f)
-                    val name = memberDisplayName(member)
-                    setInfo(userId, name)
+                    setInfo(userId, member?.username ?: "")
                     val avatar = memberAvatarUrl(member)
                     if (avatar.isNotEmpty()) setImageUrl(avatarImgproxyUrl(avatar, LayoutHelper.dp(40)))
                 },
