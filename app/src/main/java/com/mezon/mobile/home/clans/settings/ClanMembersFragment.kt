@@ -35,7 +35,6 @@ import com.mezon.mobile.home.call.CallFragment
 import com.mezon.mobile.home.call.CallManager
 import com.mezon.mobile.home.clans.RoleController
 import com.mezon.mobile.home.friends.FriendController
-import com.mezon.mobile.home.friends.cancelProfileFriendRequest
 import com.mezon.mobile.home.friends.sendProfileFriendRequest
 import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.ui.MezonToast
@@ -176,7 +175,6 @@ class ClanMembersFragment : BaseFragment() {
                     iconUrl = chip.iconUrl
                 )
             },
-            friendController = friendController,
             listener = object : UserProfileBottomSheet.UserProfileListener {
                 override fun onSendMessage(userId: Long) {
                     openProfileDm(member.userId, displayName, member.username)
@@ -186,9 +184,6 @@ class ClanMembersFragment : BaseFragment() {
                 }
                 override fun onAddFriend(userId: Long) {
                     sendProfileFriendRequest(friendController, member.userId, member.username)
-                }
-                override fun onCancelFriendRequest(userId: Long) {
-                    cancelProfileFriendRequest(friendController, member.userId, member.username)
                 }
                 override fun onTransferFunds(userId: Long) {
                     openProfileTransferFunds(member.userId, member.username)

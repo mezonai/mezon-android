@@ -281,12 +281,12 @@ class MainActivity : BasePermissionsActivity(),
         fullScreenIntentPromptShown = true
         AlertDialog.Builder(this)
             .setTitle(getString(R.string.call_full_screen_intent_title))
-            .setMessage(getString(R.string.call_full_screen_intent_receiver_message))
+            .setMessage(getString(R.string.call_full_screen_intent_message))
             .setPositiveButton(getString(R.string.call_full_screen_intent_open_settings)) { d, _ ->
                 callManager.launchFullScreenIntentSettings(this)
                 d.dismiss()
             }
-            .setNegativeButton(getString(R.string.call_full_screen_intent_not_now)) { d, _ ->
+            .setNegativeButton(getString(R.string.permission_not_now)) { d, _ ->
                 d.dismiss()
             }
             .show()
