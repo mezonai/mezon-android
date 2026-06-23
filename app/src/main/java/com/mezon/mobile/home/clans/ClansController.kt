@@ -50,7 +50,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 private const val TAG = "ClansController"
-private val CLAN_ICON_SIZE_PX = ClanCell.ICON_SIZE_PX
+private val CLAN_ICON_SIZE_PX = LayoutHelper.dp(40)
 const val CLAN_CREATE_LIMIT = 50
 
 @Singleton

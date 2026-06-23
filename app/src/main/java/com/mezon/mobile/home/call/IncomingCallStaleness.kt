@@ -3,20 +3,18 @@ package com.mezon.mobile.home.call
 import org.json.JSONObject
 
 object IncomingCallStaleness {
-    const val MAX_AGE_MS = 30_000L
+    const val MAX_AGE_MS = 60_000L
 
     fun resolveSentTimeMs(offerJson: String, fcmSentTimeMs: Long = 0L): Long? {
-        val sentAt = parseSentAtFromPayload(offerJson)
-        return when {
-            sentAt != null -> sentAt
-            fcmSentTimeMs > 0L -> fcmSentTimeMs
-            else -> null
-        }
+        if (fcmSentTimeMs > 0L) return fcmSentTimeMs
+        return parseSentAtFromPayload(offerJson)
     }
 
     fun isStaleOffer(offerJson: String, fcmSentTimeMs: Long = 0L): Boolean {
         val sentTimeMs = resolveSentTimeMs(offerJson, fcmSentTimeMs) ?: return false
-        return System.currentTimeMillis() - sentTimeMs > MAX_AGE_MS
+        val age = System.currentTimeMillis() - sentTimeMs
+        if (age < 0L) return false
+        return age > MAX_AGE_MS
     }
 
     private fun parseSentAtFromPayload(offerJson: String): Long? =

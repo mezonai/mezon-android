@@ -35,6 +35,8 @@ import com.mezon.mobile.home.call.CallFragment
 import com.mezon.mobile.home.call.CallManager
 import com.mezon.mobile.home.clans.RoleController
 import com.mezon.mobile.home.friends.FriendController
+import com.mezon.mobile.home.friends.cancelProfileFriendRequest
+import com.mezon.mobile.home.friends.sendProfileFriendRequest
 import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.ui.cells.ActionBarView
@@ -174,6 +176,7 @@ class ClanMembersFragment : BaseFragment() {
                     iconUrl = chip.iconUrl
                 )
             },
+            friendController = friendController,
             listener = object : UserProfileBottomSheet.UserProfileListener {
                 override fun onSendMessage(userId: Long) {
                     openProfileDm(member.userId, displayName, member.username)
@@ -182,7 +185,10 @@ class ClanMembersFragment : BaseFragment() {
                     startProfileVoiceCall(member.userId, displayName, member.username, avatarUrl)
                 }
                 override fun onAddFriend(userId: Long) {
-                    sendProfileFriendRequest(member.userId, member.username)
+                    sendProfileFriendRequest(friendController, member.userId, member.username)
+                }
+                override fun onCancelFriendRequest(userId: Long) {
+                    cancelProfileFriendRequest(friendController, member.userId, member.username)
                 }
                 override fun onTransferFunds(userId: Long) {
                     openProfileTransferFunds(member.userId, member.username)
@@ -254,21 +260,6 @@ class ClanMembersFragment : BaseFragment() {
                     presentFragment(CallFragment())
                 }
             }
-        }
-    }
-
-    private fun sendProfileFriendRequest(userId: Long, username: String) {
-        if (userId == 0L || userId == userController.userId) return
-        if (friendController.isUserBlocked(userId)) {
-            MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.friends_toast_blocked_user))
-            return
-        }
-        friendController.sendFriendRequest(userId, username) { success ->
-            val type = if (success) ToastOverlay.ToastType.SUCCESS else ToastOverlay.ToastType.ERROR
-            val message = getString(
-                if (success) R.string.friends_toast_send_success else R.string.friends_toast_send_fail
-            )
-            MezonToast.show(this, type, message)
         }
     }
 

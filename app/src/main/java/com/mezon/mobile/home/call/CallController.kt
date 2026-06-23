@@ -375,7 +375,6 @@ class CallController @Inject constructor(
         channelId: String,
         offerJson: String
     ) {
-        if (IncomingCallStaleness.isStaleOffer(offerJson)) return
         val peerIdLong = callerId.toLongOrNull() ?: 0L
         val channelIdLong = channelId.toLongOrNull() ?: 0L
         if (isDuplicateIncomingOffer(peerIdLong, channelIdLong)) {
@@ -513,7 +512,8 @@ class CallController @Inject constructor(
         }
     }
 
-    private fun isAppInForegroundForIncomingCall(): Boolean = MainActivity.isResumed
+    private fun isAppInForegroundForIncomingCall(): Boolean =
+        MainActivity.isResumed && !callManager.isDeviceLockedOrScreenOff()
 
     private fun tryPresentIncomingCallBackgroundUi(callInfo: CallInfo, offerJsonPayload: String) {
         if (isAppInForegroundForIncomingCall()) return
@@ -808,7 +808,6 @@ class CallController @Inject constructor(
             Log.d(TAG, "handleOffer: suppressed duplicate of rejected offer")
             return
         }
-        if (IncomingCallStaleness.isStaleOffer(jsonData)) return
 
         try {
             val parsed = parseSignalingData(jsonData)

@@ -34,6 +34,8 @@ import com.mezon.mobile.home.MemberResolver
 import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.chat.EmojiController
 import com.mezon.mobile.home.chat.UserProfileBottomSheet
+import com.mezon.mobile.home.friends.FriendController
+import com.mezon.mobile.home.friends.sendProfileFriendRequest
 import com.mezon.mobile.home.clans.CHANNEL_TYPE_VOICE
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.ClansController
@@ -99,6 +101,7 @@ class VoiceRoomFragment : BaseFragment() {
     private lateinit var emojiController: EmojiController
     private lateinit var userController: UserController
     private lateinit var permissionPolicy: PermissionPolicy
+    private lateinit var friendController: FriendController
     private var channelId: Long = 0L
     private var clanId: Long = 0L
     private var channelLabel: String = ""
@@ -291,6 +294,7 @@ class VoiceRoomFragment : BaseFragment() {
         emojiController = entryPoint.emojiController()
         userController = entryPoint.userController()
         permissionPolicy = entryPoint.permissionPolicy()
+        friendController = entryPoint.friendController()
     }
 
     override fun onFragmentCreate(): Boolean {
@@ -1439,6 +1443,10 @@ class VoiceRoomFragment : BaseFragment() {
             val showHeaderActions = userId != 0L && userId != userController.userId && clanId != 0L && !isGroupCall
             val voiceChEntity = voiceStatus?.let { channelController.findChannelById(it.channelId) }
             participantModerationSheet?.dismiss()
+            val targetUsername = when {
+                member != null -> member.username.ifBlank { participant.username }
+                else -> participant.username
+            }.ifBlank { participantSubline }.ifBlank { displayName }
             val sheet = UserProfileBottomSheet(
                 context = context,
                 userId = userId,
@@ -1450,18 +1458,17 @@ class VoiceRoomFragment : BaseFragment() {
                 isOwnProfile = false,
                 isDM = false,
                 listener = object : UserProfileBottomSheet.UserProfileListener {
+                    override fun onAddFriend(userId: Long) {
+                        sendProfileFriendRequest(friendController, userId, targetUsername)
+                    }
                     override fun onTransferFunds(userId: Long) {
-                        val transferUsername = when {
-                            member != null -> member.username.ifBlank { participant.username }
-                            else -> participant.username
-                        }.ifBlank { participantSubline }.ifBlank { displayName }
-                        openProfileTransferFunds(userId, transferUsername)
+                        openProfileTransferFunds(userId, targetUsername)
                     }
                 },
                 voiceParticipantExtras = UserProfileBottomSheet.VoiceParticipantExtras(
                     showHeaderActions = showHeaderActions,
                     onFriendClick = {
-                        showAddFriendBottomSheet()
+                        sendProfileFriendRequest(friendController, userId, targetUsername)
                     },
                     canManageVoiceUser = canManageVoiceUser,
                     showMuteAction = showMuteAction,

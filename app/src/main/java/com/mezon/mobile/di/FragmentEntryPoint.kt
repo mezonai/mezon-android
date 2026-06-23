@@ -25,6 +25,8 @@ import com.mezon.mobile.home.ForwardTargetUsageStore
 import com.mezon.mobile.home.messages.DmPinStorage
 import com.mezon.mobile.home.messages.MessageActivitiesController
 import com.mezon.mobile.home.voice.VoiceController
+import com.mezon.mobile.home.stream.StreamingController
+import com.mezon.mobile.home.stream.StreamingWebRtcSession
 import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.chat.MediaController
 import com.mezon.mobile.home.MessagesController
@@ -99,6 +101,8 @@ interface FragmentEntryPoint {
     fun imageClipboardCoordinator(): ImageClipboardCoordinator
     fun audioPlayerController(): AudioPlayerController
     fun voiceController(): VoiceController
+    fun streamingController(): StreamingController
+    fun streamingWebRtcSession(): StreamingWebRtcSession
     fun anonymousController(): AnonymousController
     fun memberResolver(): MemberResolver
     fun roleController(): RoleController

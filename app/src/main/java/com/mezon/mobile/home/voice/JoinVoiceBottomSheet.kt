@@ -20,6 +20,7 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.home.clans.VoiceMemberDisplay
+import com.mezon.mobile.home.stream.JoinMediaSheetKind
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.util.avatarImgproxyUrl
 
@@ -30,7 +31,8 @@ class JoinVoiceBottomSheet(
     private val channelId: Long,
     private val clanId: Long,
     private val members: List<VoiceMemberDisplay>,
-    private val unreadCount: Int = 0
+    private val unreadCount: Int = 0,
+    private val kind: JoinMediaSheetKind = JoinMediaSheetKind.VOICE,
 ) : BottomSheet(context) {
 
     var onJoinVoice: (() -> Unit)? = null
@@ -153,8 +155,13 @@ class JoinVoiceBottomSheet(
                     shape = GradientDrawable.OVAL
                     setColor(themeColors.surfaceVariant)
                 }
+                val icon = if (kind == JoinMediaSheetKind.STREAMING) {
+                    MezonIcon.channelStream
+                } else {
+                    MezonIcon.channelVoice
+                }
                 addView(ImageView(context).apply {
-                    setImageDrawable(MezonIcon.channelVoice.getDrawable(context).apply {
+                    setImageDrawable(icon.getDrawable(context).apply {
                         colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
                     })
                     scaleType = ImageView.ScaleType.CENTER_INSIDE
@@ -170,7 +177,7 @@ class JoinVoiceBottomSheet(
         root.addView(avatarContainer, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         val roomLabel = TextView(context).apply {
-            text = "Voice Room"
+            text = if (kind == JoinMediaSheetKind.STREAMING) "Stream" else "Voice Room"
             setTextColor(themeColors.onSurface)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
             typeface = Typeface.DEFAULT_BOLD
@@ -200,7 +207,7 @@ class JoinVoiceBottomSheet(
         }
 
         val joinButton = TextView(context).apply {
-            text = "Join Voice"
+            text = if (kind == JoinMediaSheetKind.STREAMING) "Join Stream" else "Join Voice"
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(0xFFFFFFFF.toInt())

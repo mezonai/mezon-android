@@ -21,8 +21,6 @@ class ClanCell(
 ) : BaseCell(context) {
 
     companion object {
-        val ICON_SIZE_PX = LayoutHelper.dp(42)
-
         private val cachedAvatars = object : android.util.LruCache<Long, AvatarDrawable>(64) {
             override fun entryRemoved(
                 evicted: Boolean,
@@ -70,7 +68,7 @@ class ClanCell(
     private var clipPathBottom = Float.NaN
     private var clipPathRadius = Float.NaN
 
-    private val iconSizePx = ICON_SIZE_PX
+    private val iconSizePx = LayoutHelper.dp(42)
     private val selectedBarPx = LayoutHelper.dp(4)
     private val selectedBarHeightSmall = LayoutHelper.dp(8).toFloat()
     private val selectedBarHeightLarge = LayoutHelper.dp(20).toFloat()
