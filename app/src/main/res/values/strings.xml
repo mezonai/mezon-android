@@ -567,7 +567,8 @@
     <string name="clan_settings_logo_update_failed">Couldn\'t update clan logo. Try again.</string>
 
     <string name="clan_emoji_upload_button">Upload Emoji</string>
-    <string name="clan_emoji_description_body">Add custom emoji that anyone can use in this clan. Animated GIF emoji may be used by members with Mezon.</string>
+    <string name="clan_emoji_description_body">Add custom emoji that anyone in this clan can use. All Mezon members can use animated GIF emoji.</string>
+    <string name="clan_emoji_empty_list">No emojis found.</string>
     <string name="clan_emoji_requirements_title">UPLOAD REQUIREMENTS</string>
     <string name="clan_emoji_requirements_list">• File type: JPEG, PNG, GIF\n• Recommended file size: 256 KB\n• Recommended dimensions: 128×128\n• Naming: Emoji names must be at least 3 characters long and can only contain alphanumeric characters, underscores (_), and hyphens (-).</string>
     <string name="clan_emoji_column_image">IMAGE</string>
