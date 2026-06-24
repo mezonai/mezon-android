@@ -55,6 +55,8 @@ import com.mezon.mobile.home.profile.AccountController
 import com.mezon.mobile.MainActivity
 import com.mezon.mobile.home.voice.JoinVoiceBottomSheet
 import com.mezon.mobile.home.voice.VoiceController
+import com.mezon.mobile.home.stream.JoinMediaSheetKind
+import com.mezon.mobile.home.stream.StreamingController
 import com.mezon.mobile.home.voice.VoiceRoomFragment
 import com.mezon.mobile.home.clans.discover.DiscoverClansListSection
 import com.mezon.mobile.home.clans.discover.buildDiscoverCommunitySearchToolbar
@@ -90,6 +92,7 @@ class ClansFragment : BaseFragment() {
     private lateinit var friendController: FriendController
     private lateinit var userClanController: UserClanController
     private lateinit var voiceController: VoiceController
+    private lateinit var streamingController: StreamingController
     private lateinit var channelCategoryExpandStore: ChannelCategoryExpandStore
     private lateinit var showEmptyCategoryStore: ShowEmptyCategoryStore
     private lateinit var userController: UserController
@@ -145,6 +148,7 @@ class ClansFragment : BaseFragment() {
         friendController = entryPoint.friendController()
         userClanController = entryPoint.userClanController()
         voiceController = entryPoint.voiceController()
+        streamingController = entryPoint.streamingController()
         channelCategoryExpandStore = entryPoint.channelCategoryExpandStore()
         showEmptyCategoryStore = entryPoint.showEmptyCategoryStore()
         userController = entryPoint.userController()
@@ -218,6 +222,7 @@ class ClansFragment : BaseFragment() {
             val clanId = clansController.selectedClanId.value
             if (clanId == 0L) return@observe
             voiceController.fetchVoiceChannelMembers(clanId, noCache = true)
+            streamingController.fetchStreamChannelMembers(clanId, noCache = true)
             syncVoiceMembersUi()
         }
         observe(NotificationCenter.themeChanged) { _, _, _ ->
@@ -1117,7 +1122,10 @@ class ClansFragment : BaseFragment() {
         channelListView.bind(clanId, sections)
         if (clanId != lastVoiceFetchClanId) {
             lastVoiceFetchClanId = clanId
-            fragmentView?.post { voiceController.fetchVoiceChannelMembers(clanId) }
+            fragmentView?.post {
+                voiceController.fetchVoiceChannelMembers(clanId)
+                streamingController.fetchStreamChannelMembers(clanId)
+            }
         }
         updateVoiceMembers(clanId)
         updateChannelAppsStrip(clanId)
@@ -1155,6 +1163,7 @@ class ClansFragment : BaseFragment() {
         val clanId = clansController.selectedClanId.value
         if (clanId == 0L) return
         voiceController.fetchVoiceChannelMembers(clanId)
+        streamingController.fetchStreamChannelMembers(clanId)
         updateVoiceMembers(clanId)
     }
 
@@ -1178,7 +1187,10 @@ class ClansFragment : BaseFragment() {
 
         val result = HashMap<Long, List<VoiceMemberDisplay>>()
         for (vc in voiceChannels) {
-            val userIds = voiceController.getVoiceMembersForChannel(vc.channelId, clanId)
+            val userIds = when (vc.type) {
+                CHANNEL_TYPE_STREAMING -> streamingController.getStreamMembersForChannel(vc.channelId, clanId)
+                else -> voiceController.getVoiceMembersForChannel(vc.channelId, clanId)
+            }
             if (userIds.isEmpty()) continue
             val displays = userIds.map { uid ->
                 val member = memberMap[uid]
@@ -1242,6 +1254,17 @@ class ClansFragment : BaseFragment() {
     }
 
     private fun continueChannelOpenAfterPrivateGate(channel: ClanChannelEntity, clanIdForJoin: Long) {
+        if (channel.type == CHANNEL_TYPE_STREAMING) {
+            val activity = getParentActivity() as? MainActivity
+            if (activity?.isStreamingOverlayVisible() == true &&
+                streamingRoomActiveFor(channel.channelId, clanIdForJoin, activity)
+            ) {
+                activity.expandStreamingRoom()
+                return
+            }
+            showJoinStreamBottomSheet(channel, clanIdForJoin)
+            return
+        }
         if (channel.type == CHANNEL_TYPE_VOICE) {
             val inRoom = voiceController.isJoined || voiceController.isConnecting
             if (inRoom && voiceController.currentVoiceInfo?.channelId == channel.channelId) {
@@ -1450,6 +1473,40 @@ class ClansFragment : BaseFragment() {
                 }
             }
         }
+    }
+
+    private fun streamingRoomActiveFor(channelId: Long, clanId: Long, activity: MainActivity): Boolean {
+        return activity.isStreamingOverlayVisible()
+    }
+
+    private fun showJoinStreamBottomSheet(channel: ClanChannelEntity, clanId: Long) {
+        val activity = getParentActivity() ?: return
+        val members = streamingController.getStreamMembersForChannel(channel.channelId, clanId)
+        val clanMembers = userClanController.getClanMembers(clanId)
+        val memberMap = HashMap<Long, ClanMember>(clanMembers.size)
+        for (m in clanMembers) memberMap[m.userId] = m
+
+        val displays = members.map { uid ->
+            val m = memberMap[uid]
+            val name = m?.clanNick?.ifEmpty { null } ?: m?.displayName?.ifEmpty { null } ?: m?.username ?: "User"
+            val username = m?.username.orEmpty()
+            val avatar = m?.clanAvatar?.ifEmpty { null } ?: m?.avatarUrl
+            VoiceMemberDisplay(uid, name, username, avatar)
+        }
+
+        val sheet = JoinVoiceBottomSheet(
+            activity, themeColors, channel.channelLabel, channel.channelId, clanId, displays, channel.unreadCount,
+            JoinMediaSheetKind.STREAMING
+        )
+        sheet.onJoinVoice = {
+            (getParentActivity() as? MainActivity)?.showStreamingRoom(
+                channel.channelId, clanId, channel.channelLabel
+            )
+        }
+        sheet.onOpenChat = {
+            onOpenChat?.invoke(channel.channelId, channel.channelLabel, clanId, channel.type)
+        }
+        sheet.show()
     }
 
     private fun showJoinVoiceBottomSheet(channel: ClanChannelEntity, clanId: Long) {

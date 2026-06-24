@@ -30,9 +30,12 @@ import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.MemberResolver
 import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.clans.ClanChannelEntity
+import com.mezon.mobile.home.clans.CHANNEL_TYPE_STREAMING
 import com.mezon.mobile.home.clans.VoiceMemberDisplay
 import com.mezon.mobile.home.voice.JoinVoiceBottomSheet
 import com.mezon.mobile.home.voice.VoiceController
+import com.mezon.mobile.home.stream.JoinMediaSheetKind
+import com.mezon.mobile.home.stream.StreamingController
 import com.mezon.mobile.ui.cells.ChannelSearchCell
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.PopupMenu
@@ -86,6 +89,7 @@ class GlobalSearchFragment : BaseFragment() {
     private var memberResolver: MemberResolver? = null
     private lateinit var dialogsController: DialogsController
     private lateinit var voiceController: VoiceController
+    private lateinit var streamingController: StreamingController
     private lateinit var userClanController: UserClanController
 
     private lateinit var searchCell: SearchCell
@@ -129,6 +133,7 @@ class GlobalSearchFragment : BaseFragment() {
         memberResolver = entryPoint.memberResolver()
         dialogsController = entryPoint.dialogsController()
         voiceController = entryPoint.voiceController()
+        streamingController = entryPoint.streamingController()
         userClanController = entryPoint.userClanController()
     }
 
@@ -771,37 +776,58 @@ class GlobalSearchFragment : BaseFragment() {
     }
 
     private fun showJoinVoiceBottomSheet(channel: ClanChannelEntity) {
+        when (channel.type) {
+            CHANNEL_TYPE_STREAMING -> showJoinStreamBottomSheet(channel)
+            else -> showJoinVoiceMediaBottomSheet(channel)
+        }
+    }
+
+    private fun showJoinStreamBottomSheet(channel: ClanChannelEntity) {
+        val activity = getParentActivity() ?: return
+        val targetClanId = channel.clanId
+        val memberIds = streamingController.getStreamMembersForChannel(channel.channelId, targetClanId)
+        val displays = buildMemberDisplays(memberIds, targetClanId)
+        val sheet = JoinVoiceBottomSheet(
+            activity, themeColors, channel.channelLabel, channel.channelId, targetClanId, displays, channel.unreadCount,
+            JoinMediaSheetKind.STREAMING
+        )
+        sheet.onJoinVoice = {
+            (activity as? MainActivity)?.showStreamingRoom(channel.channelId, targetClanId, channel.channelLabel)
+        }
+        sheet.onOpenChat = {
+            onOpenChat?.invoke(channel.channelId, channel.channelLabel, targetClanId, channel.type)
+        }
+        sheet.show()
+    }
+
+    private fun showJoinVoiceMediaBottomSheet(channel: ClanChannelEntity) {
         val activity = getParentActivity() ?: return
         val targetClanId = channel.clanId
         val memberIds = voiceController.getVoiceMembersForChannel(channel.channelId, targetClanId)
+        val displays = buildMemberDisplays(memberIds, targetClanId)
+        val sheet = JoinVoiceBottomSheet(
+            activity, themeColors, channel.channelLabel, channel.channelId, targetClanId, displays, channel.unreadCount
+        )
+        sheet.onJoinVoice = {
+            (activity as? MainActivity)?.showVoiceRoom(channel.channelId, targetClanId, channel.channelLabel)
+        }
+        sheet.onOpenChat = {
+            onOpenChat?.invoke(channel.channelId, channel.channelLabel, targetClanId, channel.type)
+        }
+        sheet.show()
+    }
+
+    private fun buildMemberDisplays(memberIds: List<Long>, targetClanId: Long): List<VoiceMemberDisplay> {
         val clanMembers = userClanController.getClanMembers(targetClanId)
         val memberMap = HashMap<Long, ClanMember>(clanMembers.size)
         for (m in clanMembers) memberMap[m.userId] = m
-        val displays = memberIds.map { uid ->
+        return memberIds.map { uid ->
             val m = memberMap[uid]
             val name = m?.clanNick?.ifEmpty { null } ?: m?.displayName?.ifEmpty { null } ?: m?.username ?: "User"
             val username = m?.username.orEmpty()
             val avatar = m?.clanAvatar?.ifEmpty { null } ?: m?.avatarUrl
             VoiceMemberDisplay(uid, name, username, avatar)
         }
-        val sheet = JoinVoiceBottomSheet(
-            activity,
-            themeColors,
-            channel.channelLabel,
-            channel.channelId,
-            targetClanId,
-            displays,
-            channel.unreadCount
-        )
-        sheet.onJoinVoice = {
-            (activity as? MainActivity)?.showVoiceRoom(
-                channel.channelId, targetClanId, channel.channelLabel
-            )
-        }
-        sheet.onOpenChat = {
-            onOpenChat?.invoke(channel.channelId, channel.channelLabel, targetClanId, channel.type)
-        }
-        sheet.show()
     }
 
     private fun navigateToDm(member: SearchMember) {

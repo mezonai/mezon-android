@@ -1,6 +1,7 @@
 package com.mezon.mobile.home.call
 
 import android.app.Activity
+import android.app.KeyguardManager
 import android.app.NotificationManager
 import android.content.ComponentName
 import android.content.Context
@@ -8,6 +9,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.Settings
 import android.telecom.PhoneAccount
 import android.telecom.PhoneAccountHandle
@@ -88,6 +90,14 @@ class CallManager @Inject constructor(
             Log.e(TAG, "TelecomManager.addNewIncomingCall failed", e)
             false
         }
+    }
+
+    fun isDeviceLockedOrScreenOff(): Boolean {
+        val keyguardManager = context.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        val locked = keyguardManager?.isKeyguardLocked == true
+        val screenOff = powerManager?.isInteractive == false
+        return locked || screenOff
     }
 
     fun canUseFullScreenIntent(): Boolean {

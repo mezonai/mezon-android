@@ -30,6 +30,7 @@ import com.mezon.mobile.auth.LoginFragment
 import com.mezon.mobile.auth.OTPVerificationFragment
 import com.mezon.mobile.auth.UpdateUsernameFragment
 import com.mezon.mobile.core.ActionBarLayout
+import com.mezon.mobile.core.AlertDialog
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.BaseFragment
@@ -48,12 +49,14 @@ import com.mezon.mobile.home.MainTabsActivity
 import com.mezon.mobile.home.chat.ChatFragment
 import com.mezon.mobile.home.call.CallController
 import com.mezon.mobile.home.call.CallFragment
+import com.mezon.mobile.home.call.CallManager
 import com.mezon.mobile.home.call.CallInfo
 import com.mezon.mobile.home.call.CallingOverlay
 import com.mezon.mobile.home.call.IncomingCallActivity
 import com.mezon.mobile.home.call.IncomingCallFcmHandler
 import com.mezon.mobile.home.clans.ClanChannelEntity
 import com.mezon.mobile.home.sharing.SharingFragment
+import com.mezon.mobile.home.stream.StreamingRoomFragment
 import com.mezon.mobile.home.voice.VoiceOverlayManager
 import com.mezon.mobile.home.voice.VoiceRoomFragment
 import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
@@ -106,6 +109,8 @@ class MainActivity : BasePermissionsActivity(),
         var applicationPaused = true
             private set
 
+        private var fullScreenIntentPromptShown = false
+
         private val mainFragmentsStack = ArrayList<BaseFragment>()
 
         fun getLastFragment(): BaseFragment? {
@@ -125,6 +130,7 @@ class MainActivity : BasePermissionsActivity(),
     @Inject lateinit var appUpdateGateManager: AppUpdateGateManager
     @Inject lateinit var incomingCallFcmHandler: IncomingCallFcmHandler
     @Inject lateinit var callController: CallController
+    @Inject lateinit var callManager: CallManager
     @Inject lateinit var networkMonitor: NetworkMonitor
     @Inject lateinit var deepLinkRouter: DeepLinkRouter
 
@@ -135,6 +141,10 @@ class MainActivity : BasePermissionsActivity(),
     var voiceOverlayManager: VoiceOverlayManager? = null
         private set
     private var voiceRoomFragment: VoiceRoomFragment? = null
+
+    var streamingOverlayManager: VoiceOverlayManager? = null
+        private set
+    private var streamingRoomFragment: StreamingRoomFragment? = null
 
     private var currentConnectionState = 0
     lateinit var autoNightConfig: AutoNightConfig
@@ -195,6 +205,9 @@ class MainActivity : BasePermissionsActivity(),
 
         voiceOverlayManager = VoiceOverlayManager(drawerLayoutContainer, themeColors).also { manager ->
             manager.onExpandRequest = { expandVoiceRoom() }
+        }
+        streamingOverlayManager = VoiceOverlayManager(drawerLayoutContainer, themeColors).also { manager ->
+            manager.onExpandRequest = { expandStreamingRoom() }
         }
 
         setContentView(drawerLayoutContainer)
@@ -257,8 +270,26 @@ class MainActivity : BasePermissionsActivity(),
         actionBarLayout.onResume()
         if (StartupCache.hasSession) {
             connectionController.handleAppForeground()
+            maybePromptFullScreenIntentForIncomingCalls()
         }
         flushPendingDeepLink()
+    }
+
+    private fun maybePromptFullScreenIntentForIncomingCalls() {
+        if (fullScreenIntentPromptShown) return
+        if (!callManager.needsFullScreenIntentSettings()) return
+        fullScreenIntentPromptShown = true
+        AlertDialog.Builder(this)
+            .setTitle(getString(R.string.call_full_screen_intent_title))
+            .setMessage(getString(R.string.call_full_screen_intent_message))
+            .setPositiveButton(getString(R.string.call_full_screen_intent_open_settings)) { d, _ ->
+                callManager.launchFullScreenIntentSettings(this)
+                d.dismiss()
+            }
+            .setNegativeButton(getString(R.string.permission_not_now)) { d, _ ->
+                d.dismiss()
+            }
+            .show()
     }
 
     override fun onPause() {
@@ -279,6 +310,7 @@ class MainActivity : BasePermissionsActivity(),
     override fun onDestroy() {
         super.onDestroy()
         dismissVoiceRoom()
+        dismissStreamingRoom()
         actionBarLayout.unregisterBackCallback()
         AndroidUtilities.cancelRunOnUIThread(dismissSplashRunnable)
         appUpdateGateRunnable?.let { AndroidUtilities.cancelRunOnUIThread(it) }
@@ -648,10 +680,12 @@ class MainActivity : BasePermissionsActivity(),
     private fun showUpdateUsernameGate() {
         notificationHelper.cancelAllNotifications()
         dismissVoiceRoom()
+        dismissStreamingRoom()
         val entryPoint = EntryPointAccessors.fromApplication(
             applicationContext, FragmentEntryPoint::class.java
         )
         entryPoint.voiceController().cleanup()
+        entryPoint.streamingController().cleanup()
         actionBarLayout.removeAllFragments()
         actionBarLayout.containerView.removeAllViews()
         actionBarLayout.containerViewBack.removeAllViews()
@@ -723,11 +757,13 @@ class MainActivity : BasePermissionsActivity(),
         deepLinkRouter.clearPending()
         notificationHelper.cancelAllNotifications()
         dismissVoiceRoom()
+        dismissStreamingRoom()
         val entryPoint = EntryPointAccessors.fromApplication(
             applicationContext, FragmentEntryPoint::class.java
         )
         entryPoint.messagesController().disconnect()
         entryPoint.voiceController().cleanup()
+        entryPoint.streamingController().cleanup()
         entryPoint.dialogsController().cleanup()
         entryPoint.chatController().cleanup()
         entryPoint.clansController().cleanup()
@@ -799,6 +835,7 @@ class MainActivity : BasePermissionsActivity(),
     }
 
     fun showVoiceRoom(channelId: Long, clanId: Long, channelLabel: String) {
+        if (isStreamingOverlayVisible()) dismissStreamingRoom()
         val manager = voiceOverlayManager ?: return
         val existing = voiceRoomFragment
         if (existing != null) {
@@ -816,6 +853,7 @@ class MainActivity : BasePermissionsActivity(),
         fragment.inject(this)
         fragment.onFragmentCreate()
         val contentView = fragment.createView(this)
+        fragment.fragmentView = contentView
         voiceRoomFragment = fragment
         fragment.onResume()
         fragment.onBecomeFullyVisible()
@@ -851,6 +889,78 @@ class MainActivity : BasePermissionsActivity(),
 
     fun isVoiceOverlayVisible(): Boolean = voiceOverlayManager?.isVisible() == true
     fun isVoiceOverlayExpanded(): Boolean = voiceOverlayManager?.isExpanded() == true
+
+    fun showStreamingRoom(
+        channelId: Long,
+        clanId: Long,
+        channelLabel: String,
+        channelAvatar: String = "",
+    ) {
+        if (isVoiceOverlayVisible()) dismissVoiceRoom()
+        val manager = streamingOverlayManager ?: return
+        val entryPoint = EntryPointAccessors.fromApplication(
+            applicationContext, FragmentEntryPoint::class.java
+        )
+        val resolvedAvatar = channelAvatar.trim().ifEmpty {
+            entryPoint.channelController().getChannelAvatar(clanId, channelId)
+        }
+        if (resolvedAvatar.isEmpty()) {
+            entryPoint.channelController().loadChannelsForClan(clanId, force = false)
+        }
+        val existing = streamingRoomFragment
+        if (existing != null) {
+            val sameRoom = existing.getChannelId() == channelId && existing.getClanId() == clanId
+            if (sameRoom && manager.isVisible()) {
+                manager.expand()
+                return
+            }
+            dismissStreamingRoom()
+        }
+        val fragment = StreamingRoomFragment.create(channelId, clanId, channelLabel, resolvedAvatar)
+        fragment.themeColors = themeColors
+        fragment.notificationCenter = notificationCenter
+        fragment.parentLayout = actionBarLayout
+        fragment.inject(this)
+        fragment.onFragmentCreate()
+        val contentView = fragment.createView(this)
+        fragment.fragmentView = contentView
+        streamingRoomFragment = fragment
+        fragment.onResume()
+        fragment.onBecomeFullyVisible()
+        manager.showExpanded(contentView)
+    }
+
+    fun minimizeStreamingRoom() {
+        val manager = streamingOverlayManager ?: return
+        val fragment = streamingRoomFragment ?: return
+        manager.minimizeStream(fragment.getChannelLabel(), fragment.getChannelAvatar())
+    }
+
+    fun updateStreamingMiniOverlay() {
+        val fragment = streamingRoomFragment ?: return
+        streamingOverlayManager?.updateMiniStream(fragment.getChannelLabel(), fragment.getChannelAvatar())
+    }
+
+    fun expandStreamingRoom() {
+        streamingOverlayManager?.expand()
+        streamingRoomFragment?.rebindSessionUi()
+    }
+
+    fun dismissStreamingRoom(disconnectSession: Boolean = true) {
+        val manager = streamingOverlayManager ?: return
+        manager.dismiss()
+        streamingRoomFragment?.onPause()
+        streamingRoomFragment?.onFragmentDestroy()
+        streamingRoomFragment = null
+        if (disconnectSession) {
+            EntryPointAccessors.fromApplication(applicationContext, FragmentEntryPoint::class.java)
+                .streamingWebRtcSession()
+                .disconnect()
+        }
+    }
+
+    fun isStreamingOverlayVisible(): Boolean = streamingOverlayManager?.isVisible() == true
+    fun isStreamingOverlayExpanded(): Boolean = streamingOverlayManager?.isExpanded() == true
 
     fun openChat(
         channelId: Long,

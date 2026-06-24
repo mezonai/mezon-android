@@ -21,7 +21,6 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import com.mezon.mobile.R
-import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BottomSheet
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
@@ -54,7 +53,6 @@ class DmGroupEditBottomSheet(
     private lateinit var nameCounterText: TextView
 
     init {
-        containerHeight = (AndroidUtilities.displaySize.y * 0.9f).toInt()
         setCustomView(buildContent())
     }
 

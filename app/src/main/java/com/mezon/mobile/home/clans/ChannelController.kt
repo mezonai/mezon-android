@@ -120,6 +120,7 @@ class ChannelController @Inject constructor(
     private val mutedChannelIdsByClan = ConcurrentHashMap<Long, MutableSet<Long>>()
     private val categoriesByClan = ConcurrentHashMap<Long, List<ClanCategoryItem>>()
     private val sdTopicChannelsById = ConcurrentHashMap<Long, ClanChannelEntity>()
+    private val channelAvatarByKey = ConcurrentHashMap<Long, String>()
 
     init {
         observeSocketEvents()
@@ -137,6 +138,20 @@ class ChannelController @Inject constructor(
         channelListNetworkFetchInflight.clear()
         favoritesByClan.clear()
         categoriesByClan.clear()
+        channelAvatarByKey.clear()
+    }
+
+    fun getChannelAvatar(clanId: Long, channelId: Long): String =
+        channelAvatarByKey[channelAvatarKey(clanId, channelId)].orEmpty()
+
+    private fun channelAvatarKey(clanId: Long, channelId: Long): Long =
+        clanId xor (channelId * 31L)
+
+    private fun cacheChannelAvatar(clanId: Long, desc: ChannelDescription) {
+        val avatar = desc.channelAvatar.trim()
+        if (avatar.isNotEmpty()) {
+            channelAvatarByKey[channelAvatarKey(clanId, desc.channelId)] = avatar
+        }
     }
 
     fun loadChannelsForClan(clanId: Long, force: Boolean = false) {
@@ -247,6 +262,9 @@ class ChannelController @Inject constructor(
                     mutedChannelIdsByClan[clanId] = LinkedHashSet(mutedResponse.mutedListList)
                 }
                 val mutedIds = mutedChannelIdsByClan[clanId].orEmpty()
+                for (ch in result.channeldescList) {
+                    cacheChannelAvatar(clanId, ch)
+                }
                 val entities = result.channeldescList.map { ch ->
                     withClanIdFromContext(
                         clanId,
@@ -647,6 +665,9 @@ class ChannelController @Inject constructor(
                 ?.filter { it.categoryOrder != 0 }
                 ?.associate { it.categoryId to it.categoryOrder }
                 ?: emptyMap()
+            for (ch in result.channeldescList) {
+                cacheChannelAvatar(clanId, ch)
+            }
             val entities = result.channeldescList.map { ch ->
                 withClanIdFromContext(
                     clanId,
@@ -1118,6 +1139,7 @@ class ChannelController @Inject constructor(
         }
         val clanId = event.clanId.takeIf { it != 0L } ?: desc.clanId
         if (clanId == 0L || desc.channelId == 0L) return
+        cacheChannelAvatar(clanId, desc)
         val active = event.active.takeIf { it != 0 } ?: desc.active.takeIf { it != 0 } ?: 1
         val incoming = desc.toClanChannelEntity().copy(clanId = clanId, active = active)
         val existing = _channelsByClan.value[clanId] ?: emptyList()
