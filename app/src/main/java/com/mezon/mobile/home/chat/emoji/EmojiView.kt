@@ -56,6 +56,10 @@ class EmojiView(
         fun onBackspace()
         fun onSearchFocusChanged(focused: Boolean) {}
         fun onDismissRequested() {}
+        fun onExpandRequested() {}
+        fun onDragY(dy: Float, dragFromExpanded: Boolean = false) {}
+        fun onAnimateExpand(expand: Boolean) {}
+        fun isExpanded(): Boolean = false
     }
 
     var delegate: EmojiViewDelegate? = null
@@ -73,6 +77,11 @@ class EmojiView(
     private val contentContainer: FrameLayout
     private val backspaceButton: ImageView
 
+    private var dragStartY = 0f
+    private var dragging = false
+    private var dragTranslation = 0f
+    private var dragStartedExpanded = false
+    private var velocityTracker: VelocityTracker? = null
     private var emojiGrid: RecyclerListView? = null
     private var stickerGrid: RecyclerListView? = null
     private var gifGrid: RecyclerListView? = null
@@ -97,10 +106,6 @@ class EmojiView(
         }
     }
 
-    private var velocityTracker: VelocityTracker? = null
-    private var dragging = false
-    private var dragStartY = 0f
-    private var dragTranslation = 0f
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
     private val dismissVelocity = LayoutHelper.dp(800f).toFloat()
 
@@ -359,10 +364,10 @@ class EmojiView(
                         delegate?.onGifSelected(gif.gifUrl)
                     }
                     gifGrid = RecyclerListView(context).apply {
-                        layoutManager = GridLayoutManager(context, 2)
+                        layoutManager = androidx.recyclerview.widget.StaggeredGridLayoutManager(2, androidx.recyclerview.widget.StaggeredGridLayoutManager.VERTICAL)
                         adapter = gifAdapter
-                        setHasFixedSize(true)
-                        (itemAnimator as? SimpleItemAnimator)?.supportsChangeAnimations = false
+                        setHasFixedSize(false)
+                        (itemAnimator as? androidx.recyclerview.widget.SimpleItemAnimator)?.supportsChangeAnimations = false
                         overScrollMode = OVER_SCROLL_NEVER
                         addItemDecoration(GifSpacingDecoration(gifSpacing))
                         setPadding(gifSpacing, gifSpacing, gifSpacing, gifSpacing)
@@ -478,12 +483,22 @@ class EmojiView(
 
     val isSearchFocused: Boolean get() = searchField.hasFocus()
 
+    private fun getActiveRecyclerView(): androidx.recyclerview.widget.RecyclerView? {
+        return when (currentTab) {
+            TAB_EMOJI -> emojiGrid
+            TAB_GIF -> if (gifSearchActive) gifGrid else gifCategoryGrid
+            TAB_STICKER -> stickerGrid
+            else -> null
+        }
+    }
+
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 dragStartY = ev.rawY
                 dragTranslation = 0f
                 dragging = false
+                dragStartedExpanded = delegate?.isExpanded() ?: false
                 velocityTracker?.recycle()
                 velocityTracker = VelocityTracker.obtain()
                 velocityTracker?.addMovement(ev)
@@ -492,10 +507,27 @@ class EmojiView(
             MotionEvent.ACTION_MOVE -> {
                 velocityTracker?.addMovement(ev)
                 val dy = ev.rawY - dragStartY
-                if (!dragging && dy > touchSlop && ev.y < DRAG_HANDLE_HEIGHT + tabBar.height) {
-                    dragging = true
-                    dragStartY = ev.rawY
-                    return true
+                if (!dragging && Math.abs(dy) > touchSlop) {
+                    var shouldIntercept = false
+                    if (dy > 0) {
+                        if (ev.y < DRAG_HANDLE_HEIGHT + tabBar.height) {
+                            shouldIntercept = true
+                        } else {
+                            val rv = getActiveRecyclerView()
+                            if (rv == null || !rv.canScrollVertically(-1)) {
+                                shouldIntercept = true
+                            }
+                        }
+                    } else {
+                        if (!dragStartedExpanded) {
+                            shouldIntercept = true
+                        }
+                    }
+                    if (shouldIntercept) {
+                        dragging = true
+                        dragStartY = ev.rawY
+                        return true
+                    }
                 }
             }
         }
@@ -507,18 +539,30 @@ class EmojiView(
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 dragStartY = ev.rawY
+                dragStartedExpanded = delegate?.isExpanded() ?: false
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
-                val dy = (ev.rawY - dragStartY).coerceAtLeast(0f)
-                if (!dragging && dy > touchSlop) {
+                val dy = ev.rawY - dragStartY
+                if (!dragging && Math.abs(dy) > touchSlop) {
                     dragging = true
                     dragStartY = ev.rawY
                 }
                 if (dragging) {
-                    dragTranslation = (ev.rawY - dragStartY).coerceAtLeast(0f)
+                    dragTranslation = ev.rawY - dragStartY
                     val child = getChildAt(0)
-                    child?.translationY = dragTranslation
+                    if (dragTranslation > 0) {
+                        if (dragStartedExpanded) {
+                            child?.translationY = 0f
+                            delegate?.onDragY(dragTranslation, true)
+                        } else {
+                            child?.translationY = dragTranslation
+                            delegate?.onDragY(0f, false)
+                        }
+                    } else {
+                        child?.translationY = 0f
+                        delegate?.onDragY(dragTranslation, dragStartedExpanded)
+                    }
                 }
                 return true
             }
@@ -529,10 +573,26 @@ class EmojiView(
                     val vy = velocityTracker?.yVelocity ?: 0f
                     val child = getChildAt(0) ?: return true
                     val h = child.height.toFloat()
-                    if (vy > dismissVelocity || dragTranslation > h * 0.4f) {
-                        animateSlide(child, dragTranslation, h, dismiss = true)
+                    if (dragTranslation > 0) {
+                        if (dragStartedExpanded || child.translationY == 0f) {
+                            if (vy > dismissVelocity || dragTranslation > h * 0.2f) {
+                                delegate?.onAnimateExpand(false)
+                            } else {
+                                delegate?.onAnimateExpand(true)
+                            }
+                        } else {
+                            if (vy > dismissVelocity || dragTranslation > h * 0.4f) {
+                                animateSlide(child, dragTranslation, h, dismiss = true)
+                            } else {
+                                animateSlide(child, dragTranslation, 0f, dismiss = false)
+                            }
+                        }
                     } else {
-                        animateSlide(child, dragTranslation, 0f, dismiss = false)
+                        if (vy < -dismissVelocity || dragTranslation < -h * 0.2f) {
+                            delegate?.onAnimateExpand(true)
+                        } else {
+                            delegate?.onAnimateExpand(false)
+                        }
                     }
                 }
                 velocityTracker?.recycle()

@@ -279,6 +279,9 @@ open class ChatFragment : BaseFragment() {
     private var anonymousIndicator: ImageView? = null
     private var emojiView: EmojiView? = null
     private var emojiViewVisible = false
+    private var advancedMenuView: AdvancedMenuView? = null
+    private var advancedMenuViewVisible = false
+    private var previousKeyboardHeight = 0
     private var emojiPadding = 0
     private var emojiSearchExpanded = false
     private var searchKeyboardWasVisible = false
@@ -1417,11 +1420,7 @@ open class ChatFragment : BaseFragment() {
 
         val chatActionBar = ActionBarView(context, themeColors).apply {
             setBackClickListener {
-                if (emojiViewVisible) {
-                    hideEmojiView()
-                } else {
-                    finishFragment()
-                }
+                finishFragment()
             }
             setTitleOnClickListener {
                 val channelEntity = channelController.findChannelById(channelId)
@@ -2322,8 +2321,11 @@ open class ChatFragment : BaseFragment() {
 
         sizeNotifierRoot.setDelegate(object : SizeNotifierFrameLayout.SizeNotifierFrameLayoutDelegate {
             override fun onSizeChanged(keyboardHeight: Int, isWidthGreater: Boolean) {
-                if (emojiSearchExpanded) {
-                    if (keyboardHeight > LayoutHelper.dp(50f)) {
+                val isKeyboardOpening = keyboardHeight > previousKeyboardHeight
+                previousKeyboardHeight = keyboardHeight
+                
+                if (emojiSearchExpanded || searchKeyboardWasVisible) {
+                    if (isKeyboardOpening && keyboardHeight > LayoutHelper.dp(50f)) {
                         SharedConfig.saveKeyboardHeight(keyboardHeight, isWidthGreater)
                         searchKeyboardWasVisible = true
                     }
@@ -2332,7 +2334,7 @@ open class ChatFragment : BaseFragment() {
                     }
                     return
                 }
-                if (keyboardHeight > LayoutHelper.dp(50f)) {
+                if (isKeyboardOpening && keyboardHeight > LayoutHelper.dp(50f)) {
                     SharedConfig.saveKeyboardHeight(keyboardHeight, isWidthGreater)
                     if (waitingForKeyboardOpen) {
                         waitingForKeyboardOpen = false
@@ -2341,8 +2343,11 @@ open class ChatFragment : BaseFragment() {
                     if (emojiViewVisible) {
                         dismissEmojiSilently()
                     }
+                    if (advancedMenuViewVisible) {
+                        dismissAdvancedMenuSilently()
+                    }
                 }
-                if (keyboardHeight <= LayoutHelper.dp(20f) && !emojiViewVisible && emojiPadding != 0) {
+                if (keyboardHeight <= LayoutHelper.dp(20f) && !emojiViewVisible && !advancedMenuViewVisible && emojiPadding != 0) {
                     emojiPadding = 0
                     sizeNotifierRoot.setEmojiKeyboardHeight(0)
                     sizeNotifierRoot.requestLayout()
@@ -2500,12 +2505,21 @@ open class ChatFragment : BaseFragment() {
             hideEmojiView()
             return false
         }
+        if (advancedMenuViewVisible) {
+            hideAdvancedMenuView()
+            return false
+        }
         return super.onBackPressed()
     }
 
     private fun showEmojiView() {
         dismissPasteImagePopup()
         if (emojiView == null) createEmojiView()
+        
+        if (advancedMenuViewVisible) {
+            hideAdvancedMenuView(animated = false, resetPadding = false)
+        }
+        
         val ev = emojiView!!
         ev.animate().cancel()
         ev.translationY = 0f
@@ -2543,8 +2557,18 @@ open class ChatFragment : BaseFragment() {
     private fun openKeyboardFromEmoji() {
         updateEmojiButtonIcon(showingEmoji = false)
         AndroidUtilities.cancelRunOnUIThread(showKeyboardFromEmojiRunnable)
-        if (emojiViewVisible) {
-            AndroidUtilities.runOnUIThread(showKeyboardFromEmojiRunnable, 200)
+        if (emojiViewVisible || advancedMenuViewVisible) {
+            if (searchKeyboardWasVisible) {
+                searchKeyboardWasVisible = false
+                emojiSearchExpanded = false
+                inputField.requestFocus()
+                waitingForKeyboardOpen = false
+                AndroidUtilities.showKeyboard(inputField)
+                if (emojiViewVisible) dismissEmojiSilently()
+                if (advancedMenuViewVisible) dismissAdvancedMenuSilently()
+            } else {
+                AndroidUtilities.runOnUIThread(showKeyboardFromEmojiRunnable, 200)
+            }
         } else {
             showKeyboardFromEmojiRunnable.run()
         }
@@ -2561,7 +2585,35 @@ open class ChatFragment : BaseFragment() {
         updateEmojiButtonIcon(showingEmoji = false)
     }
 
-    private fun hideEmojiView(animated: Boolean = true) {
+    private fun dismissAdvancedMenuSilently() {
+        advancedMenuViewVisible = false
+        advancedMenuView?.visibility = View.GONE
+        emojiPadding = 0
+        sizeNotifierRoot.setEmojiKeyboardHeight(0)
+    }
+
+    private fun hideAdvancedMenuView(animated: Boolean = true, resetPadding: Boolean = true) {
+        advancedMenuViewVisible = false
+        val amv = advancedMenuView ?: return
+        if (animated) {
+            amv.animate()
+                .translationY(amv.height.toFloat())
+                .setDuration(250)
+                .setInterpolator(android.view.animation.DecelerateInterpolator())
+                .withEndAction { amv.visibility = View.GONE }
+                .start()
+        } else {
+            amv.animate().cancel()
+            amv.visibility = View.GONE
+        }
+        if (resetPadding) {
+            emojiPadding = 0
+            sizeNotifierRoot.setEmojiKeyboardHeight(0)
+            sizeNotifierRoot.requestLayout()
+        }
+    }
+
+    private fun hideEmojiView(animated: Boolean = true, resetPadding: Boolean = true) {
         dismissPasteImagePopup()
         emojiSearchExpanded = false
         searchKeyboardWasVisible = false
@@ -2569,9 +2621,11 @@ open class ChatFragment : BaseFragment() {
         emojiViewVisible = false
         emojiView?.clearSearchFocus()
 
-        emojiPadding = 0
-        sizeNotifierRoot.setEmojiKeyboardHeight(0)
-        sizeNotifierRoot.requestLayout()
+        if (resetPadding) {
+            emojiPadding = 0
+            sizeNotifierRoot.setEmojiKeyboardHeight(0)
+            sizeNotifierRoot.requestLayout()
+        }
         updateEmojiButtonIcon(showingEmoji = false)
 
         val ev = emojiView ?: return
@@ -2624,7 +2678,7 @@ open class ChatFragment : BaseFragment() {
     }
 
     private fun collapseEmojiSearch() {
-        if (!emojiSearchExpanded) return
+        if (!emojiSearchExpanded && !searchKeyboardWasVisible) return
         emojiSearchExpanded = false
         searchKeyboardWasVisible = false
         sizeNotifierRoot.isSearchExpanded = false
@@ -2688,6 +2742,10 @@ open class ChatFragment : BaseFragment() {
                         android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
                     )
                     inputField.setSelection(cursor + insertText.length)
+                    
+                    if (emojiSearchExpanded) {
+                        collapseEmojiSearch()
+                    }
                 }
 
                 override fun onStickerSelected(sticker: StickerItem, isAudio: Boolean) {
@@ -2732,6 +2790,72 @@ open class ChatFragment : BaseFragment() {
 
                 override fun onDismissRequested() {
                     hideEmojiView(animated = false)
+                }
+
+                override fun onExpandRequested() {
+                    expandEmojiSearch()
+                }
+
+                override fun isExpanded(): Boolean {
+                    return emojiSearchExpanded
+                }
+
+                override fun onDragY(dy: Float, dragFromExpanded: Boolean) {
+                    val panelHeight = SharedConfig.getEmojiPanelHeight()
+                    if (dragFromExpanded) {
+                        if (dy > 0) {
+                            emojiSearchExpanded = false
+                            sizeNotifierRoot.isSearchExpanded = false
+                            emojiView?.clearSearchFocus()
+                            AndroidUtilities.hideKeyboard(emojiView)
+                            val targetHeight = (sizeNotifierRoot.height - dy).toInt().coerceAtLeast(panelHeight)
+                            emojiView?.layoutParams = FrameLayout.LayoutParams(
+                                FrameLayout.LayoutParams.MATCH_PARENT, targetHeight, Gravity.BOTTOM
+                            )
+                            sizeNotifierRoot.setEmojiKeyboardHeight(targetHeight)
+                            sizeNotifierRoot.requestLayout()
+                        }
+                        return
+                    }
+
+                    if (dy < 0) {
+                        val targetHeight = (panelHeight - dy).toInt().coerceAtMost(sizeNotifierRoot.height)
+                        if (emojiView?.layoutParams?.height != targetHeight) {
+                            emojiView?.layoutParams = FrameLayout.LayoutParams(
+                                FrameLayout.LayoutParams.MATCH_PARENT, targetHeight, Gravity.BOTTOM
+                            )
+                            sizeNotifierRoot.setEmojiKeyboardHeight(targetHeight)
+                            sizeNotifierRoot.requestLayout()
+                        }
+                    }
+                }
+
+                override fun onAnimateExpand(expand: Boolean) {
+                    if (emojiSearchExpanded) return
+                    val panelHeight = SharedConfig.getEmojiPanelHeight()
+                    val startHeight = emojiView?.layoutParams?.height ?: panelHeight
+                    val targetHeight = if (expand) sizeNotifierRoot.height else panelHeight
+                    
+                    val anim = android.animation.ValueAnimator.ofInt(startHeight, targetHeight)
+                    anim.addUpdateListener {
+                        val h = it.animatedValue as Int
+                        emojiView?.layoutParams = FrameLayout.LayoutParams(
+                            FrameLayout.LayoutParams.MATCH_PARENT, h, Gravity.BOTTOM
+                        )
+                        sizeNotifierRoot.setEmojiKeyboardHeight(h)
+                        sizeNotifierRoot.requestLayout()
+                    }
+                    anim.addListener(object : android.animation.AnimatorListenerAdapter() {
+                        override fun onAnimationEnd(animation: android.animation.Animator) {
+                            if (expand) {
+                                expandEmojiSearch()
+                            } else {
+                                emojiPadding = panelHeight
+                            }
+                        }
+                    })
+                    anim.duration = 200
+                    anim.start()
                 }
             }
         }
@@ -2796,6 +2920,7 @@ open class ChatFragment : BaseFragment() {
         chatAdjustPanHelper?.onDetach()
         chatAdjustPanHelper = null
         emojiView = null
+        advancedMenuView = null
         emojiObjPicked.clear()
         buzzMediaPlayer?.release()
         buzzMediaPlayer = null
@@ -3490,7 +3615,7 @@ open class ChatFragment : BaseFragment() {
                 null
             }
             if (merged == null) return@launch
-            withContext(Dispatchers.Main) {
+            withContext(mainDispatcher) {
                 val cur = messagesDict.get(messageId) ?: return@withContext
                 if (!cur.isPollMessage) return@withContext
                 val uid = currentUserIdLong()
@@ -4180,6 +4305,8 @@ open class ChatFragment : BaseFragment() {
                     -1 -> {
                         if (emojiViewVisible) {
                             hideEmojiView()
+                        } else if (advancedMenuViewVisible) {
+                            hideAdvancedMenuView()
                         } else {
                             finishFragment()
                         }
@@ -4765,43 +4892,94 @@ open class ChatFragment : BaseFragment() {
     private fun showAdvancedFunctionMenu() {
         dismissPasteImagePopup()
         if (!ensureCanSendMessageOrNotify()) return
-        val ctx = getContext() ?: return
-        val isAnon = anonymousController.isAnonymous(clanId)
-        val alert = AdvancedAttachAlert(
-            ctx,
-            themeColors,
-            clanId,
-            isAnon,
-            showCreatePoll = canCreatePoll(channelType)
-        )
-        alert.advancedDelegate = object : AdvancedAttachAlert.AdvancedAttachAlertDelegate {
-            override fun onLocationSelected() {
-                if (!ensureCanSendMessageOrNotify()) return
-                requestLocationAndSend()
-            }
-            override fun onFilesSelected() {
-                if (!ensureCanSendMessageOrNotify()) return
-                launchDocumentPicker()
-            }
-            override fun onBuzzSelected() {
-                if (!ensureCanSendMessageOrNotify()) return
-                showBuzzConfirmDialog()
-            }
-            override fun onAnonymousToggled() {
-                anonymousController.toggleAnonymous(clanId)
-            }
-            override fun onCreatePollRequested() {
-                openCreatePollScreen()
-            }
-            override fun onShareContactSelected() {
-                if (!ensureCanSendMessageOrNotify()) return
-                presentFragment(
-                    ShareContactFragment.newInstance(channelId, clanId, channelType, resolveChannelPrivate())
-                )
-            }
+        
+        if (advancedMenuViewVisible) {
+            openKeyboardFromEmoji()
+            return
         }
-        alert.setDrawNavigationBar(true)
-        alert.show()
+
+        if (advancedMenuView == null) {
+            val ctx = getContext() ?: return
+            val isAnon = anonymousController.isAnonymous(clanId)
+            advancedMenuView = AdvancedMenuView(
+                ctx,
+                themeColors,
+                clanId,
+                isAnon,
+                showCreatePoll = canCreatePoll(channelType)
+            ).apply {
+                delegate = object : AdvancedMenuView.AdvancedMenuViewDelegate {
+                    override fun onLocationSelected() {
+                        if (!ensureCanSendMessageOrNotify()) return
+                        requestLocationAndSend()
+                    }
+                    override fun onFilesSelected() {
+                        if (!ensureCanSendMessageOrNotify()) return
+                        launchDocumentPicker()
+                    }
+                    override fun onBuzzSelected() {
+                        if (!ensureCanSendMessageOrNotify()) return
+                        showBuzzConfirmDialog()
+                    }
+                    override fun onAnonymousToggled() {
+                        anonymousController.toggleAnonymous(clanId)
+                    }
+                    override fun onCreatePollRequested() {
+                        openCreatePollScreen()
+                    }
+                    override fun onShareContactSelected() {
+                        if (!ensureCanSendMessageOrNotify()) return
+                        presentFragment(
+                            com.mezon.mobile.home.chat.ShareContactFragment.newInstance(channelId, clanId, channelType, resolveChannelPrivate())
+                        )
+                    }
+                    override fun onDragY(dy: Float) {
+                        advancedMenuView?.translationY = dy
+                    }
+                    override fun onAnimateExpand(expand: Boolean) {
+                        if (!expand) {
+                            hideAdvancedMenuView(animated = true)
+                        } else {
+                            advancedMenuView?.animate()
+                                ?.translationY(0f)
+                                ?.setDuration(250)
+                                ?.setInterpolator(android.view.animation.DecelerateInterpolator())
+                                ?.start()
+                        }
+                    }
+                }
+                visibility = View.GONE
+            }
+            rootView.addView(advancedMenuView, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, 0, android.view.Gravity.BOTTOM))
+        }
+
+        val amv = advancedMenuView!!
+        amv.animate().cancel()
+        amv.translationY = 0f
+        amv.visibility = View.VISIBLE
+        advancedMenuViewVisible = true
+
+        val panelHeight = com.mezon.mobile.core.SharedConfig.getEmojiPanelHeight()
+        amv.layoutParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, panelHeight, android.view.Gravity.BOTTOM
+        )
+        
+        emojiPadding = panelHeight
+        sizeNotifierRoot.setEmojiKeyboardHeight(panelHeight)
+        sizeNotifierRoot.requestLayout()
+
+        amv.translationY = panelHeight.toFloat()
+        amv.animate()
+            .translationY(0f)
+            .setDuration(250)
+            .setInterpolator(android.view.animation.DecelerateInterpolator())
+            .start()
+
+        if (emojiViewVisible) {
+            hideEmojiView(animated = false, resetPadding = false)
+        } else {
+            AndroidUtilities.hideKeyboard(inputField)
+        }
     }
 
     private fun launchDocumentPicker() {

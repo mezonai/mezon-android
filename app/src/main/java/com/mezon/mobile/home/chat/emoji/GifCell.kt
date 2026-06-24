@@ -48,8 +48,13 @@ class GifCell(context: Context, private val themeColors: ThemeColors) : View(con
         gif = item
 
         val reqW = if (measuredWidth > 0) measuredWidth else LayoutHelper.dp(170f)
+        var reqH = CELL_HEIGHT
+        if (item.width > 0 && item.height > 0) {
+            reqH = (reqW * item.height.toFloat() / item.width.toFloat()).toInt()
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && !SharedConfig.deviceIsLow()) {
-            cancellable = loader.loadDrawable(item.thumbnailUrl, reqW, CELL_HEIGHT,
+            cancellable = loader.loadDrawable(item.thumbnailUrl, reqW, reqH,
                 onSuccess = { d ->
                     animDrawable = d
                     d.callback = drawableCallback
@@ -57,11 +62,12 @@ class GifCell(context: Context, private val themeColors: ThemeColors) : View(con
                     invalidate()
                 })
         } else {
-            cancellable = loader.load(item.thumbnailUrl, reqW, CELL_HEIGHT, onSuccess = { bmp ->
+            cancellable = loader.load(item.thumbnailUrl, reqW, reqH, onSuccess = { bmp ->
                 animDrawable = android.graphics.drawable.BitmapDrawable(resources, bmp)
                 invalidate()
             })
         }
+        requestLayout()
         invalidate()
     }
 
@@ -72,7 +78,12 @@ class GifCell(context: Context, private val themeColors: ThemeColors) : View(con
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val width = MeasureSpec.getSize(widthMeasureSpec)
-        setMeasuredDimension(width, CELL_HEIGHT)
+        var height = CELL_HEIGHT
+        val g = gif
+        if (g != null && g.width > 0 && g.height > 0) {
+            height = (width * g.height.toFloat() / g.width.toFloat()).toInt()
+        }
+        setMeasuredDimension(width, height)
     }
 
     override fun onDraw(canvas: Canvas) {

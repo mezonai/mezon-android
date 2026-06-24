@@ -140,6 +140,7 @@ object InputSuggestionsController {
         val sLower = keyword.trim().lowercase()
         val filtered = emojis.asSequence()
             .filter { it.shortname.lowercase().contains(sLower) }
+            .distinctBy { it.id }
             .take(20)
             .toList()
         return filtered.map { InputSuggestionItem.Emoji(it) }

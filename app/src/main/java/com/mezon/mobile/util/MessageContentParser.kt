@@ -348,6 +348,25 @@ fun parseContentToSpannable(
     }
 
     elements.sortBy { it.s }
+    
+    val isOnlyEmoji = run {
+        if (elements.isEmpty()) return@run false
+        var hasEmoji = false
+        var textIndex = 0
+        for (el in elements) {
+            if (el.kind != "e") return@run false
+            hasEmoji = true
+            val plainText = text.substring(textIndex, el.s.coerceIn(textIndex, text.length))
+            if (plainText.trim().isNotEmpty()) return@run false
+            textIndex = el.e.coerceAtLeast(textIndex).coerceAtMost(text.length)
+        }
+        val remainingText = text.substring(textIndex, text.length)
+        if (remainingText.trim().isNotEmpty()) return@run false
+        hasEmoji
+    }
+    
+    val emojiSize = if (isOnlyEmoji) LayoutHelper.dp(48) else LayoutHelper.dp(20)
+
     var last = 0
     val viewRef = view?.let { java.lang.ref.WeakReference(it) }
     val richPlainMarkdown = isEmbedOrComponentsPayload(content)
@@ -423,7 +442,7 @@ fun parseContentToSpannable(
             "e" -> {
                 if (viewRef != null && el.emojiid != null) {
                     sb.append("\uFFFC")
-                    sb.setExclusiveSpan(EmojiSpan(el.emojiid, viewRef), spanStart, sb.length)
+                    sb.setExclusiveSpan(EmojiSpan(el.emojiid, viewRef, emojiSize), spanStart, sb.length)
                 } else {
                     sb.append(segText)
                     sb.setExclusiveSpan(ForegroundColorSpan(linkColor), spanStart, sb.length)
