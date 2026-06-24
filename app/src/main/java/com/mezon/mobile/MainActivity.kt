@@ -47,6 +47,7 @@ import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.messages.MessageActivitiesController
 import com.mezon.mobile.home.MainTabsActivity
 import com.mezon.mobile.home.chat.ChatFragment
+import com.mezon.mobile.home.chat.PhotoViewer
 import com.mezon.mobile.home.call.CallController
 import com.mezon.mobile.home.call.CallFragment
 import com.mezon.mobile.home.call.CallManager
@@ -1229,6 +1230,8 @@ class MainActivity : BasePermissionsActivity(),
         intent.action = null
         intent.removeExtra(Intent.EXTRA_STREAM)
         intent.removeExtra(Intent.EXTRA_TEXT)
+
+        PhotoViewer.dismissActiveIfShowing()
 
         val fragment = SharingFragment.fromDevice(
             uris = uris,

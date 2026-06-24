@@ -21,6 +21,7 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import com.mezon.mobile.R
+import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BottomSheet
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
@@ -54,6 +55,15 @@ class DmGroupEditBottomSheet(
 
     init {
         setCustomView(buildContent())
+    }
+
+    override fun onOpenAnimationEnd() {
+        super.onOpenAnimationEnd()
+        nameInput.post {
+            if (!isShowing) return@post
+            nameInput.requestFocus()
+            AndroidUtilities.showKeyboard(nameInput)
+        }
     }
 
     fun setDraftAvatar(url: String) {

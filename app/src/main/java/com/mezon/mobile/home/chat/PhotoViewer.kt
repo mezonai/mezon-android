@@ -56,6 +56,14 @@ private const val FLING_DISMISS_MIN_VELOCITY = 800f
 
 class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Black_NoTitleBar_Fullscreen) {
 
+    companion object {
+        private var activeInstance: java.lang.ref.WeakReference<PhotoViewer>? = null
+
+        fun dismissActiveIfShowing() {
+            activeInstance?.get()?.takeIf { it.isShowing }?.dismiss()
+        }
+    }
+
     private val backgroundDrawable = ColorDrawable(Color.BLACK)
     private val viewPager: ViewPager2
     private val topBar: FrameLayout
@@ -343,8 +351,16 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
 
         updateCounter()
         backgroundDrawable.alpha = 0
+        activeInstance = java.lang.ref.WeakReference(this)
         super.show()
         ObjectAnimator.ofInt(backgroundDrawable, "alpha", 0, 255).setDuration(200).start()
+    }
+
+    override fun dismiss() {
+        if (activeInstance?.get() === this) {
+            activeInstance = null
+        }
+        super.dismiss()
     }
 
     private fun updateCounter() {
