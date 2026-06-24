@@ -149,9 +149,6 @@ class StreamingRoomFragment : BaseFragment() {
         }
 
         val statusBarHeight = AndroidUtilities.statusBarHeight
-        root.addView(View(context), LayoutHelper.createFrame(
-            LayoutHelper.MATCH_PARENT.toFloat(), statusBarHeight / AndroidUtilities.density, Gravity.TOP
-        ))
 
         backgroundView = ImageView(context).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
@@ -198,7 +195,7 @@ class StreamingRoomFragment : BaseFragment() {
         ))
         root.addView(header, LayoutHelper.createFrame(
             LayoutHelper.MATCH_PARENT.toFloat(), LayoutHelper.WRAP_CONTENT.toFloat(),
-            Gravity.TOP, 12f, (statusBarHeight / AndroidUtilities.density) + 8f, 12f, 0f
+            Gravity.TOP, 12f, statusBarHeight / AndroidUtilities.density, 12f, 0f
         ))
         root.addView(membersRow, LayoutHelper.createFrame(
             LayoutHelper.WRAP_CONTENT.toFloat(), LayoutHelper.WRAP_CONTENT.toFloat(),

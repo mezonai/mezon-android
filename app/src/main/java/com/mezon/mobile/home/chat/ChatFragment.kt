@@ -95,6 +95,8 @@ import com.mezon.mobile.home.clans.CHANNEL_TYPE_VOICE
 import com.mezon.mobile.home.clans.VoiceMemberDisplay
 import com.mezon.mobile.home.clans.channelapp.ChannelAppController
 import com.mezon.mobile.home.clans.channelapp.ChannelAppFragment
+import com.mezon.mobile.home.stream.JoinMediaSheetKind
+import com.mezon.mobile.home.stream.StreamingController
 import com.mezon.mobile.home.voice.JoinVoiceBottomSheet
 import com.mezon.mobile.home.voice.VoiceController
 import com.mezon.mobile.home.wallet.SendTokenFragment
@@ -393,6 +395,7 @@ open class ChatFragment : BaseFragment() {
     private lateinit var roleController: RoleController
     private lateinit var searchController: com.mezon.mobile.search.SearchController
     private lateinit var voiceController: VoiceController
+    private lateinit var streamingController: StreamingController
     private lateinit var channelAppController: ChannelAppController
     private lateinit var clansController: ClansController
     private lateinit var mezonApi: MezonApi
@@ -1395,6 +1398,7 @@ open class ChatFragment : BaseFragment() {
         topicController = entryPoint.topicController()
         topicBadgeTracker = entryPoint.topicBadgeTracker()
         voiceController = entryPoint.voiceController()
+        streamingController = entryPoint.streamingController()
         channelAppController = entryPoint.channelAppController()
         clansController = entryPoint.clansController()
         mezonApi = entryPoint.mezonApi()
@@ -7054,7 +7058,8 @@ open class ChatFragment : BaseFragment() {
     private fun navigateToChannelFromHashtag(channelIdStr: String?) {
         val cid = channelIdStr?.toLongOrNull() ?: return
         if (cid == 0L) return
-        val entity = channelController.findChannelById(cid, 0L)
+        val entity = channelController.findChannelById(cid, clanId)
+            ?: channelController.findChannelById(cid, 0L)
             ?: searchController.findChannelById(cid)
         if (entity == null) {
             if (!searchController.hasChannels()) searchController.loadChannels()
@@ -7094,9 +7099,8 @@ open class ChatFragment : BaseFragment() {
     private fun openChannelEntity(entity: ClanChannelEntity) {
         val targetClanId = if (entity.clanId != 0L) entity.clanId else clanId
         when (entity.type) {
-            CHANNEL_TYPE_VOICE, CHANNEL_TYPE_STREAMING -> {
-                showJoinVoiceBottomSheet(entity, targetClanId)
-            }
+            CHANNEL_TYPE_VOICE -> showJoinVoiceBottomSheet(entity, targetClanId)
+            CHANNEL_TYPE_STREAMING -> showJoinStreamBottomSheet(entity, targetClanId)
             CHANNEL_TYPE_APP -> {
                 val app = channelAppController.findByChannelId(entity.channelId)
                 if (app != null) {
@@ -7149,6 +7153,45 @@ open class ChatFragment : BaseFragment() {
         )
         sheet.onJoinVoice = {
             (activity as? MainActivity)?.showVoiceRoom(
+                channel.channelId, targetClanId, channel.channelLabel
+            )
+        }
+        sheet.onOpenChat = {
+            (activity as? MainActivity)?.openChat(
+                channel.channelId,
+                channel.channelLabel,
+                targetClanId,
+                channel.type
+            )
+        }
+        sheet.show()
+    }
+
+    private fun showJoinStreamBottomSheet(channel: ClanChannelEntity, targetClanId: Long) {
+        val activity = getParentActivity() ?: return
+        val memberIds = streamingController.getStreamMembersForChannel(channel.channelId, targetClanId)
+        val clanMembers = userClanController.getClanMembers(targetClanId)
+        val memberMap = HashMap<Long, ClanMember>(clanMembers.size)
+        for (m in clanMembers) memberMap[m.userId] = m
+        val displays = memberIds.map { uid ->
+            val m = memberMap[uid]
+            val name = m?.clanNick?.ifEmpty { null } ?: m?.displayName?.ifEmpty { null } ?: m?.username ?: "User"
+            val username = m?.username.orEmpty()
+            val avatar = m?.clanAvatar?.ifEmpty { null } ?: m?.avatarUrl
+            VoiceMemberDisplay(uid, name, username, avatar)
+        }
+        val sheet = JoinVoiceBottomSheet(
+            activity,
+            themeColors,
+            channel.channelLabel,
+            channel.channelId,
+            targetClanId,
+            displays,
+            channel.unreadCount,
+            JoinMediaSheetKind.STREAMING
+        )
+        sheet.onJoinVoice = {
+            (activity as? MainActivity)?.showStreamingRoom(
                 channel.channelId, targetClanId, channel.channelLabel
             )
         }
