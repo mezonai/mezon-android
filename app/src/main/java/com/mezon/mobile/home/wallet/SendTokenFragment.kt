@@ -1522,6 +1522,7 @@ class SendTokenFragment : BaseFragment() {
                     onSuccess = { r ->
                         if (r.ok) {
                             accountController.reduceBalanceLocally(amountInChainUnits)
+                            walletController.reduceBalanceLocally(amountInChainUnits)
                             val timeStr = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
                                 .format(Date())
                             val amountShow = amountField?.text?.toString().orEmpty()

@@ -1,8 +1,37 @@
 package com.mezon.mmn
 
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+
+object ExtraInfoSerializer : KSerializer<String> {
+    override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("ExtraInfoSerializer", PrimitiveKind.STRING)
+
+    override fun deserialize(decoder: Decoder): String {
+        val input = decoder as? JsonDecoder ?: return decoder.decodeString()
+        val element = input.decodeJsonElement()
+        return if (element is JsonObject) {
+            element.toString()
+        } else if (element is JsonPrimitive && element.isString) {
+            element.content
+        } else {
+            element.toString()
+        }
+    }
+
+    override fun serialize(encoder: Encoder, value: String) {
+        encoder.encodeString(value)
+    }
+}
 
 val MmnJson: Json = Json {
     ignoreUnknownKeys = true
@@ -220,8 +249,27 @@ data class Transaction(
     val transactionTimestamp: Int = 0,
     @SerialName("text_data")
     val textData: String = "",
+    @Serializable(with = ExtraInfoSerializer::class)
     @SerialName("extra_info")
-    val extraInfo: String = ""
+    val extraInfo: String = "",
+    @SerialName("from_username")
+    val fromUsername: String? = null,
+    @SerialName("to_username")
+    val toUsername: String? = null,
+    @SerialName("sender_name")
+    val senderName: String? = null,
+    @SerialName("receiver_name")
+    val receiverName: String? = null,
+    @SerialName("from_user")
+    val fromUser: MmnUser? = null,
+    @SerialName("to_user")
+    val toUser: MmnUser? = null
+)
+
+@Serializable
+data class MmnUser(
+    val username: String? = null,
+    val name: String? = null
 )
 
 @Serializable

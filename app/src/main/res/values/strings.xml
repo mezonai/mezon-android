@@ -1669,4 +1669,14 @@
     <string name="sticker_delete_confirm_title">Delete sticker?</string>
     <string name="sticker_delete_confirm_msg">Are you sure you want to delete \"%1$s\"?</string>
     <string name="sticker_add_label">Add sticker</string>
+    <string name="profile_history_transaction_all">All</string>
+    <string name="profile_history_transaction_incoming">Incoming</string>
+    <string name="profile_history_transaction_outgoing">Outgoing</string>
+    <string name="transaction_status_received">Received</string>
+    <string name="transaction_status_sent">Sent</string>
+    <string name="transaction_detail_title">Transaction Detail</string>
+    <string name="transaction_detail_id">Transaction ID</string>
+    <string name="transaction_detail_time">Time</string>
+    <string name="transaction_detail_sender">Sender name</string>
+    <string name="transaction_detail_receiver">Receiver name</string>
 </resources>

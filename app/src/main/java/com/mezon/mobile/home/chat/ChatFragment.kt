@@ -97,6 +97,8 @@ import com.mezon.mobile.home.clans.channelapp.ChannelAppController
 import com.mezon.mobile.home.clans.channelapp.ChannelAppFragment
 import com.mezon.mobile.home.voice.JoinVoiceBottomSheet
 import com.mezon.mobile.home.voice.VoiceController
+import com.mezon.mobile.wallet.WalletController
+import com.mezon.mobile.home.profile.AccountController
 import com.mezon.mobile.home.wallet.SendTokenFragment
 import com.mezon.mobile.MainActivity
 import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
@@ -108,7 +110,6 @@ import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.ui.cells.ActionBarView
-import com.mezon.mobile.wallet.WalletController
 import com.mezon.mobile.ui.cells.ColoredImageSpan
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.PageDownButton
@@ -251,6 +252,7 @@ open class ChatFragment : BaseFragment() {
     private lateinit var permissionPolicy: PermissionPolicy
     private lateinit var pinMessageController: com.mezon.mobile.home.PinMessageController
     private lateinit var walletController: WalletController
+    private lateinit var accountController: AccountController
     private lateinit var callController: com.mezon.mobile.home.call.CallController
     private lateinit var callManager: CallManager
     private lateinit var friendController: FriendController
@@ -1400,6 +1402,7 @@ open class ChatFragment : BaseFragment() {
         mezonApi = entryPoint.mezonApi()
         sessionManager = entryPoint.sessionManager()
         walletController = entryPoint.walletController()
+        accountController = entryPoint.accountController()
         appScope = entryPoint.applicationScope()
         ioDispatcher = entryPoint.ioDispatcher()
         mainDispatcher = entryPoint.mainDispatcher()
@@ -6457,6 +6460,10 @@ open class ChatFragment : BaseFragment() {
                     }
                     return@launch
                 }
+
+                val amountRaw = java.math.BigInteger(GIVE_COFFEE_AMOUNT_HUMAN).multiply(java.math.BigInteger.valueOf(1_000_000L))
+                accountController.reduceBalanceLocally(amountRaw)
+                walletController.reduceBalanceLocally(amountRaw)
 
                 chatController.sendReaction(
                     channelId = channelId,

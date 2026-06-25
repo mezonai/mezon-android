@@ -35,6 +35,7 @@ import com.mezon.mobile.home.wallet.SendTokenFragment
 import com.mezon.mobile.ui.cells.AvatarView
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.ToastOverlay
+import com.mezon.mobile.wallet.history.HistoryTransactionFragment
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -392,6 +393,7 @@ class ProfileFragment : BaseFragment() {
         }.apply { (layoutParams as? LinearLayout.LayoutParams)?.topMargin = 0 })
 
         walletSection.addView(createIconTextRow(context, MezonIcon.historyTransactionIcon, getString(R.string.profile_history_transaction), null) {
+            presentFragment(HistoryTransactionFragment())
         }.apply { (layoutParams as? LinearLayout.LayoutParams)?.topMargin = 0 })
 
         val editProfileBtn = createEditProfileButton(context)
