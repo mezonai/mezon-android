@@ -136,9 +136,9 @@ class RoleController @Inject constructor(
             rolesByClan[clanId]?.forEach { rolesById[it.roleId] = it }
         }
         val result = ArrayList<MemberProfileRoleChip>(roleIds.size)
-        for (roleId in roleIds) {
-            val role = rolesById[roleId] ?: continue
-            if (role.isEveryoneRole()) continue
+        val validRoles = roleIds.mapNotNull { rolesById[it] }.filterNot { it.isEveryoneRole() }
+        val sortedRoles = validRoles.sortedBy { it.orderRole }
+        for (role in sortedRoles) {
             result.add(
                 MemberProfileRoleChip(
                     roleId = role.roleId,
@@ -316,15 +316,8 @@ class RoleController @Inject constructor(
             for (role in allRoles) {
                 byId[role.roleId] = role
             }
-            if (clanCreatorId != 0L) {
-                val top = allRoles.maxByOrNull { it.maxLevelPermission }
-                if (top != null) {
-                    byUser.put(clanCreatorId, UserDisplayRole(top.color, top.iconUrl))
-                }
-            }
             for (member in members) {
                 if (member.userId == 0L) continue
-                if (clanCreatorId != 0L && member.userId == clanCreatorId) continue
                 byUser.put(member.userId, computeDisplayRoleForMember(member, byId))
             }
         }
@@ -370,23 +363,24 @@ class RoleController @Inject constructor(
         rolesById: Map<Long, ClanRole>
     ): UserDisplayRole {
         if (member.roleIds.isEmpty()) return UserDisplayRole(0, "")
-        var bestLevel = -1
+        var bestOrder = Int.MAX_VALUE
         var bestRole: ClanRole? = null
         for (rid in member.roleIds) {
             val role = rolesById[rid] ?: continue
-            if (role.maxLevelPermission > bestLevel) {
-                bestLevel = role.maxLevelPermission
+            if (role.orderRole < bestOrder) {
+                bestOrder = role.orderRole
                 bestRole = role
             }
         }
         if (bestRole == null) return UserDisplayRole(0, "")
         var iconUrl = bestRole.iconUrl
         if (iconUrl.isBlank()) {
+            var bestIconOrder = Int.MAX_VALUE
             for (rid in member.roleIds) {
                 val role = rolesById[rid] ?: continue
-                if (role.iconUrl.isNotBlank()) {
+                if (role.iconUrl.isNotBlank() && role.orderRole < bestIconOrder) {
+                    bestIconOrder = role.orderRole
                     iconUrl = role.iconUrl
-                    break
                 }
             }
         }
