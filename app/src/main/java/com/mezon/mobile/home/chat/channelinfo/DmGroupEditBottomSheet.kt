@@ -54,8 +54,16 @@ class DmGroupEditBottomSheet(
     private lateinit var nameCounterText: TextView
 
     init {
-        containerHeight = (AndroidUtilities.displaySize.y * 0.9f).toInt()
         setCustomView(buildContent())
+    }
+
+    override fun onOpenAnimationEnd() {
+        super.onOpenAnimationEnd()
+        nameInput.post {
+            if (!isShowing) return@post
+            nameInput.requestFocus()
+            AndroidUtilities.showKeyboard(nameInput)
+        }
     }
 
     fun setDraftAvatar(url: String) {

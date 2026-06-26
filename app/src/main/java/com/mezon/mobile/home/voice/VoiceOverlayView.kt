@@ -19,6 +19,7 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.util.absoluteResourceUrl
 import com.mezon.mobile.util.avatarImgproxyUrl
 import io.livekit.android.renderer.SurfaceViewRenderer
 import io.livekit.android.room.Room
@@ -52,6 +53,7 @@ class VoiceOverlayView(
 
     private val avatarDrawable = AvatarDrawable()
     private val avatarView: ImageView
+    private val backgroundImageView: ImageView
     private val nameRow: LinearLayout
     private val micIcon: ImageView
     private val nameText: TextView
@@ -73,6 +75,12 @@ class VoiceOverlayView(
         }
         elevation = LayoutHelper.dp(8).toFloat()
         isClickable = true
+
+        backgroundImageView = ImageView(context).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            visibility = GONE
+        }
+        addView(backgroundImageView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
 
         avatarView = ImageView(context).apply {
             scaleType = ImageView.ScaleType.CENTER_INSIDE
@@ -126,6 +134,8 @@ class VoiceOverlayView(
         isMuted: Boolean,
         userId: Long
     ) {
+        backgroundImageView.visibility = GONE
+        backgroundImageView.setImageDrawable(null)
         if (videoTrack != null && room != null) {
             showVideoContent(room, videoTrack)
             avatarView.visibility = GONE
@@ -145,6 +155,52 @@ class VoiceOverlayView(
         micIcon.setImageDrawable(micDrawable)
         nameText.text = name
         nameRow.visibility = VISIBLE
+    }
+
+    fun setStreamContent(channelLabel: String, avatarUrl: String?) {
+        detachVideo()
+        avatarView.visibility = GONE
+        avatarDisposable?.cancel()
+        avatarDisposable = null
+        backgroundImageView.visibility = VISIBLE
+
+        val streamIcon = MezonIcon.channelStream.getDrawable(context)?.apply {
+            colorFilter = PorterDuffColorFilter(0xFFFFFFFF.toInt(), PorterDuff.Mode.SRC_IN)
+        }
+        micIcon.setImageDrawable(streamIcon)
+        nameText.text = channelLabel
+        nameRow.visibility = VISIBLE
+        loadStreamBackground(avatarUrl)
+    }
+
+    private fun loadStreamBackground(rawUrl: String?) {
+        val absolute = rawUrl?.trim()?.takeIf { it.isNotEmpty() }?.let { absoluteResourceUrl(it).takeIf { url -> url.isNotEmpty() } }
+        if (absolute.isNullOrEmpty()) {
+            backgroundImageView.scaleType = ImageView.ScaleType.FIT_CENTER
+            backgroundImageView.setImageDrawable(MezonIcon.channelStream.getDrawable(context))
+            return
+        }
+        backgroundImageView.scaleType = ImageView.ScaleType.CENTER_CROP
+        val size = width.takeIf { it > 0 } ?: LayoutHelper.dp(200)
+        val proxyUrl = avatarImgproxyUrl(absolute, size)
+        val loader = MezonImageLoader.getInstance(context)
+        val cached = loader.getBitmapFromMemory(proxyUrl, size, size)
+        if (cached != null) {
+            backgroundImageView.setImageBitmap(cached)
+            return
+        }
+        avatarDisposable = loader.load(
+            proxyUrl, size, size,
+            onSuccess = { bmp ->
+                avatarDisposable = null
+                backgroundImageView.setImageBitmap(bmp)
+            },
+            onError = {
+                avatarDisposable = null
+                backgroundImageView.scaleType = ImageView.ScaleType.FIT_CENTER
+                backgroundImageView.setImageDrawable(MezonIcon.channelStream.getDrawable(context))
+            }
+        )
     }
 
     private fun showVideoContent(room: Room, videoTrack: VideoTrack) {
@@ -213,6 +269,9 @@ class VoiceOverlayView(
         detachVideo()
         avatarDisposable?.cancel()
         avatarDisposable = null
+        backgroundImageView.setImageBitmap(null)
+        backgroundImageView.setImageDrawable(null)
+        backgroundImageView.visibility = GONE
         surfaceRenderer?.let {
             removeView(it)
             it.release()

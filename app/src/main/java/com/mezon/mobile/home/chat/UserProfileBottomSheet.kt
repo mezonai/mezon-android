@@ -54,6 +54,8 @@ class UserProfileBottomSheet(
     }
 
     data class VoiceParticipantExtras(
+        val showHeaderActions: Boolean,
+        val onFriendClick: () -> Unit,
         val onTransferClick: () -> Unit = {},
         val canManageVoiceUser: Boolean,
         val showMuteAction: Boolean,
@@ -234,10 +236,15 @@ class UserProfileBottomSheet(
             FrameLayout.LayoutParams.MATCH_PARENT, LayoutHelper.dp(120)
         ))
 
-        if (!isOwnProfile && !isWebhook && userId != 0L) {
+        voiceParticipantExtras?.takeIf { it.showHeaderActions }?.let { ex ->
+            addHeaderFriendButton(container, textColor, ex.onFriendClick)
+        }
+
+        val isActualWebhook = isWebhook || username.isEmpty()
+        if (!isOwnProfile && !isActualWebhook && userId != 0L) {
             addHeaderTransferButton(
                 container = container,
-                marginEndDp = 10,
+                marginEndDp = if (voiceParticipantExtras?.showHeaderActions == true) 50 else 10,
                 onClick = {
                     dismiss()
                     val l = listener
@@ -276,6 +283,37 @@ class UserProfileBottomSheet(
         )
 
         return container
+    }
+
+    private fun addHeaderFriendButton(
+        container: FrameLayout,
+        iconTint: Int,
+        onClick: () -> Unit
+    ) {
+        val friendBtn = ImageView(context).apply {
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            setImageDrawable(MezonIcon.userPlusIcon.getDrawable(context).apply {
+                colorFilter = PorterDuffColorFilter(iconTint, PorterDuff.Mode.SRC_IN)
+            })
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(theme.serverRailBg)
+            }
+            setPadding(LayoutHelper.dp(6), LayoutHelper.dp(6), LayoutHelper.dp(6), LayoutHelper.dp(6))
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                dismiss()
+                onClick()
+            }
+        }
+        container.addView(
+            friendBtn,
+            FrameLayout.LayoutParams(LayoutHelper.dp(32), LayoutHelper.dp(32), Gravity.TOP or Gravity.END).apply {
+                topMargin = LayoutHelper.dp(10)
+                marginEnd = LayoutHelper.dp(10)
+            }
+        )
     }
 
     private fun addHeaderTransferButton(
@@ -370,7 +408,8 @@ class UserProfileBottomSheet(
             ))
         }
 
-        if (userId != 0L) {
+        val isActualWebhook = isWebhook || username.isEmpty()
+        if (voiceParticipantExtras == null && userId != 0L && !isActualWebhook) {
             val actionsRow = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
             }

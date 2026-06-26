@@ -104,6 +104,46 @@ class VoiceOverlayManager(
         anim.start()
     }
 
+    fun minimizeStream(channelLabel: String, channelAvatarUrl: String?) {
+        if (state != State.EXPANDED) return
+        currentAnimator?.cancel()
+
+        val full = fullScreenView ?: return
+
+        val overlay = miniOverlay ?: VoiceOverlayView(rootContainer.context, themeColors).also {
+            it.onTapExpand = { onExpandRequest?.invoke() }
+            miniOverlay = it
+        }
+        overlay.setStreamContent(channelLabel, channelAvatarUrl)
+
+        val anim = ValueAnimator.ofFloat(1f, 0f)
+        anim.duration = ANIM_DURATION
+        anim.interpolator = DecelerateInterpolator()
+        anim.addUpdateListener { va ->
+            val f = va.animatedValue as Float
+            full.alpha = f
+        }
+        anim.addListener(object : android.animation.AnimatorListenerAdapter() {
+            override fun onAnimationEnd(animation: android.animation.Animator) {
+                overlayContainer.removeAllViews()
+                val lp = FrameLayout.LayoutParams(MINI_W, MINI_H, Gravity.TOP or Gravity.START)
+                lp.topMargin = MINI_MARGIN
+                lp.leftMargin = MINI_MARGIN
+                overlayContainer.addView(overlay, lp)
+                overlayContainer.isClickable = false
+                overlayContainer.isFocusable = false
+                state = State.MINIMIZED
+            }
+        })
+        currentAnimator = anim
+        anim.start()
+    }
+
+    fun updateMiniStream(channelLabel: String, channelAvatarUrl: String?) {
+        if (state != State.MINIMIZED) return
+        miniOverlay?.setStreamContent(channelLabel, channelAvatarUrl)
+    }
+
     fun expand() {
         if (state != State.MINIMIZED) return
         currentAnimator?.cancel()

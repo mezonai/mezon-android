@@ -1427,9 +1427,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             shareContactLayout.clear()
         }
         val hasEmbedPayload = !hasCallLogCard && !hasShareContactCard && isEmbedOrComponentsPayload(msg.content)
-        val hasText = !hasCallLogCard && !msg.isPollMessage && !hasShareContactCard &&
+        val hasText = !hasCallLogCard && !msg.isPollMessage &&
             parsedContent.isNotBlank() && parsedContent != "[file]" && parsedContent != "[embed]" &&
-            parsedContent != "[contact]" &&
+            parsedContent != "[Contact]" &&
             (!hasEmbedPayload || hasExplicitTextBody)
         contentLayout = if (hasText) {
             val content = msg.content
@@ -2504,15 +2504,17 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     if (hasReply) reacBaseY += REPLY_ROW_HEIGHT + REPLY_V_GAP
                     senderLayout?.let { reacBaseY += it.height + GAP_V_INNER }
                     forwardLayout?.let { reacBaseY += it.height + GAP_V_INNER }
-                    if (messageEntity?.isPollMessage == true && pollParsed != null) {
-                        reacBaseY += pollLayoutHelper.blockHeight + GAP_V_INNER
-                    }
-                    if (hasCallLogCard) {
-                        reacBaseY += callLogCardHeight + GAP_V_INNER
-                    } else {
                     contentLayout?.let {
                         reacBaseY += it.height + (if (ogpData != null || linkInviteBlock.isVisible) LINK_INVITE_V_MARGIN else GAP_V_INNER)
                     }
+                    if (messageEntity?.isPollMessage == true && pollParsed != null) {
+                        reacBaseY += pollLayoutHelper.blockHeight + GAP_V_INNER
+                    }
+                    if (hasShareContactCard) {
+                        reacBaseY += shareContactLayout.blockHeight + GAP_V_INNER
+                    }
+                    if (hasCallLogCard) {
+                        reacBaseY += callLogCardHeight + GAP_V_INNER
                     }
                     if (ogpData != null) {
                         reacBaseY += GAP_V_INNER
@@ -3075,6 +3077,20 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             yOff += it.height + GAP_V_INNER
         }
 
+        if (hasEphemeralDecor) {
+            EphemeralMessageUi.drawBubbleBackground(canvas, theme, ephemeralDecorRect)
+        }
+
+        contentLayout?.let {
+            contentLayoutLeft = contentLeft
+            contentLayoutTop = yOff.toInt()
+            canvas.save()
+            canvas.translate(contentLeft.toFloat(), yOff)
+            it.draw(canvas)
+            canvas.restore()
+            yOff += it.height + (if (ogpData != null || linkInviteBlock.isVisible) LINK_INVITE_V_MARGIN else GAP_V_INNER)
+        }
+
         if (pollParsed != null && msg.isPollMessage) {
             val pl = pollBridge?.pollForLayout(msg.id, pollParsed!!) ?: pollParsed!!
             val st = pollBridge?.getLocalState(msg.id) ?: PollLocalState()
@@ -3095,27 +3111,13 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             shareContactLayout.draw(canvas, xCard, yOff)
             syncShareContactHitRect(contentLeft)
             yOff += shareContactLayout.blockHeight + GAP_V_INNER
-        } else if (!hasShareContactCard) {
+        } else {
             shareContactHitRect.setEmpty()
             shareContactCardDrawTopY = Float.NaN
         }
 
         if (hasCallLogCard) {
             yOff = drawCallLogCard(canvas, contentLeft.toFloat(), yOff) + GAP_V_INNER
-        } else if (!hasShareContactCard) {
-            if (hasEphemeralDecor) {
-                EphemeralMessageUi.drawBubbleBackground(canvas, theme, ephemeralDecorRect)
-            }
-
-            contentLayout?.let {
-                contentLayoutLeft = contentLeft
-                contentLayoutTop = yOff.toInt()
-                canvas.save()
-                canvas.translate(contentLeft.toFloat(), yOff)
-                it.draw(canvas)
-                canvas.restore()
-                yOff += it.height + (if (ogpData != null || linkInviteBlock.isVisible) LINK_INVITE_V_MARGIN else GAP_V_INNER)
-            }
         }
 
         if (ogpData != null) {

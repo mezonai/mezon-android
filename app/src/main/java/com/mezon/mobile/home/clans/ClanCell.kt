@@ -185,6 +185,11 @@ class ClanCell(
         )
     }
 
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        currentClan?.let { loadLogoIfNeeded(it) }
+    }
+
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         logoCancellable?.cancel()

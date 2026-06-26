@@ -45,6 +45,20 @@ fun plainSourceUrlFromImgproxy(processedUrl: String): String? {
 
 private val AVATAR_BUCKETS_PX = intArrayOf(64, 96, 144, 192, 256)
 
+fun absoluteResourceUrl(raw: String): String {
+    val t = raw.trim()
+    if (t.isEmpty()) return ""
+    if (t.startsWith("http://") || t.startsWith("https://")) {
+        if (t.startsWith("http://") && (t.contains("cdn.mezon") || t.contains("profile.mezon"))) {
+            return "https://${t.removePrefix("http://")}"
+        }
+        return t
+    }
+    if (t.startsWith("//")) return "https:$t"
+    val base = BuildConfig.MEZON_BASE_IMG_URL.trimEnd('/')
+    return if (t.startsWith("/")) "$base$t" else "$base/$t"
+}
+
 fun avatarImgproxyUrl(sourceUrl: String, sizePx: Int): String {
     if (sourceUrl.isEmpty()) return sourceUrl
     val bucket = AVATAR_BUCKETS_PX.firstOrNull { it >= sizePx } ?: AVATAR_BUCKETS_PX.last()

@@ -85,7 +85,7 @@ class IncomingCallFcmHandler @Inject constructor(
             .putString("incoming_call", offerJson)
             .commit()
         mainHandler.post {
-            if (MainActivity.isResumed) {
+            if (MainActivity.isResumed && !callManager.isDeviceLockedOrScreenOff()) {
                 return@post
             }
             callManager.showIncomingCall(

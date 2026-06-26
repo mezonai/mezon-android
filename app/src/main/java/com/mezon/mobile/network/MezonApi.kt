@@ -133,6 +133,7 @@ import com.mezon.mezon.api.sessionRefreshRequest
 import com.mezon.mezon.api.Session
 import com.mezon.mezon.api.updateUsernameRequest
 import com.mezon.mezon.api.GenerateMeetTokenResponse
+import com.mezon.mezon.api.StreamingChannelUserList
 import com.mezon.mezon.api.VoiceChannelUserList
 import com.mezon.mezon.api.generateMeetTokenRequest
 import com.mezon.mezon.api.meetParticipantRequest
@@ -2569,6 +2570,21 @@ class MezonApi @Inject constructor(
         }
         val bytes = rpc(apiUrl, token, "ListChannelVoiceUsers", request.toByteArray())
         return VoiceChannelUserList.parseFrom(bytes)
+    }
+
+    suspend fun listStreamingChannelUsers(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+    ): StreamingChannelUserList {
+        val request = listChannelUsersRequest {
+            this.clanId = clanId
+            this.limit = 100
+            this.state = 1
+            this.channelType = 6
+        }
+        val bytes = rpc(apiUrl, token, "ListStreamingChannelUsers", request.toByteArray())
+        return StreamingChannelUserList.parseFrom(bytes)
     }
 
     suspend fun removeMeetParticipant(
