@@ -238,7 +238,8 @@ class UserProfileBottomSheet(
             addHeaderFriendButton(container, textColor, ex.onFriendClick)
         }
 
-        if (!isOwnProfile && !isWebhook && userId != 0L) {
+        val isActualWebhook = isWebhook || username.isEmpty()
+        if (!isOwnProfile && !isActualWebhook && userId != 0L) {
             addHeaderTransferButton(
                 container = container,
                 marginEndDp = if (voiceParticipantExtras?.showHeaderActions == true) 50 else 10,
@@ -405,7 +406,8 @@ class UserProfileBottomSheet(
             ))
         }
 
-        if (voiceParticipantExtras == null && userId != 0L) {
+        val isActualWebhook = isWebhook || username.isEmpty()
+        if (voiceParticipantExtras == null && userId != 0L && !isActualWebhook) {
             val actionsRow = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
             }
