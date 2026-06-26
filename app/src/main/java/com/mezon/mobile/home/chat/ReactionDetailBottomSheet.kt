@@ -152,9 +152,12 @@ class ReactionDetailBottomSheet(
             val emojiSize = LayoutHelper.dp(24)
             if (url != null) {
                 fun loadTabEmoji(loadUrl: String, isRetry: Boolean) {
-                    loader.load(loadUrl, emojiSize, emojiSize,
-                        onSuccess = { bmp ->
-                            emojiIv.setImageBitmap(bmp)
+                    loader.loadDrawable(loadUrl, emojiSize, emojiSize,
+                        onSuccess = { drawable ->
+                            emojiIv.setImageDrawable(drawable)
+                            if (drawable is android.graphics.drawable.AnimatedImageDrawable) {
+                                drawable.start()
+                            }
                         },
                         onError = {
                             if (!isRetry) {

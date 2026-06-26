@@ -48,7 +48,13 @@ fun ChannelDescription.resolveOtherParticipantIndex(currentUserId: Long): Int {
 fun ChannelDescription.resolveParticipantFallbackIndex(currentUserId: Long): Int {
     val other = resolveOtherParticipantIndex(currentUserId)
     if (other >= 0) return other
-    if (userIdsCount == 0 && (usernamesCount > 0 || displayNamesCount > 0 || avatarsCount > 0)) {
+    if (userIdsCount > 0) {
+        for (i in 0 until userIdsCount) {
+            if (getUserIds(i) == currentUserId) return i
+        }
+        return 0
+    }
+    if (usernamesCount > 0 || displayNamesCount > 0 || avatarsCount > 0) {
         return 0
     }
     return -1

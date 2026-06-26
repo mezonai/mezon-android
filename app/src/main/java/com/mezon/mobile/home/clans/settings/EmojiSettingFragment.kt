@@ -11,6 +11,8 @@ import android.graphics.Typeface
 import android.os.Build
 import android.net.Uri
 import android.content.DialogInterface
+import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
 import android.os.Bundle
 import android.text.TextUtils
 import android.view.Gravity
@@ -74,6 +76,9 @@ class EmojiSettingFragment : BaseFragment() {
         private const val REQUEST_PICK_EMOJI = 4021
         private const val MAX_CLAN_EMOJI_SLOTS = 250
         private const val MAX_UPLOAD_BYTES = 256 * 1024
+        private const val EMOJI_ROW_IMAGE_WEIGHT = 0.22f
+        private const val EMOJI_ROW_NAME_WEIGHT = 0.5f
+        private const val EMOJI_ROW_UPLOADER_WEIGHT = 0.28f
 
         fun newInstance(clanId: Long): EmojiSettingFragment =
             EmojiSettingFragment().apply {
@@ -732,6 +737,8 @@ class EmojiSettingFragment : BaseFragment() {
 
         private val viewTypeHeader = 1
         private val viewTypeRow = 2
+        private val viewTypeEmpty = 3
+        private val emptyRowItemId = 1L
 
         private var rows: List<EmojiItem> = emptyList()
         private var appliedBindEpoch = 0
@@ -746,16 +753,24 @@ class EmojiSettingFragment : BaseFragment() {
             val oldEpoch = appliedBindEpoch
             val newEpoch = emojiListBindEpoch
             val result = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
-                override fun getOldListSize() = 1 + oldRows.size
-                override fun getNewListSize() = 1 + newRows.size
+                override fun getOldListSize() = if (oldRows.isEmpty()) 2 else 1 + oldRows.size
+                override fun getNewListSize() = if (newRows.isEmpty()) 2 else 1 + newRows.size
                 override fun areItemsTheSame(oldPos: Int, newPos: Int): Boolean {
                     if (oldPos == 0 && newPos == 0) return true
                     if (oldPos == 0 || newPos == 0) return false
+                    val oldEmpty = oldRows.isEmpty()
+                    val newEmpty = newRows.isEmpty()
+                    if (oldEmpty && newEmpty) return true
+                    if (oldEmpty || newEmpty) return false
                     return oldRows[oldPos - 1].id == newRows[newPos - 1].id
                 }
                 override fun areContentsTheSame(oldPos: Int, newPos: Int): Boolean {
                     if (oldPos == 0 && newPos == 0) return true
                     if (oldPos == 0 || newPos == 0) return false
+                    val oldEmpty = oldRows.isEmpty()
+                    val newEmpty = newRows.isEmpty()
+                    if (oldEmpty && newEmpty) return true
+                    if (oldEmpty || newEmpty) return false
                     if (oldEpoch != newEpoch) return false
                     return oldRows[oldPos - 1] == newRows[newPos - 1]
                 }
@@ -767,15 +782,19 @@ class EmojiSettingFragment : BaseFragment() {
 
         override fun getItemId(position: Int): Long {
             if (position == 0) return 0L
+            if (rows.isEmpty()) return emptyRowItemId
             val rowIndex = position - 1
             if (rowIndex !in rows.indices) return RecyclerView.NO_ID
             return rows[rowIndex].id.toLongOrNull() ?: rows[rowIndex].id.hashCode().toLong()
         }
 
-        override fun getItemCount(): Int = 1 + rows.size
+        override fun getItemCount(): Int = if (rows.isEmpty()) 2 else 1 + rows.size
 
-        override fun getItemViewType(position: Int): Int =
-            if (position == 0) viewTypeHeader else viewTypeRow
+        override fun getItemViewType(position: Int): Int {
+            if (position == 0) return viewTypeHeader
+            if (rows.isEmpty()) return viewTypeEmpty
+            return viewTypeRow
+        }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
             val ctx = parent.context
@@ -784,20 +803,39 @@ class EmojiSettingFragment : BaseFragment() {
                     orientation = LinearLayout.VERTICAL
                     setPadding(LayoutHelper.dp(16f), LayoutHelper.dp(8f), LayoutHelper.dp(16f), LayoutHelper.dp(8f))
                 }
-                val uploadWrap = LinearLayout(ctx).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER_HORIZONTAL
+                val uploadButton = TextView(ctx).apply {
+                    text = "  " + getString(R.string.clan_emoji_upload_button)
+                    textSize = 15f
+                    setTextColor(android.graphics.Color.WHITE)
+                    typeface = Typeface.DEFAULT_BOLD
+                    gravity = Gravity.CENTER
+                    setPadding(LayoutHelper.dp(24f), 0, LayoutHelper.dp(24f), 0)
+                    
+                    val icon = MezonIcon.uploadPlusIcon.getDrawable(ctx, android.graphics.Color.WHITE)
+                    val iconSize = LayoutHelper.dp(20f)
+                    icon.setBounds(0, 0, iconSize, iconSize)
+                    setCompoundDrawables(icon, null, null, null)
+
+                    val r = LayoutHelper.dp(22f).toFloat()
+                    background = RippleDrawable(
+                        ColorStateList.valueOf(0x26FFFFFF),
+                        GradientDrawable().apply {
+                            setColor(themeColors.blurple)
+                            cornerRadius = r
+                        },
+                        GradientDrawable().apply {
+                            setColor(android.graphics.Color.WHITE)
+                            cornerRadius = r
+                        }
+                    )
+                    isClickable = true
+                    isFocusable = true
+                    setOnClickListener { openImagePicker() }
                 }
-                uploadWrap.addView(
-                    ClanSettingsUiHelpers.buildHorizontalActionButton(
-                        ctx,
-                        themeColors,
-                        MezonIcon.faceIcon,
-                        getString(R.string.clan_emoji_upload_button),
-                        Runnable { openImagePicker() },
-                    ),
-                )
-                outer.addView(uploadWrap, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+                outer.addView(uploadButton, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, 44, gravity = Gravity.CENTER_HORIZONTAL).apply {
+                    topMargin = LayoutHelper.dp(16f)
+                    bottomMargin = LayoutHelper.dp(8f)
+                })
 
                 outer.addView(
                     TextView(ctx).apply {
@@ -843,7 +881,7 @@ class EmojiSettingFragment : BaseFragment() {
                         typeface = Typeface.DEFAULT_BOLD
                         setTextColor(themeColors.textDisabled)
                     },
-                    LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 0.22f),
+                    LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, EMOJI_ROW_IMAGE_WEIGHT),
                 )
                 labels.addView(
                     TextView(ctx).apply {
@@ -852,7 +890,7 @@ class EmojiSettingFragment : BaseFragment() {
                         typeface = Typeface.DEFAULT_BOLD
                         setTextColor(themeColors.textDisabled)
                     },
-                    LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 0.38f),
+                    LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, EMOJI_ROW_NAME_WEIGHT),
                 )
                 labels.addView(
                     TextView(ctx).apply {
@@ -862,7 +900,7 @@ class EmojiSettingFragment : BaseFragment() {
                         setTextColor(themeColors.textDisabled)
                         gravity = Gravity.END
                     },
-                    LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 0.4f),
+                    LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, EMOJI_ROW_UPLOADER_WEIGHT),
                 )
                 labels.addView(
                     View(ctx),
@@ -875,6 +913,21 @@ class EmojiSettingFragment : BaseFragment() {
                     RecyclerView.LayoutParams.WRAP_CONTENT,
                 )
                 return object : RecyclerView.ViewHolder(outer) {}
+            }
+
+            if (viewType == viewTypeEmpty) {
+                val emptyTv = TextView(ctx).apply {
+                    text = getString(R.string.clan_emoji_empty_list)
+                    textSize = 15f
+                    setTextColor(themeColors.textDisabled)
+                    gravity = Gravity.CENTER
+                    setPadding(0, LayoutHelper.dp(40f), 0, LayoutHelper.dp(40f))
+                }
+                emptyTv.layoutParams = RecyclerView.LayoutParams(
+                    RecyclerView.LayoutParams.MATCH_PARENT,
+                    RecyclerView.LayoutParams.WRAP_CONTENT,
+                )
+                return object : RecyclerView.ViewHolder(emptyTv) {}
             }
 
             val row = LinearLayout(ctx).apply {
@@ -897,30 +950,81 @@ class EmojiSettingFragment : BaseFragment() {
                 emojiIv,
                 FrameLayout.LayoutParams(LayoutHelper.dp(40), LayoutHelper.dp(40), Gravity.CENTER),
             )
+            val forSaleBadge = ImageView(ctx).apply {
+                setImageDrawable(MezonIcon.saleIcon.getDrawable(ctx))
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                visibility = View.GONE
+            }
+            emojiCol.addView(
+                forSaleBadge,
+                FrameLayout.LayoutParams(
+                    LayoutHelper.dp(16),
+                    LayoutHelper.dp(16),
+                    Gravity.TOP or Gravity.END,
+                )
+            )
             row.addView(
                 emojiCol,
-                LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 0.22f, Gravity.CENTER_VERTICAL),
+                LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, EMOJI_ROW_IMAGE_WEIGHT, Gravity.CENTER_VERTICAL),
             )
 
-            val nameCol = LinearLayout(ctx).apply {
+            val nameSlot = FrameLayout(ctx)
+            val nameDisplay = TextView(ctx).apply {
+                textSize = 15f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(themeColors.colorText)
+                ellipsize = TextUtils.TruncateAt.END
+                maxLines = 1
+            }
+            val nameEditor = LinearLayout(ctx).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
+                visibility = View.GONE
+            }
+            val colonLabelStyle: TextView.() -> Unit = {
+                text = ":"
+                textSize = 15f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(themeColors.colorText)
+                includeFontPadding = false
+            }
+            val colonSlot = LayoutHelper.dp(8f)
+            val colonPrefix = TextView(ctx).apply {
+                colonLabelStyle()
+                gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            }
+            val colonSuffix = TextView(ctx).apply {
+                colonLabelStyle()
+                gravity = Gravity.START or Gravity.CENTER_VERTICAL
             }
             val edit = EditText(ctx).apply {
                 textSize = 15f
+                typeface = Typeface.DEFAULT_BOLD
                 setTextColor(themeColors.colorText)
                 setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                isSingleLine = true
                 maxLines = 1
-                ellipsize = TextUtils.TruncateAt.END
-                setHorizontallyScrolling(false)
                 imeOptions = EditorInfo.IME_ACTION_DONE
+                minimumWidth = 0
+                setHorizontallyScrolling(true)
+                setPadding(0, 0, 0, 0)
                 setCompoundDrawables(null, null, null, null)
                 compoundDrawablePadding = 0
             }
-            nameCol.addView(edit, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f))
+            nameEditor.addView(colonPrefix, LayoutHelper.createLinear(colonSlot, LayoutHelper.WRAP_CONTENT))
+            nameEditor.addView(edit, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f))
+            nameEditor.addView(colonSuffix, LayoutHelper.createLinear(colonSlot, LayoutHelper.WRAP_CONTENT))
+            nameSlot.addView(
+                nameDisplay,
+                FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT),
+            )
+            nameSlot.addView(
+                nameEditor,
+                FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT),
+            )
             row.addView(
-                nameCol,
-                LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 0.38f, Gravity.CENTER_VERTICAL),
+                nameSlot,
+                LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, EMOJI_ROW_NAME_WEIGHT, Gravity.CENTER_VERTICAL),
             )
 
             val av = AvatarView(ctx).apply {
@@ -938,7 +1042,7 @@ class EmojiSettingFragment : BaseFragment() {
             )
             row.addView(
                 uploaderCol,
-                LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 0.4f, Gravity.CENTER_VERTICAL),
+                LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, EMOJI_ROW_UPLOADER_WEIGHT, Gravity.CENTER_VERTICAL),
             )
 
             val deleteBtn = ImageView(ctx).apply {
@@ -960,7 +1064,17 @@ class EmojiSettingFragment : BaseFragment() {
                 LayoutHelper.createLinear(40, LayoutHelper.WRAP_CONTENT, 0f, Gravity.CENTER_VERTICAL),
             )
 
-            val vh = RowVH(row, emojiIv, edit, av, deleteBtn)
+            val vh = RowVH(row, emojiIv, nameDisplay, nameEditor, edit, av, deleteBtn, forSaleBadge)
+            edit.onFocusChangeListener = View.OnFocusChangeListener { _, hasFocus ->
+                if (!hasFocus) {
+                    val item = vh.item ?: return@OnFocusChangeListener
+                    commitEmojiRename(item, edit.text?.toString().orEmpty())
+                    vh.showNameDisplay(item.shortname)
+                }
+            }
+            nameDisplay.setOnClickListener {
+                if (edit.isEnabled) vh.beginNameEdit()
+            }
             deleteBtn.setOnClickListener {
                 vh.item?.let { confirmDelete(it) }
             }
@@ -968,10 +1082,13 @@ class EmojiSettingFragment : BaseFragment() {
         }
 
         override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
-            if (getItemViewType(position) == viewTypeHeader) return
+            val type = getItemViewType(position)
+            if (type == viewTypeHeader || type == viewTypeEmpty) return
             val item = rows[position - 1]
             holder as RowVH
             holder.item = item
+
+            holder.forSaleBadge.visibility = if (item.isForSale) View.VISIBLE else View.GONE
 
             val url = item.src.ifBlank { getEmojiUrl(item.id).orEmpty() }
             if (url.isNotBlank()) {
@@ -986,19 +1103,13 @@ class EmojiSettingFragment : BaseFragment() {
                 holder.emojiIv.setImageDrawable(null)
             }
 
-            val inner = item.shortname.trim(':')
-            holder.edit.setText(inner)
+            holder.showNameDisplay(item.shortname)
 
             val allow = canEditOrDelete(item)
             holder.edit.isEnabled = allow
             holder.edit.isFocusable = allow
             holder.edit.isFocusableInTouchMode = allow
-
-            holder.edit.onFocusChangeListener = View.OnFocusChangeListener { _, hasFocus ->
-                if (!hasFocus && holder.item?.id == item.id) {
-                    commitEmojiRename(item, holder.edit.text?.toString().orEmpty())
-                }
-            }
+            holder.nameDisplay.isClickable = allow
 
             val creatorId = item.creatorId.toLongOrNull() ?: 0L
             val m = resolveMember(creatorId)
@@ -1011,12 +1122,36 @@ class EmojiSettingFragment : BaseFragment() {
             holder.deleteBtn.visibility = if (allow) View.VISIBLE else View.INVISIBLE
         }
 
+        private fun RowVH.showNameDisplay(shortname: String) {
+            edit.clearFocus()
+            edit.setText(shortname.trim(':'))
+            nameDisplay.text = shortname
+            nameDisplay.visibility = View.VISIBLE
+            nameEditor.visibility = View.GONE
+        }
+
+        private fun RowVH.beginNameEdit() {
+            nameDisplay.visibility = View.GONE
+            nameEditor.visibility = View.VISIBLE
+            edit.requestFocus()
+            edit.post {
+                edit.setSelection(edit.text?.length ?: 0)
+                edit.layout?.let { layout ->
+                    val scrollX = layout.getPrimaryHorizontal(edit.selectionStart).toInt()
+                    edit.scrollTo(scrollX.coerceAtLeast(0), 0)
+                }
+            }
+        }
+
         private inner class RowVH(
             view: View,
             val emojiIv: ImageView,
+            val nameDisplay: TextView,
+            val nameEditor: LinearLayout,
             val edit: EditText,
             val avatarView: AvatarView,
             val deleteBtn: ImageView,
+            val forSaleBadge: ImageView,
         ) : RecyclerView.ViewHolder(view) {
             var item: EmojiItem? = null
         }

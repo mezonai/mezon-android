@@ -500,6 +500,7 @@ class SharingFragment(
         val previewStrip = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             setBackgroundColor(themeColors.channelPanelBg)
+            setPadding(LayoutHelper.dp(12f), LayoutHelper.dp(4f), LayoutHelper.dp(12f), LayoutHelper.dp(4f))
         }
         val borderAccent = View(context).apply {
             setBackgroundColor(themeColors.outline)

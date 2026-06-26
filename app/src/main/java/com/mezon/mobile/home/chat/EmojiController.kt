@@ -141,7 +141,7 @@ class EmojiController @Inject constructor(
     fun searchEmojis(query: String): List<EmojiItem> {
         val lower = query.lowercase()
         return synchronized(this) {
-            emojis.filter { it.shortname.lowercase().contains(lower) }
+            emojis.filter { it.shortname.lowercase().contains(lower) }.distinctBy { it.id }
         }
     }
 

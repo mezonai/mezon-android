@@ -78,7 +78,7 @@ private fun parseEmbedPreview(obj: JSONObject): String {
     val fields = embed.optJSONArray("fields") ?: return ""
     if (fields.length() == 0) return ""
     val firstVal = fields.optJSONObject(0)?.optString("value", "")?.trim().orEmpty()
-    if (firstVal == SHARE_CONTACT_KEY) return "[contact]"
+    if (firstVal == SHARE_CONTACT_KEY) return "[Contact]"
     return ""
 }
 
@@ -286,12 +286,16 @@ data class RestoredInputContent(
 )
 
 fun restoreInputFromContent(content: String): RestoredInputContent {
-    val cleanText = parseContentText(content)
+    var cleanText = parseContentText(content)
     if (content.isBlank() || cleanText.isBlank()) {
         return RestoredInputContent(cleanText, emptyList(), emptyList(), emptyMap())
     }
     val obj = try { JSONObject(content) } catch (_: Exception) {
         return RestoredInputContent(cleanText, emptyList(), emptyList(), emptyMap())
+    }
+
+    if (cleanText == "[Contact]" && obj.optString("t", "").trim().isEmpty()) {
+        cleanText = ""
     }
 
     val inserts = HashMap<Int, StringBuilder>()
