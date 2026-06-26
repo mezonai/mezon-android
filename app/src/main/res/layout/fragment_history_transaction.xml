@@ -4,7 +4,7 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#0A0B10">
+    tools:background="#0A0B10">
 
     <androidx.constraintlayout.widget.ConstraintLayout
         android:id="@+id/walletCard"
@@ -12,7 +12,7 @@
         android:layout_height="wrap_content"
         android:layout_marginHorizontal="16dp"
         android:layout_marginTop="16dp"
-        android:background="@drawable/bg_wallet_card"
+        tools:background="@drawable/bg_wallet_card"
         android:padding="20dp"
         app:layout_constraintTop_toTopOf="parent">
 
@@ -21,7 +21,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/send_token_debit_account"
-            android:textColor="#9CA3AF"
+            tools:textColor="#9CA3AF"
             android:textSize="14sp"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toTopOf="parent" />
@@ -30,7 +30,7 @@
             android:id="@+id/tvAccountName"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textColor="@android:color/white"
+            tools:textColor="@android:color/white"
             android:textSize="14sp"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintTop_toTopOf="parent"
@@ -42,7 +42,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="20dp"
             android:text="@string/send_token_balance_label"
-            android:textColor="#9CA3AF"
+            tools:textColor="#9CA3AF"
             android:textSize="14sp"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@+id/tvAccountLabel" />
@@ -52,7 +52,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
-            android:textColor="@android:color/white"
+            tools:textColor="@android:color/white"
             android:textSize="18sp"
             android:textStyle="bold"
             app:layout_constraintEnd_toEndOf="parent"
@@ -67,7 +67,7 @@
         android:layout_height="40dp"
         android:layout_marginHorizontal="16dp"
         android:layout_marginTop="16dp"
-        android:background="@drawable/bg_transaction_item"
+        tools:background="@drawable/bg_transaction_item"
         android:padding="4dp"
         android:orientation="horizontal"
         app:layout_constraintTop_toBottomOf="@+id/walletCard">
@@ -79,9 +79,9 @@
             android:layout_weight="1"
             android:gravity="center"
             android:text="@string/profile_history_transaction_all"
-            android:textColor="@android:color/white"
+            tools:textColor="@android:color/white"
             android:textSize="14sp"
-            android:background="@drawable/bg_tab_selected" />
+            tools:background="@drawable/bg_tab_selected" />
 
         <TextView
             android:id="@+id/tabIncoming"
@@ -90,7 +90,7 @@
             android:layout_weight="1"
             android:gravity="center"
             android:text="@string/profile_history_transaction_incoming"
-            android:textColor="#9CA3AF"
+            tools:textColor="#9CA3AF"
             android:textSize="14sp" />
 
         <TextView
@@ -100,7 +100,7 @@
             android:layout_weight="1"
             android:gravity="center"
             android:text="@string/profile_history_transaction_outgoing"
-            android:textColor="#9CA3AF"
+            tools:textColor="#9CA3AF"
             android:textSize="14sp" />
 
     </LinearLayout>

@@ -392,6 +392,7 @@
     <string name="invite_send_link_label">Hoặc gửi link mời clan cho bạn bè</string>
     <string name="invite_copy">Sao chép</string>
     <string name="invite_copied">Đã sao chép</string>
+    <string name="transaction_hash_copied">Đã sao chép mã giao dịch</string>
     <string name="invite_share_qr">Chia sẻ QR</string>
     <string name="invite_save_qr">Lưu QR</string>
     <string name="invite_qr_saved">Đã lưu QR vào thư viện</string>

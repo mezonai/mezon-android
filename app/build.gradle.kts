@@ -58,6 +58,11 @@ android {
         fun buildStr(name: String) {
             buildConfigField("String", name, "\"${esc(req(name))}\"")
         }
+        fun buildStrOpt(name: String, fallback: String) {
+            val v = mezonSecrets.getProperty(name)?.trim()
+            val finalVal = if (v.isNullOrEmpty()) fallback else v
+            buildConfigField("String", name, "\"${esc(finalVal)}\"")
+        }
         fun buildBool(name: String) {
             val v = req(name).lowercase()
             val lit = when (v) {
@@ -121,6 +126,10 @@ android {
         buildInt("MEZON_MAX_LENGTH_NAME_ALLOWED")
         buildStr("MEZON_MMN_API_URL")
         buildStr("MEZON_ZK_API_URL")
+        
+        val mmnUrl = mezonSecrets.getProperty("MEZON_MMN_API_URL", "") ?: ""
+        buildStrOpt("MEZON_INDEXER_API_URL", mmnUrl.replace("mmn-api", "indexer-api"))
+        buildStrOpt("MEZON_CHAIN_ID", "1337")
     }
 
     signingConfigs {
@@ -248,6 +257,7 @@ dependencies {
     implementation(libs.livekit.android)
     implementation(libs.photoview)
     implementation(libs.androidx.appcompat)
+    implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("com.otaliastudios:zoomlayout:1.9.0")
     // WebRTC
     implementation(libs.google.webrtc)

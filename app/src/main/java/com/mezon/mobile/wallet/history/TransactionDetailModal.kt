@@ -19,6 +19,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -97,13 +98,15 @@ class TransactionDetailModal(
             ToastOverlay(context, themeColors).show(
                 parentView,
                 ToastOverlay.ToastType.SUCCESS,
-                context.getString(R.string.invite_copied)
+                context.getString(R.string.transaction_hash_copied)
             )
         }
 
         scope.launch {
             try {
-                val tx = walletController.indexer.getTransactionByHash(transactionHash)
+                val tx = withContext(Dispatchers.IO) {
+                    walletController.indexer.getTransactionByHash(transactionHash)
+                }
                 if (tx != null) {
                     tvIdValue.text = tx.hash
                     

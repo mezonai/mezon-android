@@ -64,8 +64,8 @@ class WalletController @Inject constructor(
     val indexer: IndexerClient by lazy {
         createIndexerClient(
             IndexerClientConfig(
-                endpoint = BuildConfig.MEZON_MMN_API_URL.replace("mmn-api", "indexer-api"),
-                chainId = "1337"
+                endpoint = BuildConfig.MEZON_INDEXER_API_URL,
+                chainId = BuildConfig.MEZON_CHAIN_ID
             ),
             httpClient
         )
@@ -201,6 +201,29 @@ class WalletController @Inject constructor(
     }
 
     fun isReadyToSendTransaction(): Boolean = signing != null && _isWalletReady.value
+
+    fun fetchWalletDetail() {
+        appScope.launch(ioDispatcher) {
+            val session = sessionManager.sessionFlow.firstOrNull() ?: return@launch
+            if (session.userId.isEmpty()) return@launch
+            runCatching {
+                val acc = mmn.getAccountByUserId(session.userId)
+                val newDetail = WalletDetail(
+                    address = acc.address,
+                    balance = acc.balance,
+                    accountNonce = acc.nonce.coerceIn(0, Int.MAX_VALUE.toLong()).toInt(),
+                    lastBalanceUpdate = 0
+                )
+                _walletDetail.value = newDetail
+                
+                val zk = _zkProofs.value ?: return@runCatching
+                val eph = _ephemeralKeyPair.value ?: return@runCatching
+                walletCacheStore.save(session, zk, eph, newDetail)
+            }.onFailure { e ->
+                Log.w(TAG, "fetchWalletDetail failed", e)
+            }
+        }
+    }
 
     suspend fun sendTokenTransfer(
         senderId: String,

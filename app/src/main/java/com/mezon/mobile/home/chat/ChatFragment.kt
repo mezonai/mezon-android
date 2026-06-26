@@ -6462,7 +6462,6 @@ open class ChatFragment : BaseFragment() {
                 }
 
                 val amountRaw = java.math.BigInteger(GIVE_COFFEE_AMOUNT_HUMAN).multiply(java.math.BigInteger.valueOf(1_000_000L))
-                accountController.reduceBalanceLocally(amountRaw)
                 walletController.reduceBalanceLocally(amountRaw)
 
                 chatController.sendReaction(

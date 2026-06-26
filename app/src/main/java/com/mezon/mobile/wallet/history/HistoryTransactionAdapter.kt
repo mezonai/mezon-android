@@ -22,6 +22,15 @@ class HistoryTransactionAdapter(
 
     private val dateFormat = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
 
+    init {
+        setHasStableIds(true)
+    }
+
+    override fun getItemId(position: Int): Long {
+        val transaction = currentList.getOrNull(position) ?: return RecyclerView.NO_ID
+        return transaction.hash.hashCode().toLong()
+    }
+
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
         val view = LayoutInflater.from(parent.context).inflate(R.layout.item_transaction, parent, false)
         return ViewHolder(view)
@@ -40,7 +49,22 @@ class HistoryTransactionAdapter(
         private val tvId: TextView = itemView.findViewById(R.id.tvId)
         private val tvTime: TextView = itemView.findViewById(R.id.tvTime)
 
+        private val incomingIconBg = android.graphics.drawable.GradientDrawable().apply {
+            cornerRadius = com.mezon.mobile.core.LayoutHelper.dp(8f).toFloat()
+            setColor(Color.parseColor("#1A22C55E"))
+        }
+
+        private val outgoingIconBg = android.graphics.drawable.GradientDrawable().apply {
+            cornerRadius = com.mezon.mobile.core.LayoutHelper.dp(8f).toFloat()
+            setColor(Color.parseColor("#1AEF4444"))
+        }
+
         init {
+            itemView.background = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = com.mezon.mobile.core.LayoutHelper.dp(12f).toFloat()
+                setColor(com.mezon.mobile.core.ThemeColors.instance.surfaceVariant)
+            }
+            
             itemView.setOnClickListener {
                 val position = bindingAdapterPosition
                 if (position != RecyclerView.NO_POSITION) {
@@ -52,28 +76,17 @@ class HistoryTransactionAdapter(
         fun bind(transaction: Transaction) {
             val isIncoming = transaction.toAddress.equals(currentWalletAddress, ignoreCase = true)
             
-            itemView.background = android.graphics.drawable.GradientDrawable().apply {
-                cornerRadius = com.mezon.mobile.core.LayoutHelper.dp(12f).toFloat()
-                setColor(com.mezon.mobile.core.ThemeColors.instance.surfaceVariant)
-            }
-
             if (isIncoming) {
                 ivIcon.setImageResource(R.drawable.ic_chevron_left_24)
                 ivIcon.setColorFilter(Color.parseColor("#22C55E"))
-                iconContainer.background = android.graphics.drawable.GradientDrawable().apply {
-                    cornerRadius = com.mezon.mobile.core.LayoutHelper.dp(8f).toFloat()
-                    setColor(Color.parseColor("#1A22C55E"))
-                }
+                iconContainer.background = incomingIconBg
                 tvAmount.text = "+ ${HistoryTransactionFragment.formatAmount(itemView.context, transaction.value)}"
                 tvAmount.setTextColor(Color.parseColor("#22C55E"))
                 tvStatus.text = itemView.context.getString(R.string.transaction_status_received)
             } else {
                 ivIcon.setImageResource(R.drawable.ic_chevron_right_24)
                 ivIcon.setColorFilter(Color.parseColor("#EF4444"))
-                iconContainer.background = android.graphics.drawable.GradientDrawable().apply {
-                    cornerRadius = com.mezon.mobile.core.LayoutHelper.dp(8f).toFloat()
-                    setColor(Color.parseColor("#1AEF4444"))
-                }
+                iconContainer.background = outgoingIconBg
                 tvAmount.text = "- ${HistoryTransactionFragment.formatAmount(itemView.context, transaction.value)}"
                 tvAmount.setTextColor(Color.parseColor("#EF4444"))
                 tvStatus.text = itemView.context.getString(R.string.transaction_status_sent)

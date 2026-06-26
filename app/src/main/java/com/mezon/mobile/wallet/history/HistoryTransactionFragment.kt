@@ -19,6 +19,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.math.BigDecimal
 import java.text.DecimalFormat
 import java.text.DecimalFormatSymbols
@@ -57,6 +58,13 @@ class HistoryTransactionFragment : BaseFragment() {
     private var activeTabIndex = 0
     private var currentAddress: String = ""
     private var fetchJob: Job? = null
+    private var walletDetailJob: Job? = null
+
+    override fun onFragmentDestroy() {
+        super.onFragmentDestroy()
+        walletDetailJob?.cancel()
+        fetchJob?.cancel()
+    }
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
         walletController = entryPoint.walletController()
@@ -122,13 +130,25 @@ class HistoryTransactionFragment : BaseFragment() {
 
         tvAccountName.text = userController.displayName.ifEmpty { userController.username }
 
-        fragmentScope.launch(Dispatchers.Main) {
+        walletDetailJob = fragmentScope.launch(Dispatchers.Main) {
             walletController.walletDetail.collect { detail ->
                 if (detail != null) {
+                    val addressChanged = currentAddress != detail.address
                     currentAddress = detail.address
                     tvBalance.text = formatAmount(requireContext(), detail.balance)
-                    adapter.currentWalletAddress = currentAddress
-                    adapter.notifyDataSetChanged()
+                    
+                    if (addressChanged) {
+                        adapter.currentWalletAddress = currentAddress
+                        val layoutManager = recyclerView.layoutManager as? LinearLayoutManager
+                        val firstVisible = layoutManager?.findFirstVisibleItemPosition() ?: RecyclerView.NO_POSITION
+                        val lastVisible = layoutManager?.findLastVisibleItemPosition() ?: RecyclerView.NO_POSITION
+                        
+                        if (firstVisible != RecyclerView.NO_POSITION && lastVisible != RecyclerView.NO_POSITION && firstVisible <= lastVisible) {
+                            adapter.notifyItemRangeChanged(firstVisible, lastVisible - firstVisible + 1)
+                        } else if (adapter.itemCount > 0) {
+                            adapter.notifyItemRangeChanged(0, adapter.itemCount)
+                        }
+                    }
                     
                     if (!tabs[0].isInitialLoaded) {
                         loadTransactions(0)
@@ -251,27 +271,31 @@ class HistoryTransactionFragment : BaseFragment() {
 
         fragmentScope.launch(Dispatchers.Main) {
             try {
-                var timestampLt: String? = null
-                var lastHash: String? = null
+                val currentTransactions = tabState.transactions
                 
-                if (isLoadMore && tabState.transactions.isNotEmpty()) {
-                    val lastTx = tabState.transactions.last()
-                    val sdf = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
-                    sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
-                    timestampLt = sdf.format(java.util.Date(lastTx.transactionTimestamp * 1000L))
-                    lastHash = lastTx.hash
+                val response = withContext(Dispatchers.IO) {
+                    var timestampLt: String? = null
+                    var lastHash: String? = null
+                    
+                    if (isLoadMore && currentTransactions.isNotEmpty()) {
+                        val lastTx = currentTransactions.last()
+                        val sdf = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
+                        sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
+                        timestampLt = sdf.format(java.util.Date(lastTx.transactionTimestamp * 1000L))
+                        lastHash = lastTx.hash
+                    }
+
+                    walletController.indexer.getTransactionsByWalletBeforeTimestamp(
+                        wallet = currentAddress,
+                        filter = tabState.filter,
+                        limit = 20,
+                        timestampLt = timestampLt,
+                        lastHash = lastHash
+                    )
                 }
 
-                val response = walletController.indexer.getTransactionsByWalletBeforeTimestamp(
-                    wallet = currentAddress,
-                    filter = tabState.filter,
-                    limit = 20,
-                    timestampLt = timestampLt,
-                    lastHash = lastHash
-                )
-
                 val newTransactions = if (isLoadMore) {
-                    tabState.transactions + (response.data ?: emptyList())
+                    currentTransactions + (response.data ?: emptyList())
                 } else {
                     response.data ?: emptyList()
                 }
