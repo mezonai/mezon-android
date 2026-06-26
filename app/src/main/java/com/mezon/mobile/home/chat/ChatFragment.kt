@@ -4905,9 +4905,8 @@ open class ChatFragment : BaseFragment() {
     private fun showAdvancedFunctionMenu() {
         dismissPasteImagePopup()
         if (!ensureCanSendMessageOrNotify()) return
-        
         if (advancedMenuViewVisible) {
-            openKeyboardFromEmoji()
+            hideAdvancedMenuView()
             return
         }
 
