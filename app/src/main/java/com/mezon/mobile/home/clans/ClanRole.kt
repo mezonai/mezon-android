@@ -2,6 +2,7 @@ package com.mezon.mobile.home.clans
 
 import com.mezon.mezon.api.Permission
 import com.mezon.mezon.api.Role
+import com.mezon.mobile.util.absoluteResourceUrl
 
 data class RolePermissionInfo(
     val permissionId: Long,
@@ -25,6 +26,7 @@ data class ClanRole(
     val rolePermissions: List<RolePermissionInfo>,
     val roleChannelActive: Int,
     val channelIds: List<Long>,
+    val orderRole: Int,
 )
 
 data class PermissionCatalogEntry(
@@ -62,7 +64,7 @@ fun mapProtoRoleToClanRole(proto: Role): ClanRole {
         title = proto.title,
         color = colorInt,
         colorHexRaw = rawColor,
-        iconUrl = proto.roleIcon,
+        iconUrl = absoluteResourceUrl(proto.roleIcon),
         slug = proto.slug,
         permissionSlugs = activeSlugs,
         maxLevelPermission = proto.maxLevelPermission,
@@ -70,6 +72,7 @@ fun mapProtoRoleToClanRole(proto: Role): ClanRole {
         rolePermissions = rolePerms,
         roleChannelActive = proto.roleChannelActive,
         channelIds = proto.channelIdsList.toList(),
+        orderRole = proto.orderRole,
     )
 }
 

@@ -562,14 +562,34 @@ class UserProfileBottomSheet(
             }
         }
         val color = if (role.color != 0) role.color else Color.parseColor("#99aab5")
+        val hasIcon = role.iconUrl.isNotBlank()
+
         row.addView(View(context).apply {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor(color)
             }
         }, LinearLayout.LayoutParams(LayoutHelper.dp(10), LayoutHelper.dp(10)).apply {
-            marginEnd = LayoutHelper.dp(10)
+            marginEnd = if (hasIcon) LayoutHelper.dp(6) else LayoutHelper.dp(8)
         })
+
+        if (hasIcon) {
+            val iconView = ImageView(context).apply {
+                scaleType = ImageView.ScaleType.FIT_CENTER
+            }
+            row.addView(iconView, LinearLayout.LayoutParams(LayoutHelper.dp(14), LayoutHelper.dp(14)).apply {
+                marginEnd = LayoutHelper.dp(6)
+            })
+            val loader = MezonImageLoader.getInstance(context)
+            loader.getBitmapFromMemory(role.iconUrl, LayoutHelper.dp(14), LayoutHelper.dp(14))?.let { bmp ->
+                iconView.setImageBitmap(bmp)
+            } ?: run {
+                loader.load(role.iconUrl, LayoutHelper.dp(14), LayoutHelper.dp(14), onSuccess = { bmp ->
+                    iconView.setImageBitmap(bmp)
+                })
+            }
+        }
+
         row.addView(TextView(context).apply {
             text = role.title
             setTextColor(textStrongColor)
