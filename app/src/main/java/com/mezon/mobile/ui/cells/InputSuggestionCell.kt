@@ -146,8 +146,23 @@ class InputSuggestionCell(
                 val ix = slotLeft + (SLOT - iconSize) / 2
                 val iy = slotTop + (SLOT - iconSize) / 2
                 leadingDrawable?.let { d ->
-                    d.setBounds(ix, iy, ix + iconSize, iy + iconSize)
+                    val iw = d.intrinsicWidth.toFloat()
+                    val ih = d.intrinsicHeight.toFloat()
+                    var dw = iconSize
+                    var dh = iconSize
+                    if (iw > 0 && ih > 0) {
+                        val ratio = iw / ih
+                        dw = if (ratio > 1f) iconSize else (iconSize * ratio).toInt()
+                        dh = if (ratio < 1f) iconSize else (iconSize / ratio).toInt()
+                    }
+                    val dx = ix + (iconSize - dw) / 2f
+                    val dy = iy + (iconSize - dh) / 2f
+
+                    canvas.save()
+                    canvas.translate(dx, dy)
+                    d.setBounds(0, 0, dw, dh)
                     d.draw(canvas)
+                    canvas.restore()
                 }
             }
             LEADING_BITMAP -> {
@@ -259,7 +274,7 @@ class InputSuggestionCell(
             leadingDrawable = MezonIcon.shieldUserIcon.getDrawable(context).apply {
                 colorFilter = PorterDuffColorFilter(color, PorterDuff.Mode.SRC_IN)
             }
-            loadLeadingBitmap(role.iconUrl, 20)
+            loadLeadingDrawable(role.iconUrl, 20)
         }
     }
 
@@ -283,13 +298,13 @@ class InputSuggestionCell(
     private fun configureEmoji(emoji: EmojiItem) {
         cancelImage()
         showLeadingSlot = true
-        leadingMode = LEADING_BITMAP
+        leadingMode = LEADING_ICON
         setLeadingEffectiveDp(22)
         leadingDrawable = null
         namePaint.color = theme.onSurface
         subPaint.color = theme.textDisabled
         val url = emoji.src.ifBlank { getEmojiUrl(emoji.id) ?: "" }
-        if (url.isNotBlank()) loadLeadingBitmap(url, 22)
+        if (url.isNotBlank()) loadLeadingDrawable(url, 22)
     }
 
     private fun refreshTextColors() {
@@ -322,24 +337,23 @@ class InputSuggestionCell(
         })
     }
 
-    private fun loadLeadingBitmap(url: String, effectiveDp: Int) {
+    private fun loadLeadingDrawable(url: String, effectiveDp: Int) {
         if (url.isBlank()) return
         val size = LayoutHelper.dp(effectiveDp.toFloat())
         currentImageUrl = url
         val loader = MezonImageLoader.getInstance(context)
-        val cached = loader.getBitmapFromMemory(url, size, size)
-        if (cached != null) {
-            leadingBitmap = cached
-            leadingMode = LEADING_BITMAP
-            invalidate()
-            return
-        }
-        imageDisposable = loader.load(url, size, size, onSuccess = { bmp ->
+        imageDisposable = loader.loadDrawable(url, size, size, onSuccess = { drawable ->
             if (currentImageUrl == url) {
-                leadingBitmap = bmp
-                leadingMode = LEADING_BITMAP
+                leadingDrawable = drawable
+                drawable.callback = this@InputSuggestionCell
+                if (drawable is android.graphics.drawable.AnimatedImageDrawable) {
+                    drawable.start()
+                }
+                leadingMode = LEADING_ICON
                 invalidate()
             }
+        }, onError = {
+            // fallback logic can be added here if needed
         })
     }
 
@@ -350,6 +364,12 @@ class InputSuggestionCell(
         imageDisposable?.cancel()
         imageDisposable = null
         leadingBitmap = null
+        val d = leadingDrawable
+        if (d is android.graphics.drawable.AnimatedImageDrawable) {
+            d.stop()
+        }
+        d?.callback = null
+        leadingDrawable = null
         currentImageUrl = null
     }
 

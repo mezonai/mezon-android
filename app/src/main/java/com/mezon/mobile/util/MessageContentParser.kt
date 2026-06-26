@@ -348,6 +348,30 @@ fun parseContentToSpannable(
     }
 
     elements.sortBy { it.s }
+    
+    val UNICODE_EMOJI_REGEX = Regex("^(?:[\\p{So}\\p{Sk}\\u200D\\uFE0F\\s]|\\d\\uFE0F\\u20E3|[#*]\\uFE0F\\u20E3)+$")
+    val isOnlyEmoji = run {
+        var hasElementEmoji = false
+        var allElementsAreEmoji = true
+        var textIndex = 0
+        for (el in elements) {
+            if (el.kind != "e") {
+                allElementsAreEmoji = false
+                break
+            }
+            hasElementEmoji = true
+            val plainText = text.substring(textIndex, el.s.coerceIn(textIndex, text.length))
+            if (plainText.trim().isNotEmpty() && !UNICODE_EMOJI_REGEX.matches(plainText.trim())) return@run false
+            textIndex = el.e.coerceAtLeast(textIndex).coerceAtMost(text.length)
+        }
+        if (!allElementsAreEmoji) return@run false
+        val remainingText = text.substring(textIndex, text.length)
+        if (remainingText.trim().isNotEmpty() && !UNICODE_EMOJI_REGEX.matches(remainingText.trim())) return@run false
+        hasElementEmoji || (text.isNotBlank() && UNICODE_EMOJI_REGEX.matches(text.trim()))
+    }
+    
+    val emojiSize = if (isOnlyEmoji) LayoutHelper.dp(48) else LayoutHelper.dp(20)
+
     var last = 0
     val viewRef = view?.let { java.lang.ref.WeakReference(it) }
     val richPlainMarkdown = isEmbedOrComponentsPayload(content)
@@ -423,7 +447,7 @@ fun parseContentToSpannable(
             "e" -> {
                 if (viewRef != null && el.emojiid != null) {
                     sb.append("\uFFFC")
-                    sb.setExclusiveSpan(EmojiSpan(el.emojiid, viewRef), spanStart, sb.length)
+                    sb.setExclusiveSpan(EmojiSpan(el.emojiid, viewRef, emojiSize), spanStart, sb.length)
                 } else {
                     sb.append(segText)
                     sb.setExclusiveSpan(ForegroundColorSpan(linkColor), spanStart, sb.length)

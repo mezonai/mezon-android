@@ -355,10 +355,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var reactionChipBounds: ArrayList<RectF> = ArrayList()
     private var reactionChipBoundsCount: Int = 0
     private var reactionIsMyFlags: BooleanArray = BooleanArray(0)
+    private var reactionEmojiDrawables: Array<android.graphics.drawable.Drawable?> = emptyArray()
     private var reactionRowHeight = 0
     private var reactionRowContentWidth = 0f
     private val reactionChipRect = RectF()
-    private var reactionEmojiBitmaps: Array<android.graphics.Bitmap?> = emptyArray()
     private var reactionEmojiCancellables: Array<MezonImageLoader.Cancellable?> = emptyArray()
     private var reactionBitmapLoadToken = 0
     private val reactionAddBounds = RectF()
@@ -395,6 +395,13 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         ogpImage.onAttachedToWindow()
         linkInviteBlock.onAttachedToWindow()
         embedMessage.onAttachedToWindow()
+
+        reactionEmojiDrawables.forEach {
+            if (it is android.graphics.drawable.AnimatedImageDrawable) {
+                it.start()
+            }
+            it?.callback = this
+        }
         pendingMessage?.let { msg ->
             pendingMessage = null
             update(0, msg)
@@ -410,6 +417,13 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         ogpImage.onDetachedFromWindow()
         linkInviteBlock.onDetachedFromWindow()
         embedMessage.onDetachedFromWindow()
+        
+        reactionEmojiDrawables.forEach {
+            if (it is android.graphics.drawable.AnimatedImageDrawable) {
+                it.stop()
+            }
+            it?.callback = null
+        }
         topicButtonLayout.cancelAvatarLoad()
         avatarCancellable?.cancel()
         avatarCancellable = null
@@ -3673,7 +3687,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             reactionCountLayouts = emptyArray()
             reactionChipBoundsCount = 0
             reactionIsMyFlags = BooleanArray(0)
-            reactionEmojiBitmaps = emptyArray()
+            reactionEmojiDrawables = emptyArray()
             reactionEmojiCancellables = emptyArray()
             reactionRowHeight = 0
             reactionRowContentWidth = 0f
@@ -3686,7 +3700,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             reactionCountLayouts = emptyArray()
             reactionChipBoundsCount = 0
             reactionIsMyFlags = BooleanArray(0)
-            reactionEmojiBitmaps = emptyArray()
+            reactionEmojiDrawables = emptyArray()
             reactionEmojiCancellables = emptyArray()
             reactionRowHeight = 0
             reactionRowContentWidth = 0f
@@ -3707,7 +3721,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         reactionCountLayouts = countLayouts
 
         val loadToken = ++reactionBitmapLoadToken
-        val bitmaps = Array<android.graphics.Bitmap?>(groups.size) { null }
+        val drawables = Array<android.graphics.drawable.Drawable?>(groups.size) { null }
         val cancellables = Array<MezonImageLoader.Cancellable?>(groups.size) { null }
         val loader = MezonImageLoader.getInstance(context)
         var pendingLoads = 0
@@ -3719,28 +3733,34 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
         for (i in groups.indices) {
             val url = getEmojiUrl(groups[i].emojiId.toString()) ?: continue
-            val cached = loader.getBitmapFromMemory(url, REACTION_EMOJI_SIZE, REACTION_EMOJI_SIZE)
-            if (cached != null) {
-                bitmaps[i] = cached
+            val cachedBmp = loader.getBitmapFromMemory(url, REACTION_EMOJI_SIZE, REACTION_EMOJI_SIZE)
+            if (cachedBmp != null) {
+                val cached = android.graphics.drawable.BitmapDrawable(context.resources, cachedBmp)
+                drawables[i] = cached
+                cached.callback = this
                 continue
             }
             pendingLoads++
             val idx = i
             fun startLoad(loadUrl: String, isRetry: Boolean) {
-                cancellables[idx] = loader.load(loadUrl, REACTION_EMOJI_SIZE, REACTION_EMOJI_SIZE,
-                    onSuccess = { bmp ->
-                        if (loadToken != reactionBitmapLoadToken) return@load
-                        bitmaps[idx] = bmp
-                        reactionEmojiBitmaps = bitmaps
+                cancellables[idx] = loader.loadDrawable(loadUrl, REACTION_EMOJI_SIZE, REACTION_EMOJI_SIZE,
+                    onSuccess = { d ->
+                        if (loadToken != reactionBitmapLoadToken) return@loadDrawable
+                        drawables[idx] = d
+                        d.callback = this@ChatMessageCell
+                        if (d is android.graphics.drawable.AnimatedImageDrawable && attachedToWindow) {
+                            d.start()
+                        }
+                        reactionEmojiDrawables = drawables
                         finishOneLoad()
                     },
                     onError = {
-                        if (loadToken != reactionBitmapLoadToken) return@load
+                        if (loadToken != reactionBitmapLoadToken) return@loadDrawable
                         if (!isRetry) {
                             val direct = getEmojiDirectUrl(groups[idx].emojiId.toString())
                             if (direct != null && direct != loadUrl) {
                                 startLoad(direct, true)
-                                return@load
+                                return@loadDrawable
                             }
                         }
                         finishOneLoad()
@@ -3749,7 +3769,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             }
             startLoad(url, false)
         }
-        reactionEmojiBitmaps = bitmaps
+        reactionEmojiDrawables = drawables
         reactionEmojiCancellables = cancellables
 
         var x = 0f
@@ -3814,10 +3834,25 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
             val emojiX = chipX + REACTION_CHIP_PAD
             val emojiY = chipY + (REACTION_CHIP_H - REACTION_EMOJI_SIZE) / 2f
-            val bmp = reactionEmojiBitmaps.getOrNull(i)
-            if (bmp != null && !bmp.isRecycled) {
-                tmpRect.set(emojiX, emojiY, emojiX + REACTION_EMOJI_SIZE, emojiY + REACTION_EMOJI_SIZE)
-                canvas.drawBitmap(bmp, null, tmpRect, null)
+            val d = reactionEmojiDrawables.getOrNull(i)
+            if (d != null) {
+                val iw = d.intrinsicWidth.toFloat()
+                val ih = d.intrinsicHeight.toFloat()
+                var dw = REACTION_EMOJI_SIZE.toFloat()
+                var dh = REACTION_EMOJI_SIZE.toFloat()
+                if (iw > 0 && ih > 0) {
+                    val ratio = iw / ih
+                    dw = if (ratio > 1f) REACTION_EMOJI_SIZE.toFloat() else (REACTION_EMOJI_SIZE * ratio)
+                    dh = if (ratio < 1f) REACTION_EMOJI_SIZE.toFloat() else (REACTION_EMOJI_SIZE / ratio)
+                }
+                val dx = emojiX + (REACTION_EMOJI_SIZE - dw) / 2f
+                val dy = emojiY + (REACTION_EMOJI_SIZE - dh) / 2f
+
+                canvas.save()
+                canvas.translate(dx, dy)
+                d.setBounds(0, 0, dw.toInt(), dh.toInt())
+                d.draw(canvas)
+                canvas.restore()
             } else {
                 tmpRect.set(emojiX, emojiY, emojiX + REACTION_EMOJI_SIZE, emojiY + REACTION_EMOJI_SIZE)
                 REACTION_BG_PAINT.color = EMOJI_PLACEHOLDER_COLOR

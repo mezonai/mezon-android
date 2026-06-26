@@ -40,7 +40,11 @@ import com.mezon.mobile.home.clans.CHANNEL_TYPE_VOICE
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.ClansController
 import com.mezon.mobile.home.clans.PermissionPolicy
+import com.mezon.mobile.home.DialogsController
+import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.home.profile.UserController
+import com.mezon.mobile.ui.MezonToast
+import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.ui.cells.MezonIcon
 import io.livekit.android.AudioOptions
 import io.livekit.android.LiveKit
@@ -100,8 +104,9 @@ class VoiceRoomFragment : BaseFragment() {
     private lateinit var memberResolver: MemberResolver
     private lateinit var emojiController: EmojiController
     private lateinit var userController: UserController
-    private lateinit var permissionPolicy: PermissionPolicy
+    private lateinit var dialogsController: DialogsController
     private lateinit var friendController: FriendController
+    private lateinit var permissionPolicy: PermissionPolicy
     private var channelId: Long = 0L
     private var clanId: Long = 0L
     private var channelLabel: String = ""
@@ -293,8 +298,9 @@ class VoiceRoomFragment : BaseFragment() {
         memberResolver = entryPoint.memberResolver()
         emojiController = entryPoint.emojiController()
         userController = entryPoint.userController()
-        permissionPolicy = entryPoint.permissionPolicy()
+        dialogsController = entryPoint.dialogsController()
         friendController = entryPoint.friendController()
+        permissionPolicy = entryPoint.permissionPolicy()
     }
 
     override fun onFragmentCreate(): Boolean {
@@ -1463,6 +1469,20 @@ class VoiceRoomFragment : BaseFragment() {
                     }
                     override fun onTransferFunds(userId: Long) {
                         openProfileTransferFunds(userId, targetUsername)
+                    }
+
+                    override fun onSendMessage(userId: Long) {
+                        fragmentScope.launch {
+                            val dmId = withContext(Dispatchers.IO) { dialogsController.getOrCreateDm(userId) }
+                            withContext(Dispatchers.Main) {
+                                if (dmId != 0L) {
+                                    getMainActivity()?.openChat(dmId, displayName.ifBlank { participantSubline }, 0L, CHANNEL_TYPE_DM)
+                                    dismissOverlay()
+                                } else {
+                                    MezonToast.show(this@VoiceRoomFragment, ToastOverlay.ToastType.ERROR, getString(R.string.contact_shared_error))
+                                }
+                            }
+                        }
                     }
                 },
                 voiceParticipantExtras = UserProfileBottomSheet.VoiceParticipantExtras(

@@ -139,24 +139,48 @@ class EmojiCell(context: Context, private val themeColors: ThemeColors) : BaseCe
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        setMeasuredDimension(CELL_SIZE, CELL_SIZE)
+        val specMode = MeasureSpec.getMode(widthMeasureSpec)
+        val w = if (specMode == MeasureSpec.EXACTLY) MeasureSpec.getSize(widthMeasureSpec) else CELL_SIZE
+        setMeasuredDimension(w, w)
     }
 
     override fun onDraw(canvas: Canvas) {
-        val left = (measuredWidth - IMAGE_SIZE) / 2
-        val top = (measuredHeight - IMAGE_SIZE) / 2
-
         val d = animDrawable
+        val bmp = bitmap
+        
+        var imgW = IMAGE_SIZE
+        var imgH = IMAGE_SIZE
+        
+        if (d != null) {
+            val iw = d.intrinsicWidth.toFloat()
+            val ih = d.intrinsicHeight.toFloat()
+            if (iw > 0 && ih > 0) {
+                val ratio = iw / ih
+                imgW = if (ratio > 1f) IMAGE_SIZE else (IMAGE_SIZE * ratio).toInt()
+                imgH = if (ratio < 1f) IMAGE_SIZE else (IMAGE_SIZE / ratio).toInt()
+            }
+        } else if (bmp != null) {
+            val iw = bmp.width.toFloat()
+            val ih = bmp.height.toFloat()
+            if (iw > 0 && ih > 0) {
+                val ratio = iw / ih
+                imgW = if (ratio > 1f) IMAGE_SIZE else (IMAGE_SIZE * ratio).toInt()
+                imgH = if (ratio < 1f) IMAGE_SIZE else (IMAGE_SIZE / ratio).toInt()
+            }
+        }
+
+        val left = (measuredWidth - imgW) / 2
+        val top = (measuredHeight - imgH) / 2
+
         if (d != null) {
             canvas.save()
             canvas.translate(left.toFloat(), top.toFloat())
-            d.setBounds(0, 0, IMAGE_SIZE, IMAGE_SIZE)
+            d.setBounds(0, 0, imgW, imgH)
             d.draw(canvas)
             canvas.restore()
-        } else {
-            val bmp = bitmap ?: return
+        } else if (bmp != null) {
             srcRect.set(0, 0, bmp.width, bmp.height)
-            dstRect.set(left, top, left + IMAGE_SIZE, top + IMAGE_SIZE)
+            dstRect.set(left, top, left + imgW, top + imgH)
             canvas.drawBitmap(bmp, srcRect, dstRect, bitmapPaint)
         }
 
@@ -167,8 +191,8 @@ class EmojiCell(context: Context, private val themeColors: ThemeColors) : BaseCe
                     lockDrawable = it
                 }
             }
-            val lx = left + IMAGE_SIZE - LOCK_SIZE - LOCK_PAD
-            val ly = top + IMAGE_SIZE - LOCK_SIZE - LOCK_PAD
+            val lx = left + imgW - LOCK_SIZE - LOCK_PAD
+            val ly = top + imgH - LOCK_SIZE - LOCK_PAD
             ld.setBounds(lx, ly, lx + LOCK_SIZE, ly + LOCK_SIZE)
             ld.draw(canvas)
         }
@@ -180,6 +204,20 @@ class EmojiCell(context: Context, private val themeColors: ThemeColors) : BaseCe
             d.stop()
         }
         d?.callback = null
+    }
+
+    private fun restartAnimation() {
+        val d = animDrawable ?: return
+        d.callback = drawableCallback
+        if (d is android.graphics.drawable.AnimatedImageDrawable && !d.isRunning) {
+            d.start()
+        }
+        invalidate()
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        restartAnimation()
     }
 
     override fun onDetachedFromWindow() {

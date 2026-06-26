@@ -8,17 +8,13 @@ import android.graphics.drawable.Drawable
 import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.TextUtils
-import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
-import android.widget.LinearLayout
-import android.widget.Toast
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AndroidUtilities
-import com.mezon.mobile.core.BottomSheet
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.ui.cells.MezonIcon
@@ -27,28 +23,33 @@ private const val ITEMS_PER_ROW = 4
 private const val ICON_BG_SIZE = 42
 private const val ICON_SIZE = 24
 
-class AdvancedAttachAlert(
+class AdvancedMenuView(
     context: Context,
     private val theme: ThemeColors,
     private val clanId: Long = 0L,
     private val isAnonymousMode: Boolean = false,
-    /**
-     * Web `FileSelectionButton`: poll hidden only for `CHANNEL_TYPE_DM` (1:1 DM).
-     * Caller must set this from [com.mezon.mobile.home.chat.poll.canCreatePoll] — not from [clanId].
-     */
     private val showCreatePoll: Boolean = false
-) : BottomSheet(context) {
+) : FrameLayout(context) {
 
-    interface AdvancedAttachAlertDelegate {
+    interface AdvancedMenuViewDelegate {
         fun onLocationSelected()
         fun onFilesSelected()
         fun onBuzzSelected()
         fun onAnonymousToggled()
         fun onCreatePollRequested() {}
         fun onShareContactSelected() {}
+        fun onDragY(dy: Float) {}
+        fun onAnimateExpand(expand: Boolean) {}
     }
 
-    var advancedDelegate: AdvancedAttachAlertDelegate? = null
+    var delegate: AdvancedMenuViewDelegate? = null
+    
+    private var dragStartY = 0f
+    private var dragging = false
+    private var dragTranslation = 0f
+    private var velocityTracker: android.view.VelocityTracker? = null
+    private val touchSlop = android.view.ViewConfiguration.get(context).scaledTouchSlop
+    private val dismissVelocity = 1000f
 
     private data class FunctionItem(
         val id: String,
@@ -57,6 +58,20 @@ class AdvancedAttachAlert(
     )
 
     private val functions: List<FunctionItem> = buildFunctions()
+
+    init {
+        setBackgroundColor(theme.getColor(ThemeColors.key_sheetBackground))
+
+        val gridView = RecyclerView(context).apply {
+            layoutManager = GridLayoutManager(context, ITEMS_PER_ROW)
+            adapter = FunctionGridAdapter()
+            overScrollMode = View.OVER_SCROLL_NEVER
+            clipToPadding = false
+            setPadding(LayoutHelper.dp(12f), LayoutHelper.dp(16f), LayoutHelper.dp(12f), LayoutHelper.dp(16f))
+        }
+
+        addView(gridView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT, android.view.Gravity.CENTER))
+    }
 
     private fun buildFunctions(): List<FunctionItem> {
         val list = ArrayList<FunctionItem>()
@@ -74,7 +89,6 @@ class AdvancedAttachAlert(
             list.add(FunctionItem("ephemeral", R.string.advanced_ephemeral, MezonIcon.ephemeralIconGray))
         }
         list.add(FunctionItem("transfer_funds", R.string.advanced_transfer_funds, MezonIcon.sendMoneyAdvancedIcon))
-        // Poll: non-DM channels only (group DM + clan). Threads/ephemeral still use clanId above.
         if (showCreatePoll) {
             list.add(FunctionItem("poll", R.string.advanced_poll, MezonIcon.pollIconGray))
         }
@@ -82,28 +96,6 @@ class AdvancedAttachAlert(
             list.add(FunctionItem("share_contact", R.string.advanced_share_contact, MezonIcon.shareContactIconGray))
         }
         return list
-    }
-
-    override fun onCreate(savedInstanceState: android.os.Bundle?) {
-        super.onCreate(savedInstanceState)
-        fixNavigationBar()
-
-        val gridView = RecyclerView(context).apply {
-            layoutManager = GridLayoutManager(context, ITEMS_PER_ROW)
-            adapter = FunctionGridAdapter()
-            overScrollMode = View.OVER_SCROLL_NEVER
-            clipToPadding = false
-            setPadding(LayoutHelper.dp(12f), LayoutHelper.dp(16f), LayoutHelper.dp(12f), LayoutHelper.dp(16f))
-        }
-
-        val contentFrame = FrameLayout(context)
-        contentFrame.addView(gridView, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT
-        ))
-
-        contentLayout?.addView(contentFrame, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-        ))
     }
 
     private inner class FunctionGridAdapter : RecyclerView.Adapter<FunctionGridAdapter.Holder>() {
@@ -132,24 +124,91 @@ class AdvancedAttachAlert(
     }
 
     private fun onFunctionClicked(item: FunctionItem) {
-        val delegate = advancedDelegate
-        dismiss()
+        val del = delegate
+        var dismiss = true
         when (item.id) {
-            "location" -> delegate?.onLocationSelected()
-            "files" -> delegate?.onFilesSelected()
-            "buzz" -> delegate?.onBuzzSelected()
-            "anonymous" -> delegate?.onAnonymousToggled()
-            "poll" -> delegate?.onCreatePollRequested()
-            "share_contact" -> delegate?.onShareContactSelected()
-            else -> Toast.makeText(context, R.string.feature_coming_soon, Toast.LENGTH_SHORT).show()
+            "location" -> del?.onLocationSelected()
+            "files" -> del?.onFilesSelected()
+            "buzz" -> del?.onBuzzSelected()
+            "anonymous" -> {
+                del?.onAnonymousToggled()
+                dismiss = false
+            }
+            "poll" -> del?.onCreatePollRequested()
+            "share_contact" -> del?.onShareContactSelected()
+            else -> {
+                android.widget.Toast.makeText(context, R.string.feature_coming_soon, android.widget.Toast.LENGTH_SHORT).show()
+                dismiss = false
+            }
+        }
+        if (dismiss) {
+            del?.onAnimateExpand(false)
         }
     }
 
-    override fun dismiss() {
-        super.dismiss()
-        if (isDismissed()) {
-            advancedDelegate = null
+    override fun onInterceptTouchEvent(ev: android.view.MotionEvent): Boolean {
+        if (ev.actionMasked == android.view.MotionEvent.ACTION_DOWN) {
+            dragStartY = ev.rawY
+            dragging = false
+            velocityTracker?.recycle()
+            velocityTracker = android.view.VelocityTracker.obtain()
+            velocityTracker?.addMovement(ev)
+        } else if (ev.actionMasked == android.view.MotionEvent.ACTION_MOVE) {
+            velocityTracker?.addMovement(ev)
+            val dy = ev.rawY - dragStartY
+            if (!dragging && dy > touchSlop) {
+                val grid = getChildAt(0) as? RecyclerView
+                if (grid == null || !grid.canScrollVertically(-1)) {
+                    dragging = true
+                    dragStartY = ev.rawY
+                    return true
+                }
+            }
         }
+        return super.onInterceptTouchEvent(ev)
+    }
+
+    override fun onTouchEvent(ev: android.view.MotionEvent): Boolean {
+        velocityTracker?.addMovement(ev)
+        when (ev.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN -> {
+                dragStartY = ev.rawY
+                return true
+            }
+            android.view.MotionEvent.ACTION_MOVE -> {
+                val dy = ev.rawY - dragStartY
+                if (!dragging && dy > touchSlop) {
+                    val grid = getChildAt(0) as? RecyclerView
+                    if (grid == null || !grid.canScrollVertically(-1)) {
+                        dragging = true
+                        dragStartY = ev.rawY
+                    }
+                }
+                if (dragging) {
+                    dragTranslation = (ev.rawY - dragStartY).coerceAtLeast(0f)
+                    delegate?.onDragY(dragTranslation)
+                }
+                return true
+            }
+            android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                if (dragging) {
+                    dragging = false
+                    velocityTracker?.computeCurrentVelocity(1000)
+                    val vy = velocityTracker?.yVelocity ?: 0f
+                    val child = getChildAt(0) ?: return true
+                    val h = child.height.toFloat()
+                    if (vy > dismissVelocity || dragTranslation > h * 0.4f) {
+                        delegate?.onAnimateExpand(false)
+                    } else {
+                        delegate?.onAnimateExpand(true)
+                    }
+                }
+                velocityTracker?.recycle()
+                velocityTracker = null
+                return true
+            }
+        }
+        return super.onTouchEvent(ev)
     }
 }
 
@@ -184,7 +243,7 @@ private class FunctionCell(context: Context, private val theme: ThemeColors) : V
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val w = MeasureSpec.getSize(widthMeasureSpec)
+        val w = View.MeasureSpec.getSize(widthMeasureSpec)
         setMeasuredDimension(w, LayoutHelper.dp(100f))
         buildLayout()
     }

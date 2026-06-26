@@ -26,6 +26,8 @@ import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.theme.ThemeMode
 import com.mezon.mobile.util.ColorUtilities
 import com.mezon.mobile.util.avatarImgproxyUrl
+import com.mezon.mobile.di.FragmentEntryPoint
+import dagger.hilt.android.EntryPointAccessors
 
 
 class UserProfileBottomSheet(
@@ -441,16 +443,23 @@ class UserProfileBottomSheet(
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 ).apply { rightMargin = LayoutHelper.dp(14) })
 
-                actionsRow.addView(buildActionButton(
-                    context.getString(R.string.user_profile_add_friend),
-                    R.drawable.ic_user_plus_icon,
-                    0xFF42A869.toInt()  // baseColor.green
-                ) {
-                    dismiss()
-                    val l = listener
-                    if (l != null) l.onAddFriend(userId)
-                    else Toast.makeText(context, R.string.feature_coming_soon, Toast.LENGTH_SHORT).show()
-                })
+                val entryPoint = EntryPointAccessors.fromApplication(context.applicationContext, FragmentEntryPoint::class.java)
+                val friendController = entryPoint.friendController()
+                
+                if (friendController.findFriendByUserId(userId) == null) {
+                    var addFriendBtn: LinearLayout? = null
+                    addFriendBtn = buildActionButton(
+                        context.getString(R.string.user_profile_add_friend),
+                        R.drawable.ic_user_plus_icon,
+                        0xFF42A869.toInt()  // baseColor.green
+                    ) {
+                        addFriendBtn?.visibility = View.GONE
+                        val l = listener
+                        if (l != null) l.onAddFriend(userId)
+                        else Toast.makeText(context, R.string.feature_coming_soon, Toast.LENGTH_SHORT).show()
+                    }
+                    actionsRow.addView(addFriendBtn)
+                }
             }
 
             card.addView(actionsRow, LinearLayout.LayoutParams(

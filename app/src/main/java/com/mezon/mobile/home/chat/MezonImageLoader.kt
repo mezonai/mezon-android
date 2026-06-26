@@ -473,7 +473,17 @@ class MezonImageLoader private constructor(context: Context) {
                                 }
                             }
                         } else {
-                            decoder.setTargetSize(reqWidth, reqHeight)
+                            val w = info.size.width
+                            val h = info.size.height
+                            if (w > 0 && h > 0) {
+                                val scale = kotlin.math.min(reqWidth.toFloat() / w, reqHeight.toFloat() / h)
+                                decoder.setTargetSize(
+                                    (w * scale).toInt().coerceAtLeast(1),
+                                    (h * scale).toInt().coerceAtLeast(1)
+                                )
+                            } else {
+                                decoder.setTargetSize(reqWidth, reqHeight)
+                            }
                         }
                     }
                     dispatchSuccess(cacheKey, drawable)
