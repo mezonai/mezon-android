@@ -32,8 +32,13 @@ class EmojiSpan(
         override fun invalidateDrawable(who: Drawable) {
             viewRef.get()?.invalidate()
         }
-        override fun scheduleDrawable(who: Drawable, what: Runnable, w: Long) {}
-        override fun unscheduleDrawable(who: Drawable, what: Runnable) {}
+        override fun scheduleDrawable(who: Drawable, what: Runnable, w: Long) {
+            val delay = w - android.os.SystemClock.uptimeMillis()
+            viewRef.get()?.postDelayed(what, maxOf(0L, delay))
+        }
+        override fun unscheduleDrawable(who: Drawable, what: Runnable) {
+            viewRef.get()?.removeCallbacks(what)
+        }
     }
 
     override fun getSize(
