@@ -366,7 +366,7 @@ class EmojiView(
                     gifGrid = RecyclerListView(context).apply {
                         layoutManager = androidx.recyclerview.widget.StaggeredGridLayoutManager(2, androidx.recyclerview.widget.StaggeredGridLayoutManager.VERTICAL)
                         adapter = gifAdapter
-                        setHasFixedSize(false)
+                        setHasFixedSize(true)
                         (itemAnimator as? androidx.recyclerview.widget.SimpleItemAnimator)?.supportsChangeAnimations = false
                         overScrollMode = OVER_SCROLL_NEVER
                         addItemDecoration(GifSpacingDecoration(gifSpacing))
