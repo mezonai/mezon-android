@@ -186,8 +186,6 @@ class AdvancedMenuView(
                 }
                 if (dragging) {
                     dragTranslation = (ev.rawY - dragStartY).coerceAtLeast(0f)
-                    val child = getChildAt(0)
-                    child?.translationY = dragTranslation
                     delegate?.onDragY(dragTranslation)
                 }
                 return true
@@ -203,11 +201,6 @@ class AdvancedMenuView(
                         delegate?.onAnimateExpand(false)
                     } else {
                         delegate?.onAnimateExpand(true)
-                        child.animate()
-                            .translationY(0f)
-                            .setDuration(200)
-                            .setInterpolator(android.view.animation.DecelerateInterpolator())
-                            .start()
                     }
                 }
                 velocityTracker?.recycle()
