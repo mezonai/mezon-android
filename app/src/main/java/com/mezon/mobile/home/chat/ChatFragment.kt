@@ -279,6 +279,7 @@ open class ChatFragment : BaseFragment() {
     private var anonymousIndicator: ImageView? = null
     private var emojiView: EmojiView? = null
     private var emojiViewVisible = false
+    private var emojiExpandAnimator: android.animation.ValueAnimator? = null
     private var advancedMenuView: AdvancedMenuView? = null
     private var advancedMenuViewVisible = false
     private var previousKeyboardHeight = 0
@@ -2620,6 +2621,8 @@ open class ChatFragment : BaseFragment() {
     }
 
     private fun hideEmojiView(animated: Boolean = true, resetPadding: Boolean = true) {
+        emojiExpandAnimator?.cancel()
+        emojiExpandAnimator = null
         dismissPasteImagePopup()
         emojiSearchExpanded = false
         searchKeyboardWasVisible = false
@@ -2842,7 +2845,9 @@ open class ChatFragment : BaseFragment() {
                     val startHeight = emojiView?.layoutParams?.height ?: panelHeight
                     val targetHeight = if (expand) sizeNotifierRoot.height else panelHeight
                     
+                    emojiExpandAnimator?.cancel()
                     val anim = android.animation.ValueAnimator.ofInt(startHeight, targetHeight)
+                    emojiExpandAnimator = anim
                     anim.addUpdateListener {
                         val h = it.animatedValue as Int
                         emojiView?.layoutParams = FrameLayout.LayoutParams(
@@ -2871,6 +2876,8 @@ open class ChatFragment : BaseFragment() {
     }
 
     override fun onFragmentDestroy() {
+        emojiExpandAnimator?.cancel()
+        emojiExpandAnimator = null
         activePhotoViewer?.setOnDismissListener(null)
         activePhotoViewer?.dismiss()
         activePhotoViewer = null
