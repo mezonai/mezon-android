@@ -1420,7 +1420,13 @@ open class ChatFragment : BaseFragment() {
 
         val chatActionBar = ActionBarView(context, themeColors).apply {
             setBackClickListener {
-                finishFragment()
+                if (emojiViewVisible) {
+                    hideEmojiView()
+                } else if (advancedMenuViewVisible) {
+                    hideAdvancedMenuView()
+                } else {
+                    finishFragment()
+                }
             }
             setTitleOnClickListener {
                 val channelEntity = channelController.findChannelById(channelId)

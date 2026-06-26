@@ -26,6 +26,8 @@ import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.theme.ThemeMode
 import com.mezon.mobile.util.ColorUtilities
 import com.mezon.mobile.util.avatarImgproxyUrl
+import com.mezon.mobile.di.FragmentEntryPoint
+import dagger.hilt.android.EntryPointAccessors
 
 
 class UserProfileBottomSheet(
@@ -52,8 +54,6 @@ class UserProfileBottomSheet(
     }
 
     data class VoiceParticipantExtras(
-        val showHeaderActions: Boolean,
-        val onFriendClick: () -> Unit,
         val onTransferClick: () -> Unit = {},
         val canManageVoiceUser: Boolean,
         val showMuteAction: Boolean,
@@ -234,14 +234,10 @@ class UserProfileBottomSheet(
             FrameLayout.LayoutParams.MATCH_PARENT, LayoutHelper.dp(120)
         ))
 
-        voiceParticipantExtras?.takeIf { it.showHeaderActions }?.let { ex ->
-            addHeaderFriendButton(container, textColor, ex.onFriendClick)
-        }
-
         if (!isOwnProfile && !isWebhook && userId != 0L) {
             addHeaderTransferButton(
                 container = container,
-                marginEndDp = if (voiceParticipantExtras?.showHeaderActions == true) 50 else 10,
+                marginEndDp = 10,
                 onClick = {
                     dismiss()
                     val l = listener
@@ -280,37 +276,6 @@ class UserProfileBottomSheet(
         )
 
         return container
-    }
-
-    private fun addHeaderFriendButton(
-        container: FrameLayout,
-        iconTint: Int,
-        onClick: () -> Unit
-    ) {
-        val friendBtn = ImageView(context).apply {
-            scaleType = ImageView.ScaleType.CENTER_INSIDE
-            setImageDrawable(MezonIcon.userPlusIcon.getDrawable(context).apply {
-                colorFilter = PorterDuffColorFilter(iconTint, PorterDuff.Mode.SRC_IN)
-            })
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(theme.serverRailBg)
-            }
-            setPadding(LayoutHelper.dp(6), LayoutHelper.dp(6), LayoutHelper.dp(6), LayoutHelper.dp(6))
-            isClickable = true
-            isFocusable = true
-            setOnClickListener {
-                dismiss()
-                onClick()
-            }
-        }
-        container.addView(
-            friendBtn,
-            FrameLayout.LayoutParams(LayoutHelper.dp(32), LayoutHelper.dp(32), Gravity.TOP or Gravity.END).apply {
-                topMargin = LayoutHelper.dp(10)
-                marginEnd = LayoutHelper.dp(10)
-            }
-        )
     }
 
     private fun addHeaderTransferButton(
@@ -405,7 +370,7 @@ class UserProfileBottomSheet(
             ))
         }
 
-        if (voiceParticipantExtras == null && userId != 0L) {
+        if (userId != 0L) {
             val actionsRow = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
             }
@@ -439,16 +404,23 @@ class UserProfileBottomSheet(
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 ).apply { rightMargin = LayoutHelper.dp(14) })
 
-                actionsRow.addView(buildActionButton(
-                    context.getString(R.string.user_profile_add_friend),
-                    R.drawable.ic_user_plus_icon,
-                    0xFF42A869.toInt()  // baseColor.green
-                ) {
-                    dismiss()
-                    val l = listener
-                    if (l != null) l.onAddFriend(userId)
-                    else Toast.makeText(context, R.string.feature_coming_soon, Toast.LENGTH_SHORT).show()
-                })
+                val entryPoint = EntryPointAccessors.fromApplication(context.applicationContext, FragmentEntryPoint::class.java)
+                val friendController = entryPoint.friendController()
+                
+                if (friendController.findFriendByUserId(userId) == null) {
+                    var addFriendBtn: LinearLayout? = null
+                    addFriendBtn = buildActionButton(
+                        context.getString(R.string.user_profile_add_friend),
+                        R.drawable.ic_user_plus_icon,
+                        0xFF42A869.toInt()  // baseColor.green
+                    ) {
+                        addFriendBtn?.visibility = View.GONE
+                        val l = listener
+                        if (l != null) l.onAddFriend(userId)
+                        else Toast.makeText(context, R.string.feature_coming_soon, Toast.LENGTH_SHORT).show()
+                    }
+                    actionsRow.addView(addFriendBtn)
+                }
             }
 
             card.addView(actionsRow, LinearLayout.LayoutParams(

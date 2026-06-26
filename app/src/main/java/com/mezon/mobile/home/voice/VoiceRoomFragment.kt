@@ -38,7 +38,12 @@ import com.mezon.mobile.home.clans.CHANNEL_TYPE_VOICE
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.ClansController
 import com.mezon.mobile.home.clans.PermissionPolicy
+import com.mezon.mobile.home.DialogsController
+import com.mezon.mobile.home.friends.FriendController
+import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.home.profile.UserController
+import com.mezon.mobile.ui.MezonToast
+import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.ui.cells.MezonIcon
 import io.livekit.android.AudioOptions
 import io.livekit.android.LiveKit
@@ -98,6 +103,8 @@ class VoiceRoomFragment : BaseFragment() {
     private lateinit var memberResolver: MemberResolver
     private lateinit var emojiController: EmojiController
     private lateinit var userController: UserController
+    private lateinit var dialogsController: DialogsController
+    private lateinit var friendController: FriendController
     private lateinit var permissionPolicy: PermissionPolicy
     private var channelId: Long = 0L
     private var clanId: Long = 0L
@@ -290,6 +297,8 @@ class VoiceRoomFragment : BaseFragment() {
         memberResolver = entryPoint.memberResolver()
         emojiController = entryPoint.emojiController()
         userController = entryPoint.userController()
+        dialogsController = entryPoint.dialogsController()
+        friendController = entryPoint.friendController()
         permissionPolicy = entryPoint.permissionPolicy()
     }
 
@@ -1457,12 +1466,40 @@ class VoiceRoomFragment : BaseFragment() {
                         }.ifBlank { participantSubline }.ifBlank { displayName }
                         openProfileTransferFunds(userId, transferUsername)
                     }
+
+                    override fun onSendMessage(userId: Long) {
+                        fragmentScope.launch {
+                            val dmId = withContext(Dispatchers.IO) { dialogsController.getOrCreateDm(userId) }
+                            withContext(Dispatchers.Main) {
+                                if (dmId != 0L) {
+                                    getMainActivity()?.openChat(dmId, displayName.ifBlank { participantSubline }, 0L, CHANNEL_TYPE_DM)
+                                    dismissOverlay()
+                                } else {
+                                    MezonToast.show(this@VoiceRoomFragment, ToastOverlay.ToastType.ERROR, getString(R.string.contact_shared_error))
+                                }
+                            }
+                        }
+                    }
+
+                    override fun onVoiceCall(userId: Long) {
+                        MezonToast.show(this@VoiceRoomFragment, ToastOverlay.ToastType.ERROR, getString(R.string.cannot_start_voice_call_while_in_room))
+                    }
+
+                    override fun onAddFriend(userId: Long) {
+                        if (userId == 0L || userId == userController.userId) return
+                        if (friendController.isUserBlocked(userId)) {
+                            MezonToast.show(this@VoiceRoomFragment, ToastOverlay.ToastType.ERROR, getString(R.string.friend_unblock_first))
+                            return
+                        }
+                        val username = participantSubline.ifBlank { displayName }
+                        friendController.sendFriendRequest(userId, username) { success ->
+                            if (success) {
+                                MezonToast.show(this@VoiceRoomFragment, ToastOverlay.ToastType.SUCCESS, getString(R.string.friend_request_sent_success, username))
+                            }
+                        }
+                    }
                 },
                 voiceParticipantExtras = UserProfileBottomSheet.VoiceParticipantExtras(
-                    showHeaderActions = showHeaderActions,
-                    onFriendClick = {
-                        showAddFriendBottomSheet()
-                    },
                     canManageVoiceUser = canManageVoiceUser,
                     showMuteAction = showMuteAction,
                     onMuteAction = { showMuteParticipantConfirm(identity, displayName) },
