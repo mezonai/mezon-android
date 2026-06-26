@@ -45,6 +45,7 @@ class GifCell(context: Context, private val themeColors: ThemeColors) : View(con
         stopAnimation()
         cancellable?.cancel()
         animDrawable = null
+        val oldGif = gif
         gif = item
 
         val reqW = if (measuredWidth > 0) measuredWidth else LayoutHelper.dp(170f)
@@ -67,7 +68,10 @@ class GifCell(context: Context, private val themeColors: ThemeColors) : View(con
                 invalidate()
             })
         }
-        requestLayout()
+        
+        if (oldGif == null || oldGif.width != item.width || oldGif.height != item.height) {
+            requestLayout()
+        }
         invalidate()
     }
 
