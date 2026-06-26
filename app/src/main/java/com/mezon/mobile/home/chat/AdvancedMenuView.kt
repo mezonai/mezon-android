@@ -125,14 +125,24 @@ class AdvancedMenuView(
 
     private fun onFunctionClicked(item: FunctionItem) {
         val del = delegate
+        var dismiss = true
         when (item.id) {
             "location" -> del?.onLocationSelected()
             "files" -> del?.onFilesSelected()
             "buzz" -> del?.onBuzzSelected()
-            "anonymous" -> del?.onAnonymousToggled()
+            "anonymous" -> {
+                del?.onAnonymousToggled()
+                dismiss = false
+            }
             "poll" -> del?.onCreatePollRequested()
             "share_contact" -> del?.onShareContactSelected()
-            else -> android.widget.Toast.makeText(context, R.string.feature_coming_soon, android.widget.Toast.LENGTH_SHORT).show()
+            else -> {
+                android.widget.Toast.makeText(context, R.string.feature_coming_soon, android.widget.Toast.LENGTH_SHORT).show()
+                dismiss = false
+            }
+        }
+        if (dismiss) {
+            del?.onAnimateExpand(false)
         }
     }
 
