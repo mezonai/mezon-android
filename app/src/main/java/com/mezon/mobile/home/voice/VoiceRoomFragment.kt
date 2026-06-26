@@ -41,7 +41,6 @@ import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.ClansController
 import com.mezon.mobile.home.clans.PermissionPolicy
 import com.mezon.mobile.home.DialogsController
-import com.mezon.mobile.home.friends.FriendController
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.ui.MezonToast
@@ -108,7 +107,6 @@ class VoiceRoomFragment : BaseFragment() {
     private lateinit var dialogsController: DialogsController
     private lateinit var friendController: FriendController
     private lateinit var permissionPolicy: PermissionPolicy
-    private lateinit var friendController: FriendController
     private var channelId: Long = 0L
     private var clanId: Long = 0L
     private var channelLabel: String = ""
@@ -303,7 +301,6 @@ class VoiceRoomFragment : BaseFragment() {
         dialogsController = entryPoint.dialogsController()
         friendController = entryPoint.friendController()
         permissionPolicy = entryPoint.permissionPolicy()
-        friendController = entryPoint.friendController()
     }
 
     override fun onFragmentCreate(): Boolean {
@@ -1484,24 +1481,6 @@ class VoiceRoomFragment : BaseFragment() {
                                 } else {
                                     MezonToast.show(this@VoiceRoomFragment, ToastOverlay.ToastType.ERROR, getString(R.string.contact_shared_error))
                                 }
-                            }
-                        }
-                    }
-
-                    override fun onVoiceCall(userId: Long) {
-                        MezonToast.show(this@VoiceRoomFragment, ToastOverlay.ToastType.ERROR, getString(R.string.cannot_start_voice_call_while_in_room))
-                    }
-
-                    override fun onAddFriend(userId: Long) {
-                        if (userId == 0L || userId == userController.userId) return
-                        if (friendController.isUserBlocked(userId)) {
-                            MezonToast.show(this@VoiceRoomFragment, ToastOverlay.ToastType.ERROR, getString(R.string.friend_unblock_first))
-                            return
-                        }
-                        val username = participantSubline.ifBlank { displayName }
-                        friendController.sendFriendRequest(userId, username) { success ->
-                            if (success) {
-                                MezonToast.show(this@VoiceRoomFragment, ToastOverlay.ToastType.SUCCESS, getString(R.string.friend_request_sent_success, username))
                             }
                         }
                     }
