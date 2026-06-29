@@ -280,6 +280,7 @@ class SessionManager @Inject constructor(
         remove(SessionKeys.ID_TOKEN)
         remove(SessionKeys.IS_REMEMBER)
         remove(SessionKeys.LAST_CLAN_ID)
+        remove(SessionKeys.BLOCKED_BY_USER_IDS)
     }
 }
 

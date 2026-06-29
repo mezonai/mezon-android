@@ -52,6 +52,8 @@ import com.mezon.mezon.rtapi.UserChannelRemoved
 import com.mezon.mezon.rtapi.UserClanRemoved
 import com.mezon.mezon.rtapi.UserProfileUpdatedEvent
 import com.mezon.mezon.rtapi.UserStatusEvent
+import com.mezon.mezon.rtapi.BlockFriend
+import com.mezon.mezon.rtapi.UnblockFriend
 import com.mezon.mezon.rtapi.VoiceEndedEvent
 import com.mezon.mezon.rtapi.VoiceJoinedEvent
 import com.mezon.mezon.rtapi.VoiceLeavedEvent
@@ -218,6 +220,12 @@ class SocketEventDispatcher @Inject constructor(
     private val _notifications = MutableSharedFlow<Notification>(extraBufferCapacity = 16)
     val notifications: SharedFlow<Notification> = _notifications.asSharedFlow()
 
+    private val _blockFriendEvents = MutableSharedFlow<BlockFriend>(extraBufferCapacity = 4)
+    val blockFriendEvents: SharedFlow<BlockFriend> = _blockFriendEvents.asSharedFlow()
+
+    private val _unblockFriendEvents = MutableSharedFlow<UnblockFriend>(extraBufferCapacity = 4)
+    val unblockFriendEvents: SharedFlow<UnblockFriend> = _unblockFriendEvents.asSharedFlow()
+
     private val _tokenSentEvents = MutableSharedFlow<TokenSentEvent>(extraBufferCapacity = 4)
     val tokenSentEvents: SharedFlow<TokenSentEvent> = _tokenSentEvents.asSharedFlow()
 
@@ -375,6 +383,10 @@ class SocketEventDispatcher @Inject constructor(
                 _aiagentEnabledEvents.emit(envelope.aiagentEnabledEvent)
             Envelope.MessageCase.EVENT_EMOJI ->
                 _emojiEvents.emit(envelope.eventEmoji)
+            Envelope.MessageCase.BLOCK_FRIEND ->
+                _blockFriendEvents.emit(envelope.blockFriend)
+            Envelope.MessageCase.UN_BLOCK_FRIEND ->
+                _unblockFriendEvents.emit(envelope.unBlockFriend)
             else -> {}
         }
     }

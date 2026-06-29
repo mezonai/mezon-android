@@ -1,8 +1,12 @@
 package com.mezon.mobile.home.friends
 
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.edit
 import com.mezon.mezon.api.Friend
 import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.core.NotificationCenter
+import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.home.profile.UserController
@@ -10,6 +14,7 @@ import com.mezon.mobile.network.ApiCacheTracker
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.network.SocketEventDispatcher
 import com.mezon.mobile.network.apiCacheKey
+import com.mezon.mobile.session.SessionKeys
 import com.mezon.mobile.session.SessionManager
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -17,6 +22,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import android.os.SystemClock
@@ -36,6 +42,7 @@ class FriendController @Inject constructor(
     private val dispatcher: SocketEventDispatcher,
     private val notificationCenter: NotificationCenter,
     private val cacheTracker: ApiCacheTracker,
+    private val dataStore: DataStore<Preferences>,
     @ApplicationScope private val appScope: CoroutineScope,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) {
@@ -62,13 +69,12 @@ class FriendController @Inject constructor(
     private var lastFriendRelationsNotificationRefreshElapsedMs = 0L
 
     private val listFriendsCombinedCacheKey = apiCacheKey("listFriends", "all")
-    private val friendsCacheKey = apiCacheKey("listFriends", 0)
-    private val friendInviteSentCacheKey = apiCacheKey("listFriends", 1)
-    private val friendInviteReceivedCacheKey = apiCacheKey("listFriends", 2)
-    private val blockedCacheKey = apiCacheKey("listFriends", 3)
 
     init {
+        appScope.launch { loadPersistedBlockedByUsers() }
         appScope.launch { observeFriendRelationNotifications() }
+        appScope.launch { observeBlockFriendSocketEvents() }
+        appScope.launch { observeUnblockFriendSocketEvents() }
     }
 
     val currentUsername: String
@@ -126,6 +132,79 @@ class FriendController @Inject constructor(
         return false
     }
 
+    private suspend fun loadPersistedBlockedByUsers() {
+        val prefs = dataStore.data.first()
+        val savedIds = prefs[SessionKeys.BLOCKED_BY_USER_IDS] ?: emptySet()
+        if (savedIds.isNotEmpty()) {
+            val syntheticFriends = savedIds.mapNotNull { idStr ->
+                val uid = idStr.toLongOrNull() ?: return@mapNotNull null
+                com.mezon.mezon.api.Friend.newBuilder()
+                    .setState(FRIEND_STATE_BLOCKED)
+                    .setSourceId(uid)
+                    .setUser(com.mezon.mezon.api.User.newBuilder().setId(uid).build())
+                    .build()
+            }
+            _blockedUsers.value = syntheticFriends
+            publishAllFriendRelations()
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.blockedUsersLoaded)
+        }
+    }
+
+    private suspend fun persistBlockedByUserId(userId: Long) {
+        dataStore.edit { prefs ->
+            val current = prefs[SessionKeys.BLOCKED_BY_USER_IDS] ?: emptySet()
+            prefs[SessionKeys.BLOCKED_BY_USER_IDS] = current + userId.toString()
+        }
+    }
+
+    private suspend fun removePersistedBlockedByUserId(userId: Long) {
+        dataStore.edit { prefs ->
+            val current = prefs[SessionKeys.BLOCKED_BY_USER_IDS] ?: emptySet()
+            prefs[SessionKeys.BLOCKED_BY_USER_IDS] = current - userId.toString()
+        }
+    }
+
+    private suspend fun observeBlockFriendSocketEvents() {
+        dispatcher.blockFriendEvents.collect { event ->
+            val userId = event.userId
+            val existing = findFriendByUserId(userId)
+            val friendToBlock = if (existing != null) {
+                existing.toBuilder().setState(FRIEND_STATE_BLOCKED).setSourceId(userId).build()
+            } else {
+                com.mezon.mezon.api.Friend.newBuilder()
+                    .setState(FRIEND_STATE_BLOCKED)
+                    .setSourceId(userId)
+                    .setUser(com.mezon.mezon.api.User.newBuilder().setId(userId).build())
+                    .build()
+            }
+
+            val newBlockedList = _blockedUsers.value.filter { it.user.id != userId }.toMutableList()
+            newBlockedList.add(friendToBlock)
+            _blockedUsers.value = newBlockedList
+            
+            _friends.value = _friends.value.filter { it.user.id != userId }
+            _sentFriendRequests.value = _sentFriendRequests.value.filter { it.user.id != userId }
+            _receivedFriendRequests.value = _receivedFriendRequests.value.filter { it.user.id != userId }
+
+            publishAllFriendRelations()
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.blockedUsersLoaded)
+            persistBlockedByUserId(userId)
+        }
+    }
+
+    private suspend fun observeUnblockFriendSocketEvents() {
+        dispatcher.unblockFriendEvents.collect { event ->
+            val userId = event.userId
+            val blockRelation = _blockedUsers.value.firstOrNull { it.user.id == userId }
+            if (blockRelation != null && blockRelation.sourceId == userId) {
+                _blockedUsers.value = _blockedUsers.value.filter { it.user.id != userId }
+                publishAllFriendRelations()
+                notificationCenter.postNotificationOnMainThread(NotificationCenter.blockedUsersLoaded)
+                removePersistedBlockedByUserId(userId)
+            }
+        }
+    }
+
     fun loadFriendRelationsOnForegroundThrottled(minIntervalMs: Long = FRIEND_RELATIONS_FOREGROUND_THROTTLE_MS) {
         val now = SystemClock.elapsedRealtime()
         synchronized(friendRelationsForegroundThrottleLock) {
@@ -179,7 +258,19 @@ class FriendController @Inject constructor(
         _friends.value = all.filter { it.state == FRIEND_STATE_FRIEND }
         _sentFriendRequests.value = all.filter { it.state == FRIEND_STATE_INVITE_SENT }
         _receivedFriendRequests.value = all.filter { it.state == FRIEND_STATE_INVITE_RECEIVED }
-        _blockedUsers.value = all.filter { it.state == FRIEND_STATE_BLOCKED }
+        
+        val newBlocked = all.filter { it.state == FRIEND_STATE_BLOCKED }.associateBy { it.user.id }.toMutableMap()
+        
+        val currentUserId = StartupCache.userId.toLongOrNull() ?: 0L
+        for (localBlocked in _blockedUsers.value) {
+            if (localBlocked.sourceId != currentUserId && localBlocked.sourceId != 0L) {
+                if (!newBlocked.containsKey(localBlocked.user.id)) {
+                    newBlocked[localBlocked.user.id] = localBlocked
+                }
+            }
+        }
+        
+        _blockedUsers.value = newBlocked.values.toList()
     }
 
     fun sendFriendRequest(userId: Long = 0L, username: String = "", onResult: (success: Boolean) -> Unit) {
@@ -244,10 +335,8 @@ class FriendController @Inject constructor(
         }
     }
 
-    fun isUserBlockedByMe(userId: Long): Boolean {
-        if (userId == 0L) return false
-        return _blockedUsers.value.any { it.user.id == userId }
-    }
+    fun isUserBlockedByMe(userId: Long): Boolean =
+        _blockedUsers.value.any { it.user.id == userId && it.sourceId != userId }
 
     fun findFriendByUserId(userId: Long): Friend? {
         return _allFriendRelations.value.firstOrNull { it.user.id == userId }
@@ -260,10 +349,6 @@ class FriendController @Inject constructor(
 
     private suspend fun invalidateFriendRelationCachesAndRefresh() {
         cacheTracker.invalidate(listFriendsCombinedCacheKey)
-        cacheTracker.invalidate(friendsCacheKey)
-        cacheTracker.invalidate(friendInviteSentCacheKey)
-        cacheTracker.invalidate(friendInviteReceivedCacheKey)
-        cacheTracker.invalidate(blockedCacheKey)
 
         val all = sessionManager.withAutoRefresh { session ->
             withContext(ioDispatcher) { api.listFriendsAll(session.apiUrl, session.token).friendsList }

@@ -3,6 +3,7 @@ package com.mezon.mobile.session
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 
 object SessionKeys {
     val TOKEN = stringPreferencesKey("session_token")
@@ -14,4 +15,5 @@ object SessionKeys {
     val IS_REMEMBER = booleanPreferencesKey("session_is_remember")
     val LAST_CLAN_ID = longPreferencesKey("last_clan_id")
     val WALLET_CACHE_V1 = stringPreferencesKey("wallet_cache_v1")
+    val BLOCKED_BY_USER_IDS = stringSetPreferencesKey("blocked_by_user_ids")
 }

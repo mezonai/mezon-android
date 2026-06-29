@@ -563,7 +563,12 @@ open class ChatFragment : BaseFragment() {
             val eventKey = args[0] as? Long ?: return@observe
             if (eventKey != messageListKey) return@observe
             @Suppress("UNCHECKED_CAST")
-            val loadedMessages = args[1] as? ArrayList<MessageEntity> ?: return@observe
+            val rawMessages = args[1] as? ArrayList<MessageEntity> ?: return@observe
+            val loadedMessages = if (channelType != CHANNEL_TYPE_DM) {
+                ArrayList(rawMessages.filter { !it.isCallLogMessage() })
+            } else {
+                rawMessages
+            }
             val moreTop = args[2] as? Boolean ?: false
             val moreBottom = args[3] as? Boolean ?: false
             val isCache = args[4] as? Boolean ?: false
@@ -871,6 +876,8 @@ open class ChatFragment : BaseFragment() {
                 return@observe
             }
             val entity = args[1] as? MessageEntity ?: return@observe
+            if (entity.isCallLogMessage() && channelType != CHANNEL_TYPE_DM) return@observe
+            
             if (BuildConfig.DEBUG) {
                 val refId = debugReferencedMessageId(entity.content)
                 val refIdx = if (refId != 0L) messages.indexOfFirst { it.id == refId } else -1
@@ -1049,6 +1056,9 @@ open class ChatFragment : BaseFragment() {
             if (args.size < 2) return@observe
             val eventKey = args[0] as? Long ?: return@observe
             val updateEntity = args[1] as? MessageEntity ?: return@observe
+            
+            if (updateEntity.isCallLogMessage() && channelType != CHANNEL_TYPE_DM) return@observe
+
             val idx = messages.indexOfFirst { it.id == updateEntity.id }
             if (idx < 0) {
                 if (eventKey != messageListKey) return@observe
@@ -6330,7 +6340,7 @@ open class ChatFragment : BaseFragment() {
             memberSince = null,
             isOwnProfile = isOwnProfile,
             isDM = clanId == 0L,
-            isWebhook = clanId != 0L && member == null,
+            isWebhook = clanId != 0L && msg.senderId == 0L,
             roles = profileRolesFor(member),
             listener = object : UserProfileBottomSheet.UserProfileListener {
                 override fun onSendMessage(userId: Long) {

@@ -1,6 +1,7 @@
 package com.mezon.mobile.home.chat
 
 import android.graphics.Color
+import com.mezon.mobile.core.NotificationCenter
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.GradientDrawable
@@ -44,7 +45,7 @@ class UserProfileBottomSheet(
     private val roles: List<UserProfileRole> = emptyList(),
     private val listener: UserProfileListener? = null,
     private val voiceParticipantExtras: VoiceParticipantExtras? = null
-) : BottomSheet(context) {
+) : BottomSheet(context), NotificationCenter.NotificationCenterDelegate {
 
     interface UserProfileListener {
         fun onSendMessage(userId: Long) {}
@@ -87,6 +88,12 @@ class UserProfileBottomSheet(
             ThemeMode.LIGHT -> 0xFF000000.toInt()
             else -> 0xFFFFFFFF.toInt()
         }
+
+    private var addFriendBtn: View? = null
+    private var normalActionsRow: LinearLayout? = null
+    private val friendController by lazy {
+        EntryPointAccessors.fromApplication(context.applicationContext, FragmentEntryPoint::class.java).friendController()
+    }
 
     init {
         if (voiceParticipantExtras != null) {
@@ -217,10 +224,51 @@ class UserProfileBottomSheet(
         loadProfileAvatarAndBackdropTint()
     }
 
+    override fun show() {
+        super.show()
+        NotificationCenter.getInstance(0).addObserver(this, NotificationCenter.friendsLoaded)
+        NotificationCenter.getInstance(0).addObserver(this, NotificationCenter.blockedUsersLoaded)
+        friendController.loadFriendRelations(noCache = true)
+    }
+
     override fun dismiss() {
         avatarLoadDisposable?.cancel()
         avatarLoadDisposable = null
+        NotificationCenter.getInstance(0).removeObserver(this, NotificationCenter.friendsLoaded)
+        NotificationCenter.getInstance(0).removeObserver(this, NotificationCenter.blockedUsersLoaded)
         super.dismiss()
+    }
+
+    override fun didReceivedNotification(id: Int, account: Int, vararg args: Any?) {
+        if (id == NotificationCenter.friendsLoaded || id == NotificationCenter.blockedUsersLoaded) {
+            updateFriendButtonState()
+        }
+    }
+
+    private fun updateFriendButtonState() {
+        if (isOwnProfile || isWebhook || userId == 0L || voiceParticipantExtras != null) return
+        
+        val friend = friendController.findFriendByUserId(userId)
+        val shouldShow = friend == null
+        
+        if (shouldShow) {
+            if (addFriendBtn == null) {
+                addFriendBtn = buildActionButton(
+                    context.getString(R.string.user_profile_add_friend),
+                    R.drawable.ic_user_plus_icon,
+                    0xFF42A869.toInt()
+                ) {
+                    addFriendBtn?.visibility = View.GONE
+                    val l = listener
+                    if (l != null) l.onAddFriend(userId)
+                    else Toast.makeText(context, R.string.feature_coming_soon, Toast.LENGTH_SHORT).show()
+                }
+                normalActionsRow?.addView(addFriendBtn)
+            }
+            addFriendBtn?.visibility = View.VISIBLE
+        } else {
+            addFriendBtn?.visibility = View.GONE
+        }
     }
 
     private fun buildBackdropWithAvatar(): FrameLayout {
@@ -240,7 +288,7 @@ class UserProfileBottomSheet(
             addHeaderFriendButton(container, textColor, ex.onFriendClick)
         }
 
-        val isActualWebhook = isWebhook || username.isEmpty()
+        val isActualWebhook = isWebhook || (userId == 0L && username.isEmpty())
         if (!isOwnProfile && !isActualWebhook && userId != 0L) {
             addHeaderTransferButton(
                 container = container,
@@ -408,11 +456,12 @@ class UserProfileBottomSheet(
             ))
         }
 
-        val isActualWebhook = isWebhook || username.isEmpty()
+        val isActualWebhook = isWebhook || (userId == 0L && username.isEmpty())
         if (voiceParticipantExtras == null && userId != 0L && !isActualWebhook) {
-            val actionsRow = LinearLayout(context).apply {
+            normalActionsRow = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
             }
+            val actionsRow = normalActionsRow!!
 
             actionsRow.addView(buildActionButton(
                 context.getString(R.string.user_profile_send_message),
@@ -442,30 +491,14 @@ class UserProfileBottomSheet(
                     LinearLayout.LayoutParams.WRAP_CONTENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 ).apply { rightMargin = LayoutHelper.dp(14) })
-
-                val entryPoint = EntryPointAccessors.fromApplication(context.applicationContext, FragmentEntryPoint::class.java)
-                val friendController = entryPoint.friendController()
-                
-                if (friendController.findFriendByUserId(userId) == null) {
-                    var addFriendBtn: LinearLayout? = null
-                    addFriendBtn = buildActionButton(
-                        context.getString(R.string.user_profile_add_friend),
-                        R.drawable.ic_user_plus_icon,
-                        0xFF42A869.toInt()  // baseColor.green
-                    ) {
-                        addFriendBtn?.visibility = View.GONE
-                        val l = listener
-                        if (l != null) l.onAddFriend(userId)
-                        else Toast.makeText(context, R.string.feature_coming_soon, Toast.LENGTH_SHORT).show()
-                    }
-                    actionsRow.addView(addFriendBtn)
-                }
             }
 
             card.addView(actionsRow, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = LayoutHelper.dp(20) })
+            
+            updateFriendButtonState()
         }
 
         return card
