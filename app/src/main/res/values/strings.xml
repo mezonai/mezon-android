@@ -260,6 +260,7 @@
     <string name="message_send">Send</string>
     <string name="message_new_messages">NEW MESSAGES</string>
     <string name="message_no_send_permission">You don\'t have permission to send message</string>
+    <string name="message_no_send_permission_channel">You do not have permission to send messages in this channel.</string>
     <string name="message_is_banned">You are banned</string>
     <string name="message_delete_title">Delete Message</string>
     <string name="message_delete_description">Please confirm if you would like to delete this message?</string>

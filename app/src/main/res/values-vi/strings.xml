@@ -260,6 +260,7 @@
     <string name="message_send">Gửi</string>
     <string name="message_new_messages">TIN NHẮN MỚI</string>
     <string name="message_no_send_permission">Bạn không có quyền gửi tin nhắn</string>
+    <string name="message_no_send_permission_channel">Bạn không có quyền gửi tin nhắn trong kênh này.</string>
     <string name="message_is_banned">Bạn đã bị cấm trò chuyện</string>
     <string name="message_delete_title">Xóa tin nhắn</string>
     <string name="message_delete_description">Bạn có muốn xóa tin nhắn này không?</string>

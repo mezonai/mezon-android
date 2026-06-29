@@ -540,6 +540,13 @@ class ThemeColors @Inject constructor() {
         else -> 0xFF6B6B6B.toInt()
     }
 
+    val charcoal: Int get() = when (resolvedMode) {
+        ThemeMode.LIGHT -> 0xFFF2F3F5.toInt()
+        ThemeMode.DARK -> 0xFF2B2B2E.toInt()
+        ThemeMode.ABYSS -> 0xFF3B3B48.toInt()
+        else -> 0xFF2B2B2E.toInt()
+    }
+
     val borderDim: Int get() = when (resolvedMode) {
         ThemeMode.LIGHT -> 0xFFDFDFDF.toInt()
         ThemeMode.DARK -> 0xFF2F2F37.toInt()
