@@ -4501,6 +4501,13 @@ open class ChatFragment : BaseFragment() {
         val rawInput = inputField.text?.toString() ?: ""
         val text = rawInput.trim()
         val editMsg = editingMessage
+        if (editMsg != null) {
+            val oldText = com.mezon.mobile.util.restoreInputFromContent(editMsg.content).rawText.trim()
+            if (text == oldText) {
+                clearEditState()
+                return
+            }
+        }
         val preservingShareContactEmbed = editMsg != null &&
             isShareContactMessage(editMsg.code, editMsg.content)
         if (text.isBlank() && pendingAttachments.isEmpty() && !preservingShareContactEmbed) return

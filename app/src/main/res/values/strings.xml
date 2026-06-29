@@ -37,6 +37,7 @@
     <string name="common_members">Members</string>
     <string name="common_friend">Friend</string>
     <string name="common_add_friend">Add friend</string>
+    <string name="friend_request_accepted">%1$s accepted your friend request</string>
     <string name="common_online">Online</string>
     <string name="common_offline">Offline</string>
     <string name="common_copy">Copy</string>
