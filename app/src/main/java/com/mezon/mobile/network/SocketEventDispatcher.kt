@@ -39,6 +39,7 @@ import com.mezon.mezon.rtapi.RoleEvent
 import com.mezon.mezon.rtapi.SdTopicEvent
 import com.mezon.mezon.rtapi.StickerCreateEvent
 import com.mezon.mezon.rtapi.StickerDeleteEvent
+import com.mezon.mezon.rtapi.TopicInMessageEvent
 import com.mezon.mezon.rtapi.StickerUpdateEvent
 import com.mezon.mezon.rtapi.StreamingEndedEvent
 import com.mezon.mezon.rtapi.StreamingJoinedEvent
@@ -236,6 +237,9 @@ class SocketEventDispatcher @Inject constructor(
     private val _sdTopicEvents = MutableSharedFlow<SdTopicEvent>(extraBufferCapacity = 8)
     val sdTopicEvents: SharedFlow<SdTopicEvent> = _sdTopicEvents.asSharedFlow()
 
+    private val _topicInMessageEvents = MutableSharedFlow<TopicInMessageEvent>(extraBufferCapacity = 8)
+    val topicInMessageEvents: SharedFlow<TopicInMessageEvent> = _topicInMessageEvents.asSharedFlow()
+
     private val _aiagentEnabledEvents = MutableSharedFlow<AIAgentEnabledEvent>(extraBufferCapacity = 4)
     val aiagentEnabledEvents: SharedFlow<AIAgentEnabledEvent> = _aiagentEnabledEvents.asSharedFlow()
 
@@ -371,6 +375,8 @@ class SocketEventDispatcher @Inject constructor(
                 _giveCoffeeEvents.emit(envelope.giveCoffeeEvent)
             Envelope.MessageCase.SD_TOPIC_EVENT ->
                 _sdTopicEvents.emit(envelope.sdTopicEvent)
+            Envelope.MessageCase.TOPIC_IN_MESSAGE_EVENT ->
+                _topicInMessageEvents.emit(envelope.topicInMessageEvent)
             Envelope.MessageCase.AIAGENT_ENABLED_EVENT ->
                 _aiagentEnabledEvents.emit(envelope.aiagentEnabledEvent)
             Envelope.MessageCase.EVENT_EMOJI ->
