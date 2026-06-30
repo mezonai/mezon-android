@@ -23,6 +23,7 @@ class BackupImageView(context: Context) : View(context) {
     private var decodeWidth = -1
     private var decodeHeight = -1
     private var aspectFit = false
+    private var aspectFill = false
     private var roundRadius = 0
     private var roundRadiusTL = 0
     private var roundRadiusTR = 0
@@ -75,6 +76,11 @@ class BackupImageView(context: Context) : View(context) {
 
     fun setAspectFit(value: Boolean) {
         aspectFit = value
+        invalidate()
+    }
+
+    fun setAspectFill(value: Boolean) {
+        aspectFill = value
         invalidate()
     }
 
@@ -183,22 +189,48 @@ class BackupImageView(context: Context) : View(context) {
         }
         val d = loadedDrawable
         if (d != null) {
-            val drawW = if (decodeWidth > 0 && decodeHeight > 0) {
-                if (aspectFit) {
-                    val scale = min(width.toFloat() / decodeWidth, height.toFloat() / decodeHeight)
-                    (decodeWidth * scale).toInt()
+            val drawW: Int
+            val drawH: Int
+            val drawX: Int
+            val drawY: Int
+
+            val iW = d.intrinsicWidth
+            val iH = d.intrinsicHeight
+
+            if (aspectFill && iW > 0 && iH > 0) {
+                val scale = kotlin.math.max(width.toFloat() / iW, height.toFloat() / iH)
+                drawW = (iW * scale).toInt()
+                drawH = (iH * scale).toInt()
+                drawX = (width - drawW) / 2
+                drawY = (height - drawH) / 2
+            } else {
+                drawW = if (decodeWidth > 0 && decodeHeight > 0) {
+                    if (aspectFit) {
+                        val scale = kotlin.math.min(width.toFloat() / decodeWidth, height.toFloat() / decodeHeight)
+                        (decodeWidth * scale).toInt()
+                    } else width
                 } else width
-            } else width
-            val drawH = if (decodeWidth > 0 && decodeHeight > 0) {
-                if (aspectFit) {
-                    val scale = min(width.toFloat() / decodeWidth, height.toFloat() / decodeHeight)
-                    (decodeHeight * scale).toInt()
+                
+                drawH = if (decodeWidth > 0 && decodeHeight > 0) {
+                    if (aspectFit) {
+                        val scale = kotlin.math.min(width.toFloat() / decodeWidth, height.toFloat() / decodeHeight)
+                        (decodeHeight * scale).toInt()
+                    } else height
                 } else height
-            } else height
-            val drawX = if (decodeWidth > 0 && decodeHeight > 0 && aspectFit) (width - drawW) / 2 else 0
-            val drawY = if (decodeWidth > 0 && decodeHeight > 0 && aspectFit) (height - drawH) / 2 else 0
+                
+                drawX = if (decodeWidth > 0 && decodeHeight > 0 && aspectFit) (width - drawW) / 2 else 0
+                drawY = if (decodeWidth > 0 && decodeHeight > 0 && aspectFit) (height - drawH) / 2 else 0
+            }
+
+            if (!hasRoundClip && aspectFill) {
+                canvas.save()
+                canvas.clipRect(0, 0, width, height)
+            }
             d.setBounds(drawX, drawY, drawX + drawW, drawY + drawH)
             d.draw(canvas)
+            if (!hasRoundClip && aspectFill) {
+                canvas.restore()
+            }
         } else if (!omitEmptyPlaceholder) {
             avatarDrawable.setBounds(0, 0, width, height)
             avatarDrawable.draw(canvas)
