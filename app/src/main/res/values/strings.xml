@@ -481,6 +481,7 @@
     <string name="invite_send_link_label">Or, send a clan invite link to a friend</string>
     <string name="invite_copy">Copy</string>
     <string name="invite_copied">Copied</string>
+    <string name="transaction_hash_copied">Transaction hash copied</string>
     <string name="invite_share_qr">Share QR</string>
     <string name="invite_save_qr">Save QR</string>
     <string name="invite_qr_saved">QR saved to gallery</string>
@@ -1672,4 +1673,14 @@
     <string name="sticker_delete_confirm_title">Delete sticker?</string>
     <string name="sticker_delete_confirm_msg">Are you sure you want to delete \"%1$s\"?</string>
     <string name="sticker_add_label">Add sticker</string>
+    <string name="profile_history_transaction_all">All</string>
+    <string name="profile_history_transaction_incoming">Incoming</string>
+    <string name="profile_history_transaction_outgoing">Outgoing</string>
+    <string name="transaction_status_received">Received</string>
+    <string name="transaction_status_sent">Sent</string>
+    <string name="transaction_detail_title">Transaction Detail</string>
+    <string name="transaction_detail_id">Transaction ID</string>
+    <string name="transaction_detail_time">Time</string>
+    <string name="transaction_detail_sender">Sender name</string>
+    <string name="transaction_detail_receiver">Receiver name</string>
 </resources>

@@ -169,8 +169,16 @@ class SendTokenFragment : BaseFragment() {
         parseForm(formValue)
         friendController.loadFriends()
         userClanController.loadUsers()
-        observe(NotificationCenter.accountInfoLoaded) { _, _, _ ->
-            refreshWalletBalance()
+        
+        walletController.fetchWalletDetail()
+        
+        fragmentScope.launch {
+            walletController.walletDetail.collect {
+                if (fragmentView == null || isPaused) return@collect
+                withContext(Dispatchers.Main) {
+                    refreshWalletBalance()
+                }
+            }
         }
         return true
     }
@@ -247,7 +255,7 @@ class SendTokenFragment : BaseFragment() {
     ): View {
         val acc = accountController.accountInfo.value
         val userDisplay = acc.username.ifEmpty { acc.displayName }.ifEmpty { "—" }
-        val balance = acc.balance
+        val balance = walletController.walletDetail.value?.balance ?: acc.balance
         val symbol = getString(R.string.send_token_currency_symbol)
 
         val contentColumn = LinearLayout(context).apply {
@@ -766,7 +774,8 @@ class SendTokenFragment : BaseFragment() {
     }
 
     private fun refreshWalletBalance() {
-        val raw = accountController.accountInfo.value.balance.toBigInteger()
+        val rawStr = walletController.walletDetail.value?.balance ?: accountController.accountInfo.value.balance
+        val raw = rawStr.toBigIntegerOrNull() ?: java.math.BigInteger.ZERO
         val human = formatBigIntegerHumanVi(raw / CHAIN_UNITS_PER_TOKEN)
         val symbol = getString(R.string.send_token_currency_symbol)
         walletBalanceText?.text = getString(R.string.send_token_balance_line, human, symbol)
@@ -1469,8 +1478,8 @@ class SendTokenFragment : BaseFragment() {
             )
             return
         }
-        val balanceRaw = runCatching { accountController.accountInfo.value.balance.toBigInteger() }
-            .getOrNull()
+        val balanceStr = walletController.walletDetail.value?.balance ?: accountController.accountInfo.value.balance
+        val balanceRaw = runCatching { balanceStr.toBigInteger() }.getOrNull()
         if (balanceRaw == null) {
             showToast(
                 getString(R.string.send_token_error_balance_parse),
@@ -1521,7 +1530,7 @@ class SendTokenFragment : BaseFragment() {
                 result.fold(
                     onSuccess = { r ->
                         if (r.ok) {
-                            accountController.reduceBalanceLocally(amountInChainUnits)
+                            walletController.reduceBalanceLocally(amountInChainUnits)
                             val timeStr = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
                                 .format(Date())
                             val amountShow = amountField?.text?.toString().orEmpty()

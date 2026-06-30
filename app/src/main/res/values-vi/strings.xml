@@ -394,6 +394,7 @@
     <string name="invite_send_link_label">Hoặc gửi link mời clan cho bạn bè</string>
     <string name="invite_copy">Sao chép</string>
     <string name="invite_copied">Đã sao chép</string>
+    <string name="transaction_hash_copied">Đã sao chép mã giao dịch</string>
     <string name="invite_share_qr">Chia sẻ QR</string>
     <string name="invite_save_qr">Lưu QR</string>
     <string name="invite_qr_saved">Đã lưu QR vào thư viện</string>
@@ -1527,4 +1528,14 @@
     <string name="sticker_delete_confirm_msg">Bạn có chắc muốn xóa \"%1$s\"?</string>
     <string name="sticker_add_label">Thêm nhãn dán</string>
     <string name="advanced_anonymous_off">Tắt ẩn danh</string>
+    <string name="profile_history_transaction_all">Tất cả</string>
+    <string name="profile_history_transaction_incoming">Tiền vào</string>
+    <string name="profile_history_transaction_outgoing">Tiền ra</string>
+    <string name="transaction_status_received">Nhận tiền</string>
+    <string name="transaction_status_sent">Chuyển tiền</string>
+    <string name="transaction_detail_title">Chi tiết giao dịch</string>
+    <string name="transaction_detail_id">Mã giao dịch</string>
+    <string name="transaction_detail_time">Thời gian</string>
+    <string name="transaction_detail_sender">Tên người gửi</string>
+    <string name="transaction_detail_receiver">Tên người nhận</string>
 </resources>
