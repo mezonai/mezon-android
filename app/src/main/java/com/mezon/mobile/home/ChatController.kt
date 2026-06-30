@@ -1504,15 +1504,16 @@ class ChatController @Inject constructor(
         hashtags: List<com.mezon.mobile.util.HashtagData>? = null,
         emojiMarkers: List<EmojiMarker>? = null,
         ogpMarker: OgpMarker? = null,
+        markdownMarkers: List<MarkdownMarker>? = null,
         topicId: Long = 0L
     ) {
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
         val cacheKey = messageCacheKey(channelId, topicId)
-        val hasContentExtras = !hashtags.isNullOrEmpty() || !emojiMarkers.isNullOrEmpty() || ogpMarker != null
+        val hasContentExtras = !hashtags.isNullOrEmpty() || !emojiMarkers.isNullOrEmpty() || ogpMarker != null || !markdownMarkers.isNullOrEmpty()
         val wireBase = when {
             text.isBlank() -> PresignFinishContent.emptyOutgoingContent()
-            hasContentExtras -> buildTextContentWithEmojis(text, null, emojiMarkers, null, hashtags, ogpMarker)
+            hasContentExtras -> buildTextContentWithEmojis(text, null, emojiMarkers, markdownMarkers, hashtags, ogpMarker)
             else -> buildTextContent(text)
         }
         val optimisticContent = PresignFinishContent.injectEmptyPresignFinish(

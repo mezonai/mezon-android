@@ -268,7 +268,8 @@ data class OgpMarker(
     val index: Int,
     val title: String,
     val description: String,
-    val image: String
+    val image: String,
+    val url: String
 )
 
 data class HashtagData(
@@ -661,9 +662,15 @@ fun buildTextContentWithEmojis(
                 .replace("\n", "\\n")
                 .replace("\r", "\\r")
                 .replace("\t", "\\t")
+            val escapedUrl = it.url
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t")
             mkEntries.add(
                 "{\"type\":\"lk_ogp\",\"s\":${it.s},\"e\":${it.e},\"index\":${it.index}," +
-                    "\"title\":\"$escapedTitle\",\"description\":\"$escapedDescription\",\"image\":\"$escapedImage\"}"
+                    "\"title\":\"$escapedTitle\",\"description\":\"$escapedDescription\",\"image\":\"$escapedImage\",\"url\":\"$escapedUrl\"}"
             )
         }
         parts.add("\"mk\":[${mkEntries.joinToString(",")}]")
