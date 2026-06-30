@@ -269,6 +269,8 @@ open class ChatFragment : BaseFragment() {
     private lateinit var adapter: ChatAdapter
     private lateinit var rootView: FrameLayout
     private lateinit var inputBar: LinearLayout
+    private lateinit var noPermissionBar: FrameLayout
+    private lateinit var noPermissionText: TextView
     private var channelAppHotbar: LinearLayout? = null
     private lateinit var inputWrapper: FrameLayout
     private lateinit var pageDownButton: PageDownButton
@@ -1228,6 +1230,9 @@ open class ChatFragment : BaseFragment() {
             if (fragmentView == null) return@observe
             rootView.setBackgroundColor(themeColors.chatBackground)
             inputBar.setBackgroundColor(themeColors.surface)
+            noPermissionBar.setBackgroundColor(themeColors.surface)
+            noPermissionText.setTextColor(themeColors.textDisabled)
+            (noPermissionText.background as? android.graphics.drawable.GradientDrawable)?.setColor(themeColors.charcoal)
             inputField.setTextColor(themeColors.onSurface)
             inputField.setHintTextColor(themeColors.onSurfaceVariant)
             (inputField.background as? android.graphics.drawable.GradientDrawable)?.setColor(themeColors.tertiary)
@@ -1918,6 +1923,27 @@ open class ChatFragment : BaseFragment() {
             setOnTouchListener { v, event -> handleMicTouchEvent(v, event) }
         }
         inputBar.addView(micButton, LayoutHelper.createLinear(40, 40, gravity = Gravity.BOTTOM))
+
+        noPermissionBar = FrameLayout(context).apply {
+            setBackgroundColor(themeColors.surface)
+            setPadding(LayoutHelper.dp(12f), LayoutHelper.dp(6f), LayoutHelper.dp(12f), LayoutHelper.dp(20f))
+            visibility = View.GONE
+        }
+        noPermissionText = TextView(context).apply {
+            text = getString(R.string.message_no_send_permission_channel)
+            setTextColor(themeColors.textDisabled)
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setPadding(LayoutHelper.dp(16f), LayoutHelper.dp(16f), LayoutHelper.dp(16f), LayoutHelper.dp(16f))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = LayoutHelper.dp(20f).toFloat()
+                setColor(themeColors.charcoal)
+            }
+        }
+        noPermissionBar.addView(noPermissionText, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT
+        ))
+        innerLayout.addView(noPermissionBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         inputField.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {
@@ -5191,20 +5217,29 @@ open class ChatFragment : BaseFragment() {
         val hasText = inputField.text?.isNotBlank() == true
         val hasAttachments = pendingAttachments.isNotEmpty()
         val canSend = editingMessage != null || canSendMessageInCurrentChannel()
-        val showSend = canSend && (hasText || hasAttachments)
+
+        noPermissionBar.visibility = if (canSend) View.GONE else View.VISIBLE
+        inputBar.visibility = if (canSend) View.VISIBLE else View.GONE
+        if (!canSend) {
+            sendButton.visibility = View.GONE
+            micButton.visibility = View.GONE
+            return
+        }
+
+        val showSend = hasText || hasAttachments
         sendButton.visibility = if (showSend) View.VISIBLE else View.GONE
-        attachButton.isEnabled = canSend
-        attachButton.alpha = if (canSend) 1f else 0.45f
-        advancedFunctionButton.isEnabled = canSend
-        advancedFunctionButton.alpha = if (canSend) 1f else 0.45f
-        emojiButton.isEnabled = canSend
-        emojiButton.alpha = if (canSend) 1f else 0.45f
-        inputField.isEnabled = canSend
-        inputField.alpha = if (canSend) 1f else 0.6f
+        attachButton.isEnabled = true
+        attachButton.alpha = 1f
+        advancedFunctionButton.isEnabled = true
+        advancedFunctionButton.alpha = 1f
+        emojiButton.isEnabled = true
+        emojiButton.alpha = 1f
+        inputField.isEnabled = true
+        inputField.alpha = 1f
         if (voiceIsRecording) {
             micButton.visibility = View.VISIBLE
         } else {
-            micButton.visibility = if (canSend && !showSend) View.VISIBLE else View.GONE
+            micButton.visibility = if (!showSend) View.VISIBLE else View.GONE
         }
     }
 

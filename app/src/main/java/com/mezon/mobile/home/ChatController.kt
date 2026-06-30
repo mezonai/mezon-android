@@ -75,6 +75,7 @@ import com.mezon.mobile.home.chat.withTopicCreated
 import com.mezon.mobile.home.chat.withTopicStats
 import com.mezon.mezon.rtapi.Envelope
 import com.mezon.mezon.rtapi.SdTopicEvent
+import com.mezon.mezon.rtapi.TopicInMessageEvent
 import com.mezon.mezon.rtapi.channelMessageSend
 import com.mezon.mezon.rtapi.channelMessageUpdate
 import com.mezon.mobile.network.ConnectionState
@@ -157,6 +158,7 @@ class ChatController @Inject constructor(
     private val lastMessageByChannel = LongSparseArray<Long>()
     private val pendingTempMessageByChannel = LongSparseArray<Long>()
     private val topicRootByTopicId = LongSparseArray<TopicRootRef>()
+    private val topicMetaByTopicId = LongSparseArray<TopicMeta>()
     private val attachmentJobsByTempId = LongSparseArray<IncrementalAttachmentJob>()
     private val attachmentJobsByRealId = LongSparseArray<IncrementalAttachmentJob>()
     private val pendingAttachmentEntityByTempId = LongSparseArray<MessageEntity>()
@@ -241,6 +243,7 @@ class ChatController @Inject constructor(
     }
 
     private data class TopicRootRef(val parentChannelId: Long, val rootMessageId: Long)
+    private data class TopicMeta(val rpl: Int, val lsnt: Long, val authoritative: Boolean)
 
     private fun cacheTopicRoot(topicId: Long, parentChannelId: Long, rootMessageId: Long) {
         if (topicId == 0L || parentChannelId == 0L || rootMessageId == 0L) return
@@ -275,6 +278,7 @@ class ChatController @Inject constructor(
         appScope.launch { observeIncomingMessageUpdates() }
         appScope.launch { observeReactionEvents() }
         appScope.launch { observeSdTopicEvents() }
+        appScope.launch { observeTopicInMessageEvents() }
         appScope.launch(ioDispatcher) {
             val session = sessionManager.sessionFlow.first { it != null }
             cachedCurrentUserId = session?.userId?.toLongOrNull() ?: 0L
@@ -463,8 +467,20 @@ class ChatController @Inject constructor(
 
     private fun remapForCache(entities: List<MessageEntity>, cacheKey: Long): List<MessageEntity> {
         if (entities.isEmpty()) return entities
-        if (entities.first().channelId == cacheKey) return entities
-        return entities.map { it.copy(channelId = cacheKey) }
+        return entities.map { entity ->
+            val remapped = if (entity.channelId == cacheKey) entity else entity.copy(channelId = cacheKey)
+            applyTopicMeta(remapped)
+        }
+    }
+
+    private fun applyTopicMeta(entity: MessageEntity): MessageEntity {
+        if (!entity.isTopicRootMessage) return entity
+        val tpId = entity.effectiveTopicId
+        if (tpId == 0L) return entity
+        val meta = synchronized(this) { topicMetaByTopicId.get(tpId) } ?: return entity
+        if (!meta.authoritative) return entity
+        if (meta.rpl == entity.rplCount && meta.lsnt == entity.lastSentSeconds) return entity
+        return entity.withTopicStats(meta.rpl, if (meta.lsnt > 0L) meta.lsnt else entity.lastSentSeconds)
     }
 
     private fun remapForCache(entity: MessageEntity, cacheKey: Long): MessageEntity =
@@ -2834,14 +2850,50 @@ class ChatController @Inject constructor(
         timestampSeconds: Long
     ) {
         val root = findTopicRootMessage(topicId, parentChannelId) ?: return
-        val newRpl = (root.rplCount + increment).coerceAtLeast(0)
-        val newLastSent = if (increment > 0 && timestampSeconds > 0L) timestampSeconds else root.lastSentSeconds
-        if (newRpl == root.rplCount && newLastSent == root.lastSentSeconds) return
-        val updated = root.withTopicStats(newRpl, newLastSent)
+        val meta = synchronized(this) {
+            val cur = topicMetaByTopicId.get(topicId)
+            val baseRpl = cur?.rpl ?: root.rplCount
+            val baseLsnt = cur?.lsnt ?: root.lastSentSeconds
+            val nextRpl = (baseRpl + increment).coerceAtLeast(0)
+            val nextLsnt = if (increment > 0 && timestampSeconds > 0L) timestampSeconds else baseLsnt
+            TopicMeta(nextRpl, nextLsnt, authoritative = cur?.authoritative ?: false)
+                .also { topicMetaByTopicId.put(topicId, it) }
+        }
+        if (meta.rpl == root.rplCount && meta.lsnt == root.lastSentSeconds) return
+        val updated = root.withTopicStats(meta.rpl, meta.lsnt)
         messageDao.upsert(updated)
         notificationCenter.postNotificationOnMainThread(
             NotificationCenter.messageDidUpdate, parentChannelId, updated, NotificationCenter.UPDATE_MASK_TOPIC
         )
+    }
+
+    private suspend fun observeTopicInMessageEvents() {
+        socketEventDispatcher.topicInMessageEvents.collect { event ->
+            handleTopicInMessageEvent(event)
+        }
+    }
+
+    private suspend fun handleTopicInMessageEvent(event: TopicInMessageEvent) {
+        val topicId = event.tpId.toLongOrNull() ?: 0L
+        val rootMessageId = event.messageId
+        if (topicId == 0L && rootMessageId == 0L) return
+        val newRpl = event.rpl.coerceAtLeast(0)
+        if (topicId != 0L) {
+            synchronized(this) {
+                val mergedLsnt = if (event.lsnt > 0L) event.lsnt else topicMetaByTopicId.get(topicId)?.lsnt ?: 0L
+                topicMetaByTopicId.put(topicId, TopicMeta(newRpl, mergedLsnt, authoritative = true))
+            }
+        }
+        appScope.launch(ioDispatcher) {
+            val root = messageDao.getTopicRoot(topicId, rootMessageId) ?: return@launch
+            val newLastSent = if (event.lsnt > 0L) event.lsnt else root.lastSentSeconds
+            if (newRpl == root.rplCount && newLastSent == root.lastSentSeconds) return@launch
+            val updated = root.withTopicStats(newRpl, newLastSent)
+            messageDao.upsert(updated)
+            notificationCenter.postNotificationOnMainThread(
+                NotificationCenter.messageDidUpdate, root.channelId, updated, NotificationCenter.UPDATE_MASK_TOPIC
+            )
+        }
     }
 
     private suspend fun observeIncomingMessages() {

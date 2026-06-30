@@ -30,6 +30,7 @@ import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.util.absoluteResourceUrl
 import com.mezon.mobile.util.avatarImgproxyUrl
+import com.mezon.mobile.util.createImgproxyUrl
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -294,10 +295,11 @@ class StreamingRoomFragment : BaseFragment() {
         val absolute = absoluteResourceUrl(rawAvatar)
         if (absolute.isBlank()) return
         val width = AndroidUtilities.displaySize.x
-        val proxy = avatarImgproxyUrl(absolute, width)
+        val height = AndroidUtilities.displaySize.y
+        val proxy = createImgproxyUrl(absolute, width, height, "fit")
         val ctx = imageContext() ?: return
         MezonImageLoader.getInstance(ctx).load(
-            proxy, width, width,
+            proxy, width, height,
             onSuccess = { bmp ->
                 backgroundView.setImageBitmap(bmp)
                 refreshPlaybackUi()
