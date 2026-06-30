@@ -2024,7 +2024,7 @@ class CreateThreadFragment : BaseFragment() {
     private fun canCreateThreadForCurrentFlow(): Boolean {
         if (fromTopicFlow && anonymousController.isAnonymous(clanId)) return false
         return if (fromTopicFlow) {
-            permissionPolicy.canCreateThreadFromMessage(parentChannelId, clanId)
+            true
         } else {
             permissionPolicy.canCreateThreadFromThreadList(parentChannelId, clanId)
         }
