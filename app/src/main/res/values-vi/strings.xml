@@ -35,6 +35,7 @@
     <string name="common_members">Thành viên</string>
     <string name="common_friend">Bạn bè</string>
     <string name="common_add_friend">Thêm bạn</string>
+    <string name="friend_request_accepted">%1$s đã chấp nhận lời mời kết bạn của bạn</string>
     <string name="common_online">Trực tuyến</string>
     <string name="common_offline">Ngoại tuyến</string>
     <string name="common_copy">Sao chép</string>

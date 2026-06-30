@@ -2546,6 +2546,32 @@ class ChatController @Inject constructor(
         return incoming
     }
 
+    private fun preserveJsonKeys(baseContent: String, newContent: String, keys: List<String>): String {
+        if (baseContent.isBlank() || newContent.isBlank()) return newContent
+        if (!baseContent.startsWith("{") || !newContent.startsWith("{")) return newContent
+        var merged = newContent
+        try {
+            var appendText = ""
+            val baseJson = org.json.JSONObject(baseContent)
+            for (key in keys) {
+                if (baseContent.contains("\"$key\"") && !merged.contains("\"$key\"")) {
+                    if (baseJson.has(key)) {
+                        appendText += ",\"$key\":" + baseJson.get(key).toString()
+                    }
+                }
+            }
+            if (appendText.isNotEmpty()) {
+                val lastBraceIndex = merged.lastIndexOf('}')
+                if (lastBraceIndex != -1) {
+                    merged = merged.substring(0, lastBraceIndex) + appendText + merged.substring(lastBraceIndex)
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return merged
+    }
+
     private fun mergeIncomingAttachmentEntity(
         existing: MessageEntity?,
         incoming: MessageEntity,
@@ -2562,7 +2588,8 @@ class ChatController @Inject constructor(
             existingCount > incomingCount ||
             (expectedTotal > incomingCount && hasAnyLocalAttachmentUrl(existing))
         )
-        val mergedContent = PresignFinishContent.mergePresignFinishContent(base.content, incoming.content)
+        var mergedContent = PresignFinishContent.mergePresignFinishContent(base.content, incoming.content)
+        mergedContent = preserveJsonKeys(base.content, mergedContent, listOf("references", "mentions"))
         val presignOnly = PresignFinishContent.isPresignFinishOnlyChange(mergedContent, base.content)
         val resolvedContent = when {
             forceContentReplace && incoming.content.isNotBlank() -> mergedContent
@@ -2673,10 +2700,13 @@ class ChatController @Inject constructor(
         } else {
             buildTextContent(newText)
         }
-        val content = if (existingMessage != null && isShareContactMessage(existingMessage.code, existingMessage.content)) {
+        var content = if (existingMessage != null && isShareContactMessage(existingMessage.code, existingMessage.content)) {
             mergeShareContactEmbedIntoContent(baseContent, existingMessage.content)
         } else {
             baseContent
+        }
+        if (existingMessage != null) {
+            content = preserveJsonKeys(existingMessage.content, content, listOf("references", "mentions"))
         }
         val protoMentions = resolvedMentions?.map { m ->
             messageMention {
