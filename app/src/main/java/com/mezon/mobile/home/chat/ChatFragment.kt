@@ -4543,15 +4543,7 @@ open class ChatFragment : BaseFragment() {
         val ogpPreview = inputOgpPreviewData
             ?: extractFirstInputUrl(cleanedText)?.let { inputOgpCache[it] }
         val ogpMarker = buildInputOgpMarker(cleanedText, ogpPreview)
-        val filteredMdMarkers = if (ogpMarker == null) mdMarkers else {
-            mdMarkers
-                ?.filterNot {
-                    it.type == "lk" &&
-                        it.s < ogpMarker.e &&
-                        ogpMarker.s < it.e
-                }
-                ?.ifEmpty { null }
-        }
+        val filteredMdMarkers = mdMarkers
 
         val fromTrackers = mentionTrackers.mapNotNull { m ->
             val inTrimmed = mentionOffsetsForTrimmed(rawInput, text, m) ?: return@mapNotNull null
@@ -4611,6 +4603,7 @@ open class ChatFragment : BaseFragment() {
                 hashtags,
                 emojiMarkers,
                 ogpMarker,
+                filteredMdMarkers,
                 topicId = topicId
             )
             clearPendingAttachments()
@@ -5374,12 +5367,13 @@ open class ChatFragment : BaseFragment() {
         val image = p.imageUrl.trim()
         if (title.isEmpty() || (description.isEmpty() && image.isEmpty())) return null
         return OgpMarker(
-            s = start,
-            e = end,
+            s = cleanedText.length,
+            e = cleanedText.length + 1,
             index = start,
             title = title,
             description = description,
-            image = image
+            image = image,
+            url = urlInText
         )
     }
 

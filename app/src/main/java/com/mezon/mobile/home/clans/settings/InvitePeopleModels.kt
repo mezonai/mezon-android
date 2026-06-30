@@ -62,5 +62,5 @@ fun buildInviteLinkContent(
     val description = (memberCountDescription
         ?: preview.channelLabel.ifBlank { preview.clanName }).escapeJson()
     val image = preview.logoUrl.escapeJson()
-    return """{"t":"$escaped","mk":[{"type":"lk","s":0,"e":$end},{"type":"lk_ogp","s":$end,"e":${end + 1},"index":0,"title":"$title","description":"$description","image":"$image"}]}"""
+    return """{"t":"$escaped","mk":[{"type":"lk","s":0,"e":$end},{"type":"lk_ogp","s":$end,"e":${end + 1},"index":0,"title":"$title","description":"$description","image":"$image","url":"$escaped"}]}"""
 }
