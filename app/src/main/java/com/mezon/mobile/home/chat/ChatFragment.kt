@@ -40,6 +40,7 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.PopupWindow
+import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -193,6 +194,8 @@ open class ChatFragment : BaseFragment() {
         private const val PAGE_DOWN_SCROLL_THRESHOLD = 2
         private const val REQUEST_CODE_LOCATION_PERMISSION = 1002
         private const val REQUEST_CODE_PICK_FILE = 1005
+        private const val REQUEST_CODE_TAKE_PHOTO = 1006
+        private const val REQUEST_CODE_CAMERA_PERMISSION = 1007
         private const val REQUEST_CODE_RECORD_AUDIO = 1003
         private const val MAX_LENGTH_MESSAGE_BUZZ = 160
         private const val VOICE_LONG_PRESS_DELAY_MS = 400L
@@ -296,6 +299,9 @@ open class ChatFragment : BaseFragment() {
     private lateinit var sizeNotifierRoot: SizeNotifierFrameLayout
 
     private val pendingAttachments = ArrayList<AttachmentPickerItem>()
+    private var pendingCameraCapture: CameraPhotoCapture? = null
+    private var cameraSourceAlert: ChatAttachAlert? = null
+    private var activeCameraReview: CameraPhotoReviewDialog? = null
     private var mediaPermissionDeniedOnce = false
     private var locationPermissionAskedBefore = false
     private val pendingAttachmentThumbTasks = ArrayList<Runnable?>()
@@ -4837,6 +4843,7 @@ open class ChatFragment : BaseFragment() {
         val ctx = getContext() ?: return
         val preselected = pendingAttachments.filter { !it.isFileType }
         val alert = ChatAttachAlert(ctx, mediaController, themeColors, preselected)
+        cameraSourceAlert = alert
         alert.attachDelegate = object : ChatAttachAlert.ChatAttachAlertDelegate {
             override fun canSelectMore(): Boolean {
                 return pendingAttachments.size < AttachmentPickerItem.GALLERY_MAX_SELECTION
@@ -4858,10 +4865,23 @@ open class ChatFragment : BaseFragment() {
                 launchDocumentPicker()
             }
 
+            override fun onCameraRequested() {
+                if (!ensureCanSendMessageOrNotify()) return
+                if (!canSelectMore()) {
+                    Toast.makeText(ctx, "Maximum ${AttachmentPickerItem.GALLERY_MAX_SELECTION} items", Toast.LENGTH_SHORT).show()
+                    return
+                }
+                requestCameraPhoto()
+            }
+
             override fun onSendRequested() {
                 if (pendingAttachments.isEmpty()) return
                 updateAttachmentPreview()
                 updateSendButtonState()
+            }
+
+            override fun onDismissed() {
+                if (cameraSourceAlert === alert) cameraSourceAlert = null
             }
         }
         alert.setDrawNavigationBar(true)
@@ -5041,7 +5061,54 @@ open class ChatFragment : BaseFragment() {
         )
     }
 
+    private fun requestCameraPhoto() {
+        val activity = getParentActivity() ?: return
+        if (ContextCompat.checkSelfPermission(activity, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            activity.requestPermissions(arrayOf(Manifest.permission.CAMERA), REQUEST_CODE_CAMERA_PERMISSION)
+            return
+        }
+        launchCameraPhoto()
+    }
+
+    private fun launchCameraPhoto(): Boolean {
+        val ctx = getContext() ?: return false
+        val capture = CameraPhotoCapture.create(ctx)
+        if (capture == null) {
+            MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.camera_not_available))
+            return false
+        }
+        pendingCameraCapture?.discard()
+        pendingCameraCapture = capture
+        try {
+            startActivityForResult(capture.intent, REQUEST_CODE_TAKE_PHOTO)
+            return true
+        } catch (_: android.content.ActivityNotFoundException) {
+            pendingCameraCapture = null
+            capture.discard()
+            MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.camera_not_available))
+            return false
+        }
+    }
+
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == REQUEST_CODE_TAKE_PHOTO) {
+            val capture = pendingCameraCapture
+            pendingCameraCapture = null
+            if (resultCode != android.app.Activity.RESULT_OK) {
+                capture?.discard()
+                activeCameraReview?.dismiss()
+                activeCameraReview = null
+                return
+            }
+            val item = capture?.toAttachment()
+            if (item == null) {
+                capture?.discard()
+                MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.camera_capture_failed))
+                return
+            }
+            showCameraPhotoReview(capture, item)
+            return
+        }
         if (requestCode != REQUEST_CODE_PICK_FILE || resultCode != android.app.Activity.RESULT_OK) return
         if (!ensureCanSendMessageOrNotify()) return
         val uri = data?.data ?: return
@@ -5058,6 +5125,38 @@ open class ChatFragment : BaseFragment() {
         pendingAttachments.add(item)
         updateAttachmentPreview()
         updateSendButtonState()
+    }
+
+    private fun showCameraPhotoReview(capture: CameraPhotoCapture, item: AttachmentPickerItem) {
+        val ctx = getContext() ?: run {
+            capture.discard()
+            return
+        }
+        lateinit var review: CameraPhotoReviewDialog
+        review = CameraPhotoReviewDialog(
+            context = ctx,
+            capture = capture,
+            onRetake = {
+                launchCameraPhoto().also { launched ->
+                    if (launched) capture.discard()
+                }
+            },
+            onUsePhoto = {
+                if (activeCameraReview === review) activeCameraReview = null
+                if (pendingAttachments.none { it.id == item.id }) pendingAttachments.add(item)
+                cameraSourceAlert?.dismissWithoutAnimation()
+                updateAttachmentPreview()
+                updateSendButtonState()
+            },
+            onCancelReview = {
+                if (activeCameraReview === review) activeCameraReview = null
+                capture.discard()
+            }
+        )
+        val previousReview = activeCameraReview
+        activeCameraReview = review
+        review.show()
+        previousReview?.dismiss()
     }
 
     private fun requestLocationAndSend() {
@@ -5774,6 +5873,14 @@ open class ChatFragment : BaseFragment() {
         permissions: Array<out String>,
         grantResults: IntArray
     ) {
+        if (requestCode == REQUEST_CODE_CAMERA_PERMISSION) {
+            if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+                launchCameraPhoto()
+            } else {
+                getContext()?.let(CameraPermissionPrompt::show)
+            }
+            return
+        }
         if (requestCode == ChatAttachAlert.REQUEST_CODE_MEDIA_PERMISSION) {
             if (computeMediaPermissionGrantedFromResult(permissions, grantResults)) {
                 mediaPermissionDeniedOnce = false

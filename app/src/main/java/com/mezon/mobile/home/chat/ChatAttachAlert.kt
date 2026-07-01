@@ -42,8 +42,10 @@ class ChatAttachAlert(
     interface ChatAttachAlertDelegate {
         fun canSelectMore(): Boolean = true
         fun onSelectionChanged(item: AttachmentPickerItem, selected: Boolean)
+        fun onCameraRequested() {}
         fun onFilesRequested() {}
         fun onSendRequested() {}
+        fun onDismissed() {}
     }
 
     var attachDelegate: ChatAttachAlertDelegate? = null
@@ -54,9 +56,9 @@ class ChatAttachAlert(
     private var gridView: RecyclerView? = null
     private var headerRowView: LinearLayout? = null
     private var adapter: PhotoAttachAdapter? = null
-    private var emptyView: TextView? = null
     private var sendBtn: SendButtonView? = null
     private var swipeDismissFromHandle = false
+    private var didNotifyDismiss = false
 
     private var allPhotos = ArrayList<AttachmentPickerItem>()
     private var itemSize = 0
@@ -146,15 +148,6 @@ class ChatAttachAlert(
             FrameLayout.LayoutParams.MATCH_PARENT, headerHeight, Gravity.TOP
         ))
 
-        emptyView = TextView(context).apply {
-            text = "No photos or videos"
-            setTextColor(theme.getColor(ThemeColors.key_text_secondary))
-            textSize = 14f
-            gravity = Gravity.CENTER
-            visibility = View.GONE
-        }
-        parent.addView(emptyView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
-
         sendBtn = SendButtonView(context, theme)
         sendBtn!!.visibility = View.GONE
         sendBtn!!.setOnClickListener { onSendClicked() }
@@ -215,9 +208,8 @@ class ChatAttachAlert(
             if (previousSize == 0) {
                 adapter?.notifyDataSetChanged()
             } else if (insertedCount > 0) {
-                adapter?.notifyItemRangeInserted(previousSize, insertedCount)
+                adapter?.notifyItemRangeInserted(previousSize + 1, insertedCount)
             }
-            emptyView?.visibility = if (allPhotos.isEmpty()) View.VISIBLE else View.GONE
             Log.d(TAG, "Gallery page loaded: $totalLoaded items total, hasMore=$hasMore")
         }
     }
@@ -282,6 +274,10 @@ class ChatAttachAlert(
 
     override fun dismiss() {
         mediaController.setGalleryLoadListener(null)
+        if (!didNotifyDismiss) {
+            didNotifyDismiss = true
+            attachDelegate?.onDismissed()
+        }
         super.dismiss()
     }
 
@@ -316,6 +312,24 @@ class ChatAttachAlert(
     inner class PhotoAttachAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
+            if (viewType == VIEW_TYPE_CAMERA) {
+                val cell = FrameLayout(parent.context).apply {
+                    setBackgroundColor(0xFF303238.toInt())
+                    isClickable = true
+                    setOnClickListener { attachDelegate?.onCameraRequested() }
+                }
+                val icon = ImageView(parent.context).apply {
+                    setImageDrawable(MezonIcon.cameraIcon.getDrawable(parent.context, Color.WHITE))
+                    scaleType = ImageView.ScaleType.CENTER_INSIDE
+                }
+                cell.addView(
+                    icon,
+                    FrameLayout.LayoutParams(LayoutHelper.dp(34f), LayoutHelper.dp(34f), Gravity.CENTER)
+                )
+                cell.layoutParams = RecyclerView.LayoutParams(itemSize, itemSize)
+                return object : RecyclerView.ViewHolder(cell) {}
+            }
+
             val cell = PhotoAttachPhotoCell(parent.context, theme)
             cell.onCheckClickListener = { onCheckClicked(it) }
             cell.layoutParams = RecyclerView.LayoutParams(itemSize, itemSize)
@@ -323,14 +337,18 @@ class ChatAttachAlert(
         }
 
         override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
+            if (getItemViewType(position) == VIEW_TYPE_CAMERA) return
             val cell = holder.itemView as PhotoAttachPhotoCell
-            val item = allPhotos[position]
+            val item = allPhotos[position - 1]
             cell.setPhotoEntry(item)
             val idx = selectedPhotosOrder.indexOf(item.id)
             cell.setChecked(idx, idx >= 0, false)
         }
 
-        override fun getItemCount(): Int = allPhotos.size
+        override fun getItemViewType(position: Int): Int =
+            if (position == 0) VIEW_TYPE_CAMERA else VIEW_TYPE_MEDIA
+
+        override fun getItemCount(): Int = allPhotos.size + 1
     }
 
     private class SendButtonView(context: Context, private val theme: ThemeColors) : View(context) {
@@ -365,5 +383,7 @@ class ChatAttachAlert(
 
     companion object {
         const val REQUEST_CODE_MEDIA_PERMISSION = 1004
+        private const val VIEW_TYPE_CAMERA = 0
+        private const val VIEW_TYPE_MEDIA = 1
     }
 }
