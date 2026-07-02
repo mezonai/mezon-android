@@ -519,6 +519,9 @@
     <string name="clan_menu_leave_clan">Rời clan</string>
     <string name="clan_menu_delete_clan">Xóa clan</string>
     <string name="clan_leave_confirm_title">Rời clan</string>
+    <string name="clan_rapid_switch_title">Chậm lại một chút nhé</string>
+    <string name="clan_rapid_switch_message">Bạn đang chuyển clan khá nhanh. Đợi vài giây cho danh sách kênh tải xong để tránh bị gián đoạn nha!</string>
+    <string name="clan_rapid_switch_confirm">Đã hiểu</string>
     <string name="clan_leave_confirm_message">Bạn có chắc chắn muốn rời khỏi %1$s không? Bạn sẽ không thể tham gia lại clan này trừ khi bạn được mời lại.</string>
     <string name="clan_delete_confirm_title">Xóa clan</string>
     <string name="clan_delete_confirm_message">Bạn có chắc chắn muốn xóa %1$s không? Hành động này không thể hoàn tác.</string>

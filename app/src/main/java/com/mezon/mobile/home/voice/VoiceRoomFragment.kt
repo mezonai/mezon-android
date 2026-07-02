@@ -136,6 +136,7 @@ class VoiceRoomFragment : BaseFragment() {
     private var isReconnecting = false
     private var isRaiseHandActive = false
     private var lastSwitchCameraElapsedMs = 0L
+    private var localCameraFacing: CameraPosition = CameraPosition.FRONT
     private var focusedShareIdentity: String? = null
     private var wasMicPermissionRequestedBefore = false
     private var wasCameraPermissionRequestedBefore = false
@@ -824,6 +825,7 @@ class VoiceRoomFragment : BaseFragment() {
         scope.launch {
             runCatching { participant.setCameraEnabled(true) }
                 .onSuccess {
+                    localCameraFacing = CameraPosition.FRONT
                     if (::headerView.isInitialized) headerView.setSwitchCameraVisible(true)
                     doUpdateParticipantList()
                 }
@@ -1061,8 +1063,8 @@ class VoiceRoomFragment : BaseFragment() {
 
     private fun shouldMirrorCameraTrack(participant: Participant, track: VideoTrack?): Boolean {
         if (participant !== room?.localParticipant) return false
-        val localTrack = track as? LocalVideoTrack ?: return false
-        return localTrack.options.position == CameraPosition.FRONT
+        if (track !is LocalVideoTrack) return false
+        return localCameraFacing == CameraPosition.FRONT
     }
 
     private fun resolveScreenShareAspectRatio(publication: Any?, track: Any?): Float {
@@ -1310,12 +1312,14 @@ class VoiceRoomFragment : BaseFragment() {
         val now = SystemClock.elapsedRealtime()
         if (now - lastSwitchCameraElapsedMs < SWITCH_CAMERA_THROTTLE_MS) return
         lastSwitchCameraElapsedMs = now
-        localVideo.switchCamera()
-        scheduleUpdateParticipantList()
-        roomScope?.launch {
-            delay(600)
-            doUpdateParticipantList()
+        val targetFacing = if (localCameraFacing == CameraPosition.FRONT) {
+            CameraPosition.BACK
+        } else {
+            CameraPosition.FRONT
         }
+        localCameraFacing = targetFacing
+        localVideo.switchCamera(position = targetFacing)
+        doUpdateParticipantList()
     }
 
     private fun showFocusedShare(participant: ParticipantInfo) {
