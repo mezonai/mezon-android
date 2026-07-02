@@ -131,8 +131,17 @@ class CommunitySettingsController @Inject constructor(
     private fun updateDraft(block: CommunityFormDraft.() -> CommunityFormDraft) {
         _uiState.update { state ->
             val newDraft = state.draft.block()
+            val e = state.fieldErrors
+            val bannerOk = newDraft.pendingBannerBytes != null || !newDraft.bannerPreviewUrl.isNullOrBlank()
+            val newErrors = e.copy(
+                about = if (e.about && newDraft.about.trim().isNotEmpty()) false else e.about,
+                description = if (e.description && newDraft.description.trim().isNotEmpty()) false else e.description,
+                shortUrl = if (e.shortUrl && newDraft.shortUrl.trim().isNotEmpty()) false else e.shortUrl,
+                banner = if (e.banner && bannerOk) false else e.banner,
+            )
             state.copy(
                 draft = newDraft,
+                fieldErrors = newErrors,
                 showSaveBar = state.server.isCommunityEnabled &&
                     newDraft.hasChangesComparedTo(state.initial),
             )
