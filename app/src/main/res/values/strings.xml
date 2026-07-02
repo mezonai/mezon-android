@@ -1162,6 +1162,13 @@
     <string name="permission_not_now">Not Now</string>
     <string name="permission_no_storage">Mezon needs access to your storage to send and save media. Please go to Settings and enable the permission.</string>
     <string name="permission_no_camera">Mezon needs access to your camera. Please go to Settings and enable the permission.</string>
+    <string name="camera_not_available">No camera app is available.</string>
+    <string name="camera_capture_failed">Couldn\'t use this photo. Please try again.</string>
+    <string name="camera_photo_preview">Captured photo preview</string>
+    <string name="camera_retake">Retake</string>
+    <string name="camera_use_photo">Use Photo</string>
+    <string name="camera_permission_denied_title">Camera access required</string>
+    <string name="camera_permission_denied_message">Please allow camera access in Settings to take and send photos.</string>
     <string name="permission_no_audio">Mezon needs access to your microphone. Please go to Settings and enable the permission.</string>
     <string name="permission_no_camera_mic_video">Mezon needs access to your camera and microphone for video messages. Please go to Settings and enable the permissions.</string>
     <string name="permission_no_location">Mezon needs access to your location. Please go to Settings and enable the permission.</string>

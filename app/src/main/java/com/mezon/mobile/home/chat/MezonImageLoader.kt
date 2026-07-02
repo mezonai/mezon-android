@@ -201,20 +201,8 @@ class MezonImageLoader private constructor(context: Context) {
             onSuccess = onSuccess as (Any) -> Unit, onError = onError)
     }
 
-    private fun stableUrlForDiskAndMemory(fetchUrl: String): String {
-        val marker = "/plain/"
-        val p = fetchUrl.indexOf(marker)
-        if (p >= 0) {
-            val embedded = fetchUrl.substring(p + marker.length).substringBefore('@')
-            return stripFragment(embedded)
-        }
-        return stripFragment(fetchUrl)
-    }
-
-    private fun stripFragment(raw: String): String {
-        if (raw.isEmpty()) return raw
-        return raw.substringBefore('#')
-    }
+    private fun stableUrlForDiskAndMemory(fetchUrl: String): String =
+        stableImageLoadUrl(fetchUrl)
 
     private fun loadInternal(
         url: String,
@@ -874,3 +862,5 @@ class MezonImageLoader private constructor(context: Context) {
         }
     }
 }
+
+internal fun stableImageLoadUrl(fetchUrl: String): String = fetchUrl.substringBefore('#')
