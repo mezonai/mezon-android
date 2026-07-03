@@ -79,6 +79,7 @@ class EmojiSettingFragment : BaseFragment() {
         private const val EMOJI_ROW_IMAGE_WEIGHT = 0.22f
         private const val EMOJI_ROW_NAME_WEIGHT = 0.5f
         private const val EMOJI_ROW_UPLOADER_WEIGHT = 0.28f
+        private val EMOJI_SIZE = LayoutHelper.dp(40f)
 
         fun newInstance(clanId: Long): EmojiSettingFragment =
             EmojiSettingFragment().apply {
@@ -747,6 +748,31 @@ class EmojiSettingFragment : BaseFragment() {
             setHasStableIds(true)
         }
 
+        private var scrollListener: RecyclerView.OnScrollListener? = null
+
+        override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
+            super.onAttachedToRecyclerView(recyclerView)
+            scrollListener = object : RecyclerView.OnScrollListener() {
+                override fun onScrollStateChanged(rv: RecyclerView, newState: Int) {
+                    val stop = newState == RecyclerView.SCROLL_STATE_DRAGGING || newState == RecyclerView.SCROLL_STATE_SETTLING
+                    for (i in 0 until rv.childCount) {
+                        val child = rv.getChildAt(i)
+                        val vh = rv.getChildViewHolder(child)
+                        if (vh is RowVH) {
+                            if (stop) vh.stopHeavyOperations() else vh.startHeavyOperations()
+                        }
+                    }
+                }
+            }
+            recyclerView.addOnScrollListener(scrollListener!!)
+        }
+
+        override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+            super.onDetachedFromRecyclerView(recyclerView)
+            scrollListener?.let { recyclerView.removeOnScrollListener(it) }
+            scrollListener = null
+        }
+
         fun submit(newRows: List<EmojiItem>) {
             val oldRows = rows
             if (oldRows === newRows) return
@@ -948,7 +974,7 @@ class EmojiSettingFragment : BaseFragment() {
             }
             emojiCol.addView(
                 emojiIv,
-                FrameLayout.LayoutParams(LayoutHelper.dp(40), LayoutHelper.dp(40), Gravity.CENTER),
+                FrameLayout.LayoutParams(EMOJI_SIZE, EMOJI_SIZE, Gravity.CENTER),
             )
             val forSaleBadge = ImageView(ctx).apply {
                 setImageDrawable(MezonIcon.saleIcon.getDrawable(ctx))
@@ -1092,14 +1118,86 @@ class EmojiSettingFragment : BaseFragment() {
 
             val url = item.src.ifBlank { getEmojiUrl(item.id).orEmpty() }
             if (url.isNotBlank()) {
-                MezonImageLoader.getInstance(holder.emojiIv.context).load(
-                    url,
-                    LayoutHelper.dp(40f),
-                    LayoutHelper.dp(40f),
-                    onSuccess = { bmp -> holder.emojiIv.setImageBitmap(bmp) },
-                    onError = { _: Exception -> holder.emojiIv.setImageDrawable(null) },
-                )
+                holder.cancellable?.cancel()
+                if (com.mezon.mobile.core.SharedConfig.deviceIsLow()) {
+                    holder.cancellable = MezonImageLoader.getInstance(holder.emojiIv.context).load(
+                        url,
+                        EMOJI_SIZE,
+                        EMOJI_SIZE,
+                        onSuccess = { bmp ->
+                            if (holder.item?.id == item.id) {
+                                holder.emojiIv.setImageBitmap(bmp)
+                            }
+                        },
+                        onError = errLow@{ _: Exception ->
+                            val direct = com.mezon.mobile.util.getEmojiDirectUrl(item.id) ?: return@errLow
+                            if (direct == url) return@errLow
+                            holder.cancellable = MezonImageLoader.getInstance(holder.emojiIv.context).load(
+                                direct,
+                                EMOJI_SIZE,
+                                EMOJI_SIZE,
+                                onSuccess = { bmp ->
+                                    if (holder.item?.id == item.id) {
+                                        holder.emojiIv.setImageBitmap(bmp)
+                                    }
+                                },
+                                onError = { holder.emojiIv.setImageDrawable(null) }
+                            )
+                        },
+                    )
+                } else {
+                    holder.cancellable = MezonImageLoader.getInstance(holder.emojiIv.context).loadDrawable(
+                        url,
+                        EMOJI_SIZE,
+                        EMOJI_SIZE,
+                        onSuccess = { d ->
+                            if (holder.item?.id == item.id) {
+                                holder.emojiIv.setImageDrawable(d)
+                                if (d is android.graphics.drawable.AnimatedImageDrawable) {
+                                    d.start()
+                                }
+                            }
+                        },
+                        onError = errDrawable@{ _: Exception ->
+                            val direct = com.mezon.mobile.util.getEmojiDirectUrl(item.id) ?: run {
+                                holder.emojiIv.setImageDrawable(null)
+                                return@errDrawable
+                            }
+                            if (direct == url) {
+                                holder.emojiIv.setImageDrawable(null)
+                                return@errDrawable
+                            }
+                            holder.cancellable = MezonImageLoader.getInstance(holder.emojiIv.context).loadDrawable(
+                                direct,
+                                EMOJI_SIZE,
+                                EMOJI_SIZE,
+                                onSuccess = { d ->
+                                    if (holder.item?.id == item.id) {
+                                        holder.emojiIv.setImageDrawable(d)
+                                        if (d is android.graphics.drawable.AnimatedImageDrawable) {
+                                            d.start()
+                                        }
+                                    }
+                                },
+                                onError = {
+                                    holder.cancellable = MezonImageLoader.getInstance(holder.emojiIv.context).load(
+                                        direct,
+                                        EMOJI_SIZE,
+                                        EMOJI_SIZE,
+                                        onSuccess = { bmp ->
+                                            if (holder.item?.id == item.id) {
+                                                holder.emojiIv.setImageBitmap(bmp)
+                                            }
+                                        },
+                                        onError = { holder.emojiIv.setImageDrawable(null) }
+                                    )
+                                }
+                            )
+                        },
+                    )
+                }
             } else {
+                holder.cancellable?.cancel()
                 holder.emojiIv.setImageDrawable(null)
             }
 
@@ -1120,6 +1218,19 @@ class EmojiSettingFragment : BaseFragment() {
             val del = MezonIcon.closeSmallBold.getDrawable(holder.deleteBtn.context, themeColors.error)
             holder.deleteBtn.setImageDrawable(del)
             holder.deleteBtn.visibility = if (allow) View.VISIBLE else View.INVISIBLE
+        }
+        override fun onViewRecycled(holder: RecyclerView.ViewHolder) {
+            super.onViewRecycled(holder)
+            if (holder is RowVH) {
+                holder.cancellable?.cancel()
+                holder.cancellable = null
+                val d = holder.emojiIv.drawable
+                if (d is android.graphics.drawable.AnimatedImageDrawable) {
+                    d.callback = null
+                    d.stop()
+                }
+                holder.emojiIv.setImageDrawable(null)
+            }
         }
 
         private fun RowVH.showNameDisplay(shortname: String) {
@@ -1154,6 +1265,21 @@ class EmojiSettingFragment : BaseFragment() {
             val forSaleBadge: ImageView,
         ) : RecyclerView.ViewHolder(view) {
             var item: EmojiItem? = null
+            var cancellable: MezonImageLoader.Cancellable? = null
+
+            fun stopHeavyOperations() {
+                val d = emojiIv.drawable
+                if (d is android.graphics.drawable.AnimatedImageDrawable) {
+                    d.stop()
+                }
+            }
+
+            fun startHeavyOperations() {
+                val d = emojiIv.drawable
+                if (d is android.graphics.drawable.AnimatedImageDrawable) {
+                    d.start()
+                }
+            }
         }
     }
 }
