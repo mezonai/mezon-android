@@ -304,9 +304,13 @@ class PollDetailModal(
             }
             VoterRow(
                 uid,
-                m?.displayName?.ifBlank { m.username }.orEmpty().ifEmpty { uid.toString() },
+                m?.let { member ->
+                    member.clanNick.ifBlank { member.displayName.ifBlank { member.username } }
+                }
+                    .orEmpty()
+                    .ifEmpty { uid.toString() },
                 m?.username.orEmpty().ifEmpty { uid.toString() },
-                m?.avatarUrl.orEmpty()
+                m?.let { member -> member.clanAvatar.ifBlank { member.avatarUrl } }.orEmpty()
             )
         }
         voterAdapter.submit(models)
