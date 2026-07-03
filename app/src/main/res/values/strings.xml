@@ -606,6 +606,9 @@
     <string name="clan_menu_leave_clan">Leave Clan</string>
     <string name="clan_menu_delete_clan">Delete Clan</string>
     <string name="clan_leave_confirm_title">Leave clan</string>
+    <string name="clan_rapid_switch_title">Slow down a little</string>
+    <string name="clan_rapid_switch_message">You\'re switching clans quite fast. Give the channel list a few seconds to load so nothing gets interrupted.</string>
+    <string name="clan_rapid_switch_confirm">Got it</string>
     <string name="clan_leave_confirm_message">Please confirm if you would like to leave %1$s? You won\'t be able to re-join this clan unless you are re-invited.</string>
     <string name="clan_delete_confirm_title">Delete Clan</string>
     <string name="clan_delete_confirm_message">Please confirm if you would like to delete %1$s? This action cannot be undone.</string>
