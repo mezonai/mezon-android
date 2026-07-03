@@ -12,7 +12,6 @@ import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.messages.ChannelAvatarLoadState
 import com.mezon.mobile.home.messages.ChannelAvatarRequest
 import com.mezon.mobile.home.messages.loadChannelAvatar
-import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.search.SearchMember
 import com.mezon.mobile.search.avatarEntityId
 import com.mezon.mobile.search.avatarPlaceholderKey
@@ -85,7 +84,7 @@ class ProfileSearchCell(context: Context, private val theme: ThemeColors) : Base
             .setEllipsize(TextUtils.TruncateAt.END)
             .build()
 
-        val status = if (m.username.isNotEmpty() && m.channelType == CHANNEL_TYPE_DM) {
+        val status = if (m.username.isNotEmpty()) {
             "@${m.username}"
         } else {
             ""

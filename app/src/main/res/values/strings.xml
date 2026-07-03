@@ -1264,6 +1264,8 @@
     <string name="search_filter_user_badge">%1$s %2$s</string>
     <string name="search_message_attachment">[Attachment]</string>
     <string name="search_user_fallback">User</string>
+    <string name="search_type_to_search_messages">Type to search messages</string>
+    <string name="search_no_messages_found">No messages found</string>
 
     <string name="buzz_dialog_title">Enter your message Buzz!!</string>
     <string name="buzz_dialog_send">Send</string>

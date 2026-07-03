@@ -546,6 +546,7 @@ class GlobalSearchFragment : BaseFragment() {
             }
             TAB_MESSAGES -> {
                 if (searchText.isNotBlank() || filterUser != null) {
+                    emptyView.visibility = View.GONE
                     loadingView.visibility = View.VISIBLE
                     recyclerView.visibility = View.GONE
                     searchMessages()
@@ -612,7 +613,18 @@ class GlobalSearchFragment : BaseFragment() {
         val messages = searchController.getMessages()
         adapter.setMessages(messages)
         adapter.hasMore = searchController.hasMoreMessages && messages.isNotEmpty()
-        updateEmptyState(messages.isEmpty() && (searchText.isNotBlank() || filterUser != null))
+        val hasSearchCriteria = searchText.isNotBlank() || filterUser != null
+        when {
+            !hasSearchCriteria -> updateEmptyState(
+                isEmpty = true,
+                emptyTextRes = R.string.search_type_to_search_messages
+            )
+            messages.isEmpty() -> updateEmptyState(
+                isEmpty = true,
+                emptyTextRes = R.string.search_no_messages_found
+            )
+            else -> updateEmptyState(false)
+        }
     }
 
     private fun loadMoreResults() {
@@ -648,8 +660,12 @@ class GlobalSearchFragment : BaseFragment() {
         }
     }
 
-    private fun updateEmptyState(isEmpty: Boolean) {
+    private fun updateEmptyState(
+        isEmpty: Boolean,
+        emptyTextRes: Int = R.string.common_no_results_found
+    ) {
         if (isEmpty) {
+            emptyView.setText(emptyTextRes)
             emptyView.visibility = View.VISIBLE
             recyclerView.visibility = View.GONE
         } else {
@@ -690,7 +706,9 @@ class GlobalSearchFragment : BaseFragment() {
     }
 
     private fun updateFilterButtonVisibility() {
-        val showFilter = currentTab == TAB_MESSAGES && !isChannelPickerMode
+        val showFilter = (currentTab == TAB_MEMBERS || currentTab == TAB_MESSAGES) &&
+            !isChannelPickerMode &&
+            !isPickingFilterUser
         filterButton?.visibility = if (showFilter) View.VISIBLE else View.GONE
     }
 
@@ -838,7 +856,7 @@ class GlobalSearchFragment : BaseFragment() {
     private fun applyUserFilter(member: SearchMember) {
         filterUser = member
         isPickingFilterUser = false
-        tabHeader.visibility = View.VISIBLE
+        tabHeader.visibility = View.GONE
         currentTab = TAB_MESSAGES
         visibleTabs.indexOf(TAB_MESSAGES).takeIf { it >= 0 }?.let(tabHeader::selectTab)
         updateFilterButtonVisibility()
