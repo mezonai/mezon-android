@@ -1548,4 +1548,25 @@
     <string name="transaction_detail_time">Thời gian</string>
     <string name="transaction_detail_sender">Tên người gửi</string>
     <string name="transaction_detail_receiver">Tên người nhận</string>
+    <string name="community_settings_title">Cài đặt cộng đồng</string>
+    <string name="community_settings_enable_button">Bật cộng đồng</string>
+    <string name="community_settings_enable_and_save">Bật &amp; Lưu</string>
+    <string name="community_settings_disable">Tắt cộng đồng</string>
+    <string name="community_settings_landing_title">Bật tính năng Cộng đồng</string>
+    <string name="community_settings_landing_subtitle">Thiết lập clan của bạn thành cộng đồng để khám phá và nhiều hơn thế.</string>
+    <string name="community_settings_banner_label">Ảnh bìa cộng đồng</string>
+    <string name="community_settings_banner_hint">Kích thước đề xuất: 1920×480. Tối đa 10 MB.</string>
+    <string name="community_settings_about_label">Giới thiệu</string>
+    <string name="community_settings_about_hint">Mô tả ngắn gọn cộng đồng của bạn (tối đa 100 ký tự)</string>
+    <string name="community_settings_description_label">Mô tả</string>
+    <string name="community_settings_description_hint">Nói cho mọi người biết cộng đồng của bạn về cái gì (tối đa 300 ký tự)</string>
+    <string name="community_settings_vanity_label">Đường dẫn tuỳ chỉnh</string>
+    <string name="community_settings_vanity_hint">VD: my-clan (viết thường, chữ cái, số, dấu gạch ngang)</string>
+    <string name="community_settings_pick_banner">Chọn ảnh bìa</string>
+    <string name="community_settings_error_required">Trường này là bắt buộc</string>
+    <string name="community_settings_error_fill_required">Vui lòng điền tất cả các trường bắt buộc</string>
+    <string name="community_settings_error_banner">Cần có ảnh bìa</string>
+    <string name="community_settings_error_banner_size">Kích thước ảnh phải nhỏ hơn 10 MB</string>
+    <string name="community_settings_error_banner_type">Vui lòng chọn file ảnh hợp lệ</string>
+    <string name="community_settings_permission_denied">Bạn không có quyền quản lý cài đặt cộng đồng</string>
 </resources>
