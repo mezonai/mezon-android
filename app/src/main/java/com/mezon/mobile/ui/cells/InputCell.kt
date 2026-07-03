@@ -265,6 +265,7 @@ class InputCell(context: Context, private val theme: ThemeColors) : LinearLayout
     fun refreshThemeColors() {
         labelView.setTextColor(theme.onSurfaceVariant)
         requiredMark.setTextColor(theme.error)
+        descriptionView.setTextColor(theme.onSurfaceVariant)
         bgDrawable.setColor(theme.surfaceVariant)
         val stroke = if (errorView.visibility == View.VISIBLE) theme.error else (strokeWhenValid ?: theme.outlineVariant)
         bgDrawable.setStroke(LayoutHelper.dp(1), stroke)
