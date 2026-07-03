@@ -1220,6 +1220,7 @@ class ClansFragment : BaseFragment() {
         }
         if (sameSelection) return
         clansController.selectClan(clan.clanId)
+        noteRapidClanSwitchAndWarnIfNeeded()
         updateClanHeader(clan)
 
         val count = serverRail.childCount
@@ -1234,6 +1235,25 @@ class ClansFragment : BaseFragment() {
         }
 
         updateChannelList()
+    }
+
+    private var rapidClanSwitchCount = 0
+    private var lastClanSwitchTapAtMs = 0L
+    private var lastRapidSwitchNoticeAtMs = 0L
+    private val rapidClanSwitchWindowMs = 800L
+    private val rapidClanSwitchThreshold = 5
+    private val rapidClanSwitchNoticeCooldownMs = 30_000L
+
+    private fun noteRapidClanSwitchAndWarnIfNeeded() {
+        val now = System.currentTimeMillis()
+        rapidClanSwitchCount = if (now - lastClanSwitchTapAtMs < rapidClanSwitchWindowMs) rapidClanSwitchCount + 1 else 1
+        lastClanSwitchTapAtMs = now
+        if (rapidClanSwitchCount < rapidClanSwitchThreshold) return
+        if (now - lastRapidSwitchNoticeAtMs < rapidClanSwitchNoticeCooldownMs) return
+        lastRapidSwitchNoticeAtMs = now
+        rapidClanSwitchCount = 0
+        val act = getParentActivity() ?: return
+        RapidClanSwitchDialog.show(act, themeColors)
     }
 
     private fun onChannelSelected(channel: ClanChannelEntity) {

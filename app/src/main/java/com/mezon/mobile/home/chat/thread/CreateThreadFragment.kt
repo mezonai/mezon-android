@@ -58,6 +58,9 @@ import com.mezon.mobile.home.chat.AttachmentPickerItem
 import com.mezon.mobile.home.chat.input.VoiceRecorder
 import com.mezon.mobile.home.chat.input.VoiceRecordingOverlay
 import com.mezon.mobile.home.chat.ChatAttachAlert
+import com.mezon.mobile.home.chat.CameraPhotoCapture
+import com.mezon.mobile.home.chat.CameraPhotoReviewDialog
+import com.mezon.mobile.home.chat.CameraPermissionPrompt
 import com.mezon.mobile.home.chat.EmojiItem
 import com.mezon.mobile.home.chat.emoji.EmojiView
 import com.mezon.mobile.home.chat.HashtagSpan
@@ -119,6 +122,8 @@ class CreateThreadFragment : BaseFragment() {
         private const val ARG_USE_TOPIC_FLOW = "useTopicFlow"
         private const val REQUEST_CODE_PICK_FILE = 1012
         private const val REQUEST_CODE_RECORD_AUDIO = 1013
+        private const val REQUEST_CODE_TAKE_PHOTO = 1014
+        private const val REQUEST_CODE_CAMERA_PERMISSION = 1015
         private const val VOICE_LONG_PRESS_DELAY_MS = 400L
         private const val VOICE_CANCEL_SLIDE_DP = 100f
 
@@ -193,6 +198,9 @@ class CreateThreadFragment : BaseFragment() {
     private var emojiViewVisible = false
     private var waitingForKeyboardOpen = false
     private val pendingAttachments = ArrayList<AttachmentPickerItem>()
+    private var pendingCameraCapture: CameraPhotoCapture? = null
+    private var cameraSourceAlert: ChatAttachAlert? = null
+    private var activeCameraReview: CameraPhotoReviewDialog? = null
     private val pendingAttachmentThumbTasks = ArrayList<Runnable?>()
     private val mentionTrackers = mutableListOf<MentionData>()
     private val hashtagTrackers = mutableListOf<HashtagData>()
@@ -1070,6 +1078,7 @@ class CreateThreadFragment : BaseFragment() {
         val ctx = getContext() ?: return
         val preselected = pendingAttachments.filter { !it.isFileType }
         val alert = ChatAttachAlert(ctx, mediaController, themeColors, preselected)
+        cameraSourceAlert = alert
         alert.attachDelegate = object : ChatAttachAlert.ChatAttachAlertDelegate {
             override fun canSelectMore(): Boolean {
                 return pendingAttachments.size < AttachmentPickerItem.GALLERY_MAX_SELECTION
@@ -1088,6 +1097,22 @@ class CreateThreadFragment : BaseFragment() {
 
             override fun onFilesRequested() {
                 launchDocumentPicker()
+            }
+
+            override fun onCameraRequested() {
+                if (!canSelectMore()) {
+                    android.widget.Toast.makeText(
+                        ctx,
+                        "Maximum ${AttachmentPickerItem.GALLERY_MAX_SELECTION} items",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                    return
+                }
+                requestCameraPhoto()
+            }
+
+            override fun onDismissed() {
+                if (cameraSourceAlert === alert) cameraSourceAlert = null
             }
         }
         alert.setDrawNavigationBar(true)
@@ -1126,7 +1151,54 @@ class CreateThreadFragment : BaseFragment() {
         )
     }
 
+    private fun requestCameraPhoto() {
+        val activity = getParentActivity() ?: return
+        if (ContextCompat.checkSelfPermission(activity, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            activity.requestPermissions(arrayOf(Manifest.permission.CAMERA), REQUEST_CODE_CAMERA_PERMISSION)
+            return
+        }
+        launchCameraPhoto()
+    }
+
+    private fun launchCameraPhoto(): Boolean {
+        val ctx = getContext() ?: return false
+        val capture = CameraPhotoCapture.create(ctx)
+        if (capture == null) {
+            MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.camera_not_available))
+            return false
+        }
+        pendingCameraCapture?.discard()
+        pendingCameraCapture = capture
+        try {
+            startActivityForResult(capture.intent, REQUEST_CODE_TAKE_PHOTO)
+            return true
+        } catch (_: android.content.ActivityNotFoundException) {
+            pendingCameraCapture = null
+            capture.discard()
+            MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.camera_not_available))
+            return false
+        }
+    }
+
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == REQUEST_CODE_TAKE_PHOTO) {
+            val capture = pendingCameraCapture
+            pendingCameraCapture = null
+            if (resultCode != android.app.Activity.RESULT_OK) {
+                capture?.discard()
+                activeCameraReview?.dismiss()
+                activeCameraReview = null
+                return
+            }
+            val item = capture?.toAttachment()
+            if (item == null) {
+                capture?.discard()
+                MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.camera_capture_failed))
+                return
+            }
+            showCameraPhotoReview(capture, item)
+            return
+        }
         if (requestCode != REQUEST_CODE_PICK_FILE || resultCode != android.app.Activity.RESULT_OK) return
         val uri = data?.data ?: return
         val ctx = getContext() ?: return
@@ -1142,11 +1214,51 @@ class CreateThreadFragment : BaseFragment() {
         updateSendButtonState()
     }
 
+    private fun showCameraPhotoReview(capture: CameraPhotoCapture, item: AttachmentPickerItem) {
+        val ctx = getContext() ?: run {
+            capture.discard()
+            return
+        }
+        lateinit var review: CameraPhotoReviewDialog
+        review = CameraPhotoReviewDialog(
+            context = ctx,
+            capture = capture,
+            onRetake = {
+                launchCameraPhoto().also { launched ->
+                    if (launched) capture.discard()
+                }
+            },
+            onUsePhoto = {
+                if (activeCameraReview === review) activeCameraReview = null
+                if (pendingAttachments.none { it.id == item.id }) pendingAttachments.add(item)
+                cameraSourceAlert?.dismissWithoutAnimation()
+                updateAttachmentPreview()
+                updateSendButtonState()
+            },
+            onCancelReview = {
+                if (activeCameraReview === review) activeCameraReview = null
+                capture.discard()
+            }
+        )
+        val previousReview = activeCameraReview
+        activeCameraReview = review
+        review.show()
+        previousReview?.dismiss()
+    }
+
     override fun onRequestPermissionsResult(
         requestCode: Int,
         permissions: Array<out String>,
         grantResults: IntArray
     ) {
+        if (requestCode == REQUEST_CODE_CAMERA_PERMISSION) {
+            if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+                launchCameraPhoto()
+            } else {
+                getContext()?.let(CameraPermissionPrompt::show)
+            }
+            return
+        }
         if (requestCode == REQUEST_CODE_RECORD_AUDIO) {
             if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 onVoiceLongPressFired()
@@ -2024,7 +2136,7 @@ class CreateThreadFragment : BaseFragment() {
     private fun canCreateThreadForCurrentFlow(): Boolean {
         if (fromTopicFlow && anonymousController.isAnonymous(clanId)) return false
         return if (fromTopicFlow) {
-            permissionPolicy.canCreateThreadFromMessage(parentChannelId, clanId)
+            true
         } else {
             permissionPolicy.canCreateThreadFromThreadList(parentChannelId, clanId)
         }

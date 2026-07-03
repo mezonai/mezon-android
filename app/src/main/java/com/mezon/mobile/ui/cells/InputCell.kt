@@ -24,8 +24,10 @@ import com.mezon.mobile.core.ThemeColors
 
 class InputCell(context: Context, private val theme: ThemeColors) : LinearLayout(context) {
 
+    private val labelContainer: LinearLayout
     private val labelView: TextView
     private val requiredMark: TextView
+    private val descriptionView: TextView
     val editText: EditText
     private val errorView: TextView
     private val clearButton: ImageView
@@ -41,13 +43,16 @@ class InputCell(context: Context, private val theme: ThemeColors) : LinearLayout
     init {
         orientation = VERTICAL
 
+        labelContainer = LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            visibility = View.GONE
+        }
         labelView = TextView(context).apply {
             setTextColor(theme.onSurfaceVariant)
             textSize = 15f
             typeface = android.graphics.Typeface.DEFAULT_BOLD
-            visibility = View.GONE
         }
-        addView(labelView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.START, 0f, 0f, 0f, 4f))
+        labelContainer.addView(labelView, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT))
 
         requiredMark = TextView(context).apply {
             text = " *"
@@ -55,6 +60,16 @@ class InputCell(context: Context, private val theme: ThemeColors) : LinearLayout
             textSize = 14f
             visibility = View.GONE
         }
+        labelContainer.addView(requiredMark, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT))
+        
+        addView(labelContainer, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.START, 0f, 0f, 0f, 4f))
+
+        descriptionView = TextView(context).apply {
+            setTextColor(theme.onSurfaceVariant)
+            textSize = 12f
+            visibility = View.GONE
+        }
+        addView(descriptionView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.START, 0f, 0f, 0f, 4f))
 
         bgDrawable = GradientDrawable().apply {
             setColor(theme.surfaceVariant)
@@ -81,6 +96,12 @@ class InputCell(context: Context, private val theme: ThemeColors) : LinearLayout
             LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER_VERTICAL,
             rightMargin = 32f
         ))
+        
+        inputContainer.setOnClickListener {
+            editText.requestFocus()
+            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+            imm.showSoftInput(editText, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+        }
 
         clearButton = ImageView(context).apply {
             setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
@@ -132,10 +153,19 @@ class InputCell(context: Context, private val theme: ThemeColors) : LinearLayout
     fun setLabel(label: String?, uppercase: Boolean = false, required: Boolean = false) {
         if (label != null) {
             labelView.text = if (uppercase) label.uppercase() else label
-            labelView.visibility = View.VISIBLE
+            labelContainer.visibility = View.VISIBLE
             requiredMark.visibility = if (required) View.VISIBLE else View.GONE
         } else {
-            labelView.visibility = View.GONE
+            labelContainer.visibility = View.GONE
+        }
+    }
+
+    fun setDescription(desc: String?) {
+        if (desc != null) {
+            descriptionView.text = desc
+            descriptionView.visibility = View.VISIBLE
+        } else {
+            descriptionView.visibility = View.GONE
         }
     }
 
@@ -156,7 +186,6 @@ class InputCell(context: Context, private val theme: ThemeColors) : LinearLayout
             editText.isSingleLine = false
             editText.maxLines = 6
             editText.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
-            editText.minHeight = LayoutHelper.dp(80)
             editText.gravity = Gravity.TOP or LayoutHelper.getAbsoluteGravityStart()
             (editText.layoutParams as FrameLayout.LayoutParams).gravity =
                 Gravity.TOP or LayoutHelper.getAbsoluteGravityStart()
@@ -236,6 +265,7 @@ class InputCell(context: Context, private val theme: ThemeColors) : LinearLayout
     fun refreshThemeColors() {
         labelView.setTextColor(theme.onSurfaceVariant)
         requiredMark.setTextColor(theme.error)
+        descriptionView.setTextColor(theme.onSurfaceVariant)
         bgDrawable.setColor(theme.surfaceVariant)
         val stroke = if (errorView.visibility == View.VISIBLE) theme.error else (strokeWhenValid ?: theme.outlineVariant)
         bgDrawable.setStroke(LayoutHelper.dp(1), stroke)

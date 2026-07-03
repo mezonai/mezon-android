@@ -27,12 +27,18 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import android.os.SystemClock
 import android.util.Log
+import android.widget.Toast
+import android.content.Context
+import dagger.hilt.android.qualifiers.ApplicationContext
+import com.mezon.mobile.R
+import com.mezon.mobile.home.notifications.toNotificationEntity
 import javax.inject.Inject
 import javax.inject.Singleton
 
 private const val FRIEND_LOG = "FriendController"
 private const val FRIEND_RELATIONS_FOREGROUND_THROTTLE_MS = 30_000L
 private const val FRIEND_RELATIONS_NOTIFICATION_DEBOUNCE_MS = 5_000L
+private const val NOTIFICATION_CODE_FRIEND_ACCEPT = -3
 
 @Singleton
 class FriendController @Inject constructor(
@@ -43,6 +49,7 @@ class FriendController @Inject constructor(
     private val notificationCenter: NotificationCenter,
     private val cacheTracker: ApiCacheTracker,
     private val dataStore: DataStore<Preferences>,
+    @ApplicationContext private val appContext: Context,
     @ApplicationScope private val appScope: CoroutineScope,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) {
@@ -84,8 +91,21 @@ class FriendController @Inject constructor(
         dispatcher.notifications.collect { notification ->
             val subject = notification.subject.lowercase()
             val content = notification.content.toStringUtf8().lowercase()
-            val hasFriendSignal = notificationSuggestsFriendRelationRefresh(subject, content)
+            val hasFriendSignal = notificationSuggestsFriendRelationRefresh(subject, content) || notification.code == NOTIFICATION_CODE_FRIEND_ACCEPT
             if (hasFriendSignal) {
+                if (notification.code == NOTIFICATION_CODE_FRIEND_ACCEPT) {
+                    val name = notification.toNotificationEntity().senderName.ifEmpty { "Someone" }
+                    withContext(Dispatchers.Main) {
+                        val activity = com.mezon.mobile.MainActivity.instance ?: return@withContext
+                        activity.drawerLayoutContainer.post {
+                            com.mezon.mobile.ui.cells.ToastOverlay(activity, activity.themeColors).show(
+                                activity.drawerLayoutContainer,
+                                com.mezon.mobile.ui.cells.ToastOverlay.ToastType.INFO,
+                                appContext.getString(R.string.friend_request_accepted, name)
+                            )
+                        }
+                    }
+                }
                 val now = SystemClock.elapsedRealtime()
                 val shouldRefresh = synchronized(friendRelationsForegroundThrottleLock) {
                     val last = lastFriendRelationsNotificationRefreshElapsedMs

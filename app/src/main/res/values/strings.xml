@@ -37,6 +37,7 @@
     <string name="common_members">Members</string>
     <string name="common_friend">Friend</string>
     <string name="common_add_friend">Add friend</string>
+    <string name="friend_request_accepted">%1$s accepted your friend request</string>
     <string name="common_online">Online</string>
     <string name="common_offline">Offline</string>
     <string name="common_copy">Copy</string>
@@ -260,6 +261,7 @@
     <string name="message_send">Send</string>
     <string name="message_new_messages">NEW MESSAGES</string>
     <string name="message_no_send_permission">You don\'t have permission to send message</string>
+    <string name="message_no_send_permission_channel">You do not have permission to send messages in this channel.</string>
     <string name="message_is_banned">You are banned</string>
     <string name="message_delete_title">Delete Message</string>
     <string name="message_delete_description">Please confirm if you would like to delete this message?</string>
@@ -479,6 +481,7 @@
     <string name="invite_send_link_label">Or, send a clan invite link to a friend</string>
     <string name="invite_copy">Copy</string>
     <string name="invite_copied">Copied</string>
+    <string name="transaction_hash_copied">Transaction hash copied</string>
     <string name="invite_share_qr">Share QR</string>
     <string name="invite_save_qr">Save QR</string>
     <string name="invite_qr_saved">QR saved to gallery</string>
@@ -603,6 +606,9 @@
     <string name="clan_menu_leave_clan">Leave Clan</string>
     <string name="clan_menu_delete_clan">Delete Clan</string>
     <string name="clan_leave_confirm_title">Leave clan</string>
+    <string name="clan_rapid_switch_title">Slow down a little</string>
+    <string name="clan_rapid_switch_message">You\'re switching clans quite fast. Give the channel list a few seconds to load so nothing gets interrupted.</string>
+    <string name="clan_rapid_switch_confirm">Got it</string>
     <string name="clan_leave_confirm_message">Please confirm if you would like to leave %1$s? You won\'t be able to re-join this clan unless you are re-invited.</string>
     <string name="clan_delete_confirm_title">Delete Clan</string>
     <string name="clan_delete_confirm_message">Please confirm if you would like to delete %1$s? This action cannot be undone.</string>
@@ -1156,6 +1162,13 @@
     <string name="permission_not_now">Not Now</string>
     <string name="permission_no_storage">Mezon needs access to your storage to send and save media. Please go to Settings and enable the permission.</string>
     <string name="permission_no_camera">Mezon needs access to your camera. Please go to Settings and enable the permission.</string>
+    <string name="camera_not_available">No camera app is available.</string>
+    <string name="camera_capture_failed">Couldn\'t use this photo. Please try again.</string>
+    <string name="camera_photo_preview">Captured photo preview</string>
+    <string name="camera_retake">Retake</string>
+    <string name="camera_use_photo">Use Photo</string>
+    <string name="camera_permission_denied_title">Camera access required</string>
+    <string name="camera_permission_denied_message">Please allow camera access in Settings to take and send photos.</string>
     <string name="permission_no_audio">Mezon needs access to your microphone. Please go to Settings and enable the permission.</string>
     <string name="permission_no_camera_mic_video">Mezon needs access to your camera and microphone for video messages. Please go to Settings and enable the permissions.</string>
     <string name="permission_no_location">Mezon needs access to your location. Please go to Settings and enable the permission.</string>
@@ -1670,4 +1683,14 @@
     <string name="sticker_delete_confirm_title">Delete sticker?</string>
     <string name="sticker_delete_confirm_msg">Are you sure you want to delete \"%1$s\"?</string>
     <string name="sticker_add_label">Add sticker</string>
+    <string name="profile_history_transaction_all">All</string>
+    <string name="profile_history_transaction_incoming">Incoming</string>
+    <string name="profile_history_transaction_outgoing">Outgoing</string>
+    <string name="transaction_status_received">Received</string>
+    <string name="transaction_status_sent">Sent</string>
+    <string name="transaction_detail_title">Transaction Detail</string>
+    <string name="transaction_detail_id">Transaction ID</string>
+    <string name="transaction_detail_time">Time</string>
+    <string name="transaction_detail_sender">Sender name</string>
+    <string name="transaction_detail_receiver">Receiver name</string>
 </resources>

@@ -40,6 +40,7 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.PopupWindow
+import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -99,6 +100,8 @@ import com.mezon.mobile.home.stream.JoinMediaSheetKind
 import com.mezon.mobile.home.stream.StreamingController
 import com.mezon.mobile.home.voice.JoinVoiceBottomSheet
 import com.mezon.mobile.home.voice.VoiceController
+import com.mezon.mobile.wallet.WalletController
+import com.mezon.mobile.home.profile.AccountController
 import com.mezon.mobile.home.wallet.SendTokenFragment
 import com.mezon.mobile.MainActivity
 import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
@@ -110,7 +113,6 @@ import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.ui.cells.ActionBarView
-import com.mezon.mobile.wallet.WalletController
 import com.mezon.mobile.ui.cells.ColoredImageSpan
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.PageDownButton
@@ -192,6 +194,8 @@ open class ChatFragment : BaseFragment() {
         private const val PAGE_DOWN_SCROLL_THRESHOLD = 2
         private const val REQUEST_CODE_LOCATION_PERMISSION = 1002
         private const val REQUEST_CODE_PICK_FILE = 1005
+        private const val REQUEST_CODE_TAKE_PHOTO = 1006
+        private const val REQUEST_CODE_CAMERA_PERMISSION = 1007
         private const val REQUEST_CODE_RECORD_AUDIO = 1003
         private const val MAX_LENGTH_MESSAGE_BUZZ = 160
         private const val VOICE_LONG_PRESS_DELAY_MS = 400L
@@ -253,6 +257,7 @@ open class ChatFragment : BaseFragment() {
     private lateinit var permissionPolicy: PermissionPolicy
     private lateinit var pinMessageController: com.mezon.mobile.home.PinMessageController
     private lateinit var walletController: WalletController
+    private lateinit var accountController: AccountController
     private lateinit var callController: com.mezon.mobile.home.call.CallController
     private lateinit var callManager: CallManager
     private lateinit var friendController: FriendController
@@ -269,6 +274,8 @@ open class ChatFragment : BaseFragment() {
     private lateinit var adapter: ChatAdapter
     private lateinit var rootView: FrameLayout
     private lateinit var inputBar: LinearLayout
+    private lateinit var noPermissionBar: FrameLayout
+    private lateinit var noPermissionText: TextView
     private var channelAppHotbar: LinearLayout? = null
     private lateinit var inputWrapper: FrameLayout
     private lateinit var pageDownButton: PageDownButton
@@ -292,6 +299,9 @@ open class ChatFragment : BaseFragment() {
     private lateinit var sizeNotifierRoot: SizeNotifierFrameLayout
 
     private val pendingAttachments = ArrayList<AttachmentPickerItem>()
+    private var pendingCameraCapture: CameraPhotoCapture? = null
+    private var cameraSourceAlert: ChatAttachAlert? = null
+    private var activeCameraReview: CameraPhotoReviewDialog? = null
     private var mediaPermissionDeniedOnce = false
     private var locationPermissionAskedBefore = false
     private val pendingAttachmentThumbTasks = ArrayList<Runnable?>()
@@ -1238,6 +1248,9 @@ open class ChatFragment : BaseFragment() {
             if (fragmentView == null) return@observe
             rootView.setBackgroundColor(themeColors.chatBackground)
             inputBar.setBackgroundColor(themeColors.surface)
+            noPermissionBar.setBackgroundColor(themeColors.surface)
+            noPermissionText.setTextColor(themeColors.textDisabled)
+            (noPermissionText.background as? android.graphics.drawable.GradientDrawable)?.setColor(themeColors.charcoal)
             inputField.setTextColor(themeColors.onSurface)
             inputField.setHintTextColor(themeColors.onSurfaceVariant)
             (inputField.background as? android.graphics.drawable.GradientDrawable)?.setColor(themeColors.tertiary)
@@ -1418,6 +1431,7 @@ open class ChatFragment : BaseFragment() {
         mezonApi = entryPoint.mezonApi()
         sessionManager = entryPoint.sessionManager()
         walletController = entryPoint.walletController()
+        accountController = entryPoint.accountController()
         appScope = entryPoint.applicationScope()
         ioDispatcher = entryPoint.ioDispatcher()
         mainDispatcher = entryPoint.mainDispatcher()
@@ -1928,6 +1942,27 @@ open class ChatFragment : BaseFragment() {
             setOnTouchListener { v, event -> handleMicTouchEvent(v, event) }
         }
         inputBar.addView(micButton, LayoutHelper.createLinear(40, 40, gravity = Gravity.BOTTOM))
+
+        noPermissionBar = FrameLayout(context).apply {
+            setBackgroundColor(themeColors.surface)
+            setPadding(LayoutHelper.dp(12f), LayoutHelper.dp(6f), LayoutHelper.dp(12f), LayoutHelper.dp(20f))
+            visibility = View.GONE
+        }
+        noPermissionText = TextView(context).apply {
+            text = getString(R.string.message_no_send_permission_channel)
+            setTextColor(themeColors.textDisabled)
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setPadding(LayoutHelper.dp(16f), LayoutHelper.dp(16f), LayoutHelper.dp(16f), LayoutHelper.dp(16f))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = LayoutHelper.dp(20f).toFloat()
+                setColor(themeColors.charcoal)
+            }
+        }
+        noPermissionBar.addView(noPermissionText, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT
+        ))
+        innerLayout.addView(noPermissionBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         inputField.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {
@@ -4511,6 +4546,13 @@ open class ChatFragment : BaseFragment() {
         val rawInput = inputField.text?.toString() ?: ""
         val text = rawInput.trim()
         val editMsg = editingMessage
+        if (editMsg != null) {
+            val oldText = com.mezon.mobile.util.restoreInputFromContent(editMsg.content).rawText.trim()
+            if (text == oldText) {
+                clearEditState()
+                return
+            }
+        }
         val preservingShareContactEmbed = editMsg != null &&
             isShareContactMessage(editMsg.code, editMsg.content)
         if (text.isBlank() && pendingAttachments.isEmpty() && !preservingShareContactEmbed) return
@@ -4553,15 +4595,7 @@ open class ChatFragment : BaseFragment() {
         val ogpPreview = inputOgpPreviewData
             ?: extractFirstInputUrl(cleanedText)?.let { inputOgpCache[it] }
         val ogpMarker = buildInputOgpMarker(cleanedText, ogpPreview)
-        val filteredMdMarkers = if (ogpMarker == null) mdMarkers else {
-            mdMarkers
-                ?.filterNot {
-                    it.type == "lk" &&
-                        it.s < ogpMarker.e &&
-                        ogpMarker.s < it.e
-                }
-                ?.ifEmpty { null }
-        }
+        val filteredMdMarkers = mdMarkers
 
         val fromTrackers = mentionTrackers.mapNotNull { m ->
             val inTrimmed = mentionOffsetsForTrimmed(rawInput, text, m) ?: return@mapNotNull null
@@ -4621,6 +4655,7 @@ open class ChatFragment : BaseFragment() {
                 hashtags,
                 emojiMarkers,
                 ogpMarker,
+                filteredMdMarkers,
                 topicId = topicId
             )
             clearPendingAttachments()
@@ -4818,6 +4853,7 @@ open class ChatFragment : BaseFragment() {
         val ctx = getContext() ?: return
         val preselected = pendingAttachments.filter { !it.isFileType }
         val alert = ChatAttachAlert(ctx, mediaController, themeColors, preselected)
+        cameraSourceAlert = alert
         alert.attachDelegate = object : ChatAttachAlert.ChatAttachAlertDelegate {
             override fun canSelectMore(): Boolean {
                 return pendingAttachments.size < AttachmentPickerItem.GALLERY_MAX_SELECTION
@@ -4839,10 +4875,23 @@ open class ChatFragment : BaseFragment() {
                 launchDocumentPicker()
             }
 
+            override fun onCameraRequested() {
+                if (!ensureCanSendMessageOrNotify()) return
+                if (!canSelectMore()) {
+                    Toast.makeText(ctx, "Maximum ${AttachmentPickerItem.GALLERY_MAX_SELECTION} items", Toast.LENGTH_SHORT).show()
+                    return
+                }
+                requestCameraPhoto()
+            }
+
             override fun onSendRequested() {
                 if (pendingAttachments.isEmpty()) return
                 updateAttachmentPreview()
                 updateSendButtonState()
+            }
+
+            override fun onDismissed() {
+                if (cameraSourceAlert === alert) cameraSourceAlert = null
             }
         }
         alert.setDrawNavigationBar(true)
@@ -5022,7 +5071,54 @@ open class ChatFragment : BaseFragment() {
         )
     }
 
+    private fun requestCameraPhoto() {
+        val activity = getParentActivity() ?: return
+        if (ContextCompat.checkSelfPermission(activity, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            activity.requestPermissions(arrayOf(Manifest.permission.CAMERA), REQUEST_CODE_CAMERA_PERMISSION)
+            return
+        }
+        launchCameraPhoto()
+    }
+
+    private fun launchCameraPhoto(): Boolean {
+        val ctx = getContext() ?: return false
+        val capture = CameraPhotoCapture.create(ctx)
+        if (capture == null) {
+            MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.camera_not_available))
+            return false
+        }
+        pendingCameraCapture?.discard()
+        pendingCameraCapture = capture
+        try {
+            startActivityForResult(capture.intent, REQUEST_CODE_TAKE_PHOTO)
+            return true
+        } catch (_: android.content.ActivityNotFoundException) {
+            pendingCameraCapture = null
+            capture.discard()
+            MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.camera_not_available))
+            return false
+        }
+    }
+
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == REQUEST_CODE_TAKE_PHOTO) {
+            val capture = pendingCameraCapture
+            pendingCameraCapture = null
+            if (resultCode != android.app.Activity.RESULT_OK) {
+                capture?.discard()
+                activeCameraReview?.dismiss()
+                activeCameraReview = null
+                return
+            }
+            val item = capture?.toAttachment()
+            if (item == null) {
+                capture?.discard()
+                MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.camera_capture_failed))
+                return
+            }
+            showCameraPhotoReview(capture, item)
+            return
+        }
         if (requestCode != REQUEST_CODE_PICK_FILE || resultCode != android.app.Activity.RESULT_OK) return
         if (!ensureCanSendMessageOrNotify()) return
         val uri = data?.data ?: return
@@ -5039,6 +5135,38 @@ open class ChatFragment : BaseFragment() {
         pendingAttachments.add(item)
         updateAttachmentPreview()
         updateSendButtonState()
+    }
+
+    private fun showCameraPhotoReview(capture: CameraPhotoCapture, item: AttachmentPickerItem) {
+        val ctx = getContext() ?: run {
+            capture.discard()
+            return
+        }
+        lateinit var review: CameraPhotoReviewDialog
+        review = CameraPhotoReviewDialog(
+            context = ctx,
+            capture = capture,
+            onRetake = {
+                launchCameraPhoto().also { launched ->
+                    if (launched) capture.discard()
+                }
+            },
+            onUsePhoto = {
+                if (activeCameraReview === review) activeCameraReview = null
+                if (pendingAttachments.none { it.id == item.id }) pendingAttachments.add(item)
+                cameraSourceAlert?.dismissWithoutAnimation()
+                updateAttachmentPreview()
+                updateSendButtonState()
+            },
+            onCancelReview = {
+                if (activeCameraReview === review) activeCameraReview = null
+                capture.discard()
+            }
+        )
+        val previousReview = activeCameraReview
+        activeCameraReview = review
+        review.show()
+        previousReview?.dismiss()
     }
 
     private fun requestLocationAndSend() {
@@ -5201,20 +5329,29 @@ open class ChatFragment : BaseFragment() {
         val hasText = inputField.text?.isNotBlank() == true
         val hasAttachments = pendingAttachments.isNotEmpty()
         val canSend = editingMessage != null || canSendMessageInCurrentChannel()
-        val showSend = canSend && (hasText || hasAttachments)
+
+        noPermissionBar.visibility = if (canSend) View.GONE else View.VISIBLE
+        inputBar.visibility = if (canSend) View.VISIBLE else View.GONE
+        if (!canSend) {
+            sendButton.visibility = View.GONE
+            micButton.visibility = View.GONE
+            return
+        }
+
+        val showSend = hasText || hasAttachments
         sendButton.visibility = if (showSend) View.VISIBLE else View.GONE
-        attachButton.isEnabled = canSend
-        attachButton.alpha = if (canSend) 1f else 0.45f
-        advancedFunctionButton.isEnabled = canSend
-        advancedFunctionButton.alpha = if (canSend) 1f else 0.45f
-        emojiButton.isEnabled = canSend
-        emojiButton.alpha = if (canSend) 1f else 0.45f
-        inputField.isEnabled = canSend
-        inputField.alpha = if (canSend) 1f else 0.6f
+        attachButton.isEnabled = true
+        attachButton.alpha = 1f
+        advancedFunctionButton.isEnabled = true
+        advancedFunctionButton.alpha = 1f
+        emojiButton.isEnabled = true
+        emojiButton.alpha = 1f
+        inputField.isEnabled = true
+        inputField.alpha = 1f
         if (voiceIsRecording) {
             micButton.visibility = View.VISIBLE
         } else {
-            micButton.visibility = if (canSend && !showSend) View.VISIBLE else View.GONE
+            micButton.visibility = if (!showSend) View.VISIBLE else View.GONE
         }
     }
 
@@ -5384,12 +5521,13 @@ open class ChatFragment : BaseFragment() {
         val image = p.imageUrl.trim()
         if (title.isEmpty() || (description.isEmpty() && image.isEmpty())) return null
         return OgpMarker(
-            s = start,
-            e = end,
+            s = cleanedText.length,
+            e = cleanedText.length + 1,
             index = start,
             title = title,
             description = description,
-            image = image
+            image = image,
+            url = urlInText
         )
     }
 
@@ -5745,6 +5883,14 @@ open class ChatFragment : BaseFragment() {
         permissions: Array<out String>,
         grantResults: IntArray
     ) {
+        if (requestCode == REQUEST_CODE_CAMERA_PERMISSION) {
+            if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+                launchCameraPhoto()
+            } else {
+                getContext()?.let(CameraPermissionPrompt::show)
+            }
+            return
+        }
         if (requestCode == ChatAttachAlert.REQUEST_CODE_MEDIA_PERMISSION) {
             if (computeMediaPermissionGrantedFromResult(permissions, grantResults)) {
                 mediaPermissionDeniedOnce = false
@@ -6661,6 +6807,9 @@ open class ChatFragment : BaseFragment() {
                     }
                     return@launch
                 }
+
+                val amountRaw = java.math.BigInteger(GIVE_COFFEE_AMOUNT_HUMAN).multiply(java.math.BigInteger.valueOf(1_000_000L))
+                walletController.reduceBalanceLocally(amountRaw)
 
                 chatController.sendReaction(
                     channelId = channelId,

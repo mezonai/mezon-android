@@ -13,6 +13,9 @@ import com.mezon.mmn.IZkProof
 import com.mezon.mmn.WalletDetail
 import com.mezon.mmn.createMmnClient
 import com.mezon.mmn.createZkClient
+import com.mezon.mmn.IndexerClient
+import com.mezon.mmn.IndexerClientConfig
+import com.mezon.mmn.createIndexerClient
 import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
@@ -25,6 +28,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.math.BigInteger
@@ -53,6 +57,15 @@ class WalletController @Inject constructor(
         createZkClient(
             ZkClientConfig(
                 endpoint = BuildConfig.MEZON_ZK_API_URL
+            ),
+            httpClient
+        )
+    }
+    val indexer: IndexerClient by lazy {
+        createIndexerClient(
+            IndexerClientConfig(
+                endpoint = BuildConfig.MEZON_INDEXER_API_URL,
+                chainId = BuildConfig.MEZON_CHAIN_ID
             ),
             httpClient
         )
@@ -171,7 +184,46 @@ class WalletController @Inject constructor(
         }
     }
 
+    fun reduceBalanceLocally(deltaRaw: java.math.BigInteger) {
+        if (deltaRaw <= java.math.BigInteger.ZERO) return
+        val current = _walletDetail.value ?: return
+        val currentRaw = runCatching { current.balance.toBigInteger() }.getOrNull() ?: return
+        val nextRaw = (currentRaw - deltaRaw).coerceAtLeast(java.math.BigInteger.ZERO)
+        val updated = current.copy(balance = nextRaw.toString())
+        _walletDetail.value = updated
+        
+        appScope.launch(ioDispatcher) {
+            val session = sessionManager.sessionFlow.firstOrNull() ?: return@launch
+            val zk = _zkProofs.value ?: return@launch
+            val eph = _ephemeralKeyPair.value ?: return@launch
+            walletCacheStore.save(session, zk, eph, updated)
+        }
+    }
+
     fun isReadyToSendTransaction(): Boolean = signing != null && _isWalletReady.value
+
+    fun fetchWalletDetail() {
+        appScope.launch(ioDispatcher) {
+            val session = sessionManager.sessionFlow.firstOrNull() ?: return@launch
+            if (session.userId.isEmpty()) return@launch
+            runCatching {
+                val acc = mmn.getAccountByUserId(session.userId)
+                val newDetail = WalletDetail(
+                    address = acc.address,
+                    balance = acc.balance,
+                    accountNonce = acc.nonce.coerceIn(0, Int.MAX_VALUE.toLong()).toInt(),
+                    lastBalanceUpdate = 0
+                )
+                _walletDetail.value = newDetail
+                
+                val zk = _zkProofs.value ?: return@runCatching
+                val eph = _ephemeralKeyPair.value ?: return@runCatching
+                walletCacheStore.save(session, zk, eph, newDetail)
+            }.onFailure { e ->
+                Log.w(TAG, "fetchWalletDetail failed", e)
+            }
+        }
+    }
 
     suspend fun sendTokenTransfer(
         senderId: String,

@@ -215,6 +215,7 @@ internal class ChannelMediaGalleryAdapter(
             BackupImageView(ctx).apply {
                 setRoundRadius(LayoutHelper.dp(10f))
                 setOmitEmptyPlaceholder(true)
+                setAspectFill(true)
             }
         root.addView(thumb, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 

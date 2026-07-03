@@ -1396,14 +1396,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 .build()
         } else null
 
-        val editedText = EDITED_TEXT
-        editedLayout = if (drawEdited) {
-            StaticLayout.Builder.obtain(editedText, 0, editedText.length, currentTimePaint, LayoutHelper.dp(60).coerceAtLeast(1))
-                .setMaxLines(1)
-                .build()
-        } else null
+        val editedText = context.getString(R.string.message_edited)
+        editedLayout = null
 
-        val timeStr = if (drawEdited) "$editedText  $timeText" else timeText
+        val timeStr = timeText
         timeLayout = if (isCombined) null else {
             StaticLayout.Builder.obtain(timeStr, 0, timeStr.length, currentTimePaint, textWidth.coerceAtLeast(1))
                 .setMaxLines(1)
@@ -1427,12 +1423,14 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             shareContactLayout.clear()
         }
         val hasEmbedPayload = !hasCallLogCard && !hasShareContactCard && isEmbedOrComponentsPayload(msg.content)
-        val hasText = !hasCallLogCard && !msg.isPollMessage &&
+        val hasActualText = !hasCallLogCard && !msg.isPollMessage &&
             parsedContent.isNotBlank() && parsedContent != "[file]" && parsedContent != "[embed]" &&
             parsedContent != "[Contact]" &&
             (!hasEmbedPayload || hasExplicitTextBody)
+        val hasText = hasActualText || drawEdited
         contentLayout = if (hasText) {
-            val content = msg.content
+            val contentToParse = if (hasActualText) msg.content else ""
+            val parsedToParse = if (hasActualText) parsedContent else ""
             val linkColor = theme.blurple
             val mentionColors = MentionColors(
                 theme.textLink,
@@ -1440,10 +1438,35 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 theme.textRoleLink,
                 theme.darkMossGreen
             )
-            val charSeq: CharSequence = if (isRawMessage(content)) {
-                buildPlainTextWithHeadings(parsedContent, theme)
+            var charSeq: CharSequence = if (isRawMessage(contentToParse)) {
+                buildPlainTextWithHeadings(parsedToParse, theme)
             } else {
-                parseContentToSpannable(content, linkColor, this, mentionColors, theme)
+                parseContentToSpannable(contentToParse, linkColor, this, mentionColors, theme)
+            }
+            if (drawEdited) {
+                val ssb = android.text.SpannableStringBuilder(charSeq)
+                if (ssb.isNotEmpty()) ssb.append("  ")
+                val start = ssb.length
+                ssb.append(editedText)
+                ssb.setSpan(
+                    android.text.style.ForegroundColorSpan(theme.textDisabled),
+                    start,
+                    ssb.length,
+                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+                ssb.setSpan(
+                    android.text.style.RelativeSizeSpan(0.70f),
+                    start,
+                    ssb.length,
+                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+                ssb.setSpan(
+                    android.text.style.StyleSpan(android.graphics.Typeface.ITALIC),
+                    start,
+                    ssb.length,
+                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+                charSeq = ssb
             }
             val layoutTargetW = textWidth.coerceAtLeast(1)
             val contentLayoutW =
@@ -3000,7 +3023,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 timeLayout?.let { time ->
                     val timeX = (contentLeft + cachedSenderW + TIME_GAP_LEFT).toFloat()
                         .coerceAtMost((width - TIME_GAP_RIGHT).toFloat())
-                    val timeY = yOff + sender.height - time.height
+                    val timeY = yOff + sender.getLineBaseline(0) - time.getLineBaseline(0)
                     canvas.save()
                     canvas.translate(timeX, timeY)
                     time.draw(canvas)
@@ -3062,7 +3085,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             timeLayout?.let { time ->
                 val timeX = (contentLeft + cachedSenderW + TIME_GAP_LEFT).toFloat()
                         .coerceAtMost((width - TIME_GAP_RIGHT).toFloat())
-                val timeY = yOff + sender.height - time.height 
+                val timeY = yOff + sender.getLineBaseline(0) - time.getLineBaseline(0)
                 canvas.save()
                 canvas.translate(timeX, timeY)
                 time.draw(canvas)
@@ -4724,7 +4747,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
 
         private const val FORWARD_TEXT = "Forwarded"
-        private const val EDITED_TEXT = "(edited)"
         private const val ERROR_TEXT = "Unable to send message"
 
         private val REFERENCE_SENDER_CLAN_NICK_REGEX = Regex("\"message_sender_clan_nick\"\\s*:\\s*\"([^\"]*?)\"")

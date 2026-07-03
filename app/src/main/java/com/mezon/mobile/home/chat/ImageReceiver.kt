@@ -47,7 +47,7 @@ class ImageReceiver(private val parentView: View) {
     private val crossfadeDuration = 200f
     private var allowStartAnimation = true
     private var skipUpdateFrame = false
-    private var centerCrop = false
+    private var centerCrop = true
     private var orientation = 0
     private var invert = 0
 
@@ -419,7 +419,9 @@ class ImageReceiver(private val parentView: View) {
         val iw = drawable.intrinsicWidth
         val ih = drawable.intrinsicHeight
         if (iw > 0 && ih > 0) {
-            val scale = maxOf(imageW / iw.toFloat(), imageH / ih.toFloat())
+            val scale = imageScaleForBounds(
+                iw.toFloat(), ih.toFloat(), imageW, imageH, centerCrop,
+            )
             val dx = imageX + (imageW - iw * scale) / 2f
             val dy = imageY + (imageH - ih * scale) / 2f
             canvas.translate(dx, dy)
@@ -444,13 +446,7 @@ class ImageReceiver(private val parentView: View) {
         try {
             val hasRound = roundRadius.any { it > 0 }
 
-            val scaleW = bmpW / imageW
-            val scaleH = bmpH / imageH
-            val scale = if (centerCrop) {
-                1f / maxOf(scaleW, scaleH)
-            } else {
-                1f / minOf(scaleW, scaleH)
-            }
+            val scale = imageScaleForBounds(bmpW, bmpH, imageW, imageH, centerCrop)
 
             val scaledW = bmpW * scale
             val scaledH = bmpH * scale
@@ -655,4 +651,19 @@ class ImageReceiver(private val parentView: View) {
     fun getImageWidth() = imageW
     fun getImageHeight() = imageH
     fun getBitmap(): Bitmap? = imageBitmap ?: thumbBitmap
+}
+
+internal fun imageScaleForBounds(
+    sourceWidth: Float,
+    sourceHeight: Float,
+    targetWidth: Float,
+    targetHeight: Float,
+    centerCrop: Boolean,
+): Float {
+    if (sourceWidth <= 0f || sourceHeight <= 0f || targetWidth <= 0f || targetHeight <= 0f) {
+        return 1f
+    }
+    val scaleX = targetWidth / sourceWidth
+    val scaleY = targetHeight / sourceHeight
+    return if (centerCrop) maxOf(scaleX, scaleY) else minOf(scaleX, scaleY)
 }

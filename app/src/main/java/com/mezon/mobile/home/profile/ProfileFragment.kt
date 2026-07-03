@@ -35,6 +35,11 @@ import com.mezon.mobile.home.wallet.SendTokenFragment
 import com.mezon.mobile.ui.cells.AvatarView
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.ToastOverlay
+import com.mezon.mobile.wallet.history.HistoryTransactionFragment
+import com.mezon.mobile.wallet.WalletController
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -80,6 +85,7 @@ class ProfileFragment : BaseFragment() {
     private lateinit var userController: UserController
     private lateinit var accountController: AccountController
     private lateinit var friendController: FriendController
+    private lateinit var walletController: WalletController
 
     var onLogout: (() -> Unit)? = null
 
@@ -102,10 +108,20 @@ class ProfileFragment : BaseFragment() {
         userController = entryPoint.userController()
         accountController = entryPoint.accountController()
         friendController = entryPoint.friendController()
+        walletController = entryPoint.walletController()
     }
 
     override fun onFragmentCreate(): Boolean {
         super.onFragmentCreate()
+
+        fragmentScope.launch {
+            walletController.walletDetail.collect {
+                if (fragmentView == null || isPaused) return@collect
+                withContext(Dispatchers.Main) {
+                    updateUI()
+                }
+            }
+        }
 
         observe(NotificationCenter.userDataLoaded) { _, _, _ ->
             if (fragmentView == null || isPaused) return@observe
@@ -138,6 +154,7 @@ class ProfileFragment : BaseFragment() {
         super.onBecomeFullyVisible()
         accountController.loadAccount(noCache = false)
         friendController.loadFriends()
+        walletController.fetchWalletDetail()
         updateUI()
     }
 
@@ -392,6 +409,7 @@ class ProfileFragment : BaseFragment() {
         }.apply { (layoutParams as? LinearLayout.LayoutParams)?.topMargin = 0 })
 
         walletSection.addView(createIconTextRow(context, MezonIcon.historyTransactionIcon, getString(R.string.profile_history_transaction), null) {
+            presentFragment(HistoryTransactionFragment())
         }.apply { (layoutParams as? LinearLayout.LayoutParams)?.topMargin = 0 })
 
         val editProfileBtn = createEditProfileButton(context)
@@ -638,7 +656,8 @@ class ProfileFragment : BaseFragment() {
             indicator.setImageResource(onlineStatus.getIcon().resId)
         }
 
-        val balanceVal = info.balance.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO
+        val balanceStr = walletController.walletDetail.value?.balance ?: info.balance
+        val balanceVal = balanceStr.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO
         val actualBalance = balanceVal.divide(MILLION).toLong()
         val formattedBalance = String.format(VI_LOCALE, "%,d", actualBalance)
         balanceText.text = getString(R.string.profile_balance, formattedBalance)

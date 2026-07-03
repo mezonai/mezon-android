@@ -112,7 +112,8 @@ class IndexerClient(
                 if (!response.status.isSuccess()) {
                     error("HTTP ${response.status.value}: ${response.status.description}")
                 }
-                MmnJson.decodeFromString<T>(response.bodyAsText())
+                val bodyText = response.bodyAsText()
+                MmnJson.decodeFromString<T>(bodyText)
             }
         } catch (e: CancellationException) {
             throw e
