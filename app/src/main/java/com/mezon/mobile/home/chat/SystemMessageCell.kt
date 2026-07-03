@@ -1,6 +1,8 @@
 package com.mezon.mobile.home.chat
 
 import android.content.Context
+import android.graphics.Canvas
+import android.graphics.Paint
 import android.graphics.drawable.Drawable
 import android.text.SpannableStringBuilder
 import android.text.Spanned
@@ -83,9 +85,11 @@ class SystemMessageCell(context: Context, private val theme: ThemeColors) : Line
     }
 
     var channelName: String = ""
+    private var jumpHighlightStartedAtMs = 0L
 
     init {
         orientation = VERTICAL
+        setWillNotDraw(false)
         setPadding(PAD_H, PAD_V, PAD_H, PAD_V)
 
         plainMessageTextView.onMentionClick = { uid, rid ->
@@ -121,6 +125,40 @@ class SystemMessageCell(context: Context, private val theme: ThemeColors) : Line
 
         row.addView(textColumn)
         addView(row)
+    }
+
+    fun setHighlight() {
+        jumpHighlightStartedAtMs = android.os.SystemClock.uptimeMillis()
+        invalidate()
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        if (jumpHighlightStartedAtMs == 0L) return
+        val elapsed = android.os.SystemClock.uptimeMillis() - jumpHighlightStartedAtMs
+        val progress = when {
+            elapsed <= HIGHLIGHT_HOLD_MS -> 1f
+            elapsed < HIGHLIGHT_HOLD_MS + HIGHLIGHT_FADE_MS ->
+                1f - (elapsed - HIGHLIGHT_HOLD_MS).toFloat() / HIGHLIGHT_FADE_MS
+            else -> 0f
+        }
+        val alpha = (progress * HIGHLIGHT_MAX_ALPHA).toInt().coerceIn(0, 255)
+        JUMP_HIGHLIGHT_PAINT.color = theme.blurple and 0x00FFFFFF or (alpha shl 24)
+        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), JUMP_HIGHLIGHT_PAINT)
+        JUMP_HIGHLIGHT_BORDER_PAINT.color = theme.blurple
+        JUMP_HIGHLIGHT_BORDER_PAINT.alpha = (progress * 255).toInt().coerceIn(0, 255)
+        canvas.drawRect(
+            0f,
+            0f,
+            HIGHLIGHT_BORDER_WIDTH.toFloat(),
+            height.toFloat(),
+            JUMP_HIGHLIGHT_BORDER_PAINT
+        )
+        if (progress > 0f) {
+            postInvalidateDelayed(16)
+        } else {
+            jumpHighlightStartedAtMs = 0L
+        }
     }
 
     fun update(mask: Int, newMsg: MessageEntity? = null): Boolean {
@@ -353,6 +391,12 @@ class SystemMessageCell(context: Context, private val theme: ThemeColors) : Line
     }
 
     companion object {
+        private val JUMP_HIGHLIGHT_PAINT = Paint()
+        private val JUMP_HIGHLIGHT_BORDER_PAINT = Paint()
+        private val HIGHLIGHT_BORDER_WIDTH = LayoutHelper.dp(2f)
+        private const val HIGHLIGHT_HOLD_MS = 1_500L
+        private const val HIGHLIGHT_FADE_MS = 300L
+        private const val HIGHLIGHT_MAX_ALPHA = 0x30
         private val ICON_SIZE_SMALL = LayoutHelper.dp(20)
         private val ICON_GAP = LayoutHelper.dp(8)
         private val PAD_H = LayoutHelper.dp(16)

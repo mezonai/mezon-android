@@ -1250,6 +1250,20 @@
     <string name="search_section_voice_channels">Voice Channels</string>
     <string name="search_section_streaming_channels">Streaming Channels</string>
     <string name="search_join_channel">Join</string>
+    <string name="search_tab_members">Members</string>
+    <string name="search_tab_channels">Channels</string>
+    <string name="search_tab_messages">Messages</string>
+    <string name="search_messages_placeholder">Search messages…</string>
+    <string name="search_channels_placeholder">Search channels…</string>
+    <string name="search_filter_results">Filter results</string>
+    <string name="search_filter_from_label">from:</string>
+    <string name="search_filter_from_description">from user</string>
+    <string name="search_filter_mentions_label">mentions:</string>
+    <string name="search_filter_mentions_description">mention user</string>
+    <string name="search_filter_channel_badge">in: %1$s</string>
+    <string name="search_filter_user_badge">%1$s %2$s</string>
+    <string name="search_message_attachment">[Attachment]</string>
+    <string name="search_user_fallback">User</string>
 
     <string name="buzz_dialog_title">Enter your message Buzz!!</string>
     <string name="buzz_dialog_send">Send</string>
