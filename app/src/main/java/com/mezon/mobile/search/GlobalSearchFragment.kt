@@ -789,7 +789,14 @@ class GlobalSearchFragment : BaseFragment() {
             setPadding(LayoutHelper.dp(14f), 0, LayoutHelper.dp(12f), 0)
             isClickable = true
             isFocusable = true
-            background = context.getDrawable(android.R.drawable.list_selector_background)
+            val rippleColor = android.content.res.ColorStateList.valueOf(
+                (themeColors.onSurface and 0x00FFFFFF) or 0x1A000000
+            )
+            background = android.graphics.drawable.RippleDrawable(
+                rippleColor,
+                android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT),
+                android.graphics.drawable.ColorDrawable(android.graphics.Color.WHITE)
+            )
             setOnClickListener { onClick() }
 
             addView(LinearLayout(context).apply {
