@@ -147,7 +147,8 @@
     <string name="update_username_hint">Your name…</string>
     <string name="update_username_preview">Username: %1$s</string>
     <string name="update_username_button">Update</string>
-    <string name="update_username_error">There’s an issue or the name already exists, please choose another one.</string>
+    <string name="update_username_error">Couldn’t update your name. Please try again.</string>
+    <string name="update_username_taken_error">This name is already taken. Please choose a different one.</string>
     <string name="update_username_change_phone_question">Want to sign in again with your phone number?</string>
     <string name="update_username_change_phone_link">Return to login with phone number</string>
 

@@ -153,6 +153,16 @@
     <string name="otp_change_confirm_title">Đổi %1$s?</string>
     <string name="otp_change_confirm_message">Bạn sẽ quay lại màn hình đăng nhập.</string>
 
+    <string name="update_username_title">Nhập tên Mezon</string>
+    <string name="update_username_subtitle">Vui lòng dùng tên thật của bạn để mọi người dễ nhận ra bạn hơn.</string>
+    <string name="update_username_hint">Tên của bạn…</string>
+    <string name="update_username_preview">Tên người dùng: %1$s</string>
+    <string name="update_username_button">Cập nhật</string>
+    <string name="update_username_error">Không thể cập nhật tên. Vui lòng thử lại.</string>
+    <string name="update_username_taken_error">Tên này đã có người sử dụng. Vui lòng chọn tên khác.</string>
+    <string name="update_username_change_phone_question">Bạn muốn đăng nhập lại bằng số điện thoại?</string>
+    <string name="update_username_change_phone_link">Quay lại đăng nhập bằng số điện thoại</string>
+
     <!-- common.sessionExpired -->
     <string name="common_session_expired_title">Phiên đăng nhập đã hết hạn hoặc lỗi mạng</string>
     <string name="common_session_expired_confirm">Đăng nhập lại</string>

@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.graphics.drawable.GradientDrawable
+import android.media.AudioManager
 import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
@@ -145,6 +146,7 @@ class CallFragment : BaseFragment() {
 
         updateUI()
         fragmentView = root
+        getParentActivity()?.volumeControlStream = AudioManager.STREAM_VOICE_CALL
         return root
     }
 
@@ -209,6 +211,7 @@ class CallFragment : BaseFragment() {
     }
 
     override fun onFragmentDestroy() {
+        getParentActivity()?.volumeControlStream = AudioManager.USE_DEFAULT_STREAM_TYPE
         fragmentView?.removeCallbacks(finishAfterBusyRunnable)
         showingBusyEnd = false
         durationView?.stopTimer()

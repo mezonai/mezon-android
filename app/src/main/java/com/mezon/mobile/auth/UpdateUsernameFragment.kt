@@ -18,7 +18,9 @@ import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.di.FragmentEntryPoint
+import com.mezon.mobile.network.HttpRpcStatusException
 import com.mezon.mobile.ui.cells.ActionButton
+import com.mezon.mobile.util.NetworkErrorMessages
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -245,9 +247,17 @@ class UpdateUsernameFragment : BaseFragment() {
                     submitButton.isEnabled = true
                     submitButton.visibility = View.VISIBLE
                     errorText.visibility = View.VISIBLE
-                    errorText.text = err.message?.takeIf { it.isNotBlank() }
-                        ?: getString(R.string.update_username_error)
+                    errorText.text = submitErrorMessage(err)
                 }
         }
+    }
+
+    private fun submitErrorMessage(error: Throwable): String {
+        if (error is HttpRpcStatusException && error.code == 400) {
+            return getString(R.string.update_username_taken_error)
+        }
+        val fallback = getString(R.string.update_username_error)
+        val ctx = getContext() ?: return fallback
+        return NetworkErrorMessages.userMessage(ctx, error, fallback, allowRawMessage = false)
     }
 }
