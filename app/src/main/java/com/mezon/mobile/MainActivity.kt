@@ -17,6 +17,7 @@ import android.view.Menu
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.FrameLayout
+import androidx.activity.OnBackPressedCallback
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
@@ -213,6 +214,12 @@ class MainActivity : BasePermissionsActivity(),
 
         setContentView(drawerLayoutContainer)
 
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                handleBackPressed()
+            }
+        })
+
         @Suppress("DEPRECATION")
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
 
@@ -312,7 +319,6 @@ class MainActivity : BasePermissionsActivity(),
         super.onDestroy()
         dismissVoiceRoom()
         dismissStreamingRoom()
-        actionBarLayout.unregisterBackCallback()
         AndroidUtilities.cancelRunOnUIThread(dismissSplashRunnable)
         appUpdateGateRunnable?.let { AndroidUtilities.cancelRunOnUIThread(it) }
         appUpdateGateRunnable = null
@@ -400,6 +406,10 @@ class MainActivity : BasePermissionsActivity(),
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
+        handleBackPressed()
+    }
+
+    private fun handleBackPressed() {
         val manager = voiceOverlayManager
         if (manager != null && manager.isExpanded()) {
             minimizeVoiceRoom()
@@ -409,7 +419,7 @@ class MainActivity : BasePermissionsActivity(),
             return
         }
         if (!actionBarLayout.onBackPressedInternal()) {
-            super.onBackPressed()
+            finishAndRemoveTask()
         }
     }
 
