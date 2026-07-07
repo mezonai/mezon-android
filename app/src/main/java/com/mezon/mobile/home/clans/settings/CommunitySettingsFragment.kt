@@ -399,18 +399,9 @@ class CommunitySettingsFragment : BaseFragment() {
         }
         fieldsLayout.addView(aboutInput, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 0f, 0f, 16f))
 
-        fieldsLayout.addView(
-            TextView(ctx).apply {
-                text = getString(R.string.community_settings_vanity_hint)
-                textSize = 12f
-                setTextColor(themeColors.onSurfaceVariant)
-                setPadding(0, 0, 0, LayoutHelper.dp(4f))
-            },
-            LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 0f, 0f, 4f),
-        )
-
         val vanityInput = InputCell(ctx, themeColors).apply {
             setLabel(getString(R.string.community_settings_vanity_label), required = true)
+            setDescription(getString(R.string.community_settings_vanity_hint))
             setMaxCharacter(50)
             setShowCharacterCount(true)
             editText.hint = "my-awesome-community"

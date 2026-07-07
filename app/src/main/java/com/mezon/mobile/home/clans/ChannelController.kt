@@ -24,6 +24,7 @@ import com.mezon.mezon.api.CategoryDescList
 import com.mezon.mezon.api.ChannelDescription
 import com.mezon.mezon.api.NotificationUserChannel
 import com.mezon.mezon.rtapi.CategoryEvent
+import com.mezon.mezon.rtapi.ChannelArchiveEvent
 import com.mezon.mobile.home.chat.SdTopicEntity
 import com.mezon.mobile.home.chat.toClanChannelEntity
 import com.mezon.mezon.rtapi.LastSeenMessageEvent
@@ -634,6 +635,62 @@ class ChannelController @Inject constructor(
             notificationCenter.postNotificationOnMainThread(NotificationCenter.closeChats, channelId, channelType)
             notificationCenter.postNotificationOnMainThread(NotificationCenter.navigateToClansTab)
         }
+    }
+
+    private fun applyChannelArchiveEvent(event: ChannelArchiveEvent) {
+        val clanId = event.clanId
+        val channelId = event.channelId
+        if (clanId == 0L || channelId == 0L || isDirectChannelType(event.channelType)) return
+
+        val existing = _channelsByClan.value[clanId].orEmpty()
+        if (event.active == 0) {
+            updateCache(clanId, existing.filter { it.channelId != channelId })
+            favoritesByClan[clanId]?.remove(channelId)
+            appScope.launch(ioDispatcher) {
+                clanChannelDao.delete(clanId, channelId)
+                favoriteChannelDao.delete(clanId, channelId)
+            }
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
+            if (channelId == currentOpenChannelId) {
+                currentOpenChannelId = 0L
+                notificationCenter.postNotificationOnMainThread(
+                    NotificationCenter.closeChats,
+                    channelId,
+                    event.channelType
+                )
+                notificationCenter.postNotificationOnMainThread(NotificationCenter.navigateToClansTab)
+            }
+            return
+        }
+
+        val previous = existing.firstOrNull { it.channelId == channelId }
+        val categoryOrder = previous?.categoryOrder
+            ?: existing.firstOrNull { it.categoryId == event.categoryId && it.categoryOrder != 0 }?.categoryOrder
+            ?: 0
+        val restored = ClanChannelEntity(
+            clanId = clanId,
+            channelId = channelId,
+            parentId = event.parentId,
+            categoryId = event.categoryId,
+            categoryName = previous?.categoryName
+                ?: getCachedCategories(clanId).firstOrNull { it.categoryId == event.categoryId }?.categoryName.orEmpty(),
+            channelLabel = event.channelLabel.ifBlank { previous?.channelLabel.orEmpty() },
+            type = event.channelType.takeIf { it != 0 } ?: previous?.type ?: 0,
+            isPrivate = event.channelPrivate,
+            topic = event.topic.ifBlank { previous?.topic.orEmpty() },
+            unreadCount = event.countMessUnread,
+            isMuted = resolveChannelMuted(clanId, channelId, previous?.isMuted ?: false),
+            lastSeenMessageId = previous?.lastSeenMessageId ?: 0L,
+            lastSentMessageId = previous?.lastSentMessageId ?: 0L,
+            lastSeenMessageTs = previous?.lastSeenMessageTs ?: 0L,
+            lastSentMessageTs = previous?.lastSentMessageTs ?: 0L,
+            active = event.active,
+            categoryOrder = categoryOrder,
+            ageRestricted = event.ageRestricted,
+        )
+        updateCache(clanId, sortChannels(existing.filter { it.channelId != channelId } + restored))
+        appScope.launch(ioDispatcher) { clanChannelDao.upsert(restored) }
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
     }
 
     suspend fun findOrFetchChannelLabel(channelId: Long, clanId: Long = 0L): String {
@@ -1601,6 +1658,12 @@ class ChannelController @Inject constructor(
                 updateCache(clanId, existing.filter { it.channelId != event.channelId })
                 appScope.launch(ioDispatcher) { clanChannelDao.delete(clanId, event.channelId) }
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
+            }
+        }
+
+        appScope.launch {
+            dispatcher.channelArchiveEvents.collect { event ->
+                applyChannelArchiveEvent(event)
             }
         }
 
