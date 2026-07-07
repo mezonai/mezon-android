@@ -14,6 +14,7 @@ import com.mezon.mezon.rtapi.AllowAnonymousEvent
 import com.mezon.mezon.rtapi.BannedUserEvent
 import com.mezon.mezon.rtapi.CategoryEvent
 import com.mezon.mezon.rtapi.ChannelAppEvent
+import com.mezon.mezon.rtapi.ChannelArchiveEvent
 import com.mezon.mezon.rtapi.ChannelCreatedEvent
 import com.mezon.mezon.rtapi.ChannelMessageUpdate
 import com.mezon.mezon.rtapi.ChannelDeletedEvent
@@ -119,6 +120,9 @@ class SocketEventDispatcher @Inject constructor(
 
     private val _channelUpdatedEvents = MutableSharedFlow<ChannelUpdatedEvent>(extraBufferCapacity = 8)
     val channelUpdatedEvents: SharedFlow<ChannelUpdatedEvent> = _channelUpdatedEvents.asSharedFlow()
+
+    private val _channelArchiveEvents = MutableSharedFlow<ChannelArchiveEvent>(extraBufferCapacity = 8)
+    val channelArchiveEvents: SharedFlow<ChannelArchiveEvent> = _channelArchiveEvents.asSharedFlow()
 
     private val _categoryEvents = MutableSharedFlow<CategoryEvent>(extraBufferCapacity = 8)
     val categoryEvents: SharedFlow<CategoryEvent> = _categoryEvents.asSharedFlow()
@@ -294,6 +298,8 @@ class SocketEventDispatcher @Inject constructor(
                 _channelDeletedEvents.emit(envelope.channelDeletedEvent)
             Envelope.MessageCase.CHANNEL_UPDATED_EVENT ->
                 _channelUpdatedEvents.emit(envelope.channelUpdatedEvent)
+            Envelope.MessageCase.CHANNEL_ARCHIVE_EVENT ->
+                _channelArchiveEvents.emit(envelope.channelArchiveEvent)
             Envelope.MessageCase.CATEGORY_EVENT ->
                 _categoryEvents.emit(envelope.categoryEvent)
             Envelope.MessageCase.CHANNEL_APP_EVENT ->
