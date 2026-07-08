@@ -6,6 +6,10 @@ import com.mezon.mezon.api.MessageAttachmentList
 import com.mezon.mobile.home.chat.MessageEntity
 import com.mezon.mobile.util.parseContentPreview
 import com.google.protobuf.ByteString
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import org.json.JSONObject
 
 object CallLogMessageType {
@@ -129,4 +133,48 @@ fun messagePreviewForDialog(
     }
     val cl = parseCallLogMessage(content) ?: return ""
     return dialogPreviewForCallLog(context, cl)
+}
+
+private val ATTACHMENT_ONLY_HEADER_KEYS = setOf("t", "mk", "ej", "hg")
+
+fun shouldInferAttachmentOnlyHeaderPreview(
+    content: String,
+    messageId: Long,
+    timestampSeconds: Long,
+    senderId: Long
+): Boolean {
+    if (senderId == 0L || (messageId == 0L && timestampSeconds == 0L)) return false
+
+    val trimmed = content.trim()
+    if (trimmed.isEmpty() || trimmed == "{}") return true
+
+    val obj = runCatching { Json.parseToJsonElement(trimmed) as? JsonObject }.getOrNull() ?: return false
+    val keys = obj.keys
+    if (!ATTACHMENT_ONLY_HEADER_KEYS.containsAll(keys)) return false
+    if (runCatching { obj["t"]?.jsonPrimitive?.contentOrNull.orEmpty() }.getOrDefault("").isNotBlank()) return false
+    return true
+}
+
+fun messageHeaderPreviewForDialog(
+    context: Context,
+    content: String,
+    messageId: Long,
+    timestampSeconds: Long,
+    senderId: Long
+): String {
+    val preview = messagePreviewForDialog(context, content)
+    if (preview.isNotBlank()) return preview
+
+    val hasEmbed = runCatching {
+        val obj = Json.parseToJsonElement(content.trim()) as? JsonObject
+        obj?.containsKey("embed") == true || obj?.containsKey("embeds") == true
+    }.getOrDefault(false)
+    if (hasEmbed) {
+        return "[${context.getString(R.string.message_attachment_embed)}]"
+    }
+
+    if (shouldInferAttachmentOnlyHeaderPreview(content, messageId, timestampSeconds, senderId)) {
+        return "[${context.getString(R.string.message_attachment_file)}]"
+    }
+    return ""
 }

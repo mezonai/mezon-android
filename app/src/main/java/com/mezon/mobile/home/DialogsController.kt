@@ -54,6 +54,7 @@ import com.mezon.mobile.util.FileUtils
 import com.mezon.mobile.util.parseContentPreview
 import com.mezon.mobile.util.AttachmentUploader
 import com.mezon.mobile.home.call.messagePreviewForDialog
+import com.mezon.mobile.home.call.messageHeaderPreviewForDialog
 import dagger.Lazy
 import com.mezon.mezon.api.ChannelDescription
 import com.mezon.mezon.rtapi.LastSeenMessageEvent
@@ -1268,12 +1269,20 @@ class DialogsController @Inject constructor(
                     next = next.copy(lastSentMessageTs = mergedTs)
                 }
             }
-            if (m.content.isNotEmpty()) {
+            if (m.content.isNotEmpty() || next.lastMessageContent.isBlank()) {
                 val sameLastMessage = m.id != 0L && m.id == next.lastSentMessageId
                 val sameTsHeader = m.id == 0L && ts > 0L && ts == next.lastSentMessageTs
                 val needsPreview = next.lastMessageContent.isBlank() || sameLastMessage || sameTsHeader || isNewer
                 if (needsPreview) {
-                    val preview = formatDirectMessagePreview(messagePreviewForDialog(appContext, m.content))
+                    val preview = formatDirectMessagePreview(
+                        messageHeaderPreviewForDialog(
+                            appContext,
+                            m.content,
+                            m.id,
+                            ts,
+                            m.senderId
+                        )
+                    )
                     if (preview.isNotBlank() && preview != next.lastMessageContent) {
                         changed = true
                         next = next.copy(lastMessageContent = preview)

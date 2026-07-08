@@ -1,6 +1,7 @@
 package com.mezon.mobile.home.messages
 
 import com.mezon.mobile.home.call.messagePreviewForDialog
+import com.mezon.mobile.home.call.messageHeaderPreviewForDialog
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -159,9 +160,12 @@ fun ChannelDescription.toDirectMessage(currentUserId: Long, previewContext: andr
     }
     val lastMsgContent = if (hasLastSentMessage()) {
         if (previewContext != null) {
-            messagePreviewForDialog(
+            messageHeaderPreviewForDialog(
                 previewContext,
-                lastSentMessage.content
+                lastSentMessage.content,
+                lastSentMessage.id,
+                lastSentMessage.timestampSeconds.toLong() and 0xFFFF_FFFFL,
+                lastSentMessage.senderId
             )
         } else {
             parseContentPreview(lastSentMessage.content)
