@@ -4460,6 +4460,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             val specKey = "${spec.textarea}|${spec.numberInput}|${spec.dateInput}|${spec.disabled}|${spec.placeholder}|${spec.defaultValue}"
             val identityChanged =
                 boundMessageId != messageId || boundComponentId != componentId || boundSpecKey != specKey
+            suppressWatch = true
             boundMessageId = messageId
             boundComponentId = componentId
             boundSpecKey = specKey
@@ -4548,14 +4549,13 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
             if (identityChanged) {
                 val stored = EmbedFormUtil.getValue(messageId, componentId)
-                suppressWatch = true
                 edit.setText(stored ?: spec.defaultValue)
-                suppressWatch = false
                 edit.scrollTo(0, 0)
                 if (stored == null && spec.defaultValue.isNotEmpty()) {
                     EmbedFormUtil.setValue(messageId, componentId, spec.defaultValue)
                 }
             }
+            suppressWatch = false
         }
 
         private fun showDatePicker() {
