@@ -470,6 +470,7 @@ open class ChatFragment : BaseFragment() {
     }
 
     fun getChannelId(): Long = channelId
+    fun getClanId(): Long = clanId
 
     override fun onFragmentCreate(): Boolean {
         super.onFragmentCreate()
@@ -493,9 +494,12 @@ open class ChatFragment : BaseFragment() {
                 channelName = cachedName
             }
         }
-        startLoadFromMessageId = 0L
+        startLoadFromMessageId = arguments?.getLong(ARG_MESSAGE_ID) ?: 0L
         startLoadFromMessageOffset = Int.MAX_VALUE
-        needScrollRestore = false
+        needScrollRestore = startLoadFromMessageId != 0L
+        if (startLoadFromMessageId != 0L) {
+            pendingHighlightMessageId = startLoadFromMessageId
+        }
 
         val readStateChannelId = if (isTopicMode && topicId != 0L) topicId else channelId
         if (clanId == 0L) {
@@ -1376,7 +1380,11 @@ open class ChatFragment : BaseFragment() {
             val targetChannelId = args.getOrNull(0) as? Long ?: return@observe
             val targetMessageId = args.getOrNull(1) as? Long ?: return@observe
             if (targetChannelId == channelId) {
-                pendingJumpMessageId = targetMessageId
+                if (!isPaused && fragmentView != null && !firstLoad && !isLoading) {
+                    scrollToReplyMessage(targetMessageId)
+                } else {
+                    pendingJumpMessageId = targetMessageId
+                }
             }
         }
 
@@ -1389,7 +1397,24 @@ open class ChatFragment : BaseFragment() {
         notificationCenter.addPostponeNotificationsCallback(postponeNewMessagesCallback)
 
         isLoading = true
-        chatController.loadMessages(channelId, clanId, forceRefresh = true, preferHttp = openedFromNotification, topicId = topicId)
+        if (startLoadFromMessageId != 0L) {
+            chatController.loadMessagesAround(
+                channelId = channelId,
+                clanId = clanId,
+                anchorMessageId = startLoadFromMessageId,
+                requireExactAnchor = true,
+                preferHttp = true,
+                topicId = topicId
+            )
+        } else {
+            chatController.loadMessages(
+                channelId,
+                clanId,
+                forceRefresh = true,
+                preferHttp = openedFromNotification,
+                topicId = topicId
+            )
+        }
         return true
     }
 
@@ -7118,8 +7143,13 @@ open class ChatFragment : BaseFragment() {
         val adapterPos = adapter.messagesStartRow + idx
         lm.scrollToPositionWithOffset(adapterPos, recyclerView.height / 3)
         recyclerView.post {
+            recyclerView.visibility = View.VISIBLE
+            needScrollRestore = false
             val vh = recyclerView.findViewHolderForAdapterPosition(adapterPos)
-            (vh?.itemView as? ChatMessageCell)?.setHighlight()
+            when (val itemView = vh?.itemView) {
+                is ChatMessageCell -> itemView.setHighlight()
+                is SystemMessageCell -> itemView.setHighlight()
+            }
         }
     }
 

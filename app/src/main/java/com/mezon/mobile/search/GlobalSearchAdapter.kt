@@ -19,7 +19,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class GlobalSearchAdapter(
-    private val themeColors: ThemeColors
+    private val themeColors: ThemeColors,
+    private val resolveMessageSenderName: (SearchMessageDocument) -> String? = { null }
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     companion object {
@@ -97,7 +98,9 @@ class GlobalSearchAdapter(
                 )
                 view.update(0, item)
             }
-            is MessageSearchCell -> if (item is SearchMessageDocument) view.update(0, item)
+            is MessageSearchCell -> if (item is SearchMessageDocument) {
+                view.update(0, item, resolveMessageSenderName(item))
+            }
             is HeaderCell -> if (item is SectionHeader) view.setText(item.title)
         }
     }
@@ -148,6 +151,12 @@ class GlobalSearchAdapter(
             newItems.addAll(messages)
         }
         submitList(newItems)
+    }
+
+    fun refreshMessageSenders() {
+        if (items.any { it is SearchMessageDocument }) {
+            notifyItemRangeChanged(0, itemCount)
+        }
     }
 
     private fun submitList(newItems: List<Any>) {
