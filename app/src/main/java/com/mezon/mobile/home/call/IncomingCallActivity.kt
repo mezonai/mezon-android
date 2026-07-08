@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.drawable.GradientDrawable
+import android.media.AudioManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -118,6 +119,8 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
             WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
                 WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
         )
+
+        volumeControlStream = AudioManager.STREAM_VOICE_CALL
 
         if (callInfo != null) {
             callerName = callInfo.peerName

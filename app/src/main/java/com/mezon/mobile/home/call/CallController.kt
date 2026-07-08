@@ -252,6 +252,7 @@ class CallController @Inject constructor(
         Log.d(TAG, "acceptCall: peer=${state.callInfo.peerName}, video=${state.callInfo.isVideo}")
         cancelTimeout()
         callAudioManager?.stopTone()
+        MezonCallConnection.activeConnection?.setCallActive()
 
         val callInfo = state.callInfo
         markInCall(callInfo)
@@ -1073,6 +1074,7 @@ class CallController @Inject constructor(
         callState = CallState.Connected(callInfo, connectedTime)
         cancelTimeout()
         callAudioManager?.stopTone()
+        MezonCallConnection.activeConnection?.setCallActive()
         sendMediaStatus()
         scheduleRemoteVideoRevealRefreshIfNeeded()
         pushCancelCallOnConnected(callInfo)

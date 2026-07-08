@@ -56,6 +56,7 @@ class CallAudioManager(private val context: Context) {
         } else {
             setEarpiece()
         }
+        ensureAudibleCallVolume()
     }
 
     fun startForIncomingRing() {
@@ -82,6 +83,7 @@ class CallAudioManager(private val context: Context) {
         } else {
             setEarpiece()
         }
+        ensureAudibleCallVolume()
     }
 
     fun startRinging() {
@@ -136,6 +138,20 @@ class CallAudioManager(private val context: Context) {
             audioManager.startBluetoothSco()
         }
         releaseProximityWakeLock()
+    }
+
+    private fun ensureAudibleCallVolume() {
+        try {
+            val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL)
+            if (max <= 0) return
+            val target = (max * 0.7f).toInt().coerceIn(1, max)
+            val current = audioManager.getStreamVolume(AudioManager.STREAM_VOICE_CALL)
+            if (current < target) {
+                audioManager.setStreamVolume(AudioManager.STREAM_VOICE_CALL, target, 0)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "ensureAudibleCallVolume failed", e)
+        }
     }
 
     fun playDialTone() {

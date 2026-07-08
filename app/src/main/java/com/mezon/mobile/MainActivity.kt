@@ -262,6 +262,7 @@ class MainActivity : BasePermissionsActivity(),
         notificationCenter.addObserver(this, NotificationCenter.appDidLogout)
         notificationCenter.addObserver(this, NotificationCenter.incomingCall)
         notificationCenter.addObserver(this, NotificationCenter.callEnded)
+        notificationCenter.addObserver(this, NotificationCenter.needUsernameSetup)
     }
 
     override fun onResume() {
@@ -332,6 +333,7 @@ class MainActivity : BasePermissionsActivity(),
         notificationCenter.removeObserver(this, NotificationCenter.appDidLogout)
         notificationCenter.removeObserver(this, NotificationCenter.incomingCall)
         notificationCenter.removeObserver(this, NotificationCenter.callEnded)
+        notificationCenter.removeObserver(this, NotificationCenter.needUsernameSetup)
 
         dismissIncomingCallOverlay(removeView = true)
 
@@ -489,6 +491,17 @@ class MainActivity : BasePermissionsActivity(),
             NotificationCenter.callEnded -> {
                 dismissIncomingCallOverlay(removeView = false)
             }
+            NotificationCenter.needUsernameSetup -> {
+                maybeShowUsernameGate()
+            }
+        }
+    }
+
+    private fun maybeShowUsernameGate() {
+        if (!StartupCache.hasSession || !StartupCache.needsUsernameSetup) return
+        when (actionBarLayout.getLastFragment()) {
+            is UpdateUsernameFragment, is LoginFragment, is OTPVerificationFragment -> return
+            else -> showUpdateUsernameGate()
         }
     }
 
