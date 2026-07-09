@@ -18,4 +18,7 @@ interface ChannelAppDao {
 
     @Query("DELETE FROM channel_apps WHERE clanId = :clanId")
     suspend fun deleteByClan(clanId: Long)
+
+    @Query("DELETE FROM channel_apps WHERE channelId = :channelId")
+    suspend fun deleteByChannelId(channelId: Long)
 }
