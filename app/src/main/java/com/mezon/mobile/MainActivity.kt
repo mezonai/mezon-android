@@ -17,6 +17,7 @@ import android.view.Menu
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.FrameLayout
+import androidx.activity.OnBackPressedCallback
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
@@ -213,6 +214,12 @@ class MainActivity : BasePermissionsActivity(),
 
         setContentView(drawerLayoutContainer)
 
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                handleBackPressed()
+            }
+        })
+
         @Suppress("DEPRECATION")
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
 
@@ -313,7 +320,6 @@ class MainActivity : BasePermissionsActivity(),
         super.onDestroy()
         dismissVoiceRoom()
         dismissStreamingRoom()
-        actionBarLayout.unregisterBackCallback()
         AndroidUtilities.cancelRunOnUIThread(dismissSplashRunnable)
         appUpdateGateRunnable?.let { AndroidUtilities.cancelRunOnUIThread(it) }
         appUpdateGateRunnable = null
@@ -402,6 +408,10 @@ class MainActivity : BasePermissionsActivity(),
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
+        handleBackPressed()
+    }
+
+    private fun handleBackPressed() {
         val manager = voiceOverlayManager
         if (manager != null && manager.isExpanded()) {
             minimizeVoiceRoom()
@@ -411,7 +421,7 @@ class MainActivity : BasePermissionsActivity(),
             return
         }
         if (!actionBarLayout.onBackPressedInternal()) {
-            super.onBackPressed()
+            finishAndRemoveTask()
         }
     }
 
@@ -990,13 +1000,46 @@ class MainActivity : BasePermissionsActivity(),
         val routeMeta = resolveChatRouteMeta(channelId, clanId, channelType)
         val resolvedChannelName = resolveChatDisplayName(channelId, channelName, clanId, routeMeta.channelType)
         val lastFragment = actionBarLayout.getLastFragment()
-        if (lastFragment is ChatFragment && lastFragment.getChannelId() == channelId && messageId == 0L && !forceRejoin) {
+        if (lastFragment is ChatFragment &&
+            lastFragment.getChannelId() == channelId &&
+            lastFragment.getClanId() == clanId &&
+            !forceRejoin
+        ) {
             preloadChatContext(channelId, resolvedChannelName, clanId, routeMeta)
             if (fromNotification) {
                 clearStackAboveTabs()
                 switchToTabForClan(clanId)
             }
+            if (messageId != 0L) {
+                notificationCenter.postNotificationOnMainThread(
+                    NotificationCenter.jumpToMessage,
+                    channelId,
+                    messageId
+                )
+            }
             return
+        }
+
+        if (messageId != 0L && !forceRejoin) {
+            val stack = ArrayList(actionBarLayout.getFragmentStack())
+            val existingIndex = stack.indexOfLast { fragment ->
+                fragment is ChatFragment &&
+                    fragment.getChannelId() == channelId &&
+                    fragment.getClanId() == clanId
+            }
+            if (existingIndex >= 0) {
+                preloadChatContext(channelId, resolvedChannelName, clanId, routeMeta)
+                for (index in stack.lastIndex downTo existingIndex + 1) {
+                    actionBarLayout.removeFragmentFromStack(stack[index])
+                }
+                notificationCenter.postNotificationOnMainThread(
+                    NotificationCenter.jumpToMessage,
+                    channelId,
+                    messageId
+                )
+                actionBarLayout.showLastFragment()
+                return
+            }
         }
 
         if (fromNotification) {

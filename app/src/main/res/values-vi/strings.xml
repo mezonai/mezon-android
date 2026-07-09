@@ -1049,6 +1049,22 @@
     <string name="search_section_voice_channels">Kênh thoại</string>
     <string name="search_section_streaming_channels">Kênh phát trực tuyến</string>
     <string name="search_join_channel">Tham gia</string>
+    <string name="search_tab_members">Thành viên</string>
+    <string name="search_tab_channels">Kênh</string>
+    <string name="search_tab_messages">Tin nhắn</string>
+    <string name="search_messages_placeholder">Tìm tin nhắn…</string>
+    <string name="search_channels_placeholder">Tìm kênh…</string>
+    <string name="search_filter_results">Lọc kết quả</string>
+    <string name="search_filter_from_label">from:</string>
+    <string name="search_filter_from_description">từ người dùng</string>
+    <string name="search_filter_mentions_label">mentions:</string>
+    <string name="search_filter_mentions_description">nhắc đến người dùng</string>
+    <string name="search_filter_channel_badge">in: %1$s</string>
+    <string name="search_filter_user_badge">%1$s %2$s</string>
+    <string name="search_message_attachment">[Tệp đính kèm]</string>
+    <string name="search_user_fallback">Người dùng</string>
+    <string name="search_type_to_search_messages">Nhập để tìm kiếm tin nhắn</string>
+    <string name="search_no_messages_found">Không tìm thấy tin nhắn</string>
 
     <string name="voice_room_agent_request_failed">Không cập nhật được trợ lý thoại.</string>
     <string name="voice_room_agent_server_error">Lỗi máy chủ khi cập nhật trợ lý thoại. Vui lòng thử lại sau.</string>

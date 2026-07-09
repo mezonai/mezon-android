@@ -3,20 +3,26 @@ package com.mezon.mobile.search
 import android.content.Context
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
+import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewOutlineProvider
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
+import android.widget.PopupWindow
 import android.widget.TextView
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.mezon.mezon.api.SearchMessageDocument
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BaseFragment
@@ -38,7 +44,6 @@ import com.mezon.mobile.home.stream.JoinMediaSheetKind
 import com.mezon.mobile.home.stream.StreamingController
 import com.mezon.mobile.ui.cells.ChannelSearchCell
 import com.mezon.mobile.ui.cells.MezonIcon
-import com.mezon.mobile.ui.cells.PopupMenu
 import com.mezon.mobile.ui.cells.ProfileSearchCell
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
@@ -46,6 +51,11 @@ import com.mezon.mobile.ui.cells.SearchCell
 import com.mezon.mobile.ui.cells.SearchTabHeader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+
+private enum class MessageUserFilter {
+    FROM,
+    MENTIONS
+}
 
 class GlobalSearchFragment : BaseFragment() {
 
@@ -125,6 +135,9 @@ class GlobalSearchFragment : BaseFragment() {
     private var pickerQuery = ""
     private var pickerDisplayLimit = LOCAL_PAGE_SIZE
     private var pickerFilterRunnable: Runnable? = null
+    private var activeUserFilter: MessageUserFilter? = null
+    private var filterUser: SearchMember? = null
+    private var isPickingFilterUser = false
 
     var onOpenChat: ((channelId: Long, channelName: String, clanId: Long, channelType: Int) -> Unit)? = null
 
@@ -174,9 +187,14 @@ class GlobalSearchFragment : BaseFragment() {
         }
         observe(NotificationCenter.clanMembersDidLoad) { _, _, _ ->
             if (fragmentView == null || isPaused) return@observe
-            if (channelScopedMembers == null) return@observe
-            buildChannelScopedMembers()
-            if (currentTab == TAB_MEMBERS) updateMembersList()
+            if (channelScopedMembers != null) {
+                buildChannelScopedMembers()
+                if (currentTab == TAB_MEMBERS) updateMembersList()
+            }
+            if (currentTab == TAB_MESSAGES) {
+                updateMessagesList()
+                adapter.refreshMessageSenders()
+            }
             updateTabCounts()
         }
         observe(NotificationCenter.channelMembersDidLoad) { _, _, _ ->
@@ -221,6 +239,7 @@ class GlobalSearchFragment : BaseFragment() {
             membersRequested = true
             searchController.loadMembers()
         }
+        if (argClanId != 0L) userClanController.loadClanMembers(argClanId)
         return true
     }
 
@@ -231,7 +250,7 @@ class GlobalSearchFragment : BaseFragment() {
             SearchMember(
                 id = m.userId,
                 username = m.username,
-                displayName = m.displayName.ifEmpty { m.username },
+                displayName = m.clanNick.ifEmpty { m.displayName }.ifEmpty { m.username },
                 avatarUrl = m.clanAvatar.ifEmpty { m.avatarUrl },
                 isOnline = m.isOnline,
                 isDm = argClanId == 0L,
@@ -281,17 +300,20 @@ class GlobalSearchFragment : BaseFragment() {
         })
 
         searchCell = SearchCell(context, themeColors).apply {
-            setPlaceholder("Search")
+            setPlaceholder(context.getString(R.string.common_search))
             onTextChanged = { text ->
                 if (isChannelPickerMode) {
                     pickerQuery = text
                     schedulePickerFilter()
                 } else {
                     searchText = text
+                    if (text.isBlank() && filterUser == null) {
+                        searchController.clearSearchMessages()
+                    }
                     scheduleSearch()
                 }
             }
-            onBadgeRemoved = { clearChannelFilter() }
+            onBadgeRemoved = { clearActiveBadgeFilter() }
         }
         headerRow.addView(searchCell, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
 
@@ -330,9 +352,9 @@ class GlobalSearchFragment : BaseFragment() {
 
         val tabLabels = visibleTabs.map { tab ->
             when (tab) {
-                TAB_MEMBERS -> "Members"
-                TAB_CHANNELS -> "Channels"
-                TAB_MESSAGES -> "Messages"
+                TAB_MEMBERS -> context.getString(R.string.search_tab_members)
+                TAB_CHANNELS -> context.getString(R.string.search_tab_channels)
+                TAB_MESSAGES -> context.getString(R.string.search_tab_messages)
                 else -> ""
             }
         }
@@ -349,8 +371,8 @@ class GlobalSearchFragment : BaseFragment() {
         }
 
         if (filterChannelId != 0L) {
-            searchCell.setBadge("in: $filterChannelName")
-            searchCell.setPlaceholder("Search messages...")
+            searchCell.setBadge(context.getString(R.string.search_filter_channel_badge, filterChannelName))
+            searchCell.setPlaceholder(context.getString(R.string.search_messages_placeholder))
         }
         root.addView(tabHeader, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
@@ -385,7 +407,7 @@ class GlobalSearchFragment : BaseFragment() {
         loadingView = ProgressBar(context).apply { visibility = View.GONE }
         contentFrame!!.addView(loadingView, LayoutHelper.createFrame(48, 48, Gravity.CENTER))
 
-        adapter = GlobalSearchAdapter(themeColors)
+        adapter = GlobalSearchAdapter(themeColors, ::resolveMessageSenderName)
         adapter.onChannelJoinClick = { d ->
             showJoinVoiceBottomSheet(d.channel)
         }
@@ -395,6 +417,10 @@ class GlobalSearchFragment : BaseFragment() {
             when (view) {
                 is ProfileSearchCell -> {
                     val member = view.member ?: return@OnItemClickListener
+                    if (isPickingFilterUser) {
+                        applyUserFilter(member)
+                        return@OnItemClickListener
+                    }
                     if (member.isDm && member.channelId != 0L) {
                         onOpenChat?.invoke(member.channelId, member.displayName, 0L, member.channelType)
                     } else {
@@ -409,7 +435,19 @@ class GlobalSearchFragment : BaseFragment() {
                     val doc = view.document ?: return@OnItemClickListener
                     val channelId = doc.channelId.toLongOrNull() ?: return@OnItemClickListener
                     val clanId = doc.clanId.toLongOrNull() ?: 0L
-                    onOpenChat?.invoke(channelId, doc.channelLabel, clanId, doc.channelType)
+                    val messageId = doc.messageId.toLongOrNull() ?: return@OnItemClickListener
+                    val activity = getParentActivity() as? MainActivity
+                    if (activity != null) {
+                        activity.openChat(
+                            channelId = channelId,
+                            channelName = doc.channelLabel,
+                            clanId = clanId,
+                            channelType = doc.channelType,
+                            messageId = messageId
+                        )
+                    } else {
+                        onOpenChat?.invoke(channelId, doc.channelLabel, clanId, doc.channelType)
+                    }
                 }
             }
         })
@@ -507,13 +545,11 @@ class GlobalSearchFragment : BaseFragment() {
                 }
             }
             TAB_MESSAGES -> {
-                if (searchText.isNotBlank()) {
+                if (searchText.isNotBlank() || filterUser != null) {
+                    emptyView.visibility = View.GONE
                     loadingView.visibility = View.VISIBLE
                     recyclerView.visibility = View.GONE
-                    searchController.searchMessagesApi(
-                        channelId = filterChannelId,
-                        content = searchText
-                    )
+                    searchMessages()
                 } else {
                     loadingView.visibility = View.GONE
                     searchController.clearSearchMessages()
@@ -577,7 +613,18 @@ class GlobalSearchFragment : BaseFragment() {
         val messages = searchController.getMessages()
         adapter.setMessages(messages)
         adapter.hasMore = searchController.hasMoreMessages && messages.isNotEmpty()
-        updateEmptyState(messages.isEmpty() && searchText.isNotBlank())
+        val hasSearchCriteria = searchText.isNotBlank() || filterUser != null
+        when {
+            !hasSearchCriteria -> updateEmptyState(
+                isEmpty = true,
+                emptyTextRes = R.string.search_type_to_search_messages
+            )
+            messages.isEmpty() -> updateEmptyState(
+                isEmpty = true,
+                emptyTextRes = R.string.search_no_messages_found
+            )
+            else -> updateEmptyState(false)
+        }
     }
 
     private fun loadMoreResults() {
@@ -600,18 +647,25 @@ class GlobalSearchFragment : BaseFragment() {
                 isLoadingMore = false
             }
             TAB_MESSAGES -> {
-                if (!searchController.hasMoreMessages || searchText.isBlank()) return
+                if (!searchController.hasMoreMessages ||
+                    (searchText.isBlank() && filterUser == null)) return
                 isLoadingMore = true
                 searchController.loadMoreMessages(
                     channelId = filterChannelId,
-                    content = searchText
+                    content = searchText,
+                    username = filterUsername(),
+                    mentionUserId = filterMentionUserId()
                 )
             }
         }
     }
 
-    private fun updateEmptyState(isEmpty: Boolean) {
+    private fun updateEmptyState(
+        isEmpty: Boolean,
+        emptyTextRes: Int = R.string.common_no_results_found
+    ) {
         if (isEmpty) {
+            emptyView.setText(emptyTextRes)
             emptyView.visibility = View.VISIBLE
             recyclerView.visibility = View.GONE
         } else {
@@ -635,7 +689,11 @@ class GlobalSearchFragment : BaseFragment() {
             searchController.filterMembersCount(searchText)
         }
         val channelsCount = searchController.filterChannelsCount(searchText)
-        val messagesCount = searchController.searchMessagesTotal
+        val messagesCount = if (searchText.isBlank() && filterUser == null) {
+            0
+        } else {
+            searchController.searchMessagesTotal
+        }
         val counts = visibleTabs.map { tab ->
             when (tab) {
                 TAB_MEMBERS -> membersCount
@@ -648,17 +706,244 @@ class GlobalSearchFragment : BaseFragment() {
     }
 
     private fun updateFilterButtonVisibility() {
-        val showFilter = currentTab == TAB_MESSAGES && !isChannelPickerMode
+        val showFilter = (currentTab == TAB_MEMBERS || currentTab == TAB_MESSAGES) &&
+            !isChannelPickerMode &&
+            !isPickingFilterUser
         filterButton?.visibility = if (showFilter) View.VISIBLE else View.GONE
     }
 
     private fun showFilterOptions(anchor: View) {
-        val popup = PopupMenu(anchor.context, themeColors)
-        popup.addItem("in: filter by channel", MezonIcon.channelText)
-        popup.setOnItemClickListener { _ ->
-            enterChannelPicker()
+        val context = anchor.context
+        val menuWidth = LayoutHelper.dp(220f)
+        val container = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                cornerRadius = LayoutHelper.dpf(10f)
+                setColor(themeColors.surface)
+                setStroke(LayoutHelper.dp(1f), themeColors.borderDim)
+            }
+            clipToOutline = true
+            outlineProvider = ViewOutlineProvider.BACKGROUND
+            elevation = LayoutHelper.dpf(8f)
         }
-        popup.show(anchor)
+
+        container.addView(TextView(context).apply {
+            text = context.getString(R.string.search_filter_results)
+            setTextColor(themeColors.onSurface)
+            textSize = 14f
+            setTypeface(typeface, Typeface.BOLD)
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(LayoutHelper.dp(14f), 0, LayoutHelper.dp(14f), 0)
+        }, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LayoutHelper.dp(36f)
+        ))
+        container.addView(createFilterDivider(context))
+
+        lateinit var popup: PopupWindow
+        container.addView(createFilterOptionRow(
+            context = context,
+            label = context.getString(R.string.search_filter_from_label),
+            description = context.getString(R.string.search_filter_from_description),
+            icon = MezonIcon.userIcon,
+            onClick = {
+                popup.dismiss()
+                selectUserFilter(MessageUserFilter.FROM)
+            }
+        ))
+        container.addView(createFilterDivider(context, horizontalInset = 10f))
+        container.addView(createFilterOptionRow(
+            context = context,
+            label = context.getString(R.string.search_filter_mentions_label),
+            description = context.getString(R.string.search_filter_mentions_description),
+            icon = MezonIcon.atIcon,
+            onClick = {
+                popup.dismiss()
+                selectUserFilter(MessageUserFilter.MENTIONS)
+            }
+        ))
+
+        popup = PopupWindow(
+            container,
+            menuWidth,
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            true
+        ).apply {
+            isOutsideTouchable = true
+            elevation = LayoutHelper.dpf(8f)
+            setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
+        }
+        popup.showAsDropDown(anchor, 0, LayoutHelper.dp(6f), Gravity.END)
+    }
+
+    private fun createFilterOptionRow(
+        context: Context,
+        label: String,
+        description: String,
+        icon: MezonIcon,
+        onClick: () -> Unit
+    ): View {
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(LayoutHelper.dp(14f), 0, LayoutHelper.dp(12f), 0)
+            isClickable = true
+            isFocusable = true
+            val rippleColor = android.content.res.ColorStateList.valueOf(
+                (themeColors.onSurface and 0x00FFFFFF) or 0x1A000000
+            )
+            background = android.graphics.drawable.RippleDrawable(
+                rippleColor,
+                android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT),
+                android.graphics.drawable.ColorDrawable(android.graphics.Color.WHITE)
+            )
+            setOnClickListener { onClick() }
+
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(TextView(context).apply {
+                    text = label
+                    setTextColor(themeColors.onSurface)
+                    textSize = 14f
+                    setTypeface(typeface, Typeface.BOLD)
+                    includeFontPadding = false
+                })
+                addView(TextView(context).apply {
+                    text = description
+                    setTextColor(themeColors.onSurfaceVariant)
+                    textSize = 13f
+                    includeFontPadding = false
+                }, LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = LayoutHelper.dp(2f) })
+            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+
+            addView(ImageView(context).apply {
+                setImageDrawable(icon.getDrawable(context, themeColors.onSurfaceVariant))
+                scaleType = ImageView.ScaleType.CENTER_INSIDE
+            }, LinearLayout.LayoutParams(LayoutHelper.dp(20f), LayoutHelper.dp(20f)))
+        }.also {
+            it.layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LayoutHelper.dp(52f)
+            )
+        }
+    }
+
+    private fun createFilterDivider(context: Context, horizontalInset: Float = 0f): View {
+        return View(context).apply {
+            setBackgroundColor(themeColors.borderDim)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LayoutHelper.dp(1f)
+            ).apply {
+                marginStart = LayoutHelper.dp(horizontalInset)
+                marginEnd = LayoutHelper.dp(horizontalInset)
+            }
+        }
+    }
+
+    private fun selectUserFilter(filter: MessageUserFilter) {
+        activeUserFilter = filter
+        filterUser = null
+        isPickingFilterUser = true
+        currentTab = TAB_MEMBERS
+        tabHeader.visibility = View.GONE
+        updateFilterButtonVisibility()
+        searchCell.setBadge(filterLabel(filter))
+        searchCell.editText.text?.clear()
+        searchRunnable?.let { handler.removeCallbacks(it) }
+        searchText = ""
+        updateMembersList()
+        searchCell.focusInput()
+    }
+
+    private fun applyUserFilter(member: SearchMember) {
+        filterUser = member
+        isPickingFilterUser = false
+        tabHeader.visibility = View.GONE
+        currentTab = TAB_MESSAGES
+        visibleTabs.indexOf(TAB_MESSAGES).takeIf { it >= 0 }?.let(tabHeader::selectTab)
+        updateFilterButtonVisibility()
+
+        searchCell.editText.text?.clear()
+        searchRunnable?.let { handler.removeCallbacks(it) }
+        searchText = ""
+        updateSearchBadge()
+        loadingView.visibility = View.VISIBLE
+        recyclerView.visibility = View.GONE
+        searchMessages()
+    }
+
+    private fun clearActiveBadgeFilter() {
+        if (activeUserFilter != null || filterUser != null || isPickingFilterUser) {
+            activeUserFilter = null
+            filterUser = null
+            isPickingFilterUser = false
+            tabHeader.visibility = View.VISIBLE
+            currentTab = TAB_MEMBERS
+            visibleTabs.indexOf(TAB_MEMBERS).takeIf { it >= 0 }?.let(tabHeader::selectTab)
+            updateFilterButtonVisibility()
+            updateSearchBadge()
+            searchController.clearSearchMessages()
+            updateCurrentTab()
+            updateTabCounts()
+        } else {
+            clearChannelFilter()
+        }
+    }
+
+    private fun updateSearchBadge() {
+        val user = filterUser
+        if (user != null && activeUserFilter != null) {
+            searchCell.setBadge(getString(
+                R.string.search_filter_user_badge,
+                filterLabel(activeUserFilter!!),
+                filterDisplayName(user)
+            ))
+        } else if (filterChannelId != 0L) {
+            searchCell.setBadge(getString(R.string.search_filter_channel_badge, filterChannelName))
+        } else {
+            searchCell.removeBadge()
+        }
+    }
+
+    private fun filterDisplayName(member: SearchMember): String {
+        val clanId = argClanId.takeIf { it != 0L }
+        val clanNick = clanId?.let { id ->
+            userClanController.getClanMembers(id)
+                .firstOrNull { it.userId == member.id }
+                ?.clanNick
+        }
+        return clanNick?.takeIf { it.isNotBlank() }
+            ?: member.displayName.ifEmpty { member.username }
+    }
+
+    private fun filterLabel(filter: MessageUserFilter): String = getString(
+        if (filter == MessageUserFilter.FROM) {
+            R.string.search_filter_from_label
+        } else {
+            R.string.search_filter_mentions_label
+        }
+    )
+
+    private fun filterUsername(): String =
+        if (activeUserFilter == MessageUserFilter.FROM) {
+            filterUser?.let(::filterDisplayName).orEmpty()
+        } else ""
+
+    private fun filterMentionUserId(): Long =
+        if (activeUserFilter == MessageUserFilter.MENTIONS) filterUser?.id ?: 0L else 0L
+
+    private fun searchMessages() {
+        searchController.searchMessagesApi(
+            channelId = filterChannelId,
+            content = searchText,
+            username = filterUsername(),
+            mentionUserId = filterMentionUserId()
+        )
     }
 
     private fun ensureChannelPicker() {
@@ -713,7 +998,7 @@ class GlobalSearchFragment : BaseFragment() {
 
         searchCell.editText.text?.clear()
         searchRunnable?.let { handler.removeCallbacks(it) }
-        searchCell.setPlaceholder("Search channels...")
+        searchCell.setPlaceholder(getString(R.string.search_channels_placeholder))
         searchCell.focusInput()
     }
 
@@ -727,7 +1012,7 @@ class GlobalSearchFragment : BaseFragment() {
 
         searchCell.editText.text?.clear()
         searchRunnable?.let { handler.removeCallbacks(it) }
-        searchCell.setPlaceholder("Search")
+        searchCell.setPlaceholder(getString(R.string.common_search))
         AndroidUtilities.hideKeyboard(searchCell.editText)
 
         updateCurrentTab()
@@ -736,7 +1021,7 @@ class GlobalSearchFragment : BaseFragment() {
     private fun applyChannelFilter(channel: ClanChannelEntity) {
         filterChannelId = channel.channelId
         filterChannelName = channel.channelLabel
-        searchCell.setBadge("in: ${channel.channelLabel}")
+        searchCell.setBadge(getString(R.string.search_filter_channel_badge, channel.channelLabel))
 
         isChannelPickerMode = false
         channelPickerView?.jumpDrawablesToCurrentState()
@@ -747,15 +1032,12 @@ class GlobalSearchFragment : BaseFragment() {
 
         searchCell.editText.text?.clear()
         searchRunnable?.let { handler.removeCallbacks(it) }
-        searchCell.setPlaceholder("Search messages...")
+        searchCell.setPlaceholder(getString(R.string.search_messages_placeholder))
         AndroidUtilities.hideKeyboard(searchCell.editText)
 
         if (currentTab == TAB_MESSAGES) {
             loadingView.visibility = View.VISIBLE
-            searchController.searchMessagesApi(
-                channelId = filterChannelId,
-                content = searchText
-            )
+            searchMessages()
         }
     }
 
@@ -763,11 +1045,11 @@ class GlobalSearchFragment : BaseFragment() {
         filterChannelId = 0L
         filterChannelName = ""
         searchCell.removeBadge()
-        searchCell.setPlaceholder("Search")
+        searchCell.setPlaceholder(getString(R.string.common_search))
         if (currentTab == TAB_MESSAGES) {
-            if (searchText.isNotBlank()) {
+            if (searchText.isNotBlank() || filterUser != null) {
                 loadingView.visibility = View.VISIBLE
-                searchController.searchMessagesApi(content = searchText)
+                searchMessages()
             } else {
                 searchController.clearSearchMessages()
                 updateMessagesList()
@@ -823,11 +1105,25 @@ class GlobalSearchFragment : BaseFragment() {
         for (m in clanMembers) memberMap[m.userId] = m
         return memberIds.map { uid ->
             val m = memberMap[uid]
-            val name = m?.clanNick?.ifEmpty { null } ?: m?.displayName?.ifEmpty { null } ?: m?.username ?: "User"
+            val name = m?.clanNick?.ifEmpty { null }
+                ?: m?.displayName?.ifEmpty { null }
+                ?: m?.username
+                ?: getString(R.string.search_user_fallback)
             val username = m?.username.orEmpty()
             val avatar = m?.clanAvatar?.ifEmpty { null } ?: m?.avatarUrl
             VoiceMemberDisplay(uid, name, username, avatar)
         }
+    }
+
+    private fun resolveMessageSenderName(document: SearchMessageDocument): String? {
+        val clanId = document.clanId.toLongOrNull() ?: argClanId
+        val senderId = document.senderId.toLongOrNull() ?: return null
+        val member = userClanController.getClanMembers(clanId)
+            .firstOrNull { it.userId == senderId }
+        return member?.clanNick?.takeIf { it.isNotBlank() }
+            ?: member?.displayName?.takeIf { it.isNotBlank() }
+            ?: document.displayName.takeIf { it.isNotBlank() }
+            ?: document.username
     }
 
     private fun navigateToDm(member: SearchMember) {

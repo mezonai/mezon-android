@@ -20,6 +20,7 @@ import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.session.SessionManager
+import com.mezon.mobile.network.SocketEventDispatcher
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
@@ -70,6 +71,7 @@ class SearchController @Inject constructor(
     private val userClanController: UserClanController,
     private val notificationCenter: NotificationCenter,
     private val cacheTracker: ApiCacheTracker,
+    private val dispatcher: SocketEventDispatcher,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     @ApplicationScope private val appScope: CoroutineScope
 ) {
@@ -83,6 +85,61 @@ class SearchController @Inject constructor(
 
     private var membersLoaded = false
     private var channelsLoaded = false
+
+    init {
+        appScope.launch {
+            dispatcher.clanDeletedEvents.collect { event ->
+                removeClanData(event.clanId)
+            }
+        }
+        appScope.launch {
+            dispatcher.userClanRemovedEvents.collect { event ->
+                removeClanData(event.clanId)
+            }
+        }
+        appScope.launch {
+            dispatcher.channelDeletedEvents.collect { event ->
+                removeChannelData(event.channelId)
+            }
+        }
+    }
+
+    private fun removeClanData(clanId: Long) {
+        var channelsChanged = false
+        synchronized(this) {
+            val hasChannelsToRemove = allChannels.any { it.clanId == clanId }
+            if (hasChannelsToRemove) {
+                allChannels.removeAll { it.clanId == clanId }
+                val toRemove = channelById.filterValues { it.clanId == clanId }.keys
+                for (id in toRemove) channelById.remove(id)
+                channelsChanged = true
+            }
+        }
+
+        if (channelsChanged) {
+            cacheTracker.invalidate(apiCacheKey("searchChannels"))
+            invalidateFilterCache()
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.searchChannelsDidLoad)
+        }
+
+        rebuildMembers()
+    }
+
+    private fun removeChannelData(channelId: Long) {
+        var changed = false
+        synchronized(this) {
+            if (channelById.containsKey(channelId)) {
+                channelById.remove(channelId)
+                allChannels.removeAll { it.channelId == channelId }
+                changed = true
+            }
+        }
+        if (changed) {
+            cacheTracker.invalidate(apiCacheKey("searchChannels"))
+            invalidateFilterCache()
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.searchChannelsDidLoad)
+        }
+    }
 
     @Synchronized
     fun getMembers(): List<SearchMember> = ArrayList(allMembers)
@@ -187,13 +244,26 @@ class SearchController @Inject constructor(
     var hasMoreMessages = true
         private set
     private var messagesPage = 1
+    private var messageSearchGeneration = 0L
 
     fun searchMessagesApi(
         channelId: Long = 0L,
         content: String = "",
+        username: String = "",
+        mentionUserId: Long = 0L,
         from: Int = 1,
         size: Int = SIZE_PAGE_SEARCH
     ) {
+        val generation = synchronized(this) {
+            if (from <= 1) {
+                messageSearchGeneration++
+                searchMessages.clear()
+                searchMessagesTotal = 0
+                messagesPage = 1
+                hasMoreMessages = true
+            }
+            messageSearchGeneration
+        }
         appScope.launch(ioDispatcher) {
             try {
                 sessionManager.withAutoRefresh { session ->
@@ -203,17 +273,20 @@ class SearchController @Inject constructor(
                     filters.add("channel_id" to channelId.toString())
                     filters.add("clan_id" to clanId.toString())
                     if (content.isNotBlank()) filters.add("content" to content.trim())
+                    if (username.isNotBlank()) filters.add("username" to username)
+                    if (mentionUserId != 0L) filters.add("mention" to mentionUserId.toString())
 
                     val response = api.searchMessages(
                         session.apiUrl, session.token, filters, from, size
                     )
 
                     synchronized(this@SearchController) {
+                        if (generation != messageSearchGeneration) return@withAutoRefresh
                         if (from <= 1) searchMessages.clear()
                         searchMessages.addAll(response.messagesList)
                         searchMessagesTotal = response.total
                         messagesPage = from
-                        hasMoreMessages = response.messagesList.isNotEmpty()
+                        hasMoreMessages = searchMessages.size < searchMessagesTotal
                     }
 
                     notificationCenter.postNotificationOnMainThread(NotificationCenter.searchMessagesDidLoad)
@@ -224,13 +297,24 @@ class SearchController @Inject constructor(
         }
     }
 
-    fun loadMoreMessages(channelId: Long = 0L, content: String = "") {
+    fun loadMoreMessages(
+        channelId: Long = 0L,
+        content: String = "",
+        username: String = "",
+        mentionUserId: Long = 0L
+    ) {
         val nextPage: Int
         synchronized(this) {
             if (!hasMoreMessages) return
             nextPage = messagesPage + 1
         }
-        searchMessagesApi(channelId = channelId, content = content, from = nextPage)
+        searchMessagesApi(
+            channelId = channelId,
+            content = content,
+            username = username,
+            mentionUserId = mentionUserId,
+            from = nextPage
+        )
     }
 
     private var cachedMembersQuery: String? = null
@@ -367,6 +451,7 @@ class SearchController @Inject constructor(
 
     fun clearSearchMessages() {
         synchronized(this) {
+            messageSearchGeneration++
             searchMessages.clear()
             searchMessagesTotal = 0
             messagesPage = 1

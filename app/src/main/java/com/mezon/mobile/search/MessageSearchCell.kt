@@ -6,6 +6,7 @@ import android.graphics.RectF
 import android.text.StaticLayout
 import android.text.TextUtils
 import com.mezon.mezon.api.SearchMessageDocument
+import com.mezon.mobile.R
 import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.BaseCell
 import com.mezon.mobile.core.LayoutHelper
@@ -27,6 +28,7 @@ class MessageSearchCell(context: Context, private val theme: ThemeColors) : Base
     private var senderLayout: StaticLayout? = null
     private var contentLayout: StaticLayout? = null
     private var channelLayout: StaticLayout? = null
+    private var resolvedSenderName: String? = null
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
@@ -35,8 +37,13 @@ class MessageSearchCell(context: Context, private val theme: ThemeColors) : Base
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), CELL_HEIGHT)
-        buildLayouts()
+        val width = MeasureSpec.getSize(widthMeasureSpec)
+        buildLayouts(width)
+        val textHeight = listOfNotNull(senderLayout, contentLayout, channelLayout)
+            .sumOf { it.height } + LINE_GAP.toInt() *
+            (listOfNotNull(senderLayout, contentLayout, channelLayout).size - 1).coerceAtLeast(0)
+        val contentHeight = maxOf(AVATAR_SIZE, textHeight)
+        setMeasuredDimension(width, PAD_TOP + contentHeight + PAD_BOTTOM)
     }
 
     override fun invalidate() {
@@ -48,31 +55,44 @@ class MessageSearchCell(context: Context, private val theme: ThemeColors) : Base
         update(0, doc)
     }
 
-    fun update(mask: Int, newDoc: SearchMessageDocument? = null) {
+    fun update(
+        mask: Int,
+        newDoc: SearchMessageDocument? = null,
+        senderName: String? = null
+    ) {
         val doc = newDoc ?: document ?: return
         if (newDoc != null) document = newDoc
+        resolvedSenderName = senderName
         avatarDrawable.setInfo(doc.senderId.hashCode().toLong(), doc.username)
         loadAvatar(doc.avatarUrl)
-        buildLayouts()
+        buildLayouts(measuredWidth)
+        requestLayout()
         invalidate()
     }
 
-    private fun buildLayouts() {
+    private fun buildLayouts(width: Int) {
         val doc = document ?: return
-        val w = measuredWidth
-        if (w == 0) return
+        val w = width
+        if (w <= 0) return
 
         val textLeft = AVATAR_LEFT + AVATAR_SIZE + TEXT_LEFT_MARGIN
         val textWidth = w - textLeft - PAD_RIGHT
         if (textWidth <= 0) return
 
-        val sender = doc.displayName.ifEmpty { doc.username }
+        val sender = resolvedSenderName?.takeIf { it.isNotBlank() }
+            ?: doc.displayName.ifEmpty { doc.username }
         senderLayout = StaticLayout.Builder.obtain(sender, 0, sender.length, theme.dialogNamePaint, textWidth)
             .setMaxLines(1)
             .setEllipsize(TextUtils.TruncateAt.END)
             .build()
 
-        val preview = parseContentPreview(doc.content)
+        val parsedPreview = parseContentPreview(doc.content)
+        val preview = when {
+            parsedPreview == "[file]" -> context.getString(R.string.search_message_attachment)
+            parsedPreview.isNotEmpty() -> parsedPreview
+            hasAttachmentPayload(doc.attachments) -> context.getString(R.string.search_message_attachment)
+            else -> ""
+        }
         if (preview.isNotEmpty()) {
             contentLayout = StaticLayout.Builder.obtain(preview, 0, preview.length, theme.dialogMessagePaint, textWidth)
                 .setMaxLines(2)
@@ -167,12 +187,18 @@ class MessageSearchCell(context: Context, private val theme: ThemeColors) : Base
     }
 
     companion object {
-        private val CELL_HEIGHT = LayoutHelper.dp(80f)
         private val AVATAR_SIZE = LayoutHelper.dp(40f)
         private val AVATAR_LEFT = LayoutHelper.dp(16f)
         private val TEXT_LEFT_MARGIN = LayoutHelper.dp(12f)
         private val PAD_RIGHT = LayoutHelper.dp(16f)
         private val PAD_TOP = LayoutHelper.dp(10f)
+        private val PAD_BOTTOM = LayoutHelper.dp(10f)
         private val LINE_GAP = LayoutHelper.dp(2f).toFloat()
+
+        internal fun hasAttachmentPayload(raw: String): Boolean {
+            val value = raw.trim()
+            return value.isNotEmpty() && value != "[]" && value != "{}" &&
+                !value.equals("null", ignoreCase = true)
+        }
     }
 }
