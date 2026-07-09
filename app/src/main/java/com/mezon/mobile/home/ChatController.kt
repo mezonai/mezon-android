@@ -76,6 +76,7 @@ import com.mezon.mobile.home.chat.withTopicStats
 import com.mezon.mezon.rtapi.Envelope
 import com.mezon.mezon.rtapi.SdTopicEvent
 import com.mezon.mezon.rtapi.TopicInMessageEvent
+import com.mezon.mezon.rtapi.channelMessageRemove
 import com.mezon.mezon.rtapi.channelMessageSend
 import com.mezon.mezon.rtapi.channelMessageUpdate
 import com.mezon.mobile.network.ConnectionState
@@ -2778,12 +2779,35 @@ class ChatController @Inject constructor(
     }
 
     fun deleteMessage(channelId: Long, clanId: Long, channelType: Int, isChannelPrivate: Boolean, messageId: Long, topicId: Long = 0L) {
-        val mode = channelTypeToStreamMode(channelType)
-        val isPublic = !isChannelPrivate
+        val channelMeta = if (clanId != 0L) {
+            channelController.get().findChannelById(channelId, clanId) ?: channelController.get().findChannelById(channelId)
+        } else {
+            null
+        }
+        val effectiveType = when {
+            channelType != 0 -> channelType
+            clanId == 0L -> dialogsController.getDialog(channelId)?.type ?: CHANNEL_TYPE_DM
+            else -> channelMeta?.type ?: CHANNEL_TYPE_CHANNEL
+        }
+        val mode = channelTypeToStreamMode(effectiveType)
+        val effectivePrivate = channelMeta?.isPrivate ?: isChannelPrivate
+        val effectiveParentId = channelMeta?.parentId ?: 0L
+        val isPublic = clanId != 0L && effectiveType == CHANNEL_TYPE_CHANNEL && effectiveParentId == 0L && !effectivePrivate
         appScope.launch {
             try {
-                mezonSocket.removeChatMessage(clanId, channelId, mode, isPublic, messageId, topicId = topicId)
-                Log.d(TAG, "Message deleted: channelId=$channelId messageId=$messageId topicId=$topicId isPublic=$isPublic")
+                val session = sessionManager.sessionFlow.first() ?: return@launch
+                val request = channelMessageRemove {
+                    this.clanId = clanId
+                    this.channelId = channelId
+                    this.mode = mode
+                    this.isPublic = isPublic
+                    this.messageId = messageId
+                    if (topicId != 0L) this.topicId = topicId
+                }
+                withContext(ioDispatcher) {
+                    api.deleteChannelMessage(session.apiUrl, session.token, request)
+                }
+                Log.d(TAG, "Message deleted: channelId=$channelId messageId=$messageId topicId=$topicId mode=$mode isPublic=$isPublic")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to delete message", e)
             }

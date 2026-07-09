@@ -1690,6 +1690,12 @@ class MezonApi @Inject constructor(
         request: com.mezon.mezon.rtapi.ChannelMessageUpdate
     ): ByteArray = rpc(apiUrl, token, "UpdateChannelMessage", request.toByteArray())
 
+    suspend fun deleteChannelMessage(
+        apiUrl: String,
+        token: String,
+        request: com.mezon.mezon.rtapi.ChannelMessageRemove
+    ): ByteArray = rpc(apiUrl, token, "DeleteChannelMessage", request.toByteArray())
+
     suspend fun channelMessageReact(
         apiUrl: String,
         token: String,
