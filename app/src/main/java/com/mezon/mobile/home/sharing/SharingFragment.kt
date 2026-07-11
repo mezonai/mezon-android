@@ -1174,7 +1174,8 @@ class SharingFragment(
                 text = cleanedText,
                 attachments = attachments,
                 contentResolver = contentResolver,
-                markdownMarkers = mdMarkers
+                markdownMarkers = mdMarkers,
+                parentId = target.parentId
             )
         } else if (cleanedText.isNotBlank()) {
             if (target.isClanChannel) {

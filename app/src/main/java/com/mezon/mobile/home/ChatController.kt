@@ -493,6 +493,23 @@ class ChatController @Inject constructor(
         isChannelPrivate: Boolean = false,
         parentId: Long = 0L
     ) {
+        appScope.launch {
+            try {
+                sessionManager.sessionFlow.first() ?: return@launch
+                joinChannelOnSocket(channelId, clanId, channelType, isChannelPrivate, parentId)
+            } catch (e: Exception) {
+                Log.e(TAG, "joinChat failed channelId=$channelId", e)
+            }
+        }
+    }
+
+    private suspend fun joinChannelOnSocket(
+        channelId: Long,
+        clanId: Long,
+        channelType: Int,
+        isChannelPrivate: Boolean,
+        parentId: Long = 0L
+    ) {
         val meta = channelController.get().findChannelById(channelId)
         val effectiveClanId = if (clanId != 0L) clanId else meta?.takeIf { it.clanId != 0L }?.clanId ?: clanId
         val effectiveType = if (channelType != 0) channelType else meta?.type ?: 0
@@ -511,19 +528,12 @@ class ChatController @Inject constructor(
         }
         val threadLike = effectiveType == CHANNEL_TYPE_THREAD || effectiveParent != 0L
         val isPublic = if (threadLike) false else !effectivePrivate
-        appScope.launch {
-            try {
-                sessionManager.sessionFlow.first() ?: return@launch
-                if (!mezonSocket.awaitConnected()) return@launch
-                if (effectiveClanId != 0L) {
-                    runCatching { mezonSocket.joinClanChat(effectiveClanId) }
-                }
-                mezonSocket.joinChat(effectiveClanId, channelId, effectiveType, isPublic)
-                Log.d(TAG, "Joined channel $channelId (clanId=$effectiveClanId type=$effectiveType isPublic=$isPublic)")
-            } catch (e: Exception) {
-                Log.e(TAG, "joinChat failed channelId=$channelId", e)
-            }
+        if (!mezonSocket.awaitConnected()) return
+        if (effectiveClanId != 0L) {
+            runCatching { mezonSocket.joinClanChat(effectiveClanId) }
         }
+        mezonSocket.joinChat(effectiveClanId, channelId, effectiveType, isPublic)
+        Log.d(TAG, "Joined channel $channelId (clanId=$effectiveClanId type=$effectiveType isPublic=$isPublic)")
     }
 
     fun loadMessages(
@@ -1660,7 +1670,8 @@ class ChatController @Inject constructor(
         text: String,
         attachments: List<AttachmentPickerItem>,
         contentResolver: android.content.ContentResolver,
-        markdownMarkers: List<MarkdownMarker>? = null
+        markdownMarkers: List<MarkdownMarker>? = null,
+        parentId: Long = 0L
     ) {
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
@@ -1722,6 +1733,8 @@ class ChatController @Inject constructor(
 
         appScope.launch(ioDispatcher) {
             try {
+                runCatching { joinChannelOnSocket(channelId, clanId, channelType, isChannelPrivate, parentId) }
+                    .onFailure { Log.w(TAG, "shareMedia: joinChat failed channelId=$channelId", it) }
                 sessionManager.withAutoRefresh { session ->
                     ensureActiveArchivedThreadIfNeeded(session.apiUrl, session.token, channelId, clanId, channelType)
                     sendAttachmentsIncrementally(

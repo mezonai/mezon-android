@@ -346,6 +346,7 @@ open class ChatFragment : BaseFragment() {
     private var startLoadFromMessageId = 0L
     private var startLoadFromMessageOffset = Int.MAX_VALUE
     private var pausedOnLastMessage = false
+    private var pausedFromAppBackground = false
     private var needScrollRestore = false
     private var isLoading = false
     private var isLoadingMore = false
@@ -858,12 +859,23 @@ open class ChatFragment : BaseFragment() {
                         Log.d(TAG, "scrollDecision: wasFirstLoad→forceScrollToBottom")
                         forceScrollToBottom()
                         markAsRead()
+                    } else if (!isViewingOlder) {
+                        forceScrollToBottom()
+                        markAsRead()
                     } else if (anchorMsgId != 0L) {
                         Log.d(TAG, "scrollDecision: anchorRestore anchorMsgId=$anchorMsgId offset=$anchorOffset")
                         val idx = messages.indexOfFirst { it.id == anchorMsgId }
                         if (idx >= 0) {
                             val lm = recyclerView.layoutManager as? LinearLayoutManager
                             lm?.scrollToPositionWithOffset(adapter.messagesStartRow + idx, anchorOffset)
+                        }
+                        if (lastSeenMessageId != 0L) {
+                            val unread = messages.count { it.canAdvanceReadState() && it.id > lastSeenMessageId }
+                            if (unread > 0 && ::pageDownButton.isInitialized) {
+                                newUnreadCount = unread
+                                pageDownButton.setUnreadCount(unread)
+                                pageDownButton.show(true)
+                            }
                         }
                     }
                 }
@@ -2453,6 +2465,10 @@ open class ChatFragment : BaseFragment() {
         } else if (!isTopicMode) {
             refreshClanHeaderFromChannel()
         }
+        if (pausedFromAppBackground) {
+            pausedFromAppBackground = false
+            chatController.loadMessages(channelId, clanId, forceRefresh = true, preferHttp = true, topicId = topicId)
+        }
     }
 
     override fun onBecomeFullyVisible() {
@@ -2549,6 +2565,7 @@ open class ChatFragment : BaseFragment() {
 
     override fun onPause() {
         super.onPause()
+        pausedFromAppBackground = MainActivity.applicationPaused
         if (clanId != 0L) channelController.clearCurrentTopic()
         waitingForKeyboardOpen = false
         AndroidUtilities.cancelRunOnUIThread(openKeyboardRunnable)

@@ -75,6 +75,18 @@ class ChannelAppController @Inject constructor(
         appScope.launch { loadAppsForClanNow(clanId, force) }
     }
 
+    fun removeAppLocally(clanId: Long, channelId: Long) {
+        if (clanId == 0L || channelId == 0L) return
+        val existing = _appsByClan.value[clanId] ?: return
+        if (existing.none { it.channelId == channelId }) return
+        updateCache(clanId, existing.filter { it.channelId != channelId })
+        cacheTracker.invalidate(apiCacheKey("listChannelApps", clanId.toString()))
+        appScope.launch(ioDispatcher) { channelAppDao.deleteByChannelId(channelId) }
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.channelAppsDidLoad, clanId
+        )
+    }
+
     fun purgeAppsForClan(clanId: Long) {
         if (clanId == 0L) return
         val m = _appsByClan.value.toMutableMap()
