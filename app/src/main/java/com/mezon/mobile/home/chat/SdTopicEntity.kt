@@ -5,7 +5,9 @@ import com.mezon.mezon.api.SdTopic
 import com.mezon.mezon.rtapi.SdTopicEvent
 import com.mezon.mobile.home.clans.ClanChannelEntity
 import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
+import com.mezon.mobile.util.TopicOriginalPreviewToken
 import com.mezon.mobile.util.parseContentPreview
+import com.mezon.mobile.util.parseTopicOriginalMessagePreview
 import org.json.JSONObject
 
 data class SdTopicEntity(
@@ -20,15 +22,39 @@ data class SdTopicEntity(
     val lastSentMessageId: Long = 0L,
     val lastSentSenderId: Long = 0L,
     val lastSentContent: String = "",
-    val lastSentTimestampSeconds: Long = 0L
+    val lastSentTimestampSeconds: Long = 0L,
+    val rootMessageCode: Int = 0,
+    val rootHasAttachment: Boolean = false
 ) {
     val rootMessagePreview: String
-        get() = parseContentPreview(content).ifBlank { parseMessagePreview(content) }
+        get() {
+            if (rootMessageCode == MessageEntity.CODE_SHARE_CONTACT) return TopicOriginalPreviewToken.CONTACT
+            if (rootHasAttachment) return TopicOriginalPreviewToken.ATTACHMENT
+            val parsed = parseTopicOriginalMessagePreview(content).ifBlank {
+                parseContentPreview(content).ifBlank { parseMessagePreview(content) }
+            }
+            if (parsed.isNotBlank()) return parsed
+            return ""
+        }
 
     val lastMessagePreview: String
         get() = parseContentPreview(lastSentContent).ifBlank { parseMessagePreview(lastSentContent) }
 
     fun senderIdForAvatar(): Long = lastSentSenderId.takeIf { it != 0L } ?: creatorId
+
+    fun withRootMessageMetadata(root: MessageEntity?): SdTopicEntity {
+        root ?: return this
+        val rootContent = content.ifBlank { root.content }
+        val hasAttachment = rootHasAttachment ||
+            root.attachmentUrl.isNotBlank() ||
+            root.extraAttachmentsJson.isNotBlank() ||
+            root.messageType != MessageEntity.TYPE_TEXT
+        return copy(
+            content = rootContent,
+            rootMessageCode = rootMessageCode.takeIf { it != 0 } ?: root.code,
+            rootHasAttachment = hasAttachment
+        )
+    }
 }
 
 fun SdTopic.toSdTopicEntity(): SdTopicEntity {
@@ -52,6 +78,7 @@ fun SdTopic.toSdTopicEntity(): SdTopicEntity {
 fun SdTopicEvent.toSdTopicEntityFromEvent(): SdTopicEntity {
     val last = if (hasLastSentMessage()) lastSentMessage else ChannelMessageHeader.getDefaultInstance()
     val rootContent = if (hasMessage()) message.content else ""
+    val root = if (hasMessage()) message else null
     val createTs = last.timestampSeconds.toLong().takeIf { it > 0L }
         ?: if (hasMessage()) message.createTimeSeconds.toLong() else 0L
     return SdTopicEntity(
@@ -66,7 +93,9 @@ fun SdTopicEvent.toSdTopicEntityFromEvent(): SdTopicEntity {
         lastSentMessageId = last.id,
         lastSentSenderId = last.senderId,
         lastSentContent = last.content,
-        lastSentTimestampSeconds = last.timestampSeconds.toLong()
+        lastSentTimestampSeconds = last.timestampSeconds.toLong(),
+        rootMessageCode = root?.code ?: 0,
+        rootHasAttachment = root?.attachments?.isEmpty == false
     )
 }
 
@@ -74,7 +103,7 @@ fun SdTopicEntity.toClanChannelEntity(
     parent: ClanChannelEntity? = null,
     existing: ClanChannelEntity? = null
 ): ClanChannelEntity {
-    val label = rootMessagePreview.take(80).ifBlank { "Topic" }
+    val label = channelLabelPreview(rootMessagePreview).take(80).ifBlank { "Topic" }
     val lastSentId = lastSentMessageId.takeIf { it > 0L } ?: messageId
     val lastSentTs = lastSentTimestampSeconds.takeIf { it > 0L }
         ?: updateTimeSeconds.takeIf { it > 0L }
@@ -105,7 +134,15 @@ private fun parseMessagePreview(raw: String): String {
     return runCatching {
         val json = JSONObject(raw)
         json.optString("t", "").ifBlank {
-            if (json.has("embed") || json.has("components")) "[attachment]" else ""
+            if (json.has("embed") || json.has("components")) TopicOriginalPreviewToken.ATTACHMENT else ""
         }
     }.getOrDefault("")
 }
+
+private fun channelLabelPreview(preview: String): String =
+    when (preview) {
+        TopicOriginalPreviewToken.ATTACHMENT -> "[Attachment]"
+        TopicOriginalPreviewToken.CONTACT -> "[Contact]"
+        TopicOriginalPreviewToken.INTERACTIVE_MESSAGE -> "[Interactive message]"
+        else -> preview
+    }

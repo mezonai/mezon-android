@@ -13,6 +13,7 @@ import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.home.chat.SdTopicEntity
+import com.mezon.mobile.util.TopicOriginalPreviewToken
 import com.mezon.mobile.util.avatarImgproxyUrl
 import com.mezon.mobile.util.convertTimestampToTimeAgo
 
@@ -34,8 +35,6 @@ class TopicNotificationCell(
 
     private var headerLayout: StaticLayout? = null
     private var repliedToLayout: StaticLayout? = null
-    private var senderLayout: StaticLayout? = null
-    private var previewLayout: StaticLayout? = null
     private var timeLayout: StaticLayout? = null
 
     override fun invalidate() {
@@ -73,7 +72,7 @@ class TopicNotificationCell(
             (mask and NotificationCenter.UPDATE_MASK_NAME) != 0
         if (rebuildText) {
             if (layoutWidth > 0) {
-                buildLayouts(item, displayName, layoutWidth)
+                buildLayouts(item, layoutWidth)
                 measuredCellHeight = computeHeight()
             }
         }
@@ -96,7 +95,7 @@ class TopicNotificationCell(
 
     override fun onDraw(canvas: Canvas) {
         val avatarLeft = PADDING_H
-        val avatarTop = PADDING_V
+        val avatarTop = (height - AVATAR_SIZE) / 2
         avatarDrawable.setBounds(
             avatarLeft,
             avatarTop,
@@ -106,7 +105,8 @@ class TopicNotificationCell(
         avatarDrawable.draw(canvas)
 
         val textLeft = (avatarLeft + AVATAR_SIZE + GAP_H).toFloat()
-        var textTop = PADDING_V.toFloat()
+        var textTop = ((height - textBlockHeight()) / 2f).coerceAtLeast(PADDING_V.toFloat())
+        val headerTop = textTop
 
         headerLayout?.let {
             canvas.save()
@@ -121,28 +121,12 @@ class TopicNotificationCell(
             canvas.translate(textLeft, textTop)
             it.draw(canvas)
             canvas.restore()
-            textTop += it.height + GAP_AFTER_REPLIED
-        }
-
-        senderLayout?.let {
-            canvas.save()
-            canvas.translate(textLeft, textTop)
-            it.draw(canvas)
-            canvas.restore()
-            textTop += it.height
-        }
-
-        previewLayout?.let {
-            canvas.save()
-            canvas.translate(textLeft, textTop)
-            it.draw(canvas)
-            canvas.restore()
         }
 
         timeLayout?.let {
             val tx = width - PADDING_H - it.getLineWidth(0)
             canvas.save()
-            canvas.translate(tx, PADDING_V.toFloat())
+            canvas.translate(tx, headerTop)
             it.draw(canvas)
             canvas.restore()
         }
@@ -158,22 +142,22 @@ class TopicNotificationCell(
 
     private fun rebuildFromEntity() {
         val item = entity ?: return
-        val member = memberResolver?.invoke(item)
-        buildLayouts(item, member?.displayLabel().orEmpty(), layoutWidth)
+        buildLayouts(item, layoutWidth)
         measuredCellHeight = computeHeight()
     }
 
     private fun computeHeight(): Int {
-        val textBlockH = (headerLayout?.height ?: 0) +
-            GAP_AFTER_HEADER +
-            (repliedToLayout?.height ?: 0) +
-            GAP_AFTER_REPLIED +
-            (senderLayout?.height ?: 0) +
-            (previewLayout?.height ?: 0)
-        return PADDING_V * 2 + AVATAR_SIZE.coerceAtLeast(textBlockH)
+        return PADDING_V * 2 + AVATAR_SIZE.coerceAtLeast(textBlockHeight())
     }
 
-    private fun buildLayouts(item: SdTopicEntity, senderName: String, width: Int) {
+    private fun textBlockHeight(): Int {
+        val headerH = headerLayout?.height ?: 0
+        val repliedH = repliedToLayout?.height ?: 0
+        if (headerH == 0 && repliedH == 0) return 0
+        return headerH + GAP_AFTER_HEADER + repliedH
+    }
+
+    private fun buildLayouts(item: SdTopicEntity, width: Int) {
         if (width <= 0) return
         val contentWidth = width - PADDING_H * 2 - AVATAR_SIZE - GAP_H
         if (contentWidth <= 0) return
@@ -186,28 +170,12 @@ class TopicNotificationCell(
             .build()
 
         val repliedPrefix = context.getString(R.string.notif_replied_to)
-        val repliedText = "$repliedPrefix ${item.rootMessagePreview}"
+        val repliedText = "$repliedPrefix ${localizedRootMessagePreview(item.rootMessagePreview)}"
         repliedToLayout = StaticLayout.Builder
             .obtain(repliedText, 0, repliedText.length, theme.dialogMessagePaint, contentWidth)
             .setMaxLines(2)
             .setEllipsize(TextUtils.TruncateAt.END)
             .build()
-
-        val senderText = senderName.ifBlank { " " }
-        senderLayout = StaticLayout.Builder
-            .obtain(senderText, 0, senderText.length, theme.dialogNamePaint, contentWidth)
-            .setMaxLines(1)
-            .setEllipsize(TextUtils.TruncateAt.END)
-            .build()
-
-        val preview = item.lastMessagePreview
-        previewLayout = if (preview.isNotBlank()) {
-            StaticLayout.Builder
-                .obtain(preview, 0, preview.length, theme.dialogMessagePaint, contentWidth)
-                .setMaxLines(2)
-                .setEllipsize(TextUtils.TruncateAt.END)
-                .build()
-        } else null
 
         val ts = item.lastSentTimestampSeconds.takeIf { it > 0L } ?: item.updateTimeSeconds
         val timeText = convertTimestampToTimeAgo(context, ts)
@@ -216,6 +184,16 @@ class TopicNotificationCell(
             .setMaxLines(1)
             .build()
     }
+
+    private fun localizedRootMessagePreview(preview: String): String =
+        when (preview) {
+            TopicOriginalPreviewToken.ATTACHMENT -> context.getString(R.string.notif_topic_original_attachment)
+            TopicOriginalPreviewToken.CONTACT -> context.getString(R.string.notif_topic_original_contact)
+            TopicOriginalPreviewToken.INTERACTIVE_MESSAGE -> {
+                context.getString(R.string.notif_topic_original_interactive_message)
+            }
+            else -> preview
+        }
 
     private fun loadAvatar(url: String) {
         if (url == currentAvatarUrl && avatarDrawable.hasPhoto()) return
@@ -247,7 +225,6 @@ class TopicNotificationCell(
         private val PADDING_V = LayoutHelper.dp(12)
         private val GAP_H = LayoutHelper.dp(12)
         private val GAP_AFTER_HEADER = LayoutHelper.dp(2)
-        private val GAP_AFTER_REPLIED = LayoutHelper.dp(4)
         private val MIN_HEIGHT = LayoutHelper.dp(88)
     }
 }

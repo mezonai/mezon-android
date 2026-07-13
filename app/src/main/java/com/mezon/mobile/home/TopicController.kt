@@ -3,6 +3,7 @@ package com.mezon.mobile.home
 import android.util.Log
 import android.util.LongSparseArray
 import com.mezon.mobile.core.NotificationCenter
+import com.mezon.mobile.data.db.MessageDao
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.home.chat.SdTopicEntity
@@ -30,6 +31,7 @@ class TopicController @Inject constructor(
     private val dispatcher: SocketEventDispatcher,
     private val notificationCenter: NotificationCenter,
     private val channelController: dagger.Lazy<ChannelController>,
+    private val messageDao: MessageDao,
     private val cacheTracker: ApiCacheTracker,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     @ApplicationScope private val appScope: CoroutineScope
@@ -101,7 +103,11 @@ class TopicController @Inject constructor(
                         clanId,
                         TOPICS_PAGE_SIZE
                     )
-                    val items = response.topicsList.map { it.toSdTopicEntity() }
+                    val enriched = ArrayList<SdTopicEntity>(response.topicsList.size)
+                    for (topic in response.topicsList) {
+                        enriched.add(enrichRootMessageFromCache(topic.toSdTopicEntity()))
+                    }
+                    val items = enriched
                         .sortedByDescending { it.lastSentTimestampSeconds.takeIf { ts -> ts > 0L } ?: it.updateTimeSeconds }
                     synchronized(this@TopicController) {
                         topics.clear()
@@ -126,7 +132,7 @@ class TopicController @Inject constructor(
         return try {
             sessionManager.withAutoRefresh { session ->
                 val detail = api.getTopicDetail(session.apiUrl, session.token, topicId)
-                detail.toSdTopicEntity()
+                enrichRootMessageFromCache(detail.toSdTopicEntity())
             }
         } catch (e: Exception) {
             Log.e(TAG, "fetchTopicDetail failed topicId=$topicId", e)
@@ -149,7 +155,7 @@ class TopicController @Inject constructor(
                     channelId = parentChannelId,
                     messageId = messageId
                 )
-            }.toSdTopicEntity()
+            }.toSdTopicEntity().let { enrichRootMessageFromCache(it) }
             synchronized(this) {
                 if (currentClanId == clanId) {
                     val index = topics.indexOfFirst { it.id == created.id }
@@ -196,6 +202,12 @@ class TopicController @Inject constructor(
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.topicsNeedReload)
             }
         }
+    }
+
+    private suspend fun enrichRootMessageFromCache(topic: SdTopicEntity): SdTopicEntity {
+        if (topic.channelId == 0L || topic.messageId == 0L) return topic
+        val root = messageDao.getById(topic.channelId, topic.messageId)
+        return topic.withRootMessageMetadata(root)
     }
 
     private suspend fun observeTopicMessages() {

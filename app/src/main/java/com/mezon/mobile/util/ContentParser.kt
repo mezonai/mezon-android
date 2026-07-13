@@ -122,6 +122,145 @@ fun parseContentPreview(content: String): String {
     return extractContentText(content.trim(), preview = true)
 }
 
+object TopicOriginalPreviewToken {
+    const val ATTACHMENT = "__topic_original_attachment__"
+    const val CONTACT = "__topic_original_contact__"
+    const val INTERACTIVE_MESSAGE = "__topic_original_interactive_message__"
+}
+
+fun parseTopicOriginalMessagePreview(content: String): String {
+    val trimmed = content.trim()
+    if (trimmed.isBlank()) return TopicOriginalPreviewToken.ATTACHMENT
+
+    val obj = parseContentObject(trimmed)
+    if (obj == null) {
+        if (isStructuralJsonPayload(trimmed)) return TopicOriginalPreviewToken.ATTACHMENT
+        return trimmed.replace("\n", " ").take(200)
+    }
+
+    if (isShareContactPayload(obj)) return TopicOriginalPreviewToken.CONTACT
+    if (hasAttachmentsPayload(obj)) return TopicOriginalPreviewToken.ATTACHMENT
+
+    val text = obj.optString("t", obj.optString("text", "")).trim()
+    val link = extractLinkValue(obj)
+    if (hasInteractivePayload(obj, includeRichEmbedOnly = text.isBlank() && link.isBlank())) {
+        return TopicOriginalPreviewToken.INTERACTIVE_MESSAGE
+    }
+    if (text.isNotBlank()) return text.replace("\n", " ").take(200)
+    if (link.isNotBlank()) return link.replace("\n", " ").take(200)
+
+    val embedPreview = firstTopicEmbedPreview(obj)
+    if (embedPreview.isNotBlank()) {
+        return embedPreview.replace("\n", " ").take(200)
+    }
+
+    return if (obj.has("embed") || obj.has("embeds")) TopicOriginalPreviewToken.ATTACHMENT else ""
+}
+
+private fun hasAttachmentsPayload(obj: JSONObject): Boolean =
+    obj.optBoolean("has_attachment", false) ||
+        obj.optBoolean("hasAttachment", false) ||
+        obj.optBoolean("attachment", false) ||
+        (obj.optJSONArray("attachments")?.length() ?: 0) > 0 ||
+        (obj.optJSONArray("a")?.length() ?: 0) > 0 ||
+        hasNonEmptyPayloadValue(obj.opt("attachments")) ||
+        hasNonEmptyPayloadValue(obj.opt("attachment")) ||
+        hasNonEmptyPayloadValue(obj.opt("files")) ||
+        hasNonEmptyPayloadValue(obj.opt("file"))
+
+private fun hasNonEmptyPayloadValue(value: Any?): Boolean =
+    when (value) {
+        null, JSONObject.NULL -> false
+        is JSONArray -> value.length() > 0
+        is JSONObject -> value.length() > 0
+        is Boolean -> value
+        is String -> value.trim().isNotEmpty()
+        else -> true
+    }
+
+private fun isShareContactPayload(obj: JSONObject): Boolean {
+    for (embed in embedObjects(obj)) {
+        val fields = embed.optJSONArray("fields") ?: continue
+        for (j in 0 until fields.length()) {
+            val field = fields.optJSONObject(j) ?: continue
+            val name = field.optString("name", "").trim().lowercase()
+            val value = field.optString("value", "").trim().lowercase()
+            if ((name == "key" && (value == SHARE_CONTACT_KEY || value == "share_contact_key")) ||
+                value == SHARE_CONTACT_KEY ||
+                value == "share_contact_key"
+            ) return true
+        }
+    }
+    return false
+}
+
+private fun hasInteractivePayload(obj: JSONObject, includeRichEmbedOnly: Boolean): Boolean {
+    if ((obj.optJSONArray("components")?.length() ?: 0) > 0) return true
+    for (embed in embedObjects(obj)) {
+        val fields = embed.optJSONArray("fields") ?: continue
+        if (fields.length() > 0) return true
+    }
+    if (!includeRichEmbedOnly) return false
+    return embedObjects(obj).any { hasRichIntegrationEmbedPayload(it) }
+}
+
+private fun hasRichIntegrationEmbedPayload(embed: JSONObject): Boolean {
+    return hasNonEmptyPayloadValue(embed.opt("author")) ||
+        hasNonEmptyPayloadValue(embed.opt("footer")) ||
+        hasNonEmptyPayloadValue(embed.opt("image")) ||
+        hasNonEmptyPayloadValue(embed.opt("thumbnail")) ||
+        hasNonEmptyPayloadValue(embed.opt("video"))
+}
+
+private fun firstTopicEmbedPreview(obj: JSONObject): String {
+    for (embed in embedObjects(obj)) {
+        val title = embed.optString("title", "").trim()
+        if (title.isNotBlank()) return title
+        val description = embed.optString("description", "").trim()
+        if (description.isNotBlank()) return description
+        val url = embed.optString("url", "").trim()
+        if (url.isNotBlank()) return url
+    }
+    return ""
+}
+
+private fun embedObjects(obj: JSONObject): List<JSONObject> =
+    jsonObjectsFromValue(obj.opt("embed")).ifEmpty { jsonObjectsFromValue(obj.opt("embeds")) }
+
+private fun jsonObjectsFromValue(value: Any?): List<JSONObject> =
+    when (value) {
+        is JSONObject -> listOf(value)
+        is JSONArray -> {
+            val result = mutableListOf<JSONObject>()
+            for (i in 0 until value.length()) {
+                value.optJSONObject(i)?.let(result::add)
+            }
+            result
+        }
+        else -> emptyList()
+    }
+
+private fun extractLinkValue(obj: JSONObject): String {
+    val lk = obj.opt("lk") ?: return ""
+    return when (lk) {
+        is String -> lk.trim()
+        is JSONObject -> lk.optString("url", lk.optString("href", "")).trim()
+        is JSONArray -> {
+            for (i in 0 until lk.length()) {
+                val item = lk.opt(i)
+                val value = when (item) {
+                    is String -> item.trim()
+                    is JSONObject -> item.optString("url", item.optString("href", "")).trim()
+                    else -> ""
+                }
+                if (value.isNotBlank()) return value
+            }
+            ""
+        }
+        else -> ""
+    }
+}
+
 const val MENTION_HERE_USER_ID = "1775731111020111321"
 
 fun buildTextContent(text: String): String {
