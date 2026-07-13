@@ -162,9 +162,20 @@ class TopicNotificationCell(
         val contentWidth = width - PADDING_H * 2 - AVATAR_SIZE - GAP_H
         if (contentWidth <= 0) return
 
+        val timeText = convertTimestampToTimeAgo(context, item.createTimeSeconds)
+        val timePaint = theme.dialogTimePaint
+        timePaint.color = theme.onSurfaceVariant
+        timeLayout = StaticLayout.Builder
+            .obtain(timeText, 0, timeText.length, timePaint, contentWidth)
+            .setMaxLines(1)
+            .setEllipsize(TextUtils.TruncateAt.END)
+            .build()
+
+        val timeWidth = timeLayout?.let { it.getLineWidth(0).toInt() + LayoutHelper.dp(8) } ?: 0
+        val headerWidth = (contentWidth - timeWidth).coerceAtLeast(1)
         val headerText = context.getString(R.string.notif_topic_and_you).uppercase()
         headerLayout = StaticLayout.Builder
-            .obtain(headerText, 0, headerText.length, theme.dialogNameBoldPaint, contentWidth)
+            .obtain(headerText, 0, headerText.length, theme.dialogNameBoldPaint, headerWidth)
             .setMaxLines(1)
             .setEllipsize(TextUtils.TruncateAt.END)
             .build()
@@ -177,12 +188,6 @@ class TopicNotificationCell(
             .setEllipsize(TextUtils.TruncateAt.END)
             .build()
 
-        val ts = item.lastSentTimestampSeconds.takeIf { it > 0L } ?: item.updateTimeSeconds
-        val timeText = convertTimestampToTimeAgo(context, ts)
-        timeLayout = StaticLayout.Builder
-            .obtain(timeText, 0, timeText.length, theme.dialogTimePaint, contentWidth)
-            .setMaxLines(1)
-            .build()
     }
 
     private fun localizedRootMessagePreview(preview: String): String =

@@ -20,9 +20,7 @@ data class SdTopicEntity(
     val lastSentMessageId: Long = 0L,
     val lastSentSenderId: Long = 0L,
     val lastSentContent: String = "",
-    val lastSentTimestampSeconds: Long = 0L,
-    val rootMessageCode: Int = 0,
-    val rootHasAttachment: Boolean = false
+    val lastSentTimestampSeconds: Long = 0L
 ) {
     val rootMessagePreview: String
         get() = parseTopicOriginalMessagePreview(content)
@@ -51,9 +49,8 @@ fun SdTopic.toSdTopicEntity(): SdTopicEntity {
 fun SdTopicEvent.toSdTopicEntityFromEvent(): SdTopicEntity {
     val last = if (hasLastSentMessage()) lastSentMessage else ChannelMessageHeader.getDefaultInstance()
     val rootContent = if (hasMessage()) message.content else ""
-    val root = if (hasMessage()) message else null
-    val createTs = last.timestampSeconds.toLong().takeIf { it > 0L }
-        ?: if (hasMessage()) message.createTimeSeconds.toLong() else 0L
+    val createTs = if (hasMessage()) message.createTimeSeconds.toLong() else 0L
+    val updateTs = last.timestampSeconds.toLong().takeIf { it > 0L } ?: createTs
     return SdTopicEntity(
         id = id,
         creatorId = userId,
@@ -62,13 +59,11 @@ fun SdTopicEvent.toSdTopicEntityFromEvent(): SdTopicEntity {
         channelId = channelId,
         content = rootContent,
         createTimeSeconds = createTs,
-        updateTimeSeconds = createTs,
+        updateTimeSeconds = updateTs,
         lastSentMessageId = last.id,
         lastSentSenderId = last.senderId,
         lastSentContent = last.content,
-        lastSentTimestampSeconds = last.timestampSeconds.toLong(),
-        rootMessageCode = root?.code ?: 0,
-        rootHasAttachment = root?.attachments?.isEmpty == false
+        lastSentTimestampSeconds = last.timestampSeconds.toLong()
     )
 }
 
