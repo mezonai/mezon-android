@@ -5,6 +5,7 @@ import android.util.LongSparseArray
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
+import com.mezon.mobile.home.chat.MessageEntity
 import com.mezon.mobile.home.chat.SdTopicEntity
 import com.mezon.mobile.home.chat.toSdTopicEntity
 import com.mezon.mobile.home.chat.toSdTopicEntityFromEvent
@@ -137,7 +138,8 @@ class TopicController @Inject constructor(
     suspend fun createTopic(
         clanId: Long,
         parentChannelId: Long,
-        messageId: Long
+        messageId: Long,
+        rootMessage: MessageEntity? = null
     ): SdTopicEntity? {
         if (clanId == 0L || parentChannelId == 0L || messageId == 0L) return null
         return try {
@@ -149,7 +151,17 @@ class TopicController @Inject constructor(
                     channelId = parentChannelId,
                     messageId = messageId
                 )
-            }.toSdTopicEntity()
+            }.toSdTopicEntity().let { created ->
+                rootMessage?.let { root ->
+                    created.copy(
+                        messageId = created.messageId.takeIf { it != 0L } ?: root.id,
+                        content = root.content,
+                        createTimeSeconds = root.timestampSeconds,
+                        updateTimeSeconds = created.updateTimeSeconds.takeIf { it > 0L }
+                            ?: root.timestampSeconds
+                    )
+                } ?: created
+            }
             synchronized(this) {
                 if (currentClanId == clanId) {
                     val index = topics.indexOfFirst { it.id == created.id }
@@ -172,12 +184,41 @@ class TopicController @Inject constructor(
         dispatcher.sdTopicEvents.collect { event ->
             val clanId = event.clanId
             if (clanId == 0L) return@collect
-            val entity = event.toSdTopicEntityFromEvent()
+            val incomingEntity = event.toSdTopicEntityFromEvent()
+            var entity = incomingEntity
             var shouldReload = false
             synchronized(this) {
                 if (!clanBound || clanId != currentClanId) return@collect
-                val existing = topicsDict.get(entity.id)
+                val existing = topicsDict.get(incomingEntity.id)
                 if (existing != null) {
+                    entity = incomingEntity.copy(
+                        creatorId = existing.creatorId,
+                        messageId = existing.messageId,
+                        channelId = existing.channelId,
+                        content = existing.content.ifBlank { incomingEntity.content },
+                        createTimeSeconds = existing.createTimeSeconds.takeIf { it > 0L }
+                            ?: incomingEntity.createTimeSeconds,
+                        lastSentMessageId = if (event.hasLastSentMessage()) {
+                            incomingEntity.lastSentMessageId
+                        } else {
+                            existing.lastSentMessageId
+                        },
+                        lastSentSenderId = if (event.hasLastSentMessage()) {
+                            incomingEntity.lastSentSenderId
+                        } else {
+                            existing.lastSentSenderId
+                        },
+                        lastSentContent = if (event.hasLastSentMessage()) {
+                            incomingEntity.lastSentContent
+                        } else {
+                            existing.lastSentContent
+                        },
+                        lastSentTimestampSeconds = if (event.hasLastSentMessage()) {
+                            incomingEntity.lastSentTimestampSeconds
+                        } else {
+                            existing.lastSentTimestampSeconds
+                        }
+                    )
                     val index = topics.indexOfFirst { it.id == entity.id }
                     if (index >= 0) {
                         topics.removeAt(index)
