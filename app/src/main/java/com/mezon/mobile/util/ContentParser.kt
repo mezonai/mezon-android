@@ -161,9 +161,8 @@ private fun hasAttachmentsPayload(obj: JSONObject): Boolean =
     obj.optBoolean("has_attachment", false) ||
         obj.optBoolean("hasAttachment", false) ||
         obj.optBoolean("attachment", false) ||
-        (obj.optJSONArray("attachments")?.length() ?: 0) > 0 ||
-        (obj.optJSONArray("a")?.length() ?: 0) > 0 ||
         hasNonEmptyPayloadValue(obj.opt("attachments")) ||
+        hasNonEmptyPayloadValue(obj.opt("a")) ||
         hasNonEmptyPayloadValue(obj.opt("attachment")) ||
         hasNonEmptyPayloadValue(obj.opt("files")) ||
         hasNonEmptyPayloadValue(obj.opt("file"))

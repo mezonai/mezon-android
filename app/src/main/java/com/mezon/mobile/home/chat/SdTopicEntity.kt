@@ -6,9 +6,7 @@ import com.mezon.mezon.rtapi.SdTopicEvent
 import com.mezon.mobile.home.clans.ClanChannelEntity
 import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
 import com.mezon.mobile.util.TopicOriginalPreviewToken
-import com.mezon.mobile.util.parseContentPreview
 import com.mezon.mobile.util.parseTopicOriginalMessagePreview
-import org.json.JSONObject
 
 data class SdTopicEntity(
     val id: Long,
@@ -27,34 +25,9 @@ data class SdTopicEntity(
     val rootHasAttachment: Boolean = false
 ) {
     val rootMessagePreview: String
-        get() {
-            if (rootMessageCode == MessageEntity.CODE_SHARE_CONTACT) return TopicOriginalPreviewToken.CONTACT
-            if (rootHasAttachment) return TopicOriginalPreviewToken.ATTACHMENT
-            val parsed = parseTopicOriginalMessagePreview(content).ifBlank {
-                parseContentPreview(content).ifBlank { parseMessagePreview(content) }
-            }
-            if (parsed.isNotBlank()) return parsed
-            return ""
-        }
-
-    val lastMessagePreview: String
-        get() = parseContentPreview(lastSentContent).ifBlank { parseMessagePreview(lastSentContent) }
+        get() = parseTopicOriginalMessagePreview(content)
 
     fun senderIdForAvatar(): Long = lastSentSenderId.takeIf { it != 0L } ?: creatorId
-
-    fun withRootMessageMetadata(root: MessageEntity?): SdTopicEntity {
-        root ?: return this
-        val rootContent = content.ifBlank { root.content }
-        val hasAttachment = rootHasAttachment ||
-            root.attachmentUrl.isNotBlank() ||
-            root.extraAttachmentsJson.isNotBlank() ||
-            root.messageType != MessageEntity.TYPE_TEXT
-        return copy(
-            content = rootContent,
-            rootMessageCode = rootMessageCode.takeIf { it != 0 } ?: root.code,
-            rootHasAttachment = hasAttachment
-        )
-    }
 }
 
 fun SdTopic.toSdTopicEntity(): SdTopicEntity {
@@ -127,16 +100,6 @@ fun SdTopicEntity.toClanChannelEntity(
         active = 1,
         categoryOrder = 0
     )
-}
-
-private fun parseMessagePreview(raw: String): String {
-    if (raw.isBlank()) return ""
-    return runCatching {
-        val json = JSONObject(raw)
-        json.optString("t", "").ifBlank {
-            if (json.has("embed") || json.has("components")) TopicOriginalPreviewToken.ATTACHMENT else ""
-        }
-    }.getOrDefault("")
 }
 
 private fun channelLabelPreview(preview: String): String =
