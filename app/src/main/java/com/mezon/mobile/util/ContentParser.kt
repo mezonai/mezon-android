@@ -154,7 +154,7 @@ fun parseTopicOriginalMessagePreview(content: String): String {
         return embedPreview.replace("\n", " ").take(200)
     }
 
-    return if (obj.has("embed") || obj.has("embeds")) TopicOriginalPreviewToken.ATTACHMENT else ""
+    return TopicOriginalPreviewToken.ATTACHMENT
 }
 
 private fun hasAttachmentsPayload(obj: JSONObject): Boolean =
