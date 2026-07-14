@@ -31,6 +31,7 @@ import com.mezon.mobile.core.ViewPagerFixed
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.clans.ChannelCanvasController
+import com.mezon.mobile.home.clans.ChannelMuteBottomSheet
 import com.mezon.mobile.home.ChannelFilesController
 import com.mezon.mobile.home.ChannelGalleryController
 import com.mezon.mobile.home.DialogsController
@@ -53,6 +54,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.mezon.mobile.home.chat.thread.ThreadListFragment
 import com.mezon.mobile.home.messages.NewGroupFragment
+import com.mezon.mobile.home.messages.DmMuteBottomSheet
 import com.mezon.mobile.home.ChatController
 import com.mezon.mobile.home.PinMessageController
 import com.mezon.mobile.MainActivity
@@ -61,9 +63,17 @@ import com.mezon.mobile.ui.cells.ActionBarView
 
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.ScreenStateView
+import com.mezon.mobile.ui.MezonToast
+import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.util.CreateChannelNameValidator
 
 class ChannelInfoFragment : BaseFragment() {
+
+    private data class ActionButtonView(
+        val container: LinearLayout,
+        val icon: ImageView,
+        val label: TextView,
+    )
 
     companion object {
         private const val ARG_CHANNEL_ID = "channelId"
@@ -120,6 +130,8 @@ class ChannelInfoFragment : BaseFragment() {
     private lateinit var permissionPolicy: PermissionPolicy
     private var settingsActionGap: View? = null
     private var settingsActionView: View? = null
+    private var muteActionIconView: ImageView? = null
+    private var muteActionLabelView: TextView? = null
     private var dmHeaderAvatarView: DmHeaderAvatarView? = null
     private var editGroupSheet: DmGroupEditBottomSheet? = null
 
@@ -170,11 +182,13 @@ class ChannelInfoFragment : BaseFragment() {
             val changedClanId = args.firstOrNull() as? Long ?: return@observe
             if (changedClanId != clanId || isDm) return@observe
             refreshClanHeader()
+            updateMuteActionState()
         }
 
         observe(NotificationCenter.dialogsNeedReload) { _, _, _ ->
             if (isPaused) return@observe
             refreshDmHeader()
+            updateMuteActionState()
         }
 
         observe(NotificationCenter.pinMessagesDidLoad) { _, _, args ->
@@ -456,40 +470,123 @@ class ChannelInfoFragment : BaseFragment() {
 
         row.addView(createActionButton(context, MezonIcon.searchIcon, "Search", applyTint = false) {
             openSearch()
-        })
+        }.container)
 
         if (channelType == CHANNEL_TYPE_GROUP) {
             addActionGap(row)
             row.addView(createActionButton(context, MezonIcon.pencilIcon, getString(R.string.dm_group_customize)) {
                 showGroupEditSheet(context)
-            })
+            }.container)
         }
 
         if (!isDmContext && channelType == CHANNEL_TYPE_CHANNEL) {
             addActionGap(row)
             row.addView(createActionButton(context, MezonIcon.threadIcon, "Threads", applyTint = false) {
                 presentFragment(ThreadListFragment.newInstance(channelId, channelName, clanId))
-            })
+            }.container)
         }
 
         if (!isSelfDm) {
             addActionGap(row)
-            row.addView(createActionButton(context, MezonIcon.bellIcon, "Mute") {
-                Toast.makeText(context, "Coming soon", Toast.LENGTH_SHORT).show()
-            })
+            row.addView(createMuteActionButton(context))
         }
 
         if (!isDmContext) {
             settingsActionGap = addActionGap(row)
-            val settingsAction = createActionButton(context, MezonIcon.settingIcon, "Settings") {
+            val settingsAction = createActionButton(
+                context,
+                MezonIcon.settingClanIcon,
+                "Settings",
+                applyTint = false,
+            ) {
                 openChannelSettings(context)
-            }
+            }.container
             settingsActionView = settingsAction
             row.addView(settingsAction)
             updateSettingsActionVisibility()
         }
 
         return row
+    }
+
+    private fun createMuteActionButton(context: Context): LinearLayout {
+        val isMuted = isCurrentChannelMuted()
+        val action = createActionButton(
+            context,
+            if (isMuted) MezonIcon.muteBellIcon else MezonIcon.unmuteBellIcon,
+            getString(if (isMuted) R.string.channel_action_unmute_short else R.string.channel_action_mute_short),
+            applyTint = false,
+        ) {
+            handleMuteAction(context)
+        }
+        muteActionIconView = action.icon
+        muteActionLabelView = action.label
+        return action.container
+    }
+
+    private fun isCurrentChannelMuted(): Boolean = if (isDm) {
+        dialogsController.isDmMuted(channelId)
+    } else {
+        channelController.isChannelMuted(clanId, channelId)
+    }
+
+    private fun updateMuteActionState() {
+        val context = muteActionIconView?.context ?: return
+        val isMuted = isCurrentChannelMuted()
+        val icon = if (isMuted) MezonIcon.muteBellIcon else MezonIcon.unmuteBellIcon
+        muteActionIconView?.setImageDrawable(icon.getDrawable(context))
+        muteActionLabelView?.setText(
+            if (isMuted) R.string.channel_action_unmute_short else R.string.channel_action_mute_short
+        )
+    }
+
+    private fun handleMuteAction(context: Context) {
+        if (isCurrentChannelMuted()) {
+            updateChannelMute(muteTimeSeconds = 0, active = 0, isMuting = false)
+            return
+        }
+
+        if (isDm) {
+            DmMuteBottomSheet(context, channelName) { muteTimeSeconds, active ->
+                updateChannelMute(muteTimeSeconds, active, isMuting = true)
+            }.show()
+            return
+        }
+
+        val channel = channelController.findChannelById(channelId, clanId)
+            ?: channelController.findChannelById(channelId)
+            ?: return
+        ChannelMuteBottomSheet(context, channel) { muteTimeSeconds, active ->
+            updateChannelMute(muteTimeSeconds, active, isMuting = true)
+        }.show()
+    }
+
+    private fun updateChannelMute(muteTimeSeconds: Int, active: Int, isMuting: Boolean) {
+        fragmentScope.launch {
+            val result = if (isDm) {
+                dialogsController.setDialogMuted(channelId, muteTimeSeconds, active)
+            } else {
+                channelController.setChannelMuted(clanId, channelId, muteTimeSeconds, active)
+            }
+            withContext(Dispatchers.Main.immediate) {
+                updateMuteActionState()
+                val messageRes = when {
+                    isDm && isMuting && result.isSuccess -> R.string.dm_mute_success
+                    isDm && isMuting -> R.string.dm_mute_failed
+                    isDm && result.isSuccess -> R.string.dm_unmute_success
+                    isDm -> R.string.dm_unmute_failed
+                    isMuting && result.isSuccess -> R.string.channel_mute_success
+                    isMuting -> R.string.channel_mute_failed
+                    result.isSuccess -> R.string.channel_unmute_success
+                    else -> R.string.channel_unmute_failed
+                }
+                MezonToast.show(
+                    this@ChannelInfoFragment,
+                    if (result.isSuccess) ToastOverlay.ToastType.SUCCESS else ToastOverlay.ToastType.ERROR,
+                    getString(messageRes),
+                )
+            }
+        }
     }
 
     private fun addActionGap(row: LinearLayout): View {
@@ -511,7 +608,7 @@ class ChannelInfoFragment : BaseFragment() {
         label: String,
         applyTint: Boolean = true,
         onClick: () -> Unit
-    ): LinearLayout {
+    ): ActionButtonView {
         val column = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
@@ -546,7 +643,7 @@ class ChannelInfoFragment : BaseFragment() {
             Gravity.CENTER_HORIZONTAL, 0f, 8f, 0f, 0f
         ))
 
-        return column
+        return ActionButtonView(column, iconView, tv)
     }
 
     private fun buildTabTitles(): List<String> {
@@ -910,6 +1007,7 @@ class ChannelInfoFragment : BaseFragment() {
 
     override fun onResume() {
         super.onResume()
+        updateMuteActionState()
         if (isDm) {
             refreshDmHeader()
             reloadMembers()
@@ -919,6 +1017,12 @@ class ChannelInfoFragment : BaseFragment() {
         } else {
             refreshClanHeader()
             reloadMembers()
+            fragmentScope.launch(Dispatchers.Main.immediate) {
+                channelController.refreshChannelNotificationState(clanId, channelId)
+                if (!isPaused) {
+                    updateMuteActionState()
+                }
+            }
         }
     }
 
@@ -928,6 +1032,8 @@ class ChannelInfoFragment : BaseFragment() {
             try { sheet.dismiss() } catch (_: Throwable) {}
         }
         editGroupSheet = null
+        muteActionIconView = null
+        muteActionLabelView = null
         canvasTab?.dispose()
         canvasTab = null
         super.onFragmentDestroy()

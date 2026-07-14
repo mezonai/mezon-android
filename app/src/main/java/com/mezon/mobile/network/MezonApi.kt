@@ -30,6 +30,7 @@ import com.mezon.mezon.api.ClanDescList
 import com.mezon.mezon.api.NotificationSetting
 import com.mezon.mezon.api.NotificationUserChannel
 import com.mezon.mezon.api.notificationChannel
+import com.mezon.mezon.api.setNotificationRequest
 import com.mezon.mezon.api.SystemMessage
 import com.mezon.mezon.api.SystemMessageRequest
 import com.mezon.mezon.api.PinMessagesList
@@ -1064,6 +1065,30 @@ class MezonApi @Inject constructor(
             this.notificationType = notificationType
         }
         rpc(apiUrl, token, "SetNotificationClanSetting", request.toByteArray())
+    }
+
+    suspend fun setNotificationChannel(
+        apiUrl: String,
+        token: String,
+        channelId: Long,
+        clanId: Long,
+        notificationType: Int,
+    ) {
+        val request = setNotificationRequest {
+            channelCategoryId = channelId
+            this.clanId = clanId
+            this.notificationType = notificationType
+        }
+        rpc(apiUrl, token, "SetNotificationChannelSetting", request.toByteArray())
+    }
+
+    suspend fun deleteNotificationChannel(
+        apiUrl: String,
+        token: String,
+        channelId: Long,
+    ) {
+        val request = notificationChannel { this.channelId = channelId }
+        rpc(apiUrl, token, "DeleteNotificationChannel", request.toByteArray())
     }
 
     suspend fun deleteClanDesc(
