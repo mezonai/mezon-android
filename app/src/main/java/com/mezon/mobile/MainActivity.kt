@@ -32,6 +32,7 @@ import com.mezon.mobile.auth.OTPVerificationFragment
 import com.mezon.mobile.auth.UpdateUsernameFragment
 import com.mezon.mobile.core.ActionBarLayout
 import com.mezon.mobile.core.AlertDialog
+import com.mezon.mobile.core.AlertsCreator
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.BaseFragment
@@ -158,6 +159,8 @@ class MainActivity : BasePermissionsActivity(),
     private var appUpdateGateRunnable: Runnable? = null
     private var callingOverlay: CallingOverlay? = null
     private var offlineNetworkBanner: OfflineNetworkBannerView? = null
+    private var sessionExpiredDialog: AlertDialog? = null
+    private var pendingSessionExpiredPrompt = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
@@ -281,6 +284,9 @@ class MainActivity : BasePermissionsActivity(),
             connectionController.handleAppForeground()
             maybePromptFullScreenIntentForIncomingCalls()
         }
+        if (pendingSessionExpiredPrompt) {
+            promptSessionExpired()
+        }
         flushPendingDeepLink()
     }
 
@@ -320,6 +326,8 @@ class MainActivity : BasePermissionsActivity(),
         super.onDestroy()
         dismissVoiceRoom()
         dismissStreamingRoom()
+        sessionExpiredDialog?.dismiss()
+        sessionExpiredDialog = null
         AndroidUtilities.cancelRunOnUIThread(dismissSplashRunnable)
         appUpdateGateRunnable?.let { AndroidUtilities.cancelRunOnUIThread(it) }
         appUpdateGateRunnable = null
@@ -488,7 +496,11 @@ class MainActivity : BasePermissionsActivity(),
             NotificationCenter.connectionStateChanged -> {
                 // handled by ConnectionController UI updates
             }
-            NotificationCenter.sessionExpired, NotificationCenter.appDidLogout -> {
+            NotificationCenter.sessionExpired -> {
+                dismissIncomingCallOverlay(removeView = false)
+                promptSessionExpired()
+            }
+            NotificationCenter.appDidLogout -> {
                 dismissIncomingCallOverlay(removeView = false)
                 switchToLogin()
             }
@@ -773,6 +785,37 @@ class MainActivity : BasePermissionsActivity(),
             
         }
         flushPendingDeepLink()
+    }
+
+    private fun promptSessionExpired() {
+        if (!StartupCache.hasSession) return
+        if (sessionExpiredDialog?.isShowing == true) return
+        if (!isResumed) {
+            pendingSessionExpiredPrompt = true
+            return
+        }
+        pendingSessionExpiredPrompt = false
+        sessionExpiredDialog = AlertsCreator.createConfirmDialog(
+            this,
+            getString(R.string.common_session_expired_title),
+            getString(R.string.common_session_expired_content),
+            confirmText = getString(R.string.common_session_expired_confirm),
+            cancelText = getString(R.string.common_cancel)
+        ) {
+            completeSessionExpiredLogout()
+        }.also { it.show() }
+    }
+
+    private fun completeSessionExpiredLogout() {
+        val entryPoint = EntryPointAccessors.fromApplication(
+            applicationContext, FragmentEntryPoint::class.java
+        )
+        lifecycleScope.launch {
+            withContext(Dispatchers.IO) {
+                entryPoint.authRepository().logout()
+            }
+            switchToLogin()
+        }
     }
 
     private fun switchToLogin() {

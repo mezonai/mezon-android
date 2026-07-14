@@ -17,6 +17,7 @@ import androidx.datastore.preferences.core.edit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -49,7 +50,7 @@ class SessionManager @Inject constructor(
 ) {
     companion object {
         private const val TAG = "SessionManager"
-        private const val MAX_REFRESH_RETRIES = 5
+        internal const val MAX_REFRESH_RETRIES = 5
         private const val TOKEN_EXPIRY_BUFFER_SEC = 60
         private const val SESSION_SECRET_ALIAS = "mezon_session_v1"
         private const val ENCRYPTED_PREFIX = "enc:v1:"
@@ -98,6 +99,9 @@ class SessionManager @Inject constructor(
     private var lastRefreshToken: String = ""
     private var failCount: Int = 0
 
+    @Volatile
+    private var sessionEpoch: Long = 0
+
     fun isTokenExpired(token: String): Boolean {
         return try {
             val parts = token.split(".")
@@ -129,8 +133,8 @@ class SessionManager @Inject constructor(
         val session = sessionFlow.first()
             ?: throw SessionExpiredException("No session")
         if (!isLikelyJwt(session.token)) {
-            emitSessionExpired()
-            throw SessionExpiredException("Invalid session token")
+            Log.w(TAG, "Stored access token unreadable — attempting refresh instead of logout")
+            return refresh()
         }
         if (!isTokenExpired(session.token)) return session
         if (!networkMonitor.isOnline.value) {
@@ -138,6 +142,27 @@ class SessionManager @Inject constructor(
             return session
         }
         return refresh()
+    }
+
+    internal var launchRetryBaseMs: Long = 1000L
+
+    suspend fun ensureFreshSession(): StoredSession? {
+        var attempt = 0
+        while (true) {
+            try {
+                return requireValidSession()
+            } catch (e: SessionExpiredException) {
+                Log.w(TAG, "Launch refresh: session expired or cleared", e)
+                return null
+            } catch (e: Exception) {
+                attempt++
+                if (!networkMonitor.isOnline.value || attempt >= MAX_REFRESH_RETRIES) {
+                    Log.w(TAG, "Launch refresh gave up after $attempt attempts — using cached session", e)
+                    return sessionFlow.first()
+                }
+                delay(attempt * launchRetryBaseMs)
+            }
+        }
     }
 
     suspend fun refresh(): StoredSession {
@@ -149,18 +174,13 @@ class SessionManager @Inject constructor(
     }
 
     private suspend fun doRefresh(): StoredSession {
+        val epochAtStart = sessionEpoch
         val current = sessionFlow.first()
             ?: throw SessionExpiredException("No session to refresh")
 
         if (!networkMonitor.isOnline.value) {
             Log.w(TAG, "Offline during refresh — returning cached session")
             return current
-        }
-
-        if (lastRefreshToken == current.refreshToken && failCount >= MAX_REFRESH_RETRIES) {
-            Log.e(TAG, "Max retries ($MAX_REFRESH_RETRIES) with same refresh token")
-            emitSessionExpired()
-            throw SessionExpiredException("Session refresh failed: max retries with same token")
         }
 
         try {
@@ -180,7 +200,10 @@ class SessionManager @Inject constructor(
                 isRemember = current.isRemember,
             )
 
-            saveSession(newSession)
+            if (!persistSession(newSession, requiredEpoch = epochAtStart)) {
+                Log.w(TAG, "Session cleared during refresh — discarding refreshed session")
+                throw SessionExpiredException("Session cleared during refresh")
+            }
             lastRefreshToken = newSession.refreshToken
             failCount = 0
             Log.d(TAG, "Session refreshed successfully")
@@ -190,16 +213,30 @@ class SessionManager @Inject constructor(
         } catch (e: kotlin.coroutines.cancellation.CancellationException) {
             throw e
         } catch (e: UnauthorizedException) {
+            val stored = sessionFlow.first()
+            if (stored == null || sessionEpoch != epochAtStart) {
+                Log.w(TAG, "Refresh rejected but session already cleared — not emitting expired", e)
+                throw SessionExpiredException("Session cleared during refresh")
+            }
+            if (stored.refreshToken != current.refreshToken) {
+                Log.w(TAG, "Refresh rejected but refresh token already rotated — adopting stored session")
+                failCount = 0
+                return stored
+            }
             incrementFailCount(current.refreshToken)
-            Log.e(TAG, "Session refresh 401/403 (failCount=$failCount/$MAX_REFRESH_RETRIES)", e)
-            emitSessionExpired()
-            throw SessionExpiredException("Session refresh failed: ${e.message}")
+            if (failCount >= MAX_REFRESH_RETRIES) {
+                Log.e(TAG, "Session refresh 401/403 (failCount=$failCount/$MAX_REFRESH_RETRIES) — forcing logout", e)
+                emitSessionExpired()
+                throw SessionExpiredException("Session refresh failed: ${e.message}")
+            }
+            Log.w(TAG, "Session refresh 401/403 (failCount=$failCount/$MAX_REFRESH_RETRIES) — treating as transient", e)
+            throw IOException("Session refresh unauthorized: ${e.message}", e)
         } catch (e: IOException) {
             Log.w(TAG, "Network error during refresh, not logging out", e)
             throw e
         } catch (e: Exception) {
-            incrementFailCount(current.refreshToken)
-            Log.w(TAG, "Server error during refresh (failCount=$failCount/$MAX_REFRESH_RETRIES)", e)
+            promptReloginIfPersistent(current.refreshToken, e)
+            Log.w(TAG, "Server error during refresh — treating as transient", e)
             throw IOException("Session refresh server error: ${e.message}", e)
         } finally {
             refreshMutex.withLock {
@@ -212,6 +249,14 @@ class SessionManager @Inject constructor(
         if (lastRefreshToken == refreshToken) failCount++ else { lastRefreshToken = refreshToken; failCount = 1 }
     }
 
+    private fun promptReloginIfPersistent(refreshToken: String, cause: Exception) {
+        incrementFailCount(refreshToken)
+        if (failCount >= MAX_REFRESH_RETRIES) {
+            Log.w(TAG, "Refresh failed $failCount/$MAX_REFRESH_RETRIES times — prompting re-login", cause)
+            emitSessionExpired()
+        }
+    }
+
     private fun emitSessionExpired() {
         failCount = 0
         lastRefreshToken = ""
@@ -219,7 +264,12 @@ class SessionManager @Inject constructor(
     }
 
     suspend fun saveSession(session: StoredSession) {
+        persistSession(session, requiredEpoch = null)
+    }
+
+    private suspend fun persistSession(session: StoredSession, requiredEpoch: Long?): Boolean {
         sessionPersistMutex.withLock {
+            if (requiredEpoch != null && sessionEpoch != requiredEpoch) return false
             StartupCache.hasSession = true
             StartupCache.userId = session.userId
             val encryptedToken = encryptSecret(session.token)
@@ -235,6 +285,7 @@ class SessionManager @Inject constructor(
                 prefs[SessionKeys.IS_REMEMBER] = session.isRemember
             }
         }
+        return true
     }
 
     suspend fun <T> withAutoRefresh(block: suspend (StoredSession) -> T): T {
@@ -258,6 +309,7 @@ class SessionManager @Inject constructor(
 
     suspend fun clearSession() {
         sessionPersistMutex.withLock {
+            sessionEpoch++
             StartupCache.hasSession = false
             StartupCache.needsUsernameSetup = false
             StartupCache.userId = ""

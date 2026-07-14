@@ -167,9 +167,7 @@ class ConnectionController @Inject constructor(
     private suspend fun connectSocket() {
         sessionManager.sessionFlow.collect { session ->
             if (session != null) {
-                val s = try { sessionManager.requireValidSession() }
-                catch (e: java.io.IOException) { session }
-                catch (e: Exception) { Log.e(TAG, "Failed to get valid session", e); return@collect }
+                val s = sessionManager.ensureFreshSession() ?: return@collect
                 Log.d(TAG, "Ensuring WebSocket connection... wsUrl=${s.wsUrl}")
                 mezonSocket.connect(s.wsUrl, s.token)
             } else {
@@ -189,9 +187,8 @@ class ConnectionController @Inject constructor(
 
     private suspend fun observeSessionExpired() {
         sessionManager.sessionExpired.collect {
-            Log.e(TAG, "Session expired — forcing logout")
+            Log.e(TAG, "Session expired — keeping stored session, prompting re-login")
             mezonSocket.disconnect()
-            sessionManager.clearSession()
             notificationCenter.postNotificationOnMainThread(NotificationCenter.sessionExpired)
         }
     }

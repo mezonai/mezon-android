@@ -21,6 +21,7 @@ import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.util.absoluteResourceUrl
 import com.mezon.mobile.util.avatarImgproxyUrl
+import com.mezon.mobile.util.createImgproxyUrl
 import io.livekit.android.renderer.SurfaceViewRenderer
 import io.livekit.android.room.Room
 import io.livekit.android.room.track.VideoTrack
@@ -174,30 +175,29 @@ class VoiceOverlayView(
     }
 
     private fun loadStreamBackground(rawUrl: String?) {
+        backgroundImageView.scaleType = ImageView.ScaleType.FIT_CENTER
         val absolute = rawUrl?.trim()?.takeIf { it.isNotEmpty() }?.let { absoluteResourceUrl(it).takeIf { url -> url.isNotEmpty() } }
         if (absolute.isNullOrEmpty()) {
-            backgroundImageView.scaleType = ImageView.ScaleType.FIT_CENTER
             backgroundImageView.setImageDrawable(MezonIcon.channelStream.getDrawable(context))
             return
         }
-        backgroundImageView.scaleType = ImageView.ScaleType.CENTER_CROP
-        val size = width.takeIf { it > 0 } ?: LayoutHelper.dp(200)
-        val proxyUrl = avatarImgproxyUrl(absolute, size)
+        val targetWidth = width.takeIf { it > 0 } ?: VoiceOverlayManager.MINI_W
+        val targetHeight = height.takeIf { it > 0 } ?: VoiceOverlayManager.MINI_H
+        val proxyUrl = createImgproxyUrl(absolute, targetWidth, targetHeight, "fit")
         val loader = MezonImageLoader.getInstance(context)
-        val cached = loader.getBitmapFromMemory(proxyUrl, size, size)
+        val cached = loader.getBitmapFromMemory(proxyUrl, targetWidth, targetHeight)
         if (cached != null) {
             backgroundImageView.setImageBitmap(cached)
             return
         }
         avatarDisposable = loader.load(
-            proxyUrl, size, size,
+            proxyUrl, targetWidth, targetHeight,
             onSuccess = { bmp ->
                 avatarDisposable = null
                 backgroundImageView.setImageBitmap(bmp)
             },
             onError = {
                 avatarDisposable = null
-                backgroundImageView.scaleType = ImageView.ScaleType.FIT_CENTER
                 backgroundImageView.setImageDrawable(MezonIcon.channelStream.getDrawable(context))
             }
         )

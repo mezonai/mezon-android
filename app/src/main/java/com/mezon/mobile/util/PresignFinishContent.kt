@@ -5,6 +5,7 @@ import org.json.JSONObject
 
 object PresignFinishContent {
     const val FIELD_KEY = "presign_finish"
+    const val CREATE_TIME_KEY = "create_time_seconds"
     const val FOR_10_MINUTES_SEC = 10 * 60
     const val PRESIGN_PENDING_TICK_MS = 30_000L
 
@@ -115,6 +116,17 @@ object PresignFinishContent {
             val arr = JSONArray()
             keys.forEach { arr.put(it) }
             json.put(FIELD_KEY, arr)
+            json.toString()
+        } catch (_: Exception) {
+            content
+        }
+    }
+
+    fun withCreateTimeSeconds(content: String, createTimeSeconds: Int): String {
+        if (createTimeSeconds <= 0) return content
+        return try {
+            val json = if (content.isNotBlank()) JSONObject(content) else JSONObject()
+            json.put(CREATE_TIME_KEY, createTimeSeconds)
             json.toString()
         } catch (_: Exception) {
             content

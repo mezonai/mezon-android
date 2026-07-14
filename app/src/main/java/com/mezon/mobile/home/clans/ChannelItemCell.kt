@@ -78,7 +78,7 @@ class ChannelItemCell(
     private val voiceActiveColorFilter = PorterDuffColorFilter(VOICE_ACTIVE_GREEN, PorterDuff.Mode.SRC_IN)
     private val badgeRectF = RectF()
 
-    private val cellHeightPx = LayoutHelper.dp(40)
+    private val cellHeightPx = LayoutHelper.dp(37)
     private val paddingHPx = LayoutHelper.dp(16)
     private val iconSizePx = LayoutHelper.dp(12)
     private val iconMarginPx = LayoutHelper.dp(8)
@@ -146,7 +146,7 @@ class ChannelItemCell(
         val ch = channel ?: return
         val isMutedVisual = ch.isMuted && !isActive
         val showUnreadHighlight = ch.hasUnread && !isMutedVisual
-        val showMentionBadge = ch.unreadCount > 0
+        val showMentionBadge = ch.unreadCount > 0 && !ch.isVoiceLike
 
         val textColor = when {
             isActive -> themeColors.onSurface

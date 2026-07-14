@@ -288,6 +288,7 @@
     <string name="message_toast_copy_image_done">Đã sao chép ảnh</string>
     <string name="message_toast_copy_image_failed">Không thể sao chép ảnh</string>
     <string name="message_paste_failed">Không thể dán ảnh</string>
+    <string name="message_convert_to_file_failed">Không thể chuyển tin nhắn thành tệp</string>
     <string name="message_forwarded">Đã chuyển tiếp</string>
     <string name="forward_screen_title">Chuyển tiếp tới</string>
     <string name="forward_extra_hint">Thêm nhận xét (tuỳ chọn)</string>

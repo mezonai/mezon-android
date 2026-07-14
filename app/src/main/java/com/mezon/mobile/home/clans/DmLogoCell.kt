@@ -22,7 +22,7 @@ class DmLogoCell(
 ) : View(context) {
 
     companion object {
-        private const val DEFAULT_LOGO_URL = "https://cdn.mezon.ai/landing-page-mezon/logodefault.webp"
+        private const val DEFAULT_LOGO_URL = "https://cdn.komu.vn/landing-page-mezon/logodefault.webp"
 
         private val BADGE_HEIGHT = LayoutHelper.dp(16f).toFloat()
         private val BADGE_PAD_H = LayoutHelper.dp(4f).toFloat()

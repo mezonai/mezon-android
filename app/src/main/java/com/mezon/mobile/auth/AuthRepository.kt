@@ -3,6 +3,7 @@ package com.mezon.mobile.auth
 import android.util.Log
 import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.core.StartupCache
+import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mezon.api.Session
 import com.mezon.mobile.network.MezonApi
@@ -11,7 +12,9 @@ import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.session.StoredSession
 import com.mezon.mobile.wallet.WalletCacheStore
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -22,7 +25,8 @@ class AuthRepository @Inject constructor(
     private val sessionManager: SessionManager,
     private val fcmRepository: FcmRepository,
     private val walletCacheStore: WalletCacheStore,
-    @IoDispatcher private val ioDispatcher: CoroutineDispatcher
+    @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
+    @ApplicationScope private val appScope: CoroutineScope
 ) {
     companion object {
         private const val TAG = "AuthRepository"
@@ -134,7 +138,7 @@ class AuthRepository @Inject constructor(
 
     suspend fun logout(): Result<Unit> = withContext(ioDispatcher) {
         runCatching {
-            fcmRepository.deleteToken()
+            appScope.launch { fcmRepository.deleteToken() }
             sessionManager.clearSession()
         }
     }
