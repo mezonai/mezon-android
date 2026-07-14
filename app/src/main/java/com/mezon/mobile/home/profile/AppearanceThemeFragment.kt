@@ -33,10 +33,10 @@ class AppearanceThemeFragment : BaseFragment() {
 
     companion object {
         private val previewAvatarUrls = listOf(
-            "https://cdn.mezon.ai/0/1812749818716491776/1782991817428439000/1757087543445_13.jpg",
-            "https://cdn.mezon.ai/0/1812749818716491776/1782991817428439000/1757087543446_31.webp",
-            "https://cdn.mezon.ai/0/1812749818716491776/1782991817428439000/1757087543445_4.webp",
-            "https://cdn.mezon.ai/0/1812749818716491776/1782991817428439000/1757087543447_22.png"
+            "https://cdn.komu.vn/0/1812749818716491776/1782991817428439000/1757087543445_13.jpg",
+            "https://cdn.komu.vn/0/1812749818716491776/1782991817428439000/1757087543446_31.webp",
+            "https://cdn.komu.vn/0/1812749818716491776/1782991817428439000/1757087543445_4.webp",
+            "https://cdn.komu.vn/0/1812749818716491776/1782991817428439000/1757087543447_22.png"
         )
 
         private const val THEME_SWATCH_W_DP = 72

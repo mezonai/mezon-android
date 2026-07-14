@@ -120,6 +120,9 @@ import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.util.FileUtils
 import com.mezon.mobile.util.EmojiMarker
 import com.mezon.mobile.util.HashtagData
+import com.mezon.mobile.util.MarkdownMarker
+import com.mezon.mobile.util.buildTextContent
+import com.mezon.mobile.util.buildTextContentWithEmojis
 import com.mezon.mobile.util.MentionData
 import com.mezon.mobile.util.parseContentText
 import com.mezon.mobile.util.parseMarkdownAndStrip
@@ -217,6 +220,7 @@ open class ChatFragment : BaseFragment() {
         private const val INPUT_OGP_DEBOUNCE_MS = 80L
         private const val INPUT_OGP_CACHE_MAX = 32
         private const val INPUT_OGP_SEND_WAIT_MS = 400L
+        private const val MAX_MESSAGE_CONTENT_BYTES = 3700
         private val inputOgpCache = object : LinkedHashMap<String, InputOgpPreview>(16, 0.75f, true) {
             override fun removeEldestEntry(eldest: Map.Entry<String, InputOgpPreview>): Boolean = size > INPUT_OGP_CACHE_MAX
         }
@@ -1876,7 +1880,15 @@ open class ChatFragment : BaseFragment() {
         }
         inputBar.addView(inputWrapper, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.BOTTOM, 8f, 0f, 8f, 0f))
 
-        inputField = EditText(context).apply {
+        inputField = object : EditText(context) {
+            override fun onTextContextMenuItem(id: Int): Boolean {
+                if (id == android.R.id.paste || id == android.R.id.pasteAsPlainText) {
+                    val pasted = clipboardPlainText()
+                    if (!pasted.isNullOrEmpty() && convertPastedTextToFileIfTooLong(pasted)) return true
+                }
+                return super.onTextContextMenuItem(id)
+            }
+        }.apply {
             hint = getString(R.string.message_input_placeholder)
             setHintTextColor(themeColors.onSurfaceVariant)
             setTextColor(themeColors.onSurface)
@@ -4675,6 +4687,14 @@ open class ChatFragment : BaseFragment() {
 
         Log.d(TAG, "sendMessage channelId=$channelId clanId=$clanId channelType=$channelType isPrivate=$isPrivate textLen=${cleanedText.length} attachments=${pendingAttachments.size} hasReply=${references != null} mdMarkers=${filteredMdMarkers?.size ?: 0} ogp=${ogpMarker != null} hashtags=${hashtags?.size ?: 0}")
 
+        if (exceedsMessageContentLimit(
+                outgoingContentFor(cleanedText, buildEmojiMarkers(cleanedText), filteredMdMarkers, hashtags, ogpMarker)
+            )
+        ) {
+            convertTextToPlainTextAttachment(cleanedText, clearInput = true)
+            return
+        }
+
         if (pendingAttachments.isNotEmpty()) {
             val ctx = getContext() ?: return
             val emojiMarkers = buildEmojiMarkers(cleanedText)
@@ -4792,6 +4812,74 @@ open class ChatFragment : BaseFragment() {
                 updateSendButtonState()
             }
         }
+    }
+
+    private fun clipboardPlainText(): String? {
+        val ctx = getContext() ?: return null
+        val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return null
+        val clip = cm.primaryClip ?: return null
+        if (clip.itemCount == 0) return null
+        return clip.getItemAt(0).coerceToText(ctx)?.toString()
+    }
+
+    private fun exceedsMessageContentLimit(text: String): Boolean =
+        text.toByteArray(Charsets.UTF_8).size > MAX_MESSAGE_CONTENT_BYTES
+
+    private fun outgoingContentFor(
+        text: String,
+        emojiMarkers: List<EmojiMarker>?,
+        markdownMarkers: List<MarkdownMarker>?,
+        hashtags: List<HashtagData>?,
+        ogpMarker: OgpMarker?
+    ): String {
+        val hasContentExtras = !emojiMarkers.isNullOrEmpty() || !markdownMarkers.isNullOrEmpty() ||
+            ogpMarker != null || !hashtags.isNullOrEmpty()
+        return if (!hasContentExtras) buildTextContent(text)
+        else buildTextContentWithEmojis(text, null, emojiMarkers, markdownMarkers, hashtags, ogpMarker)
+    }
+
+    private fun convertPastedTextToFileIfTooLong(pasted: String): Boolean {
+        if (editingMessage != null) return false
+
+        if (exceedsMessageContentLimit(pasted)) {
+            return convertTextToPlainTextAttachment(pasted, clearInput = false)
+        }
+
+        val combined = (inputField.text?.toString() ?: "") + pasted
+        if (!exceedsMessageContentLimit(combined)) return false
+        return convertTextToPlainTextAttachment(combined, clearInput = true)
+    }
+
+    private fun convertTextToPlainTextAttachment(content: String, clearInput: Boolean): Boolean {
+        val ctx = getContext() ?: return false
+        if (pendingAttachments.size >= AttachmentPickerItem.GALLERY_MAX_SELECTION) {
+            Toast.makeText(ctx, "Maximum ${AttachmentPickerItem.GALLERY_MAX_SELECTION} items", Toast.LENGTH_SHORT).show()
+            return false
+        }
+        appScope.launch {
+            val item = withContext(ioDispatcher) { AttachmentPickerItem.fromPlainText(ctx, content) }
+            withContext(mainDispatcher) {
+                if (item == null) {
+                    MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.ERROR, getString(R.string.message_convert_to_file_failed))
+                    return@withContext
+                }
+                pendingAttachments.add(item)
+                if (clearInput) clearComposerTextAfterFileConversion()
+                updateAttachmentPreview()
+                updateSendButtonState()
+            }
+        }
+        return true
+    }
+
+    private fun clearComposerTextAfterFileConversion() {
+        inputField.text?.clear()
+        emojiObjPicked.clear()
+        mentionTrackers.clear()
+        hashtagTrackers.clear()
+        dismissedInputOgpUrl = null
+        failedInputOgpUrl = null
+        clearInputOgpPreview()
     }
 
     private fun buildEmojiMarkers(text: String): List<EmojiMarker>? {
@@ -6786,7 +6874,11 @@ open class ChatFragment : BaseFragment() {
         builder.setTitle(R.string.message_delete_title)
         builder.setMessage(R.string.message_delete_description)
         builder.setPositiveButton(R.string.common_delete) { _, _ ->
-            chatController.deleteMessage(channelId, clanId, channelType, resolveChannelPrivate(), msg.id, topicId = topicId)
+            chatController.deleteMessage(
+                channelId, clanId, channelType, resolveChannelPrivate(), msg.id,
+                topicId = topicId,
+                hasAttachment = msg.attachmentUrl.isNotBlank() || msg.extraAttachmentsJson.isNotBlank()
+            )
         }
         builder.setNegativeButton(R.string.common_cancel, null)
         builder.show()

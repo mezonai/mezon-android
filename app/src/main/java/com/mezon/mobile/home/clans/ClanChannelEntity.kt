@@ -41,7 +41,9 @@ data class ClanChannelEntity(
 ) {
     val isAgeRestricted: Boolean get() = ageRestricted == 1
     val isThread: Boolean get() = type == 7 && parentId != 0L
+    val isVoiceLike: Boolean get() = type == CHANNEL_TYPE_VOICE || type == CHANNEL_TYPE_STREAMING
     val hasUnread: Boolean get() {
+        if (isVoiceLike) return false
         if (unreadCount > 0) return true
         if (lastSentMessageId != 0L && lastSeenMessageId < lastSentMessageId) return true
         if (lastSentMessageId == 0L && lastSeenMessageId == 0L &&

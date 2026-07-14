@@ -272,6 +272,7 @@
     <string name="message_toast_copy_image_done">Copied image</string>
     <string name="message_toast_copy_image_failed">Could not copy image</string>
     <string name="message_paste_failed">Could not paste image</string>
+    <string name="message_convert_to_file_failed">Could not convert message to a file</string>
     <string name="message_forwarded">Forwarded</string>
     <string name="message_reply_deleted">Original message was deleted</string>
 

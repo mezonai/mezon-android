@@ -1,10 +1,12 @@
 package com.mezon.mobile.home.stream
 
+import android.content.Context
 import android.util.Log
 import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.MainDispatcher
 import com.mezon.mobile.home.call.WebRtcInfra
+import dagger.hilt.android.qualifiers.ApplicationContext
 import java.net.URLEncoder
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -32,6 +34,7 @@ private const val TAG = "StreamingWebRTC"
 
 @Singleton
 class StreamingWebRtcSession @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val webRtcInfra: WebRtcInfra,
     private val okHttpClient: OkHttpClient,
     @ApplicationScope private val appScope: CoroutineScope,
@@ -50,6 +53,8 @@ class StreamingWebRtcSession @Inject constructor(
 
     @Volatile var onStreamingStateChanged: (() -> Unit)? = null
     @Volatile var onRemoteVideoTrackChanged: ((VideoTrack?) -> Unit)? = null
+
+    private val audioRouting by lazy { StreamingAudioManager(context) }
 
     private var webSocket: WebSocket? = null
     private var peerConnection: PeerConnection? = null
@@ -77,6 +82,7 @@ class StreamingWebRtcSession @Inject constructor(
         pendingStreamId = streamId
         pendingUserId = userId
         activeStreamChannelId = streamId
+        audioRouting.start()
 
         webRtcInfra.ensureFactoryReady()
         val pc = createPeerConnection() ?: run {
@@ -112,6 +118,7 @@ class StreamingWebRtcSession @Inject constructor(
         activeStreamChannelId = null
         isStreaming = false
         remoteAudioTrack = null
+        audioRouting.stop()
         setRemoteVideoTrack(null)
     }
 

@@ -15,7 +15,6 @@ import com.mezon.mezon.rtapi.Envelope
 import com.mezon.mezon.rtapi.apiRequestEvent
 import com.mezon.mezon.rtapi.channelJoin
 import com.mezon.mezon.rtapi.channelLeave
-import com.mezon.mezon.rtapi.channelMessageRemove
 import com.mezon.mezon.rtapi.channelMessageSend
 import com.mezon.mezon.rtapi.channelMessageUpdate
 import com.mezon.mezon.rtapi.checkNameExistedEvent
@@ -430,30 +429,6 @@ class MezonSocket @Inject constructor(
             if (topicId != 0L) this.topicId = topicId
             if (isUpdateMsgTopic) this.isUpdateMsgTopic = isUpdateMsgTopic
             if (createTimeSeconds > 0) this.createTimeSeconds = createTimeSeconds
-        }
-    }
-
-    suspend fun removeChatMessage(
-        clanId: Long,
-        channelId: Long,
-        mode: Int,
-        isPublic: Boolean,
-        messageId: Long,
-        hasAttachment: Boolean = false,
-        topicId: Long = 0L,
-        mentions: com.google.protobuf.ByteString = com.google.protobuf.ByteString.EMPTY,
-        references: com.google.protobuf.ByteString = com.google.protobuf.ByteString.EMPTY
-    ): Envelope = send {
-        this.channelMessageRemove = channelMessageRemove {
-            this.clanId = clanId
-            this.channelId = channelId
-            this.messageId = messageId
-            this.mode = mode
-            this.isPublic = isPublic
-            this.hasAttachment = hasAttachment
-            this.topicId = topicId
-            this.mentions = mentions
-            this.references = references
         }
     }
 

@@ -127,10 +127,6 @@ class MainTabsActivity : ViewPagerActivity() {
         emojiController.loadStickers()
         searchController.loadChannels()
 
-        observe(NotificationCenter.sessionExpired) { _, _, _ ->
-            onLogout?.invoke()
-        }
-
         observe(NotificationCenter.themeChanged) { _, _, _ ->
             if (fragmentView == null) return@observe
             applyTheme()

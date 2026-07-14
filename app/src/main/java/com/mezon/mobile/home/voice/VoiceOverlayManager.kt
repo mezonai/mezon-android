@@ -18,8 +18,8 @@ class VoiceOverlayManager(
 ) {
 
     companion object {
-        private val MINI_W = LayoutHelper.dp(200)
-        private val MINI_H = LayoutHelper.dp(150)
+        val MINI_W = LayoutHelper.dp(200)
+        val MINI_H = LayoutHelper.dp(150)
         private val MINI_MARGIN = LayoutHelper.dp(12)
         private const val ANIM_DURATION = 300L
     }
