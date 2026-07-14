@@ -247,6 +247,7 @@ class VoiceRoomFragment : BaseFragment() {
 
     private fun applyAgentHeaderUi() {
         if (!::headerView.isInitialized) return
+        headerView.setAgentVisible(canManageVoiceChannel())
         headerView.setAgentActive(voiceController.isAiAgentEnabled(clanId, channelId))
     }
 
@@ -381,6 +382,13 @@ class VoiceRoomFragment : BaseFragment() {
             applyAgentHeaderUi()
         }
 
+        observe(NotificationCenter.clanRolesDidLoad) { _, _, args ->
+            if (fragmentView == null) return@observe
+            val changedClanId = args.getOrNull(0) as? Long ?: return@observe
+            if (changedClanId != clanId) return@observe
+            applyAgentHeaderUi()
+        }
+
         observe(NotificationCenter.clanMembersDidLoad) { _, _, args ->
             if (fragmentView == null) return@observe
             val loadedClanId = args.firstOrNull() as? Long ?: return@observe
@@ -426,12 +434,13 @@ class VoiceRoomFragment : BaseFragment() {
 
         headerView = VoiceHeaderView(context, themeColors).apply {
             setChannelName(channelLabel)
-            setAgentVisible(!isGroupCall)
+            setAgentVisible(canManageVoiceChannel())
             setSwitchCameraVisible(false)
             setMinimizeVisible(!isGroupCall)
             setMoreVisible(!isGroupCall)
             onMinimizeClick = { minimizeToOverlay() }
             onAgentClick = agentClick@{
+                if (!canManageVoiceChannel()) return@agentClick
                 val scope = roomScope
                 val ctx = context
                 if (scope == null) {
@@ -1530,15 +1539,20 @@ class VoiceRoomFragment : BaseFragment() {
         presentSheet(voiceChannelLabelSync)
     }
 
-    private fun canManageVoiceUser(targetUserId: Long): Boolean {
-        if (isInPipMode || isGroupCall) return false
+    private fun canManageVoiceChannel(): Boolean {
+        if (isGroupCall) return false
         if (clanId == 0L || channelId == 0L) return false
-        if (targetUserId == 0L || targetUserId == userController.userId) return false
         return permissionPolicy.checkAnyPermission(
             listOf(PermissionPolicy.ADMINISTRATOR, PermissionPolicy.MANAGE_CHANNEL),
             channelId,
             clanId,
         )
+    }
+
+    private fun canManageVoiceUser(targetUserId: Long): Boolean {
+        if (isInPipMode) return false
+        if (targetUserId == 0L || targetUserId == userController.userId) return false
+        return canManageVoiceChannel()
     }
 
     private fun showMuteParticipantConfirm(identity: String, displayName: String) {
