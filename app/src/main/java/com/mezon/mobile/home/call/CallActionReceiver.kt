@@ -3,7 +3,6 @@ package com.mezon.mobile.home.call
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.telecom.DisconnectCause
 import android.util.Log
 import com.mezon.mobile.di.FragmentEntryPoint
 import dagger.hilt.android.EntryPointAccessors
@@ -32,18 +31,17 @@ class CallActionReceiver : BroadcastReceiver() {
         when (intent.action) {
             ACTION_END -> {
                 controller?.hangup()
-                MezonCallConnection.activeConnection?.let {
-                    it.setDisconnected(DisconnectCause(DisconnectCause.LOCAL))
-                    it.destroy()
-                    MezonCallConnection.activeConnection = null
-                }
                 CallNotificationManager(context).dismissOngoingNotification()
+            }
+            ACTION_DECLINE -> {
+                controller?.rejectCall()
+                CallNotificationManager(context).dismissIncomingNotification()
             }
         }
     }
 
     companion object {
         const val ACTION_END = "com.mezon.mobile.call.END"
+        const val ACTION_DECLINE = "com.mezon.mobile.call.DECLINE"
     }
 }
-

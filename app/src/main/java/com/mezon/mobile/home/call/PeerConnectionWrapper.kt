@@ -661,7 +661,7 @@ class PeerConnectionWrapper(
     }
 
     companion object {
-        private const val ICE_RECONNECT_TIMEOUT_MS = 3000L
+        private const val ICE_RECONNECT_TIMEOUT_MS = 15_000L
     }
 }
 

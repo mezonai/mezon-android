@@ -29,11 +29,10 @@ class MezonCallConnection(private val context: Context) : Connection() {
         }
     }
 
-    init {
-        activeConnection = this
-    }
+    private fun ensureTelecomBridge(): CallTelecomBridge? = CallTelecomBridge.from(context)
 
     override fun onShowIncomingCallUi() {
+        if (ensureCallController()?.isAppInForegroundForIncomingCall() == true) return
         launchIncomingCallActivity()
     }
 
@@ -59,37 +58,20 @@ class MezonCallConnection(private val context: Context) : Connection() {
     override fun onReject() {
         val offerEnvelope = incomingExtras?.getString(CallManager.EXTRA_OFFER_JSON)?.trim()?.takeIf { it.isNotEmpty() }
             ?: context.getSharedPreferences("call_data", Context.MODE_PRIVATE).getString("incoming_call", null)
-        setDisconnected(DisconnectCause(DisconnectCause.REJECTED))
-        destroy()
-        activeConnection = null
+        ensureTelecomBridge()?.endWithCause(DisconnectCause.REJECTED)
         ensureCallController()?.rejectCallFromIncomingCallUi(offerEnvelope)
     }
 
     override fun onDisconnect() {
-        setDisconnected(DisconnectCause(DisconnectCause.LOCAL))
-        destroy()
-        activeConnection = null
+        ensureTelecomBridge()?.endWithCause(DisconnectCause.LOCAL)
         ensureCallController()?.hangup()
     }
 
     override fun onAbort() {
-        setDisconnected(DisconnectCause(DisconnectCause.CANCELED))
-        destroy()
-        activeConnection = null
+        ensureTelecomBridge()?.endWithCause(DisconnectCause.CANCELED)
     }
 
     fun setCallActive() {
         setActive()
-    }
-
-    fun setCallDisconnected(cause: Int) {
-        setDisconnected(DisconnectCause(cause))
-        destroy()
-        activeConnection = null
-    }
-
-    companion object {
-        @Volatile
-        var activeConnection: MezonCallConnection? = null
     }
 }

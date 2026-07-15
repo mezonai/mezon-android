@@ -1,9 +1,11 @@
 package com.mezon.mobile.home.call
 
+import android.Manifest
 import android.app.Notification
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.Handler
@@ -14,7 +16,12 @@ import androidx.core.content.ContextCompat
 
 class CallForegroundService : Service() {
 
+    private val escalationHandler = Handler(Looper.getMainLooper())
+    private var escalationRunnable: Runnable? = null
+    private var ringQuiet = false
+
     override fun onDestroy() {
+        cancelEscalation()
         try {
             stopForeground(STOP_FOREGROUND_REMOVE)
         } catch (_: Exception) {
@@ -22,67 +29,143 @@ class CallForegroundService : Service() {
         super.onDestroy()
     }
 
+    private fun cancelEscalation() {
+        escalationRunnable?.let { escalationHandler.removeCallbacks(it) }
+        escalationRunnable = null
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        try {
-            val phase = intent?.getIntExtra(EXTRA_PHASE, PHASE_CONNECTED) ?: PHASE_CONNECTED
-            val nm = CallNotificationManager(this)
-            when (phase) {
-                PHASE_RINGING -> {
-                    val i = intent
-                    if (i == null) {
-                        Log.e("CallFgService", "PHASE_RINGING with null intent")
-                        val emergency = CallNotificationManager(this).buildConnectingNotification("Incoming call")
-                        startForegroundWithType(CallNotificationManager.INCOMING_CALL_NOTIFICATION_ID, emergency)
-                        stopSelf()
-                        return START_NOT_STICKY
-                    }
-                    val callerName = i.getStringExtra(CallManager.EXTRA_CALLER_NAME) ?: "Unknown"
-                    val callerAvatar = i.getStringExtra(CallManager.EXTRA_CALLER_AVATAR)
-                    val callerId = i.getStringExtra(CallManager.EXTRA_CALLER_ID) ?: ""
-                    val channelId = i.getStringExtra(CallManager.EXTRA_CHANNEL_ID) ?: ""
-                    val offerJson = i.getStringExtra(CallManager.EXTRA_OFFER_JSON)
-                    val useFsi = i.getBooleanExtra(EXTRA_USE_FULL_SCREEN_INTENT, true)
-                    val n = nm.buildIncomingCallNotification(
-                        callerName,
-                        callerAvatar,
-                        callerId,
-                        channelId,
-                        offerJson,
-                        useFsi
-                    )
-                    startForegroundWithType(CallNotificationManager.INCOMING_CALL_NOTIFICATION_ID, n)
-                    Handler(Looper.getMainLooper()).post {
-                        tryStartIncomingCallActivityFromRingIntent(i)
-                    }
-                }
-                PHASE_CONNECTING -> {
-                    val callerName = intent?.getStringExtra(CallManager.EXTRA_CALLER_NAME) ?: "Unknown"
-                    val n = nm.buildConnectingNotification(callerName)
-                    startForegroundWithType(CallNotificationManager.INCOMING_CALL_NOTIFICATION_ID, n)
-                }
-                else -> {
-                    nm.dismissIncomingNotification()
-                    val callerName = intent?.getStringExtra(EXTRA_CALLER_NAME) ?: "Unknown"
-                    val connectedTime = intent?.getLongExtra(EXTRA_CONNECTED_TIME, 0L) ?: 0L
-                    val n = nm.buildOngoingNotification(callerName, connectedTime)
-                    startForegroundWithType(CallNotificationManager.ONGOING_CALL_NOTIFICATION_ID, n)
-                }
-            }
-        } catch (e: Exception) {
-            Log.e("CallFgService", "onStartCommand failed", e)
-            try {
-                val n = CallNotificationManager(this).buildConnectingNotification("Call")
-                startForegroundWithType(CallNotificationManager.INCOMING_CALL_NOTIFICATION_ID, n)
-            } catch (_: Exception) {
-            }
-            try {
-                stopForeground(STOP_FOREGROUND_REMOVE)
-            } catch (_: Exception) {
-            }
+        if (intent == null) {
+            Log.w(TAG, "onStartCommand with null intent, stopping")
             stopSelf()
             return START_NOT_STICKY
         }
-        return START_STICKY
+        try {
+            val phase = intent.getIntExtra(EXTRA_PHASE, PHASE_CONNECTED)
+            val nm = CallNotificationManager(this)
+            when (phase) {
+                PHASE_RINGING -> startRingingPhase(intent, nm)
+                else -> startInCallPhase(intent, nm, phase)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "onStartCommand failed, falling back to a plain call notification", e)
+            startFallbackForeground(intent)
+        }
+        return START_NOT_STICKY
+    }
+
+    private fun startFallbackForeground(intent: Intent) {
+        val phase = intent.getIntExtra(EXTRA_PHASE, PHASE_CONNECTED)
+        val incoming = phase == PHASE_RINGING
+        val callerName = intent.getStringExtra(CallManager.EXTRA_CALLER_NAME) ?: "Unknown"
+        val id = if (incoming) {
+            CallNotificationManager.INCOMING_CALL_NOTIFICATION_ID
+        } else {
+            CallNotificationManager.ONGOING_CALL_NOTIFICATION_ID
+        }
+        try {
+            startForegroundWithType(
+                id,
+                CallNotificationManager(this).buildFallbackCallNotification(callerName, incoming),
+                PHASE_RINGING
+            )
+            if (incoming) {
+                Handler(Looper.getMainLooper()).post {
+                    tryStartIncomingCallActivityFromRingIntent(intent)
+                }
+            }
+            return
+        } catch (e: Exception) {
+            Log.e(TAG, "fallback call notification failed", e)
+        }
+        try {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } catch (_: Exception) {
+        }
+        stopSelf()
+    }
+
+    private fun startRingingPhase(intent: Intent, nm: CallNotificationManager) {
+        val callerName = intent.getStringExtra(CallManager.EXTRA_CALLER_NAME) ?: "Unknown"
+        val callerAvatar = intent.getStringExtra(CallManager.EXTRA_CALLER_AVATAR)
+        val callerId = intent.getStringExtra(CallManager.EXTRA_CALLER_ID) ?: ""
+        val channelId = intent.getStringExtra(CallManager.EXTRA_CHANNEL_ID) ?: ""
+        val offerJson = intent.getStringExtra(CallManager.EXTRA_OFFER_JSON)
+        val useFsi = intent.getBooleanExtra(EXTRA_USE_FULL_SCREEN_INTENT, true)
+        val deviceLocked = intent.getBooleanExtra(EXTRA_DEVICE_LOCKED, false)
+
+        val systemOpensCallScreen = useFsi && deviceLocked
+        ringQuiet = !systemOpensCallScreen
+
+        val build = {
+            nm.buildIncomingCallNotification(
+                callerName, callerAvatar, callerId, channelId, offerJson, useFsi, ringQuiet
+            )
+        }
+        startForegroundWithType(
+            CallNotificationManager.INCOMING_CALL_NOTIFICATION_ID,
+            build(),
+            PHASE_RINGING
+        )
+        nm.warmAvatarThenRepost(
+            callerAvatar,
+            CallNotificationManager.INCOMING_CALL_NOTIFICATION_ID,
+            build
+        )
+
+        if (systemOpensCallScreen) return
+
+        Handler(Looper.getMainLooper()).post {
+            tryStartIncomingCallActivityFromRingIntent(intent)
+        }
+        scheduleHeadsUpEscalation(build)
+    }
+
+    private fun scheduleHeadsUpEscalation(build: () -> Notification) {
+        cancelEscalation()
+        val runnable = Runnable {
+            escalationRunnable = null
+            if (IncomingCallActivity.isIncomingCallUiShown()) return@Runnable
+            if (CallController.instance?.callState !is CallState.Incoming) return@Runnable
+            Log.w(TAG, "call screen never appeared, escalating ring to a heads-up notification")
+            ringQuiet = false
+            try {
+                startForegroundWithType(
+                    CallNotificationManager.INCOMING_CALL_NOTIFICATION_ID,
+                    build(),
+                    PHASE_RINGING
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "heads-up escalation failed", e)
+            }
+        }
+        escalationRunnable = runnable
+        escalationHandler.postDelayed(runnable, CALL_SCREEN_ESCALATION_MS)
+    }
+
+    private fun startInCallPhase(intent: Intent, nm: CallNotificationManager, phase: Int) {
+        cancelEscalation()
+        val callerName = intent.getStringExtra(CallManager.EXTRA_CALLER_NAME) ?: "Unknown"
+        val callerAvatar = intent.getStringExtra(CallManager.EXTRA_CALLER_AVATAR)
+        val callerId = intent.getStringExtra(CallManager.EXTRA_CALLER_ID) ?: ""
+        val isVideo = intent.getBooleanExtra(CallManager.EXTRA_IS_VIDEO_CALL, false)
+        val connectedTime =
+            if (phase == PHASE_CONNECTED) intent.getLongExtra(EXTRA_CONNECTED_TIME, 0L) else 0L
+
+        val build = {
+            nm.buildInCallNotification(callerName, callerAvatar, callerId, isVideo, connectedTime)
+        }
+        startForegroundWithType(
+            CallNotificationManager.ONGOING_CALL_NOTIFICATION_ID,
+            build(),
+            phase
+        )
+        nm.dismissIncomingNotification()
+        nm.warmAvatarThenRepost(
+            callerAvatar,
+            CallNotificationManager.ONGOING_CALL_NOTIFICATION_ID,
+            build
+        )
     }
 
     private fun tryStartIncomingCallActivityFromRingIntent(ringIntent: Intent) {
@@ -110,17 +193,29 @@ class CallForegroundService : Service() {
         }
     }
 
-    private fun startForegroundWithType(id: Int, notification: Notification) {
-        if (Build.VERSION.SDK_INT >= 34) {
-            startForeground(
-                id,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL
-            )
+    private fun startForegroundWithType(id: Int, notification: Notification, phase: Int) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(id, notification, foregroundServiceTypeMask(phase))
         } else {
             startForeground(id, notification)
         }
     }
+
+    private fun foregroundServiceTypeMask(phase: Int): Int {
+        var mask = ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL
+        if (phase == PHASE_RINGING) return mask
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return mask
+        if (hasPermission(Manifest.permission.RECORD_AUDIO)) {
+            mask = mask or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+        }
+        if (hasPermission(Manifest.permission.CAMERA)) {
+            mask = mask or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+        }
+        return mask
+    }
+
+    private fun hasPermission(permission: String): Boolean =
+        ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -133,10 +228,13 @@ class CallForegroundService : Service() {
         const val PHASE_RINGING = 1
         const val PHASE_CONNECTING = 2
         const val PHASE_CONNECTED = 3
+        const val PHASE_OUTGOING = 4
 
-        const val EXTRA_CALLER_NAME = "caller_name"
         const val EXTRA_CONNECTED_TIME = "connected_time"
         const val EXTRA_USE_FULL_SCREEN_INTENT = "use_full_screen_intent"
+        const val EXTRA_DEVICE_LOCKED = "device_locked"
+
+        private const val CALL_SCREEN_ESCALATION_MS = 800L
 
         fun startRinging(
             context: Context,
@@ -145,7 +243,8 @@ class CallForegroundService : Service() {
             callerId: String,
             channelId: String,
             offerJson: String,
-            useFullScreenIntent: Boolean
+            useFullScreenIntent: Boolean,
+            deviceLocked: Boolean
         ) {
             try {
                 ContextCompat.startForegroundService(
@@ -158,6 +257,7 @@ class CallForegroundService : Service() {
                         putExtra(CallManager.EXTRA_CHANNEL_ID, channelId)
                         putExtra(CallManager.EXTRA_OFFER_JSON, offerJson)
                         putExtra(EXTRA_USE_FULL_SCREEN_INTENT, useFullScreenIntent)
+                        putExtra(EXTRA_DEVICE_LOCKED, deviceLocked)
                     }
                 )
             } catch (e: Exception) {
@@ -166,22 +266,32 @@ class CallForegroundService : Service() {
             }
         }
 
-        fun startConnecting(context: Context, callerName: String) {
-            ContextCompat.startForegroundService(
-                context,
-                Intent(context, CallForegroundService::class.java).apply {
-                    putExtra(EXTRA_PHASE, PHASE_CONNECTING)
-                    putExtra(CallManager.EXTRA_CALLER_NAME, callerName)
-                }
-            )
+        fun startOutgoing(context: Context, callInfo: CallInfo) {
+            startInCall(context, PHASE_OUTGOING, callInfo, 0L)
         }
 
-        fun startConnected(context: Context, callerName: String, connectedTime: Long) {
+        fun startConnecting(context: Context, callInfo: CallInfo) {
+            startInCall(context, PHASE_CONNECTING, callInfo, 0L)
+        }
+
+        fun startConnected(context: Context, callInfo: CallInfo, connectedTime: Long) {
+            startInCall(context, PHASE_CONNECTED, callInfo, connectedTime)
+        }
+
+        private fun startInCall(
+            context: Context,
+            phase: Int,
+            callInfo: CallInfo,
+            connectedTime: Long
+        ) {
             ContextCompat.startForegroundService(
                 context,
                 Intent(context, CallForegroundService::class.java).apply {
-                    putExtra(EXTRA_PHASE, PHASE_CONNECTED)
-                    putExtra(EXTRA_CALLER_NAME, callerName)
+                    putExtra(EXTRA_PHASE, phase)
+                    putExtra(CallManager.EXTRA_CALLER_NAME, callInfo.peerName)
+                    putExtra(CallManager.EXTRA_CALLER_AVATAR, callInfo.peerAvatar ?: "")
+                    putExtra(CallManager.EXTRA_CALLER_ID, callInfo.peerId.toString())
+                    putExtra(CallManager.EXTRA_IS_VIDEO_CALL, callInfo.isVideo)
                     putExtra(EXTRA_CONNECTED_TIME, connectedTime)
                 }
             )
