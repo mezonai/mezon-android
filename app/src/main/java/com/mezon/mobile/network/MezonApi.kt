@@ -29,6 +29,7 @@ import com.mezon.mezon.api.createChannelDescRequest
 import com.mezon.mezon.api.ClanDescList
 import com.mezon.mezon.api.NotificationSetting
 import com.mezon.mezon.api.NotificationUserChannel
+import com.mezon.mezon.api.SetNotificationRequest
 import com.mezon.mezon.api.notificationChannel
 import com.mezon.mezon.api.setNotificationRequest
 import com.mezon.mezon.api.SystemMessage
@@ -301,6 +302,16 @@ private data class ConfirmLoginGatewayBody(
 
 
 private val CONTENT_TYPE_PROTO = ContentType("application", "proto")
+
+internal fun buildSetNotificationChannelRequest(
+    channelId: Long,
+    clanId: Long,
+    notificationType: Int,
+): SetNotificationRequest = setNotificationRequest {
+    channelCategoryId = channelId
+    this.clanId = clanId
+    this.notificationType = notificationType
+}
 
 @Serializable
 private data class ClanDiscoverGatewayRequest(
@@ -1074,11 +1085,7 @@ class MezonApi @Inject constructor(
         clanId: Long,
         notificationType: Int,
     ) {
-        val request = setNotificationRequest {
-            channelCategoryId = channelId
-            this.clanId = clanId
-            this.notificationType = notificationType
-        }
+        val request = buildSetNotificationChannelRequest(channelId, clanId, notificationType)
         rpc(apiUrl, token, "SetNotificationChannelSetting", request.toByteArray())
     }
 

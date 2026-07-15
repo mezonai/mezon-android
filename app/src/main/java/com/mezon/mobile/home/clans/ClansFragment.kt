@@ -77,6 +77,7 @@ import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.home.qr.QrScanFragment
 import com.mezon.mobile.home.profile.UserController
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -1474,11 +1475,16 @@ class ClansFragment : BaseFragment() {
         sheet.show()
 
         fragmentScope.launch(Dispatchers.Main.immediate) {
-            val notificationType = channelController
-                .refreshChannelNotificationState(clanId, channel.channelId)
-                .getOrNull()
+            val notificationTypeDeferred = async {
+                channelController.refreshChannelNotificationState(clanId, channel.channelId).getOrNull()
+            }
+            val clanDefaultTypeDeferred = async {
+                channelController.getClanDefaultNotificationType(clanId).getOrNull()
+            }
+            val notificationType = notificationTypeDeferred.await()
+            val clanDefaultType = clanDefaultTypeDeferred.await()
             if (channelNotificationSettingsSheet === sheet && sheet.isShowing) {
-                sheet.completeInitialLoad(notificationType)
+                sheet.completeInitialLoad(notificationType, clanDefaultType)
             }
         }
     }

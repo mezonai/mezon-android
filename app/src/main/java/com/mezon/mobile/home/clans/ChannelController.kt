@@ -51,6 +51,7 @@ private const val TAG = "ChannelController"
 private const val NOTIFICATION_CODE_USER_MENTIONED = -9
 private const val NOTIFICATION_CODE_USER_REPLIED = -11
 private const val MAX_BADGE_CACHE = 500
+private const val CHANNEL_NOTIFICATION_STATE_CACHE_TTL_MS = 30_000L
 
 const val FAVORITE_CATEGORY_ID = -1L
 const val FAVORITE_CATEGORY_NAME = "Favorites"
@@ -77,7 +78,9 @@ fun isMutedFromSetMuteRequest(muteTimeSeconds: Int, active: Int): Boolean {
 }
 
 fun isMutedFromNotificationUserChannel(noti: NotificationUserChannel): Boolean {
-    return noti.timeMuteSeconds != 0
+    val timeMute = noti.timeMuteSeconds
+    if (timeMute == CHANNEL_MUTE_ACTIVE_INFINITY) return true
+    return timeMute.toLong() > System.currentTimeMillis() / 1000
 }
 
 internal fun resolveLoadedChannelMuted(
@@ -94,6 +97,9 @@ internal fun resolveLoadedChannelMuted(
 fun normalizeChannelNotificationType(type: Int): Int =
     type.takeIf { it in CHANNEL_NOTIFICATION_USE_DEFAULT..CHANNEL_NOTIFICATION_NOTHING }
         ?: CHANNEL_NOTIFICATION_USE_DEFAULT
+
+fun channelTypeForClanNotificationDefault(type: Int): Int? =
+    type.takeIf { it in CHANNEL_NOTIFICATION_ALL_MESSAGES..CHANNEL_NOTIFICATION_NOTHING }
 
 fun normalizeDmMuteExpirySeconds(raw: Int): Int {
     if (raw == CHANNEL_MUTE_ACTIVE_INFINITY) return raw
@@ -850,25 +856,47 @@ class ChannelController @Inject constructor(
     fun getCachedChannelNotificationType(channelId: Long): Int =
         notificationSettingTypesByChannel[channelId] ?: CHANNEL_NOTIFICATION_USE_DEFAULT
 
-    suspend fun refreshChannelNotificationState(clanId: Long, channelId: Long): Result<Int> = runCatching {
-        val notification = sessionManager.withAutoRefresh { session ->
+    suspend fun getClanDefaultNotificationType(clanId: Long): Result<Int> = runCatching {
+        sessionManager.withAutoRefresh { session ->
             withContext(ioDispatcher) {
-                api.getNotificationChannel(session.apiUrl, session.token, channelId)
+                api.getClanDefaultNotification(session.apiUrl, session.token, clanId).notificationSettingType
             }
         }
-        val normalizedType = normalizeChannelNotificationType(notification.notificationSettingType)
-        patchChannelNotificationType(channelId, normalizedType)
-        val resolvedClanId = clanId.takeIf { it != 0L }
-            ?: findChannelById(channelId)?.clanId
-            ?: 0L
-        if (resolvedClanId != 0L) {
-            patchChannelMuteLocally(
-                resolvedClanId,
-                channelId,
-                isMutedFromNotificationUserChannel(notification),
-            )
+    }
+
+    suspend fun refreshChannelNotificationState(clanId: Long, channelId: Long): Result<Int> {
+        val cacheKey = apiCacheKey("channelNotificationState", channelId)
+        if (
+            cacheTracker.shouldCall(
+                cacheKey,
+                ttlMs = CHANNEL_NOTIFICATION_STATE_CACHE_TTL_MS,
+            ) == ApiCacheTracker.ShouldCall.SKIP
+        ) {
+            return Result.success(getCachedChannelNotificationType(channelId))
         }
-        normalizedType
+
+        return runCatching {
+            val notification = sessionManager.withAutoRefresh { session ->
+                withContext(ioDispatcher) {
+                    api.getNotificationChannel(session.apiUrl, session.token, channelId)
+                }
+            }
+            val normalizedType = normalizeChannelNotificationType(notification.notificationSettingType)
+            patchChannelNotificationType(channelId, normalizedType)
+            val resolvedClanId = clanId.takeIf { it != 0L }
+                ?: findChannelById(channelId)?.clanId
+                ?: 0L
+            if (resolvedClanId != 0L) {
+                patchChannelMuteLocally(
+                    resolvedClanId,
+                    channelId,
+                    isMutedFromNotificationUserChannel(notification),
+                )
+            }
+            normalizedType
+        }.onSuccess {
+            cacheTracker.markCalled(cacheKey, ttlMs = CHANNEL_NOTIFICATION_STATE_CACHE_TTL_MS)
+        }
     }
 
     suspend fun setChannelNotificationType(

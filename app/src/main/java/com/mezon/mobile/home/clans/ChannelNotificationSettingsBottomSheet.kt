@@ -26,6 +26,7 @@ class ChannelNotificationSettingsBottomSheet(
     private val theme = ThemeColors.instance
     private val radioCells = LinkedHashMap<Int, RadioCell>()
     private val optionRows = ArrayList<View>()
+    private var defaultSubtitleView: TextView? = null
     private var selectedType = normalizeChannelNotificationType(initialType)
     private var loadingInitialType = true
     private var saving = false
@@ -48,7 +49,7 @@ class ChannelNotificationSettingsBottomSheet(
             Triple(
                 CHANNEL_NOTIFICATION_USE_DEFAULT,
                 R.string.channel_notification_settings_use_default,
-                R.string.channel_notification_settings_default_all_messages,
+                null,
             ),
             Triple(
                 CHANNEL_NOTIFICATION_ALL_MESSAGES,
@@ -104,10 +105,28 @@ class ChannelNotificationSettingsBottomSheet(
         }
     }
 
-    fun completeInitialLoad(notificationType: Int?) {
+    fun completeInitialLoad(notificationType: Int?, clanDefaultType: Int?) {
         notificationType?.let(::updateSelection)
+        updateClanDefaultSubtitle(clanDefaultType)
         loadingInitialType = false
         setRowsEnabled(true)
+    }
+
+    private fun updateClanDefaultSubtitle(clanDefaultType: Int?) {
+        val subtitleRes = when (clanDefaultType?.let(::channelTypeForClanNotificationDefault)) {
+            CHANNEL_NOTIFICATION_ALL_MESSAGES -> R.string.channel_notification_settings_all_messages
+            CHANNEL_NOTIFICATION_MENTIONS_ONLY -> R.string.channel_notification_settings_mentions_only
+            CHANNEL_NOTIFICATION_NOTHING -> R.string.channel_notification_settings_nothing
+            else -> null
+        }
+        defaultSubtitleView?.apply {
+            if (subtitleRes == null) {
+                visibility = View.GONE
+            } else {
+                setText(subtitleRes)
+                visibility = View.VISIBLE
+            }
+        }
     }
 
     private fun buildOptionRow(type: Int, title: String, subtitle: String?): View {
@@ -132,14 +151,19 @@ class ChannelNotificationSettingsBottomSheet(
                 },
                 LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT),
             )
-            if (!subtitle.isNullOrBlank()) {
+            if (type == CHANNEL_NOTIFICATION_USE_DEFAULT || !subtitle.isNullOrBlank()) {
+                val subtitleView = TextView(context).apply {
+                    text = subtitle.orEmpty()
+                    visibility = if (subtitle.isNullOrBlank()) View.GONE else View.VISIBLE
+                    setTextColor(theme.onSurfaceVariant)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+                    includeFontPadding = false
+                }
+                if (type == CHANNEL_NOTIFICATION_USE_DEFAULT) {
+                    defaultSubtitleView = subtitleView
+                }
                 addView(
-                    TextView(context).apply {
-                        text = subtitle
-                        setTextColor(theme.onSurfaceVariant)
-                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-                        includeFontPadding = false
-                    },
+                    subtitleView,
                     LayoutHelper.createLinear(
                         LayoutHelper.MATCH_PARENT,
                         LayoutHelper.WRAP_CONTENT,
