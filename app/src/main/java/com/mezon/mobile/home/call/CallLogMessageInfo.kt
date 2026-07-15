@@ -4,12 +4,9 @@ import android.content.Context
 import com.mezon.mobile.R
 import com.mezon.mezon.api.MessageAttachmentList
 import com.mezon.mobile.home.chat.MessageEntity
+import com.mezon.mobile.util.parseContentObject
 import com.mezon.mobile.util.parseContentPreview
 import com.google.protobuf.ByteString
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonPrimitive
 import org.json.JSONObject
 
 object CallLogMessageType {
@@ -31,20 +28,22 @@ fun parseCallLogMessage(content: String): ParsedCallLogMessage? {
     val trimmed = content.trimStart()
     if (!trimmed.startsWith("{")) return null
     return try {
-        val root = JSONObject(content)
-        if (root.has("callLog")) {
-            val cl = root.optJSONObject("callLog") ?: return null
-            val type = cl.optInt("callLogType", 0)
-            if (type == 0) return null
-            val isVideo = cl.optBoolean("isVideo", false)
-            val t = root.optString("t", "")
-            ParsedCallLogMessage(type, isVideo, t)
-        } else {
-            legacyParseCallLog(root)
-        }
+        parseCallLogMessage(JSONObject(content))
     } catch (_: Exception) {
         null
     }
+}
+
+private fun parseCallLogMessage(root: JSONObject): ParsedCallLogMessage? {
+    if (!root.has("callLog")) return legacyParseCallLog(root)
+    val cl = root.optJSONObject("callLog") ?: return null
+    val type = cl.optInt("callLogType", 0)
+    if (type == 0) return null
+    return ParsedCallLogMessage(
+        callLogType = type,
+        isVideo = cl.optBoolean("isVideo", false),
+        tText = root.optString("t", "")
+    )
 }
 
 private fun legacyParseCallLog(root: JSONObject): ParsedCallLogMessage? {
@@ -105,7 +104,17 @@ fun messagePreviewForDialog(
     attachments: ByteString = ByteString.EMPTY,
     code: Int = 0
 ): String {
-    val base = parseContentPreview(content)
+    return messagePreviewForDialog(context, content, parseContentObject(content.trim()), attachments, code)
+}
+
+private fun messagePreviewForDialog(
+    context: Context,
+    content: String,
+    contentObject: JSONObject?,
+    attachments: ByteString = ByteString.EMPTY,
+    code: Int = 0
+): String {
+    val base = parseContentPreview(content, contentObject)
     if (base.isNotBlank()) {
         if (base == "[Contact]") {
             return "[${context.getString(R.string.message_attachment_contact)}]"
@@ -131,7 +140,7 @@ fun messagePreviewForDialog(
             return "[${context.getString(R.string.message_attachment_file)}]"
         }
     }
-    val cl = parseCallLogMessage(content) ?: return ""
+    val cl = contentObject?.let(::parseCallLogMessage) ?: return ""
     return dialogPreviewForCallLog(context, cl)
 }
 
@@ -143,15 +152,31 @@ fun shouldInferAttachmentOnlyHeaderPreview(
     timestampSeconds: Long,
     senderId: Long
 ): Boolean {
+    return shouldInferAttachmentOnlyHeaderPreview(
+        content = content,
+        contentObject = parseContentObject(content.trim()),
+        messageId = messageId,
+        timestampSeconds = timestampSeconds,
+        senderId = senderId
+    )
+}
+
+private fun shouldInferAttachmentOnlyHeaderPreview(
+    content: String,
+    contentObject: JSONObject?,
+    messageId: Long,
+    timestampSeconds: Long,
+    senderId: Long
+): Boolean {
     if (senderId == 0L || (messageId == 0L && timestampSeconds == 0L)) return false
 
     val trimmed = content.trim()
     if (trimmed.isEmpty() || trimmed == "{}") return true
 
-    val obj = runCatching { Json.parseToJsonElement(trimmed) as? JsonObject }.getOrNull() ?: return false
-    val keys = obj.keys
+    val obj = contentObject ?: return false
+    val keys = obj.keys().asSequence().toSet()
     if (!ATTACHMENT_ONLY_HEADER_KEYS.containsAll(keys)) return false
-    if (runCatching { obj["t"]?.jsonPrimitive?.contentOrNull.orEmpty() }.getOrDefault("").isNotBlank()) return false
+    if (obj.optString("t", "").isNotBlank()) return false
     return true
 }
 
@@ -162,18 +187,16 @@ fun messageHeaderPreviewForDialog(
     timestampSeconds: Long,
     senderId: Long
 ): String {
-    val preview = messagePreviewForDialog(context, content)
+    val contentObject = parseContentObject(content.trim())
+    val preview = messagePreviewForDialog(context, content, contentObject)
     if (preview.isNotBlank()) return preview
 
-    val hasEmbed = runCatching {
-        val obj = Json.parseToJsonElement(content.trim()) as? JsonObject
-        obj?.containsKey("embed") == true || obj?.containsKey("embeds") == true
-    }.getOrDefault(false)
+    val hasEmbed = contentObject?.let { it.has("embed") || it.has("embeds") } == true
     if (hasEmbed) {
         return "[${context.getString(R.string.message_attachment_embed)}]"
     }
 
-    if (shouldInferAttachmentOnlyHeaderPreview(content, messageId, timestampSeconds, senderId)) {
+    if (shouldInferAttachmentOnlyHeaderPreview(content, contentObject, messageId, timestampSeconds, senderId)) {
         return "[${context.getString(R.string.message_attachment_file)}]"
     }
     return ""
