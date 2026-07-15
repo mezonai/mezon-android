@@ -164,7 +164,6 @@ class TopicNotificationCell(
 
         val timeText = convertTimestampToTimeAgo(context, item.createTimeSeconds)
         val timePaint = theme.dialogTimePaint
-        timePaint.color = theme.onSurfaceVariant
         timeLayout = StaticLayout.Builder
             .obtain(timeText, 0, timeText.length, timePaint, contentWidth)
             .setMaxLines(1)
@@ -173,14 +172,14 @@ class TopicNotificationCell(
 
         val timeWidth = timeLayout?.let { it.getLineWidth(0).toInt() + LayoutHelper.dp(8) } ?: 0
         val headerWidth = (contentWidth - timeWidth).coerceAtLeast(1)
-        val headerText = context.getString(R.string.notif_topic_and_you).uppercase()
+        val headerText = context.getString(R.string.notif_topic_discussion).uppercase()
         headerLayout = StaticLayout.Builder
             .obtain(headerText, 0, headerText.length, theme.dialogNameBoldPaint, headerWidth)
             .setMaxLines(1)
             .setEllipsize(TextUtils.TruncateAt.END)
             .build()
 
-        val repliedPrefix = context.getString(R.string.notif_replied_to)
+        val repliedPrefix = context.getString(R.string.notif_original_message)
         val repliedText = "$repliedPrefix ${localizedRootMessagePreview(item.rootMessagePreview)}"
         repliedToLayout = StaticLayout.Builder
             .obtain(repliedText, 0, repliedText.length, theme.dialogMessagePaint, contentWidth)
