@@ -14,6 +14,7 @@ import android.provider.Settings
 import android.telecom.PhoneAccount
 import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
+import android.telecom.VideoProfile
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -47,10 +48,53 @@ class CallManager @Inject constructor(
             }
             val account = PhoneAccount.builder(phoneAccountHandle, "Mezon")
                 .setCapabilities(capabilities)
+                .setSupportedUriSchemes(listOf(PhoneAccount.SCHEME_TEL))
                 .build()
             telecomManager?.registerPhoneAccount(account)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to register PhoneAccount", e)
+        }
+    }
+
+    fun placeOutgoingCall(
+        callerName: String,
+        peerId: String,
+        channelId: String,
+        isVideoCall: Boolean
+    ): Boolean {
+        val manager = telecomManager ?: return false
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            try {
+                if (!manager.isOutgoingCallPermitted(phoneAccountHandle)) {
+                    Log.w(TAG, "Telecom denied outgoing call (isOutgoingCallPermitted=false)")
+                    return false
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "isOutgoingCallPermitted check failed", e)
+            }
+        }
+        val callExtras = Bundle().apply {
+            putString(EXTRA_CALLER_NAME, callerName)
+            putString(EXTRA_CALLER_ID, peerId)
+            putString(EXTRA_CHANNEL_ID, channelId)
+            putBoolean(EXTRA_IS_VIDEO_CALL, isVideoCall)
+        }
+        val extras = Bundle().apply {
+            putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, phoneAccountHandle)
+            putBundle(TelecomManager.EXTRA_OUTGOING_CALL_EXTRAS, callExtras)
+            if (isVideoCall) {
+                putInt(
+                    TelecomManager.EXTRA_START_CALL_WITH_VIDEO_STATE,
+                    VideoProfile.STATE_BIDIRECTIONAL
+                )
+            }
+        }
+        return try {
+            manager.placeCall(Uri.fromParts(PhoneAccount.SCHEME_TEL, peerId, null), extras)
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "TelecomManager.placeCall failed", e)
+            false
         }
     }
 
@@ -159,5 +203,6 @@ class CallManager @Inject constructor(
         const val EXTRA_CALLER_AVATAR = "caller_avatar"
         const val EXTRA_OFFER_JSON = "offer_json"
         const val EXTRA_IS_VIDEO_CALL = "is_video_call"
+        const val EXTRA_AUTO_ANSWER = "auto_answer"
     }
 }

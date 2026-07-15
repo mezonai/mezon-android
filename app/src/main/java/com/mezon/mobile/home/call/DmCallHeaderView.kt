@@ -26,12 +26,12 @@ class DmCallHeaderView(
         private val H_PADDING = LayoutHelper.dp(10)
     }
 
-    var onCloseClick: (() -> Unit)? = null
+    var onMinimizeClick: (() -> Unit)? = null
     var onSwitchCameraClick: (() -> Unit)? = null
     var onVideoToggleClick: (() -> Unit)? = null
 
     private val peerNameText: TextView
-    private val closeButton: VoiceStyleCircleButton
+    private val minimizeButton: VoiceStyleCircleButton
     private val switchCameraButton: VoiceStyleCircleButton
     private val videoButton: VoiceStyleCircleButton
 
@@ -46,10 +46,10 @@ class DmCallHeaderView(
             gravity = Gravity.CENTER_VERTICAL
         }
 
-        closeButton = VoiceStyleCircleButton(context, MezonIcon.closeIcon, themeColors.tertiary, btnBorder, defaultTint).apply {
-            setOnClickListener { onCloseClick?.invoke() }
+        minimizeButton = VoiceStyleCircleButton(context, MezonIcon.chevronDownSmallIcon, themeColors.tertiary, btnBorder, defaultTint).apply {
+            setOnClickListener { onMinimizeClick?.invoke() }
         }
-        leftWrap.addView(closeButton, LinearLayout.LayoutParams(BUTTON_SIZE, BUTTON_SIZE))
+        leftWrap.addView(minimizeButton, LinearLayout.LayoutParams(BUTTON_SIZE, BUTTON_SIZE))
 
         peerNameText = TextView(context).apply {
             setTextColor(themeColors.colorText)

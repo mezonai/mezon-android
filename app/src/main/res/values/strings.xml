@@ -1659,6 +1659,7 @@
     <string name="call_full_screen_intent_open_settings">Turn on</string>
     <string name="call_full_screen_intent_start_call_anyway">Start call anyway</string>
     <string name="call_full_screen_intent_incoming_hint">Fullscreen while locked off — tap to turn on</string>
+    <string name="call_ongoing_banner_title">Ongoing call</string>
 
     <!-- Sound Effect Settings -->
     <string name="sound_upload_instructions_title">Upload Instructions</string>
