@@ -567,6 +567,11 @@ open class ChatFragment : BaseFragment() {
                 refreshChatDisplayRoleCache(refreshUi = !isPaused)
             }
         }
+        observe(NotificationCenter.clanMembersDidLoad) { _, _, args ->
+            val changedClanId = args.getOrNull(0) as? Long ?: return@observe
+            if (changedClanId != clanId || !::adapter.isInitialized) return@observe
+            adapter.currentUserRoleIds = resolveSelfRoleIds()
+        }
         observe(NotificationCenter.selectedClanChanged) { _, _, _ ->
             if (isPaused) return@observe
             if (clanId == 0L) refreshPermissionGates()
@@ -2257,6 +2262,7 @@ open class ChatFragment : BaseFragment() {
         adapter.isChannelPrivate = resolveChannelPrivate()
         adapter.isChannelAgeRestricted = resolveChannelAgeRestricted()
         adapter.currentUserId = StartupCache.userId
+        adapter.currentUserRoleIds = resolveSelfRoleIds()
         adapter.displayRoleResolver = chatDisplayRoleResolver()
         adapter.onTopicClick = { tid, rootId ->
             if (!isTopicMode) openTopicDiscussion(tid, rootId)
@@ -3853,6 +3859,16 @@ open class ChatFragment : BaseFragment() {
     private fun chatDisplayRoleResolver(): (Long) -> UserDisplayRole? = { userId ->
         if (clanId == 0L) null
         else roleController.resolveHighestDisplayRole(clanId, userId, chatClanCreatorId())
+    }
+
+    private fun resolveSelfRoleIds(): List<Long> {
+        if (clanId == 0L) return emptyList()
+        val selfId = StartupCache.userId.toLongOrNull() ?: return emptyList()
+        if (selfId == 0L) return emptyList()
+        return userClanController.getClanMembers(clanId)
+            .firstOrNull { it.userId == selfId }
+            ?.roleIds
+            .orEmpty()
     }
 
     private fun refreshChatDisplayRoleCache(refreshUi: Boolean = true) {
