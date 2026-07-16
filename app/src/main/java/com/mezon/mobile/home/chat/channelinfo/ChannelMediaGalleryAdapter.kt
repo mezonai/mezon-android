@@ -391,7 +391,7 @@ private fun galleryThumbLoadUrl(item: ChannelGalleryMediaItem, cellPx: Int): Str
     if (isGif) {
         return u
     }
-    val isCdn = u.startsWith("https://cdn.mezon") || u.startsWith("https://profile.mezon")
+    val isCdn = u.startsWith("https://cdn.mezon") || u.startsWith("https://cdn.komu") || u.startsWith("https://profile.mezon")
     if (!isCdn) {
         return u
     }

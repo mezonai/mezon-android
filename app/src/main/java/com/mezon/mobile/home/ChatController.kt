@@ -76,6 +76,7 @@ import com.mezon.mobile.home.chat.withTopicStats
 import com.mezon.mezon.rtapi.Envelope
 import com.mezon.mezon.rtapi.SdTopicEvent
 import com.mezon.mezon.rtapi.TopicInMessageEvent
+import com.mezon.mezon.rtapi.channelMessageRemove
 import com.mezon.mezon.rtapi.channelMessageSend
 import com.mezon.mezon.rtapi.channelMessageUpdate
 import com.mezon.mobile.network.ConnectionState
@@ -493,6 +494,23 @@ class ChatController @Inject constructor(
         isChannelPrivate: Boolean = false,
         parentId: Long = 0L
     ) {
+        appScope.launch {
+            try {
+                sessionManager.sessionFlow.first() ?: return@launch
+                joinChannelOnSocket(channelId, clanId, channelType, isChannelPrivate, parentId)
+            } catch (e: Exception) {
+                Log.e(TAG, "joinChat failed channelId=$channelId", e)
+            }
+        }
+    }
+
+    private suspend fun joinChannelOnSocket(
+        channelId: Long,
+        clanId: Long,
+        channelType: Int,
+        isChannelPrivate: Boolean,
+        parentId: Long = 0L
+    ) {
         val meta = channelController.get().findChannelById(channelId)
         val effectiveClanId = if (clanId != 0L) clanId else meta?.takeIf { it.clanId != 0L }?.clanId ?: clanId
         val effectiveType = if (channelType != 0) channelType else meta?.type ?: 0
@@ -511,19 +529,12 @@ class ChatController @Inject constructor(
         }
         val threadLike = effectiveType == CHANNEL_TYPE_THREAD || effectiveParent != 0L
         val isPublic = if (threadLike) false else !effectivePrivate
-        appScope.launch {
-            try {
-                sessionManager.sessionFlow.first() ?: return@launch
-                if (!mezonSocket.awaitConnected()) return@launch
-                if (effectiveClanId != 0L) {
-                    runCatching { mezonSocket.joinClanChat(effectiveClanId) }
-                }
-                mezonSocket.joinChat(effectiveClanId, channelId, effectiveType, isPublic)
-                Log.d(TAG, "Joined channel $channelId (clanId=$effectiveClanId type=$effectiveType isPublic=$isPublic)")
-            } catch (e: Exception) {
-                Log.e(TAG, "joinChat failed channelId=$channelId", e)
-            }
+        if (!mezonSocket.awaitConnected()) return
+        if (effectiveClanId != 0L) {
+            runCatching { mezonSocket.joinClanChat(effectiveClanId) }
         }
+        mezonSocket.joinChat(effectiveClanId, channelId, effectiveType, isPublic)
+        Log.d(TAG, "Joined channel $channelId (clanId=$effectiveClanId type=$effectiveType isPublic=$isPublic)")
     }
 
     fun loadMessages(
@@ -898,9 +909,11 @@ class ChatController @Inject constructor(
         createTimeSeconds: Int = 0,
     ) {
         val attachmentPayload = attachments.takeIf { it.isNotEmpty() }
+        val isUpdateMsgTopic = topicId != 0L
+        val targetChannelId = if (isUpdateMsgTopic) topicId else channelId
         val request = channelMessageUpdate {
             this.clanId = clanId
-            this.channelId = channelId
+            this.channelId = targetChannelId
             this.messageId = messageId
             this.content = content
             mentions?.takeIf { it.isNotEmpty() }?.let { this.mentions.addAll(it) }
@@ -909,6 +922,7 @@ class ChatController @Inject constructor(
             this.isPublic = isPublic
             this.hideEditted = hideEditted
             if (topicId != 0L) this.topicId = topicId
+            if (isUpdateMsgTopic) this.isUpdateMsgTopic = true
             if (createTimeSeconds > 0) this.createTimeSeconds = createTimeSeconds
         }
         try {
@@ -920,14 +934,15 @@ class ChatController @Inject constructor(
             Log.w(TAG, "Channel message update via REST failed, using socket", e)
             sentryReporter.logSocketWarning(
                 "channelMessageUpdate",
-                "fallback socket channelId=$channelId messageId=$messageId err=${e.message}"
+                "fallback socket channelId=$targetChannelId messageId=$messageId err=${e.message}"
             )
             if (mezonSocket.connectionState.value != ConnectionState.CONNECTED) throw e
         }
         withContext(ioDispatcher) {
             mezonSocket.updateChatMessage(
-                clanId, channelId, mode, isPublic, messageId, content,
+                clanId, targetChannelId, mode, isPublic, messageId, content,
                 mentions?.takeIf { it.isNotEmpty() }, attachmentPayload, hideEditted, topicId,
+                isUpdateMsgTopic = isUpdateMsgTopic,
                 createTimeSeconds = createTimeSeconds,
             )
         }
@@ -1428,6 +1443,8 @@ class ChatController @Inject constructor(
         private const val SHARE_RETRY_DELAY_MS = 4000L
         private const val ATTACHMENT_UPLOAD_PARALLELISM = 4
         private const val PRESIGN_EDIT_BATCH_SIZE = 4
+        private const val PRESIGN_FINISH_SYNC_DELAY_MS = 300L
+        private const val PRESIGN_SEND_FIRST_MIN_COUNT = 4
         private const val IMAGE_COMPRESSION_PARALLELISM = 2
         private const val LARGE_ATTACHMENT_BYTES = 50L * 1024 * 1024
         private const val LARGE_ATTACHMENT_PARALLELISM = 3
@@ -1660,7 +1677,8 @@ class ChatController @Inject constructor(
         text: String,
         attachments: List<AttachmentPickerItem>,
         contentResolver: android.content.ContentResolver,
-        markdownMarkers: List<MarkdownMarker>? = null
+        markdownMarkers: List<MarkdownMarker>? = null,
+        parentId: Long = 0L
     ) {
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
@@ -1722,6 +1740,8 @@ class ChatController @Inject constructor(
 
         appScope.launch(ioDispatcher) {
             try {
+                runCatching { joinChannelOnSocket(channelId, clanId, channelType, isChannelPrivate, parentId) }
+                    .onFailure { Log.w(TAG, "shareMedia: joinChat failed channelId=$channelId", it) }
                 sessionManager.withAutoRefresh { session ->
                     ensureActiveArchivedThreadIfNeeded(session.apiUrl, session.token, channelId, clanId, channelType)
                     sendAttachmentsIncrementally(
@@ -1834,6 +1854,74 @@ class ChatController @Inject constructor(
 
             val attachmentsToSend = preparedSlots.map { it.attachment }
             val outgoingBase = PresignFinishContent.presignSyncOriginContent(params.wireContent)
+
+            val validItemCount = items.count { it != null }
+            if (validItemCount < PRESIGN_SEND_FIRST_MIN_COUNT) {
+                val uploadFailedIndices = HashSet<Int>()
+                coroutineScope {
+                    preparedSlots.map { slot ->
+                        async(ioDispatcher) {
+                            val ok = executeBackgroundAttachmentUpload(slot, apiUrl, token, params.maxRetriesPerFile)
+                            resultMutex.withLock {
+                                if (ok) {
+                                    job.uploadedCount += 1
+                                } else {
+                                    uploadFailedIndices.add(slot.index)
+                                    job.failedCount += 1
+                                }
+                            }
+                        }
+                    }.awaitAll()
+                }
+                preparedSlots.forEach { AttachmentUploadProgressStore.clear(it.progressKey) }
+
+                val uploadedSlots = preparedSlots.filter { !uploadFailedIndices.contains(it.index) }
+                if (uploadedSlots.isEmpty() || (firstItemValid && uploadFailedIndices.contains(0))) {
+                    notificationCenter.postNotificationOnMainThread(
+                        NotificationCenter.pendingMessageError, params.cacheKey, params.tempId
+                    )
+                    return
+                }
+
+                val request = channelMessageSend {
+                    this.clanId = params.clanId
+                    this.channelId = params.channelId
+                    this.mode = params.mode
+                    this.isPublic = params.isPublic
+                    this.content = outgoingBase
+                    this.attachments.addAll(uploadedSlots.map { it.attachment })
+                    params.protoMentions?.takeIf { it.isNotEmpty() }?.let { this.mentions.addAll(it) }
+                    params.references?.takeIf { it.isNotEmpty() }?.let { this.references.addAll(it) }
+                    this.mentionEveryone = params.mentionEveryone
+                    if (params.anon) this.anonymousMessage = true
+                    if (params.topicId != 0L) this.topicId = params.topicId
+                }
+                val ack = channelSend(apiUrl, token, request)
+                realMessageId = ack.messageId
+                job.realMessageId = realMessageId
+                synchronized(this) {
+                    attachmentJobsByRealId.put(realMessageId, job)
+                }
+                markForwardTargetUsed(params.channelId, params.channelType)
+
+                val allFailedIndices = HashSet<Int>(presignFailedIndices).apply { addAll(uploadFailedIndices) }
+                val uploadedByIndexFirst: List<MessageAttachment?> = items.indices.map { idx ->
+                    if (uploadFailedIndices.contains(idx)) null else preparedByIndex[idx]?.attachment
+                }
+                val updatedEntity = applyLocalAfterFirstSendOrdered(
+                    params.cacheKey, params.tempId, realMessageId,
+                    params.allItems, uploadedByIndexFirst, allFailedIndices, outgoingBase,
+                )
+                notificationCenter.postNotificationOnMainThread(
+                    NotificationCenter.pendingMessageSent, params.cacheKey, params.tempId, realMessageId
+                )
+                notificationCenter.postNotificationOnMainThread(
+                    NotificationCenter.messageDidUpdate, params.cacheKey, updatedEntity,
+                    NotificationCenter.UPDATE_MASK_ATTACHMENTS or NotificationCenter.UPDATE_MASK_MESSAGE_TEXT,
+                )
+                return
+            }
+
             val contentWithPresign = PresignFinishContent.injectEmptyPresignFinish(outgoingBase)
             val request = channelMessageSend {
                 this.clanId = params.clanId
@@ -1850,6 +1938,7 @@ class ChatController @Inject constructor(
             }
             val ack = channelSend(apiUrl, token, request)
             realMessageId = ack.messageId
+            val ackCreateTimeSeconds = ack.createTimeSeconds
             job.realMessageId = realMessageId
             synchronized(this) {
                 attachmentJobsByRealId.put(realMessageId, job)
@@ -1881,6 +1970,12 @@ class ChatController @Inject constructor(
                 applyLocalPresignContentUpdate(params.cacheKey, realMessageId, content)
             }
 
+            suspend fun resolveCreateTimeSeconds(): Int {
+                val stored = getMessageById(params.cacheKey, realMessageId)
+                    ?.timestampSeconds?.toInt() ?: 0
+                return if (stored > 0) stored else ackCreateTimeSeconds
+            }
+
             suspend fun maybeSyncPresignFinishToServer(forceFlush: Boolean) {
                 val snapshot: List<String>
                 val pendingNew: Int
@@ -1893,7 +1988,11 @@ class ChatController @Inject constructor(
                     snapshot = presignFinishedKeys.toList()
                 }
                 try {
-                    val content = PresignFinishContent.injectPresignFinish(outgoingBase, snapshot)
+                    val createTimeSeconds = resolveCreateTimeSeconds()
+                    val content = PresignFinishContent.withCreateTimeSeconds(
+                        PresignFinishContent.injectPresignFinish(outgoingBase, snapshot),
+                        createTimeSeconds,
+                    )
                     val maxAttempts = if (forceFlush) 2 else 1
                     var synced = false
                     for (attempt in 1..maxAttempts) {
@@ -1903,6 +2002,7 @@ class ChatController @Inject constructor(
                                 params.clanId, params.channelId, params.mode, params.isPublic,
                                 realMessageId, content, mentions = params.protoMentions,
                                 hideEditted = true, topicId = params.topicId,
+                                createTimeSeconds = createTimeSeconds,
                             )
                             synced = true
                             break
@@ -1930,6 +2030,7 @@ class ChatController @Inject constructor(
                         if (ok) {
                             val key = PresignFinishContent.presignKey(slot.attachment.url)
                             if (key.isNotEmpty()) {
+                                delay(PRESIGN_FINISH_SYNC_DELAY_MS)
                                 var shouldApplyLocal = false
                                 presignMutex.withLock {
                                     if (!presignFinishedKeys.contains(key)) {
@@ -2734,6 +2835,10 @@ class ChatController @Inject constructor(
             }
         }
         val mentionPayload = protoMentions?.takeIf { it.isNotEmpty() }
+        val existingCreateTimeSeconds = existingMessage?.timestampSeconds?.toInt() ?: 0
+        if (existingMessage != null && existingMessage.attachmentUrl.isNotEmpty()) {
+            content = PresignFinishContent.withCreateTimeSeconds(content, existingCreateTimeSeconds)
+        }
         appScope.launch {
             try {
                 sessionManager.withAutoRefresh { session ->
@@ -2743,6 +2848,7 @@ class ChatController @Inject constructor(
                         mentionPayload,
                         hideEditted = false,
                         topicId = topicId,
+                        createTimeSeconds = existingCreateTimeSeconds,
                     )
                 }
                 applyLocalEdit(cacheKey, messageId, content)
@@ -2777,17 +2883,49 @@ class ChatController @Inject constructor(
         )
     }
 
-    fun deleteMessage(channelId: Long, clanId: Long, channelType: Int, isChannelPrivate: Boolean, messageId: Long, topicId: Long = 0L) {
+    fun deleteMessage(
+        channelId: Long,
+        clanId: Long,
+        channelType: Int,
+        isChannelPrivate: Boolean,
+        messageId: Long,
+        topicId: Long = 0L,
+        hasAttachment: Boolean = false
+    ) {
         val mode = channelTypeToStreamMode(channelType)
-        val isPublic = !isChannelPrivate
+        val parentId = channelController.get().findChannelById(channelId)?.parentId ?: 0L
+        val threadLike = channelType == CHANNEL_TYPE_THREAD || parentId != 0L
+        val isPublic = clanId != 0L && !threadLike && !isChannelPrivate
+        val request = channelMessageRemove {
+            this.clanId = clanId
+            this.channelId = channelId
+            this.messageId = messageId
+            this.mode = mode
+            this.isPublic = isPublic
+            this.hasAttachment = hasAttachment
+            if (topicId != 0L) this.topicId = topicId
+        }
+        val cacheKey = if (topicId != 0L) topicId else channelId
         appScope.launch {
             try {
-                mezonSocket.removeChatMessage(clanId, channelId, mode, isPublic, messageId, topicId = topicId)
+                sessionManager.withAutoRefresh { session ->
+                    withContext(ioDispatcher) {
+                        api.deleteChannelMessage(session.apiUrl, session.token, request)
+                    }
+                }
+                applyLocalDelete(cacheKey, messageId)
                 Log.d(TAG, "Message deleted: channelId=$channelId messageId=$messageId topicId=$topicId isPublic=$isPublic")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to delete message", e)
             }
         }
+    }
+
+    private suspend fun applyLocalDelete(cacheKey: Long, messageId: Long) {
+        withContext(ioDispatcher) { messageDao.delete(cacheKey, messageId) }
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.messageDidDelete, cacheKey, messageId
+        )
     }
 
     private suspend fun observeSdTopicEvents() {

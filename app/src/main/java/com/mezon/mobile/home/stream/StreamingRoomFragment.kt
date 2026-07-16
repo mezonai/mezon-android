@@ -8,6 +8,7 @@ import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
+import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -210,6 +211,8 @@ class StreamingRoomFragment : BaseFragment() {
             LayoutHelper.MATCH_PARENT.toFloat(), LayoutHelper.WRAP_CONTENT.toFloat(),
             Gravity.BOTTOM, 24f, 0f, 24f, 24f
         ))
+
+        getParentActivity()?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         bindSession()
         loadBackgroundIfNeeded()
@@ -438,9 +441,7 @@ class StreamingRoomFragment : BaseFragment() {
             gravity = Gravity.CENTER_VERTICAL
         }
         val chat = circleButton(context, MezonIcon.chatIcon) {
-            (getParentActivity() as? MainActivity)?.openChat(
-                channelId, channelLabel, clanId, CHANNEL_TYPE_STREAMING
-            )
+            openChatForChannel()
         }
         val leave = VoiceStyleCircleButton(
             context,
@@ -472,6 +473,12 @@ class StreamingRoomFragment : BaseFragment() {
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
             }, FrameLayout.LayoutParams(LayoutHelper.dp(20), LayoutHelper.dp(20), Gravity.CENTER))
         }
+    }
+
+    private fun openChatForChannel() {
+        val activity = getParentActivity() as? MainActivity ?: return
+        activity.openChat(channelId, channelLabel, clanId, CHANNEL_TYPE_STREAMING)
+        minimizeToOverlay()
     }
 
     private fun minimizeToOverlay() {
@@ -511,6 +518,7 @@ class StreamingRoomFragment : BaseFragment() {
             streamingSession.onStreamingStateChanged = null
             streamingSession.onRemoteVideoTrackChanged = null
         }
+        getParentActivity()?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         clearMemberAvatars()
         if (::videoRenderer.isInitialized) {
             streamingSession.remoteVideoTrack?.removeSink(videoRenderer)

@@ -2,8 +2,8 @@ package com.mezon.mobile.home.call
 
 import android.Manifest
 import android.content.Context
-import android.content.Intent
 import android.graphics.drawable.GradientDrawable
+import android.media.AudioManager
 import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
@@ -70,8 +70,7 @@ class CallFragment : BaseFragment() {
         ))
 
         dmHeader = DmCallHeaderView(context, themeColors).apply {
-            onCloseClick = {
-                callController.hangup()
+            onMinimizeClick = {
                 finishFragment()
             }
             onSwitchCameraClick = {
@@ -145,6 +144,7 @@ class CallFragment : BaseFragment() {
 
         updateUI()
         fragmentView = root
+        getParentActivity()?.volumeControlStream = AudioManager.STREAM_VOICE_CALL
         return root
     }
 
@@ -209,6 +209,7 @@ class CallFragment : BaseFragment() {
     }
 
     override fun onFragmentDestroy() {
+        getParentActivity()?.volumeControlStream = AudioManager.USE_DEFAULT_STREAM_TYPE
         fragmentView?.removeCallbacks(finishAfterBusyRunnable)
         showingBusyEnd = false
         durationView?.stopTimer()
@@ -361,13 +362,12 @@ class CallFragment : BaseFragment() {
                 durationView?.visibility = View.GONE
             }
             is CallState.Connected -> {
+                applyConnectedMainLayout(callInfo)
                 avatarView?.setConnected(true)
                 avatarView?.setStatus("")
                 durationView?.visibility = View.VISIBLE
                 durationView?.startTimer(state.connectedTime)
-                applyConnectedMainLayout(callInfo)
                 lastConnectedMainVideoMode = shouldShowRemoteVideo()
-                startForegroundService(callInfo)
             }
         }
     }
@@ -470,17 +470,4 @@ class CallFragment : BaseFragment() {
         videoView?.let { contentContainer?.bringChildToFront(it) }
     }
 
-    private fun startForegroundService(callInfo: CallInfo?) {
-        try {
-            val ctx = getContext() ?: return
-            val state = callController.callState
-            if (state !is CallState.Connected) return
-
-            val intent = Intent(ctx, CallForegroundService::class.java).apply {
-                putExtra(CallForegroundService.EXTRA_CALLER_NAME, callInfo?.peerName ?: "Unknown")
-                putExtra(CallForegroundService.EXTRA_CONNECTED_TIME, state.connectedTime)
-            }
-            ctx.startForegroundService(intent)
-        } catch (_: Exception) {}
-    }
 }

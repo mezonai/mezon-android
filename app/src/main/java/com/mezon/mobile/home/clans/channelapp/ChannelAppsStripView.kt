@@ -8,6 +8,7 @@ import android.graphics.Rect
 import android.content.res.ColorStateList
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
+import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -21,6 +22,7 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.chat.MezonImageLoader
+import com.mezon.mobile.home.clans.ChannelSectionCell
 import com.mezon.mobile.ui.cells.MezonIcon
 
 private const val LIMIT = 10
@@ -31,6 +33,8 @@ private const val HORIZONTAL_LOGO_SIZE_DP = 48
 
 private val BLURPLE = 0xFF5A62F4.toInt()
 private val STATUS_DOT = 0xFF43B581.toInt()
+
+private val STRIP_MARGIN = LayoutHelper.dp(8)
 
 class ChannelAppsStripView(
     context: Context,
@@ -57,7 +61,8 @@ class ChannelAppsStripView(
         headerContainer = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, LayoutHelper.dp(8), 0, LayoutHelper.dp(8))
+            minimumHeight = ChannelSectionCell.HEIGHT
+            setPadding(ChannelSectionCell.PADDING_START - STRIP_MARGIN, 0, 0, 0)
             isClickable = true
             isFocusable = true
             setOnClickListener {
@@ -68,16 +73,13 @@ class ChannelAppsStripView(
         }
         headerArrow = ImageView(context).apply {
             setImageDrawable(MezonIcon.chevronDownSmallIcon.getDrawable(context, themeColors.colorText))
-            val sz = LayoutHelper.dp(16)
-            layoutParams = LayoutParams(sz, sz).apply {
-                rightMargin = LayoutHelper.dp(6)
-            }
+            layoutParams = LayoutParams(ChannelSectionCell.ARROW_SIZE, ChannelSectionCell.ARROW_SIZE)
         }
         header = TextView(context).apply {
-            textSize = 13f
+            setTextSize(TypedValue.COMPLEX_UNIT_PX, LayoutHelper.sp(13f))
             setTextColor(themeColors.colorText)
             typeface = android.graphics.Typeface.DEFAULT_BOLD
-            isAllCaps = false
+            isAllCaps = true
         }
         headerContainer.addView(headerArrow)
         headerContainer.addView(header)
@@ -96,7 +98,7 @@ class ChannelAppsStripView(
 
         horizontalContainer = LinearLayout(context).apply {
             orientation = HORIZONTAL
-            setPadding(0, LayoutHelper.dp(6), LayoutHelper.dp(12), 0)
+            setPadding(0, LayoutHelper.dp(6), LayoutHelper.dp(12), LayoutHelper.dp(10))
         }
         horizontalScroll = HorizontalScrollView(context).apply {
             isHorizontalScrollBarEnabled = false

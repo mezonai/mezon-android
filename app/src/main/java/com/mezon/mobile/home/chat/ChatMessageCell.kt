@@ -143,7 +143,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     }
 
     var hasMentionHighlight: Boolean = false
-    private var highlightProgress = 0f
+    private var jumpHighlightStartedAtMs = 0L
 
     var messageEntity: MessageEntity? = null
         private set
@@ -472,7 +472,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     fun clearState() {
         messageEntity = null
         pendingMessage = null
-        highlightProgress = 0f
+        jumpHighlightStartedAtMs = 0L
         contentLayout = null
         senderLayout = null
         timeLayout = null
@@ -2870,7 +2870,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     }
 
     fun setHighlight() {
-        highlightProgress = 1f
+        jumpHighlightStartedAtMs = android.os.SystemClock.uptimeMillis()
         invalidate()
     }
 
@@ -2889,12 +2889,25 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             canvas.drawRect(0f, 0f, MENTION_BAR_WIDTH.toFloat(), height.toFloat(), MENTION_BAR_PAINT)
         }
 
-        if (highlightProgress > 0f) {
-            val a = (highlightProgress * 0x30).toInt().coerceIn(0, 0xFF)
-            HIGHLIGHT_BG_PAINT.color = theme.midnightBlue and 0x00FFFFFF or (a shl 24)
+        if (jumpHighlightStartedAtMs != 0L) {
+            val elapsed = android.os.SystemClock.uptimeMillis() - jumpHighlightStartedAtMs
+            val progress = when {
+                elapsed <= HIGHLIGHT_HOLD_MS -> 1f
+                elapsed < HIGHLIGHT_HOLD_MS + HIGHLIGHT_FADE_MS ->
+                    1f - (elapsed - HIGHLIGHT_HOLD_MS).toFloat() / HIGHLIGHT_FADE_MS
+                else -> 0f
+            }
+            val a = (progress * HIGHLIGHT_MAX_ALPHA).toInt().coerceIn(0, 0xFF)
+            HIGHLIGHT_BG_PAINT.color = theme.blurple and 0x00FFFFFF or (a shl 24)
             canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), HIGHLIGHT_BG_PAINT)
-            highlightProgress = (highlightProgress - HIGHLIGHT_DECAY_STEP).coerceAtLeast(0f)
-            if (highlightProgress > 0f && visibleOnScreen) postInvalidateDelayed(16)
+            HIGHLIGHT_BORDER_PAINT.color = theme.blurple
+            HIGHLIGHT_BORDER_PAINT.alpha = (progress * 255).toInt().coerceIn(0, 255)
+            canvas.drawRect(0f, 0f, HIGHLIGHT_BORDER_WIDTH.toFloat(), height.toFloat(), HIGHLIGHT_BORDER_PAINT)
+            if (progress > 0f && visibleOnScreen) {
+                postInvalidateDelayed(16)
+            } else if (progress <= 0f) {
+                jumpHighlightStartedAtMs = 0L
+            }
         }
 
         val alpha = when {
@@ -4447,6 +4460,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             val specKey = "${spec.textarea}|${spec.numberInput}|${spec.dateInput}|${spec.disabled}|${spec.placeholder}|${spec.defaultValue}"
             val identityChanged =
                 boundMessageId != messageId || boundComponentId != componentId || boundSpecKey != specKey
+            suppressWatch = true
             boundMessageId = messageId
             boundComponentId = componentId
             boundSpecKey = specKey
@@ -4535,14 +4549,13 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
             if (identityChanged) {
                 val stored = EmbedFormUtil.getValue(messageId, componentId)
-                suppressWatch = true
                 edit.setText(stored ?: spec.defaultValue)
-                suppressWatch = false
                 edit.scrollTo(0, 0)
                 if (stored == null && spec.defaultValue.isNotEmpty()) {
                     EmbedFormUtil.setValue(messageId, componentId, spec.defaultValue)
                 }
             }
+            suppressWatch = false
         }
 
         private fun showDatePicker() {
@@ -4878,7 +4891,11 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
 
         private val HIGHLIGHT_BG_PAINT = Paint()
-        private const val HIGHLIGHT_DECAY_STEP = 16f / 2000f
+        private val HIGHLIGHT_BORDER_PAINT = Paint()
+        private val HIGHLIGHT_BORDER_WIDTH = LayoutHelper.dp(2f)
+        private const val HIGHLIGHT_HOLD_MS = 1_500L
+        private const val HIGHLIGHT_FADE_MS = 300L
+        private const val HIGHLIGHT_MAX_ALPHA = 0x30
 
         private val REPLY_CONNECTOR_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = 0xFF5C5E66.toInt()

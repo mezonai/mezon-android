@@ -307,7 +307,16 @@ class ChannelListView(
             if (expanded || section.categoryName.isEmpty()) {
                 if (isFav) {
                     for (ch in section.channels) {
-                        rows.add(ChannelRow.Channel(ch, ch.channelId == activeChannelId, isFavorite = true))
+                        val voiceActive = isVoiceType(ch.type) &&
+                            voiceMembersByChannel[ch.channelId]?.isNotEmpty() == true
+                        rows.add(ChannelRow.Channel(
+                            ch, ch.channelId == activeChannelId, isFavorite = true, voiceActive = voiceActive
+                        ))
+                        if (isVoiceType(ch.type)) {
+                            voiceMembersByChannel[ch.channelId]?.forEach { member ->
+                                rows.add(ChannelRow.VoiceMember(ch.channelId, member, isFavorite = true))
+                            }
+                        }
                     }
                 } else {
                 val visibleThreads = mutableListOf<Triple<ClanChannelEntity, Boolean, Boolean>>()
@@ -495,7 +504,10 @@ class ChannelListView(
             is ChannelRow.Section -> -row.categoryId
             is ChannelRow.Channel -> if (row.isFavorite) row.channel.channelId.inv() else row.channel.channelId
             is ChannelRow.Thread -> row.thread.channelId
-            is ChannelRow.VoiceMember -> Long.MAX_VALUE - row.member.userId xor row.channelId
+            is ChannelRow.VoiceMember -> {
+                val id = (Long.MAX_VALUE - row.member.userId) xor row.channelId
+                if (row.isFavorite) id.inv() else id
+            }
             is ChannelRow.VoiceCollapsedMembers -> Long.MIN_VALUE xor row.channelId
         }
 
@@ -588,7 +600,7 @@ private class RowDiffCallback(
         if (a is ChannelRow.Section && b is ChannelRow.Section) return a.categoryId == b.categoryId
         if (a is ChannelRow.Channel && b is ChannelRow.Channel) return a.channel.channelId == b.channel.channelId && a.isFavorite == b.isFavorite
         if (a is ChannelRow.Thread && b is ChannelRow.Thread) return a.thread.channelId == b.thread.channelId
-        if (a is ChannelRow.VoiceMember && b is ChannelRow.VoiceMember) return a.channelId == b.channelId && a.member.userId == b.member.userId
+        if (a is ChannelRow.VoiceMember && b is ChannelRow.VoiceMember) return a.channelId == b.channelId && a.member.userId == b.member.userId && a.isFavorite == b.isFavorite
         if (a is ChannelRow.VoiceCollapsedMembers && b is ChannelRow.VoiceCollapsedMembers) return a.channelId == b.channelId
         return false
     }
@@ -617,6 +629,10 @@ sealed class ChannelRow {
         val voiceActive: Boolean = false
     ) : ChannelRow()
     data class Thread(val thread: ClanChannelEntity, val isFirst: Boolean, val isLast: Boolean, val isActive: Boolean) : ChannelRow()
-    data class VoiceMember(val channelId: Long, val member: VoiceMemberDisplay) : ChannelRow()
+    data class VoiceMember(
+        val channelId: Long,
+        val member: VoiceMemberDisplay,
+        val isFavorite: Boolean = false
+    ) : ChannelRow()
     data class VoiceCollapsedMembers(val channelId: Long, val members: List<VoiceMemberDisplay>) : ChannelRow()
 }

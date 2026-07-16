@@ -97,15 +97,8 @@ private const val PREVIEW_ELLIPSIS = "..."
 fun formatDirectMessagePreview(preview: String): String {
     if (preview.isEmpty() || preview.endsWith(PREVIEW_ELLIPSIS)) return preview
 
-    val bytes = preview.toByteArray(Charsets.UTF_8)
-    if (bytes.size <= PREVIEW_MAX_UTF8_BYTES) {
-        return if (bytes.size >= PREVIEW_ELLIPSIS_THRESHOLD_BYTES) preview + PREVIEW_ELLIPSIS else preview
-    }
-
-    var end = PREVIEW_MAX_UTF8_BYTES
-    while (end > 0 && (bytes[end - 1].toInt() and 0xC0) == 0x80) end--
-    if (end > 0 && (bytes[end - 1].toInt() and 0x80) != 0) end--
-    return String(bytes, 0, end, Charsets.UTF_8) + PREVIEW_ELLIPSIS
+    val byteCount = preview.toByteArray(Charsets.UTF_8).size
+    return if (byteCount >= PREVIEW_ELLIPSIS_THRESHOLD_BYTES) preview + PREVIEW_ELLIPSIS else preview
 }
 
 fun ChannelDescription.toDirectMessage(currentUserId: Long, previewContext: android.content.Context? = null): DirectMessage {

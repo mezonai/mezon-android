@@ -38,6 +38,8 @@ class MezonCallConnectionService : ConnectionService() {
         connection.setRinging()
         silenceSystemIncomingRingtone(connection)
 
+        CallTelecomBridge.from(applicationContext)?.attach(connection)
+
         return connection
     }
 
@@ -46,11 +48,29 @@ class MezonCallConnectionService : ConnectionService() {
         request: ConnectionRequest?
     ): Connection {
         val connection = MezonCallConnection(applicationContext)
+
+        val outgoingExtras = request?.extras?.getBundle(TelecomManager.EXTRA_OUTGOING_CALL_EXTRAS)
+        outgoingExtras?.let { extras ->
+            val peerName = extras.getString(CallManager.EXTRA_CALLER_NAME, "Unknown")
+            connection.setCallerDisplayName(peerName, TelecomManager.PRESENTATION_ALLOWED)
+        }
+        request?.address?.let { connection.setAddress(it, TelecomManager.PRESENTATION_ALLOWED) }
+
         connection.setConnectionProperties(Connection.PROPERTY_SELF_MANAGED)
         connection.setConnectionCapabilities(Connection.CAPABILITY_MUTE)
         connection.setAudioModeIsVoip(true)
         connection.setDialing()
+
+        CallTelecomBridge.from(applicationContext)?.attach(connection)
+
         return connection
+    }
+
+    override fun onCreateOutgoingConnectionFailed(
+        connectionManagerPhoneAccount: PhoneAccountHandle?,
+        request: ConnectionRequest?
+    ) {
+        Log.w(TAG, "onCreateOutgoingConnectionFailed account=$connectionManagerPhoneAccount")
     }
 
     override fun onCreateIncomingConnectionFailed(

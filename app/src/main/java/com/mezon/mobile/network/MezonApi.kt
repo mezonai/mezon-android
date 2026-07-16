@@ -842,6 +842,7 @@ class MezonApi @Inject constructor(
         val request = sessionRefreshRequest {
             this.token = refreshToken
             this.isRemember = isRemember
+            this.vars["m"] = "true"
         }
         val basicCreds = Base64.encodeToString(
             "$SERVER_KEY:".toByteArray(),
@@ -859,7 +860,7 @@ class MezonApi @Inject constructor(
         if (!response.status.isSuccess()) {
             val errorBody = response.bodyAsText()
             val code = response.status.value
-            if (code == 401 || code == 403 || code == 500) {
+            if (code == 401 || code == 403) {
                 throw UnauthorizedException("SessionRefresh: $code Unauthorized")
             }
             throw RuntimeException("SessionRefresh failed ($code): $errorBody")
@@ -1689,6 +1690,12 @@ class MezonApi @Inject constructor(
         token: String,
         request: com.mezon.mezon.rtapi.ChannelMessageUpdate
     ): ByteArray = rpc(apiUrl, token, "UpdateChannelMessage", request.toByteArray())
+
+    suspend fun deleteChannelMessage(
+        apiUrl: String,
+        token: String,
+        request: com.mezon.mezon.rtapi.ChannelMessageRemove
+    ): ByteArray = rpc(apiUrl, token, "DeleteChannelMessage", request.toByteArray())
 
     suspend fun channelMessageReact(
         apiUrl: String,

@@ -873,7 +873,10 @@ class DialogsController @Inject constructor(
             if (idx >= 0) dialogs[idx] = u
             updated = u
         }
-        updated?.let { appScope.launch(ioDispatcher) { directMessageDao.upsert(it) } }
+        updated?.let {
+            appScope.launch(ioDispatcher) { directMessageDao.upsert(it) }
+            postDialogsReadRefresh()
+        }
     }
 
     fun markDialogAsRead(channelId: Long, postEvent: Boolean = true, seenTimestampSeconds: Int = 0, seenMessageId: Long = 0L) {
@@ -902,12 +905,16 @@ class DialogsController @Inject constructor(
             val row = updated!!
             appScope.launch(ioDispatcher) { directMessageDao.upsert(row) }
             if (postEvent) {
-                notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
-                notificationCenter.postNotificationOnMainThread(
-                    NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_READ_DIALOG_MESSAGE
-                )
+                postDialogsReadRefresh()
             }
         }
+    }
+
+    private fun postDialogsReadRefresh() {
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_READ_DIALOG_MESSAGE
+        )
     }
 
     suspend fun markDialogAsReadFromMenu(channelId: Long): Result<Unit> = withContext(ioDispatcher) {
@@ -915,7 +922,8 @@ class DialogsController @Inject constructor(
             sessionManager.withAutoRefresh { session ->
                 api.markAsRead(session.apiUrl, session.token, channelId = channelId)
             }
-            markDialogAsRead(channelId)
+            markDialogAsRead(channelId, seenMessageId = getDialog(channelId)?.lastSentMessageId ?: 0L)
+            postDialogsReadRefresh()
         }
     }
 

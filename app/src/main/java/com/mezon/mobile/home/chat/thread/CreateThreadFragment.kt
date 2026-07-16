@@ -2184,7 +2184,8 @@ class CreateThreadFragment : BaseFragment() {
                         topicController.createTopic(
                             clanId = clanId,
                             parentChannelId = parentChannelId,
-                            messageId = seedMessageId
+                            messageId = seedMessageId,
+                            rootMessage = seedMessage
                         )
                     } ?: throw IllegalStateException("create topic failed")
                     val topicRootMessageId = createdTopic.messageId.takeIf { it != 0L } ?: seedMessageId

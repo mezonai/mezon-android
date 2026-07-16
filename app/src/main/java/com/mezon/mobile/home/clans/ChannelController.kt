@@ -104,6 +104,7 @@ class ChannelController @Inject constructor(
     private val clansController: dagger.Lazy<ClansController>,
     private val badgeCoordinator: dagger.Lazy<com.mezon.mobile.home.BadgeCoordinator>,
     private val topicBadgeTracker: dagger.Lazy<com.mezon.mobile.home.TopicBadgeTracker>,
+    private val channelAppController: dagger.Lazy<com.mezon.mobile.home.clans.channelapp.ChannelAppController>,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     @ApplicationScope private val appScope: CoroutineScope
 ) {
@@ -624,6 +625,7 @@ class ChannelController @Inject constructor(
         val existing = _channelsByClan.value[clanId] ?: emptyList()
         updateCache(clanId, existing.filter { it.channelId != channelId })
         favoritesByClan[clanId]?.remove(channelId)
+        channelAppController.get().removeAppLocally(clanId, channelId)
         appScope.launch(ioDispatcher) {
             clanChannelDao.delete(clanId, channelId)
             favoriteChannelDao.delete(clanId, channelId)
