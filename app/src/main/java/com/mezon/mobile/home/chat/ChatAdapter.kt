@@ -16,6 +16,15 @@ class ChatAdapter(
     var cellDelegate: ChatMessageCell.ChatMessageCellDelegate? = null
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
+    var currentUserRoleIds: List<Long> = emptyList()
+        set(value) {
+            if (field == value) return
+            field = value
+            mentionCache.clear()
+            if (messages.isNotEmpty()) {
+                notifyItemRangeChanged(messagesStartRow, messages.size)
+            }
+        }
     var pollBridge: com.mezon.mobile.home.chat.poll.ChatPollBridge? = null
     var shareContactOnlineResolver: ((Long) -> Boolean)? = null
     var displayRoleResolver: ((Long) -> UserDisplayRole?)? = null
@@ -390,14 +399,15 @@ class ChatAdapter(
     }
 
     private fun cachedHasMention(msg: MessageEntity): Boolean {
-        if (currentUserId.isEmpty()) return false
+        val userId = currentUserId.toLongOrNull() ?: return false
+        if (userId == 0L) return false
         if (mentionCacheUserId != currentUserId) {
             mentionCacheUserId = currentUserId
             mentionCache.clear()
         }
         val cached = mentionCache.get(msg.id)
         if (cached != null) return cached
-        val value = msg.hasMention(currentUserId)
+        val value = msg.isMentionOrReplyForUser(userId, currentUserRoleIds)
         mentionCache.put(msg.id, value)
         return value
     }

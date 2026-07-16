@@ -156,7 +156,7 @@ class CallAvatarView(
         val avatarTop = LayoutHelper.dp(10).toFloat()
         val avatarRadius = avatarSize / 2f
 
-        if (!isConnected) {
+        if (!isConnected && ringAnimator != null) {
             drawRingCircles(canvas, cx, avatarTop + avatarRadius)
         }
 
@@ -220,6 +220,9 @@ class CallAvatarView(
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         attachedToWindow = true
+        if (!isConnected && !connectingSpinner) {
+            startRingAnimation()
+        }
         val url = currentAvatarUrl
         if (!url.isNullOrBlank() && cancellable == null && !avatarDrawable.hasPhoto()) {
             loadAvatar(url)

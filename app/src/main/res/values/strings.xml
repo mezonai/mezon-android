@@ -272,6 +272,7 @@
     <string name="message_toast_copy_image_done">Copied image</string>
     <string name="message_toast_copy_image_failed">Could not copy image</string>
     <string name="message_paste_failed">Could not paste image</string>
+    <string name="message_convert_to_file_failed">Could not convert message to a file</string>
     <string name="message_forwarded">Forwarded</string>
     <string name="message_reply_deleted">Original message was deleted</string>
 
@@ -387,8 +388,11 @@
     <string name="notif_tab_messages">Messages</string>
     <string name="notif_tab_topics">Topics</string>
     <string name="notif_tab_topics_empty">No topic activity</string>
-    <string name="notif_topic_and_you">Topic and you</string>
-    <string name="notif_replied_to">Replied To:</string>
+    <string name="notif_topic_discussion">TOPIC DISCUSSION</string>
+    <string name="notif_original_message">Original message:</string>
+    <string name="notif_topic_original_attachment">[Attachment]</string>
+    <string name="notif_topic_original_contact">[Contact]</string>
+    <string name="notif_topic_original_interactive_message">[Interactive message]</string>
     <string name="topic_discussion">Topic Discussion</string>
     <string name="topic_creator">Creator</string>
     <string name="topic_view">View topic</string>
@@ -1669,6 +1673,7 @@
     <string name="call_full_screen_intent_open_settings">Turn on</string>
     <string name="call_full_screen_intent_start_call_anyway">Start call anyway</string>
     <string name="call_full_screen_intent_incoming_hint">Fullscreen while locked off — tap to turn on</string>
+    <string name="call_ongoing_banner_title">Ongoing call</string>
 
     <!-- Sound Effect Settings -->
     <string name="sound_upload_instructions_title">Upload Instructions</string>

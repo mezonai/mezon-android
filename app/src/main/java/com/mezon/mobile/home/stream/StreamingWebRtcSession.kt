@@ -1,15 +1,20 @@
 package com.mezon.mobile.home.stream
 
+import android.content.Context
 import android.util.Log
 import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.MainDispatcher
 import com.mezon.mobile.home.call.WebRtcInfra
+import dagger.hilt.android.qualifiers.ApplicationContext
 import java.net.URLEncoder
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -29,9 +34,11 @@ import org.webrtc.SessionDescription
 import org.webrtc.VideoTrack
 
 private const val TAG = "StreamingWebRTC"
+private const val AVAILABILITY_POLL_INTERVAL_MS = 3_000L
 
 @Singleton
 class StreamingWebRtcSession @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val webRtcInfra: WebRtcInfra,
     private val okHttpClient: OkHttpClient,
     @ApplicationScope private val appScope: CoroutineScope,
@@ -51,12 +58,16 @@ class StreamingWebRtcSession @Inject constructor(
     @Volatile var onStreamingStateChanged: (() -> Unit)? = null
     @Volatile var onRemoteVideoTrackChanged: ((VideoTrack?) -> Unit)? = null
 
+    private val audioRouting by lazy { StreamingAudioManager(context) }
+
     private var webSocket: WebSocket? = null
     private var peerConnection: PeerConnection? = null
     private var pendingClanId = 0L
     private var pendingChannelId = 0L
     private var pendingStreamId = 0L
     private var pendingUserId = ""
+    @Volatile private var availabilityPollJob: Job? = null
+    @Volatile private var hasSubscribedToStream = false
 
     fun join(
         clanId: Long,
@@ -77,6 +88,7 @@ class StreamingWebRtcSession @Inject constructor(
         pendingStreamId = streamId
         pendingUserId = userId
         activeStreamChannelId = streamId
+        audioRouting.start()
 
         webRtcInfra.ensureFactoryReady()
         val pc = createPeerConnection() ?: run {
@@ -105,6 +117,9 @@ class StreamingWebRtcSession @Inject constructor(
 
     fun disconnect() {
         log("disconnect streamId=${activeStreamChannelId ?: "nil"} isStreaming=$isStreaming")
+        availabilityPollJob?.cancel()
+        availabilityPollJob = null
+        hasSubscribedToStream = false
         webSocket?.close(1000, "disconnect")
         webSocket = null
         peerConnection?.close()
@@ -112,6 +127,7 @@ class StreamingWebRtcSession @Inject constructor(
         activeStreamChannelId = null
         isStreaming = false
         remoteAudioTrack = null
+        audioRouting.stop()
         setRemoteVideoTrack(null)
     }
 
@@ -147,6 +163,7 @@ class StreamingWebRtcSession @Inject constructor(
                             "session_subscriber"
                         )
                         sendJson(JSONObject().put("Key", "get_channels"), "get_channels")
+                        startAvailabilityPolling()
                     }
                     override fun onCreateFailure(p0: String?) {
                         log("setLocalDescription failed: $p0")
@@ -165,6 +182,17 @@ class StreamingWebRtcSession @Inject constructor(
             }
             override fun onSetFailure(error: String?) {}
         }, constraints)
+    }
+
+    private fun startAvailabilityPolling() {
+        availabilityPollJob?.cancel()
+        availabilityPollJob = appScope.launch(mainDispatcher) {
+            while (isActive) {
+                delay(AVAILABILITY_POLL_INTERVAL_MS)
+                if (isStreaming || webSocket == null) return@launch
+                sendJson(JSONObject().put("Key", "get_channels"), "get_channels")
+            }
+        }
     }
 
     private val peerObserver = object : PeerConnection.Observer {
@@ -278,16 +306,19 @@ class StreamingWebRtcSession @Inject constructor(
             setStreaming(false)
             return
         }
-        sendJson(
-            JSONObject().apply {
-                put("Key", "connect_subscriber")
-                put("ClanId", pendingClanId.toString())
-                put("ChannelId", pendingChannelId.toString())
-                put("UserId", pendingUserId)
-                put("Value", JSONObject().put("ChannelId", streamIdString))
-            },
-            "connect_subscriber"
-        )
+        if (!hasSubscribedToStream) {
+            hasSubscribedToStream = true
+            sendJson(
+                JSONObject().apply {
+                    put("Key", "connect_subscriber")
+                    put("ClanId", pendingClanId.toString())
+                    put("ChannelId", pendingChannelId.toString())
+                    put("UserId", pendingUserId)
+                    put("Value", JSONObject().put("ChannelId", streamIdString))
+                },
+                "connect_subscriber"
+            )
+        }
         setStreaming(true)
     }
 
@@ -375,6 +406,10 @@ class StreamingWebRtcSession @Inject constructor(
     private fun setStreaming(value: Boolean) {
         if (isStreaming == value) return
         isStreaming = value
+        if (value) {
+            availabilityPollJob?.cancel()
+            availabilityPollJob = null
+        }
         log("isStreaming=$value streamId=$pendingStreamId")
         onStreamingStateChanged?.invoke()
     }

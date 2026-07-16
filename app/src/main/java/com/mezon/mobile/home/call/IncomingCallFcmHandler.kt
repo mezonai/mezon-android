@@ -4,9 +4,7 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.telecom.DisconnectCause
-import android.util.Log
 import com.google.firebase.messaging.RemoteMessage
-import com.mezon.mobile.MainActivity
 import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.home.ConnectionController
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -14,14 +12,13 @@ import org.json.JSONObject
 import javax.inject.Inject
 import javax.inject.Singleton
 
-private const val TAG = "IncomingCallFcm"
 private val mainHandler = Handler(Looper.getMainLooper())
 
 @Singleton
 class IncomingCallFcmHandler @Inject constructor(
     @ApplicationContext private val appContext: Context,
-    private val callManager: CallManager,
     private val callController: CallController,
+    private val telecomBridge: CallTelecomBridge,
     private val webRtcInfra: WebRtcInfra,
     private val connectionController: ConnectionController,
 ) {
@@ -85,38 +82,8 @@ class IncomingCallFcmHandler @Inject constructor(
             .putString("incoming_call", offerJson)
             .commit()
         mainHandler.post {
-            if (MainActivity.isResumed && !callManager.isDeviceLockedOrScreenOff()) {
-                return@post
-            }
-            callManager.showIncomingCall(
-                callerName,
-                callerId,
-                channelId,
-                offerJson,
-                callController.currentCallInfo()?.isVideo == true
-            )
-            val useFsi = callManager.canUseFullScreenIntent()
-            try {
-                CallForegroundService.startRinging(
-                    appContext,
-                    callerName,
-                    callerAvatar,
-                    callerId,
-                    channelId,
-                    offerJson,
-                    useFsi
-                )
-            } catch (e: Exception) {
-                Log.e(TAG, "ring FGS failed, notify fallback", e)
-                CallNotificationManager(appContext).showIncomingCallNotification(
-                    callerName = callerName,
-                    callerAvatar = callerAvatar,
-                    callerId = callerId,
-                    channelId = channelId,
-                    offerJson = offerJson,
-                    useFullScreenIntent = useFsi
-                )
-            }
+            val callInfo = callController.currentCallInfo() ?: return@post
+            callController.presentIncomingCall(callInfo, offerJson)
         }
     }
 
@@ -127,11 +94,7 @@ class IncomingCallFcmHandler @Inject constructor(
         if (answeredElsewhere && ctrl?.shouldIgnoreCancelCallFcmAnsweredElsewhere() == true) {
             return
         }
-        MezonCallConnection.activeConnection?.let {
-            it.setDisconnected(DisconnectCause(DisconnectCause.CANCELED))
-            it.destroy()
-            MezonCallConnection.activeConnection = null
-        }
+        telecomBridge.endWithCause(DisconnectCause.CANCELED)
         if (answeredElsewhere) {
             if (ctrl?.callState is CallState.Idle) {
                 ctrl.clearIdleIncomingArtifactsAfterAnsweredElsewhere()

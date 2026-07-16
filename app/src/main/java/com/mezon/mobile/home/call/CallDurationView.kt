@@ -35,7 +35,14 @@ class CallDurationView(
         }
     }
 
+    fun setTextSizeSp(sizeSp: Float) {
+        textPaint.textSize =
+            TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, sizeSp, resources.displayMetrics)
+        invalidate()
+    }
+
     fun startTimer(connectedTime: Long) {
+        handler.removeCallbacks(tickRunnable)
         startTime = connectedTime
         running = true
         handler.post(tickRunnable)

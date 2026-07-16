@@ -3,12 +3,13 @@ package com.mezon.mobile.home.clans
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
-import android.graphics.Path
+import android.graphics.drawable.Drawable
 import android.text.TextPaint
 import android.text.TextUtils
 import com.mezon.mobile.core.BaseCell
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.ui.cells.MezonIcon
 
 class ChannelSectionCell(
     context: Context,
@@ -16,17 +17,16 @@ class ChannelSectionCell(
 ) : BaseCell(context) {
 
     companion object {
+        val ARROW_SIZE = LayoutHelper.dp(18)
+        val PADDING_START = LayoutHelper.dp(8)
+        val HEIGHT = LayoutHelper.dp(36)
+
+        private val PADDING_END = LayoutHelper.dp(16)
+
         private val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             textSize = LayoutHelper.sp(13f)
             typeface = android.graphics.Typeface.DEFAULT_BOLD
         }
-        private val arrowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeWidth = LayoutHelper.dp(2).toFloat()
-            strokeCap = Paint.Cap.ROUND
-            strokeJoin = Paint.Join.ROUND
-        }
-        private val arrowPath = Path()
     }
 
     private var categoryName: String = ""
@@ -34,10 +34,13 @@ class ChannelSectionCell(
     private var truncated: String = ""
     private var truncatedWidth = -1
 
-    private val paddingHPx = LayoutHelper.dp(16)
-    private val arrowSizePx = LayoutHelper.dp(10)
-    private val cellHeightPx = LayoutHelper.dp(36)
-    private val textGapPx = LayoutHelper.dp(8)
+    private var arrowDrawable: Drawable? = null
+    private var arrowTint = 0
+
+    private val paddingStartPx = PADDING_START
+    private val paddingEndPx = PADDING_END
+    private val arrowSizePx = ARROW_SIZE
+    private val cellHeightPx = HEIGHT
 
     fun bind(name: String, expanded: Boolean, favorite: Boolean = false) {
         categoryName = name.uppercase()
@@ -51,31 +54,36 @@ class ChannelSectionCell(
     }
 
     override fun onDraw(canvas: Canvas) {
-        textPaint.color = themeColors.onSurfaceVariant
+        val contentColor = themeColors.colorText
+        textPaint.color = contentColor
         val cy = (height / 2).toFloat()
 
-        val arrowX = paddingHPx.toFloat()
-        arrowPaint.color = themeColors.onSurfaceVariant
-
-        arrowPath.reset()
+        val arrow = resolveArrow(contentColor)
+        val arrowTop = (cy - arrowSizePx / 2f).toInt()
+        arrow.setBounds(paddingStartPx, arrowTop, paddingStartPx + arrowSizePx, arrowTop + arrowSizePx)
         if (isExpanded) {
-            arrowPath.moveTo(arrowX, cy - arrowSizePx / 3f)
-            arrowPath.lineTo(arrowX + arrowSizePx / 2f, cy + arrowSizePx / 3f)
-            arrowPath.lineTo(arrowX + arrowSizePx.toFloat(), cy - arrowSizePx / 3f)
+            arrow.draw(canvas)
         } else {
-            arrowPath.moveTo(arrowX + arrowSizePx / 3f, cy - arrowSizePx / 2f)
-            arrowPath.lineTo(arrowX + arrowSizePx - arrowSizePx / 3f, cy)
-            arrowPath.lineTo(arrowX + arrowSizePx / 3f, cy + arrowSizePx / 2f)
+            canvas.save()
+            canvas.rotate(-90f, paddingStartPx + arrowSizePx / 2f, cy)
+            arrow.draw(canvas)
+            canvas.restore()
         }
-        canvas.drawPath(arrowPath, arrowPaint)
 
-        val textX = paddingHPx + arrowSizePx + textGapPx
-        val availW = width - textX - paddingHPx
+        val textX = paddingStartPx + arrowSizePx
+        val availW = width - textX - paddingEndPx
         if (truncated.isEmpty() || truncatedWidth != availW) {
             truncatedWidth = availW
             truncated = TextUtils.ellipsize(categoryName, textPaint, availW.toFloat(), TextUtils.TruncateAt.END).toString()
         }
         val textY = cy - (textPaint.descent() + textPaint.ascent()) / 2
         canvas.drawText(truncated, textX.toFloat(), textY, textPaint)
+    }
+
+    private fun resolveArrow(tint: Int): Drawable {
+        val existing = arrowDrawable
+        if (existing != null && arrowTint == tint) return existing
+        arrowTint = tint
+        return MezonIcon.chevronDownSmallIcon.getDrawable(context, tint).also { arrowDrawable = it }
     }
 }

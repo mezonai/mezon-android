@@ -46,6 +46,7 @@ import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.util.createImgproxyUrl
 import io.livekit.android.AudioOptions
 import io.livekit.android.LiveKit
 import io.livekit.android.LiveKitOverrides
@@ -79,8 +80,11 @@ private const val RAISE_UP_PREFIX = "raising-up:"
 private const val RAISE_DOWN_PREFIX = "raising-down:"
 private const val SENDER_NAME_PREFIX = "sender-name:"
 private const val SENDER_AVATAR_PREFIX = "sender-avatar:"
-private const val VOICE_AGENT_DEFAULT_AVATAR =
-    "https://imgproxy.mezon.ai/K0YUZRIosDOcz5lY6qrgC6UIXmQgWzLjZv7VJ1RAA8c/rs:fit:100:100:1/mb:2097152/plain/https://cdn.mezon.vn/0/0/1779484387973271600/1737423959329_undefined173740153013517374015248704886401586613166392.png@webp"
+private val VOICE_AGENT_DEFAULT_AVATAR = createImgproxyUrl(
+    "https://cdn.mezon.vn/0/0/1779484387973271600/1737423959329_undefined173740153013517374015248704886401586613166392.png",
+    100,
+    100
+)
 
 class VoiceRoomFragment : BaseFragment() {
 
@@ -243,6 +247,7 @@ class VoiceRoomFragment : BaseFragment() {
 
     private fun applyAgentHeaderUi() {
         if (!::headerView.isInitialized) return
+        headerView.setAgentVisible(canManageVoiceChannel())
         headerView.setAgentActive(voiceController.isAiAgentEnabled(clanId, channelId))
     }
 
@@ -377,6 +382,13 @@ class VoiceRoomFragment : BaseFragment() {
             applyAgentHeaderUi()
         }
 
+        observe(NotificationCenter.clanRolesDidLoad) { _, _, args ->
+            if (fragmentView == null) return@observe
+            val changedClanId = args.getOrNull(0) as? Long ?: return@observe
+            if (changedClanId != clanId) return@observe
+            applyAgentHeaderUi()
+        }
+
         observe(NotificationCenter.clanMembersDidLoad) { _, _, args ->
             if (fragmentView == null) return@observe
             val loadedClanId = args.firstOrNull() as? Long ?: return@observe
@@ -422,12 +434,13 @@ class VoiceRoomFragment : BaseFragment() {
 
         headerView = VoiceHeaderView(context, themeColors).apply {
             setChannelName(channelLabel)
-            setAgentVisible(!isGroupCall)
+            setAgentVisible(canManageVoiceChannel())
             setSwitchCameraVisible(false)
             setMinimizeVisible(!isGroupCall)
             setMoreVisible(!isGroupCall)
             onMinimizeClick = { minimizeToOverlay() }
             onAgentClick = agentClick@{
+                if (!canManageVoiceChannel()) return@agentClick
                 val scope = roomScope
                 val ctx = context
                 if (scope == null) {
@@ -1526,15 +1539,20 @@ class VoiceRoomFragment : BaseFragment() {
         presentSheet(voiceChannelLabelSync)
     }
 
-    private fun canManageVoiceUser(targetUserId: Long): Boolean {
-        if (isInPipMode || isGroupCall) return false
+    private fun canManageVoiceChannel(): Boolean {
+        if (isGroupCall) return false
         if (clanId == 0L || channelId == 0L) return false
-        if (targetUserId == 0L || targetUserId == userController.userId) return false
         return permissionPolicy.checkAnyPermission(
             listOf(PermissionPolicy.ADMINISTRATOR, PermissionPolicy.MANAGE_CHANNEL),
             channelId,
             clanId,
         )
+    }
+
+    private fun canManageVoiceUser(targetUserId: Long): Boolean {
+        if (isInPipMode) return false
+        if (targetUserId == 0L || targetUserId == userController.userId) return false
+        return canManageVoiceChannel()
     }
 
     private fun showMuteParticipantConfirm(identity: String, displayName: String) {

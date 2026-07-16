@@ -32,6 +32,7 @@ import com.mezon.mobile.auth.OTPVerificationFragment
 import com.mezon.mobile.auth.UpdateUsernameFragment
 import com.mezon.mobile.core.ActionBarLayout
 import com.mezon.mobile.core.AlertDialog
+import com.mezon.mobile.core.AlertsCreator
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.BaseFragment
@@ -53,9 +54,11 @@ import com.mezon.mobile.home.call.CallController
 import com.mezon.mobile.home.call.CallFragment
 import com.mezon.mobile.home.call.CallManager
 import com.mezon.mobile.home.call.CallInfo
+import com.mezon.mobile.home.call.CallState
 import com.mezon.mobile.home.call.CallingOverlay
 import com.mezon.mobile.home.call.IncomingCallActivity
 import com.mezon.mobile.home.call.IncomingCallFcmHandler
+import com.mezon.mobile.home.call.OngoingCallBanner
 import com.mezon.mobile.home.clans.ClanChannelEntity
 import com.mezon.mobile.home.sharing.SharingFragment
 import com.mezon.mobile.home.stream.StreamingRoomFragment
@@ -157,7 +160,10 @@ class MainActivity : BasePermissionsActivity(),
     private var splashContentObserver: NotificationCenter.NotificationCenterDelegate? = null
     private var appUpdateGateRunnable: Runnable? = null
     private var callingOverlay: CallingOverlay? = null
+    private var ongoingCallBanner: OngoingCallBanner? = null
     private var offlineNetworkBanner: OfflineNetworkBannerView? = null
+    private var sessionExpiredDialog: AlertDialog? = null
+    private var pendingSessionExpiredPrompt = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
@@ -269,6 +275,7 @@ class MainActivity : BasePermissionsActivity(),
         notificationCenter.addObserver(this, NotificationCenter.appDidLogout)
         notificationCenter.addObserver(this, NotificationCenter.incomingCall)
         notificationCenter.addObserver(this, NotificationCenter.callEnded)
+        notificationCenter.addObserver(this, NotificationCenter.callStateChanged)
         notificationCenter.addObserver(this, NotificationCenter.needUsernameSetup)
     }
 
@@ -280,6 +287,9 @@ class MainActivity : BasePermissionsActivity(),
         if (StartupCache.hasSession) {
             connectionController.handleAppForeground()
             maybePromptFullScreenIntentForIncomingCalls()
+        }
+        if (pendingSessionExpiredPrompt) {
+            promptSessionExpired()
         }
         flushPendingDeepLink()
     }
@@ -320,6 +330,8 @@ class MainActivity : BasePermissionsActivity(),
         super.onDestroy()
         dismissVoiceRoom()
         dismissStreamingRoom()
+        sessionExpiredDialog?.dismiss()
+        sessionExpiredDialog = null
         AndroidUtilities.cancelRunOnUIThread(dismissSplashRunnable)
         appUpdateGateRunnable?.let { AndroidUtilities.cancelRunOnUIThread(it) }
         appUpdateGateRunnable = null
@@ -339,9 +351,11 @@ class MainActivity : BasePermissionsActivity(),
         notificationCenter.removeObserver(this, NotificationCenter.appDidLogout)
         notificationCenter.removeObserver(this, NotificationCenter.incomingCall)
         notificationCenter.removeObserver(this, NotificationCenter.callEnded)
+        notificationCenter.removeObserver(this, NotificationCenter.callStateChanged)
         notificationCenter.removeObserver(this, NotificationCenter.needUsernameSetup)
 
         dismissIncomingCallOverlay(removeView = true)
+        dismissOngoingCallBanner(removeView = true)
 
         isActive = false
         if (instance === this) instance = null
@@ -488,7 +502,11 @@ class MainActivity : BasePermissionsActivity(),
             NotificationCenter.connectionStateChanged -> {
                 // handled by ConnectionController UI updates
             }
-            NotificationCenter.sessionExpired, NotificationCenter.appDidLogout -> {
+            NotificationCenter.sessionExpired -> {
+                dismissIncomingCallOverlay(removeView = false)
+                promptSessionExpired()
+            }
+            NotificationCenter.appDidLogout -> {
                 dismissIncomingCallOverlay(removeView = false)
                 switchToLogin()
             }
@@ -500,6 +518,10 @@ class MainActivity : BasePermissionsActivity(),
             }
             NotificationCenter.callEnded -> {
                 dismissIncomingCallOverlay(removeView = false)
+                dismissOngoingCallBanner(removeView = false)
+            }
+            NotificationCenter.callStateChanged -> {
+                refreshOngoingCallBanner()
             }
             NotificationCenter.needUsernameSetup -> {
                 maybeShowUsernameGate()
@@ -582,9 +604,13 @@ class MainActivity : BasePermissionsActivity(),
                 gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
             }
             drawerLayoutContainer.addView(overlay, lp)
+            ViewCompat.setOnApplyWindowInsetsListener(overlay) { view, insets ->
+                applyIncomingCallOverlayLayoutParams(view)
+                insets
+            }
         }
+        applyIncomingCallOverlayLayoutParams(overlay)
         drawerLayoutContainer.bringChildToFront(overlay)
-        drawerLayoutContainer.post { applyIncomingCallOverlayLayoutParams(overlay) }
         overlay.requestApplyInsets()
         overlay.show()
     }
@@ -599,10 +625,27 @@ class MainActivity : BasePermissionsActivity(),
         } else {
             0
         }
-        lp.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-        lp.topMargin = max(insetTop, AndroidUtilities.statusBarHeight) + LayoutHelper.dp(8f)
-        lp.marginStart = LayoutHelper.dp(12f)
-        lp.marginEnd = LayoutHelper.dp(12f)
+        val statusBar = max(insetTop, AndroidUtilities.statusBarHeight)
+        if (statusBar <= 0) return
+
+        val gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+        val topMargin = statusBar + LayoutHelper.dp(8f)
+        val sideMargin = LayoutHelper.dp(12f)
+
+        if (lp.gravity == gravity &&
+            lp.topMargin == topMargin &&
+            lp.marginStart == sideMargin &&
+            lp.marginEnd == sideMargin &&
+            lp.width == FrameLayout.LayoutParams.MATCH_PARENT &&
+            lp.height == FrameLayout.LayoutParams.WRAP_CONTENT
+        ) {
+            return
+        }
+
+        lp.gravity = gravity
+        lp.topMargin = topMargin
+        lp.marginStart = sideMargin
+        lp.marginEnd = sideMargin
         lp.width = FrameLayout.LayoutParams.MATCH_PARENT
         lp.height = FrameLayout.LayoutParams.WRAP_CONTENT
         overlay.layoutParams = lp
@@ -622,6 +665,62 @@ class MainActivity : BasePermissionsActivity(),
         val o = callingOverlay ?: return
         if (o.parent !== drawerLayoutContainer || o.visibility != View.VISIBLE) return
         drawerLayoutContainer.bringChildToFront(o)
+    }
+
+    private fun refreshOngoingCallBanner() {
+        val state = callController.callState
+        val shouldShow = StartupCache.hasSession &&
+            state is CallState.Connected &&
+            actionBarLayout.getLastFragment() !is CallFragment
+
+        if (!shouldShow) {
+            dismissOngoingCallBanner(removeView = false)
+            return
+        }
+
+        var banner = ongoingCallBanner
+        if (banner == null) {
+            banner = OngoingCallBanner(this)
+            ongoingCallBanner = banner
+        }
+        banner.onReturnToCall = { openOngoingCall() }
+        banner.bind((state as CallState.Connected).callInfo, state.connectedTime)
+
+        if (banner.parent == null) {
+            val lp = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            }
+            drawerLayoutContainer.addView(banner, lp)
+            ViewCompat.setOnApplyWindowInsetsListener(banner) { view, insets ->
+                applyIncomingCallOverlayLayoutParams(view)
+                insets
+            }
+        }
+        applyIncomingCallOverlayLayoutParams(banner)
+        drawerLayoutContainer.bringChildToFront(banner)
+        banner.show()
+    }
+
+    private fun dismissOngoingCallBanner(removeView: Boolean) {
+        val banner = ongoingCallBanner ?: return
+        banner.dismiss()
+        banner.onReturnToCall = null
+        if (removeView) {
+            (banner.parent as? ViewGroup)?.removeView(banner)
+            ongoingCallBanner = null
+        }
+    }
+
+    private fun openOngoingCall() {
+        if (!StartupCache.hasSession) return
+        if (!callController.isCallSessionActive()) return
+        if (actionBarLayout.getLastFragment() is CallFragment) return
+        actionBarLayout.presentFragment(
+            INavigationLayout.NavigationParams(CallFragment())
+        )
     }
 
     // ── INavigationLayoutDelegate ───────────────────────────────────────────
@@ -651,6 +750,7 @@ class MainActivity : BasePermissionsActivity(),
 
     override fun onFragmentStackChanged(layout: INavigationLayout) {
         checkSystemBarColors()
+        refreshOngoingCallBanner()
     }
 
     // ── Navigation ──────────────────────────────────────────────────────────
@@ -773,6 +873,37 @@ class MainActivity : BasePermissionsActivity(),
             
         }
         flushPendingDeepLink()
+    }
+
+    private fun promptSessionExpired() {
+        if (!StartupCache.hasSession) return
+        if (sessionExpiredDialog?.isShowing == true) return
+        if (!isResumed) {
+            pendingSessionExpiredPrompt = true
+            return
+        }
+        pendingSessionExpiredPrompt = false
+        sessionExpiredDialog = AlertsCreator.createConfirmDialog(
+            this,
+            getString(R.string.common_session_expired_title),
+            getString(R.string.common_session_expired_content),
+            confirmText = getString(R.string.common_session_expired_confirm),
+            cancelText = getString(R.string.common_cancel)
+        ) {
+            completeSessionExpiredLogout()
+        }.also { it.show() }
+    }
+
+    private fun completeSessionExpiredLogout() {
+        val entryPoint = EntryPointAccessors.fromApplication(
+            applicationContext, FragmentEntryPoint::class.java
+        )
+        lifecycleScope.launch {
+            withContext(Dispatchers.IO) {
+                entryPoint.authRepository().logout()
+            }
+            switchToLogin()
+        }
     }
 
     private fun switchToLogin() {
@@ -1341,11 +1472,7 @@ class MainActivity : BasePermissionsActivity(),
 
         if (intent.getBooleanExtra(com.mezon.mobile.home.call.CallNotificationManager.EXTRA_OPEN_CALL, false)) {
             intent.removeExtra(com.mezon.mobile.home.call.CallNotificationManager.EXTRA_OPEN_CALL)
-            if (StartupCache.hasSession) {
-                val callFragment = com.mezon.mobile.home.call.CallFragment()
-                val params = INavigationLayout.NavigationParams(callFragment)
-                actionBarLayout.presentFragment(params)
-            }
+            openOngoingCall()
             return
         }
 

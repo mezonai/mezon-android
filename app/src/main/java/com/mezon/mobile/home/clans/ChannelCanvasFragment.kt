@@ -2,6 +2,7 @@ package com.mezon.mobile.home.clans
 
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.os.Build
 import android.view.Gravity
 import android.view.View
@@ -25,6 +26,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.Locale
 
 class ChannelCanvasFragment : BaseFragment() {
 
@@ -105,7 +107,10 @@ class ChannelCanvasFragment : BaseFragment() {
             setBackgroundColor(themeColors.background)
         }
 
-        webView = WebView(context).apply {
+        val currentLocale = context.resources.configuration.locales[0]
+        val canvasWebView = WebView(context)
+        restoreLocale(context, currentLocale)
+        webView = canvasWebView.apply {
             settings.apply {
                 javaScriptEnabled = false
                 domStorageEnabled = false
@@ -351,6 +356,14 @@ class ChannelCanvasFragment : BaseFragment() {
 
     private fun colorHex(color: Int): String {
         return String.format("#%06X", 0xFFFFFF and color)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun restoreLocale(context: Context, locale: Locale) {
+        Locale.setDefault(locale)
+        val config = Configuration(context.resources.configuration)
+        config.setLocale(locale)
+        context.resources.updateConfiguration(config, context.resources.displayMetrics)
     }
 
     private fun showLoadError() {
