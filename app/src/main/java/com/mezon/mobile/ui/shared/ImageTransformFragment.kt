@@ -9,6 +9,7 @@ import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.PathMeasure
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.net.Uri
@@ -17,6 +18,7 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
+import android.view.ViewConfiguration
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -32,12 +34,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
+import kotlin.math.hypot
 import kotlin.math.max
 
 class TransformCanvasView(
     context: Context,
     private val outsideColor: Int = Color.BLACK,
     private val cropChromeColor: Int = Color.WHITE,
+    private val outsideDimColor: Int = outsideColor,
 ) : View(context) {
 
     private var bitmap: Bitmap? = null
@@ -45,7 +49,7 @@ class TransformCanvasView(
     private val imageMatrix = Matrix()
     private val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
 
-    private val dimPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = outsideColor }
+    private val dimPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = outsideDimColor }
 
     private val framePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -66,9 +70,90 @@ class TransformCanvasView(
     private val holePath = Path()
 
     private val cropRect = RectF()
+    private val initialCropRect = RectF()
+    private var rotationCropFitScale = 1f
 
     private var cropAspectW = 1f
     private var cropAspectH = 1f
+    private var cropInsetLeft = LayoutHelper.dpf(24f)
+    private var cropInsetTop = LayoutHelper.dpf(24f)
+    private var cropInsetRight = LayoutHelper.dpf(24f)
+    private var cropInsetBottom = LayoutHelper.dpf(24f)
+    private var freeformCropEnabled = false
+    private var drawingMode = false
+    private var eraserMode = false
+    private var textMode = false
+    private var onEditorChanged: (() -> Unit)? = null
+
+    private data class DrawStroke(
+        val path: Path,
+        val color: Int,
+        val widthInBitmapPx: Float,
+    )
+
+    private data class TextOverlay(
+        var text: String,
+        var color: Int,
+        var centerX: Float,
+        var centerY: Float,
+        val textSizeInViewPx: Float,
+    )
+
+    private enum class CropTouchTarget {
+        TOP_LEFT,
+        TOP_RIGHT,
+        BOTTOM_LEFT,
+        BOTTOM_RIGHT,
+        LEFT,
+        TOP,
+        RIGHT,
+        BOTTOM,
+        PAN_IMAGE,
+        IMAGE,
+        NONE,
+    }
+
+    private val strokes = ArrayList<DrawStroke>()
+    private var currentStroke: DrawStroke? = null
+    private var brushColor = Color.RED
+    private var brushWidthViewPx = LayoutHelper.dpf(5f)
+    private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+    }
+    private val inverseImageMatrix = Matrix()
+    private val mappedTouchPoint = FloatArray(2)
+    private var lastBitmapTouchX = 0f
+    private var lastBitmapTouchY = 0f
+    private val strokePathMeasure = PathMeasure()
+    private val strokeMeasurePosition = FloatArray(2)
+
+    private val textOverlays = ArrayList<TextOverlay>()
+    private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textAlign = Paint.Align.LEFT
+        typeface = Typeface.DEFAULT_BOLD
+    }
+    private val textOutlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textAlign = Paint.Align.LEFT
+        typeface = Typeface.DEFAULT_BOLD
+        style = Paint.Style.STROKE
+        color = Color.BLACK
+        strokeJoin = Paint.Join.ROUND
+    }
+    private val textBounds = RectF()
+    private var selectedTextIndex = -1
+    private var textTouchIndex = -1
+    private var textDragOffsetX = 0f
+    private var textDragOffsetY = 0f
+    private var textTouchDownX = 0f
+    private var textTouchDownY = 0f
+    private var textPointerDown = false
+    private var textTouchMoved = false
+    private val textTouchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
+    private var onTextEditRequested: ((index: Int, text: String, color: Int) -> Unit)? = null
+    private var onTextSelected: ((color: Int) -> Unit)? = null
+    private var onTextDeleteDrag: ((active: Boolean, x: Float, y: Float) -> Boolean)? = null
 
     private val initialMatrix = Matrix()
 
@@ -77,6 +162,7 @@ class TransformCanvasView(
     private var lastTouchX = 0f
     private var lastTouchY = 0f
     private var dragMode = false
+    private var cropTouchTarget = CropTouchTarget.NONE
 
     companion object {
         private const val MAX_COVER_ITERATIONS = 28
@@ -84,23 +170,204 @@ class TransformCanvasView(
         private const val MAX_ZOOM_FACTOR = 8f
     }
 
+    fun setFreeformCropEnabled(enabled: Boolean) {
+        if (freeformCropEnabled == enabled) return
+        freeformCropEnabled = enabled
+        if (measuredWidth > 0 && measuredHeight > 0) {
+            layoutCropRect(measuredWidth, measuredHeight)
+            bitmap?.let { resetTransform() }
+        }
+        invalidate()
+    }
+
+    fun setCropInsetsDp(left: Float, top: Float, right: Float, bottom: Float) {
+        cropInsetLeft = LayoutHelper.dpf(left.coerceAtLeast(0f))
+        cropInsetTop = LayoutHelper.dpf(top.coerceAtLeast(0f))
+        cropInsetRight = LayoutHelper.dpf(right.coerceAtLeast(0f))
+        cropInsetBottom = LayoutHelper.dpf(bottom.coerceAtLeast(0f))
+        if (measuredWidth > 0 && measuredHeight > 0) {
+            layoutCropRect(measuredWidth, measuredHeight)
+            bitmap?.let { resetTransform() }
+        }
+        invalidate()
+    }
+
+    fun setOnEditorChangedListener(listener: (() -> Unit)?) {
+        onEditorChanged = listener
+    }
+
+    fun setOnTextEditRequestedListener(listener: ((index: Int, text: String, color: Int) -> Unit)?) {
+        onTextEditRequested = listener
+    }
+
+    fun setOnTextSelectedListener(listener: ((color: Int) -> Unit)?) {
+        onTextSelected = listener
+    }
+
+    fun setOnTextDeleteDragListener(listener: ((active: Boolean, x: Float, y: Float) -> Boolean)?) {
+        onTextDeleteDrag = listener
+    }
+
+    fun setDrawingMode(enabled: Boolean) {
+        if ((enabled && drawingMode) || (!enabled && !drawingMode && !textMode)) return
+        if (textMode) cancelTextInteraction()
+        commitCurrentStroke()
+        drawingMode = enabled
+        if (!enabled) eraserMode = false
+        textMode = false
+        cropTouchTarget = CropTouchTarget.NONE
+        dragMode = false
+        invalidate()
+    }
+
+    fun isDrawingMode(): Boolean = drawingMode
+
+    fun setEraserMode(enabled: Boolean) {
+        commitCurrentStroke()
+        eraserMode = enabled && drawingMode
+        invalidate()
+    }
+
+    fun isEraserMode(): Boolean = eraserMode
+
+    fun setTextMode(enabled: Boolean) {
+        if ((enabled && textMode) || (!enabled && !textMode && !drawingMode)) return
+        cancelTextInteraction()
+        commitCurrentStroke()
+        textMode = enabled
+        drawingMode = false
+        eraserMode = false
+        cropTouchTarget = CropTouchTarget.NONE
+        dragMode = false
+        invalidate()
+    }
+
+    fun isTextMode(): Boolean = textMode
+
+    fun setBrushColor(color: Int) {
+        brushColor = color
+    }
+
+    fun setBrushWidthDp(widthDp: Float) {
+        brushWidthViewPx = LayoutHelper.dpf(widthDp.coerceAtLeast(1f))
+    }
+
+    fun addText(text: String, color: Int): Boolean {
+        val content = text.trim()
+        if (content.isEmpty()) return false
+        textOverlays.add(
+            TextOverlay(
+                text = content,
+                color = color,
+                centerX = cropRect.centerX(),
+                centerY = cropRect.centerY(),
+                textSizeInViewPx = LayoutHelper.dpf(32f),
+            ),
+        )
+        selectedTextIndex = textOverlays.lastIndex
+        invalidate()
+        onEditorChanged?.invoke()
+        return true
+    }
+
+    fun updateText(index: Int, text: String, color: Int): Boolean {
+        val overlay = textOverlays.getOrNull(index) ?: return false
+        val content = text.trim()
+        if (content.isEmpty()) {
+            removeTextAt(index)
+            return true
+        } else {
+            overlay.text = content
+            overlay.color = color
+            selectedTextIndex = index
+        }
+        invalidate()
+        onEditorChanged?.invoke()
+        return true
+    }
+
+    fun setSelectedTextColor(color: Int) {
+        val overlay = textOverlays.getOrNull(selectedTextIndex) ?: return
+        if (overlay.color == color) return
+        overlay.color = color
+        postInvalidateOnAnimation()
+        onEditorChanged?.invoke()
+    }
+
+    private fun clearEdits() {
+        cancelTextInteraction()
+        currentStroke = null
+        strokes.clear()
+        textOverlays.clear()
+        selectedTextIndex = -1
+        textTouchIndex = -1
+    }
+
     fun setImageBitmap(b: Bitmap?) {
         bitmap = b
         if (width > 0 && height > 0 && b != null) {
+            layoutCropRect(width, height)
             resetTransform()
         }
         invalidate()
     }
 
     fun resetToInitial() {
+        if (!initialCropRect.isEmpty) cropRect.set(initialCropRect)
+        rotationCropFitScale = 1f
         imageMatrix.set(initialMatrix)
         invalidate()
     }
 
+    fun resetEditor() {
+        if (!initialCropRect.isEmpty) cropRect.set(initialCropRect)
+        bitmap?.let { resetTransform() }
+        clearEdits()
+        invalidate()
+    }
+
     fun rotateByDegrees(delta: Float) {
-        imageMatrix.postRotate(delta, cropRect.centerX(), cropRect.centerY())
+        val pivotX = cropRect.centerX()
+        val pivotY = cropRect.centerY()
+        imageMatrix.postRotate(delta, pivotX, pivotY)
+        if (freeformCropEnabled && kotlin.math.abs((delta / 90f).toInt()) % 2 == 1) {
+            rotateFreeformCropRect(pivotX, pivotY)
+        }
         clampAfterTransform()
         invalidate()
+        onEditorChanged?.invoke()
+    }
+
+    private fun rotateFreeformCropRect(pivotX: Float, pivotY: Float) {
+        val allowedLeft = cropInsetLeft
+        val allowedTop = cropInsetTop
+        val allowedRight = width - cropInsetRight
+        val allowedBottom = height - cropInsetBottom
+        val allowedWidth = (allowedRight - allowedLeft).coerceAtLeast(1f)
+        val allowedHeight = (allowedBottom - allowedTop).coerceAtLeast(1f)
+        val currentFit = rotationCropFitScale.coerceAtLeast(1e-4f)
+        val unscaledRotatedWidth = cropRect.height() / currentFit
+        val unscaledRotatedHeight = cropRect.width() / currentFit
+        val newFit = minOf(
+            1f,
+            allowedWidth / unscaledRotatedWidth,
+            allowedHeight / unscaledRotatedHeight,
+        )
+        val scaleChange = newFit / currentFit
+        val newWidth = unscaledRotatedWidth * newFit
+        val newHeight = unscaledRotatedHeight * newFit
+        val newCenterX = pivotX.coerceIn(allowedLeft + newWidth / 2f, allowedRight - newWidth / 2f)
+        val newCenterY = pivotY.coerceIn(allowedTop + newHeight / 2f, allowedBottom - newHeight / 2f)
+
+        imageMatrix.postScale(scaleChange, scaleChange, pivotX, pivotY)
+        imageMatrix.postTranslate(newCenterX - pivotX, newCenterY - pivotY)
+        cropRect.set(
+            newCenterX - newWidth / 2f,
+            newCenterY - newHeight / 2f,
+            newCenterX + newWidth / 2f,
+            newCenterY + newHeight / 2f,
+        )
+        rotationCropFitScale = newFit
     }
 
     fun setCropAspectRatio(width: Float, height: Float) {
@@ -120,23 +387,43 @@ class TransformCanvasView(
     }
 
     private fun layoutCropRect(w: Int, h: Int) {
-        val pad = LayoutHelper.dp(24f)
-        val maxW = (w - pad * 2).toFloat().coerceAtLeast(LayoutHelper.dp(120f).toFloat())
-        val maxH = (h - pad * 2).toFloat().coerceAtLeast(LayoutHelper.dp(120f).toFloat())
-        val aspect = cropAspectW / cropAspectH
-        var cropW = maxW
-        var cropH = cropW / aspect
-        if (cropH > maxH) {
-            cropH = maxH
-            cropW = cropH * aspect
+        val maxW = (w - cropInsetLeft - cropInsetRight).coerceAtLeast(LayoutHelper.dpf(120f))
+        val maxH = (h - cropInsetTop - cropInsetBottom).coerceAtLeast(LayoutHelper.dpf(120f))
+        if (freeformCropEnabled) {
+            val bmp = bitmap
+            if (bmp == null) {
+                cropRect.set(cropInsetLeft, cropInsetTop, cropInsetLeft + maxW, cropInsetTop + maxH)
+            } else {
+                val aspect = bmp.width.toFloat() / bmp.height.coerceAtLeast(1)
+                var cropW = maxW
+                var cropH = cropW / aspect
+                if (cropH > maxH) {
+                    cropH = maxH
+                    cropW = cropH * aspect
+                }
+                val left = cropInsetLeft + (maxW - cropW) / 2f
+                val top = cropInsetTop + (maxH - cropH) / 2f
+                cropRect.set(left, top, left + cropW, top + cropH)
+            }
+        } else {
+            val aspect = cropAspectW / cropAspectH
+            var cropW = maxW
+            var cropH = cropW / aspect
+            if (cropH > maxH) {
+                cropH = maxH
+                cropW = cropH * aspect
+            }
+            val left = cropInsetLeft + (maxW - cropW) / 2f
+            val top = cropInsetTop + (maxH - cropH) / 2f
+            cropRect.set(left, top, left + cropW, top + cropH)
         }
-        val left = (w - cropW) / 2f
-        val top = (h - cropH) / 2f
-        cropRect.set(left, top, left + cropW, top + cropH)
+        initialCropRect.set(cropRect)
+        rotationCropFitScale = 1f
     }
 
     private fun resetTransform() {
         val bmp = bitmap ?: return
+        rotationCropFitScale = 1f
         imageMatrix.reset()
         val s = max(cropRect.width() / bmp.width, cropRect.height() / bmp.height)
         imageMatrix.postScale(s, s)
@@ -259,6 +546,8 @@ class TransformCanvasView(
         val bmp = bitmap ?: return
 
         canvas.drawBitmap(bmp, imageMatrix, bitmapPaint)
+        drawStrokes(canvas, imageMatrix)
+        drawTextOverlays(canvas, transform = null, clipToCrop = true)
 
         overlayPath.reset()
         overlayPath.addRect(0f, 0f, width.toFloat(), height.toFloat(), Path.Direction.CW)
@@ -268,32 +557,393 @@ class TransformCanvasView(
         canvas.drawPath(overlayPath, dimPaint)
 
         canvas.drawRect(cropRect, framePaint)
-        drawCornerBrackets(canvas)
+        if (!drawingMode && !textMode) drawCornerBrackets(canvas)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         scaleDetector.onTouchEvent(event)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                dragMode = true
                 lastTouchX = event.x
                 lastTouchY = event.y
+                if (drawingMode) {
+                    dragMode = false
+                    if (cropRect.contains(event.x, event.y)) {
+                        if (eraserMode) eraseStrokesAt(event.x, event.y) else startStroke(event.x, event.y)
+                    }
+                } else if (textMode) {
+                    dragMode = false
+                    textTouchIndex = findTextOverlay(event.x, event.y)
+                    textPointerDown = textTouchIndex >= 0
+                    textTouchMoved = false
+                    textTouchDownX = event.x
+                    textTouchDownY = event.y
+                    if (textPointerDown) {
+                        selectedTextIndex = textTouchIndex
+                        val overlay = textOverlays[textTouchIndex]
+                        onTextSelected?.invoke(overlay.color)
+                        textDragOffsetX = overlay.centerX - event.x
+                        textDragOffsetY = overlay.centerY - event.y
+                    }
+                    invalidate()
+                } else {
+                    cropTouchTarget = if (freeformCropEnabled) {
+                        findCropTouchTarget(event.x, event.y)
+                    } else {
+                        CropTouchTarget.IMAGE
+                    }
+                    dragMode = cropTouchTarget != CropTouchTarget.NONE
+                }
             }
-            MotionEvent.ACTION_POINTER_DOWN -> dragMode = false
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                commitCurrentStroke()
+                cropTouchTarget = CropTouchTarget.NONE
+                dragMode = false
+                cancelTextInteraction()
+            }
             MotionEvent.ACTION_MOVE -> {
-                if (dragMode && !scaleDetector.isInProgress && event.pointerCount == 1) {
+                if (textMode && textPointerDown && event.pointerCount == 1 && !scaleDetector.isInProgress) {
+                    if (!textTouchMoved &&
+                        hypot(event.x - textTouchDownX, event.y - textTouchDownY) > textTouchSlop
+                    ) {
+                        textTouchMoved = true
+                    }
+                    if (textTouchMoved) {
+                        moveTouchedText(event.x, event.y)
+                        onTextDeleteDrag?.invoke(true, event.x, event.y)
+                    }
+                } else if (drawingMode && event.pointerCount == 1 && !scaleDetector.isInProgress) {
+                    if (eraserMode) eraseStrokesAt(event.x, event.y) else appendStrokePoint(event.x, event.y)
+                } else if (dragMode && !scaleDetector.isInProgress && event.pointerCount == 1) {
                     val dx = event.x - lastTouchX
                     val dy = event.y - lastTouchY
-                    imageMatrix.postTranslate(dx, dy)
-                    clampAfterTransform()
+                    if (freeformCropEnabled) {
+                        when (cropTouchTarget) {
+                            CropTouchTarget.IMAGE -> moveCropRect(dx, dy)
+                            CropTouchTarget.PAN_IMAGE -> {
+                                imageMatrix.postTranslate(dx, dy)
+                                clampAfterTransform()
+                                onEditorChanged?.invoke()
+                            }
+                            else -> resizeCropRect(cropTouchTarget, dx, dy)
+                        }
+                    } else {
+                        imageMatrix.postTranslate(dx, dy)
+                        clampAfterTransform()
+                        onEditorChanged?.invoke()
+                    }
                     lastTouchX = event.x
                     lastTouchY = event.y
                     invalidate()
                 }
             }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> dragMode = false
+            MotionEvent.ACTION_UP -> {
+                commitCurrentStroke()
+                cropTouchTarget = CropTouchTarget.NONE
+                dragMode = false
+                if (textMode && textPointerDown) {
+                    if (textTouchMoved) {
+                        val deleteText = onTextDeleteDrag?.invoke(true, event.x, event.y) == true
+                        onTextDeleteDrag?.invoke(false, event.x, event.y)
+                        if (deleteText) removeTextAt(textTouchIndex)
+                    } else {
+                        textOverlays.getOrNull(textTouchIndex)?.let { overlay ->
+                            onTextEditRequested?.invoke(textTouchIndex, overlay.text, overlay.color)
+                        }
+                    }
+                }
+                resetTextTouchState()
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                commitCurrentStroke()
+                cropTouchTarget = CropTouchTarget.NONE
+                dragMode = false
+                cancelTextInteraction()
+            }
         }
         return true
+    }
+
+    override fun performClick(): Boolean {
+        super.performClick()
+        return true
+    }
+
+    private fun findCropTouchTarget(x: Float, y: Float): CropTouchTarget {
+        val radius = LayoutHelper.dpf(28f)
+        val nearLeft = kotlin.math.abs(x - cropRect.left) <= radius
+        val nearRight = kotlin.math.abs(x - cropRect.right) <= radius
+        val nearTop = kotlin.math.abs(y - cropRect.top) <= radius
+        val nearBottom = kotlin.math.abs(y - cropRect.bottom) <= radius
+        val inExpandedX = x in (cropRect.left - radius)..(cropRect.right + radius)
+        val inExpandedY = y in (cropRect.top - radius)..(cropRect.bottom + radius)
+        return when {
+            nearLeft && nearTop -> CropTouchTarget.TOP_LEFT
+            nearRight && nearTop -> CropTouchTarget.TOP_RIGHT
+            nearLeft && nearBottom -> CropTouchTarget.BOTTOM_LEFT
+            nearRight && nearBottom -> CropTouchTarget.BOTTOM_RIGHT
+            nearLeft && inExpandedY -> CropTouchTarget.LEFT
+            nearRight && inExpandedY -> CropTouchTarget.RIGHT
+            nearTop && inExpandedX -> CropTouchTarget.TOP
+            nearBottom && inExpandedX -> CropTouchTarget.BOTTOM
+            cropRect.contains(x, y) -> CropTouchTarget.IMAGE
+            canPanImage() && isPointOnImage(x, y) -> CropTouchTarget.PAN_IMAGE
+            else -> CropTouchTarget.NONE
+        }
+    }
+
+    private fun canPanImage(): Boolean {
+        if (bitmap == null) return false
+        val bounds = mapBitmapBounds()
+        val tolerance = LayoutHelper.dpf(1f)
+        return bounds.width() > cropRect.width() + tolerance ||
+            bounds.height() > cropRect.height() + tolerance
+    }
+
+    private fun isPointOnImage(viewX: Float, viewY: Float): Boolean {
+        val bmp = bitmap ?: return false
+        if (!mapViewPointToBitmap(viewX, viewY)) return false
+        return mappedTouchPoint[0] in 0f..bmp.width.toFloat() &&
+            mappedTouchPoint[1] in 0f..bmp.height.toFloat()
+    }
+
+    private fun resizeCropRect(target: CropTouchTarget, dx: Float, dy: Float) {
+        val minSize = LayoutHelper.dpf(80f)
+        val imageBounds = mapBitmapBounds()
+        val minLeft = maxOf(cropInsetLeft, imageBounds.left)
+        val maxRight = minOf(width - cropInsetRight, imageBounds.right)
+        val minTop = maxOf(cropInsetTop, imageBounds.top)
+        val maxBottom = minOf(height - cropInsetBottom, imageBounds.bottom)
+        when (target) {
+            CropTouchTarget.TOP_LEFT -> {
+                cropRect.left = (cropRect.left + dx).coerceIn(minLeft, cropRect.right - minSize)
+                cropRect.top = (cropRect.top + dy).coerceIn(minTop, cropRect.bottom - minSize)
+            }
+            CropTouchTarget.TOP_RIGHT -> {
+                cropRect.right = (cropRect.right + dx).coerceIn(cropRect.left + minSize, maxRight)
+                cropRect.top = (cropRect.top + dy).coerceIn(minTop, cropRect.bottom - minSize)
+            }
+            CropTouchTarget.BOTTOM_LEFT -> {
+                cropRect.left = (cropRect.left + dx).coerceIn(minLeft, cropRect.right - minSize)
+                cropRect.bottom = (cropRect.bottom + dy).coerceIn(cropRect.top + minSize, maxBottom)
+            }
+            CropTouchTarget.BOTTOM_RIGHT -> {
+                cropRect.right = (cropRect.right + dx).coerceIn(cropRect.left + minSize, maxRight)
+                cropRect.bottom = (cropRect.bottom + dy).coerceIn(cropRect.top + minSize, maxBottom)
+            }
+            CropTouchTarget.LEFT ->
+                cropRect.left = (cropRect.left + dx).coerceIn(minLeft, cropRect.right - minSize)
+            CropTouchTarget.TOP ->
+                cropRect.top = (cropRect.top + dy).coerceIn(minTop, cropRect.bottom - minSize)
+            CropTouchTarget.RIGHT ->
+                cropRect.right = (cropRect.right + dx).coerceIn(cropRect.left + minSize, maxRight)
+            CropTouchTarget.BOTTOM ->
+                cropRect.bottom = (cropRect.bottom + dy).coerceIn(cropRect.top + minSize, maxBottom)
+            else -> return
+        }
+        rotationCropFitScale = 1f
+        onEditorChanged?.invoke()
+    }
+
+    private fun moveCropRect(dx: Float, dy: Float) {
+        val imageBounds = mapBitmapBounds()
+        val minLeft = maxOf(cropInsetLeft, imageBounds.left)
+        val maxRight = minOf(width - cropInsetRight, imageBounds.right)
+        val minTop = maxOf(cropInsetTop, imageBounds.top)
+        val maxBottom = minOf(height - cropInsetBottom, imageBounds.bottom)
+        val moveX = dx.coerceIn(minLeft - cropRect.left, maxRight - cropRect.right)
+        val moveY = dy.coerceIn(minTop - cropRect.top, maxBottom - cropRect.bottom)
+        if (moveX == 0f && moveY == 0f) return
+        cropRect.offset(moveX, moveY)
+        onEditorChanged?.invoke()
+    }
+
+    private fun imageScale(): Float {
+        val values = FloatArray(9)
+        imageMatrix.getValues(values)
+        return hypot(values[Matrix.MSCALE_X], values[Matrix.MSKEW_Y]).coerceAtLeast(1e-4f)
+    }
+
+    private fun mapViewPointToBitmap(x: Float, y: Float): Boolean {
+        if (!imageMatrix.invert(inverseImageMatrix)) return false
+        mappedTouchPoint[0] = x
+        mappedTouchPoint[1] = y
+        inverseImageMatrix.mapPoints(mappedTouchPoint)
+        return true
+    }
+
+    private fun startStroke(viewX: Float, viewY: Float) {
+        if (!mapViewPointToBitmap(viewX, viewY)) return
+        val path = Path().apply { moveTo(mappedTouchPoint[0], mappedTouchPoint[1]) }
+        lastBitmapTouchX = mappedTouchPoint[0]
+        lastBitmapTouchY = mappedTouchPoint[1]
+        currentStroke = DrawStroke(path, brushColor, brushWidthViewPx / imageScale())
+        invalidate()
+    }
+
+    private fun appendStrokePoint(viewX: Float, viewY: Float) {
+        val stroke = currentStroke ?: return
+        if (!mapViewPointToBitmap(viewX, viewY)) return
+        val x = mappedTouchPoint[0]
+        val y = mappedTouchPoint[1]
+        stroke.path.quadTo(lastBitmapTouchX, lastBitmapTouchY, (lastBitmapTouchX + x) / 2f, (lastBitmapTouchY + y) / 2f)
+        lastBitmapTouchX = x
+        lastBitmapTouchY = y
+        invalidate()
+    }
+
+    private fun commitCurrentStroke() {
+        val stroke = currentStroke ?: return
+        stroke.path.lineTo(lastBitmapTouchX, lastBitmapTouchY)
+        strokes.add(stroke)
+        currentStroke = null
+        invalidate()
+        onEditorChanged?.invoke()
+    }
+
+    private fun eraseStrokesAt(viewX: Float, viewY: Float) {
+        if (!cropRect.contains(viewX, viewY) || !mapViewPointToBitmap(viewX, viewY)) return
+        val x = mappedTouchPoint[0]
+        val y = mappedTouchPoint[1]
+        val eraserRadius = LayoutHelper.dpf(14f) / imageScale()
+        var removed = false
+        for (index in strokes.lastIndex downTo 0) {
+            if (strokeContainsPoint(strokes[index], x, y, eraserRadius)) {
+                strokes.removeAt(index)
+                removed = true
+            }
+        }
+        if (!removed) return
+        invalidate()
+        onEditorChanged?.invoke()
+    }
+
+    private fun strokeContainsPoint(stroke: DrawStroke, x: Float, y: Float, eraserRadius: Float): Boolean {
+        strokePathMeasure.setPath(stroke.path, false)
+        val hitRadius = eraserRadius + stroke.widthInBitmapPx / 2f
+        val sampleStep = (eraserRadius * 0.45f).coerceAtLeast(2f)
+        do {
+            val length = strokePathMeasure.length
+            var distance = 0f
+            while (distance <= length) {
+                if (strokePathMeasure.getPosTan(distance, strokeMeasurePosition, null) &&
+                    hypot(strokeMeasurePosition[0] - x, strokeMeasurePosition[1] - y) <= hitRadius
+                ) {
+                    return true
+                }
+                distance += sampleStep
+            }
+            if (length > 0f && strokePathMeasure.getPosTan(length, strokeMeasurePosition, null) &&
+                hypot(strokeMeasurePosition[0] - x, strokeMeasurePosition[1] - y) <= hitRadius
+            ) {
+                return true
+            }
+        } while (strokePathMeasure.nextContour())
+        return false
+    }
+
+    private fun drawStrokes(canvas: Canvas, matrix: Matrix) {
+        if (strokes.isEmpty() && currentStroke == null) return
+        canvas.save()
+        canvas.clipRect(cropRect)
+        canvas.concat(matrix)
+        fun draw(stroke: DrawStroke) {
+            strokePaint.color = stroke.color
+            strokePaint.strokeWidth = stroke.widthInBitmapPx
+            canvas.drawPath(stroke.path, strokePaint)
+        }
+        strokes.forEach(::draw)
+        currentStroke?.let(::draw)
+        canvas.restore()
+    }
+
+    private fun drawTextOverlays(canvas: Canvas, transform: Matrix?, clipToCrop: Boolean) {
+        if (textOverlays.isEmpty()) return
+        canvas.save()
+        if (clipToCrop) canvas.clipRect(cropRect)
+        transform?.let(canvas::concat)
+        textOverlays.forEach { overlay -> drawTextOverlay(canvas, overlay) }
+        canvas.restore()
+    }
+
+    private fun drawTextOverlay(canvas: Canvas, overlay: TextOverlay) {
+        val lines = overlay.text.lines().ifEmpty { listOf(overlay.text) }
+        textPaint.textSize = overlay.textSizeInViewPx
+        textPaint.color = overlay.color
+        textPaint.style = Paint.Style.FILL
+        textOutlinePaint.textSize = overlay.textSizeInViewPx
+        textOutlinePaint.color = if (overlay.color == Color.BLACK) Color.WHITE else Color.BLACK
+        textOutlinePaint.strokeWidth = overlay.textSizeInViewPx * 0.12f
+        val metrics = textPaint.fontMetrics
+        val lineHeight = (metrics.descent - metrics.ascent) * 1.08f
+        var baseline = overlay.centerY - lineHeight * lines.size / 2f - metrics.ascent
+        lines.forEach { line ->
+            val x = overlay.centerX - textPaint.measureText(line) / 2f
+            canvas.drawText(line, x, baseline, textOutlinePaint)
+            canvas.drawText(line, x, baseline, textPaint)
+            baseline += lineHeight
+        }
+    }
+
+    private fun textOverlayBoundsInView(overlay: TextOverlay, out: RectF) {
+        textPaint.textSize = overlay.textSizeInViewPx
+        val lines = overlay.text.lines().ifEmpty { listOf(overlay.text) }
+        val width = lines.maxOfOrNull { textPaint.measureText(it) } ?: 0f
+        val metrics = textPaint.fontMetrics
+        val height = (metrics.descent - metrics.ascent) * 1.08f * lines.size
+        val padding = overlay.textSizeInViewPx * 0.35f
+        out.set(
+            overlay.centerX - width / 2f - padding,
+            overlay.centerY - height / 2f - padding,
+            overlay.centerX + width / 2f + padding,
+            overlay.centerY + height / 2f + padding,
+        )
+    }
+
+    private fun findTextOverlay(viewX: Float, viewY: Float): Int {
+        for (index in textOverlays.indices.reversed()) {
+            textOverlayBoundsInView(textOverlays[index], textBounds)
+            if (textBounds.contains(viewX, viewY)) return index
+        }
+        return -1
+    }
+
+    private fun moveTouchedText(viewX: Float, viewY: Float) {
+        val overlay = textOverlays.getOrNull(textTouchIndex) ?: return
+        overlay.centerX = (viewX + textDragOffsetX).coerceIn(cropRect.left, cropRect.right)
+        overlay.centerY = (viewY + textDragOffsetY).coerceIn(cropRect.top, cropRect.bottom)
+        invalidate()
+        onEditorChanged?.invoke()
+    }
+
+    private fun removeTextAt(index: Int): Boolean {
+        if (index !in textOverlays.indices) return false
+        textOverlays.removeAt(index)
+        selectedTextIndex = when {
+            selectedTextIndex == index -> -1
+            selectedTextIndex > index -> selectedTextIndex - 1
+            else -> selectedTextIndex
+        }
+        textTouchIndex = -1
+        postInvalidateOnAnimation()
+        onEditorChanged?.invoke()
+        return true
+    }
+
+    private fun cancelTextInteraction() {
+        if (textTouchMoved) onTextDeleteDrag?.invoke(false, 0f, 0f)
+        resetTextTouchState()
+    }
+
+    private fun resetTextTouchState() {
+        textPointerDown = false
+        textTouchMoved = false
+        textTouchIndex = -1
+    }
+
+    override fun onDetachedFromWindow() {
+        cancelTextInteraction()
+        super.onDetachedFromWindow()
     }
 
     fun renderCropped(outWidth: Int, outHeight: Int): Bitmap? {
@@ -313,7 +963,37 @@ class TransformCanvasView(
         val out = Bitmap.createBitmap(outWidth, outHeight, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(out)
         canvas.drawBitmap(bmp, bmpToOutput, bitmapPaint)
+        drawStrokesForExport(canvas, bmpToOutput)
+        drawTextOverlays(canvas, viewToOutput, clipToCrop = false)
         return out
+    }
+
+    private fun drawStrokesForExport(canvas: Canvas, matrix: Matrix) {
+        commitCurrentStroke()
+        if (strokes.isEmpty()) return
+        canvas.save()
+        canvas.concat(matrix)
+        strokes.forEach { stroke ->
+            strokePaint.color = stroke.color
+            strokePaint.strokeWidth = stroke.widthInBitmapPx
+            canvas.drawPath(stroke.path, strokePaint)
+        }
+        canvas.restore()
+    }
+
+    fun suggestedOutputSize(maxEdge: Int): Pair<Int, Int> {
+        val bmp = bitmap ?: return maxEdge to maxEdge
+        val scale = imageScale()
+        var outW = (cropRect.width() / scale).toInt().coerceAtLeast(1)
+        var outH = (cropRect.height() / scale).toInt().coerceAtLeast(1)
+        val sourceLimit = max(bmp.width, bmp.height).coerceAtMost(maxEdge)
+        val currentMax = max(outW, outH)
+        if (currentMax > sourceLimit) {
+            val factor = sourceLimit.toFloat() / currentMax
+            outW = (outW * factor).toInt().coerceAtLeast(1)
+            outH = (outH * factor).toInt().coerceAtLeast(1)
+        }
+        return outW to outH
     }
 
     fun renderCroppedSquare(outSize: Int): Bitmap? = renderCropped(outSize, outSize)
@@ -323,6 +1003,7 @@ class TransformCanvasView(
             imageMatrix.postScale(detector.scaleFactor, detector.scaleFactor, detector.focusX, detector.focusY)
             clampAfterTransform()
             invalidate()
+            onEditorChanged?.invoke()
             return true
         }
     }

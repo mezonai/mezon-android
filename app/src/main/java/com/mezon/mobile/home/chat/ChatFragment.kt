@@ -302,6 +302,7 @@ open class ChatFragment : BaseFragment() {
     private var pendingCameraCapture: CameraPhotoCapture? = null
     private var cameraSourceAlert: ChatAttachAlert? = null
     private var activeCameraReview: CameraPhotoReviewDialog? = null
+    private var activeImageEditor: ChatImageEditorDialog? = null
     private var mediaPermissionDeniedOnce = false
     private var locationPermissionAskedBefore = false
     private val pendingAttachmentThumbTasks = ArrayList<Runnable?>()
@@ -2957,6 +2958,9 @@ open class ChatFragment : BaseFragment() {
     }
 
     override fun onFragmentDestroy() {
+        activeImageEditor?.setOnDismissListener(null)
+        activeImageEditor?.dismiss()
+        activeImageEditor = null
         emojiExpandAnimator?.cancel()
         emojiExpandAnimator = null
         activePhotoViewer?.setOnDismissListener(null)
@@ -2987,6 +2991,7 @@ open class ChatFragment : BaseFragment() {
         pendingAttachmentThumbTasks.clear()
         attachmentProgressReloadRunnable?.let { AndroidUtilities.cancelRunOnUIThread(it) }
         attachmentProgressReloadRunnable = null
+        pendingAttachments.forEach { it.deleteOwnedCacheFile() }
         pendingAttachments.clear()
         replyingToMessage = null
         editingMessage = null
@@ -4573,22 +4578,30 @@ open class ChatFragment : BaseFragment() {
         return m.copy(startOffset = s - leading, endOffset = e - leading)
     }
 
-    private fun sendMessage() {
+    private fun sendMessage(attachmentOverride: List<AttachmentPickerItem>? = null) {
         dismissPasteImagePopup()
+        val outgoingAttachments = attachmentOverride ?: pendingAttachments
+        fun discardUnusedOverride() {
+            attachmentOverride.orEmpty()
+                .filter { override -> pendingAttachments.none { it.uri == override.uri } }
+                .forEach { it.deleteOwnedCacheFile() }
+        }
         val rawInput = inputField.text?.toString() ?: ""
         val text = rawInput.trim()
         val editMsg = editingMessage
         if (editMsg != null) {
             val oldText = com.mezon.mobile.util.restoreInputFromContent(editMsg.content).rawText.trim()
             if (text == oldText) {
+                discardUnusedOverride()
                 clearEditState()
                 return
             }
         }
         val preservingShareContactEmbed = editMsg != null &&
             isShareContactMessage(editMsg.code, editMsg.content)
-        if (text.isBlank() && pendingAttachments.isEmpty() && !preservingShareContactEmbed) return
+        if (text.isBlank() && outgoingAttachments.isEmpty() && !preservingShareContactEmbed) return
         if (editMsg == null && !canSendMessageInCurrentChannel()) {
+            discardUnusedOverride()
             refreshPermissionGates()
             MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.message_no_send_permission))
             return
@@ -4611,7 +4624,7 @@ open class ChatFragment : BaseFragment() {
                         if (finished == null) inputOgpFetchJob?.cancel()
                     } finally {
                         awaitingOgpForSend = false
-                        sendMessage()
+                        sendMessage(attachmentOverride)
                     }
                 }
                 return
@@ -4662,6 +4675,7 @@ open class ChatFragment : BaseFragment() {
         val hashtags = hashtagsFromTrackers.ifEmpty { null }
 
         if (editMsg != null) {
+            discardUnusedOverride()
             val emojiMarkers = buildEmojiMarkers(cleanedText)
             chatController.editMessage(
                 channelId, clanId, channelType, isPrivate, editMsg.id,
@@ -4673,14 +4687,17 @@ open class ChatFragment : BaseFragment() {
             return
         }
 
-        Log.d(TAG, "sendMessage channelId=$channelId clanId=$clanId channelType=$channelType isPrivate=$isPrivate textLen=${cleanedText.length} attachments=${pendingAttachments.size} hasReply=${references != null} mdMarkers=${filteredMdMarkers?.size ?: 0} ogp=${ogpMarker != null} hashtags=${hashtags?.size ?: 0}")
+        Log.d(TAG, "sendMessage channelId=$channelId clanId=$clanId channelType=$channelType isPrivate=$isPrivate textLen=${cleanedText.length} attachments=${outgoingAttachments.size} hasReply=${references != null} mdMarkers=${filteredMdMarkers?.size ?: 0} ogp=${ogpMarker != null} hashtags=${hashtags?.size ?: 0}")
 
-        if (pendingAttachments.isNotEmpty()) {
-            val ctx = getContext() ?: return
+        if (outgoingAttachments.isNotEmpty()) {
+            val ctx = getContext() ?: run {
+                discardUnusedOverride()
+                return
+            }
             val emojiMarkers = buildEmojiMarkers(cleanedText)
             chatController.sendMessageWithAttachments(
                 channelId, clanId, channelType, isPrivate, cleanedText,
-                ArrayList(pendingAttachments),
+                ArrayList(outgoingAttachments),
                 ctx.contentResolver,
                 references,
                 mentions,
@@ -4896,6 +4913,7 @@ open class ChatFragment : BaseFragment() {
                     if (pendingAttachments.any { it.id == item.id }) return
                     pendingAttachments.add(item)
                 } else {
+                    pendingAttachments.filter { it.id == item.id }.forEach { it.deleteOwnedCacheFile() }
                     pendingAttachments.removeAll { it.id == item.id }
                 }
                 updateAttachmentPreview()
@@ -4905,6 +4923,26 @@ open class ChatFragment : BaseFragment() {
             override fun onFilesRequested() {
                 if (!ensureCanSendMessageOrNotify()) return
                 launchDocumentPicker()
+            }
+
+            override fun canEdit(item: AttachmentPickerItem): Boolean =
+                pendingAttachments.size == 1 &&
+                    !item.isVideo &&
+                    item.mimeType.startsWith("image/", ignoreCase = true)
+
+            override fun onEditRequested(item: AttachmentPickerItem) {
+                val currentIndex = pendingAttachments.indexOfFirst { it.id == item.id }
+                if (currentIndex < 0) return
+                activeImageEditor?.dismiss()
+                val editor = ChatImageEditorDialog(ctx, pendingAttachments[currentIndex]) { edited ->
+                    alert.dismiss()
+                    sendMessage(listOf(edited))
+                }
+                activeImageEditor = editor
+                editor.setOnDismissListener {
+                    if (activeImageEditor === editor) activeImageEditor = null
+                }
+                editor.show()
             }
 
             override fun onCameraRequested() {
@@ -5813,7 +5851,7 @@ open class ChatFragment : BaseFragment() {
                 setBackgroundColor(0x80000000.toInt())
                 setPadding(LayoutHelper.dp(2f), LayoutHelper.dp(2f), LayoutHelper.dp(2f), LayoutHelper.dp(2f))
                 setOnClickListener {
-                    pendingAttachments.removeAt(i)
+                    pendingAttachments.removeAt(i).deleteOwnedCacheFile()
                     updateAttachmentPreview()
                     updateSendButtonState()
                 }

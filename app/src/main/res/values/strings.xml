@@ -565,6 +565,17 @@
     <string name="image_crop_rotate_left_cd">Rotate left</string>
     <string name="image_crop_rotate_right_cd">Rotate right</string>
     <string name="image_crop_reset_cd">Reset</string>
+    <string name="image_editor_edit">Edit</string>
+    <string name="image_editor_crop">Crop</string>
+    <string name="image_editor_draw">Draw</string>
+    <string name="image_editor_eraser">Eraser</string>
+    <string name="image_editor_brush_size">Brush size</string>
+    <string name="image_editor_text">Text</string>
+    <string name="image_editor_text_hint">Enter text</string>
+    <string name="image_editor_text_done">Done</string>
+    <string name="image_editor_undo">Undo</string>
+    <string name="image_editor_failed">Could not edit this image</string>
+    <string name="image_editor_color_cd">Drawing color %1$d</string>
     <string name="clan_settings_remove_logo">Remove clan logo</string>
     <string name="clan_settings_logo_permission_denied">You don\'t have permission to change the clan logo.</string>
     <string name="clan_settings_logo_too_large">Clan logo image must be 1 MB or smaller.</string>

@@ -2006,41 +2006,47 @@ class ChatController @Inject constructor(
         cdnBaseUrl: String,
         maxRetries: Int,
     ): PreparedAttachmentSlot? {
-        for (attempt in 1..maxRetries) {
-            try {
-                if (!item.isVideo && AttachmentUploader.isCompressibleImage(item.mimeType)) {
-                    val compressed = imageCompressionSlots.withPermit {
-                        AttachmentUploader.compressImageFromUri(
-                            contentResolver, item.uri, item.mimeType, item.filename, item.size,
-                        )
+        try {
+            for (attempt in 1..maxRetries) {
+                try {
+                    if (!item.isVideo && AttachmentUploader.isCompressibleImage(item.mimeType)) {
+                        val compressed = imageCompressionSlots.withPermit {
+                            AttachmentUploader.compressImageFromUri(
+                                contentResolver, item.uri, item.mimeType, item.filename, item.size,
+                            )
+                        }
+                        if (compressed != null) {
+                            val uploadItem = item.copy(
+                                filename = compressed.filename,
+                                mimeType = compressed.mimeType,
+                                width = compressed.width,
+                                height = compressed.height,
+                                size = compressed.bytes.size.toLong(),
+                            )
+                            return presignCachedAttachment(
+                                index, uploadItem, compressed.bytes, apiUrl, token, cdnBaseUrl,
+                            )
+                        }
                     }
-                    if (compressed != null) {
-                        val uploadItem = item.copy(
-                            filename = compressed.filename,
-                            mimeType = compressed.mimeType,
-                            width = compressed.width,
-                            height = compressed.height,
-                            size = compressed.bytes.size.toLong(),
-                        )
-                        return presignCachedAttachment(index, uploadItem, compressed.bytes, apiUrl, token, cdnBaseUrl)
-                    }
-                }
 
-                val tmpFile = AttachmentUploader.copyUriToTempFile(
-                    contentResolver, item.uri, item.mimeType, appContext.cacheDir,
-                ) ?: return null
-                return try {
-                    presignStreamedAttachment(index, item, tmpFile, apiUrl, token, cdnBaseUrl)
+                    val tmpFile = AttachmentUploader.copyUriToTempFile(
+                        contentResolver, item.uri, item.mimeType, appContext.cacheDir,
+                    ) ?: return null
+                    return try {
+                        presignStreamedAttachment(index, item, tmpFile, apiUrl, token, cdnBaseUrl)
+                    } catch (e: Exception) {
+                        runCatching { tmpFile.delete() }
+                        throw e
+                    }
                 } catch (e: Exception) {
-                    runCatching { tmpFile.delete() }
-                    throw e
+                    Log.e(TAG, "Failed to presign attachment: ${item.filename}", e)
+                    if (attempt < maxRetries) delay(SHARE_RETRY_DELAY_MS)
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to presign attachment: ${item.filename}", e)
-                if (attempt < maxRetries) delay(SHARE_RETRY_DELAY_MS)
             }
+            return null
+        } finally {
+            item.deleteOwnedCacheFile()
         }
-        return null
     }
 
     private suspend fun presignCachedAttachment(

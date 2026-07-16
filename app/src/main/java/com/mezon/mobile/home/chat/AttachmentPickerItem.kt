@@ -3,6 +3,7 @@ package com.mezon.mobile.home.chat
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
+import java.io.File
 
 data class AttachmentPickerItem(
     val id: Long,
@@ -16,8 +17,13 @@ data class AttachmentPickerItem(
     val duration: Int,
     val isVideo: Boolean,
     val isSelected: Boolean = false,
-    val selectionIndex: Int = -1
+    val selectionIndex: Int = -1,
+    val ownedCachePath: String? = null,
 ) {
+
+    fun deleteOwnedCacheFile() {
+        ownedCachePath?.let { path -> runCatching { File(path).delete() } }
+    }
 
     val isFileType: Boolean
         get() = !mimeType.startsWith("image/") && !mimeType.startsWith("video/")
