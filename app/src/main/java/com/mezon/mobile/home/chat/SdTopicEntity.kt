@@ -5,8 +5,8 @@ import com.mezon.mezon.api.SdTopic
 import com.mezon.mezon.rtapi.SdTopicEvent
 import com.mezon.mobile.home.clans.ClanChannelEntity
 import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
-import com.mezon.mobile.util.parseContentPreview
-import org.json.JSONObject
+import com.mezon.mobile.util.TopicOriginalPreviewToken
+import com.mezon.mobile.util.parseTopicOriginalMessagePreview
 
 data class SdTopicEntity(
     val id: Long,
@@ -23,10 +23,7 @@ data class SdTopicEntity(
     val lastSentTimestampSeconds: Long = 0L
 ) {
     val rootMessagePreview: String
-        get() = parseContentPreview(content).ifBlank { parseMessagePreview(content) }
-
-    val lastMessagePreview: String
-        get() = parseContentPreview(lastSentContent).ifBlank { parseMessagePreview(lastSentContent) }
+        get() = parseTopicOriginalMessagePreview(content)
 
     fun senderIdForAvatar(): Long = lastSentSenderId.takeIf { it != 0L } ?: creatorId
 }
@@ -52,8 +49,8 @@ fun SdTopic.toSdTopicEntity(): SdTopicEntity {
 fun SdTopicEvent.toSdTopicEntityFromEvent(): SdTopicEntity {
     val last = if (hasLastSentMessage()) lastSentMessage else ChannelMessageHeader.getDefaultInstance()
     val rootContent = if (hasMessage()) message.content else ""
-    val createTs = last.timestampSeconds.toLong().takeIf { it > 0L }
-        ?: if (hasMessage()) message.createTimeSeconds.toLong() else 0L
+    val createTs = if (hasMessage()) message.createTimeSeconds.toLong() else 0L
+    val updateTs = last.timestampSeconds.toLong().takeIf { it > 0L } ?: createTs
     return SdTopicEntity(
         id = id,
         creatorId = userId,
@@ -62,7 +59,7 @@ fun SdTopicEvent.toSdTopicEntityFromEvent(): SdTopicEntity {
         channelId = channelId,
         content = rootContent,
         createTimeSeconds = createTs,
-        updateTimeSeconds = createTs,
+        updateTimeSeconds = updateTs,
         lastSentMessageId = last.id,
         lastSentSenderId = last.senderId,
         lastSentContent = last.content,
@@ -74,7 +71,7 @@ fun SdTopicEntity.toClanChannelEntity(
     parent: ClanChannelEntity? = null,
     existing: ClanChannelEntity? = null
 ): ClanChannelEntity {
-    val label = rootMessagePreview.take(80).ifBlank { "Topic" }
+    val label = channelLabelPreview(rootMessagePreview).take(80).ifBlank { "Topic" }
     val lastSentId = lastSentMessageId.takeIf { it > 0L } ?: messageId
     val lastSentTs = lastSentTimestampSeconds.takeIf { it > 0L }
         ?: updateTimeSeconds.takeIf { it > 0L }
@@ -100,12 +97,10 @@ fun SdTopicEntity.toClanChannelEntity(
     )
 }
 
-private fun parseMessagePreview(raw: String): String {
-    if (raw.isBlank()) return ""
-    return runCatching {
-        val json = JSONObject(raw)
-        json.optString("t", "").ifBlank {
-            if (json.has("embed") || json.has("components")) "[attachment]" else ""
-        }
-    }.getOrDefault("")
-}
+private fun channelLabelPreview(preview: String): String =
+    when (preview) {
+        TopicOriginalPreviewToken.ATTACHMENT -> "[Attachment]"
+        TopicOriginalPreviewToken.CONTACT -> "[Contact]"
+        TopicOriginalPreviewToken.INTERACTIVE_MESSAGE -> "[Interactive message]"
+        else -> preview
+    }

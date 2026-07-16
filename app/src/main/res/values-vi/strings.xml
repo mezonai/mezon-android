@@ -332,8 +332,11 @@
     <string name="notif_tab_messages">Tin nhắn</string>
     <string name="notif_tab_topics">Chủ đề</string>
     <string name="notif_tab_topics_empty">Không có hoạt động chủ đề</string>
-    <string name="notif_topic_and_you">Chủ đề và bạn</string>
-    <string name="notif_replied_to">Trả lời:</string>
+    <string name="notif_topic_discussion">THẢO LUẬN CHỦ ĐỀ</string>
+    <string name="notif_original_message">Tin nhắn gốc:</string>
+    <string name="notif_topic_original_attachment">[Tệp đính kèm]</string>
+    <string name="notif_topic_original_contact">[Liên hệ]</string>
+    <string name="notif_topic_original_interactive_message">[Tin nhắn tương tác]</string>
     <string name="topic_discussion">Thảo luận chủ đề</string>
     <string name="topic_creator">Người tạo</string>
     <string name="topic_view">Xem chủ đề</string>
