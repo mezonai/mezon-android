@@ -341,7 +341,12 @@ class CreateClanCustomizeFragment : BaseFragment() {
         clearNameButton = ImageView(context).apply {
             visibility = View.GONE
             scaleType = ImageView.ScaleType.FIT_CENTER
-            setImageDrawable(MezonIcon.circleXIcon.getDrawable(context, Color.WHITE))
+            setImageDrawable(
+                MezonIcon.circleXIcon.getDrawable(
+                    context,
+                    CreateClanRnUiTokens.textDisabled(themeColors)
+                )
+            )
             setOnClickListener {
                 nameInput.setText("")
             }
