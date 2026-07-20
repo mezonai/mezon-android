@@ -231,6 +231,9 @@ class ClansFragment : BaseFragment() {
             serverRail.setBackgroundColor(themeColors.serverRailBg)
             serverAdapter.notifyDataSetChanged()
             channelListView.invalidateTheme()
+            if (::memberCountText.isInitialized) {
+                updateMemberCount()
+            }
             updateClanPanelHeaderMode()
         }
 
@@ -724,6 +727,7 @@ class ClansFragment : BaseFragment() {
     override fun onResume() {
         super.onResume()
         ensureVoiceMembersLoaded()
+        updateMemberCount()
     }
 
     override fun onBecomeFullyVisible() {
@@ -883,17 +887,19 @@ class ClansFragment : BaseFragment() {
 
     private fun updateMemberCount() {
         val clanId = clansController.selectedClanId.value
-        if (!userClanController.hasClanMembersCache(clanId)) {
+        val hasCache = userClanController.hasClanMembersCache(clanId)
+        if (!hasCache) {
             memberCountText.visibility = View.INVISIBLE
             return
         }
         val count = userClanController.getClanMemberCount(clanId)
         val isCommunity = renderedIsCommunity == true
-        val key = "$count|$isCommunity"
-        val alreadyShown = memberCountText.visibility == View.VISIBLE && memberCountText.alpha >= 1f
+        val key = "$count|$isCommunity|${themeColors.resolvedMode}"
+        val alreadyShown = memberCountText.visibility == View.VISIBLE
         if (renderedSubtitleKey == key && alreadyShown) return
         val wasHidden = !alreadyShown
         renderedSubtitleKey = key
+        memberCountText.setTextColor(themeColors.textDisabled)
         memberCountText.text = buildSubtitleText(count, isCommunity)
         memberCountText.visibility = View.VISIBLE
         if (wasHidden) {
@@ -907,7 +913,7 @@ class ClansFragment : BaseFragment() {
     }
 
     private fun buildSubtitleText(count: Int, isCommunity: Boolean): CharSequence {
-        val ctx = fragmentView?.context ?: return ""
+        val ctx = memberCountText.context
         val memberWord = if (count == 1) {
             ctx.getString(R.string.common_member)
         } else {
