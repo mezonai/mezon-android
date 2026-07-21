@@ -178,14 +178,21 @@ class NotificationCell(context: Context, private val theme: ThemeColors) : BaseC
         if (url == currentAvatarUrl && avatarDrawable.hasPhoto()) return
         currentAvatarUrl = url
         avatarDrawable.setPhoto(null)
+        avatarDrawable.setLoadingPlaceholder(false)
         avatarDisposable?.cancel()
         avatarDisposable = null
         if (url.isNotEmpty()) {
             val proxyUrl = avatarImgproxyUrl(url, AVATAR_SIZE)
+            avatarDrawable.setLoadingPlaceholder(true)
             avatarDisposable = MezonImageLoader.getInstance(context).load(
                 proxyUrl, AVATAR_SIZE, AVATAR_SIZE,
                 onSuccess = { bmp ->
+                    avatarDrawable.setLoadingPlaceholder(false)
                     avatarDrawable.setPhoto(bmp)
+                    invalidate()
+                },
+                onError = {
+                    avatarDrawable.setLoadingPlaceholder(false)
                     invalidate()
                 }
             )

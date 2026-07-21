@@ -17,6 +17,7 @@ import android.text.TextPaint
 class AvatarDrawable : Drawable() {
 
     companion object {
+        private const val LOADING_PLACEHOLDER_COLOR = 0x33808080
         private val avatarColors = intArrayOf(
             0xFFade603.toInt(),
             0xFF00b2cc.toInt(),
@@ -75,9 +76,11 @@ class AvatarDrawable : Drawable() {
     private var hasGradient = false
     private var photoBitmap: Bitmap? = null
     private val photoPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val loadingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = LOADING_PLACEHOLDER_COLOR }
     private var smallSize = false
     private var scaleSize = 1f
     private var drawableByInfo = true
+    private var loadingPlaceholder = false
     private var customTextSize = 0f
     private val roundRectF = RectF()
     var cornerRadius: Float = Float.MAX_VALUE
@@ -107,6 +110,7 @@ class AvatarDrawable : Drawable() {
         hasGradient = false
         initial = getAvatarSymbols(normalized)
         photoBitmap = null
+        loadingPlaceholder = false
         cachedShader = null
         cachedShaderBitmap = null
         cachedGradient = null
@@ -168,6 +172,12 @@ class AvatarDrawable : Drawable() {
         invalidateSelf()
     }
 
+    fun setLoadingPlaceholder(value: Boolean) {
+        if (loadingPlaceholder == value) return
+        loadingPlaceholder = value
+        invalidateSelf()
+    }
+
     fun setPhoto(bitmap: Bitmap?) {
         photoBitmap = bitmap
         cachedShader = null
@@ -212,6 +222,8 @@ class AvatarDrawable : Drawable() {
             }
             photoPaint.shader = cachedShader
             canvas.drawRoundRect(roundRectF, r, r, photoPaint)
+        } else if (loadingPlaceholder) {
+            canvas.drawRoundRect(roundRectF, r, r, loadingPaint)
         } else if (drawableByInfo) {
             if (hasGradient) {
                 val h = size.toFloat()

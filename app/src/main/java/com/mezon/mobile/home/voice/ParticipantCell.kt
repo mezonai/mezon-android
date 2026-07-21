@@ -204,6 +204,7 @@ class ParticipantCell(
         avatarDisposable?.cancel()
         avatarDisposable = null
         if (url.isNullOrEmpty()) {
+            avatarDrawable.setLoadingPlaceholder(false)
             avatarDrawable.setPhoto(null)
             avatarView.setImageDrawable(avatarDrawable)
             return
@@ -222,16 +223,21 @@ class ParticipantCell(
     }
 
     private fun startImageLoad(loader: MezonImageLoader, proxyUrl: String) {
+        avatarDrawable.setLoadingPlaceholder(true)
+        avatarView.setImageDrawable(avatarDrawable)
         avatarDisposable = loader.load(
             proxyUrl, AVATAR_SIZE, AVATAR_SIZE,
             onSuccess = { bmp ->
                 avatarDisposable = null
+                avatarDrawable.setLoadingPlaceholder(false)
                 avatarDrawable.setPhoto(bmp)
                 avatarView.setImageDrawable(avatarDrawable)
                 invalidate()
             },
             onError = {
                 avatarDisposable = null
+                avatarDrawable.setLoadingPlaceholder(false)
+                avatarView.setImageDrawable(avatarDrawable)
             }
         )
     }

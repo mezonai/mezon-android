@@ -43,7 +43,7 @@ fun plainSourceUrlFromImgproxy(processedUrl: String): String? {
     return decoded.takeIf { it.startsWith("http://") || it.startsWith("https://") }
 }
 
-private val AVATAR_BUCKETS_PX = intArrayOf(64, 96, 144, 192, 256)
+private val AVATAR_BUCKETS_PX = intArrayOf(192, 256)
 
 fun absoluteResourceUrl(raw: String): String {
     val t = raw.trim()

@@ -74,17 +74,19 @@ fun loadChannelAvatar(
     }
     if (!attached) return
 
+    avatarDrawable.setLoadingPlaceholder(true)
     val expectedKey = proxyUrl
     state.disposable = loader.load(
         proxyUrl, request.sizePx, request.sizePx,
         onSuccess = { bmp ->
             if (state.loadKey != expectedKey) return@load
+            avatarDrawable.setLoadingPlaceholder(false)
             avatarDrawable.setPhoto(bmp)
             onInvalidate()
         },
         onError = {
             if (state.loadKey != expectedKey) return@load
-            avatarDrawable.setPhoto(null)
+            avatarDrawable.setLoadingPlaceholder(false)
             onInvalidate()
         }
     )

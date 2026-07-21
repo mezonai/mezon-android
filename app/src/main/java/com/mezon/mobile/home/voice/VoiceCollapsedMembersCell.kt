@@ -70,14 +70,21 @@ class VoiceCollapsedMembersCell(
         if (url == currentAvatarUrls[index] && avatarDrawables[index].hasPhoto()) return
         currentAvatarUrls[index] = url
         avatarDrawables[index].setPhoto(null)
+        avatarDrawables[index].setLoadingPlaceholder(false)
         cancelAvatarLoad(index)
 
         if (url.isNullOrEmpty()) return
         val proxyUrl = avatarImgproxyUrl(url, AVATAR_SIZE)
+        avatarDrawables[index].setLoadingPlaceholder(true)
         avatarCancellables[index] = MezonImageLoader.getInstance(context).load(
             proxyUrl, AVATAR_SIZE, AVATAR_SIZE,
             onSuccess = { bmp ->
+                avatarDrawables[index].setLoadingPlaceholder(false)
                 avatarDrawables[index].setPhoto(bmp)
+                invalidate()
+            },
+            onError = {
+                avatarDrawables[index].setLoadingPlaceholder(false)
                 invalidate()
             }
         )

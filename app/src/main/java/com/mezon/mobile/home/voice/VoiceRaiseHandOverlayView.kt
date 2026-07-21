@@ -172,16 +172,20 @@ class VoiceRaiseHandOverlayView(
             item.avatarView.setImageDrawable(item.avatarDrawable)
             return
         }
+        item.avatarDrawable.setLoadingPlaceholder(true)
         item.cancellable = loader.load(
             url = url,
             reqWidth = AVATAR_SIZE,
             reqHeight = AVATAR_SIZE,
             onSuccess = { bmp ->
+                item.avatarDrawable.setLoadingPlaceholder(false)
                 item.avatarDrawable.setPhoto(bmp)
                 item.avatarView.setImageDrawable(item.avatarDrawable)
             },
             onError = {
                 item.cancellable = null
+                item.avatarDrawable.setLoadingPlaceholder(false)
+                item.avatarView.setImageDrawable(item.avatarDrawable)
             }
         )
     }

@@ -237,6 +237,7 @@ class VoiceOverlayView(
         avatarDisposable = null
 
         if (url.isNullOrEmpty()) {
+            avatarDrawable.setLoadingPlaceholder(false)
             avatarDrawable.setPhoto(null)
             avatarView.setImageDrawable(avatarDrawable)
             return
@@ -246,21 +247,26 @@ class VoiceOverlayView(
         val loader = MezonImageLoader.getInstance(context)
         val cached = loader.getBitmapFromMemory(proxyUrl, AVATAR_SIZE, AVATAR_SIZE)
         if (cached != null) {
+            avatarDrawable.setLoadingPlaceholder(false)
             avatarDrawable.setPhoto(cached)
             avatarView.setImageDrawable(avatarDrawable)
             return
         }
 
+        avatarDrawable.setLoadingPlaceholder(true)
         avatarView.setImageDrawable(avatarDrawable)
         avatarDisposable = loader.load(
             proxyUrl, AVATAR_SIZE, AVATAR_SIZE,
             onSuccess = { bmp ->
                 avatarDisposable = null
+                avatarDrawable.setLoadingPlaceholder(false)
                 avatarDrawable.setPhoto(bmp)
                 avatarView.setImageDrawable(avatarDrawable)
             },
             onError = {
                 avatarDisposable = null
+                avatarDrawable.setLoadingPlaceholder(false)
+                avatarView.setImageDrawable(avatarDrawable)
             }
         )
     }
