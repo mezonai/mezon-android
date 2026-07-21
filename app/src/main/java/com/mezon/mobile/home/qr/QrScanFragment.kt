@@ -62,6 +62,44 @@ class QrScanFragment : BaseFragment() {
         private const val REQUEST_GALLERY = 7002
         private const val SCAN_THROTTLE_MS = 5000L
         private const val GALLERY_QR_MAX_EDGE = 4096
+
+        private fun extractLuminance(image: ImageProxy): ByteArray? {
+            val plane = image.planes.firstOrNull() ?: return null
+            val buffer = plane.buffer
+            val width = image.width
+            val height = image.height
+            val rowStride = plane.rowStride
+            val pixelStride = plane.pixelStride
+
+            if (rowStride < width * pixelStride) return null
+
+            val data = ByteArray(width * height)
+            buffer.rewind()
+
+            if (pixelStride == 1 && rowStride == width) {
+                if (buffer.remaining() < data.size) return null
+                buffer.get(data, 0, data.size)
+                return data
+            }
+
+            val row = ByteArray(rowStride)
+            var offset = 0
+            val minRowBytes = (width - 1) * pixelStride + 1
+            for (rowIndex in 0 until height) {
+                val available = minOf(rowStride, buffer.remaining())
+                if (available < minRowBytes) return null
+                buffer.get(row, 0, available)
+                var col = 0
+                var idx = 0
+                while (col < width) {
+                    data[offset++] = row[idx]
+                    idx += pixelStride
+                    col++
+                }
+            }
+
+            return data
+        }
     }
 
     private lateinit var previewView: PreviewView

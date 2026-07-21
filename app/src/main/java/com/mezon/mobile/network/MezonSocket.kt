@@ -71,7 +71,7 @@ class MezonSocket @Inject constructor(
 ) {
     companion object {
         private const val TAG = "MezonSocket"
-        private const val HEARTBEAT_INTERVAL_MS = 15_000L
+        private const val HEARTBEAT_INTERVAL_MS = 8_000L
         private const val PONG_TIMEOUT_MS = HEARTBEAT_INTERVAL_MS * 3
         private const val RECONNECT_MIN_MS = 1_000L
         private const val RECONNECT_MAX_MS = 30_000L

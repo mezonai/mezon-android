@@ -927,6 +927,8 @@ class VoiceRoomFragment : BaseFragment() {
                 is RoomEvent.Reconnected -> {
                     isReconnecting = false
                     headerView.setReconnecting(false)
+                    audioManager?.resetDefaultRouting()
+                    audioManager?.applyDefaultRouting()
                     doUpdateParticipantList()
                     updateMiniOverlayIfNeeded()
                 }
@@ -952,6 +954,9 @@ class VoiceRoomFragment : BaseFragment() {
                 }
                 is RoomEvent.TrackSubscribed -> {
                     Log.d(TAG, "Event: TrackSubscribed source=${event.publication.source} participant=${event.participant.identity?.value}")
+                    if (event.publication.source == Track.Source.MICROPHONE) {
+                        audioManager?.applyDefaultRouting()
+                    }
                     scheduleUpdateParticipantList()
                 }
                 is RoomEvent.TrackUnsubscribed -> {
