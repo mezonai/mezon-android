@@ -511,6 +511,13 @@ open class ChatFragment : BaseFragment() {
             val dm = dialogsController.getDialog(readStateChannelId)
             lastSeenMessageId = dm?.lastSeenMessageId ?: 0L
             lastSentMessageId = dm?.lastSentMessageId ?: 0L
+            if (!isTopicMode && (dm?.unreadCount ?: 0) > 0) {
+                appScope.launch {
+                    dialogsController.markDialogAsReadFromMenu(channelId).onFailure {
+                        Log.e(TAG, "markAsRead on DM open failed channelId=$channelId", it)
+                    }
+                }
+            }
         } else {
             val ch = channelController.findChannelById(readStateChannelId)
             lastSeenMessageId = ch?.lastSeenMessageId ?: 0L
@@ -1320,6 +1327,7 @@ open class ChatFragment : BaseFragment() {
         observe(NotificationCenter.appDidReconnect) { _, _, _ ->
             if (isPaused) return@observe
             Log.d(TAG, "appDidReconnect: reloading messages for channel $channelId")
+            rejoinChannelOnSocket()
             chatController.loadMessages(channelId, clanId, forceRefresh = true, preferHttp = false, topicId = topicId)
         }
 
@@ -2485,6 +2493,7 @@ open class ChatFragment : BaseFragment() {
         }
         if (pausedFromAppBackground) {
             pausedFromAppBackground = false
+            rejoinChannelOnSocket()
             chatController.loadMessages(channelId, clanId, forceRefresh = true, preferHttp = true, topicId = topicId)
         }
     }
@@ -4495,6 +4504,11 @@ open class ChatFragment : BaseFragment() {
             return channelController.findChannelById(channelId)?.isPrivate ?: false
         }
         return false
+    }
+
+    private fun rejoinChannelOnSocket() {
+        if (channelId == 0L) return
+        chatController.openChannel(channelId, clanId, channelType, resolveChannelPrivate(), routeParentId)
     }
 
     private fun resolveChannelAgeRestricted(): Boolean {

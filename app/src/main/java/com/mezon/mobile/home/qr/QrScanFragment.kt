@@ -81,9 +81,11 @@ class QrScanFragment : BaseFragment() {
 
             val row = ByteArray(rowStride)
             var offset = 0
+            val minRowBytes = (width - 1) * pixelStride + 1
             for (rowIndex in 0 until height) {
-                if (buffer.remaining() < rowStride) return null
-                buffer.get(row, 0, rowStride)
+                val available = minOf(rowStride, buffer.remaining())
+                if (available < minRowBytes) return null
+                buffer.get(row, 0, available)
                 var col = 0
                 var idx = 0
                 while (col < width) {

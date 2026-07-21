@@ -5,6 +5,7 @@ import android.provider.Settings
 import android.util.Log
 import com.google.firebase.messaging.FirebaseMessaging
 import com.mezon.mobile.core.NotificationCenter
+import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.home.call.CallController
@@ -21,6 +22,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
@@ -28,6 +30,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 private const val TAG = "ConnectionController"
+private const val JOIN_CLAN_DELAY_MS = 250L
 
 @Singleton
 class ConnectionController @Inject constructor(
@@ -172,16 +175,21 @@ class ConnectionController @Inject constructor(
                 mezonSocket.connect(s.wsUrl, s.token)
             } else {
                 mezonSocket.disconnect()
+                if (StartupCache.hasSession) {
+                    StartupCache.sessionRecoveryNeedsRelogin = true
+                    notificationCenter.postNotificationOnMainThread(NotificationCenter.sessionExpired)
+                }
             }
         }
     }
 
     private suspend fun joinClanOnConnected() {
         mezonSocket.connectionState.collect { state ->
-            if (state == ConnectionState.CONNECTED) {
-                try { mezonSocket.joinClanChat(0L) }
-                catch (e: Exception) { Log.e(TAG, "joinClanChat(0) failed", e) }
-            }
+            if (state != ConnectionState.CONNECTED) return@collect
+            delay(JOIN_CLAN_DELAY_MS)
+            if (mezonSocket.connectionState.value != ConnectionState.CONNECTED) return@collect
+            try { mezonSocket.joinClanChat(0L) }
+            catch (e: Exception) { Log.e(TAG, "joinClanChat(0) failed", e) }
         }
     }
 

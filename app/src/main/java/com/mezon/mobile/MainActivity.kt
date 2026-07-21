@@ -291,6 +291,10 @@ class MainActivity : BasePermissionsActivity(),
         if (pendingSessionExpiredPrompt) {
             promptSessionExpired()
         }
+        if (StartupCache.sessionRecoveryNeedsRelogin) {
+            StartupCache.sessionRecoveryNeedsRelogin = false
+            promptSessionExpired()
+        }
         flushPendingDeepLink()
     }
 

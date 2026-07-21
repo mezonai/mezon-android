@@ -10,6 +10,9 @@ object StartupCache {
     @Volatile
     var suppressHomeListApiForIncomingCallWake: Boolean = false
 
+    @Volatile
+    var sessionRecoveryNeedsRelogin: Boolean = false
+
     private const val PREFS_NAME = "mezon_startup_cache"
     private const val KEY_SEEDED = "seeded"
     private const val KEY_HAS_SESSION = "has_session"
