@@ -325,13 +325,21 @@ class InputSuggestionCell(
         val loader = MezonImageLoader.getInstance(context)
         val cached = loader.getBitmapFromMemory(proxy, size, size)
         if (cached != null) {
+            avatarDrawable.setLoadingPlaceholder(false)
             avatarDrawable.setPhoto(cached)
             invalidate()
             return
         }
+        avatarDrawable.setLoadingPlaceholder(true)
         imageDisposable = loader.load(proxy, size, size, onSuccess = { bmp ->
             if (currentImageUrl == proxy) {
+                avatarDrawable.setLoadingPlaceholder(false)
                 avatarDrawable.setPhoto(bmp)
+                invalidate()
+            }
+        }, onError = {
+            if (currentImageUrl == proxy) {
+                avatarDrawable.setLoadingPlaceholder(false)
                 invalidate()
             }
         })

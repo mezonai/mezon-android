@@ -155,6 +155,7 @@ class ClanCell(
                 currentLogoUrl = null
                 logoCancellable?.cancel()
                 logoCancellable = null
+                avatar.setLoadingPlaceholder(false)
                 avatar.setPhoto(null)
                 invalidate()
             }
@@ -170,16 +171,23 @@ class ClanCell(
         val loader = MezonImageLoader.getInstance(context)
         val cached = loader.getBitmapFromMemory(url, iconSizePx, iconSizePx)
         if (cached != null) {
+            avatar.setLoadingPlaceholder(false)
             avatar.setPhoto(cached)
             return
         }
 
         avatar.setPhoto(null)
+        avatar.setLoadingPlaceholder(true)
 
         logoCancellable = loader.load(
             url, iconSizePx, iconSizePx,
             onSuccess = { bmp ->
+                avatar.setLoadingPlaceholder(false)
                 avatar.setPhoto(bmp)
+                invalidate()
+            },
+            onError = {
+                avatar.setLoadingPlaceholder(false)
                 invalidate()
             }
         )

@@ -385,6 +385,7 @@ class StreamingRoomFragment : BaseFragment() {
         if (url == holder.currentUrl && holder.drawable.hasPhoto()) return
         holder.currentUrl = url
         holder.drawable.setPhoto(null)
+        holder.drawable.setLoadingPlaceholder(false)
         holder.cancellable?.cancel()
         holder.cancellable = null
         holder.view.setImageDrawable(holder.drawable)
@@ -397,14 +398,20 @@ class StreamingRoomFragment : BaseFragment() {
             holder.view.setImageDrawable(holder.drawable)
             return
         }
+        holder.drawable.setLoadingPlaceholder(true)
         holder.cancellable = loader.load(
             proxy, sizePx, sizePx,
             onSuccess = { bmp ->
                 holder.cancellable = null
+                holder.drawable.setLoadingPlaceholder(false)
                 holder.drawable.setPhoto(bmp)
                 holder.view.setImageDrawable(holder.drawable)
             },
-            onError = { holder.cancellable = null }
+            onError = {
+                holder.cancellable = null
+                holder.drawable.setLoadingPlaceholder(false)
+                holder.view.setImageDrawable(holder.drawable)
+            }
         )
     }
 

@@ -37,6 +37,7 @@ class AvatarView(context: Context) : View(context) {
         cancellable?.cancel()
         cancellable = null
         if (url.isNullOrEmpty()) {
+            avatarDrawable.setLoadingPlaceholder(false)
             avatarDrawable.setPhoto(null)
             invalidate()
             return
@@ -49,16 +50,18 @@ class AvatarView(context: Context) : View(context) {
     private fun loadImage(url: String) {
         val sizePx = LayoutHelper.dp(sizeDp)
         val proxyUrl = avatarImgproxyUrl(url, sizePx)
+        avatarDrawable.setLoadingPlaceholder(true)
         cancellable = MezonImageLoader.getInstance(context).load(
             proxyUrl, sizePx, sizePx,
             onSuccess = { bmp ->
                 cancellable = null
+                avatarDrawable.setLoadingPlaceholder(false)
                 avatarDrawable.setPhoto(bmp)
                 invalidate()
             },
             onError = {
                 cancellable = null
-                avatarDrawable.setPhoto(null)
+                avatarDrawable.setLoadingPlaceholder(false)
                 invalidate()
             }
         )

@@ -2176,22 +2176,26 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             val loader = MezonImageLoader.getInstance(context)
             val cached = loader.getBitmapFromMemory(proxyUrl, AVATAR_SIZE, AVATAR_SIZE)
             if (cached != null) {
+                avatarDrawable.setLoadingPlaceholder(false)
                 avatarDrawable.setPhoto(cached)
                 avatarDrawable.setDrawableByInfo(true)
                 avatarFallbackVisible = true
                 return
             }
 
-            avatarDrawable.setDrawableByInfo(false)
+            avatarDrawable.setLoadingPlaceholder(true)
+            avatarDrawable.setDrawableByInfo(true)
             avatarFallbackVisible = false
             avatarLoadStartTime = System.currentTimeMillis()
 
             avatarCancellable = loader.load(proxyUrl, AVATAR_SIZE, AVATAR_SIZE, onSuccess = { bmp ->
+                avatarDrawable.setLoadingPlaceholder(false)
                 avatarDrawable.setPhoto(bmp)
                 avatarDrawable.setDrawableByInfo(true)
                 avatarFallbackVisible = true
                 invalidate()
             }, onError = {
+                avatarDrawable.setLoadingPlaceholder(false)
                 avatarDrawable.setDrawableByInfo(true)
                 avatarFallbackVisible = true
                 invalidate()
@@ -2238,6 +2242,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         replyAvatarCancellable?.cancel()
         replyAvatarCancellable = null
         if (url.isEmpty()) {
+            replyAvatarDrawable.setLoadingPlaceholder(false)
             replyAvatarDrawable.setPhoto(null)
             replyAvatarDrawable.setDrawableByInfo(true)
             return
@@ -2246,16 +2251,20 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val loader = MezonImageLoader.getInstance(context)
         val cached = loader.getBitmapFromMemory(proxyUrl, REPLY_AVATAR_SIZE, REPLY_AVATAR_SIZE)
         if (cached != null) {
+            replyAvatarDrawable.setLoadingPlaceholder(false)
             replyAvatarDrawable.setPhoto(cached)
             replyAvatarDrawable.setDrawableByInfo(true)
             return
         }
+        replyAvatarDrawable.setLoadingPlaceholder(true)
         replyAvatarDrawable.setDrawableByInfo(true)
         replyAvatarCancellable = loader.load(proxyUrl, REPLY_AVATAR_SIZE, REPLY_AVATAR_SIZE, onSuccess = { bmp ->
+            replyAvatarDrawable.setLoadingPlaceholder(false)
             replyAvatarDrawable.setPhoto(bmp)
             replyAvatarDrawable.setDrawableByInfo(true)
             invalidate()
         }, onError = {
+            replyAvatarDrawable.setLoadingPlaceholder(false)
             replyAvatarDrawable.setDrawableByInfo(true)
         })
     }
@@ -2273,6 +2282,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private fun checkAvatarFallbackTimeout() {
         if (!avatarFallbackVisible && !avatarDrawable.hasPhoto() && avatarLoadStartTime > 0) {
             if (System.currentTimeMillis() - avatarLoadStartTime > 3000L) {
+                avatarDrawable.setLoadingPlaceholder(false)
                 avatarDrawable.setDrawableByInfo(true)
                 avatarFallbackVisible = true
             }

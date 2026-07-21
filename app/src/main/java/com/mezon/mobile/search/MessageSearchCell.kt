@@ -129,15 +129,22 @@ class MessageSearchCell(context: Context, private val theme: ThemeColors) : Base
         avatarDisposable = null
 
         if (url.isEmpty()) {
+            avatarDrawable.setLoadingPlaceholder(false)
             avatarDrawable.setPhoto(null)
             return
         }
 
         val proxyUrl = avatarImgproxyUrl(url, AVATAR_SIZE)
+        avatarDrawable.setLoadingPlaceholder(true)
         avatarDisposable = MezonImageLoader.getInstance(context).load(
             proxyUrl, AVATAR_SIZE, AVATAR_SIZE,
             onSuccess = { bmp ->
+                avatarDrawable.setLoadingPlaceholder(false)
                 avatarDrawable.setPhoto(bmp)
+                invalidate()
+            },
+            onError = {
+                avatarDrawable.setLoadingPlaceholder(false)
                 invalidate()
             }
         )

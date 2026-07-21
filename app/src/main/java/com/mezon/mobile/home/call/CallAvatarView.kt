@@ -71,6 +71,7 @@ class CallAvatarView(
             cancellable?.cancel()
             cancellable = null
             if (avatarUrl.isNullOrBlank()) {
+                avatarDrawable.setLoadingPlaceholder(false)
                 avatarDrawable.setPhoto(null)
             } else if (attachedToWindow) {
                 loadAvatar(avatarUrl)
@@ -232,18 +233,20 @@ class CallAvatarView(
     private fun loadAvatar(url: String) {
         val sizePx = avatarSize
         val proxyUrl = avatarImgproxyUrl(url, sizePx)
+        avatarDrawable.setLoadingPlaceholder(true)
         cancellable = MezonImageLoader.getInstance(context).load(
             proxyUrl,
             sizePx,
             sizePx,
             onSuccess = { bmp: Bitmap ->
                 cancellable = null
+                avatarDrawable.setLoadingPlaceholder(false)
                 avatarDrawable.setPhoto(bmp)
                 invalidate()
             },
             onError = {
                 cancellable = null
-                avatarDrawable.setPhoto(null)
+                avatarDrawable.setLoadingPlaceholder(false)
                 invalidate()
             }
         )

@@ -355,18 +355,23 @@ class UserProfileBottomSheet(
             backdropColorView?.setBackgroundColor(ColorUtilities.getDominantColor(bmp))
             return
         }
+        profileAvatarDrawable.setLoadingPlaceholder(true)
+        img.setImageDrawable(profileAvatarDrawable)
         avatarLoadDisposable = loader.load(
             proxyUrl,
             size,
             size,
             onSuccess = { bmp ->
                 avatarLoadDisposable = null
+                profileAvatarDrawable.setLoadingPlaceholder(false)
                 profileAvatarDrawable.setPhoto(bmp)
                 profileAvatarView?.setImageDrawable(profileAvatarDrawable)
                 backdropColorView?.setBackgroundColor(ColorUtilities.getDominantColor(bmp))
             },
             onError = {
                 avatarLoadDisposable = null
+                profileAvatarDrawable.setLoadingPlaceholder(false)
+                profileAvatarView?.setImageDrawable(profileAvatarDrawable)
             }
         )
     }
