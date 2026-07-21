@@ -137,10 +137,19 @@ class ClansController @Inject constructor(
     fun getClanCount(): Int = _clans.value.size
 
     suspend fun isDuplicateClanName(clanName: String): Boolean {
-        if (!mezonSocket.awaitConnected()) {
-            return false
-        }
-        return runCatching { mezonSocket.checkDuplicateClanName(clanName) }.getOrDefault(false)
+        return runCatching {
+            sessionManager.withAutoRefresh { session ->
+                withContext(ioDispatcher) {
+                    api.checkDuplicateName(
+                        apiUrl = session.apiUrl,
+                        token = session.token,
+                        name = clanName,
+                        type = MezonSocket.TYPE_CHECK_CLAN,
+                        conditionId = 0L
+                    )
+                }
+            }
+        }.getOrDefault(false)
     }
 
     suspend fun createClan(
