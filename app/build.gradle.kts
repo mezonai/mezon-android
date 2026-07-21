@@ -116,6 +116,8 @@ android {
         buildStr("MEZON_TENOR_URL_SEARCH")
         buildStr("MEZON_TENOR_URL_FEATURED")
         buildStr("TENOR_API_KEY")
+        buildStr("KLIPY_API_URL")
+        buildStr("KLIPY_API_KEY")
         buildStr("MEZON_SENTRY_DSN")
         buildStr("MEZON_NOTIFICATION_WS_URL")
         buildStr("MEZON_TREASURY_URL")

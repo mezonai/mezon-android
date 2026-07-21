@@ -1600,4 +1600,11 @@
     <string name="community_settings_error_banner_size">Kích thước ảnh phải nhỏ hơn 10 MB</string>
     <string name="community_settings_error_banner_type">Vui lòng chọn file ảnh hợp lệ</string>
     <string name="community_settings_permission_denied">Bạn không có quyền quản lý cài đặt cộng đồng</string>
+    <string name="emoji_tab_emoji">Biểu cảm</string>
+    <string name="emoji_tab_gif">GIFs</string>
+    <string name="emoji_tab_sticker">Nhãn dán</string>
+    <string name="emoji_search_emoji_placeholder">Tìm kiếm biểu cảm</string>
+    <string name="emoji_search_gif_placeholder">Tìm kiếm GIF</string>
+    <string name="emoji_search_sticker_placeholder">Tìm kiếm nhãn dán</string>
+    <string name="emoji_gifs_empty">GIF sẽ xuất hiện ở đây</string>
 </resources>

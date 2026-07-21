@@ -8,9 +8,9 @@ import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.network.ApiCacheTracker
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.network.SocketEventDispatcher
-import com.mezon.mobile.network.TenorApi
-import com.mezon.mobile.network.TenorCategory
-import com.mezon.mobile.network.TenorGif
+import com.mezon.mobile.network.KlipyApi
+import com.mezon.mobile.network.KlipyCategory
+import com.mezon.mobile.network.KlipyGif
 import com.mezon.mobile.session.SessionManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -69,7 +69,7 @@ val PREDEFINED_CATEGORIES = listOf(
 @Singleton
 class EmojiController @Inject constructor(
     private val api: MezonApi,
-    private val tenorApi: TenorApi,
+    private val klipyApi: KlipyApi,
     private val dispatcher: SocketEventDispatcher,
     private val notificationCenter: NotificationCenter,
     private val sessionManager: SessionManager,
@@ -82,9 +82,9 @@ class EmojiController @Inject constructor(
     val stickers = ArrayList<StickerItem>()
     val stickersDict = HashMap<String, StickerItem>()
 
-    val gifCategories = ArrayList<TenorCategory>()
-    val featuredGifs = ArrayList<TenorGif>()
-    val searchGifResults = ArrayList<TenorGif>()
+    val gifCategories = ArrayList<KlipyCategory>()
+    val featuredGifs = ArrayList<KlipyGif>()
+    val searchGifResults = ArrayList<KlipyGif>()
 
     @Volatile
     private var emojisLoaded = false
@@ -241,9 +241,12 @@ class EmojiController @Inject constructor(
 
     fun loadGifCategories() {
         appScope.launch(ioDispatcher) {
-            val cats = tenorApi.fetchCategories(BuildConfig.TENOR_API_KEY)
+            val cats = klipyApi.fetchCategories(BuildConfig.KLIPY_API_URL, BuildConfig.KLIPY_API_KEY)
             synchronized(this@EmojiController) {
+                val existingTrending = gifCategories.find { it.name == "Trending GIFs" }
+                val trendingImg = existingTrending?.imageUrl ?: featuredGifs.firstOrNull()?.thumbnailUrl ?: ""
                 gifCategories.clear()
+                gifCategories.add(KlipyCategory("Trending GIFs", trendingImg))
                 gifCategories.addAll(cats)
             }
             notificationCenter.postNotificationOnMainThread(NotificationCenter.gifsNeedReload)
@@ -252,22 +255,38 @@ class EmojiController @Inject constructor(
 
     fun loadFeaturedGifs() {
         appScope.launch(ioDispatcher) {
-            val gifs = tenorApi.fetchFeatured(BuildConfig.TENOR_API_KEY)
+            val gifs = klipyApi.fetchTrending(BuildConfig.KLIPY_API_URL, BuildConfig.KLIPY_API_KEY)
             synchronized(this@EmojiController) {
                 featuredGifs.clear()
                 featuredGifs.addAll(gifs)
+                val trendingCatIndex = gifCategories.indexOfFirst { it.name == "Trending GIFs" }
+                if (trendingCatIndex >= 0 && gifs.isNotEmpty()) {
+                    gifCategories[trendingCatIndex] = KlipyCategory("Trending GIFs", gifs.first().thumbnailUrl)
+                }
             }
             notificationCenter.postNotificationOnMainThread(NotificationCenter.gifsNeedReload)
         }
     }
 
+    var isSearchingGifs: Boolean = false
+
     fun searchGifs(query: String) {
+        synchronized(this@EmojiController) {
+            searchGifResults.clear()
+        }
+        isSearchingGifs = true
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.gifsNeedReload)
         appScope.launch(ioDispatcher) {
-            val gifs = tenorApi.searchGifs(BuildConfig.TENOR_API_KEY, query)
+            val gifs = if (query == "Trending GIFs") {
+                klipyApi.fetchTrending(BuildConfig.KLIPY_API_URL, BuildConfig.KLIPY_API_KEY)
+            } else {
+                klipyApi.searchGifs(BuildConfig.KLIPY_API_URL, BuildConfig.KLIPY_API_KEY, query)
+            }
             synchronized(this@EmojiController) {
                 searchGifResults.clear()
                 searchGifResults.addAll(gifs)
             }
+            isSearchingGifs = false
             notificationCenter.postNotificationOnMainThread(NotificationCenter.gifsNeedReload)
         }
     }
