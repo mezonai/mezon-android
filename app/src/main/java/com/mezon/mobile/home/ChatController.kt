@@ -1491,6 +1491,7 @@ class ChatController @Inject constructor(
         private const val LARGE_ATTACHMENT_BYTES = 50L * 1024 * 1024
         private const val LARGE_ATTACHMENT_PARALLELISM = 3
         private const val PENDING_API_REACTION_DEDUP_MS = 5000L
+        private const val REACTION_IN_FLIGHT = Long.MAX_VALUE
     }
 
     private fun generateTempId(channelId: Long): Long {
@@ -3387,12 +3388,16 @@ class ChatController @Inject constructor(
         val it = pendingApiReactions.iterator()
         while (it.hasNext()) {
             val e = it.next()
-            if (now - e.value > PENDING_API_REACTION_DEDUP_MS) it.remove()
+            if (e.value != REACTION_IN_FLIGHT && now - e.value > PENDING_API_REACTION_DEDUP_MS) it.remove()
         }
     }
 
     private fun registerPendingApiReaction(key: ReactionDedup) {
         prunePendingApiReactions()
+        pendingApiReactions[key] = REACTION_IN_FLIGHT
+    }
+
+    private fun resolvePendingApiReaction(key: ReactionDedup) {
         pendingApiReactions[key] = System.currentTimeMillis()
     }
 
@@ -3409,8 +3414,11 @@ class ChatController @Inject constructor(
             reaction.senderId,
             reaction.action
         )
-        val pendingAt = pendingApiReactions[key] ?: 0L
-        if (pendingAt != 0L && System.currentTimeMillis() - pendingAt <= PENDING_API_REACTION_DEDUP_MS) {
+        val pendingAt = pendingApiReactions[key]
+        if (pendingAt != null &&
+            (pendingAt == REACTION_IN_FLIGHT ||
+                System.currentTimeMillis() - pendingAt <= PENDING_API_REACTION_DEDUP_MS)
+        ) {
             return true
         }
         val now = System.currentTimeMillis()
@@ -3536,12 +3544,15 @@ class ChatController @Inject constructor(
                             actionDelete,
                             source = "api"
                         )
+                        pendingKey?.let { resolvePendingApiReaction(it) }
                     }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to send reaction", e)
             } finally {
-                pendingKey?.let { clearPendingApiReaction(it) }
+                pendingKey?.let { key ->
+                    if (pendingApiReactions[key] == REACTION_IN_FLIGHT) clearPendingApiReaction(key)
+                }
             }
         }
     }

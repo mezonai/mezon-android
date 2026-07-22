@@ -3160,7 +3160,9 @@ open class ChatFragment : BaseFragment() {
                 selfMessageEchoKey(pending) == echoKey
         }
         if (contentMatch >= 0) return contentMatch
-        return messages.indexOfFirst { it.isSending && it.isMe && it.senderId == entity.senderId }
+        return messages.indexOfFirst {
+            it.isSending && it.isMe && it.senderId == entity.senderId && it.code == entity.code
+        }
     }
 
     private fun insertSendingOptimisticMessage(entity: MessageEntity): Int {
