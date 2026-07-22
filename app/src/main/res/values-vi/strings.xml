@@ -498,6 +498,17 @@
     <string name="image_crop_rotate_left_cd">Xoay trái</string>
     <string name="image_crop_rotate_right_cd">Xoay phải</string>
     <string name="image_crop_reset_cd">Đặt lại</string>
+    <string name="image_editor_edit">Chỉnh sửa</string>
+    <string name="image_editor_crop">Cắt</string>
+    <string name="image_editor_draw">Vẽ</string>
+    <string name="image_editor_eraser">Cục tẩy</string>
+    <string name="image_editor_brush_size">Độ dày nét vẽ</string>
+    <string name="image_editor_text">Văn bản</string>
+    <string name="image_editor_text_hint">Nhập văn bản</string>
+    <string name="image_editor_text_done">Xong</string>
+    <string name="image_editor_undo">Hoàn tác</string>
+    <string name="image_editor_failed">Không thể chỉnh sửa ảnh này</string>
+    <string name="image_editor_color_cd">Màu vẽ %1$d</string>
     <string name="clan_settings_remove_logo">Gỡ biểu tượng clan</string>
     <string name="clan_settings_logo_permission_denied">Bạn không có quyền thay đổi biểu tượng clan.</string>
     <string name="clan_settings_logo_too_large">Ảnh biểu tượng clan tối đa 1 MB.</string>

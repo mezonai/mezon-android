@@ -19,8 +19,13 @@ data class AttachmentPickerItem(
     val duration: Int,
     val isVideo: Boolean,
     val isSelected: Boolean = false,
-    val selectionIndex: Int = -1
+    val selectionIndex: Int = -1,
+    val ownedCachePath: String? = null,
 ) {
+
+    fun deleteOwnedCacheFile() {
+        ownedCachePath?.let { path -> runCatching { File(path).delete() } }
+    }
 
     val isFileType: Boolean
         get() = !mimeType.startsWith("image/") && !mimeType.startsWith("video/")
@@ -94,7 +99,8 @@ data class AttachmentPickerItem(
                 height = 0,
                 size = bytes.size.toLong(),
                 duration = 0,
-                isVideo = false
+                isVideo = false,
+                ownedCachePath = outFile.absolutePath,
             )
         }
     }
