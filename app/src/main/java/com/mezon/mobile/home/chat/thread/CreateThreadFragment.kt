@@ -1078,8 +1078,7 @@ class CreateThreadFragment : BaseFragment() {
     private fun openAttachAlert() {
         dismissPasteImagePopup()
         val ctx = getContext() ?: return
-        val preselected = pendingAttachments.filter { !it.isFileType }
-        val alert = ChatAttachAlert(ctx, mediaController, themeColors, preselected)
+        val alert = ChatAttachAlert(ctx, mediaController, themeColors, emptyList())
         cameraSourceAlert = alert
         alert.attachDelegate = object : ChatAttachAlert.ChatAttachAlertDelegate {
             override fun canSelectMore(): Boolean {
@@ -1088,11 +1087,15 @@ class CreateThreadFragment : BaseFragment() {
 
             override fun onSelectionChanged(item: AttachmentPickerItem, selected: Boolean) {
                 if (selected) {
-                    if (pendingAttachments.any { it.id == item.id }) return
                     pendingAttachments.add(item)
                 } else {
-                    pendingAttachments.filter { it.id == item.id }.forEach { it.deleteOwnedCacheFile() }
-                    pendingAttachments.removeAll { it.id == item.id }
+                    val idx = pendingAttachments.indexOfLast { it.id == item.id }
+                    if (idx >= 0) {
+                        val removed = pendingAttachments.removeAt(idx)
+                        if (pendingAttachments.none { it.id == item.id }) {
+                            removed.deleteOwnedCacheFile()
+                        }
+                    }
                 }
                 updateAttachmentPreview()
                 updateSendButtonState()
@@ -1242,31 +1245,18 @@ class CreateThreadFragment : BaseFragment() {
             capture.discard()
             return
         }
-        lateinit var review: CameraPhotoReviewDialog
-        review = CameraPhotoReviewDialog(
-            context = ctx,
-            capture = capture,
-            onRetake = {
-                launchCameraPhoto().also { launched ->
-                    if (launched) capture.discard()
-                }
-            },
-            onUsePhoto = {
-                if (activeCameraReview === review) activeCameraReview = null
-                if (pendingAttachments.none { it.id == item.id }) pendingAttachments.add(item)
-                cameraSourceAlert?.dismissWithoutAnimation()
-                updateAttachmentPreview()
-                updateSendButtonState()
-            },
-            onCancelReview = {
-                if (activeCameraReview === review) activeCameraReview = null
-                capture.discard()
-            }
-        )
-        val previousReview = activeCameraReview
-        activeCameraReview = review
-        review.show()
-        previousReview?.dismiss()
+        val editor = ChatImageEditorDialog(ctx, item) { edited ->
+            cameraSourceAlert?.dismissWithoutAnimation()
+            trySubmit(edited)
+            capture.discard()
+        }
+        activeImageEditor?.dismiss()
+        activeImageEditor = editor
+        editor.setOnDismissListener {
+            if (activeImageEditor === editor) activeImageEditor = null
+            capture.discard()
+        }
+        editor.show()
     }
 
     override fun onRequestPermissionsResult(

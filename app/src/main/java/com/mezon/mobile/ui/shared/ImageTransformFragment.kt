@@ -42,7 +42,9 @@ class TransformCanvasView(
     private val outsideColor: Int = Color.BLACK,
     private val cropChromeColor: Int = Color.WHITE,
     private val outsideDimColor: Int = outsideColor,
-) : View(context) {
+) : FrameLayout(context) {
+
+
 
     private var bitmap: Bitmap? = null
 
@@ -96,7 +98,7 @@ class TransformCanvasView(
         var color: Int,
         var centerX: Float,
         var centerY: Float,
-        val textSizeInViewPx: Float,
+        var textSizeInViewPx: Float,
     )
 
     private enum class CropTouchTarget {
@@ -168,6 +170,68 @@ class TransformCanvasView(
         private const val MAX_COVER_ITERATIONS = 28
         private const val MAX_ZOOM_ITERATIONS = 14
         private const val MAX_ZOOM_FACTOR = 8f
+    }
+
+    private val imageContainerView = object : View(context) {
+        override fun onDraw(canvas: Canvas) {
+            val bmp = bitmap ?: return
+            canvas.save()
+            canvas.concat(imageMatrix)
+            canvas.drawBitmap(bmp, 0f, 0f, bitmapPaint)
+            canvas.restore()
+
+            canvas.save()
+            canvas.clipRect(cropRect)
+            canvas.concat(imageMatrix)
+            fun draw(stroke: DrawStroke) {
+                strokePaint.color = stroke.color
+                strokePaint.strokeWidth = stroke.widthInBitmapPx
+                canvas.drawPath(stroke.path, strokePaint)
+            }
+            strokes.forEach(::draw)
+            currentStroke?.let(::draw)
+            canvas.restore()
+        }
+    }
+
+    private val textContainerView = object : View(context) {
+        override fun onDraw(canvas: Canvas) {
+            drawTextOverlays(canvas, transform = null, clipToCrop = true)
+        }
+    }
+
+    private val cropMaskView = object : View(context) {
+        init {
+            dimPaint.style = Paint.Style.FILL
+        }
+        override fun onDraw(canvas: Canvas) {
+            val w = width.toFloat()
+            val h = height.toFloat()
+            
+            // Draw 4 rectangles around the cropRect to create a dimming mask
+            canvas.drawRect(0f, 0f, w, cropRect.top, dimPaint) // Top
+            canvas.drawRect(0f, cropRect.bottom, w, h, dimPaint) // Bottom
+            canvas.drawRect(0f, cropRect.top, cropRect.left, cropRect.bottom, dimPaint) // Left
+            canvas.drawRect(cropRect.right, cropRect.top, w, cropRect.bottom, dimPaint) // Right
+
+            canvas.drawRect(cropRect, framePaint)
+            if (!drawingMode && !textMode) drawCornerBrackets(canvas)
+        }
+    }
+
+    init {
+        setBackgroundColor(outsideColor)
+        setWillNotDraw(false)
+        addView(imageContainerView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        addView(textContainerView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        addView(cropMaskView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+    }
+
+    override fun invalidate() {
+        super.invalidate()
+        imageContainerView.invalidate()
+        textContainerView.invalidate()
+        cropMaskView.invalidate()
     }
 
     fun setFreeformCropEnabled(enabled: Boolean) {
@@ -540,25 +604,7 @@ class TransformCanvasView(
         canvas.drawPath(cornerPath, p)
     }
 
-    override fun onDraw(canvas: Canvas) {
-        super.onDraw(canvas)
-        canvas.drawColor(outsideColor)
-        val bmp = bitmap ?: return
 
-        canvas.drawBitmap(bmp, imageMatrix, bitmapPaint)
-        drawStrokes(canvas, imageMatrix)
-        drawTextOverlays(canvas, transform = null, clipToCrop = true)
-
-        overlayPath.reset()
-        overlayPath.addRect(0f, 0f, width.toFloat(), height.toFloat(), Path.Direction.CW)
-        holePath.reset()
-        holePath.addRect(cropRect, Path.Direction.CW)
-        overlayPath.op(holePath, Path.Op.DIFFERENCE)
-        canvas.drawPath(overlayPath, dimPaint)
-
-        canvas.drawRect(cropRect, framePaint)
-        if (!drawingMode && !textMode) drawCornerBrackets(canvas)
-    }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         scaleDetector.onTouchEvent(event)
@@ -842,20 +888,7 @@ class TransformCanvasView(
         return false
     }
 
-    private fun drawStrokes(canvas: Canvas, matrix: Matrix) {
-        if (strokes.isEmpty() && currentStroke == null) return
-        canvas.save()
-        canvas.clipRect(cropRect)
-        canvas.concat(matrix)
-        fun draw(stroke: DrawStroke) {
-            strokePaint.color = stroke.color
-            strokePaint.strokeWidth = stroke.widthInBitmapPx
-            canvas.drawPath(stroke.path, strokePaint)
-        }
-        strokes.forEach(::draw)
-        currentStroke?.let(::draw)
-        canvas.restore()
-    }
+
 
     private fun drawTextOverlays(canvas: Canvas, transform: Matrix?, clipToCrop: Boolean) {
         if (textOverlays.isEmpty()) return
@@ -871,15 +904,11 @@ class TransformCanvasView(
         textPaint.textSize = overlay.textSizeInViewPx
         textPaint.color = overlay.color
         textPaint.style = Paint.Style.FILL
-        textOutlinePaint.textSize = overlay.textSizeInViewPx
-        textOutlinePaint.color = if (overlay.color == Color.BLACK) Color.WHITE else Color.BLACK
-        textOutlinePaint.strokeWidth = overlay.textSizeInViewPx * 0.12f
         val metrics = textPaint.fontMetrics
         val lineHeight = (metrics.descent - metrics.ascent) * 1.08f
         var baseline = overlay.centerY - lineHeight * lines.size / 2f - metrics.ascent
         lines.forEach { line ->
             val x = overlay.centerX - textPaint.measureText(line) / 2f
-            canvas.drawText(line, x, baseline, textOutlinePaint)
             canvas.drawText(line, x, baseline, textPaint)
             baseline += lineHeight
         }
@@ -999,8 +1028,39 @@ class TransformCanvasView(
     fun renderCroppedSquare(outSize: Int): Bitmap? = renderCropped(outSize, outSize)
 
     private inner class ScaleListener : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+        private var zoomTextIndex = -1
+
+        override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
+            zoomTextIndex = -1
+            if (textMode && textOverlays.isNotEmpty()) {
+                var minDistance = Float.MAX_VALUE
+                textOverlays.forEachIndexed { index, overlay ->
+                    val dx = overlay.centerX - detector.focusX
+                    val dy = overlay.centerY - detector.focusY
+                    val dist = dx * dx + dy * dy
+                    if (dist < minDistance) {
+                        minDistance = dist
+                        zoomTextIndex = index
+                    }
+                }
+            }
+            return super.onScaleBegin(detector)
+        }
+
         override fun onScale(detector: ScaleGestureDetector): Boolean {
-            imageMatrix.postScale(detector.scaleFactor, detector.scaleFactor, detector.focusX, detector.focusY)
+            val scaleFactor = detector.scaleFactor
+            if (scaleFactor.isNaN() || scaleFactor.isInfinite()) return false
+            if (textMode) {
+                if (zoomTextIndex >= 0) {
+                    val overlay = textOverlays[zoomTextIndex]
+                    overlay.textSizeInViewPx = (overlay.textSizeInViewPx * scaleFactor)
+                        .coerceIn(LayoutHelper.dpf(12f), LayoutHelper.dpf(120f))
+                    textContainerView.invalidate()
+                }
+                return true
+            }
+            if (drawingMode) return true
+            imageMatrix.postScale(scaleFactor, scaleFactor, detector.focusX, detector.focusY)
             clampAfterTransform()
             invalidate()
             onEditorChanged?.invoke()
