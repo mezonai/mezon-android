@@ -2039,6 +2039,7 @@ open class ChatFragment : BaseFragment() {
 
         adapter = ChatAdapter(themeColors, messages, channelName, cellDelegate = object : ChatMessageCell.ChatMessageCellDelegate {
             override fun didClickMedia(cell: ChatMessageCell, msg: MessageEntity, attachmentIndex: Int) {
+                if (cell.isSticker) return
                 val allMedia = msg.allImageAttachments
                 val att = allMedia.getOrNull(attachmentIndex) ?: allMedia.firstOrNull() ?: return
                 val url = att.url
@@ -2051,7 +2052,7 @@ open class ChatFragment : BaseFragment() {
                     VideoPlayerDialog(context).play(url)
                 } else {
                     val seed = allMedia.filter { !it.filetype.startsWith("video/") && it.url.isNotEmpty() }.map { it.url }
-                    openChannelPhotoViewer(context, url, thumbBmp, seed)
+                    openChannelPhotoViewer(context, url, thumbBmp, seed, msg)
                 }
             }
             override fun didClickFile(cell: ChatMessageCell, msg: MessageEntity) {
@@ -3898,27 +3899,51 @@ open class ChatFragment : BaseFragment() {
         updateVisibleRows(NotificationCenter.UPDATE_MASK_NAME)
     }
 
-    private fun channelGalleryImageUrls(): List<String> =
+    private fun channelGalleryImageItems(): List<PhotoViewer.GalleryItem> =
         channelGalleryController.getItems(channelId)
             .asSequence()
             .filter { !it.isVideo && it.url.isNotEmpty() }
-            .map { it.url }
-            .distinct()
+            .map { mediaItem ->
+                val cachedMsg = messages.find { it.id == mediaItem.messageId }
+                val uploaderId = mediaItem.uploaderId
+                val (senderName, senderAvatarUrl) = resolveGallerySender(
+                    uploaderId,
+                    cachedMsg?.senderName,
+                    cachedMsg?.senderAvatar
+                )
+                PhotoViewer.GalleryItem(
+                    url = mediaItem.url,
+                    senderName = senderName,
+                    senderAvatarUrl = senderAvatarUrl,
+                    timestamp = mediaItem.createTimeSeconds.toLong(),
+                    isVideo = mediaItem.isVideo,
+                    uploaderId = uploaderId
+                )
+            }
+            .distinctBy { it.url }
             .toList()
 
-    private fun buildPhotoViewerUrls(selectedUrl: String, seedUrls: List<String> = emptyList()): List<String> {
-        val base = channelGalleryImageUrls()
+    private fun buildPhotoViewerItems(selectedUrl: String, seedUrls: List<String> = emptyList(), msg: MessageEntity? = null): List<PhotoViewer.GalleryItem> {
+        val base = channelGalleryImageItems()
+        val uploaderId = msg?.senderId ?: 0L
+        val (fallbackSenderName, fallbackSenderAvatar) = resolveGallerySender(
+            uploaderId,
+            msg?.senderName,
+            msg?.senderAvatar
+        )
+        val fallbackTimestamp = msg?.timestampSeconds ?: 0L
+
         if (base.isEmpty()) {
             return when {
-                seedUrls.isNotEmpty() -> seedUrls
+                seedUrls.isNotEmpty() -> seedUrls.map { PhotoViewer.GalleryItem(url = it, senderName = fallbackSenderName, senderAvatarUrl = fallbackSenderAvatar, timestamp = fallbackTimestamp, uploaderId = uploaderId) }
                 selectedUrl.isEmpty() -> emptyList()
-                else -> listOf(selectedUrl)
+                else -> listOf(PhotoViewer.GalleryItem(url = selectedUrl, senderName = fallbackSenderName, senderAvatarUrl = fallbackSenderAvatar, timestamp = fallbackTimestamp, uploaderId = uploaderId))
             }
         }
-        return if (selectedUrl.isEmpty() || base.contains(selectedUrl)) base else listOf(selectedUrl) + base
+        return if (selectedUrl.isEmpty() || base.any { it.url == selectedUrl }) base else listOf(PhotoViewer.GalleryItem(url = selectedUrl, senderName = fallbackSenderName, senderAvatarUrl = fallbackSenderAvatar, timestamp = fallbackTimestamp, uploaderId = uploaderId)) + base
     }
 
-    private fun openChannelPhotoViewer(context: Context, url: String, thumbBmp: Bitmap?, seedUrls: List<String>) {
+    private fun openChannelPhotoViewer(context: Context, url: String, thumbBmp: Bitmap?, seedUrls: List<String>, msg: MessageEntity? = null) {
         val viewer = PhotoViewer(context)
         activePhotoViewer = viewer
         photoViewerSelectedUrl = url
@@ -3927,9 +3952,20 @@ open class ChatFragment : BaseFragment() {
         viewer.setOnDismissListener {
             if (activePhotoViewer === viewer) activePhotoViewer = null
         }
-        val initial = buildPhotoViewerUrls(url, seedUrls)
-        val idx = initial.indexOf(url).coerceAtLeast(0)
-        viewer.show(url, gallery = initial, index = idx, thumbBitmap = thumbBmp)
+        val initial = buildPhotoViewerItems(url, seedUrls, msg)
+        val idx = initial.indexOfFirst { it.url == url }.coerceAtLeast(0)
+        
+        val uploaderId = msg?.senderId ?: 0L
+        val (fallbackSenderName, fallbackSenderAvatar) = resolveGallerySender(
+            uploaderId,
+            msg?.senderName,
+            msg?.senderAvatar
+        )
+        val fallbackTimestamp = msg?.timestampSeconds ?: 0L
+
+        val item = initial.getOrNull(idx) ?: PhotoViewer.GalleryItem(url = url, senderName = fallbackSenderName, senderAvatarUrl = fallbackSenderAvatar, timestamp = fallbackTimestamp, uploaderId = uploaderId)
+        viewer.show(item = item, gallery = initial, index = idx, thumbBitmap = thumbBmp)
+        
         if (channelGalleryController.isInitialLoadFinished(channelId)) {
             refreshActivePhotoViewerGallery()
         } else {
@@ -3939,9 +3975,9 @@ open class ChatFragment : BaseFragment() {
 
     private fun refreshActivePhotoViewerGallery() {
         val viewer = activePhotoViewer ?: return
-        val urls = buildPhotoViewerUrls(photoViewerSelectedUrl)
-        if (urls.isEmpty()) return
-        viewer.updateGallery(urls, photoViewerSelectedUrl)
+        val items = buildPhotoViewerItems(photoViewerSelectedUrl)
+        if (items.isEmpty()) return
+        viewer.updateGallery(items, photoViewerSelectedUrl)
     }
 
     private fun messageListHasPendingUploadKey(key: String): Boolean {
@@ -4308,6 +4344,46 @@ open class ChatFragment : BaseFragment() {
             adapter.welcomeCreatorName = sanitized
             adapter.notifyWelcomeCellChanged()
         }
+    }
+
+    private fun resolveGallerySender(userId: Long, fallbackName: String?, fallbackAvatar: String?): Pair<String, String?> {
+        val member = if (userId != 0L) {
+            if (clanId != 0L) memberResolver.resolveClanScopedMember(userId, clanId, channelId, channelType)
+            else memberResolver.resolveMember(userId, clanId, channelId, channelType)
+        } else null
+
+        val useClanInfo = clanId != 0L && channelType != CHANNEL_TYPE_DM && channelType != CHANNEL_TYPE_GROUP
+
+        var resolvedName: String? = null
+        var resolvedAvatar: String? = null
+
+        if (member != null) {
+            if (useClanInfo) {
+                resolvedName = member.clanNick.takeIf { it.isNotBlank() }
+                resolvedAvatar = member.clanAvatar.takeIf { it.isNotBlank() }
+            }
+            if (resolvedName == null) resolvedName = member.displayName.takeIf { it.isNotBlank() }
+            if (resolvedName == null) resolvedName = member.username.takeIf { it.isNotBlank() }
+            if (resolvedAvatar == null) resolvedAvatar = member.avatarUrl.takeIf { it.isNotBlank() }
+        }
+
+        if (resolvedName == null || resolvedAvatar == null) {
+            if (userId == userController.userId) {
+                if (resolvedName == null) resolvedName = userController.displayName.takeIf { it.isNotBlank() } ?: userController.username.takeIf { it.isNotBlank() }
+                if (resolvedAvatar == null) resolvedAvatar = userController.avatarUrl.takeIf { it.isNotBlank() }
+            } else if (userId != 0L) {
+                val global = userClanController.getUserById(userId)
+                if (global != null) {
+                    if (resolvedName == null) resolvedName = global.displayName.takeIf { it.isNotBlank() } ?: global.username.takeIf { it.isNotBlank() }
+                    if (resolvedAvatar == null) resolvedAvatar = global.avatarUrl.takeIf { it.isNotBlank() }
+                }
+            }
+        }
+
+        return Pair(
+            resolvedName ?: fallbackName?.takeIf { it.isNotBlank() } ?: "User",
+            resolvedAvatar ?: fallbackAvatar?.takeIf { it.isNotBlank() }
+        )
     }
 
     private fun resolveCreatorDisplayName(userId: Long, fallbackName: String): String {

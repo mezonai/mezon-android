@@ -344,21 +344,31 @@ internal class ChannelMediaGalleryAdapter(
                     compareByDescending<ChannelGalleryMediaItem> { it.createTimeSeconds }
                         .thenByDescending { it.id }
                 )
-                .filter { !it.isVideo }
-                .map { it.url }
-                .filter { it.isNotEmpty() }
+                .filter { !it.isVideo && it.url.isNotEmpty() }
+                .map { mediaItem ->
+                    PhotoViewer.GalleryItem(
+                        url = mediaItem.url,
+                        senderName = "User", // Can be resolved if needed
+                        senderAvatarUrl = null,
+                        timestamp = mediaItem.createTimeSeconds.toLong(),
+                        isVideo = mediaItem.isVideo,
+                        uploaderId = mediaItem.uploaderId
+                    )
+                }
 
         when {
             tapped.isVideo ->
                 VideoPlayerDialog(ctx).play(url)
 
-            tapped.filetype.contains("gif", true) ->
-                PhotoViewer(ctx).show(url, thumbBitmap = null, preferDrawableLoader = true)
-
+            tapped.filetype.contains("gif", true) -> {
+                val item = orderedImages.firstOrNull { it.url == url } ?: PhotoViewer.GalleryItem(url, "User", null, 0)
+                PhotoViewer(ctx).show(item, thumbBitmap = null, preferDrawableLoader = true)
+            }
             else -> {
-                val idx = orderedImages.indexOf(url).takeIf { it >= 0 } ?: 0
+                val idx = orderedImages.indexOfFirst { it.url == url }.takeIf { it >= 0 } ?: 0
+                val item = orderedImages.getOrNull(idx) ?: PhotoViewer.GalleryItem(url, "User", null, 0)
                 PhotoViewer(ctx).show(
-                    url,
+                    item = item,
                     gallery = orderedImages,
                     index = idx,
                     thumbBitmap = null
