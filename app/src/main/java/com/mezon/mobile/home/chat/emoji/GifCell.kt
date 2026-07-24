@@ -59,9 +59,10 @@ class GifCell(context: Context, private val themeColors: ThemeColors) : View(con
                 onSuccess = { d ->
                     animDrawable = d
                     d.callback = drawableCallback
-                    if (d is AnimatedImageDrawable) d.start()
+                    if (d is AnimatedImageDrawable && isScrollIdle()) d.start()
                     invalidate()
-                })
+                },
+                cacheAnimated = true)
         } else {
             cancellable = loader.load(item.thumbnailUrl, reqW, reqH, onSuccess = { bmp ->
                 animDrawable = android.graphics.drawable.BitmapDrawable(resources, bmp)
@@ -133,11 +134,16 @@ class GifCell(context: Context, private val themeColors: ThemeColors) : View(con
         canvas.restore()
     }
 
+    private fun isScrollIdle(): Boolean {
+        val rv = parent as? androidx.recyclerview.widget.RecyclerView ?: return true
+        return rv.scrollState == androidx.recyclerview.widget.RecyclerView.SCROLL_STATE_IDLE
+    }
+
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         val d = animDrawable
         if (d != null) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && d is AnimatedImageDrawable) d.start()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && d is AnimatedImageDrawable && isScrollIdle()) d.start()
         } else {
             val g = gif
             if (g != null && cancellable == null) {

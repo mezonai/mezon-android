@@ -169,7 +169,7 @@ class KlipyApi @Inject constructor(
         val xsUrl = xsGif?.url
         
         val url = hdUrl ?: mdUrl ?: smUrl ?: xsUrl ?: return null
-        val thumbUrl = mdUrl ?: smUrl ?: xsUrl ?: hdUrl ?: return null
+        val thumbUrl = smUrl ?: mdUrl ?: xsUrl ?: hdUrl ?: return null
         
         val w = hdGif?.width ?: mdGif?.width ?: smGif?.width ?: xsGif?.width ?: 0
         val h = hdGif?.height ?: mdGif?.height ?: smGif?.height ?: xsGif?.height ?: 0

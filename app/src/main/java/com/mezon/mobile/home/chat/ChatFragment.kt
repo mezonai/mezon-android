@@ -2876,12 +2876,13 @@ open class ChatFragment : BaseFragment() {
                     hideEmojiView()
                 }
 
-                override fun onGifSelected(gifUrl: String) {
+                override fun onGifSelected(gifUrl: String, width: Int, height: Int) {
                     if (!ensureCanSendMessageOrNotify()) return
                     val references = buildReplyReferences()
                     chatController.sendDirectAttachment(
                         channelId, clanId, channelType, resolveChannelPrivate(),
-                        gifUrl, "image/gif", references = references, topicId = topicId
+                        gifUrl, "image/gif", references = references, topicId = topicId,
+                        width = width, height = height
                     )
                     clearReplyState()
                     hideEmojiView()
@@ -3155,7 +3156,9 @@ open class ChatFragment : BaseFragment() {
                 selfMessageEchoKey(pending) == echoKey
         }
         if (contentMatch >= 0) return contentMatch
-        return messages.indexOfFirst { it.isSending && it.isMe && it.senderId == entity.senderId }
+        return messages.indexOfFirst {
+            it.isSending && it.isMe && it.senderId == entity.senderId && it.code == entity.code
+        }
     }
 
     private fun insertSendingOptimisticMessage(entity: MessageEntity): Int {

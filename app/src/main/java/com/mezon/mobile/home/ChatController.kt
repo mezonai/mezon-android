@@ -1210,7 +1210,9 @@ class ChatController @Inject constructor(
         filetype: String,
         filename: String? = null,
         references: List<com.mezon.mezon.api.MessageRef>? = null,
-        topicId: Long = 0L
+        topicId: Long = 0L,
+        width: Int = 0,
+        height: Int = 0
     ) {
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
@@ -1221,6 +1223,10 @@ class ChatController @Inject constructor(
             this.url = url
             this.filetype = filetype
             if (filename != null) this.filename = filename
+            if (width > 0 && height > 0) {
+                this.width = width
+                this.height = height
+            }
         }
 
         val tempId = generateTempId(cacheKey)
@@ -1248,6 +1254,8 @@ class ChatController @Inject constructor(
             attachmentUrl = url,
             attachmentFiletype = filetype,
             attachmentFilename = filename.orEmpty(),
+            attachmentWidth = width,
+            attachmentHeight = height,
             sendState = MessageEntity.SEND_STATE_SENDING,
             topicId = topicId
         )
@@ -1491,6 +1499,7 @@ class ChatController @Inject constructor(
         private const val LARGE_ATTACHMENT_BYTES = 50L * 1024 * 1024
         private const val LARGE_ATTACHMENT_PARALLELISM = 3
         private const val PENDING_API_REACTION_DEDUP_MS = 5000L
+        private const val REACTION_IN_FLIGHT = Long.MAX_VALUE
     }
 
     private fun generateTempId(channelId: Long): Long {
@@ -3387,12 +3396,16 @@ class ChatController @Inject constructor(
         val it = pendingApiReactions.iterator()
         while (it.hasNext()) {
             val e = it.next()
-            if (now - e.value > PENDING_API_REACTION_DEDUP_MS) it.remove()
+            if (e.value != REACTION_IN_FLIGHT && now - e.value > PENDING_API_REACTION_DEDUP_MS) it.remove()
         }
     }
 
     private fun registerPendingApiReaction(key: ReactionDedup) {
         prunePendingApiReactions()
+        pendingApiReactions[key] = REACTION_IN_FLIGHT
+    }
+
+    private fun resolvePendingApiReaction(key: ReactionDedup) {
         pendingApiReactions[key] = System.currentTimeMillis()
     }
 
@@ -3409,8 +3422,11 @@ class ChatController @Inject constructor(
             reaction.senderId,
             reaction.action
         )
-        val pendingAt = pendingApiReactions[key] ?: 0L
-        if (pendingAt != 0L && System.currentTimeMillis() - pendingAt <= PENDING_API_REACTION_DEDUP_MS) {
+        val pendingAt = pendingApiReactions[key]
+        if (pendingAt != null &&
+            (pendingAt == REACTION_IN_FLIGHT ||
+                System.currentTimeMillis() - pendingAt <= PENDING_API_REACTION_DEDUP_MS)
+        ) {
             return true
         }
         val now = System.currentTimeMillis()
@@ -3536,12 +3552,15 @@ class ChatController @Inject constructor(
                             actionDelete,
                             source = "api"
                         )
+                        pendingKey?.let { resolvePendingApiReaction(it) }
                     }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to send reaction", e)
             } finally {
-                pendingKey?.let { clearPendingApiReaction(it) }
+                pendingKey?.let { key ->
+                    if (pendingApiReactions[key] == REACTION_IN_FLIGHT) clearPendingApiReaction(key)
+                }
             }
         }
     }

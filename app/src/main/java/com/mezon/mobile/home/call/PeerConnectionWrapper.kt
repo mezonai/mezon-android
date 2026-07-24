@@ -165,7 +165,7 @@ class PeerConnectionWrapper(
         holdLocalCandidates = true 
         addLocalMedia(isVideo)
 
-        val constraints = sessionOfferConstraints()
+        val constraints = sessionOfferConstraints(offerToReceiveVideo = isVideo)
 
         peerConnection?.createOffer(object : SimpleSdpObserver() {
             override fun onCreateSuccess(sdp: SessionDescription?) {
@@ -356,7 +356,7 @@ class PeerConnectionWrapper(
     }
 
     fun createRenegotiationOffer(callback: (SessionDescription) -> Unit) {
-        val constraints = sessionOfferConstraints()
+        val constraints = sessionOfferConstraints(offerToReceiveVideo = true)
         peerConnection?.createOffer(object : SimpleSdpObserver() {
             override fun onCreateSuccess(sdp: SessionDescription?) {
                 sdp?.let { offer ->
@@ -557,10 +557,10 @@ class PeerConnectionWrapper(
         }
     }
 
-    private fun sessionOfferConstraints(): MediaConstraints {
+    private fun sessionOfferConstraints(offerToReceiveVideo: Boolean): MediaConstraints {
         return MediaConstraints().apply {
             mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "true"))
-            mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", if (offerToReceiveVideo) "true" else "false"))
             mandatory.add(MediaConstraints.KeyValuePair("VoiceActivityDetection", "true"))
         }
     }
