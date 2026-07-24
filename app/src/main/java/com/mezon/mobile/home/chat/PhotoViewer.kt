@@ -2,47 +2,47 @@ package com.mezon.mobile.home.chat
 
 import android.animation.ObjectAnimator
 import android.app.Dialog
-import android.app.DownloadManager
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
-import android.graphics.Outline
 import android.graphics.drawable.AnimatedImageDrawable
-import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
-import android.net.Uri
 import android.os.Build
 import android.os.Environment
-import android.util.TypedValue
 import android.view.Gravity
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
-import android.view.ViewOutlineProvider
 import android.view.Window
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
-import android.widget.Toast
-import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.widget.ViewPager2
 import com.github.chrisbanes.photoview.PhotoView
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.LayoutHelper
+import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.di.FragmentEntryPoint
+import com.mezon.mobile.ui.cells.BackupImageView
+import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.util.createImgproxyUrl
 import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
 import java.util.Locale
+
 import kotlin.math.abs
 
 private const val LOADING_SHOW_DELAY_MS = 300L
@@ -53,6 +53,7 @@ private const val SWIPE_ENABLE_SCALE = 1.01f
 private const val DOUBLE_TAP_SCALE_THRESHOLD = 0.05f
 private const val FLING_DISMISS_SCALE_THRESHOLD = 0.06f
 private const val FLING_DISMISS_MIN_VELOCITY = 800f
+private val ANONYMOUS_USER_ID = com.mezon.mobile.BuildConfig.MEZON_ANONYMOUS_USER_ID.toLongOrNull() ?: 0L
 
 class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Black_NoTitleBar_Fullscreen) {
 
@@ -64,24 +65,39 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
         }
     }
 
+    data class GalleryItem(
+        val url: String,
+        val senderName: String,
+        val senderAvatarUrl: String?,
+        val timestamp: Long,
+        val isVideo: Boolean = false,
+        val uploaderId: Long = 0L
+    )
+
     private val backgroundDrawable = ColorDrawable(Color.BLACK)
     private val viewPager: ViewPager2
     private val topBar: FrameLayout
     private val bottomBar: LinearLayout
     private val counterView: android.widget.TextView
+    private var thumbnailRecyclerView: RecyclerView? = null
     private var toolbarVisible = true
 
-    private var urls = emptyList<String>()
+    private var items = emptyList<GalleryItem>()
     private var currentIndex = 0
     private var preferDrawableLoaderForSingle = false
     private var oldestEdgeBaselinePosition = -1
-    private val currentUrl get() = urls.getOrElse(currentIndex) { "" }
+    private val currentUrl get() = items.getOrNull(currentIndex)?.url ?: ""
+    private val currentItem get() = items.getOrNull(currentIndex)
 
     var onReachedOldestEdge: (() -> Unit)? = null
     var onCurrentUrlChanged: ((String) -> Unit)? = null
 
     private var activeTouchCount = 0
     private var viewPagerSwipeAllowed = true
+
+    private var avatarView: BackupImageView? = null
+    private var nameLabel: android.widget.TextView? = null
+    private var dateLabel: android.widget.TextView? = null
 
     init {
         requestWindowFeature(Window.FEATURE_NO_TITLE)
@@ -100,81 +116,91 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
             FrameLayout.LayoutParams.MATCH_PARENT
         ))
 
-        topBar = FrameLayout(context)
-        counterView = android.widget.TextView(context).apply {
+        topBar = FrameLayout(context).apply {
+            setBackgroundColor(0x99000000.toInt())
+            isClickable = true
+        }
+        
+        val backBtn = ImageView(context).apply {
+            setImageResource(R.drawable.ic_arrow_back)
+            setColorFilter(Color.WHITE)
+            val p = LayoutHelper.dp(16)
+            setPadding(p, p, p, p)
+            setOnClickListener { dismissWithAnimation() }
+        }
+        topBar.addView(backBtn, FrameLayout.LayoutParams(LayoutHelper.dp(56), LayoutHelper.dp(56), Gravity.START or Gravity.CENTER_VERTICAL))
+
+        avatarView = BackupImageView(context).apply {
+            setRoundRadius(LayoutHelper.dp(20))
+        }
+        val avatarParams = FrameLayout.LayoutParams(LayoutHelper.dp(40), LayoutHelper.dp(40), Gravity.START or Gravity.CENTER_VERTICAL)
+        avatarParams.marginStart = LayoutHelper.dp(56)
+        topBar.addView(avatarView, avatarParams)
+
+        val textLayout = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        nameLabel = android.widget.TextView(context).apply {
             setTextColor(Color.WHITE)
             textSize = 16f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            isSingleLine = true
         }
-        val closeDiameter = LayoutHelper.dp(44)
-        val closeWrap = FrameLayout(context).apply {
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(0x80000000.toInt())
-            }
-            outlineProvider = object : ViewOutlineProvider() {
-                override fun getOutline(view: View, outline: Outline) {
-                    outline.setOval(0, 0, view.width, view.height)
-                }
-            }
-            clipToOutline = true
-            isClickable = true
-            isFocusable = true
-            contentDescription = context.getString(R.string.common_close)
-            val tvRipple = TypedValue()
-            if (context.theme.resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, tvRipple, true)) {
-                foreground = ContextCompat.getDrawable(context, tvRipple.resourceId)
-            }
-            setOnClickListener { dismissWithAnimation() }
-            val closeBtn = ImageView(context).apply {
-                setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
-                setColorFilter(Color.WHITE)
-                val p = LayoutHelper.dp(10)
-                setPadding(p, p, p, p)
-                isClickable = false
-                isFocusable = false
-                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            }
-            addView(closeBtn, FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.CENTER
-            ))
+        dateLabel = android.widget.TextView(context).apply {
+            setTextColor(0xCCFFFFFF.toInt())
+            textSize = 13f
+            isSingleLine = true
         }
-        val counterParams = FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            Gravity.CENTER
-        )
-        topBar.addView(counterView, counterParams)
-        val closeBtnParams = FrameLayout.LayoutParams(closeDiameter, closeDiameter, Gravity.END or Gravity.CENTER_VERTICAL)
-        closeBtnParams.marginEnd = LayoutHelper.dp(8)
-        topBar.addView(closeWrap, closeBtnParams)
+        textLayout.addView(nameLabel, LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        textLayout.addView(dateLabel, LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        
+        val textParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.START or Gravity.CENTER_VERTICAL)
+        textParams.marginStart = LayoutHelper.dp(108)
+        textParams.marginEnd = LayoutHelper.dp(56)
+        topBar.addView(textLayout, textParams)
+
+        val moreBtn = ImageView(context).apply {
+            setImageResource(R.drawable.ic_more_vertical_24)
+            setColorFilter(Color.WHITE)
+            val p = LayoutHelper.dp(16)
+            setPadding(p, p, p, p)
+            setOnClickListener { showMoreOptions(it) }
+        }
+        topBar.addView(moreBtn, FrameLayout.LayoutParams(LayoutHelper.dp(56), LayoutHelper.dp(56), Gravity.END or Gravity.CENTER_VERTICAL))
 
         val topBarParams = FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
             LayoutHelper.dp(56)
         )
         topBarParams.gravity = Gravity.TOP
-        topBarParams.topMargin = AndroidUtilities.statusBarHeight + LayoutHelper.dp(8)
+        topBarParams.topMargin = AndroidUtilities.statusBarHeight
         root.addView(topBar, topBarParams)
 
         val navBarInset = AndroidUtilities.navigationBarHeight
         bottomBar = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
             setBackgroundColor(0x99000000.toInt())
-            val pad = LayoutHelper.dp(12)
-            setPadding(pad, pad, pad, pad + navBarInset)
+            setPadding(0, LayoutHelper.dp(12), 0, LayoutHelper.dp(12) + navBarInset)
+            isClickable = true
         }
-        bottomBar.addView(createToolbarButton(context, android.R.drawable.ic_menu_share, "Share") {
-            shareUrl(currentUrl)
-        })
-        bottomBar.addView(createToolbarButton(context, android.R.drawable.ic_menu_save, "Save") {
-            downloadUrl(currentUrl)
-        })
-        bottomBar.addView(createToolbarButton(context, android.R.drawable.ic_menu_agenda, "Copy") {
-            copyImageFromCurrentUrl()
-        })
+        
+        counterView = android.widget.TextView(context).apply {
+            setTextColor(Color.WHITE)
+            textSize = 13f
+        }
+        val counterParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        counterParams.bottomMargin = LayoutHelper.dp(8)
+        bottomBar.addView(counterView, counterParams)
+
+        thumbnailRecyclerView = RecyclerView(context).apply {
+            layoutManager = androidx.recyclerview.widget.LinearLayoutManager(context, RecyclerView.HORIZONTAL, false)
+            clipToPadding = false
+            setPadding(LayoutHelper.dp(12), 0, LayoutHelper.dp(12), 0)
+        }
+        bottomBar.addView(thumbnailRecyclerView, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LayoutHelper.dp(64)))
+
         val bottomBarParams = FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.WRAP_CONTENT
@@ -187,7 +213,9 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
         viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
             override fun onPageSelected(position: Int) {
                 currentIndex = position
+                updateHeader()
                 updateCounter()
+                updateThumbnailSelection()
                 onCurrentUrlChanged?.invoke(currentUrl)
                 maybeNotifyOldestEdge(position)
                 syncViewPagerSwipeWithCurrentPhoto()
@@ -206,7 +234,7 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
             }
             return
         }
-        setViewPagerSwipeAllowed(urls.size > 1 && scale < SWIPE_ENABLE_SCALE)
+        setViewPagerSwipeAllowed(items.size > 1 && scale < SWIPE_ENABLE_SCALE)
     }
 
     private fun syncViewPagerSwipeWithCurrentPhoto() {
@@ -214,14 +242,14 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
         if (photoView != null) {
             refreshPhotoSwipeState(photoView)
         } else {
-            setViewPagerSwipeAllowed(urls.size > 1)
+            setViewPagerSwipeAllowed(items.size > 1)
         }
     }
 
     private fun setViewPagerSwipeAllowed(allowed: Boolean) {
         if (viewPagerSwipeAllowed == allowed) return
         viewPagerSwipeAllowed = allowed
-        viewPager.isUserInputEnabled = urls.size > 1 && allowed
+        viewPager.isUserInputEnabled = items.size > 1 && allowed
     }
 
     private fun onPhotoTouchEvent(ev: MotionEvent, photoView: PhotoView) {
@@ -265,7 +293,10 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
 
             override fun onDoubleTapEvent(e: MotionEvent): Boolean = false
 
-            override fun onSingleTapConfirmed(e: MotionEvent): Boolean = false
+            override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                toggleToolbar()
+                return true
+            }
         })
     }
 
@@ -317,39 +348,44 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
     }
 
     private fun maybeNotifyOldestEdge(position: Int) {
-        if (urls.size < 2) return
+        if (items.size < 2) return
         if (oldestEdgeBaselinePosition < 0) {
             oldestEdgeBaselinePosition = position
             return
         }
         if (position <= oldestEdgeBaselinePosition) return
-        if (position < urls.size - 2) return
+        if (position < items.size - 2) return
         oldestEdgeBaselinePosition = position
         onReachedOldestEdge?.invoke()
     }
 
     fun show(
-        url: String,
-        gallery: List<String> = emptyList(),
+        item: GalleryItem,
+        gallery: List<GalleryItem> = emptyList(),
         index: Int = 0,
         thumbBitmap: Bitmap? = null,
         preferDrawableLoader: Boolean = false
     ) {
-        urls = if (gallery.isEmpty()) listOf(url) else gallery
-        currentIndex = if (index in urls.indices) index else 0
-        preferDrawableLoaderForSingle = preferDrawableLoader && urls.size == 1
+        items = if (gallery.isEmpty()) listOf(item) else gallery
+        currentIndex = if (index in items.indices) index else 0
+        preferDrawableLoaderForSingle = preferDrawableLoader && items.size == 1
 
-        val single = urls.size == 1
-        val thumbUrl = urls[0]
+        val single = items.size == 1
+        val thumbUrl = items[0].url
         val singleAnimated = urlNeedsAnimatedDrawable(thumbUrl) || preferDrawableLoaderForSingle
         val singleShowsThumb = single && !singleAnimated
         oldestEdgeBaselinePosition = -1
         viewPager.adapter = PhotoPagerAdapter(thumbBitmap.takeIf { singleShowsThumb })
         viewPager.setCurrentItem(currentIndex, false)
+        
+        thumbnailRecyclerView?.adapter = ThumbnailAdapter()
+        
         activeTouchCount = 0
-        setViewPagerSwipeAllowed(urls.size > 1)
+        setViewPagerSwipeAllowed(items.size > 1)
 
+        updateHeader()
         updateCounter()
+        updateThumbnailSelection()
         backgroundDrawable.alpha = 0
         activeInstance = java.lang.ref.WeakReference(this)
         super.show()
@@ -364,27 +400,29 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
     }
 
     private fun updateCounter() {
-        if (urls.size > 1) {
-            counterView.text = "${currentIndex + 1} / ${urls.size}"
+        if (items.size > 1) {
+            counterView.text = "${currentIndex + 1} / ${items.size}"
             counterView.visibility = View.VISIBLE
         } else {
             counterView.visibility = View.GONE
         }
     }
 
-    fun updateGallery(newUrls: List<String>, keepUrl: String) {
-        if (newUrls.isEmpty() || newUrls == urls) return
-        val appendOnly = newUrls.size > urls.size && newUrls.subList(0, urls.size) == urls
-        val keepIndex = newUrls.indexOf(keepUrl).let {
-            if (it >= 0) it else currentIndex.coerceIn(0, newUrls.size - 1)
+    fun updateGallery(newItems: List<GalleryItem>, keepUrl: String) {
+        if (newItems.isEmpty() || newItems == items) return
+        val appendOnly = newItems.size > items.size && newItems.subList(0, items.size) == items
+        val keepIndex = newItems.indexOfFirst { it.url == keepUrl }.let {
+            if (it >= 0) it else currentIndex.coerceIn(0, newItems.size - 1)
         }
-        val prevSize = urls.size
-        urls = newUrls
+        val prevSize = items.size
+        items = newItems
         currentIndex = keepIndex
         if (appendOnly) {
-            viewPager.adapter?.notifyItemRangeInserted(prevSize, newUrls.size - prevSize)
+            viewPager.adapter?.notifyItemRangeInserted(prevSize, newItems.size - prevSize)
+            thumbnailRecyclerView?.adapter?.notifyItemRangeInserted(prevSize, newItems.size - prevSize)
         } else {
             viewPager.adapter?.notifyDataSetChanged()
+            thumbnailRecyclerView?.adapter?.notifyDataSetChanged()
             viewPager.setCurrentItem(currentIndex, false)
         }
         updateCounter()
@@ -393,8 +431,19 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
     private fun toggleToolbar() {
         toolbarVisible = !toolbarVisible
         val targetAlpha = if (toolbarVisible) 1f else 0f
-        topBar.animate().alpha(targetAlpha).setDuration(200).start()
-        bottomBar.animate().alpha(targetAlpha).setDuration(200).start()
+        
+        if (toolbarVisible) {
+            topBar.visibility = View.VISIBLE
+            bottomBar.visibility = View.VISIBLE
+        }
+        
+        topBar.animate().alpha(targetAlpha).setDuration(200).withEndAction {
+            if (!toolbarVisible) topBar.visibility = View.INVISIBLE
+        }.start()
+        
+        bottomBar.animate().alpha(targetAlpha).setDuration(200).withEndAction {
+            if (!toolbarVisible) bottomBar.visibility = View.INVISIBLE
+        }.start()
     }
 
     private fun dismissWithAnimation() {
@@ -405,6 +454,173 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
         })
         anim.start()
         viewPager.animate().alpha(0f).setDuration(150).start()
+    }
+
+    private fun updateHeader() {
+        val item = currentItem ?: return
+        nameLabel?.text = item.senderName.takeIf { it.isNotBlank() } ?: "User"
+        
+        val ts = item.timestamp
+        if (ts > 0) {
+            val msgCal = Calendar.getInstance().apply { timeInMillis = ts * 1000L }
+            val nowCal = Calendar.getInstance().apply { timeInMillis = System.currentTimeMillis() }
+
+            val msgYear = msgCal.get(Calendar.YEAR)
+            val msgDayOfYear = msgCal.get(Calendar.DAY_OF_YEAR)
+            val nowYear = nowCal.get(Calendar.YEAR)
+            val nowDayOfYear = nowCal.get(Calendar.DAY_OF_YEAR)
+
+            val isToday = msgYear == nowYear && msgDayOfYear == nowDayOfYear
+            val isYesterday = (msgYear == nowYear && msgDayOfYear == nowDayOfYear - 1) ||
+                    (nowDayOfYear == 1 && msgYear == nowYear - 1 &&
+                            msgDayOfYear == msgCal.getActualMaximum(Calendar.DAY_OF_YEAR))
+
+            val timeStr = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(ts * 1000L))
+
+            dateLabel?.text = when {
+                isToday -> "${context.getString(R.string.common_today_at)} $timeStr"
+                isYesterday -> "${context.getString(R.string.common_yesterday_at)} $timeStr"
+                else -> SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()).format(Date(ts * 1000L))
+            }
+            dateLabel?.visibility = View.VISIBLE
+        } else {
+            dateLabel?.visibility = View.GONE
+        }
+
+        avatarView?.let { view ->
+            if (item.uploaderId == ANONYMOUS_USER_ID) {
+                view.setImageDrawable(com.mezon.mobile.ui.cells.MezonIcon.anonymousAvatar.getDrawable(context))
+            } else if (!item.senderAvatarUrl.isNullOrEmpty()) {
+                val proxyUrl = com.mezon.mobile.util.avatarImgproxyUrl(item.senderAvatarUrl, LayoutHelper.dp(40))
+                view.setImage(proxyUrl, item.uploaderId, item.senderName)
+            } else {
+                view.setImage(null, item.uploaderId, item.senderName)
+            }
+        }
+    }
+
+    private fun updateThumbnailSelection() {
+        thumbnailRecyclerView?.adapter?.notifyDataSetChanged()
+        if (items.isNotEmpty()) {
+            thumbnailRecyclerView?.scrollToPosition(currentIndex)
+        }
+    }
+
+    private var optionsMenu: com.mezon.mobile.ui.cells.PopupMenu? = null
+    private var lastMenuDismissTime = 0L
+
+    private fun showMoreOptions(anchorView: View) {
+        if (System.currentTimeMillis() - lastMenuDismissTime < 200) {
+            return
+        }
+        val url = currentUrl
+        optionsMenu = com.mezon.mobile.ui.cells.PopupMenu(context, ThemeColors.instance).apply {
+            addItem(context.getString(R.string.action_save_media))
+            addItem(context.getString(R.string.action_copy_image))
+            addItem(context.getString(R.string.action_share_image))
+            setOnItemClickListener { index ->
+                when (index) {
+                    0 -> downloadUrl(url)
+                    1 -> copyImageFromCurrentUrl()
+                    2 -> shareUrl(url)
+                }
+            }
+            setOnDismissListener {
+                optionsMenu = null
+                lastMenuDismissTime = System.currentTimeMillis()
+            }
+            show(anchorView)
+        }
+    }
+
+    private inner class ThumbnailAdapter : RecyclerView.Adapter<ThumbnailAdapter.ThumbViewHolder>() {
+        inner class ThumbViewHolder(val container: FrameLayout, val view: ImageView, val borderView: View) : RecyclerView.ViewHolder(container) {
+            var pendingLoad: MezonImageLoader.Cancellable? = null
+        }
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ThumbViewHolder {
+            val container = FrameLayout(context).apply {
+                layoutParams = ViewGroup.MarginLayoutParams(LayoutHelper.dp(44), LayoutHelper.dp(44)).apply {
+                    marginEnd = LayoutHelper.dp(2)
+                }
+            }
+            val iv = ImageView(context).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+            }
+            container.addView(iv, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+
+            val borderView = View(context).apply {
+                val drawable = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                    setStroke(LayoutHelper.dp(2), 0xFF007AFF.toInt())
+                }
+                background = drawable
+                visibility = View.GONE
+            }
+            container.addView(borderView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+
+            val holder = ThumbViewHolder(container, iv, borderView)
+            container.setOnClickListener {
+                val pos = holder.adapterPosition
+                if (pos != RecyclerView.NO_POSITION) {
+                    val rv = viewPager.getChildAt(0) as? RecyclerView
+                    if (rv != null) {
+                        rv.scrollToPosition(pos)
+                    } else {
+                        viewPager.setCurrentItem(pos, false)
+                    }
+                }
+            }
+            return holder
+        }
+
+        override fun onViewRecycled(holder: ThumbViewHolder) {
+            super.onViewRecycled(holder)
+            holder.pendingLoad?.cancel()
+            holder.pendingLoad = null
+            (holder.view.drawable as? AnimatedImageDrawable)?.stop()
+            holder.view.setImageDrawable(null)
+        }
+
+        override fun onBindViewHolder(holder: ThumbViewHolder, position: Int) {
+            val item = items[position]
+
+            holder.pendingLoad?.cancel()
+            holder.pendingLoad = null
+            (holder.view.drawable as? AnimatedImageDrawable)?.stop()
+            holder.view.setImageDrawable(null)
+
+            val loader = MezonImageLoader.getInstance(context)
+            if (urlNeedsAnimatedDrawable(item.url)) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    holder.pendingLoad = loader.loadDrawable(item.url, 150, 150,
+                        onSuccess = { drawable ->
+                            holder.view.setImageDrawable(drawable)
+                            if (drawable is AnimatedImageDrawable) {
+                                drawable.repeatCount = AnimatedImageDrawable.REPEAT_INFINITE
+                                drawable.start()
+                            }
+                        },
+                        onError = {}
+                    )
+                } else {
+                    holder.pendingLoad = loader.load(item.url, 150, 150, onSuccess = { holder.view.setImageBitmap(it) }, onError = {})
+                }
+            } else {
+                val proxyUrl = createImgproxyUrl(item.url, 150, 150, "fill", 150)
+                holder.pendingLoad = loader.load(proxyUrl, 150, 150, onSuccess = { holder.view.setImageBitmap(it) }, onError = {})
+            }
+            
+            if (position == currentIndex) {
+                holder.view.alpha = 1.0f
+                holder.borderView.visibility = View.VISIBLE
+            } else {
+                holder.view.alpha = 0.5f
+                holder.borderView.visibility = View.GONE
+            }
+        }
+
+        override fun getItemCount() = items.size
     }
 
     override fun onBackPressed() {
@@ -579,7 +795,7 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
         }
 
         override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-            val url = urls[position]
+            val url = items[position].url
             val photoView = holder.photoView
 
             holder.pendingLoad?.cancel()
@@ -612,7 +828,7 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
                 }
             }
             val drawableLoader = urlNeedsAnimatedDrawable(url) ||
-                (preferDrawableLoaderForSingle && urls.size == 1)
+                (preferDrawableLoaderForSingle && items.size == 1)
             if (drawableLoader) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     holder.pendingLoad = loader.loadDrawable(url, 0, 0,
@@ -650,47 +866,39 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
             }
         }
 
-        override fun getItemCount() = urls.size
+        override fun getItemCount() = items.size
 
         override fun getItemId(position: Int): Long =
-            urls.getOrNull(position)?.hashCode()?.toLong() ?: RecyclerView.NO_ID
+            items.getOrNull(position)?.url?.hashCode()?.toLong() ?: RecyclerView.NO_ID
     }
 
-    private fun createToolbarButton(ctx: Context, iconRes: Int, desc: String, onClick: () -> Unit): ImageView {
-        return ImageView(ctx).apply {
-            setImageResource(iconRes)
-            setColorFilter(Color.WHITE)
-            contentDescription = desc
-            val p = LayoutHelper.dp(16)
-            setPadding(p, p, p, p)
-            layoutParams = LinearLayout.LayoutParams(LayoutHelper.dp(56), LayoutHelper.dp(56)).apply {
-                marginStart = LayoutHelper.dp(8)
-                marginEnd = LayoutHelper.dp(8)
-            }
-            setOnClickListener { onClick() }
-        }
+    private val entryPoint: FragmentEntryPoint by lazy {
+        EntryPointAccessors.fromApplication(context.applicationContext, FragmentEntryPoint::class.java)
+    }
+
+    private fun showToast(type: ToastOverlay.ToastType, msgResId: Int) {
+        val parent = window?.decorView as? ViewGroup ?: return
+        ToastOverlay(context, ThemeColors.instance).show(parent, type, context.getString(msgResId))
     }
 
     private fun copyImageFromCurrentUrl() {
         val url = currentUrl
         if (url.isEmpty()) return
-        val app = context.applicationContext
-        val ep = EntryPointAccessors.fromApplication(app, FragmentEntryPoint::class.java)
-        val coordinator = ep.imageClipboardCoordinator()
-        ep.applicationScope().launch {
+        val coordinator = entryPoint.imageClipboardCoordinator()
+        entryPoint.applicationScope().launch {
             val ok = coordinator.copyRemoteUrlToClipboard(context, url, guessMimeHintForCopy(url))
-            withContext(ep.mainDispatcher()) {
+            withContext(entryPoint.mainDispatcher()) {
                 if (ok) {
-                    Toast.makeText(context, context.getString(R.string.message_toast_copy_image_done), Toast.LENGTH_SHORT).show()
+                    showToast(ToastOverlay.ToastType.SUCCESS, R.string.message_toast_copy_image_done)
                 } else {
-                    Toast.makeText(context, context.getString(R.string.message_toast_copy_image_failed), Toast.LENGTH_SHORT).show()
+                    showToast(ToastOverlay.ToastType.ERROR, R.string.message_toast_copy_image_failed)
                 }
             }
         }
     }
 
     private fun guessMimeHintForCopy(url: String): String {
-        val lower = url.lowercase(Locale.US)
+        val lower = url.lowercase(java.util.Locale.US)
         return when {
             lower.endsWith(".png") -> "image/png"
             lower.endsWith(".webp") -> "image/webp"
@@ -701,27 +909,78 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
     }
 
     private fun downloadUrl(url: String) {
-        try {
-            val filename = url.substringAfterLast('/').substringBefore('?').ifEmpty { "download" }
-            val request = DownloadManager.Request(Uri.parse(url))
-                .setTitle(filename)
-                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, filename)
-            val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-            dm.enqueue(request)
-            Toast.makeText(context, "Downloading...", Toast.LENGTH_SHORT).show()
-        } catch (_: Exception) {
-            Toast.makeText(context, "Download failed", Toast.LENGTH_SHORT).show()
+        entryPoint.applicationScope().launch(entryPoint.ioDispatcher()) {
+            try {
+                val filename = url.substringAfterLast('/').substringBefore('?').ifEmpty { "download.jpg" }
+                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                downloadsDir.mkdirs()
+                val destFile = java.io.File(downloadsDir, filename)
+                downloadToFile(url, destFile)
+                android.media.MediaScannerConnection.scanFile(context, arrayOf(destFile.absolutePath), null, null)
+                withContext(entryPoint.mainDispatcher()) {
+                    showToast(ToastOverlay.ToastType.SUCCESS, R.string.message_toast_save_success)
+                }
+            } catch (e: Exception) {
+                withContext(entryPoint.mainDispatcher()) {
+                    showToast(ToastOverlay.ToastType.ERROR, R.string.message_toast_save_failed)
+                }
+            }
+        }
+    }
+
+    private fun downloadToFile(url: String, destFile: java.io.File) {
+        val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+        conn.connect()
+        if (conn.responseCode !in 200..299) {
+            throw Exception("HTTP Error: ${conn.responseCode}")
+        }
+        conn.inputStream.use { input ->
+            java.io.FileOutputStream(destFile).use { output ->
+                input.copyTo(output)
+            }
         }
     }
 
     private fun shareUrl(url: String) {
-        try {
-            val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                type = "text/plain"
-                putExtra(android.content.Intent.EXTRA_TEXT, url)
+        entryPoint.applicationScope().launch(entryPoint.ioDispatcher()) {
+            try {
+                val mime = guessMimeHintForCopy(url)
+                val ext = when (mime) {
+                    "image/gif" -> "gif"
+                    "image/png" -> "png"
+                    "image/webp" -> "webp"
+                    else -> "jpg"
+                }
+
+                val dir = java.io.File(context.cacheDir, "clipboard_images").apply { mkdirs() }
+                val destFile = java.io.File(dir, "share_${System.currentTimeMillis()}.$ext")
+                downloadToFile(url, destFile)
+
+                val authority = "${context.packageName}.fileprovider"
+                val uri = FileProvider.getUriForFile(context, authority, destFile)
+
+                withContext(entryPoint.mainDispatcher()) {
+                    val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                        type = mime
+                        putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                        clipData = android.content.ClipData.newRawUri("", uri)
+                        addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+
+                    val resInfoList = context.packageManager.queryIntentActivities(intent, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY)
+                    for (resolveInfo in resInfoList) {
+                        context.grantUriPermission(resolveInfo.activityInfo.packageName, uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+
+                    val chooser = android.content.Intent.createChooser(intent, context.getString(R.string.action_share_image))
+                    chooser.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    context.startActivity(chooser)
+                }
+            } catch (e: Exception) {
+                withContext(entryPoint.mainDispatcher()) {
+                    showToast(ToastOverlay.ToastType.ERROR, R.string.message_toast_save_failed)
+                }
             }
-            context.startActivity(android.content.Intent.createChooser(intent, "Share"))
-        } catch (_: Exception) {}
+        }
     }
 }
