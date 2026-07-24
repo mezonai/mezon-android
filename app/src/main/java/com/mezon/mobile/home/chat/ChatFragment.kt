@@ -306,6 +306,7 @@ open class ChatFragment : BaseFragment() {
     private var pendingCameraCapture: CameraPhotoCapture? = null
     private var cameraSourceAlert: ChatAttachAlert? = null
     private var activeCameraReview: CameraPhotoReviewDialog? = null
+    private var activeImageEditor: ChatImageEditorDialog? = null
     private var mediaPermissionDeniedOnce = false
     private var locationPermissionAskedBefore = false
     private val pendingAttachmentThumbTasks = ArrayList<Runnable?>()
@@ -511,6 +512,13 @@ open class ChatFragment : BaseFragment() {
             val dm = dialogsController.getDialog(readStateChannelId)
             lastSeenMessageId = dm?.lastSeenMessageId ?: 0L
             lastSentMessageId = dm?.lastSentMessageId ?: 0L
+            if (!isTopicMode && (dm?.unreadCount ?: 0) > 0) {
+                appScope.launch {
+                    dialogsController.markDialogAsReadFromMenu(channelId).onFailure {
+                        Log.e(TAG, "markAsRead on DM open failed channelId=$channelId", it)
+                    }
+                }
+            }
         } else {
             val ch = channelController.findChannelById(readStateChannelId)
             lastSeenMessageId = ch?.lastSeenMessageId ?: 0L
@@ -1320,6 +1328,7 @@ open class ChatFragment : BaseFragment() {
         observe(NotificationCenter.appDidReconnect) { _, _, _ ->
             if (isPaused) return@observe
             Log.d(TAG, "appDidReconnect: reloading messages for channel $channelId")
+            rejoinChannelOnSocket()
             chatController.loadMessages(channelId, clanId, forceRefresh = true, preferHttp = false, topicId = topicId)
         }
 
@@ -2039,6 +2048,7 @@ open class ChatFragment : BaseFragment() {
 
         adapter = ChatAdapter(themeColors, messages, channelName, cellDelegate = object : ChatMessageCell.ChatMessageCellDelegate {
             override fun didClickMedia(cell: ChatMessageCell, msg: MessageEntity, attachmentIndex: Int) {
+                if (cell.isSticker) return
                 val allMedia = msg.allImageAttachments
                 val att = allMedia.getOrNull(attachmentIndex) ?: allMedia.firstOrNull() ?: return
                 val url = att.url
@@ -2051,7 +2061,7 @@ open class ChatFragment : BaseFragment() {
                     VideoPlayerDialog(context).play(url)
                 } else {
                     val seed = allMedia.filter { !it.filetype.startsWith("video/") && it.url.isNotEmpty() }.map { it.url }
-                    openChannelPhotoViewer(context, url, thumbBmp, seed)
+                    openChannelPhotoViewer(context, url, thumbBmp, seed, msg)
                 }
             }
             override fun didClickFile(cell: ChatMessageCell, msg: MessageEntity) {
@@ -2479,6 +2489,7 @@ open class ChatFragment : BaseFragment() {
         }
         if (pausedFromAppBackground) {
             pausedFromAppBackground = false
+            rejoinChannelOnSocket()
             chatController.loadMessages(channelId, clanId, forceRefresh = true, preferHttp = true, topicId = topicId)
         }
     }
@@ -2969,6 +2980,9 @@ open class ChatFragment : BaseFragment() {
     }
 
     override fun onFragmentDestroy() {
+        activeImageEditor?.setOnDismissListener(null)
+        activeImageEditor?.dismiss()
+        activeImageEditor = null
         emojiExpandAnimator?.cancel()
         emojiExpandAnimator = null
         activePhotoViewer?.setOnDismissListener(null)
@@ -2999,6 +3013,7 @@ open class ChatFragment : BaseFragment() {
         pendingAttachmentThumbTasks.clear()
         attachmentProgressReloadRunnable?.let { AndroidUtilities.cancelRunOnUIThread(it) }
         attachmentProgressReloadRunnable = null
+        pendingAttachments.forEach { it.deleteOwnedCacheFile() }
         pendingAttachments.clear()
         replyingToMessage = null
         editingMessage = null
@@ -3892,27 +3907,51 @@ open class ChatFragment : BaseFragment() {
         updateVisibleRows(NotificationCenter.UPDATE_MASK_NAME)
     }
 
-    private fun channelGalleryImageUrls(): List<String> =
+    private fun channelGalleryImageItems(): List<PhotoViewer.GalleryItem> =
         channelGalleryController.getItems(channelId)
             .asSequence()
             .filter { !it.isVideo && it.url.isNotEmpty() }
-            .map { it.url }
-            .distinct()
+            .map { mediaItem ->
+                val cachedMsg = messages.find { it.id == mediaItem.messageId }
+                val uploaderId = mediaItem.uploaderId
+                val (senderName, senderAvatarUrl) = resolveGallerySender(
+                    uploaderId,
+                    cachedMsg?.senderName,
+                    cachedMsg?.senderAvatar
+                )
+                PhotoViewer.GalleryItem(
+                    url = mediaItem.url,
+                    senderName = senderName,
+                    senderAvatarUrl = senderAvatarUrl,
+                    timestamp = mediaItem.createTimeSeconds.toLong(),
+                    isVideo = mediaItem.isVideo,
+                    uploaderId = uploaderId
+                )
+            }
+            .distinctBy { it.url }
             .toList()
 
-    private fun buildPhotoViewerUrls(selectedUrl: String, seedUrls: List<String> = emptyList()): List<String> {
-        val base = channelGalleryImageUrls()
+    private fun buildPhotoViewerItems(selectedUrl: String, seedUrls: List<String> = emptyList(), msg: MessageEntity? = null): List<PhotoViewer.GalleryItem> {
+        val base = channelGalleryImageItems()
+        val uploaderId = msg?.senderId ?: 0L
+        val (fallbackSenderName, fallbackSenderAvatar) = resolveGallerySender(
+            uploaderId,
+            msg?.senderName,
+            msg?.senderAvatar
+        )
+        val fallbackTimestamp = msg?.timestampSeconds ?: 0L
+
         if (base.isEmpty()) {
             return when {
-                seedUrls.isNotEmpty() -> seedUrls
+                seedUrls.isNotEmpty() -> seedUrls.map { PhotoViewer.GalleryItem(url = it, senderName = fallbackSenderName, senderAvatarUrl = fallbackSenderAvatar, timestamp = fallbackTimestamp, uploaderId = uploaderId) }
                 selectedUrl.isEmpty() -> emptyList()
-                else -> listOf(selectedUrl)
+                else -> listOf(PhotoViewer.GalleryItem(url = selectedUrl, senderName = fallbackSenderName, senderAvatarUrl = fallbackSenderAvatar, timestamp = fallbackTimestamp, uploaderId = uploaderId))
             }
         }
-        return if (selectedUrl.isEmpty() || base.contains(selectedUrl)) base else listOf(selectedUrl) + base
+        return if (selectedUrl.isEmpty() || base.any { it.url == selectedUrl }) base else listOf(PhotoViewer.GalleryItem(url = selectedUrl, senderName = fallbackSenderName, senderAvatarUrl = fallbackSenderAvatar, timestamp = fallbackTimestamp, uploaderId = uploaderId)) + base
     }
 
-    private fun openChannelPhotoViewer(context: Context, url: String, thumbBmp: Bitmap?, seedUrls: List<String>) {
+    private fun openChannelPhotoViewer(context: Context, url: String, thumbBmp: Bitmap?, seedUrls: List<String>, msg: MessageEntity? = null) {
         val viewer = PhotoViewer(context)
         activePhotoViewer = viewer
         photoViewerSelectedUrl = url
@@ -3921,9 +3960,20 @@ open class ChatFragment : BaseFragment() {
         viewer.setOnDismissListener {
             if (activePhotoViewer === viewer) activePhotoViewer = null
         }
-        val initial = buildPhotoViewerUrls(url, seedUrls)
-        val idx = initial.indexOf(url).coerceAtLeast(0)
-        viewer.show(url, gallery = initial, index = idx, thumbBitmap = thumbBmp)
+        val initial = buildPhotoViewerItems(url, seedUrls, msg)
+        val idx = initial.indexOfFirst { it.url == url }.coerceAtLeast(0)
+        
+        val uploaderId = msg?.senderId ?: 0L
+        val (fallbackSenderName, fallbackSenderAvatar) = resolveGallerySender(
+            uploaderId,
+            msg?.senderName,
+            msg?.senderAvatar
+        )
+        val fallbackTimestamp = msg?.timestampSeconds ?: 0L
+
+        val item = initial.getOrNull(idx) ?: PhotoViewer.GalleryItem(url = url, senderName = fallbackSenderName, senderAvatarUrl = fallbackSenderAvatar, timestamp = fallbackTimestamp, uploaderId = uploaderId)
+        viewer.show(item = item, gallery = initial, index = idx, thumbBitmap = thumbBmp)
+        
         if (channelGalleryController.isInitialLoadFinished(channelId)) {
             refreshActivePhotoViewerGallery()
         } else {
@@ -3933,9 +3983,9 @@ open class ChatFragment : BaseFragment() {
 
     private fun refreshActivePhotoViewerGallery() {
         val viewer = activePhotoViewer ?: return
-        val urls = buildPhotoViewerUrls(photoViewerSelectedUrl)
-        if (urls.isEmpty()) return
-        viewer.updateGallery(urls, photoViewerSelectedUrl)
+        val items = buildPhotoViewerItems(photoViewerSelectedUrl)
+        if (items.isEmpty()) return
+        viewer.updateGallery(items, photoViewerSelectedUrl)
     }
 
     private fun messageListHasPendingUploadKey(key: String): Boolean {
@@ -4304,6 +4354,50 @@ open class ChatFragment : BaseFragment() {
         }
     }
 
+    private fun resolveGallerySender(userId: Long, fallbackName: String?, fallbackAvatar: String?): Pair<String, String?> {
+        if (userId == ANONYMOUS_USER_ID) {
+            return Pair(getString(R.string.advanced_anonymous), null)
+        }
+
+        val member = if (userId != 0L) {
+            if (clanId != 0L) memberResolver.resolveClanScopedMember(userId, clanId, channelId, channelType)
+            else memberResolver.resolveMember(userId, clanId, channelId, channelType)
+        } else null
+
+        val useClanInfo = clanId != 0L && channelType != CHANNEL_TYPE_DM && channelType != CHANNEL_TYPE_GROUP
+
+        var resolvedName: String? = null
+        var resolvedAvatar: String? = null
+
+        if (member != null) {
+            if (useClanInfo) {
+                resolvedName = member.clanNick.takeIf { it.isNotBlank() }
+                resolvedAvatar = member.clanAvatar.takeIf { it.isNotBlank() }
+            }
+            if (resolvedName == null) resolvedName = member.displayName.takeIf { it.isNotBlank() }
+            if (resolvedName == null) resolvedName = member.username.takeIf { it.isNotBlank() }
+            if (resolvedAvatar == null) resolvedAvatar = member.avatarUrl.takeIf { it.isNotBlank() }
+        }
+
+        if (resolvedName == null || resolvedAvatar == null) {
+            if (userId == userController.userId) {
+                if (resolvedName == null) resolvedName = userController.displayName.takeIf { it.isNotBlank() } ?: userController.username.takeIf { it.isNotBlank() }
+                if (resolvedAvatar == null) resolvedAvatar = userController.avatarUrl.takeIf { it.isNotBlank() }
+            } else if (userId != 0L) {
+                val global = userClanController.getUserById(userId)
+                if (global != null) {
+                    if (resolvedName == null) resolvedName = global.displayName.takeIf { it.isNotBlank() } ?: global.username.takeIf { it.isNotBlank() }
+                    if (resolvedAvatar == null) resolvedAvatar = global.avatarUrl.takeIf { it.isNotBlank() }
+                }
+            }
+        }
+
+        return Pair(
+            resolvedName ?: fallbackName?.takeIf { it.isNotBlank() } ?: "User",
+            resolvedAvatar ?: fallbackAvatar?.takeIf { it.isNotBlank() }
+        )
+    }
+
     private fun resolveCreatorDisplayName(userId: Long, fallbackName: String): String {
         if (userId == 0L) return fallbackName
         val member = if (clanId != 0L) {
@@ -4491,6 +4585,11 @@ open class ChatFragment : BaseFragment() {
         return false
     }
 
+    private fun rejoinChannelOnSocket() {
+        if (channelId == 0L) return
+        chatController.openChannel(channelId, clanId, channelType, resolveChannelPrivate(), routeParentId)
+    }
+
     private fun resolveChannelAgeRestricted(): Boolean {
         if (clanId != 0L) {
             return channelController.findChannelById(channelId)?.isAgeRestricted ?: routeChannelAgeRestricted
@@ -4595,22 +4694,30 @@ open class ChatFragment : BaseFragment() {
         return m.copy(startOffset = s - leading, endOffset = e - leading)
     }
 
-    private fun sendMessage() {
+    private fun sendMessage(attachmentOverride: List<AttachmentPickerItem>? = null) {
         dismissPasteImagePopup()
+        val outgoingAttachments = attachmentOverride ?: pendingAttachments
+        fun discardUnusedOverride() {
+            attachmentOverride.orEmpty()
+                .filter { override -> pendingAttachments.none { it.uri == override.uri } }
+                .forEach { it.deleteOwnedCacheFile() }
+        }
         val rawInput = inputField.text?.toString() ?: ""
         val text = rawInput.trim()
         val editMsg = editingMessage
         if (editMsg != null) {
             val oldText = com.mezon.mobile.util.restoreInputFromContent(editMsg.content).rawText.trim()
             if (text == oldText) {
+                discardUnusedOverride()
                 clearEditState()
                 return
             }
         }
         val preservingShareContactEmbed = editMsg != null &&
             isShareContactMessage(editMsg.code, editMsg.content)
-        if (text.isBlank() && pendingAttachments.isEmpty() && !preservingShareContactEmbed) return
+        if (text.isBlank() && outgoingAttachments.isEmpty() && !preservingShareContactEmbed) return
         if (editMsg == null && !canSendMessageInCurrentChannel()) {
+            discardUnusedOverride()
             refreshPermissionGates()
             MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.message_no_send_permission))
             return
@@ -4633,7 +4740,7 @@ open class ChatFragment : BaseFragment() {
                         if (finished == null) inputOgpFetchJob?.cancel()
                     } finally {
                         awaitingOgpForSend = false
-                        sendMessage()
+                        sendMessage(attachmentOverride)
                     }
                 }
                 return
@@ -4684,6 +4791,7 @@ open class ChatFragment : BaseFragment() {
         val hashtags = hashtagsFromTrackers.ifEmpty { null }
 
         if (editMsg != null) {
+            discardUnusedOverride()
             val emojiMarkers = buildEmojiMarkers(cleanedText)
             chatController.editMessage(
                 channelId, clanId, channelType, isPrivate, editMsg.id,
@@ -4695,22 +4803,26 @@ open class ChatFragment : BaseFragment() {
             return
         }
 
-        Log.d(TAG, "sendMessage channelId=$channelId clanId=$clanId channelType=$channelType isPrivate=$isPrivate textLen=${cleanedText.length} attachments=${pendingAttachments.size} hasReply=${references != null} mdMarkers=${filteredMdMarkers?.size ?: 0} ogp=${ogpMarker != null} hashtags=${hashtags?.size ?: 0}")
+        Log.d(TAG, "sendMessage channelId=$channelId clanId=$clanId channelType=$channelType isPrivate=$isPrivate textLen=${cleanedText.length} attachments=${outgoingAttachments.size} hasReply=${references != null} mdMarkers=${filteredMdMarkers?.size ?: 0} ogp=${ogpMarker != null} hashtags=${hashtags?.size ?: 0}")
 
         if (exceedsMessageContentLimit(
                 outgoingContentFor(cleanedText, buildEmojiMarkers(cleanedText), filteredMdMarkers, hashtags, ogpMarker)
             )
         ) {
+            discardUnusedOverride()
             convertTextToPlainTextAttachment(cleanedText, clearInput = true)
             return
         }
 
-        if (pendingAttachments.isNotEmpty()) {
-            val ctx = getContext() ?: return
+        if (outgoingAttachments.isNotEmpty()) {
+            val ctx = getContext() ?: run {
+                discardUnusedOverride()
+                return
+            }
             val emojiMarkers = buildEmojiMarkers(cleanedText)
             chatController.sendMessageWithAttachments(
                 channelId, clanId, channelType, isPrivate, cleanedText,
-                ArrayList(pendingAttachments),
+                ArrayList(outgoingAttachments),
                 ctx.contentResolver,
                 references,
                 mentions,
@@ -4981,8 +5093,7 @@ open class ChatFragment : BaseFragment() {
     private fun openAttachAlert() {
         dismissPasteImagePopup()
         val ctx = getContext() ?: return
-        val preselected = pendingAttachments.filter { !it.isFileType }
-        val alert = ChatAttachAlert(ctx, mediaController, themeColors, preselected)
+        val alert = ChatAttachAlert(ctx, mediaController, themeColors, emptyList())
         cameraSourceAlert = alert
         alert.attachDelegate = object : ChatAttachAlert.ChatAttachAlertDelegate {
             override fun canSelectMore(): Boolean {
@@ -4991,10 +5102,15 @@ open class ChatFragment : BaseFragment() {
 
             override fun onSelectionChanged(item: AttachmentPickerItem, selected: Boolean) {
                 if (selected) {
-                    if (pendingAttachments.any { it.id == item.id }) return
                     pendingAttachments.add(item)
                 } else {
-                    pendingAttachments.removeAll { it.id == item.id }
+                    val idx = pendingAttachments.indexOfLast { it.id == item.id }
+                    if (idx >= 0) {
+                        val removed = pendingAttachments.removeAt(idx)
+                        if (pendingAttachments.none { it.id == item.id }) {
+                            removed.deleteOwnedCacheFile()
+                        }
+                    }
                 }
                 updateAttachmentPreview()
                 updateSendButtonState()
@@ -5003,6 +5119,26 @@ open class ChatFragment : BaseFragment() {
             override fun onFilesRequested() {
                 if (!ensureCanSendMessageOrNotify()) return
                 launchDocumentPicker()
+            }
+
+            override fun canEdit(item: AttachmentPickerItem): Boolean =
+                pendingAttachments.size == 1 &&
+                    !item.isVideo &&
+                    item.mimeType.startsWith("image/", ignoreCase = true)
+
+            override fun onEditRequested(item: AttachmentPickerItem) {
+                val currentIndex = pendingAttachments.indexOfFirst { it.id == item.id }
+                if (currentIndex < 0) return
+                activeImageEditor?.dismiss()
+                val editor = ChatImageEditorDialog(ctx, pendingAttachments[currentIndex]) { edited ->
+                    alert.dismiss()
+                    sendMessage(listOf(edited))
+                }
+                activeImageEditor = editor
+                editor.setOnDismissListener {
+                    if (activeImageEditor === editor) activeImageEditor = null
+                }
+                editor.show()
             }
 
             override fun onCameraRequested() {
@@ -5272,31 +5408,18 @@ open class ChatFragment : BaseFragment() {
             capture.discard()
             return
         }
-        lateinit var review: CameraPhotoReviewDialog
-        review = CameraPhotoReviewDialog(
-            context = ctx,
-            capture = capture,
-            onRetake = {
-                launchCameraPhoto().also { launched ->
-                    if (launched) capture.discard()
-                }
-            },
-            onUsePhoto = {
-                if (activeCameraReview === review) activeCameraReview = null
-                if (pendingAttachments.none { it.id == item.id }) pendingAttachments.add(item)
-                cameraSourceAlert?.dismissWithoutAnimation()
-                updateAttachmentPreview()
-                updateSendButtonState()
-            },
-            onCancelReview = {
-                if (activeCameraReview === review) activeCameraReview = null
-                capture.discard()
-            }
-        )
-        val previousReview = activeCameraReview
-        activeCameraReview = review
-        review.show()
-        previousReview?.dismiss()
+        val editor = ChatImageEditorDialog(ctx, item) { edited ->
+            cameraSourceAlert?.dismissWithoutAnimation()
+            sendMessage(listOf(edited))
+            capture.discard()
+        }
+        activeImageEditor?.dismiss()
+        activeImageEditor = editor
+        editor.setOnDismissListener {
+            if (activeImageEditor === editor) activeImageEditor = null
+            capture.discard()
+        }
+        editor.show()
     }
 
     private fun requestLocationAndSend() {
@@ -5911,7 +6034,7 @@ open class ChatFragment : BaseFragment() {
                 setBackgroundColor(0x80000000.toInt())
                 setPadding(LayoutHelper.dp(2f), LayoutHelper.dp(2f), LayoutHelper.dp(2f), LayoutHelper.dp(2f))
                 setOnClickListener {
-                    pendingAttachments.removeAt(i)
+                    pendingAttachments.removeAt(i).deleteOwnedCacheFile()
                     updateAttachmentPreview()
                     updateSendButtonState()
                 }

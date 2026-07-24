@@ -74,14 +74,21 @@ class VoiceUserAvatarCell(
         if (url == currentAvatarUrl && avatarDrawable.hasPhoto()) return
         currentAvatarUrl = url
         avatarDrawable.setPhoto(null)
+        avatarDrawable.setLoadingPlaceholder(false)
         cancelAvatarLoad()
 
         if (url.isNullOrEmpty()) return
         val proxyUrl = avatarImgproxyUrl(url, AVATAR_SIZE)
+        avatarDrawable.setLoadingPlaceholder(true)
         avatarCancellable = MezonImageLoader.getInstance(context).load(
             proxyUrl, AVATAR_SIZE, AVATAR_SIZE,
             onSuccess = { bmp ->
+                avatarDrawable.setLoadingPlaceholder(false)
                 avatarDrawable.setPhoto(bmp)
+                invalidate()
+            },
+            onError = {
+                avatarDrawable.setLoadingPlaceholder(false)
                 invalidate()
             }
         )

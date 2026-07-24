@@ -235,8 +235,7 @@ class SessionManager @Inject constructor(
             Log.w(TAG, "Network error during refresh, not logging out", e)
             throw e
         } catch (e: Exception) {
-            promptReloginIfPersistent(current.refreshToken, e)
-            Log.w(TAG, "Server error during refresh — treating as transient", e)
+            Log.w(TAG, "Server error during refresh — treating as transient, keeping session", e)
             throw IOException("Session refresh server error: ${e.message}", e)
         } finally {
             refreshMutex.withLock {
@@ -247,14 +246,6 @@ class SessionManager @Inject constructor(
 
     private fun incrementFailCount(refreshToken: String) {
         if (lastRefreshToken == refreshToken) failCount++ else { lastRefreshToken = refreshToken; failCount = 1 }
-    }
-
-    private fun promptReloginIfPersistent(refreshToken: String, cause: Exception) {
-        incrementFailCount(refreshToken)
-        if (failCount >= MAX_REFRESH_RETRIES) {
-            Log.w(TAG, "Refresh failed $failCount/$MAX_REFRESH_RETRIES times — prompting re-login", cause)
-            emitSessionExpired()
-        }
     }
 
     private fun emitSessionExpired() {

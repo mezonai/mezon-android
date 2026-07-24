@@ -309,22 +309,24 @@ class MezonImageLoader private constructor(context: Context) {
                     }
                     return
                 }
+                val urlFile = diskFileForUrl(logicalUrl)
+                val tmpFile = File(urlFile.parentFile, urlFile.name + ".tmp")
                 try {
-                    val urlFile = diskFileForUrl(logicalUrl)
                     urlFile.parentFile?.mkdirs()
                     response.body?.byteStream()?.use { input ->
-                        FileOutputStream(urlFile).use { output -> input.copyTo(output) }
+                        FileOutputStream(tmpFile).use { output -> input.copyTo(output) }
                     } ?: throw IOException("Empty body")
                     response.close()
+                    if (!tmpFile.renameTo(urlFile)) {
+                        try { urlFile.delete() } catch (_: Throwable) {}
+                        if (!tmpFile.renameTo(urlFile)) throw IOException("Cache rename failed")
+                    }
                     trimDiskCache()
                     dispatchAllDecodeSuccess(logicalUrl, urlFile)
                 } catch (e: Exception) {
+                    try { tmpFile.delete() } catch (_: Throwable) {}
                     val ex = e as? Exception ?: Exception(e)
                     if (attempt < MAX_NETWORK_RETRIES && e is IOException) {
-                        try {
-                            diskFileForUrl(logicalUrl).delete()
-                        } catch (_: Throwable) {
-                        }
                         mainHandler.postDelayed({
                             ensureNetworkFetch(fetchUrl, logicalUrl, attempt + 1)
                         }, retryDelayMs(attempt))

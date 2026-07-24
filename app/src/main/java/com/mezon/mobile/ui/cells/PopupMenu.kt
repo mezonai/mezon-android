@@ -26,6 +26,7 @@ class PopupMenu(private val context: Context, private val theme: ThemeColors) {
     private val items = ArrayList<MenuItem>()
     private var popupWindow: PopupWindow? = null
     private var onItemClick: ((Int) -> Unit)? = null
+    private var onDismissListener: (() -> Unit)? = null
 
     data class MenuItem(
         val text: String,
@@ -93,6 +94,9 @@ class PopupMenu(private val context: Context, private val theme: ThemeColors) {
             isOutsideTouchable = true
             isFocusable = false
             setBackgroundDrawable(ColorDrawable(0))
+            setOnDismissListener {
+                onDismissListener?.invoke()
+            }
             showAsDropDown(anchorView, 0, 0, Gravity.END or Gravity.TOP)
         }
     }
@@ -101,6 +105,10 @@ class PopupMenu(private val context: Context, private val theme: ThemeColors) {
         cornerRadius = MENU_CORNER_RADIUS
         setColor(theme.surface)
         setStroke(LayoutHelper.dp(1), theme.borderDim)
+    }
+
+    fun setOnDismissListener(listener: () -> Unit) {
+        onDismissListener = listener
     }
 
     fun dismiss() {

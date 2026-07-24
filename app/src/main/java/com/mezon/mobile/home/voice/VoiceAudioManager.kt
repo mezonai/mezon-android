@@ -2,6 +2,7 @@ package com.mezon.mobile.home.voice
 
 import android.content.Context
 import android.media.AudioManager
+import android.util.Log
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.twilio.audioswitch.AudioDevice
@@ -29,6 +30,9 @@ class VoiceAudioManager(context: Context) {
 
     var onOutputChanged: (() -> Unit)? = null
 
+    private var userHasChosenOutput = false
+    private var defaultRoutingApplied = false
+
     init {
         audioSwitchHandler.registerAudioDeviceChangeListener(deviceChangeListener)
     }
@@ -41,7 +45,41 @@ class VoiceAudioManager(context: Context) {
 
     fun asLiveKitAudioHandler(): AudioHandler = audioSwitchHandler
 
+    fun resetDefaultRouting() {
+        defaultRoutingApplied = false
+    }
+
+    fun applyDefaultRouting() {
+        if (userHasChosenOutput) return
+        val handler = audioSwitchHandler
+        val available = handler.availableAudioDevices
+        val headset = available.firstOrNull { it is AudioDevice.BluetoothHeadset }
+            ?: available.firstOrNull { it is AudioDevice.WiredHeadset }
+        if (headset != null) {
+            if (handler.selectedAudioDevice?.javaClass != headset.javaClass) {
+                handler.selectDevice(headset)
+            }
+            defaultRoutingApplied = true
+            return
+        }
+        val speaker = available.filterIsInstance<AudioDevice.Speakerphone>().firstOrNull() ?: return
+        if (handler.selectedAudioDevice is AudioDevice.Speakerphone) {
+            if (!defaultRoutingApplied) {
+                val earpiece = available.filterIsInstance<AudioDevice.Earpiece>().firstOrNull()
+                if (earpiece != null) {
+                    handler.selectDevice(earpiece)
+                    handler.selectDevice(speaker)
+                }
+            }
+        } else {
+            handler.selectDevice(speaker)
+        }
+        defaultRoutingApplied = true
+        Log.d("VoiceAudioManager", "applyDefaultRouting selected=${handler.selectedAudioDevice}")
+    }
+
     fun cycleOutput() {
+        userHasChosenOutput = true
         val handler = audioSwitchHandler
         val selected = handler.selectedAudioDevice
         val available = handler.availableAudioDevices

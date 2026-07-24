@@ -34,7 +34,8 @@ fun SharingTarget.toForwardDestination(): ForwardDestination = ForwardDestinatio
     channelType = channelType,
     displayLabel = channelLabel,
     subtitle = if (isClanChannel && clanName.isNotEmpty()) clanName else "",
-    isChannelPrivate = isPrivate
+    isChannelPrivate = isPrivate,
+    parentId = parentId
 )
 
 fun DirectMessage.toSharingTarget(): SharingTarget {

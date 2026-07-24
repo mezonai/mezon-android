@@ -4,7 +4,9 @@ import android.content.Context
 import android.net.Uri
 import android.util.Log
 import androidx.datastore.core.DataStore
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.preferencesDataStore
 import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.core.NotificationCenter
@@ -27,7 +29,10 @@ import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
 
 private val Context.dataStore: DataStore<Preferences>
-    by preferencesDataStore(name = "mezon_session")
+    by preferencesDataStore(
+        name = "mezon_session",
+        corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() }
+    )
 
 private val httpUrlInLogLine = Regex("https?://\\S+")
 private val sensitiveHeaderInLogLine = Regex(

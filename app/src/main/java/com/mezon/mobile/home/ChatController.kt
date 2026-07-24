@@ -18,6 +18,7 @@ import com.mezon.mobile.home.chat.toMessageEntity
 import com.mezon.mobile.network.ApiCacheTracker
 import com.mezon.mobile.network.CODE_CHAT_REMOVE
 import com.mezon.mobile.network.CODE_CHAT_UPDATE
+import com.mezon.mobile.network.HttpRpcStatusException
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.network.MezonSocket
 import com.mezon.mobile.network.NetworkMonitor
@@ -87,7 +88,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -851,21 +852,59 @@ class ChatController @Inject constructor(
         token: String,
         request: ChannelMessageSend
     ): com.mezon.mezon.rtapi.ChannelMessageAck {
+        val req = correctSendClanIdentity(request)
         if (mezonSocket.connectionState.value == ConnectionState.CONNECTED) {
             try {
-                return sendChannelMessageViaSocket(request)
+                return sendChannelMessageViaSocket(req)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                if (!shouldFallbackChannelSendToHttp(e)) throw e
-                Log.w(TAG, "Channel message send via socket unavailable, using HTTP", e)
+                Log.w(TAG, "Channel message send via socket failed, using HTTP", e)
                 sentryReporter.logSocketWarning(
                     "channelMessageSend",
-                    "fallback HTTP channelId=${request.channelId} clanId=${request.clanId} err=${e.message}"
+                    "fallback HTTP channelId=${req.channelId} clanId=${req.clanId} err=${e.message}"
                 )
             }
         }
         return withContext(ioDispatcher) {
-            api.sendChannelMessage(apiUrl, token, request)
+            api.sendChannelMessage(apiUrl, token, req)
         }
+    }
+
+    private fun isTransientSendFailure(e: Exception): Boolean {
+        if (e is HttpRpcStatusException) {
+            return e.code == 429 || e.code == 502 || e.code == 503
+        }
+        var cause: Throwable? = e
+        while (cause != null) {
+            when (cause) {
+                is java.net.ConnectException,
+                is java.net.UnknownHostException,
+                is java.net.NoRouteToHostException,
+                is io.ktor.client.network.sockets.ConnectTimeoutException -> return true
+            }
+            cause = cause.cause
+        }
+        return false
+    }
+
+    private fun correctSendClanIdentity(request: ChannelMessageSend): ChannelMessageSend {
+        if (request.channelId == 0L) return request
+        val meta = channelController.get().findChannelById(request.channelId) ?: return request
+        if (meta.clanId == 0L || meta.clanId == request.clanId) return request
+        val effectiveType = when {
+            meta.isThread -> CHANNEL_TYPE_THREAD
+            meta.type != 0 -> meta.type
+            else -> 0
+        }
+        val effectiveMode = if (effectiveType != 0) channelTypeToStreamMode(effectiveType) else request.mode
+        val threadLike = effectiveType == CHANNEL_TYPE_THREAD || meta.parentId != 0L
+        val effectiveIsPublic = if (threadLike) false else !meta.isPrivate
+        return request.toBuilder()
+            .setClanId(meta.clanId)
+            .setMode(effectiveMode)
+            .setIsPublic(effectiveIsPublic)
+            .build()
     }
 
     private suspend fun sendChannelMessageViaSocket(
@@ -876,21 +915,6 @@ class ChatController @Inject constructor(
             throw IllegalStateException("unexpected envelope ${env.messageCase}")
         }
         return env.channelMessageAck
-    }
-
-    /**
-     * HTTP fallback only when the socket path could not enqueue the message.
-     * Timeouts and ambiguous failures are not retried over HTTP to avoid duplicate sends.
-     */
-    private fun shouldFallbackChannelSendToHttp(e: Exception): Boolean {
-        if (e is TimeoutCancellationException) return false
-        if (e is IllegalStateException) {
-            val msg = e.message.orEmpty()
-            return msg == "WebSocket not connected" ||
-                msg == "Failed to enqueue WebSocket message"
-        }
-        if (e is RuntimeException && e.message?.startsWith("Request timed out:") == true) return false
-        return false
     }
 
     private suspend fun channelUpdate(
@@ -1007,35 +1031,49 @@ class ChatController @Inject constructor(
 
         appScope.launch {
             try {
-                sessionManager.withAutoRefresh { session ->
-                    ensureActiveArchivedThreadIfNeeded(session.apiUrl, session.token, channelId, clanId, channelType)
-                    ensureMentionedUsersInThread(
-                        session.apiUrl,
-                        session.token,
-                        channelId,
-                        clanId,
-                        channelType,
-                        mentions
-                    )
-                    val request = channelMessageSend {
-                        this.clanId = clanId
-                        this.channelId = channelId
-                        this.mode = mode
-                        this.isPublic = isPublic
-                        this.content = content
-                        protoMentions?.takeIf { it.isNotEmpty() }?.let { this.mentions.addAll(it) }
-                        references?.takeIf { it.isNotEmpty() }?.let { this.references.addAll(it) }
-                        this.mentionEveryone = mentionEveryone
-                        if (anon) this.anonymousMessage = true
-                        if (topicId != 0L) this.topicId = topicId
+                var attempt = 1
+                while (true) {
+                    try {
+                        sessionManager.withAutoRefresh { session ->
+                            ensureActiveArchivedThreadIfNeeded(session.apiUrl, session.token, channelId, clanId, channelType)
+                            ensureMentionedUsersInThread(
+                                session.apiUrl,
+                                session.token,
+                                channelId,
+                                clanId,
+                                channelType,
+                                mentions
+                            )
+                            val request = channelMessageSend {
+                                this.clanId = clanId
+                                this.channelId = channelId
+                                this.mode = mode
+                                this.isPublic = isPublic
+                                this.content = content
+                                protoMentions?.takeIf { it.isNotEmpty() }?.let { this.mentions.addAll(it) }
+                                references?.takeIf { it.isNotEmpty() }?.let { this.references.addAll(it) }
+                                this.mentionEveryone = mentionEveryone
+                                if (anon) this.anonymousMessage = true
+                                if (topicId != 0L) this.topicId = topicId
+                            }
+                            val ack = channelSend(session.apiUrl, session.token, request)
+                            markForwardTargetUsed(channelId, channelType)
+                            notificationCenter.postNotificationOnMainThread(
+                                NotificationCenter.pendingMessageSent, cacheKey, tempId, ack.messageId
+                            )
+                        }
+                        break
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        if (attempt >= SEND_MAX_RETRIES || !isTransientSendFailure(e)) throw e
+                        attempt++
+                        Log.w(TAG, "sendMessage transient failure, retrying attempt=$attempt cacheKey=$cacheKey", e)
+                        delay(SEND_RETRY_DELAY_MS)
                     }
-                    val ack = channelSend(session.apiUrl, session.token, request)
-                    markForwardTargetUsed(channelId, channelType)
-                    notificationCenter.postNotificationOnMainThread(
-                        NotificationCenter.pendingMessageSent, cacheKey, tempId, ack.messageId
-                    )
                 }
             } catch (e: Exception) {
+                Log.e(TAG, "sendMessage failed cacheKey=$cacheKey clanId=$clanId tempId=$tempId", e)
                 sentryReporter.logChatFailure("sendMessage", cacheKey, clanId, e)
                 notificationCenter.postNotificationOnMainThread(
                     NotificationCenter.pendingMessageError, cacheKey, tempId
@@ -1064,6 +1102,9 @@ class ChatController @Inject constructor(
         appScope.launch {
             try {
                 sessionManager.withAutoRefresh { session ->
+                    runCatching {
+                        joinChannelOnSocket(channelId, clanId, channelType, isChannelPrivate)
+                    }.onFailure { Log.w(TAG, "resend: joinChat failed channelId=$channelId", it) }
                     ensureActiveArchivedThreadIfNeeded(session.apiUrl, session.token, channelId, clanId, channelType)
                     val mentionsProto = mentionsFromForwardContent(wire).takeUnless { it.isEmpty() }
                     val mentionsData = messageMentionsToData(mentionsProto)
@@ -1096,6 +1137,7 @@ class ChatController @Inject constructor(
                     )
                 }
             } catch (e: Exception) {
+                Log.e(TAG, "resendFailedMessage failed cacheKey=$cacheKey clanId=$clanId tempId=$tempId", e)
                 sentryReporter.logChatFailure("resendFailedMessage", cacheKey, clanId, e)
                 notificationCenter.postNotificationOnMainThread(
                     NotificationCenter.pendingMessageError, cacheKey, tempId
@@ -2094,41 +2136,47 @@ class ChatController @Inject constructor(
         cdnBaseUrl: String,
         maxRetries: Int,
     ): PreparedAttachmentSlot? {
-        for (attempt in 1..maxRetries) {
-            try {
-                if (!item.isVideo && AttachmentUploader.isCompressibleImage(item.mimeType)) {
-                    val compressed = imageCompressionSlots.withPermit {
-                        AttachmentUploader.compressImageFromUri(
-                            contentResolver, item.uri, item.mimeType, item.filename, item.size,
-                        )
+        try {
+            for (attempt in 1..maxRetries) {
+                try {
+                    if (!item.isVideo && AttachmentUploader.isCompressibleImage(item.mimeType)) {
+                        val compressed = imageCompressionSlots.withPermit {
+                            AttachmentUploader.compressImageFromUri(
+                                contentResolver, item.uri, item.mimeType, item.filename, item.size,
+                            )
+                        }
+                        if (compressed != null) {
+                            val uploadItem = item.copy(
+                                filename = compressed.filename,
+                                mimeType = compressed.mimeType,
+                                width = compressed.width,
+                                height = compressed.height,
+                                size = compressed.bytes.size.toLong(),
+                            )
+                            return presignCachedAttachment(
+                                index, uploadItem, compressed.bytes, apiUrl, token, cdnBaseUrl,
+                            )
+                        }
                     }
-                    if (compressed != null) {
-                        val uploadItem = item.copy(
-                            filename = compressed.filename,
-                            mimeType = compressed.mimeType,
-                            width = compressed.width,
-                            height = compressed.height,
-                            size = compressed.bytes.size.toLong(),
-                        )
-                        return presignCachedAttachment(index, uploadItem, compressed.bytes, apiUrl, token, cdnBaseUrl)
-                    }
-                }
 
-                val tmpFile = AttachmentUploader.copyUriToTempFile(
-                    contentResolver, item.uri, item.mimeType, appContext.cacheDir,
-                ) ?: return null
-                return try {
-                    presignStreamedAttachment(index, item, tmpFile, apiUrl, token, cdnBaseUrl)
+                    val tmpFile = AttachmentUploader.copyUriToTempFile(
+                        contentResolver, item.uri, item.mimeType, appContext.cacheDir,
+                    ) ?: return null
+                    return try {
+                        presignStreamedAttachment(index, item, tmpFile, apiUrl, token, cdnBaseUrl)
+                    } catch (e: Exception) {
+                        runCatching { tmpFile.delete() }
+                        throw e
+                    }
                 } catch (e: Exception) {
-                    runCatching { tmpFile.delete() }
-                    throw e
+                    Log.e(TAG, "Failed to presign attachment: ${item.filename}", e)
+                    if (attempt < maxRetries) delay(SHARE_RETRY_DELAY_MS)
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to presign attachment: ${item.filename}", e)
-                if (attempt < maxRetries) delay(SHARE_RETRY_DELAY_MS)
             }
+            return null
+        } finally {
+            item.deleteOwnedCacheFile()
         }
-        return null
     }
 
     private suspend fun presignCachedAttachment(
@@ -3570,6 +3618,9 @@ class ChatController @Inject constructor(
                             else -> false
                         }
                         val anon = isAnonymousSend(dest.clanId)
+                        runCatching {
+                            joinChannelOnSocket(dest.channelId, dest.clanId, dest.channelType, dest.isChannelPrivate, dest.parentId)
+                        }.onFailure { Log.w(TAG, "forward: joinChat failed channelId=${dest.channelId}", it) }
                         ensureActiveArchivedThreadIfNeeded(
                             session.apiUrl,
                             session.token,

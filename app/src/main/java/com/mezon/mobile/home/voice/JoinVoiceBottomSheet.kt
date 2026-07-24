@@ -290,6 +290,7 @@ class JoinVoiceBottomSheet(
         if (url == holder.currentUrl && holder.avatarDrawable.hasPhoto()) return
         holder.currentUrl = url
         holder.avatarDrawable.setPhoto(null)
+        holder.avatarDrawable.setLoadingPlaceholder(false)
         holder.cancellable?.cancel()
         holder.cancellable = null
         holder.avatarView.setImageDrawable(holder.avatarDrawable)
@@ -303,15 +304,19 @@ class JoinVoiceBottomSheet(
             holder.avatarView.setImageDrawable(holder.avatarDrawable)
             return
         }
+        holder.avatarDrawable.setLoadingPlaceholder(true)
         holder.cancellable = loader.load(
             proxyUrl, avatarSizePx, avatarSizePx,
             onSuccess = { bmp ->
                 holder.cancellable = null
+                holder.avatarDrawable.setLoadingPlaceholder(false)
                 holder.avatarDrawable.setPhoto(bmp)
                 holder.avatarView.setImageDrawable(holder.avatarDrawable)
             },
             onError = {
                 holder.cancellable = null
+                holder.avatarDrawable.setLoadingPlaceholder(false)
+                holder.avatarView.setImageDrawable(holder.avatarDrawable)
             }
         )
     }

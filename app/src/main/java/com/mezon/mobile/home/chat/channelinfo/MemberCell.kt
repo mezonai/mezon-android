@@ -89,20 +89,32 @@ class MemberCell(context: Context, private val theme: ThemeColors) : BaseCell(co
     private fun loadAvatar(url: String) {
         if (url == currentAvatarUrl && avatarDrawable.hasPhoto()) return
         currentAvatarUrl = url
-        avatarDrawable.setPhoto(null)
         avatarDisposable?.cancel()
         avatarDisposable = null
 
-        if (url.isNotEmpty()) {
-            val proxyUrl = avatarImgproxyUrl(url, AVATAR_SIZE)
-            avatarDisposable = MezonImageLoader.getInstance(context).load(
-                proxyUrl, AVATAR_SIZE, AVATAR_SIZE,
-                onSuccess = { bmp ->
-                    avatarDrawable.setPhoto(bmp)
-                    invalidate()
-                }
-            )
+        if (url.isEmpty()) {
+            avatarDrawable.setLoadingPlaceholder(false)
+            avatarDrawable.setPhoto(null)
+            invalidate()
+            return
         }
+
+        val proxyUrl = avatarImgproxyUrl(url, AVATAR_SIZE)
+        avatarDrawable.setLoadingPlaceholder(true)
+        avatarDisposable = MezonImageLoader.getInstance(context).load(
+            proxyUrl, AVATAR_SIZE, AVATAR_SIZE,
+            onSuccess = { bmp ->
+                avatarDisposable = null
+                avatarDrawable.setLoadingPlaceholder(false)
+                avatarDrawable.setPhoto(bmp)
+                invalidate()
+            },
+            onError = {
+                avatarDisposable = null
+                avatarDrawable.setLoadingPlaceholder(false)
+                invalidate()
+            }
+        )
     }
 
     private fun buildLayouts() {

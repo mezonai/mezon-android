@@ -29,6 +29,9 @@ import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
+import android.util.Size
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.AlertsCreator
@@ -81,9 +84,11 @@ class QrScanFragment : BaseFragment() {
 
             val row = ByteArray(rowStride)
             var offset = 0
+            val minRowBytes = (width - 1) * pixelStride + 1
             for (rowIndex in 0 until height) {
-                if (buffer.remaining() < rowStride) return null
-                buffer.get(row, 0, rowStride)
+                val available = minOf(rowStride, buffer.remaining())
+                if (available < minRowBytes) return null
+                buffer.get(row, 0, available)
                 var col = 0
                 var idx = 0
                 while (col < width) {
@@ -268,10 +273,18 @@ class QrScanFragment : BaseFragment() {
         val providerFuture = ProcessCameraProvider.getInstance(activity)
         providerFuture.addListener({
             cameraProvider = providerFuture.get()
-            val preview = Preview.Builder().build().apply {
-                setSurfaceProvider(previewView.surfaceProvider)
-            }
+            
+            val resolutionSelector = ResolutionSelector.Builder()
+                .setResolutionStrategy(ResolutionStrategy(Size(1280, 960), ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER))
+                .build()
+
+            val preview = Preview.Builder()
+                .setResolutionSelector(resolutionSelector)
+                .build().apply {
+                    setSurfaceProvider(previewView.surfaceProvider)
+                }
             val analyzer = ImageAnalysis.Builder()
+                .setResolutionSelector(resolutionSelector)
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
             analyzer.setAnalyzer(analyzerExecutor, QrAnalyzer { value ->
@@ -315,6 +328,10 @@ class QrScanFragment : BaseFragment() {
             is QrAction.Transfer -> {
                 stopScanning()
                 presentFragment(SendTokenFragment.newInstance(action.rawJson))
+            }
+            is QrAction.LuckyMoney -> {
+                stopScanning()
+                presentFragment(SendTokenFragment.newInstance(value))
             }
             is QrAction.DeepLink -> {
                 val route = DeepLinkParser.parse(action.url)
@@ -632,16 +649,39 @@ class QrScanFragment : BaseFragment() {
         super.onFragmentDestroy()
     }
 
-
     private class QrAnalyzer(
         private val onQr: (String) -> Unit
     ) : ImageAnalysis.Analyzer {
         override fun analyze(image: ImageProxy) {
-            val value = extractLuminance(image)?.let {
-                QrCodeUtils.decodeFromYPlane(it, image.width, image.height)
+            try {
+                val bitmap = image.toBitmap()
+                val rotation = image.imageInfo.rotationDegrees
+                
+                val scale = 960f / maxOf(bitmap.width, bitmap.height)
+                
+                val finalBitmap = if (rotation != 0 || scale < 1f) {
+                    val matrix = android.graphics.Matrix().apply {
+                        if (rotation != 0) postRotate(rotation.toFloat())
+                        if (scale < 1f) postScale(scale, scale)
+                    }
+                    val transformed = android.graphics.Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+                    bitmap.recycle() 
+                    transformed
+                } else {
+                    bitmap
+                }
+
+                try {
+                    val value = QrCodeUtils.decodeLiveCameraBitmap(finalBitmap)
+                    if (!value.isNullOrBlank()) onQr(value)
+                } finally {
+                    finalBitmap.recycle() 
+                }
+            } catch (e: Throwable) {
+                e.printStackTrace()
+            } finally {
+                image.close() 
             }
-            if (!value.isNullOrBlank()) onQr(value)
-            image.close()
         }
     }
 
