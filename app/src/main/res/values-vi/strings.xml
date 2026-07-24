@@ -1600,4 +1600,9 @@
     <string name="community_settings_error_banner_size">Kích thước ảnh phải nhỏ hơn 10 MB</string>
     <string name="community_settings_error_banner_type">Vui lòng chọn file ảnh hợp lệ</string>
     <string name="community_settings_permission_denied">Bạn không có quyền quản lý cài đặt cộng đồng</string>
+    <string name="action_save_media">Lưu ảnh</string>
+    <string name="action_copy_image">Sao chép ảnh</string>
+    <string name="action_share_image">Chia sẻ ảnh</string>
+    <string name="message_toast_save_success">Lưu thành công</string>
+    <string name="message_toast_save_failed">Lưu thất bại</string>
 </resources>

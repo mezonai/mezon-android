@@ -2,51 +2,46 @@ package com.mezon.mobile.home.chat
 
 import android.animation.ObjectAnimator
 import android.app.Dialog
-import android.app.DownloadManager
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
-import android.graphics.Outline
 import android.graphics.drawable.AnimatedImageDrawable
-import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
-import android.net.Uri
 import android.os.Build
 import android.os.Environment
-import android.util.TypedValue
 import android.view.Gravity
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
-import android.view.ViewOutlineProvider
 import android.view.Window
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
-import android.widget.Toast
-import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.widget.ViewPager2
 import com.github.chrisbanes.photoview.PhotoView
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.LayoutHelper
+import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.di.FragmentEntryPoint
+import com.mezon.mobile.ui.cells.BackupImageView
+import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.util.createImgproxyUrl
 import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.Locale
-import com.mezon.mobile.ui.cells.BackupImageView
-import com.mezon.mobile.core.AvatarDrawable
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
+import java.util.Locale
 
 import kotlin.math.abs
 
@@ -58,6 +53,7 @@ private const val SWIPE_ENABLE_SCALE = 1.01f
 private const val DOUBLE_TAP_SCALE_THRESHOLD = 0.05f
 private const val FLING_DISMISS_SCALE_THRESHOLD = 0.06f
 private const val FLING_DISMISS_MIN_VELOCITY = 800f
+private val ANONYMOUS_USER_ID = com.mezon.mobile.BuildConfig.MEZON_ANONYMOUS_USER_ID.toLongOrNull() ?: 0L
 
 class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Black_NoTitleBar_Fullscreen) {
 
@@ -122,6 +118,7 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
 
         topBar = FrameLayout(context).apply {
             setBackgroundColor(0x99000000.toInt())
+            isClickable = true
         }
         
         val backBtn = ImageView(context).apply {
@@ -186,6 +183,7 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
             gravity = Gravity.CENTER_HORIZONTAL
             setBackgroundColor(0x99000000.toInt())
             setPadding(0, LayoutHelper.dp(12), 0, LayoutHelper.dp(12) + navBarInset)
+            isClickable = true
         }
         
         counterView = android.widget.TextView(context).apply {
@@ -295,7 +293,10 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
 
             override fun onDoubleTapEvent(e: MotionEvent): Boolean = false
 
-            override fun onSingleTapConfirmed(e: MotionEvent): Boolean = false
+            override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                toggleToolbar()
+                return true
+            }
         })
     }
 
@@ -430,8 +431,19 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
     private fun toggleToolbar() {
         toolbarVisible = !toolbarVisible
         val targetAlpha = if (toolbarVisible) 1f else 0f
-        topBar.animate().alpha(targetAlpha).setDuration(200).start()
-        bottomBar.animate().alpha(targetAlpha).setDuration(200).start()
+        
+        if (toolbarVisible) {
+            topBar.visibility = View.VISIBLE
+            bottomBar.visibility = View.VISIBLE
+        }
+        
+        topBar.animate().alpha(targetAlpha).setDuration(200).withEndAction {
+            if (!toolbarVisible) topBar.visibility = View.INVISIBLE
+        }.start()
+        
+        bottomBar.animate().alpha(targetAlpha).setDuration(200).withEndAction {
+            if (!toolbarVisible) bottomBar.visibility = View.INVISIBLE
+        }.start()
     }
 
     private fun dismissWithAnimation() {
@@ -444,21 +456,41 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
         viewPager.animate().alpha(0f).setDuration(150).start()
     }
 
-
     private fun updateHeader() {
         val item = currentItem ?: return
         nameLabel?.text = item.senderName.takeIf { it.isNotBlank() } ?: "User"
         
         val ts = item.timestamp
         if (ts > 0) {
-            dateLabel?.text = SimpleDateFormat("MMM d 'at' h:mm a", Locale.US).format(Date(ts * 1000L))
+            val msgCal = Calendar.getInstance().apply { timeInMillis = ts * 1000L }
+            val nowCal = Calendar.getInstance().apply { timeInMillis = System.currentTimeMillis() }
+
+            val msgYear = msgCal.get(Calendar.YEAR)
+            val msgDayOfYear = msgCal.get(Calendar.DAY_OF_YEAR)
+            val nowYear = nowCal.get(Calendar.YEAR)
+            val nowDayOfYear = nowCal.get(Calendar.DAY_OF_YEAR)
+
+            val isToday = msgYear == nowYear && msgDayOfYear == nowDayOfYear
+            val isYesterday = (msgYear == nowYear && msgDayOfYear == nowDayOfYear - 1) ||
+                    (nowDayOfYear == 1 && msgYear == nowYear - 1 &&
+                            msgDayOfYear == msgCal.getActualMaximum(Calendar.DAY_OF_YEAR))
+
+            val timeStr = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(ts * 1000L))
+
+            dateLabel?.text = when {
+                isToday -> "${context.getString(R.string.common_today_at)} $timeStr"
+                isYesterday -> "${context.getString(R.string.common_yesterday_at)} $timeStr"
+                else -> SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()).format(Date(ts * 1000L))
+            }
             dateLabel?.visibility = View.VISIBLE
         } else {
             dateLabel?.visibility = View.GONE
         }
 
         avatarView?.let { view ->
-            if (!item.senderAvatarUrl.isNullOrEmpty()) {
+            if (item.uploaderId == ANONYMOUS_USER_ID) {
+                view.setImageDrawable(com.mezon.mobile.ui.cells.MezonIcon.anonymousAvatar.getDrawable(context))
+            } else if (!item.senderAvatarUrl.isNullOrEmpty()) {
                 val proxyUrl = com.mezon.mobile.util.avatarImgproxyUrl(item.senderAvatarUrl, LayoutHelper.dp(40))
                 view.setImage(proxyUrl, item.uploaderId, item.senderName)
             } else {
@@ -474,25 +506,37 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
         }
     }
 
+    private var optionsMenu: com.mezon.mobile.ui.cells.PopupMenu? = null
+    private var lastMenuDismissTime = 0L
+
     private fun showMoreOptions(anchorView: View) {
-        val url = currentUrl
-        val popup = com.mezon.mobile.ui.cells.PopupMenu(context, com.mezon.mobile.core.ThemeColors())
-        popup.addItem("Save Image")
-        popup.addItem("Copy Image")
-        popup.addItem("Share")
-        
-        popup.setOnItemClickListener { index ->
-            when (index) {
-                0 -> downloadUrl(url)
-                1 -> copyImageFromCurrentUrl()
-                2 -> shareUrl(url)
-            }
+        if (System.currentTimeMillis() - lastMenuDismissTime < 200) {
+            return
         }
-        popup.show(anchorView)
+        val url = currentUrl
+        optionsMenu = com.mezon.mobile.ui.cells.PopupMenu(context, ThemeColors.instance).apply {
+            addItem(context.getString(R.string.action_save_media))
+            addItem(context.getString(R.string.action_copy_image))
+            addItem(context.getString(R.string.action_share_image))
+            setOnItemClickListener { index ->
+                when (index) {
+                    0 -> downloadUrl(url)
+                    1 -> copyImageFromCurrentUrl()
+                    2 -> shareUrl(url)
+                }
+            }
+            setOnDismissListener {
+                optionsMenu = null
+                lastMenuDismissTime = System.currentTimeMillis()
+            }
+            show(anchorView)
+        }
     }
 
     private inner class ThumbnailAdapter : RecyclerView.Adapter<ThumbnailAdapter.ThumbViewHolder>() {
-        inner class ThumbViewHolder(val container: FrameLayout, val view: BackupImageView, val borderView: View) : RecyclerView.ViewHolder(container)
+        inner class ThumbViewHolder(val container: FrameLayout, val view: ImageView, val borderView: View) : RecyclerView.ViewHolder(container) {
+            var pendingLoad: MezonImageLoader.Cancellable? = null
+        }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ThumbViewHolder {
             val container = FrameLayout(context).apply {
@@ -500,10 +544,8 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
                     marginEnd = LayoutHelper.dp(2)
                 }
             }
-            val iv = BackupImageView(context).apply {
-                setRoundRadius(0)
-                setAspectFit(false)
-                setAspectFill(true)
+            val iv = ImageView(context).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
             }
             container.addView(iv, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
@@ -521,16 +563,53 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
             container.setOnClickListener {
                 val pos = holder.adapterPosition
                 if (pos != RecyclerView.NO_POSITION) {
-                    viewPager.setCurrentItem(pos, true)
+                    val rv = viewPager.getChildAt(0) as? RecyclerView
+                    if (rv != null) {
+                        rv.scrollToPosition(pos)
+                    } else {
+                        viewPager.setCurrentItem(pos, false)
+                    }
                 }
             }
             return holder
         }
 
+        override fun onViewRecycled(holder: ThumbViewHolder) {
+            super.onViewRecycled(holder)
+            holder.pendingLoad?.cancel()
+            holder.pendingLoad = null
+            (holder.view.drawable as? AnimatedImageDrawable)?.stop()
+            holder.view.setImageDrawable(null)
+        }
+
         override fun onBindViewHolder(holder: ThumbViewHolder, position: Int) {
             val item = items[position]
-            val proxyUrl = createImgproxyUrl(item.url, 150, 150, "fill", 150)
-            holder.view.setImage(proxyUrl, "150_150", null as Drawable?)
+
+            holder.pendingLoad?.cancel()
+            holder.pendingLoad = null
+            (holder.view.drawable as? AnimatedImageDrawable)?.stop()
+            holder.view.setImageDrawable(null)
+
+            val loader = MezonImageLoader.getInstance(context)
+            if (urlNeedsAnimatedDrawable(item.url)) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    holder.pendingLoad = loader.loadDrawable(item.url, 150, 150,
+                        onSuccess = { drawable ->
+                            holder.view.setImageDrawable(drawable)
+                            if (drawable is AnimatedImageDrawable) {
+                                drawable.repeatCount = AnimatedImageDrawable.REPEAT_INFINITE
+                                drawable.start()
+                            }
+                        },
+                        onError = {}
+                    )
+                } else {
+                    holder.pendingLoad = loader.load(item.url, 150, 150, onSuccess = { holder.view.setImageBitmap(it) }, onError = {})
+                }
+            } else {
+                val proxyUrl = createImgproxyUrl(item.url, 150, 150, "fill", 150)
+                holder.pendingLoad = loader.load(proxyUrl, 150, 150, onSuccess = { holder.view.setImageBitmap(it) }, onError = {})
+            }
             
             if (position == currentIndex) {
                 holder.view.alpha = 1.0f
@@ -793,27 +872,33 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
             items.getOrNull(position)?.url?.hashCode()?.toLong() ?: RecyclerView.NO_ID
     }
 
+    private val entryPoint: FragmentEntryPoint by lazy {
+        EntryPointAccessors.fromApplication(context.applicationContext, FragmentEntryPoint::class.java)
+    }
+
+    private fun showToast(type: ToastOverlay.ToastType, msgResId: Int) {
+        val parent = window?.decorView as? ViewGroup ?: return
+        ToastOverlay(context, ThemeColors.instance).show(parent, type, context.getString(msgResId))
+    }
 
     private fun copyImageFromCurrentUrl() {
         val url = currentUrl
         if (url.isEmpty()) return
-        val app = context.applicationContext
-        val ep = EntryPointAccessors.fromApplication(app, FragmentEntryPoint::class.java)
-        val coordinator = ep.imageClipboardCoordinator()
-        ep.applicationScope().launch {
+        val coordinator = entryPoint.imageClipboardCoordinator()
+        entryPoint.applicationScope().launch {
             val ok = coordinator.copyRemoteUrlToClipboard(context, url, guessMimeHintForCopy(url))
-            withContext(ep.mainDispatcher()) {
+            withContext(entryPoint.mainDispatcher()) {
                 if (ok) {
-                    Toast.makeText(context, context.getString(R.string.message_toast_copy_image_done), Toast.LENGTH_SHORT).show()
+                    showToast(ToastOverlay.ToastType.SUCCESS, R.string.message_toast_copy_image_done)
                 } else {
-                    Toast.makeText(context, context.getString(R.string.message_toast_copy_image_failed), Toast.LENGTH_SHORT).show()
+                    showToast(ToastOverlay.ToastType.ERROR, R.string.message_toast_copy_image_failed)
                 }
             }
         }
     }
 
     private fun guessMimeHintForCopy(url: String): String {
-        val lower = url.lowercase(Locale.US)
+        val lower = url.lowercase(java.util.Locale.US)
         return when {
             lower.endsWith(".png") -> "image/png"
             lower.endsWith(".webp") -> "image/webp"
@@ -824,27 +909,78 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
     }
 
     private fun downloadUrl(url: String) {
-        try {
-            val filename = url.substringAfterLast('/').substringBefore('?').ifEmpty { "download" }
-            val request = DownloadManager.Request(Uri.parse(url))
-                .setTitle(filename)
-                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, filename)
-            val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-            dm.enqueue(request)
-            Toast.makeText(context, "Downloading...", Toast.LENGTH_SHORT).show()
-        } catch (_: Exception) {
-            Toast.makeText(context, "Download failed", Toast.LENGTH_SHORT).show()
+        entryPoint.applicationScope().launch(entryPoint.ioDispatcher()) {
+            try {
+                val filename = url.substringAfterLast('/').substringBefore('?').ifEmpty { "download.jpg" }
+                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                downloadsDir.mkdirs()
+                val destFile = java.io.File(downloadsDir, filename)
+                downloadToFile(url, destFile)
+                android.media.MediaScannerConnection.scanFile(context, arrayOf(destFile.absolutePath), null, null)
+                withContext(entryPoint.mainDispatcher()) {
+                    showToast(ToastOverlay.ToastType.SUCCESS, R.string.message_toast_save_success)
+                }
+            } catch (e: Exception) {
+                withContext(entryPoint.mainDispatcher()) {
+                    showToast(ToastOverlay.ToastType.ERROR, R.string.message_toast_save_failed)
+                }
+            }
+        }
+    }
+
+    private fun downloadToFile(url: String, destFile: java.io.File) {
+        val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+        conn.connect()
+        if (conn.responseCode !in 200..299) {
+            throw Exception("HTTP Error: ${conn.responseCode}")
+        }
+        conn.inputStream.use { input ->
+            java.io.FileOutputStream(destFile).use { output ->
+                input.copyTo(output)
+            }
         }
     }
 
     private fun shareUrl(url: String) {
-        try {
-            val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                type = "text/plain"
-                putExtra(android.content.Intent.EXTRA_TEXT, url)
+        entryPoint.applicationScope().launch(entryPoint.ioDispatcher()) {
+            try {
+                val mime = guessMimeHintForCopy(url)
+                val ext = when (mime) {
+                    "image/gif" -> "gif"
+                    "image/png" -> "png"
+                    "image/webp" -> "webp"
+                    else -> "jpg"
+                }
+
+                val dir = java.io.File(context.cacheDir, "clipboard_images").apply { mkdirs() }
+                val destFile = java.io.File(dir, "share_${System.currentTimeMillis()}.$ext")
+                downloadToFile(url, destFile)
+
+                val authority = "${context.packageName}.fileprovider"
+                val uri = FileProvider.getUriForFile(context, authority, destFile)
+
+                withContext(entryPoint.mainDispatcher()) {
+                    val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                        type = mime
+                        putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                        clipData = android.content.ClipData.newRawUri("", uri)
+                        addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+
+                    val resInfoList = context.packageManager.queryIntentActivities(intent, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY)
+                    for (resolveInfo in resInfoList) {
+                        context.grantUriPermission(resolveInfo.activityInfo.packageName, uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+
+                    val chooser = android.content.Intent.createChooser(intent, context.getString(R.string.action_share_image))
+                    chooser.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    context.startActivity(chooser)
+                }
+            } catch (e: Exception) {
+                withContext(entryPoint.mainDispatcher()) {
+                    showToast(ToastOverlay.ToastType.ERROR, R.string.message_toast_save_failed)
+                }
             }
-            context.startActivity(android.content.Intent.createChooser(intent, "Share"))
-        } catch (_: Exception) {}
+        }
     }
 }

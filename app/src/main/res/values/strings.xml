@@ -1715,4 +1715,6 @@
     <string name="transaction_detail_time">Time</string>
     <string name="transaction_detail_sender">Sender name</string>
     <string name="transaction_detail_receiver">Receiver name</string>
+    <string name="message_toast_save_success">Save successfully</string>
+    <string name="message_toast_save_failed">Save failed</string>
 </resources>

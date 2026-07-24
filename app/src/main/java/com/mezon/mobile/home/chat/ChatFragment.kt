@@ -4347,6 +4347,10 @@ open class ChatFragment : BaseFragment() {
     }
 
     private fun resolveGallerySender(userId: Long, fallbackName: String?, fallbackAvatar: String?): Pair<String, String?> {
+        if (userId == ANONYMOUS_USER_ID) {
+            return Pair(getString(R.string.advanced_anonymous), null)
+        }
+
         val member = if (userId != 0L) {
             if (clanId != 0L) memberResolver.resolveClanScopedMember(userId, clanId, channelId, channelType)
             else memberResolver.resolveMember(userId, clanId, channelId, channelType)
