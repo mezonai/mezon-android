@@ -275,9 +275,13 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var audioLastFrameTimeMs: Long = 0
     private val audioWavePath = Path()
 
-    private val photoImage = ImageReceiver(this)
+    private val photoImage = ImageReceiver(this).apply {
+        onMainImageLoaded = { adoptLoadedMediaDimsIfUnknown() }
+    }
     private val extraPhotoImages = ArrayList<ImageReceiver>()
     private var mediaGroupSlots = emptyList<MediaGroupLayout.Slot>()
+    private var loadedMediaDims: Pair<Int, Int>? = null
+    private var loadedMediaDimsUrl = ""
 
     private fun mediaReceiver(index: Int): ImageReceiver {
         if (index == 0) return photoImage
@@ -299,6 +303,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     }
     private val ogpImage = ImageReceiver(this)
     private val shimmerEffect = ShimmerEffect()
+    private var brokenImageDrawable: Drawable? = null
+    private var brokenImageDrawableTint = 0
     private var photoWidth = 0
     private var photoHeight = 0
     private var mediaGridCount = 0
@@ -833,10 +839,13 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val isStickerMsg = msg.messageType == MessageEntity.TYPE_GIF &&
             (msg.attachmentFiletype.equals("sticker", true) || msg.attachmentUrl.contains("/stickers/"))
         val bubbleCap = maxBubbleWidth(width)
-        val maxW = when {
+        var maxW = when {
             isStickerMsg -> LayoutHelper.dp(160)
             isInPinMode -> albumMaxWidthPx(width).coerceAtMost(bubbleCap)
             else -> albumMaxWidthPx(width)
+        }
+        if (!isStickerMsg && msg.messageType == MessageEntity.TYPE_GIF) {
+            maxW = maxW.coerceAtMost(GIF_MAX_WIDTH)
         }
         val maxH = maxW + LayoutHelper.dp(100)
 
@@ -857,6 +866,13 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val firstMedia = media.firstOrNull()
         var imgW = firstMedia?.width ?: msg.attachmentWidth
         var imgH = firstMedia?.height ?: msg.attachmentHeight
+        if (imgW <= 0 || imgH <= 0) {
+            val loaded = loadedMediaDims
+            if (loaded != null && loadedMediaDimsUrl == (firstMedia?.url ?: msg.attachmentUrl)) {
+                imgW = loaded.first
+                imgH = loaded.second
+            }
+        }
         if (imgW <= 0 || imgH <= 0) {
             if (isStickerMsg) {
                 imgW = LayoutHelper.dp(120)
@@ -884,6 +900,31 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
         photoWidth = w.coerceAtLeast(LayoutHelper.dp(100))
         photoHeight = h.coerceAtLeast(LayoutHelper.dp(100))
+    }
+
+    private fun adoptLoadedMediaDimsIfUnknown() {
+        val msg = messageEntity ?: return
+        if (!drawPhotoImage || mediaGridCount > 1) return
+        val isStickerMsg = msg.messageType == MessageEntity.TYPE_GIF &&
+            (msg.attachmentFiletype.equals("sticker", true) || msg.attachmentUrl.contains("/stickers/"))
+        if (isStickerMsg) return
+        val firstMedia = displaySnapshot?.media?.firstOrNull()
+        val knownW = firstMedia?.width ?: msg.attachmentWidth
+        val knownH = firstMedia?.height ?: msg.attachmentHeight
+        if (knownW > 0 && knownH > 0) return
+        val intrinsic = photoImage.mainImageSize() ?: return
+        val url = firstMedia?.url ?: msg.attachmentUrl
+        if (loadedMediaDims == intrinsic && loadedMediaDimsUrl == url) return
+        loadedMediaDims = intrinsic
+        loadedMediaDimsUrl = url
+        val prevW = photoWidth
+        val prevH = photoHeight
+        computePhotoSize(msg)
+        if (photoWidth != prevW || photoHeight != prevH) {
+            measuredCellHeight = computeHeight(msg)
+            requestLayout()
+            invalidate()
+        }
     }
 
     private val videoThumbJobs = ArrayList<Job?>()
@@ -946,7 +987,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             val isStickerAttachment = att.filetype.equals("sticker", ignoreCase = true) ||
                 att.url.contains("/stickers/", ignoreCase = true)
             val isAnimated = att.filetype.contains("gif", true) ||
-                att.url.contains("tenor.com", true)
+                att.url.contains("tenor.com", true) ||
+                isStickerAttachment
             applyMediaCornerRadius(receiver)
             receiver.setRequestedSize(pw, ph)
             val isLocalUri = att.url.startsWith("content://") || att.url.startsWith("file://")
@@ -3077,6 +3119,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             shimmerEffect.draw(canvas, imgX, yOff, imgX + photoWidth, yOff + photoHeight, 0f,
                 theme.resolvedMode != com.mezon.mobile.ui.theme.ThemeMode.LIGHT)
             if (visibleOnScreen) postInvalidateDelayed(32)
+        } else if (!photoImage.hasImage()) {
+            drawBrokenImagePlaceholder(
+                canvas, imgX, yOff, photoWidth.toFloat(), photoHeight.toFloat(), MEDIA_RADIUS,
+            )
         }
     }
 
@@ -3542,6 +3588,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             } else if (receiver.shouldAnimateLoadingPlaceholder()) {
                 shimmerEffect.draw(canvas, x, y, x + w, y + h, MEDIA_RADIUS, isDark)
                 needsRedraw = true
+            } else if (!receiver.hasImage()) {
+                drawBrokenImagePlaceholder(canvas, x, y, w, h, MEDIA_RADIUS)
             }
         }
         if (slotIsVideo.getOrNull(slot) == true && !isSlotUploadPending(slot)) {
@@ -3591,6 +3639,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 shimmerEffect.draw(canvas, imgX, imgY, imgX + w, imgY + h, MEDIA_RADIUS,
                     theme.resolvedMode != com.mezon.mobile.ui.theme.ThemeMode.LIGHT)
                 if (visibleOnScreen) postInvalidateDelayed(32)
+            } else if (!photoImage.hasImage()) {
+                drawBrokenImagePlaceholder(canvas, imgX, imgY, w, h, MEDIA_RADIUS)
             }
         }
         if (isVideo && !isSlotUploadPending(0)) {
@@ -3609,6 +3659,30 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         } else {
             canvas.drawRect(tmpRect, VIDEO_PLACEHOLDER_PAINT)
         }
+    }
+
+    private fun drawBrokenImagePlaceholder(canvas: Canvas, x: Float, y: Float, w: Float, h: Float, radius: Float) {
+        tmpRect.set(x, y, x + w, y + h)
+        BROKEN_IMAGE_BG_PAINT.color = theme.border
+        if (radius > 0f) {
+            canvas.drawRoundRect(tmpRect, radius, radius, BROKEN_IMAGE_BG_PAINT)
+        } else {
+            canvas.drawRect(tmpRect, BROKEN_IMAGE_BG_PAINT)
+        }
+        val size = min(BROKEN_IMAGE_ICON_SIZE, (min(w, h) * 0.45f).toInt())
+        if (size < BROKEN_IMAGE_ICON_MIN) return
+        val tint = if (theme.resolvedMode == com.mezon.mobile.ui.theme.ThemeMode.ABYSS) {
+            0xFF938F99.toInt()
+        } else {
+            theme.outline
+        }
+        var icon = brokenImageDrawable
+        if (icon == null || brokenImageDrawableTint != tint) {
+            icon = MezonIcon.imageIcon.getDrawable(context, tint)
+            brokenImageDrawable = icon
+            brokenImageDrawableTint = tint
+        }
+        MezonIcon.drawIcon(canvas, icon, (x + w / 2f).toInt(), (y + h / 2f).toInt(), size)
     }
 
     private fun drawVideoPlayButton(canvas: Canvas, x: Float, y: Float, w: Float, h: Float) {
@@ -4680,6 +4754,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         private val ROLE_ICON_GAP = LayoutHelper.dp(4f)
         private val LINK_INVITE_V_MARGIN = LayoutHelper.dp(12) 
         private val MEDIA_RADIUS = 0f
+        private val GIF_MAX_WIDTH = LayoutHelper.dp(200)
         private val OGP_CARD_RADIUS = LayoutHelper.dp(4).toFloat()
         private val OGP_PADDING = LayoutHelper.dp(10)
         private val OGP_ACCENT_W = LayoutHelper.dp(4)
@@ -4843,6 +4918,12 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             color = 0xFF2A2D33.toInt()
             style = Paint.Style.FILL
         }
+
+        private val BROKEN_IMAGE_BG_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+        }
+        private val BROKEN_IMAGE_ICON_SIZE = LayoutHelper.dp(36)
+        private val BROKEN_IMAGE_ICON_MIN = LayoutHelper.dp(14)
 
         private val PLAY_ICON_PAINT = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = 0xFFFFFFFF.toInt()

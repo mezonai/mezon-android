@@ -2876,12 +2876,13 @@ open class ChatFragment : BaseFragment() {
                     hideEmojiView()
                 }
 
-                override fun onGifSelected(gifUrl: String) {
+                override fun onGifSelected(gifUrl: String, width: Int, height: Int) {
                     if (!ensureCanSendMessageOrNotify()) return
                     val references = buildReplyReferences()
                     chatController.sendDirectAttachment(
                         channelId, clanId, channelType, resolveChannelPrivate(),
-                        gifUrl, "image/gif", references = references, topicId = topicId
+                        gifUrl, "image/gif", references = references, topicId = topicId,
+                        width = width, height = height
                     )
                     clearReplyState()
                     hideEmojiView()

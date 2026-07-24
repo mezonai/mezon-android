@@ -1507,7 +1507,7 @@ class CreateThreadFragment : BaseFragment() {
                     updateSendButtonState()
                 }
 
-                override fun onGifSelected(gifUrl: String) {
+                override fun onGifSelected(gifUrl: String, width: Int, height: Int) {
                     if (gifUrl.isBlank()) return
                     pendingStickerSend = PendingStickerSend(gifUrl, "image/gif", null)
                     hideEmojiView(animated = false)
