@@ -52,7 +52,8 @@ class GifCategoryCell(context: Context, private val themeColors: ThemeColors) : 
         drawable = null
         category = item
 
-        nameLayout = buildNameLayout(item.name, measuredWidth.coerceAtLeast(LayoutHelper.dp(100f)))
+        val nameToDisplay = if (item.isTrending) context.getString(com.mezon.mobile.R.string.emoji_trending_gifs) else item.name
+        nameLayout = buildNameLayout(nameToDisplay, measuredWidth.coerceAtLeast(LayoutHelper.dp(100f)))
 
         val reqW = if (measuredWidth > 0) measuredWidth else LayoutHelper.dp(170f)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && !SharedConfig.deviceIsLow()) {
@@ -85,7 +86,8 @@ class GifCategoryCell(context: Context, private val themeColors: ThemeColors) : 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         val cat = category ?: return
-        nameLayout = buildNameLayout(cat.name, w)
+        val nameToDisplay = if (cat.isTrending) context.getString(com.mezon.mobile.R.string.emoji_trending_gifs) else cat.name
+        nameLayout = buildNameLayout(nameToDisplay, w)
     }
 
     override fun onDraw(canvas: Canvas) {

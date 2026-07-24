@@ -36,6 +36,7 @@ data class KlipySearchData(
 @Serializable
 data class KlipyCategoryRaw(
     val category: String = "",
+    val query: String? = null,
     @SerialName("preview_url") val previewUrl: String = ""
 )
 
@@ -43,6 +44,7 @@ data class KlipyCategoryRaw(
 data class KlipyGifRaw(
     val id: Long = 0,
     val slug: String = "",
+    val type: String = "",
     @SerialName("blur_preview") val blurPreview: String? = null,
     val file: KlipyFileFormats? = null
 )
@@ -50,7 +52,9 @@ data class KlipyGifRaw(
 @Serializable
 data class KlipyFileFormats(
     val hd: KlipyFormatDetails? = null,
-    val md: KlipyFormatDetails? = null
+    val md: KlipyFormatDetails? = null,
+    val sm: KlipyFormatDetails? = null,
+    val xs: KlipyFormatDetails? = null
 )
 
 @Serializable
@@ -67,7 +71,9 @@ data class KlipyFormatUrl(
 
 data class KlipyCategory(
     val name: String,
-    val imageUrl: String
+    val query: String,
+    val imageUrl: String,
+    val isTrending: Boolean = false
 )
 
 data class KlipyGif(
@@ -82,15 +88,22 @@ data class KlipyGif(
 class KlipyApi @Inject constructor(
     private val httpClient: HttpClient
 ) {
+    private fun buildUrl(baseUrl: String, apiKey: String, path: String): String {
+        val safeBaseUrl = baseUrl.trimEnd('/')
+        val safeApiKey = apiKey.trim('/')
+        val safePath = path.trimStart('/')
+        return "$safeBaseUrl/$safeApiKey/$safePath"
+    }
+
     suspend fun fetchCategories(baseUrl: String, apiKey: String): List<KlipyCategory> {
         return try {
-            val response = httpClient.get("$baseUrl/$apiKey/gifs/categories")
+            val response = httpClient.get(buildUrl(baseUrl, apiKey, "gifs/categories"))
             if (!response.status.isSuccess()) {
                 Log.e(TAG, "fetchCategories failed with status: ${response.status}")
                 return emptyList()
             }
             val body: KlipyCategoryResponse = response.body()
-            val cats = body.data?.categories?.map { KlipyCategory(name = it.category, imageUrl = it.previewUrl) } ?: emptyList()
+            val cats = body.data?.categories?.map { KlipyCategory(name = it.category, query = it.query ?: it.category, imageUrl = it.previewUrl) } ?: emptyList()
             Log.d(TAG, "fetchCategories returned ${cats.size} items")
             cats
         } catch (e: Exception) {
@@ -101,7 +114,7 @@ class KlipyApi @Inject constructor(
 
     suspend fun searchGifs(baseUrl: String, apiKey: String, query: String, page: Int = 1, perPage: Int = 30): List<KlipyGif> {
         return try {
-            val response = httpClient.get("$baseUrl/$apiKey/gifs/search") {
+            val response = httpClient.get(buildUrl(baseUrl, apiKey, "gifs/search")) {
                 parameter("q", query)
                 parameter("page", page)
                 parameter("per_page", perPage)
@@ -123,7 +136,7 @@ class KlipyApi @Inject constructor(
 
     suspend fun fetchTrending(baseUrl: String, apiKey: String, page: Int = 1, perPage: Int = 30): List<KlipyGif> {
         return try {
-            val response = httpClient.get("$baseUrl/$apiKey/stickers/trending") {
+            val response = httpClient.get(buildUrl(baseUrl, apiKey, "gifs/trending")) {
                 parameter("page", page)
                 parameter("per_page", perPage)
                 parameter("format_filter", "gif")
@@ -143,17 +156,23 @@ class KlipyApi @Inject constructor(
     }
 
     private fun KlipyGifRaw.toKlipyGif(): KlipyGif? {
+        if (type.isNotEmpty() && type != "gif") return null
+        
         val hdGif = file?.hd?.gif
         val mdGif = file?.md?.gif
+        val smGif = file?.sm?.gif
+        val xsGif = file?.xs?.gif
         
         val hdUrl = hdGif?.url
         val mdUrl = mdGif?.url
+        val smUrl = smGif?.url
+        val xsUrl = xsGif?.url
         
-        val url = hdUrl ?: mdUrl ?: return null
-        val thumbUrl = mdUrl ?: hdUrl ?: return null
+        val url = hdUrl ?: mdUrl ?: smUrl ?: xsUrl ?: return null
+        val thumbUrl = mdUrl ?: smUrl ?: xsUrl ?: hdUrl ?: return null
         
-        val w = hdGif?.width ?: mdGif?.width ?: 0
-        val h = hdGif?.height ?: mdGif?.height ?: 0
+        val w = hdGif?.width ?: mdGif?.width ?: smGif?.width ?: xsGif?.width ?: 0
+        val h = hdGif?.height ?: mdGif?.height ?: smGif?.height ?: xsGif?.height ?: 0
         
         return KlipyGif(
             id = id.toString(),

@@ -1722,4 +1722,6 @@
     <string name="emoji_search_gif_placeholder">Find the perfect GIF</string>
     <string name="emoji_search_sticker_placeholder">Find the perfect sticker</string>
     <string name="emoji_gifs_empty">GIFs will appear here</string>
+    <string name="emoji_trending_gifs">Trending GIFs</string>
+
 </resources>

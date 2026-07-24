@@ -966,7 +966,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             } else if (isLocalUri) {
                 receiver.setLocalUri(android.net.Uri.parse(att.url), context)
             } else if (isAnimated || isStickerAttachment) {
-                receiver.setImage(att.url, att.thumb.ifEmpty { null }, context)
+                receiver.setImage(att.url, att.thumb.ifEmpty { null }, context, forceAnimated = isAnimated)
             } else if (isVideo) {
                 val thumb = att.thumb.ifEmpty { null }
                 if (thumb != null) {

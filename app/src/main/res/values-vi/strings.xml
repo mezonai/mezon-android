@@ -1607,4 +1607,5 @@
     <string name="emoji_search_gif_placeholder">Tìm kiếm GIF</string>
     <string name="emoji_search_sticker_placeholder">Tìm kiếm nhãn dán</string>
     <string name="emoji_gifs_empty">GIF sẽ xuất hiện ở đây</string>
+    <string name="emoji_trending_gifs">Thịnh hành</string>
 </resources>

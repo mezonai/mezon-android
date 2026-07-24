@@ -29,6 +29,7 @@ import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.home.chat.EmojiController
 import com.mezon.mobile.home.chat.EmojiItem
 import com.mezon.mobile.home.chat.StickerItem
@@ -65,6 +66,8 @@ class EmojiView(
 
     var delegate: EmojiViewDelegate? = null
     private var currentTab = TAB_EMOJI
+    private var ignoreFocusChange = false
+    private var ignoreTextChange = false
     private var emojiController: EmojiController? = null
 
     private val handler = Handler(Looper.getMainLooper())
@@ -98,7 +101,7 @@ class EmojiView(
     private lateinit var searchBar: FrameLayout
     private lateinit var categoryHeaderContainer: LinearLayout
     private lateinit var categoryTitleText: TextView
-    private var currentGifCategory: String? = null
+    private var currentGifCategory: KlipyCategory? = null
 
     private val gifScrollListener = object : RecyclerView.OnScrollListener() {
         override fun onScrollStateChanged(rv: RecyclerView, newState: Int) {
@@ -208,6 +211,9 @@ class EmojiView(
                     currentGifCategory = null
                     gifSearchActive = false
                     updateGifGridVisibility()
+                    searchField.setText("")
+                    searchRunnable?.let { handler.removeCallbacks(it) }
+                    searchRunnable = null
                 }
             }
             addView(backBtn, LayoutHelper.createLinear(24, 24))
@@ -222,13 +228,16 @@ class EmojiView(
         root.addView(categoryHeaderContainer, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         searchField.setOnFocusChangeListener { _, hasFocus ->
-            delegate?.onSearchFocusChanged(hasFocus)
+            if (!ignoreFocusChange) {
+                delegate?.onSearchFocusChanged(hasFocus)
+            }
         }
 
         searchField.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
             override fun afterTextChanged(s: Editable?) {
+                if (ignoreTextChange) return
                 val query = s?.toString()?.trim() ?: ""
                 searchRunnable?.let { handler.removeCallbacks(it) }
                 searchRunnable = Runnable { performSearch(query) }
@@ -267,10 +276,22 @@ class EmojiView(
 
     fun init(controller: EmojiController) {
         emojiController = controller
+        
+        controller.notificationCenter.listen(this, NotificationCenter.emojisNeedReload) { _, _ ->
+            onEmojisReloaded()
+        }
+        controller.notificationCenter.listen(this, NotificationCenter.stickersNeedReload) { _, _ ->
+            onStickersReloaded()
+        }
+        controller.notificationCenter.listen(this, NotificationCenter.gifsNeedReload) { _, _ ->
+            onGifsReloaded()
+        }
     }
 
     fun onOpen(forceTab: Int = -1) {
+        ignoreTextChange = true
         searchField.text?.clear()
+        ignoreTextChange = false
         gifSearchActive = false
         currentGifCategory = null
 
@@ -300,7 +321,9 @@ class EmojiView(
         if (currentTab == tab) return
         currentTab = tab
         updateTabSelection()
+        ignoreTextChange = true
         searchField.text?.clear()
+        ignoreTextChange = false
         gifSearchActive = false
         currentGifCategory = null
 
@@ -322,16 +345,25 @@ class EmojiView(
         if (currentTab == TAB_GIF) {
             gifCategoryGrid?.visibility = if (gifSearchActive) View.GONE else View.VISIBLE
             gifGrid?.visibility = if (gifSearchActive) View.VISIBLE else View.GONE
+            if (gifSearchActive) {
+                gifAdapter?.notifyDataSetChanged()
+            }
             
             if (gifSearchActive && currentGifCategory != null) {
-                if (currentGifCategory == "Trending GIFs") {
+                if (currentGifCategory!!.isTrending) {
+                    ignoreFocusChange = true
+                    if (searchField.hasFocus()) {
+                        searchField.clearFocus()
+                        AndroidUtilities.hideKeyboard(searchField)
+                    }
                     searchBar.visibility = View.GONE
+                    ignoreFocusChange = false
                     categoryHeaderContainer.visibility = View.VISIBLE
-                    categoryTitleText.text = currentGifCategory
+                    categoryTitleText.text = context.getString(R.string.emoji_trending_gifs)
                 } else {
                     searchBar.visibility = View.VISIBLE
                     categoryHeaderContainer.visibility = View.GONE
-                    searchField.hint = currentGifCategory
+                    searchField.hint = context.getString(R.string.emoji_search_gif_placeholder)
                 }
             } else {
                 searchBar.visibility = View.VISIBLE
@@ -344,8 +376,8 @@ class EmojiView(
                 }
             }
             
-            val results = if (gifSearchActive) ctrl.searchGifResults else emptyList<KlipyGif>()
-            if (ctrl.isSearchingGifs) {
+            val results = if (gifSearchActive) synchronized(ctrl) { ctrl.searchGifResults.toList() } else emptyList<KlipyGif>()
+            if (gifSearchActive && ctrl.isSearchingGifs) {
                 gifProgressBar?.visibility = View.VISIBLE
                 gifEmptyView?.visibility = View.GONE
             } else {
@@ -364,9 +396,21 @@ class EmojiView(
 
     private fun onGifCategoryTapped(category: KlipyCategory) {
         gifSearchActive = true
-        currentGifCategory = category.name
+        currentGifCategory = category
         updateGifGridVisibility()
-        emojiController?.searchGifs(category.name)
+        
+        ignoreTextChange = true
+        if (category.isTrending) {
+            searchField.setText("")
+        } else {
+            searchField.setText(category.name)
+            searchField.setSelection(category.name.length)
+        }
+        ignoreTextChange = false
+        
+        searchRunnable?.let { handler.removeCallbacks(it) }
+        searchRunnable = null
+        emojiController?.searchGifs(category.query, isTrending = category.isTrending)
     }
 
     private fun ensureGrid(tab: Int) {
@@ -553,16 +597,10 @@ class EmojiView(
                 TAB_EMOJI -> loadEmojiData()
                 TAB_STICKER -> loadStickerData()
                 TAB_GIF -> {
-                    if (currentGifCategory != null) {
-                        gifSearchActive = true
-                        updateGifGridVisibility()
-                        ctrl.searchGifs(currentGifCategory!!)
-                    } else {
-                        gifSearchActive = false
-                        currentGifCategory = null
-                        updateGifGridVisibility()
-                        loadGifData()
-                    }
+                    gifSearchActive = false
+                    currentGifCategory = null
+                    updateGifGridVisibility()
+                    loadGifData()
                 }
             }
             return
@@ -748,6 +786,10 @@ class EmojiView(
             })
             start()
         }
+    }
+    
+    fun isGifTrendingActive(): Boolean {
+        return gifSearchActive && currentGifCategory?.isTrending == true
     }
 
     override fun onDetachedFromWindow() {
