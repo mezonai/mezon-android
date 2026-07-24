@@ -4,7 +4,7 @@ import android.view.ViewGroup
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.core.ThemeColors
-import com.mezon.mobile.network.TenorGif
+import com.mezon.mobile.network.KlipyGif
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -15,10 +15,10 @@ import kotlinx.coroutines.withContext
 
 class GifGridAdapter(
     private val themeColors: ThemeColors,
-    private val onGifClick: (TenorGif) -> Unit
+    private val onGifClick: (KlipyGif) -> Unit
 ) : RecyclerView.Adapter<GifGridAdapter.GifViewHolder>() {
 
-    private val gifs = ArrayList<TenorGif>()
+    private val gifs = ArrayList<KlipyGif>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var diffJob: Job? = null
 
@@ -31,7 +31,7 @@ class GifGridAdapter(
         return h
     }
 
-    fun setData(newGifs: List<TenorGif>) {
+    fun setData(newGifs: List<KlipyGif>) {
         diffJob?.cancel()
         if (newGifs.size < 50 && gifs.size < 50) {
             val result = DiffUtil.calculateDiff(GifDiffCallback(gifs, newGifs))
@@ -75,8 +75,8 @@ class GifGridAdapter(
     class GifViewHolder(val cell: GifCell) : RecyclerView.ViewHolder(cell)
 
     private class GifDiffCallback(
-        private val old: List<TenorGif>,
-        private val new: List<TenorGif>
+        private val old: List<KlipyGif>,
+        private val new: List<KlipyGif>
     ) : DiffUtil.Callback() {
         override fun getOldListSize() = old.size
         override fun getNewListSize() = new.size

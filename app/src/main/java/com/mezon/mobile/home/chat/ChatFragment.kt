@@ -2441,7 +2441,11 @@ open class ChatFragment : BaseFragment() {
                         searchKeyboardWasVisible = true
                     }
                     if (keyboardHeight <= LayoutHelper.dp(20f) && searchKeyboardWasVisible) {
-                        collapseEmojiSearch()
+                        if (emojiView?.isGifTrendingActive() == true) {
+                            searchKeyboardWasVisible = false
+                        } else {
+                            collapseEmojiSearch()
+                        }
                     }
                     return
                 }
@@ -2466,17 +2470,7 @@ open class ChatFragment : BaseFragment() {
             }
         })
 
-        observe(NotificationCenter.emojisNeedReload) { _, _, _ ->
-            emojiView?.onEmojisReloaded()
-        }
 
-        observe(NotificationCenter.stickersNeedReload) { _, _, _ ->
-            emojiView?.onStickersReloaded()
-        }
-
-        observe(NotificationCenter.gifsNeedReload) { _, _, _ ->
-            emojiView?.onGifsReloaded()
-        }
 
         fragmentView = rootView
         refreshUI()

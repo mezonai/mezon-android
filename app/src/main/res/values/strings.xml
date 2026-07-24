@@ -1729,6 +1729,15 @@
     <string name="transaction_detail_time">Time</string>
     <string name="transaction_detail_sender">Sender name</string>
     <string name="transaction_detail_receiver">Receiver name</string>
+    <string name="emoji_tab_emoji">Emojis</string>
+    <string name="emoji_tab_gif">GIFs</string>
+    <string name="emoji_tab_sticker">Stickers</string>
+    <string name="emoji_search_emoji_placeholder">Find the perfect emoji</string>
+    <string name="emoji_search_gif_placeholder">Find the perfect GIF</string>
+    <string name="emoji_search_sticker_placeholder">Find the perfect sticker</string>
+    <string name="emoji_gifs_empty">GIFs will appear here</string>
+    <string name="emoji_trending_gifs">Trending GIFs</string>
+
     <string name="message_toast_save_success">Save successfully</string>
     <string name="message_toast_save_failed">Save failed</string>
 </resources>
