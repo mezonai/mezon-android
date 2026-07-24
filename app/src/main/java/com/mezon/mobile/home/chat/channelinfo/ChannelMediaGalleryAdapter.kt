@@ -249,21 +249,26 @@ internal class ChannelMediaGalleryAdapter(
                         setStroke(LayoutHelper.dp(1f), Color.parseColor("#242427"))
                     }
             }
-        val av =
-            AvatarView(ctx).apply {
-                setSizeDp(26)
-                setRoundRadius(13f)
-            }
-        avRing.addView(av, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
-        val avLp =
-            FrameLayout.LayoutParams(avPad, avPad).apply {
-                gravity = Gravity.END or Gravity.TOP
-                topMargin = LayoutHelper.dp(8f)
-                marginEnd = LayoutHelper.dp(8f)
-            }
+
+        val av = AvatarView(ctx).apply {
+            setSizeDp(24)
+            setRoundRadius(12f)
+        }
+        avRing.addView(av, LayoutHelper.createFrame(24, 24, Gravity.CENTER))
+
+        val anonymousAv = ImageView(ctx).apply {
+            visibility = View.GONE
+            val drawable = com.mezon.mobile.ui.cells.MezonIcon.anonymousAvatar.getDrawable(ctx)
+            setImageDrawable(drawable)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+        }
+        avRing.addView(anonymousAv, LayoutHelper.createFrame(24, 24, Gravity.CENTER))
+
+        val avLp = LayoutHelper.createFrame(26, 26, Gravity.TOP or Gravity.END)
+        avLp.setMargins(0, LayoutHelper.dp(8f), LayoutHelper.dp(8f), 0)
         root.addView(avRing, avLp)
 
-        return MediaSlot(root, thumb, videoDimmer, play, av)
+        return MediaSlot(root, thumb, videoDimmer, play, av, anonymousAv)
     }
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
@@ -302,6 +307,7 @@ internal class ChannelMediaGalleryAdapter(
             slot.thumb.cancelLoad()
             slot.thumb.setImageDrawable(null)
             slot.av.visibility = View.GONE
+            slot.anonymousAv.visibility = View.GONE
             slot.videoDimmer.visibility = View.GONE
             slot.play.visibility = View.GONE
             return
@@ -309,19 +315,25 @@ internal class ChannelMediaGalleryAdapter(
         slot.root.visibility = View.VISIBLE
         slot.av.visibility = View.VISIBLE
 
-        val m = members()[item.uploaderId]
-        val avatarUrl =
-            when {
-                isDm ->
-                    m?.avatarUrl ?: ""
-                else ->
-                    (m?.clanAvatar?.ifBlank { null } ?: m?.avatarUrl) ?: ""
-            }
-        val avatarUsername = m?.username.orEmpty()
-
-        slot.av.setVisibility(View.VISIBLE)
-        slot.av.setInfo(item.uploaderId, avatarUsername.ifEmpty { "_" })
-        slot.av.setImageUrl(avatarUrl)
+        val anonymousUserId = com.mezon.mobile.BuildConfig.MEZON_ANONYMOUS_USER_ID.toLongOrNull() ?: 0L
+        if (item.uploaderId == anonymousUserId) {
+            slot.av.visibility = View.GONE
+            slot.anonymousAv.visibility = View.VISIBLE
+        } else {
+            slot.av.visibility = View.VISIBLE
+            slot.anonymousAv.visibility = View.GONE
+            val m = members()[item.uploaderId]
+            val avatarUrl =
+                when {
+                    isDm ->
+                        m?.avatarUrl ?: ""
+                    else ->
+                        (m?.clanAvatar?.ifBlank { null } ?: m?.avatarUrl) ?: ""
+                }
+            val avatarUsername = m?.username.orEmpty()
+            slot.av.setInfo(item.uploaderId, avatarUsername.ifEmpty { "_" })
+            slot.av.setImageUrl(avatarUrl)
+        }
 
         val showVideo = item.isVideo
         slot.videoDimmer.visibility = if (showVideo) View.VISIBLE else View.GONE
@@ -338,27 +350,52 @@ internal class ChannelMediaGalleryAdapter(
         val ctx = hostContext() ?: return
         val url = tapped.url.ifBlank { return }
 
+        val anonymousUserId = com.mezon.mobile.BuildConfig.MEZON_ANONYMOUS_USER_ID.toLongOrNull() ?: 0L
         val orderedImages =
             galleryController.getItems(channelId)
                 .sortedWith(
                     compareByDescending<ChannelGalleryMediaItem> { it.createTimeSeconds }
                         .thenByDescending { it.id }
                 )
-                .filter { !it.isVideo }
-                .map { it.url }
-                .filter { it.isNotEmpty() }
+                .filter { !it.isVideo && it.url.isNotEmpty() }
+                .map { mediaItem ->
+                    val m = members()[mediaItem.uploaderId]
+                    val resolvedName = if (mediaItem.uploaderId == anonymousUserId) {
+                        ctx.getString(com.mezon.mobile.R.string.advanced_anonymous)
+                    } else if (isDm) {
+                        m?.displayName?.takeIf { it.isNotBlank() } ?: m?.username?.takeIf { it.isNotBlank() } ?: "User"
+                    } else {
+                        m?.clanNick?.takeIf { it.isNotBlank() } ?: m?.displayName?.takeIf { it.isNotBlank() } ?: m?.username?.takeIf { it.isNotBlank() } ?: "User"
+                    }
+                    val resolvedAvatar = if (isDm) {
+                        m?.avatarUrl
+                    } else {
+                        m?.clanAvatar?.takeIf { it.isNotBlank() } ?: m?.avatarUrl
+                    }
+
+                    PhotoViewer.GalleryItem(
+                        url = mediaItem.url,
+                        senderName = resolvedName,
+                        senderAvatarUrl = resolvedAvatar,
+                        timestamp = mediaItem.createTimeSeconds.toLong(),
+                        isVideo = mediaItem.isVideo,
+                        uploaderId = mediaItem.uploaderId
+                    )
+                }
 
         when {
             tapped.isVideo ->
                 VideoPlayerDialog(ctx).play(url)
 
-            tapped.filetype.contains("gif", true) ->
-                PhotoViewer(ctx).show(url, thumbBitmap = null, preferDrawableLoader = true)
-
+            tapped.filetype.contains("gif", true) -> {
+                val item = orderedImages.firstOrNull { it.url == url } ?: PhotoViewer.GalleryItem(url, "User", null, 0)
+                PhotoViewer(ctx).show(item, thumbBitmap = null, preferDrawableLoader = true)
+            }
             else -> {
-                val idx = orderedImages.indexOf(url).takeIf { it >= 0 } ?: 0
+                val idx = orderedImages.indexOfFirst { it.url == url }.takeIf { it >= 0 } ?: 0
+                val item = orderedImages.getOrNull(idx) ?: PhotoViewer.GalleryItem(url, "User", null, 0)
                 PhotoViewer(ctx).show(
-                    url,
+                    item = item,
                     gallery = orderedImages,
                     index = idx,
                     thumbBitmap = null
@@ -376,6 +413,7 @@ internal class ChannelMediaGalleryAdapter(
         val videoDimmer: View,
         val play: ImageView,
         val av: AvatarView,
+        val anonymousAv: ImageView
     )
 }
 

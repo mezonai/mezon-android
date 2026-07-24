@@ -118,6 +118,7 @@
     <string name="common_login_log_in">Đăng nhập</string>
     <string name="common_login_sign_in">Đăng nhập</string>
     <string name="common_login_invalid_credentials">Email hoặc mật khẩu không hợp lệ</string>
+    <string name="common_login_email_password_incorrect">Email hoặc mật khẩu không chính xác.</string>
     <string name="common_login_login_failed">Email hoặc mật khẩu không hợp lệ. Vui lòng thử lại.</string>
     <string name="common_login_login_too_fast">Đăng nhập quá nhanh. Vui lòng đợi %1$d giây trước khi thử lại.</string>
     <string name="common_login_get_started">Bắt đầu nào</string>
@@ -127,8 +128,9 @@
     <string name="common_login_phone_number">Số điện thoại</string>
     <string name="common_login_email_address">Địa chỉ email</string>
     <string name="common_login_show_password">Hiển thị mật khẩu</string>
-    <string name="common_login_send">Gửi</string>
+    <string name="common_login_send">Gửi OTP</string>
     <string name="common_login_cannot_access_email">Không thể truy cập email?</string>
+    <string name="common_login_password_not_set">Chưa thiết lập mật khẩu?</string>
     <string name="common_login_cannot_access_phone">Không thể truy cập điện thoại?</string>
     <string name="common_login_with_sms">Đăng nhập bằng SMS</string>
     <string name="common_login_with_email_otp">Đăng nhập bằng Email OTP</string>
@@ -1611,4 +1613,9 @@
     <string name="community_settings_error_banner_size">Kích thước ảnh phải nhỏ hơn 10 MB</string>
     <string name="community_settings_error_banner_type">Vui lòng chọn file ảnh hợp lệ</string>
     <string name="community_settings_permission_denied">Bạn không có quyền quản lý cài đặt cộng đồng</string>
+    <string name="action_save_media">Lưu ảnh</string>
+    <string name="action_copy_image">Sao chép ảnh</string>
+    <string name="action_share_image">Chia sẻ ảnh</string>
+    <string name="message_toast_save_success">Lưu thành công</string>
+    <string name="message_toast_save_failed">Lưu thất bại</string>
 </resources>
