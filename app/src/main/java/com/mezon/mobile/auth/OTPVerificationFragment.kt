@@ -39,7 +39,6 @@ class OTPVerificationFragment : BaseFragment() {
     private lateinit var descriptionView: TextView
     private lateinit var identifierView: TextView
     private lateinit var verifyButton: ActionButton
-    private lateinit var errorText: TextView
     private lateinit var progressBar: ProgressBar
     private lateinit var changeLink: TextView
     private lateinit var didNotReceiveText: TextView
@@ -185,16 +184,6 @@ class OTPVerificationFragment : BaseFragment() {
             })
         }
 
-        errorText = TextView(context).apply {
-            setTextColor(0xFFCA0000.toInt())
-            textSize = 12f
-            gravity = Gravity.CENTER
-            visibility = View.GONE
-        }
-        form.addView(errorText, LayoutHelper.createLinear(
-            LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.CENTER, 0f, 0f, 0f, 8f
-        ))
-
         val buttonFrame = FrameLayout(context)
         form.addView(buttonFrame, LayoutHelper.createLinear(
             LayoutHelper.MATCH_PARENT, 50, 0f, Gravity.START, 0f, 8f, 0f, 30f
@@ -265,7 +254,7 @@ class OTPVerificationFragment : BaseFragment() {
 
     private fun startCountdown() {
         isResendEnabled = false
-        verifyButton.isEnabled = true
+        verifyButton.isEnabled = false
         countdownTimer?.cancel()
         countdownTimer = object : CountDownTimer(COUNTDOWN_MS, 1000) {
             override fun onTick(millisUntilFinished: Long) {
@@ -275,6 +264,7 @@ class OTPVerificationFragment : BaseFragment() {
 
             override fun onFinish() {
                 isResendEnabled = true
+                verifyButton.isEnabled = true
                 verifyButton.setText(getString(R.string.otp_resend))
             }
         }.start()
@@ -298,14 +288,7 @@ class OTPVerificationFragment : BaseFragment() {
                 }
                 .onFailure { err ->
                     hideLoading()
-                    val ctx = getContext() ?: return@onFailure
-                    showError(
-                        NetworkErrorMessages.userMessage(
-                            ctx,
-                            err,
-                            err.message ?: getString(R.string.otp_verify_failed)
-                        )
-                    )
+                    showError(getString(R.string.otp_invalid))
                     setOtpErrorState()
                     clearOtpFields()
                 }
@@ -368,21 +351,19 @@ class OTPVerificationFragment : BaseFragment() {
         verifyButton.isEnabled = false
         verifyButton.visibility = View.INVISIBLE
         progressBar.visibility = View.VISIBLE
-        errorText.visibility = View.GONE
     }
 
     private fun hideLoading() {
-        verifyButton.isEnabled = true
+        verifyButton.isEnabled = isResendEnabled
         verifyButton.visibility = View.VISIBLE
         progressBar.visibility = View.GONE
     }
 
     private fun showError(message: String) {
-        verifyButton.isEnabled = true
+        verifyButton.isEnabled = isResendEnabled
         verifyButton.visibility = View.VISIBLE
         progressBar.visibility = View.GONE
-        errorText.visibility = View.VISIBLE
-        errorText.text = message
+        com.mezon.mobile.ui.MezonToast.show(this, com.mezon.mobile.ui.cells.ToastOverlay.ToastType.ERROR, message)
     }
 
     override fun onFragmentDestroy() {
