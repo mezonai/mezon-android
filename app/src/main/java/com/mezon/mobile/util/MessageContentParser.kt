@@ -115,7 +115,9 @@ data class ContentElement(
     val title: String? = null,
     val description: String? = null,
     val image: String? = null,
-    val index: Int? = null
+    val index: Int? = null,
+    val channelPrivate: Int? = null,
+    val parentId: String? = null
 )
 
 private val HEADING_REGEX = Regex("^(#{1,6})\\s+(.+)$")
@@ -323,7 +325,9 @@ fun parseContentToSpannable(
                 j.optInt("s"),
                 j.optInt("e"),
                 channelId = j.optString("channelId").takeIf { it.isNotEmpty() },
-                clanId = j.optString("clanId").takeIf { it.isNotEmpty() }
+                clanId = j.optString("clanId").takeIf { it.isNotEmpty() },
+                channelPrivate = if (j.has("channelPrivate")) j.optInt("channelPrivate") else if (j.has("channel_private")) j.optInt("channel_private") else null,
+                parentId = j.optString("parentId").takeIf { it.isNotEmpty() && it != "0" }
             )
         }.let { elements.addAll(it) }
         parseArray(obj, "ej") { j -> ContentElement("e", j.optInt("s"), j.optInt("e"), emojiid = j.optString("emojiid").takeIf { it.isNotEmpty() }) }
@@ -436,6 +440,8 @@ fun parseContentToSpannable(
                     segText = segText,
                     channelId = el.channelId,
                     clanId = el.clanId,
+                    channelPrivate = el.channelPrivate,
+                    parentId = el.parentId,
                     view = view,
                     linkColor = linkColor,
                     mentionColors = mentionColors,
@@ -496,19 +502,17 @@ fun parseContentToSpannable(
                     nextLast = maxOf(el.e, linkEndExclusive)
                     val linkSeg = text.substring(linkStartInText, linkEndExclusive)
                     val channelLink = parseMezonChannelLink(linkSeg)
-                    val resolved = channelLink?.let { link ->
-                        view?.context?.let { ctx ->
-                            resolveChannelEntity(ctx, link.channelId, link.clanId)
+                    if (channelLink != null) {
+                        val resolved = view?.context?.let { ctx ->
+                            resolveChannelEntity(ctx, channelLink.channelId, channelLink.clanId)
                         }
-                    }
-                    if (resolved != null) {
-                        val label = resolved.channelLabel.ifBlank { "channel" }
+                        val label = resolved?.channelLabel?.ifBlank { "channel" }
                         appendHashtagPill(
                             sb,
                             spanStart,
-                            segText = "#$label",
-                            channelId = resolved.channelId.toString(),
-                            clanId = resolved.clanId.toString(),
+                            segText = "#" + (label ?: "channel"),
+                            channelId = channelLink.channelId,
+                            clanId = channelLink.clanId,
                             view = view,
                             linkColor = linkColor,
                             mentionColors = mentionColors,
@@ -738,6 +742,8 @@ private fun appendHashtagPill(
     segText: String,
     channelId: String?,
     clanId: String?,
+    channelPrivate: Int? = null,
+    parentId: String? = null,
     view: View?,
     linkColor: Int,
     mentionColors: MentionColors?,
@@ -745,31 +751,58 @@ private fun appendHashtagPill(
     labelOverride: String?,
     preResolvedEntity: ClanChannelEntity?
 ) {
-    val hashtagColor = mentionColors?.userText ?: linkColor
-    val hashtagBg = theme.midnightBlue
     val ctx = view?.context
     val entity = preResolvedEntity ?: ctx?.let { resolveChannelEntity(it, channelId, clanId) }
-    val iconDrawable = if (ctx != null && entity != null) {
-        resolveHashtagIcon(entity).getDrawable(ctx)
+    
+    var isAccessible = false
+    if (entity != null) {
+        isAccessible = true
+    } else {
+        val actualPriv = channelPrivate ?: 0
+        if (actualPriv == 0 && parentId != null) {
+            val parentEntity = ctx?.let { resolveChannelEntity(it, parentId, clanId) }
+            isAccessible = parentEntity != null
+        }
+    }
+    
+    val fgColor = if (isAccessible) (mentionColors?.userText ?: linkColor) else theme.textDisabled
+    val bgColor = if (isAccessible) theme.midnightBlue else theme.tertiary
+    
+    val iconDrawable = if (ctx != null) {
+        if (entity != null) {
+            resolveHashtagIcon(entity).getDrawable(ctx)
+        } else if (!isAccessible) {
+            ChannelItemCell.resolveChannelIcon(
+                com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL, true, false
+            ).getDrawable(ctx)
+        } else null
     } else null
+
     if (iconDrawable != null) {
-        val labelText = labelOverride
-            ?: if (segText.startsWith("#")) segText.substring(1) else segText
+        val labelText = if (!isAccessible) {
+            ctx?.getString(R.string.channel_permission_private_channel) ?: "Private Channel"
+        } else {
+            labelOverride ?: if (segText.startsWith("#")) segText.substring(1) else segText
+        }
         sb.append("\u200B")
         val iconSpanEnd = sb.length
         val span = ColoredImageSpan(iconDrawable, ColoredImageSpan.ALIGN_CENTER)
         span.setSize(LayoutHelper.dp(14f))
-        span.overrideColor = hashtagColor
-        span.backgroundColor = hashtagBg
+        span.overrideColor = fgColor
+        span.backgroundColor = bgColor
         sb.setExclusiveSpan(span, spanStart, iconSpanEnd)
         sb.append(" ")
         sb.append(labelText)
     } else {
-        sb.append(labelOverride?.let { "#$it" } ?: segText)
+        if (!isAccessible) {
+            sb.append(ctx?.getString(R.string.channel_permission_private_channel) ?: "Private Channel")
+        } else {
+            sb.append(labelOverride?.let { "#$it" } ?: segText)
+        }
     }
-    sb.setExclusiveSpan(HashtagSpan(channelId, hashtagColor), spanStart, sb.length)
+    sb.setExclusiveSpan(HashtagSpan(channelId, fgColor), spanStart, sb.length)
     sb.setExclusiveSpan(StyleSpan(Typeface.BOLD), spanStart, sb.length)
-    sb.setExclusiveSpan(BackgroundColorSpan(hashtagBg), spanStart, sb.length)
+    sb.setExclusiveSpan(BackgroundColorSpan(bgColor), spanStart, sb.length)
 }
 
 private fun extractOgpUrl(text: String, index: Int?): String? {
