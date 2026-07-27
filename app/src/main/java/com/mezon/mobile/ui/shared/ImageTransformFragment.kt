@@ -899,33 +899,45 @@ class TransformCanvasView(
         canvas.restore()
     }
 
-    private fun drawTextOverlay(canvas: Canvas, overlay: TextOverlay) {
-        val lines = overlay.text.lines().ifEmpty { listOf(overlay.text) }
+    private fun createStaticLayout(overlay: TextOverlay): android.text.StaticLayout {
         textPaint.textSize = overlay.textSizeInViewPx
-        textPaint.color = overlay.color
-        textPaint.style = Paint.Style.FILL
-        val metrics = textPaint.fontMetrics
-        val lineHeight = (metrics.descent - metrics.ascent) * 1.08f
-        var baseline = overlay.centerY - lineHeight * lines.size / 2f - metrics.ascent
-        lines.forEach { line ->
-            val x = overlay.centerX - textPaint.measureText(line) / 2f
-            canvas.drawText(line, x, baseline, textPaint)
-            baseline += lineHeight
+        val baseSize = LayoutHelper.dpf(32f)
+        val scale = overlay.textSizeInViewPx / baseSize
+        val viewWidth = if (width > 0) width else context.resources.displayMetrics.widthPixels
+        val availableWidth = kotlin.math.max(1, ((viewWidth - LayoutHelper.dp(48f)) * scale).toInt())
+        val textPaintForLayout = android.text.TextPaint(textPaint)
+        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+            android.text.StaticLayout.Builder.obtain(overlay.text, 0, overlay.text.length, textPaintForLayout, availableWidth)
+                .setAlignment(android.text.Layout.Alignment.ALIGN_CENTER)
+                .build()
+        } else {
+            @Suppress("DEPRECATION")
+            android.text.StaticLayout(overlay.text, textPaintForLayout, availableWidth, android.text.Layout.Alignment.ALIGN_CENTER, 1f, 0f, false)
         }
     }
 
-    private fun textOverlayBoundsInView(overlay: TextOverlay, out: RectF) {
+    private fun drawTextOverlay(canvas: Canvas, overlay: TextOverlay) {
         textPaint.textSize = overlay.textSizeInViewPx
-        val lines = overlay.text.lines().ifEmpty { listOf(overlay.text) }
-        val width = lines.maxOfOrNull { textPaint.measureText(it) } ?: 0f
-        val metrics = textPaint.fontMetrics
-        val height = (metrics.descent - metrics.ascent) * 1.08f * lines.size
+        textPaint.color = overlay.color
+        textPaint.style = Paint.Style.FILL
+
+        val staticLayout = createStaticLayout(overlay)
+        canvas.save()
+        canvas.translate(overlay.centerX - staticLayout.width / 2f, overlay.centerY - staticLayout.height / 2f)
+        staticLayout.draw(canvas)
+        canvas.restore()
+    }
+
+    private fun textOverlayBoundsInView(overlay: TextOverlay, out: RectF) {
+        val staticLayout = createStaticLayout(overlay)
+        val w = staticLayout.width.toFloat()
+        val h = staticLayout.height.toFloat()
         val padding = overlay.textSizeInViewPx * 0.35f
         out.set(
-            overlay.centerX - width / 2f - padding,
-            overlay.centerY - height / 2f - padding,
-            overlay.centerX + width / 2f + padding,
-            overlay.centerY + height / 2f + padding,
+            overlay.centerX - w / 2f - padding,
+            overlay.centerY - h / 2f - padding,
+            overlay.centerX + w / 2f + padding,
+            overlay.centerY + h / 2f + padding,
         )
     }
 
