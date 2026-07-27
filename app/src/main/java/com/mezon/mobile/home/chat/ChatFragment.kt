@@ -5411,16 +5411,22 @@ open class ChatFragment : BaseFragment() {
             capture.discard()
             return
         }
+        var wasSent = false
         val editor = ChatImageEditorDialog(ctx, item) { edited ->
+            wasSent = true
             cameraSourceAlert?.dismissWithoutAnimation()
             sendMessage(listOf(edited))
-            capture.discard()
+            if (edited !== item) {
+                capture.discard()
+            }
         }
         activeImageEditor?.dismiss()
         activeImageEditor = editor
         editor.setOnDismissListener {
             if (activeImageEditor === editor) activeImageEditor = null
-            capture.discard()
+            if (!wasSent) {
+                capture.discard()
+            }
         }
         editor.show()
     }

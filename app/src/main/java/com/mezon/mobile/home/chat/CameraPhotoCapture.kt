@@ -29,7 +29,8 @@ data class CameraPhotoCapture(
             height = bounds.outHeight.coerceAtLeast(0),
             size = file.length(),
             duration = 0,
-            isVideo = false
+            isVideo = false,
+            ownedCachePath = file.absolutePath
         )
     }
 
