@@ -1392,7 +1392,7 @@
     <string name="channel_permission_title">Quyền kênh</string>
     <string name="channel_permission_tab_basic">Cơ bản</string>
     <string name="channel_permission_tab_advanced">Nâng cao</string>
-    <string name="channel_permission_private_channel">Kênh riêng</string>
+    <string name="channel_permission_private_channel">Kênh riêng tư</string>
     <string name="channel_permission_private_desc">Chỉ thành viên và vai trò được mời mới truy cập được kênh này.</string>
     <string name="channel_permission_who_can_access">Ai có thể truy cập</string>
     <string name="channel_permission_add_members_roles">Thêm thành viên và vai trò</string>
