@@ -8,7 +8,7 @@ import org.json.JSONObject
 
 private val CONTENT_REGEX = Regex("\"t\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"")
 
-private fun parseContentObject(raw: String): JSONObject? {
+internal fun parseContentObject(raw: String): JSONObject? {
     if (raw.isEmpty() || raw == "[]" || !raw.startsWith("{")) return null
     return try {
         JSONObject(raw)
@@ -40,8 +40,12 @@ private fun extractTopLevelTextFromRegex(trimmed: String): String {
     return match.groupValues.getOrNull(1).orEmpty().trim()
 }
 
-private fun extractContentText(trimmed: String, preview: Boolean): String {
-    parseContentObject(trimmed)?.let { return textFromContentObject(it, preview) }
+private fun extractContentText(
+    trimmed: String,
+    preview: Boolean,
+    contentObject: JSONObject? = parseContentObject(trimmed)
+): String {
+    contentObject?.let { return textFromContentObject(it, preview) }
     if (trimmed.startsWith("{")) {
         val fromRegex = extractTopLevelTextFromRegex(trimmed)
         if (fromRegex.isNotBlank()) {
@@ -120,6 +124,11 @@ fun parseContentText(content: String): String {
 fun parseContentPreview(content: String): String {
     if (content.isBlank()) return ""
     return extractContentText(content.trim(), preview = true)
+}
+
+internal fun parseContentPreview(content: String, contentObject: JSONObject?): String {
+    if (content.isBlank()) return ""
+    return extractContentText(content.trim(), preview = true, contentObject)
 }
 
 object TopicOriginalPreviewToken {

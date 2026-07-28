@@ -1230,6 +1230,7 @@
     <string name="message_attachment_video">Video</string>
     <string name="message_attachment_gif">GIF</string>
     <string name="message_attachment_file">Tệp</string>
+    <string name="message_attachment_embed">Embed</string>
     <string name="message_attachment_contact">Liên hệ</string>
     <string name="message_attachment_location">Vị trí</string>
     <string name="message_attachment_poll">Bình chọn</string>
