@@ -340,7 +340,7 @@ class CallController @Inject constructor(
             Log.d(TAG, "acceptCallFromFcm: parsing FCM offer data")
             val parsed = parseSignalingData(offerJson)
             val callerName = parsed.optString("callerName", "Unknown")
-            val callerAvatar = parsed.optString("callerAvatar", "")
+            val callerAvatar = parsed.optString("callerAvatar", "").takeIf { it != "null" } ?: ""
             val callerIdStr = parsed.optString("callerId", "0")
             val channelIdStr = parsed.optString("channelId", "0")
 
@@ -818,7 +818,7 @@ class CallController @Inject constructor(
         try {
             val parsed = parseSignalingData(jsonData)
             val callerName = parsed.optString("callerName", "Unknown")
-            val callerAvatar = parsed.optString("callerAvatar", "")
+            val callerAvatar = parsed.optString("callerAvatar", "").takeIf { it != "null" } ?: ""
 
             val sdpString = SdpCompressor.sdpPlainTextFromNegotiationJson(parsed)
             if (sdpString.isNullOrEmpty()) {

@@ -66,15 +66,18 @@ class CallAvatarView(
     fun setData(name: String, username: String, avatarUrl: String?) {
         peerName = name
         avatarDrawable.setInfo(0L, username.ifEmpty { name })
-        if (currentAvatarUrl != avatarUrl) {
-            currentAvatarUrl = avatarUrl
+        
+        val actualAvatarUrl = if (avatarUrl == "null") null else avatarUrl
+        
+        if (currentAvatarUrl != actualAvatarUrl) {
+            currentAvatarUrl = actualAvatarUrl
             cancellable?.cancel()
             cancellable = null
-            if (avatarUrl.isNullOrBlank()) {
+            if (actualAvatarUrl.isNullOrBlank()) {
                 avatarDrawable.setLoadingPlaceholder(false)
                 avatarDrawable.setPhoto(null)
             } else if (attachedToWindow) {
-                loadAvatar(avatarUrl)
+                loadAvatar(actualAvatarUrl)
             }
         }
         invalidate()
