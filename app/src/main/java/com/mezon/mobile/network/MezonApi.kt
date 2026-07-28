@@ -29,7 +29,9 @@ import com.mezon.mezon.api.createChannelDescRequest
 import com.mezon.mezon.api.ClanDescList
 import com.mezon.mezon.api.NotificationSetting
 import com.mezon.mezon.api.NotificationUserChannel
+import com.mezon.mezon.api.SetNotificationRequest
 import com.mezon.mezon.api.notificationChannel
+import com.mezon.mezon.api.setNotificationRequest
 import com.mezon.mezon.api.SystemMessage
 import com.mezon.mezon.api.SystemMessageRequest
 import com.mezon.mezon.api.PinMessagesList
@@ -300,6 +302,16 @@ private data class ConfirmLoginGatewayBody(
 
 
 private val CONTENT_TYPE_PROTO = ContentType("application", "proto")
+
+internal fun buildSetNotificationChannelRequest(
+    channelId: Long,
+    clanId: Long,
+    notificationType: Int,
+): SetNotificationRequest = setNotificationRequest {
+    channelCategoryId = channelId
+    this.clanId = clanId
+    this.notificationType = notificationType
+}
 
 @Serializable
 private data class ClanDiscoverGatewayRequest(
@@ -1065,6 +1077,26 @@ class MezonApi @Inject constructor(
             this.notificationType = notificationType
         }
         rpc(apiUrl, token, "SetNotificationClanSetting", request.toByteArray())
+    }
+
+    suspend fun setNotificationChannel(
+        apiUrl: String,
+        token: String,
+        channelId: Long,
+        clanId: Long,
+        notificationType: Int,
+    ) {
+        val request = buildSetNotificationChannelRequest(channelId, clanId, notificationType)
+        rpc(apiUrl, token, "SetNotificationChannelSetting", request.toByteArray())
+    }
+
+    suspend fun deleteNotificationChannel(
+        apiUrl: String,
+        token: String,
+        channelId: Long,
+    ) {
+        val request = notificationChannel { this.channelId = channelId }
+        rpc(apiUrl, token, "DeleteNotificationChannel", request.toByteArray())
     }
 
     suspend fun deleteClanDesc(

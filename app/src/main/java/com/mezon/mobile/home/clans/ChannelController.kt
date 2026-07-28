@@ -51,6 +51,7 @@ private const val TAG = "ChannelController"
 private const val NOTIFICATION_CODE_USER_MENTIONED = -9
 private const val NOTIFICATION_CODE_USER_REPLIED = -11
 private const val MAX_BADGE_CACHE = 500
+private const val CHANNEL_NOTIFICATION_STATE_CACHE_TTL_MS = 30_000L
 
 const val FAVORITE_CATEGORY_ID = -1L
 const val FAVORITE_CATEGORY_NAME = "Favorites"
@@ -59,6 +60,10 @@ const val CHANNEL_MUTE_ACTIVE_INFINITY = -1
 const val SET_MUTE_ACTIVE_UNMUTE = 0
 const val NOTIFICATION_ACTIVE_ON = 1
 const val NOTIFICATION_DEFAULT_SETTING_ID = 0L
+const val CHANNEL_NOTIFICATION_USE_DEFAULT = 0
+const val CHANNEL_NOTIFICATION_ALL_MESSAGES = 1
+const val CHANNEL_NOTIFICATION_MENTIONS_ONLY = 2
+const val CHANNEL_NOTIFICATION_NOTHING = 3
 const val CHANNEL_MUTE_DURATION_15M = 15 * 60
 const val CHANNEL_MUTE_DURATION_1H = 3600
 const val CHANNEL_MUTE_DURATION_3H = 3 * 3600
@@ -73,8 +78,28 @@ fun isMutedFromSetMuteRequest(muteTimeSeconds: Int, active: Int): Boolean {
 }
 
 fun isMutedFromNotificationUserChannel(noti: NotificationUserChannel): Boolean {
-    return isDmMutedFromNotificationSetting(noti)
+    val timeMute = noti.timeMuteSeconds
+    if (timeMute == CHANNEL_MUTE_ACTIVE_INFINITY) return true
+    return timeMute.toLong() > System.currentTimeMillis() / 1000
 }
+
+internal fun resolveLoadedChannelMuted(
+    channelId: Long,
+    mutedChannelIds: Set<Long>?,
+    channelDescriptionMuted: Boolean,
+    cachedMuted: Boolean?,
+): Boolean = if (mutedChannelIds != null) {
+    channelId in mutedChannelIds
+} else {
+    cachedMuted ?: channelDescriptionMuted
+}
+
+fun normalizeChannelNotificationType(type: Int): Int =
+    type.takeIf { it in CHANNEL_NOTIFICATION_USE_DEFAULT..CHANNEL_NOTIFICATION_NOTHING }
+        ?: CHANNEL_NOTIFICATION_USE_DEFAULT
+
+fun channelTypeForClanNotificationDefault(type: Int): Int? =
+    type.takeIf { it in CHANNEL_NOTIFICATION_ALL_MESSAGES..CHANNEL_NOTIFICATION_NOTHING }
 
 fun normalizeDmMuteExpirySeconds(raw: Int): Int {
     if (raw == CHANNEL_MUTE_ACTIVE_INFINITY) return raw
@@ -120,6 +145,9 @@ class ChannelController @Inject constructor(
     private val channelListNetworkFetchInflight = ConcurrentHashMap.newKeySet<Long>()
     private val favoritesByClan = ConcurrentHashMap<Long, MutableSet<Long>>()
     private val mutedChannelIdsByClan = ConcurrentHashMap<Long, MutableSet<Long>>()
+    private val notificationSettingTypesByChannel = ConcurrentHashMap<Long, Int>()
+    private val _notificationSettingTypes = MutableStateFlow<Map<Long, Int>>(emptyMap())
+    val notificationSettingTypes: StateFlow<Map<Long, Int>> = _notificationSettingTypes.asStateFlow()
     private val categoriesByClan = ConcurrentHashMap<Long, List<ClanCategoryItem>>()
     private val sdTopicChannelsById = ConcurrentHashMap<Long, ClanChannelEntity>()
     private val channelAvatarByKey = ConcurrentHashMap<Long, String>()
@@ -139,6 +167,9 @@ class ChannelController @Inject constructor(
         channelListLoading.clear()
         channelListNetworkFetchInflight.clear()
         favoritesByClan.clear()
+        mutedChannelIdsByClan.clear()
+        notificationSettingTypesByChannel.clear()
+        _notificationSettingTypes.value = emptyMap()
         categoriesByClan.clear()
         channelAvatarByKey.clear()
     }
@@ -259,20 +290,32 @@ class ChannelController @Inject constructor(
                         }
                     }
                 }
-                runCatching {
+                val mutedChannelIds = runCatching {
                     val mutedResponse = api.listMutedChannels(session.apiUrl, session.token, clanId)
-                    mutedChannelIdsByClan[clanId] = LinkedHashSet(mutedResponse.mutedListList)
-                }
-                val mutedIds = mutedChannelIdsByClan[clanId].orEmpty()
+                    LinkedHashSet(mutedResponse.mutedListList)
+                }.onSuccess { mutedIds ->
+                    mutedChannelIdsByClan[clanId] = mutedIds
+                }.onFailure { error ->
+                    Log.w(TAG, "Failed to refresh muted channels for clan=$clanId; keeping cached state", error)
+                }.getOrNull()
+                val cachedChannelsById = _channelsByClan.value[clanId]
+                    ?.associateBy { it.channelId }
+                    .orEmpty()
                 for (ch in result.channeldescList) {
                     cacheChannelAvatar(clanId, ch)
                 }
                 val entities = result.channeldescList.map { ch ->
+                    val channelEntity = ch.toClanChannelEntity()
                     withClanIdFromContext(
                         clanId,
-                        ch.toClanChannelEntity().copy(
+                        channelEntity.copy(
                             categoryOrder = resolvedOrderFor(ch.categoryId),
-                            isMuted = mutedIds.contains(ch.channelId),
+                            isMuted = resolveLoadedChannelMuted(
+                                channelId = ch.channelId,
+                                mutedChannelIds = mutedChannelIds,
+                                channelDescriptionMuted = channelEntity.isMuted,
+                                cachedMuted = cachedChannelsById[ch.channelId]?.isMuted,
+                            ),
                         )
                     )
                 }
@@ -782,10 +825,8 @@ class ChannelController @Inject constructor(
         muteTimeSeconds: Int,
         active: Int = 0,
     ): Result<Unit> {
-        val previousMuted = isChannelMuted(clanId, channelId)
         val isMuted = isMutedFromSetMuteRequest(muteTimeSeconds, active)
-        patchChannelMuteLocally(clanId, channelId, isMuted)
-        return runCatching {
+        val result = runCatching {
             sessionManager.withAutoRefresh { session ->
                 withContext(ioDispatcher) {
                     api.setMuteChannel(
@@ -798,13 +839,92 @@ class ChannelController @Inject constructor(
                     )
                 }
             }
-        }.onFailure {
-            patchChannelMuteLocally(clanId, channelId, previousMuted)
         }
+        if (result.isSuccess) {
+            patchChannelMuteLocally(clanId, channelId, isMuted, persistAsync = false)
+            runCatching { persistChannelMute(clanId, channelId) }
+                .onFailure { error ->
+                    Log.w(TAG, "Failed to persist mute state for channel=$channelId", error)
+                }
+        }
+        return result
     }
 
     suspend fun unmuteChannel(clanId: Long, channelId: Long): Result<Unit> =
         setChannelMuted(clanId, channelId, muteTimeSeconds = 0, active = 0)
+
+    fun getCachedChannelNotificationType(channelId: Long): Int =
+        notificationSettingTypesByChannel[channelId] ?: CHANNEL_NOTIFICATION_USE_DEFAULT
+
+    suspend fun getClanDefaultNotificationType(clanId: Long): Result<Int> = runCatching {
+        sessionManager.withAutoRefresh { session ->
+            withContext(ioDispatcher) {
+                api.getClanDefaultNotification(session.apiUrl, session.token, clanId).notificationSettingType
+            }
+        }
+    }
+
+    suspend fun refreshChannelNotificationState(clanId: Long, channelId: Long): Result<Int> {
+        val cacheKey = apiCacheKey("channelNotificationState", channelId)
+        if (
+            cacheTracker.shouldCall(
+                cacheKey,
+                ttlMs = CHANNEL_NOTIFICATION_STATE_CACHE_TTL_MS,
+            ) == ApiCacheTracker.ShouldCall.SKIP
+        ) {
+            return Result.success(getCachedChannelNotificationType(channelId))
+        }
+
+        return runCatching {
+            val notification = sessionManager.withAutoRefresh { session ->
+                withContext(ioDispatcher) {
+                    api.getNotificationChannel(session.apiUrl, session.token, channelId)
+                }
+            }
+            val normalizedType = normalizeChannelNotificationType(notification.notificationSettingType)
+            patchChannelNotificationType(channelId, normalizedType)
+            val resolvedClanId = clanId.takeIf { it != 0L }
+                ?: findChannelById(channelId)?.clanId
+                ?: 0L
+            if (resolvedClanId != 0L) {
+                patchChannelMuteLocally(
+                    resolvedClanId,
+                    channelId,
+                    isMutedFromNotificationUserChannel(notification),
+                )
+            }
+            normalizedType
+        }.onSuccess {
+            cacheTracker.markCalled(cacheKey, ttlMs = CHANNEL_NOTIFICATION_STATE_CACHE_TTL_MS)
+        }
+    }
+
+    suspend fun setChannelNotificationType(
+        clanId: Long,
+        channelId: Long,
+        notificationType: Int,
+    ): Result<Unit> {
+        val normalizedType = normalizeChannelNotificationType(notificationType)
+        return runCatching {
+            sessionManager.withAutoRefresh { session ->
+                withContext(ioDispatcher) {
+                    if (normalizedType == CHANNEL_NOTIFICATION_USE_DEFAULT) {
+                        api.deleteNotificationChannel(session.apiUrl, session.token, channelId)
+                    } else {
+                        api.setNotificationChannel(
+                            session.apiUrl,
+                            session.token,
+                            channelId,
+                            clanId,
+                            normalizedType,
+                        )
+                    }
+                }
+            }
+        }.onSuccess {
+            patchChannelNotificationType(channelId, normalizedType)
+        }
+    }
 
     fun isChannelMuted(clanId: Long, channelId: Long): Boolean {
         mutedChannelIdsByClan[clanId]?.let { if (it.contains(channelId)) return true }
@@ -816,7 +936,12 @@ class ChannelController @Inject constructor(
         return fromApi
     }
 
-    private fun patchChannelMuteLocally(clanId: Long, channelId: Long, isMuted: Boolean) {
+    private fun patchChannelMuteLocally(
+        clanId: Long,
+        channelId: Long,
+        isMuted: Boolean,
+        persistAsync: Boolean = true,
+    ) {
         val mutedSet = mutedChannelIdsByClan.getOrPut(clanId) { LinkedHashSet() }
         if (isMuted) mutedSet.add(channelId) else mutedSet.remove(channelId)
         val existing = _channelsByClan.value[clanId] ?: return
@@ -829,8 +954,20 @@ class ChannelController @Inject constructor(
         if (!changed) return
         updateCache(clanId, updated)
         val entity = updated.firstOrNull { it.channelId == channelId } ?: return
-        appScope.launch(ioDispatcher) { clanChannelDao.upsert(entity) }
+        if (persistAsync) {
+            appScope.launch(ioDispatcher) { clanChannelDao.upsert(entity) }
+        }
         notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
+    }
+
+    private suspend fun persistChannelMute(clanId: Long, channelId: Long) {
+        val entity = findChannelById(channelId, clanId) ?: return
+        withContext(ioDispatcher) { clanChannelDao.upsert(entity) }
+    }
+
+    private fun patchChannelNotificationType(channelId: Long, notificationType: Int) {
+        notificationSettingTypesByChannel[channelId] = normalizeChannelNotificationType(notificationType)
+        _notificationSettingTypes.value = notificationSettingTypesByChannel.toMap()
     }
 
     fun registerSdTopicChannels(topics: List<SdTopicEntity>) {
@@ -1851,6 +1988,7 @@ class ChannelController @Inject constructor(
                 val channelId = noti.channelId
                 if (channelId == 0L) return@collect
                 val channel = findChannelById(channelId) ?: return@collect
+                patchChannelNotificationType(channelId, noti.notificationSettingType)
                 val isMuted = isMutedFromNotificationUserChannel(noti)
                 patchChannelMuteLocally(channel.clanId, channelId, isMuted)
             }

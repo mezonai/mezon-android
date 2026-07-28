@@ -17,8 +17,8 @@ import com.mezon.mobile.ui.cells.MezonIcon
 
 object ClanSettingsUiHelpers {
 
-    private val actionIconDp = 15
-    private val actionIconPaddingDp = 6
+    private const val actionButtonDp = 48
+    private const val actionIconDp = 12
 
     private val menuRowLeadingIconDp = 20
     private val menuRowChevronDp = 18
@@ -37,31 +37,28 @@ object ClanSettingsUiHelpers {
         theme: ThemeColors,
         icon: MezonIcon,
         title: String,
-        onPress: Runnable
+        onPress: Runnable,
+        iconSizeDp: Int = actionIconDp,
     ): LinearLayout {
         val column = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
         }
 
-        val pad = LayoutHelper.dp(actionIconPaddingDp)
         val circle = android.widget.FrameLayout(context).apply {
-            setPadding(pad, pad, pad, pad)
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(theme.channelPanelBg)
+                setColor(theme.border)
                 setStroke(LayoutHelper.dp(1), theme.borderDim)
             }
         }
-        val iconSz = LayoutHelper.dp(actionIconDp)
+        val iconSz = LayoutHelper.dp(iconSizeDp)
         val iconView = ImageView(context).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
-            val d = icon.getDrawable(context)
-            d.colorFilter = PorterDuffColorFilter(theme.textStrong, PorterDuff.Mode.SRC_IN)
-            setImageDrawable(d)
+            setImageDrawable(icon.getDrawable(context))
         }
         circle.addView(iconView, LayoutHelper.createFrame(iconSz, iconSz, Gravity.CENTER))
-        column.addView(circle, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.CENTER_HORIZONTAL))
+        column.addView(circle, LayoutHelper.createLinear(actionButtonDp, actionButtonDp, 0f, Gravity.CENTER_HORIZONTAL))
 
         val label = TextView(context).apply {
             text = title
@@ -129,7 +126,8 @@ object ClanSettingsUiHelpers {
         title: String,
         textColor: Int? = null,
         iconTint: Int? = null,
-        onPress: Runnable
+        onPress: Runnable,
+        keepOriginalIconColors: Boolean = false,
     ): LinearLayout {
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -140,7 +138,10 @@ object ClanSettingsUiHelpers {
         val tint = iconTint ?: theme.textStrong
         val iconIv = ImageView(context).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
-            setImageDrawable(icon.getDrawable(context, tint))
+            setImageDrawable(
+                if (keepOriginalIconColors) icon.getDrawable(context)
+                else icon.getDrawable(context, tint)
+            )
         }
         row.addView(
             iconIv,

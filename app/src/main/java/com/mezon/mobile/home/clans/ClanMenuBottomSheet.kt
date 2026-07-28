@@ -27,7 +27,6 @@ class ClanMenuBottomSheet(
     clanLogo: String?,
     private val isCommunity: Boolean,
     private val totalMemberCount: Int,
-    notificationMuted: Boolean,
     private val permissionState: ClanSettingsPermissionState,
     showEmptyCategories: Boolean,
     private val onShowEmptyCategoriesChanged: (Boolean) -> Unit,
@@ -158,14 +157,15 @@ class ClanMenuBottomSheet(
         val notifyBtn = ClanSettingsUiHelpers.buildHorizontalActionButton(
             context,
             theme,
-            if (notificationMuted) MezonIcon.bellSlashIcon else MezonIcon.bellIcon,
+            MezonIcon.unmuteBellIcon,
             context.getString(R.string.clan_menu_action_notifications),
-            Runnable { showComingSoon() }
+            Runnable { showComingSoon() },
+            iconSizeDp = 9,
         )
         val settingsBtn = ClanSettingsUiHelpers.buildHorizontalActionButton(
             context,
             theme,
-            MezonIcon.settingIcon,
+            MezonIcon.settingClanIcon,
             context.getString(R.string.clan_menu_action_settings),
             Runnable { onOpenClanSettings.run() }
         )
