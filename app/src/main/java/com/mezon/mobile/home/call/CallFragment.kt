@@ -208,6 +208,13 @@ class CallFragment : BaseFragment() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (::callController.isInitialized) {
+            callController.restartCamera()
+        }
+    }
+
     override fun onFragmentDestroy() {
         getParentActivity()?.volumeControlStream = AudioManager.USE_DEFAULT_STREAM_TYPE
         fragmentView?.removeCallbacks(finishAfterBusyRunnable)

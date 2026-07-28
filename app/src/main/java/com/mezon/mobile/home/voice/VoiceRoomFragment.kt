@@ -412,6 +412,23 @@ class VoiceRoomFragment : BaseFragment() {
     override fun onResume() {
         super.onResume()
         applyAgentHeaderUi()
+        
+        // Auto-recover camera if it was evicted by another app in the background
+        val scope = roomScope
+        val localParticipant = room?.localParticipant
+        if (scope != null && localParticipant != null && localParticipant.isCameraEnabled) {
+            scope.launch {
+                val track = localParticipant.getTrackPublication(io.livekit.android.room.track.Track.Source.CAMERA)?.track as? io.livekit.android.room.track.LocalVideoTrack
+                runCatching {
+                    track?.restartTrack()
+                }.onFailure {
+                    runCatching {
+                        localParticipant.setCameraEnabled(false)
+                        localParticipant.setCameraEnabled(true)
+                    }
+                }
+            }
+        }
     }
 
     override fun createView(context: Context): View {

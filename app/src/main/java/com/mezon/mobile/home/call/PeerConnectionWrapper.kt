@@ -433,6 +433,18 @@ class PeerConnectionWrapper(
         localVideoTrack?.setEnabled(enabled)
     }
 
+    fun restartCamera() {
+        val capturer = videoCapturer
+        if (capturer != null && captureStarted) {
+            try {
+                capturer.stopCapture()
+                capturer.startCapture(1280, 720, 30)
+            } catch (e: Exception) {
+                android.util.Log.e(TAG, "restartCamera failed", e)
+            }
+        }
+    }
+
     fun switchCamera() {
         videoCapturer?.switchCamera(object : CameraVideoCapturer.CameraSwitchHandler {
             override fun onCameraSwitchDone(isFrontCamera: Boolean) {
