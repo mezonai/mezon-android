@@ -48,6 +48,7 @@ class VoiceController @Inject constructor(
         private set
     var meetToken: String? = null
         private set
+    var isLocalVideoEnabled: Boolean = false
 
     private val aiAgentEnabled = HashMap<String, Boolean>()
 
@@ -72,6 +73,7 @@ class VoiceController @Inject constructor(
             currentVoiceInfo = null
             isJoined = false
             isConnecting = false
+            isLocalVideoEnabled = false
             meetToken = null
             aiAgentEnabled.clear()
         }

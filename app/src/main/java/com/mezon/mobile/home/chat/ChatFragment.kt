@@ -5351,6 +5351,16 @@ open class ChatFragment : BaseFragment() {
 
     private fun launchCameraPhoto(): Boolean {
         val ctx = getContext() ?: return false
+        
+        if ((callController.isCallSessionActive() && callController.isLocalVideoEnabled) ||
+            (voiceController.isJoined && voiceController.isLocalVideoEnabled)) {
+            com.mezon.mobile.core.AlertDialog.Builder(ctx)
+                .setMessage(getString(R.string.camera_in_use_error))
+                .setPositiveButton(getString(android.R.string.ok), null)
+                .show()
+            return false
+        }
+
         val capture = CameraPhotoCapture.create(ctx)
         if (capture == null) {
             MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.camera_not_available))
