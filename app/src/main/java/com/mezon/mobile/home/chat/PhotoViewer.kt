@@ -910,18 +910,11 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
 
     private fun downloadUrl(url: String) {
         entryPoint.applicationScope().launch(entryPoint.ioDispatcher()) {
-            try {
-                val filename = url.substringAfterLast('/').substringBefore('?').ifEmpty { "download.jpg" }
-                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                downloadsDir.mkdirs()
-                val destFile = java.io.File(downloadsDir, filename)
-                downloadToFile(url, destFile)
-                android.media.MediaScannerConnection.scanFile(context, arrayOf(destFile.absolutePath), null, null)
-                withContext(entryPoint.mainDispatcher()) {
+            val success = com.mezon.mobile.util.FileUtils.downloadMediaToGallery(context, url)
+            withContext(entryPoint.mainDispatcher()) {
+                if (success) {
                     showToast(ToastOverlay.ToastType.SUCCESS, R.string.message_toast_save_success)
-                }
-            } catch (e: Exception) {
-                withContext(entryPoint.mainDispatcher()) {
+                } else {
                     showToast(ToastOverlay.ToastType.ERROR, R.string.message_toast_save_failed)
                 }
             }

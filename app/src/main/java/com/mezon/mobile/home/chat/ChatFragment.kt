@@ -6921,29 +6921,11 @@ open class ChatFragment : BaseFragment() {
                 }
 
                 appScope.launch(ioDispatcher) {
-                    try {
-                        val filename = url.substringAfterLast('/').substringBefore('?').ifEmpty { "download.jpg" }
-                        val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
-                        downloadsDir.mkdirs()
-                        val destFile = java.io.File(downloadsDir, filename)
-                        
-                        val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
-                        conn.connect()
-                        if (conn.responseCode !in 200..299) {
-                            throw Exception("HTTP Error: ${conn.responseCode}")
-                        }
-                        conn.inputStream.use { input ->
-                            java.io.FileOutputStream(destFile).use { output ->
-                                input.copyTo(output)
-                            }
-                        }
-                        
-                        android.media.MediaScannerConnection.scanFile(ctx.applicationContext, arrayOf(destFile.absolutePath), null, null)
-                        withContext(Dispatchers.Main) {
+                    val success = com.mezon.mobile.util.FileUtils.downloadMediaToGallery(ctx, url)
+                    withContext(Dispatchers.Main) {
+                        if (success) {
                             MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.SUCCESS, getString(R.string.message_toast_save_success))
-                        }
-                    } catch (e: Exception) {
-                        withContext(Dispatchers.Main) {
+                        } else {
                             MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.ERROR, getString(R.string.message_toast_save_failed))
                         }
                     }
