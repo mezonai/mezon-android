@@ -6912,8 +6912,42 @@ open class ChatFragment : BaseFragment() {
                 MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.feature_coming_soon))
             }
             MessageActionBottomSheet.ActionType.SaveMedia -> {
-                getContext() ?: return
-                MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.feature_coming_soon))
+                val ctx = getContext() ?: return
+                val url = msg.allImageAttachments.firstOrNull()?.url?.takeIf { it.isNotBlank() }
+                    ?: msg.attachmentUrl.takeIf { it.isNotBlank() }
+                if (url.isNullOrEmpty()) {
+                    MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.message_toast_save_failed))
+                    return
+                }
+
+                appScope.launch(ioDispatcher) {
+                    try {
+                        val filename = url.substringAfterLast('/').substringBefore('?').ifEmpty { "download.jpg" }
+                        val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+                        downloadsDir.mkdirs()
+                        val destFile = java.io.File(downloadsDir, filename)
+                        
+                        val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+                        conn.connect()
+                        if (conn.responseCode !in 200..299) {
+                            throw Exception("HTTP Error: ${conn.responseCode}")
+                        }
+                        conn.inputStream.use { input ->
+                            java.io.FileOutputStream(destFile).use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+                        
+                        android.media.MediaScannerConnection.scanFile(ctx.applicationContext, arrayOf(destFile.absolutePath), null, null)
+                        withContext(Dispatchers.Main) {
+                            MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.SUCCESS, getString(R.string.message_toast_save_success))
+                        }
+                    } catch (e: Exception) {
+                        withContext(Dispatchers.Main) {
+                            MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.ERROR, getString(R.string.message_toast_save_failed))
+                        }
+                    }
+                }
             }
             MessageActionBottomSheet.ActionType.CopyMediaLink -> {
                 val url = msg.attachmentUrl
