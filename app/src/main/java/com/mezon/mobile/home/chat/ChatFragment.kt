@@ -6922,8 +6922,24 @@ open class ChatFragment : BaseFragment() {
                 MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.feature_coming_soon))
             }
             MessageActionBottomSheet.ActionType.SaveMedia -> {
-                getContext() ?: return
-                MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.feature_coming_soon))
+                val ctx = getContext() ?: return
+                val url = msg.allImageAttachments.firstOrNull()?.url?.takeIf { it.isNotBlank() }
+                    ?: msg.attachmentUrl.takeIf { it.isNotBlank() }
+                if (url.isNullOrEmpty()) {
+                    MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.message_toast_save_failed))
+                    return
+                }
+
+                appScope.launch(ioDispatcher) {
+                    val success = com.mezon.mobile.util.FileUtils.downloadMediaToGallery(ctx, url)
+                    withContext(Dispatchers.Main) {
+                        if (success) {
+                            MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.SUCCESS, getString(R.string.message_toast_save_success))
+                        } else {
+                            MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.ERROR, getString(R.string.message_toast_save_failed))
+                        }
+                    }
+                }
             }
             MessageActionBottomSheet.ActionType.CopyMediaLink -> {
                 val url = msg.attachmentUrl

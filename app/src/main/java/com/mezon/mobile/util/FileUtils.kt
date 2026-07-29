@@ -11,6 +11,31 @@ class ContentUriTooLargeException(val maxAllowedBytes: Int) : RuntimeException()
 
 object FileUtils {
 
+    suspend fun downloadMediaToGallery(context: android.content.Context, url: String): Boolean = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        try {
+            val filename = url.substringAfterLast('/').substringBefore('?').ifEmpty { "download.jpg" }
+            val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+            downloadsDir.mkdirs()
+            val destFile = java.io.File(downloadsDir, filename)
+            
+            val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+            conn.connect()
+            if (conn.responseCode !in 200..299) {
+                return@withContext false
+            }
+            conn.inputStream.use { input ->
+                java.io.FileOutputStream(destFile).use { output ->
+                    input.copyTo(output)
+                }
+            }
+            
+            android.media.MediaScannerConnection.scanFile(context.applicationContext, arrayOf(destFile.absolutePath), null, null)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     private const val STREAM_READ_CHUNK_BYTES = 8192
 
 
