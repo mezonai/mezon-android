@@ -152,6 +152,8 @@ class CreateThreadFragment : BaseFragment() {
     private var useTopicFlow = false
 
     private lateinit var chatController: ChatController
+    private lateinit var callController: com.mezon.mobile.home.call.CallController
+    private lateinit var voiceController: com.mezon.mobile.home.voice.VoiceController
     private lateinit var topicController: TopicController
     private lateinit var channelController: ChannelController
     private lateinit var sessionManager: SessionManager
@@ -273,6 +275,8 @@ class CreateThreadFragment : BaseFragment() {
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
         chatController = entryPoint.chatController()
+        callController = entryPoint.callController()
+        voiceController = entryPoint.voiceController()
         topicController = entryPoint.topicController()
         channelController = entryPoint.channelController()
         sessionManager = entryPoint.sessionManager()
@@ -1188,6 +1192,16 @@ class CreateThreadFragment : BaseFragment() {
 
     private fun launchCameraPhoto(): Boolean {
         val ctx = getContext() ?: return false
+        
+        if ((callController.isCallSessionActive() && callController.isLocalVideoEnabled) ||
+            (voiceController.isJoined && voiceController.isLocalVideoEnabled)) {
+            com.mezon.mobile.core.AlertDialog.Builder(ctx)
+                .setMessage(getString(R.string.camera_in_use_error))
+                .setPositiveButton(getString(android.R.string.ok), null)
+                .show()
+            return false
+        }
+
         val capture = CameraPhotoCapture.create(ctx)
         if (capture == null) {
             MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.camera_not_available))

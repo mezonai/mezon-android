@@ -635,6 +635,12 @@ class CallController @Inject constructor(
         notificationCenter.postNotificationOnMainThread(NotificationCenter.callMediaChanged)
     }
 
+    fun restartCamera() {
+        if (isLocalVideoEnabled) {
+            peerConnection?.restartCamera()
+        }
+    }
+
     fun toggleSpeaker() {
         isSpeakerOn = !isSpeakerOn
         if (isSpeakerOn) {

@@ -411,15 +411,38 @@ class PeerConnectionWrapper(
 
     fun setLocalVideoEnabled(enabled: Boolean) {
         val capturer = videoCapturer
-        if (capturer != null && enabled && !captureStarted) {
-            try {
-                capturer.startCapture(1280, 720, 30)
-                captureStarted = true
-            } catch (e: Exception) {
-                android.util.Log.e(TAG, "startCapture failed", e)
+        if (enabled) {
+            if (capturer != null && !captureStarted) {
+                try {
+                    capturer.startCapture(1280, 720, 30)
+                    captureStarted = true
+                } catch (e: Exception) {
+                    android.util.Log.e(TAG, "startCapture failed", e)
+                }
+            }
+        } else {
+            if (capturer != null && captureStarted) {
+                try {
+                    capturer.stopCapture()
+                    captureStarted = false
+                } catch (e: Exception) {
+                    android.util.Log.e(TAG, "stopCapture failed", e)
+                }
             }
         }
         localVideoTrack?.setEnabled(enabled)
+    }
+
+    fun restartCamera() {
+        val capturer = videoCapturer
+        if (capturer != null && captureStarted) {
+            try {
+                capturer.stopCapture()
+                capturer.startCapture(1280, 720, 30)
+            } catch (e: Exception) {
+                android.util.Log.e(TAG, "restartCamera failed", e)
+            }
+        }
     }
 
     fun switchCamera() {

@@ -87,6 +87,7 @@
     <string name="qr_login_require_mobile_session">Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại để xác nhận đăng nhập QR.</string>
     <string name="qr_camera_denied_title">Không có quyền camera</string>
     <string name="camera_not_available">Không tìm thấy ứng dụng camera.</string>
+    <string name="camera_in_use_error">Camera hiện không hoạt động. Hãy đóng mọi ứng dụng camera khác mà bạn đang chạy.</string>
     <string name="camera_capture_failed">Không thể sử dụng ảnh này. Vui lòng thử lại.</string>
     <string name="camera_photo_preview">Xem trước ảnh vừa chụp</string>
     <string name="camera_retake">Chụp lại</string>

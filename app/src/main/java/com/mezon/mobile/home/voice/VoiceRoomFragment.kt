@@ -412,6 +412,23 @@ class VoiceRoomFragment : BaseFragment() {
     override fun onResume() {
         super.onResume()
         applyAgentHeaderUi()
+        
+        // Auto-recover camera if it was evicted by another app in the background
+        val scope = roomScope
+        val localParticipant = room?.localParticipant
+        if (scope != null && localParticipant != null && localParticipant.isCameraEnabled) {
+            scope.launch {
+                val track = localParticipant.getTrackPublication(io.livekit.android.room.track.Track.Source.CAMERA)?.track as? io.livekit.android.room.track.LocalVideoTrack
+                runCatching {
+                    track?.restartTrack()
+                }.onFailure {
+                    runCatching {
+                        localParticipant.setCameraEnabled(false)
+                        localParticipant.setCameraEnabled(true)
+                    }
+                }
+            }
+        }
     }
 
     override fun createView(context: Context): View {
@@ -578,6 +595,7 @@ class VoiceRoomFragment : BaseFragment() {
                 } else {
                     roomScope?.launch {
                         runCatching { room?.localParticipant?.setCameraEnabled(false) }
+                        voiceController.isLocalVideoEnabled = false
                         headerView.setSwitchCameraVisible(false)
                         doUpdateParticipantList()
                     }
@@ -839,11 +857,13 @@ class VoiceRoomFragment : BaseFragment() {
             runCatching { participant.setCameraEnabled(true) }
                 .onSuccess {
                     localCameraFacing = CameraPosition.FRONT
+                    voiceController.isLocalVideoEnabled = true
                     if (::headerView.isInitialized) headerView.setSwitchCameraVisible(true)
                     doUpdateParticipantList()
                 }
                 .onFailure { e ->
                     Log.e(TAG, "setCameraEnabled(true) failed", e)
+                    voiceController.isLocalVideoEnabled = false
                     if (::controlBar.isInitialized) controlBar.setCameraEnabled(false)
                 }
         }
@@ -898,6 +918,7 @@ class VoiceRoomFragment : BaseFragment() {
                     .onFailure { Log.w(TAG, "setMicrophoneEnabled(false) failed (likely no permission)", it) }
                 runCatching { room!!.localParticipant.setCameraEnabled(false) }
                     .onFailure { Log.w(TAG, "setCameraEnabled(false) failed (likely no permission)", it) }
+                voiceController.isLocalVideoEnabled = false
                 headerView.setSwitchCameraVisible(false)
 
                 Log.d(TAG, "Local participant: identity=${room!!.localParticipant.identity?.value} name=${room!!.localParticipant.name}")

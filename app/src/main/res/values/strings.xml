@@ -1183,6 +1183,7 @@
     <string name="permission_no_storage">Mezon needs access to your storage to send and save media. Please go to Settings and enable the permission.</string>
     <string name="permission_no_camera">Mezon needs access to your camera. Please go to Settings and enable the permission.</string>
     <string name="camera_not_available">No camera app is available.</string>
+    <string name="camera_in_use_error">Camera is currently in use. Please close any other camera apps you are running.</string>
     <string name="camera_capture_failed">Couldn\'t use this photo. Please try again.</string>
     <string name="camera_photo_preview">Captured photo preview</string>
     <string name="camera_retake">Retake</string>
