@@ -6,6 +6,7 @@ import android.graphics.drawable.GradientDrawable
 import android.media.AudioManager
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.widget.FrameLayout
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AndroidUtilities
@@ -35,6 +36,8 @@ class CallFragment : BaseFragment() {
     private var localPipView: LocalCallVideoPip? = null
     private var controlBar: CallControlBar? = null
     private var durationView: CallDurationView? = null
+    private var durationOnVideo: Boolean? = null
+    private var rootContainer: FrameLayout? = null
     private var contentContainer: FrameLayout? = null
     private var dmHeader: DmCallHeaderView? = null
     private var lastConnectedMainVideoMode: Boolean? = null
@@ -61,6 +64,8 @@ class CallFragment : BaseFragment() {
         val root = FrameLayout(context).apply {
             background = gradientBg
         }
+        rootContainer = root
+        durationOnVideo = null
 
         val statusBarSpacer = View(context)
         root.addView(statusBarSpacer, LayoutHelper.createFrame(
@@ -105,10 +110,6 @@ class CallFragment : BaseFragment() {
 
         durationView = CallDurationView(context, themeColors)
         durationView!!.visibility = View.GONE
-        root.addView(durationView, LayoutHelper.createFrame(
-            LayoutHelper.MATCH_PARENT, 28,
-            Gravity.TOP, 0f, topContentDp, 0f, 0f
-        ))
 
         controlBar = CallControlBar(context, themeColors).apply {
             delegate = object : CallControlBar.Delegate {
@@ -427,14 +428,21 @@ class CallFragment : BaseFragment() {
 
     private fun updateDurationPosition(onVideo: Boolean) {
         val view = durationView ?: return
-        val lp = view.layoutParams as? FrameLayout.LayoutParams ?: return
-        val statusBarDp = AndroidUtilities.statusBarHeight / AndroidUtilities.density
-        lp.topMargin = if (onVideo) {
-            LayoutHelper.dp(statusBarDp)
+        if (durationOnVideo == onVideo && view.parent != null) return
+        durationOnVideo = onVideo
+        (view.parent as? ViewGroup)?.removeView(view)
+        view.setShadowEnabled(onVideo)
+        if (onVideo) {
+            rootContainer?.addView(view, LayoutHelper.createFrame(
+                LayoutHelper.MATCH_PARENT, 28,
+                Gravity.BOTTOM, 0f, 0f, 0f, 118f
+            ))
         } else {
-            LayoutHelper.dp(statusBarDp + 56f)
+            contentContainer?.addView(view, LayoutHelper.createFrame(
+                LayoutHelper.MATCH_PARENT, 28,
+                Gravity.CENTER, 0f, 76f, 0f, 0f
+            ))
         }
-        view.layoutParams = lp
     }
 
     private fun showAvatarView(callInfo: CallInfo?) {

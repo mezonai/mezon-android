@@ -3647,9 +3647,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             drawVideoPlayButton(canvas, imgX, imgY, w, h)
             durationLayout?.let { drawDurationBadge(canvas, it, imgX, imgY) }
         }
-        if (msg.messageType == MessageEntity.TYPE_GIF) {
-            drawGifBadge(canvas, imgX, imgY)
-        }
     }
 
     private fun drawVideoPlaceholder(canvas: Canvas, x: Float, y: Float, w: Float, h: Float, radius: Float) {
@@ -3700,20 +3697,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         playTriPath.lineTo(left, cy + triSize * 0.5f)
         playTriPath.close()
         canvas.drawPath(playTriPath, PLAY_ICON_PAINT)
-    }
-
-    private fun drawGifBadge(canvas: Canvas, imgX: Float, imgY: Float) {
-        val text = "GIF"
-        val tw = GIF_BADGE_PAINT.measureText(text)
-        val pad = BADGE_PAD
-        val bh = GIF_BADGE_PAINT.textSize + pad
-        val bw = tw + pad * 2
-        val bx = imgX + BADGE_MARGIN
-        val by = imgY + photoHeight - bh - BADGE_MARGIN
-
-        tmpRect.set(bx, by, bx + bw, by + bh)
-        canvas.drawRoundRect(tmpRect, bh / 2, bh / 2, DURATION_BG_PAINT)
-        canvas.drawText(text, bx + pad, by + bh - pad / 2, GIF_BADGE_PAINT)
     }
 
     private fun drawDurationBadge(canvas: Canvas, layout: StaticLayout, imgX: Float, imgY: Float) {
@@ -4938,12 +4921,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         private val DURATION_PAINT = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = 0xFFFFFFFF.toInt()
             textSize = LayoutHelper.dpf(12f)
-        }
-
-        private val GIF_BADGE_PAINT = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = 0xFFFFFFFF.toInt()
-            textSize = LayoutHelper.dpf(12f)
-            isFakeBoldText = true
         }
 
         private val FORWARD_PAINT = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {

@@ -631,6 +631,10 @@ class CallController @Inject constructor(
         }
         isLocalVideoEnabled = next
         peerConnection?.setLocalVideoEnabled(isLocalVideoEnabled)
+        if (next && !isSpeakerOn && callAudioManager?.hasExternalAudioDevice() != true) {
+            isSpeakerOn = true
+            callAudioManager?.setSpeaker()
+        }
         sendMediaStatus()
         notificationCenter.postNotificationOnMainThread(NotificationCenter.callMediaChanged)
     }
@@ -1087,6 +1091,15 @@ class CallController @Inject constructor(
         callAudioManager?.stopTone()
         telecomBridge.markActive()
         sendMediaStatus()
+        run {
+            val pc = peerConnection
+            listOf(1000L, 3000L, 6000L).forEach { d ->
+                appScope.launch(Dispatchers.Main) {
+                    delay(d)
+                    pc?.dumpSendDiagnostics()
+                }
+            }
+        }
         scheduleRemoteVideoRevealRefreshIfNeeded()
         pushCancelCallOnConnected(callInfo)
         notificationCenter.postNotificationOnMainThread(NotificationCenter.callStateChanged, callState)

@@ -41,6 +41,17 @@ class CallDurationView(
         invalidate()
     }
 
+    fun setShadowEnabled(enabled: Boolean) {
+        if (enabled) {
+            textPaint.setShadowLayer(
+                LayoutHelper.dpf(2f), 0f, LayoutHelper.dpf(1f), 0x99000000.toInt()
+            )
+        } else {
+            textPaint.clearShadowLayer()
+        }
+        invalidate()
+    }
+
     fun startTimer(connectedTime: Long) {
         handler.removeCallbacks(tickRunnable)
         startTime = connectedTime
