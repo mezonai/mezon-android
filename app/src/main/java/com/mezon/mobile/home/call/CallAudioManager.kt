@@ -106,10 +106,14 @@ class CallAudioManager(context: Context) {
         switchStarted = true
     }
 
-    private fun applyInitialRoute(isVideo: Boolean) {
-        val hasHeadset = audioSwitch.availableAudioDevices.any {
+    fun hasExternalAudioDevice(): Boolean {
+        return audioSwitch.availableAudioDevices.any {
             it is AudioDevice.BluetoothHeadset || it is AudioDevice.WiredHeadset
         }
+    }
+
+    private fun applyInitialRoute(isVideo: Boolean) {
+        val hasHeadset = hasExternalAudioDevice()
         when {
             isVideo -> setSpeaker()
             hasHeadset -> {

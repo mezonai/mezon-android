@@ -171,6 +171,7 @@ class PeerConnectionWrapper(
             override fun onCreateSuccess(sdp: SessionDescription?) {
                 sdp?.let { offer ->
                     val preferredSdp = preferVp8Codec(offer)
+                    android.util.Log.d(TAG, "DIAG_OFFER_SDP:\n${preferredSdp.description}")
                     peerConnection?.setLocalDescription(SimpleSdpObserver(), preferredSdp)
                     mainHandler.post { callback(preferredSdp) }
                 }
@@ -377,6 +378,7 @@ class PeerConnectionWrapper(
     fun hasLocalVideoTrack(): Boolean = localVideoTrack != null
 
     fun handleRemoteAnswer(sdp: SessionDescription) {
+        android.util.Log.d(TAG, "DIAG_ANSWER_SDP:\n${sdp.description}")
         peerConnection?.setRemoteDescription(object : SimpleSdpObserver() {
             override fun onSetSuccess() {
                 remoteDescriptionSet = true
@@ -407,6 +409,38 @@ class PeerConnectionWrapper(
 
     fun setLocalAudioEnabled(enabled: Boolean) {
         localAudioTrack?.setEnabled(enabled)
+    }
+
+    fun dumpSendDiagnostics() {
+        val pc = peerConnection ?: run {
+            android.util.Log.d(TAG, "DIAG_SEND: no peerConnection")
+            return
+        }
+        android.util.Log.d(TAG, "DIAG_SEND: localAudioTrack=${localAudioTrack?.id()} enabled=${localAudioTrack?.enabled()} state=${localAudioTrack?.state()}")
+        try {
+            pc.senders.forEach { sender ->
+                val t = sender.track()
+                android.util.Log.d(TAG, "DIAG_SENDER kind=${t?.kind()} id=${t?.id()} enabled=${t?.enabled()} state=${t?.state()}")
+            }
+            pc.transceivers.forEach { tr ->
+                android.util.Log.d(TAG, "DIAG_TRANSCEIVER mediaType=${tr.mediaType} mid=${tr.mid} direction=${tr.direction} currentDirection=${tr.currentDirection}")
+            }
+        } catch (e: Exception) {
+            android.util.Log.w(TAG, "DIAG_SEND senders/transceivers failed", e)
+        }
+        pc.getStats { report ->
+            report.statsMap.values.forEach { s ->
+                val kind = s.members["kind"]
+                when (s.type) {
+                    "outbound-rtp" -> if (kind == "audio") {
+                        android.util.Log.d(TAG, "DIAG_OUTBOUND_AUDIO bytesSent=${s.members["bytesSent"]} packetsSent=${s.members["packetsSent"]}")
+                    }
+                    "media-source" -> if (kind == "audio") {
+                        android.util.Log.d(TAG, "DIAG_AUDIO_SOURCE audioLevel=${s.members["audioLevel"]} totalAudioEnergy=${s.members["totalAudioEnergy"]}")
+                    }
+                }
+            }
+        }
     }
 
     fun setLocalVideoEnabled(enabled: Boolean) {

@@ -16,6 +16,7 @@ import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -69,6 +70,7 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
     private var connectedLocalPip: LocalCallVideoPip? = null
     private var connectedControlBar: CallControlBar? = null
     private var connectedDurationView: CallDurationView? = null
+    private var connectedDurationOnVideo: Boolean? = null
     private var lastConnectedMainVideoMode: Boolean? = null
 
     private var pendingConnectedVideoAfterCameraGrant = false
@@ -783,10 +785,7 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
 
         connectedDurationView = CallDurationView(this, tc)
         connectedDurationView!!.visibility = View.VISIBLE
-        root.addView(connectedDurationView, LayoutHelper.createFrame(
-            LayoutHelper.MATCH_PARENT, 28,
-            Gravity.TOP, 0f, topContentDp, 0f, 0f
-        ))
+        connectedDurationOnVideo = null
 
         connectedControlBar = CallControlBar(this, tc).apply {
             delegate = object : CallControlBar.Delegate {
@@ -987,14 +986,21 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
 
     private fun updateConnectedDurationPosition(onVideo: Boolean) {
         val view = connectedDurationView ?: return
-        val lp = view.layoutParams as? FrameLayout.LayoutParams ?: return
-        val statusBarDp = AndroidUtilities.statusBarHeight / AndroidUtilities.density
-        lp.topMargin = if (onVideo) {
-            LayoutHelper.dp(statusBarDp)
+        if (connectedDurationOnVideo == onVideo && view.parent != null) return
+        connectedDurationOnVideo = onVideo
+        (view.parent as? ViewGroup)?.removeView(view)
+        view.setShadowEnabled(onVideo)
+        if (onVideo) {
+            connectedRoot?.addView(view, LayoutHelper.createFrame(
+                LayoutHelper.MATCH_PARENT, 28,
+                Gravity.BOTTOM, 0f, 0f, 0f, 118f
+            ))
         } else {
-            LayoutHelper.dp(statusBarDp + 56f)
+            connectedContentContainer?.addView(view, LayoutHelper.createFrame(
+                LayoutHelper.MATCH_PARENT, 28,
+                Gravity.CENTER, 0f, 76f, 0f, 0f
+            ))
         }
-        view.layoutParams = lp
     }
 
     private fun declineCall() {
