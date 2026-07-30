@@ -8,9 +8,9 @@ import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.network.ApiCacheTracker
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.network.SocketEventDispatcher
-import com.mezon.mobile.network.TenorApi
-import com.mezon.mobile.network.TenorCategory
-import com.mezon.mobile.network.TenorGif
+import com.mezon.mobile.network.KlipyApi
+import com.mezon.mobile.network.KlipyCategory
+import com.mezon.mobile.network.KlipyGif
 import com.mezon.mobile.session.SessionManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -69,9 +69,9 @@ val PREDEFINED_CATEGORIES = listOf(
 @Singleton
 class EmojiController @Inject constructor(
     private val api: MezonApi,
-    private val tenorApi: TenorApi,
+    private val klipyApi: KlipyApi,
     private val dispatcher: SocketEventDispatcher,
-    private val notificationCenter: NotificationCenter,
+    val notificationCenter: NotificationCenter,
     private val sessionManager: SessionManager,
     private val cacheTracker: ApiCacheTracker,
     @ApplicationScope private val appScope: CoroutineScope,
@@ -82,9 +82,9 @@ class EmojiController @Inject constructor(
     val stickers = ArrayList<StickerItem>()
     val stickersDict = HashMap<String, StickerItem>()
 
-    val gifCategories = ArrayList<TenorCategory>()
-    val featuredGifs = ArrayList<TenorGif>()
-    val searchGifResults = ArrayList<TenorGif>()
+    val gifCategories = ArrayList<KlipyCategory>()
+    val featuredGifs = ArrayList<KlipyGif>()
+    val searchGifResults = ArrayList<KlipyGif>()
 
     @Volatile
     private var emojisLoaded = false
@@ -93,6 +93,11 @@ class EmojiController @Inject constructor(
 
     private var emojiLoadJob: Job? = null
     private var emojiLoadSerial = 0
+
+    private var searchGifsJob: Job? = null
+    private var searchGifsSerial = 0
+    private var searchGifsIsTrending = false
+    private var searchGifsQuery = ""
 
     init {
         appScope.launch { observeEmojiEvents() }
@@ -238,36 +243,87 @@ class EmojiController @Inject constructor(
             }
         }
     }
+    @Volatile
+    var gifCategoriesLoaded = false
+    @Volatile
+    var featuredGifsLoaded = false
 
     fun loadGifCategories() {
+        if (gifCategoriesLoaded) return
         appScope.launch(ioDispatcher) {
-            val cats = tenorApi.fetchCategories(BuildConfig.TENOR_API_KEY)
+            val cats = klipyApi.fetchCategories(BuildConfig.KLIPY_API_URL, BuildConfig.KLIPY_API_KEY)
             synchronized(this@EmojiController) {
+                val existingTrending = gifCategories.find { it.isTrending }
+                val trendingImg = existingTrending?.imageUrl ?: featuredGifs.firstOrNull()?.thumbnailUrl ?: ""
                 gifCategories.clear()
+                gifCategories.add(KlipyCategory("trending_synthetic", "trending_synthetic", trendingImg, isTrending = true))
                 gifCategories.addAll(cats)
             }
+            gifCategoriesLoaded = true
             notificationCenter.postNotificationOnMainThread(NotificationCenter.gifsNeedReload)
         }
     }
 
     fun loadFeaturedGifs() {
+        if (featuredGifsLoaded) return
         appScope.launch(ioDispatcher) {
-            val gifs = tenorApi.fetchFeatured(BuildConfig.TENOR_API_KEY)
+            val gifs = klipyApi.fetchTrending(BuildConfig.KLIPY_API_URL, BuildConfig.KLIPY_API_KEY)
             synchronized(this@EmojiController) {
                 featuredGifs.clear()
                 featuredGifs.addAll(gifs)
+                val trendingCatIndex = gifCategories.indexOfFirst { it.isTrending }
+                if (trendingCatIndex >= 0 && gifs.isNotEmpty()) {
+                    gifCategories[trendingCatIndex] = KlipyCategory("trending_synthetic", "trending_synthetic", gifs.first().thumbnailUrl, isTrending = true)
+                }
             }
+            featuredGifsLoaded = true
             notificationCenter.postNotificationOnMainThread(NotificationCenter.gifsNeedReload)
         }
     }
 
-    fun searchGifs(query: String) {
-        appScope.launch(ioDispatcher) {
-            val gifs = tenorApi.searchGifs(BuildConfig.TENOR_API_KEY, query)
+    @Volatile
+    var isSearchingGifs: Boolean = false
+
+    fun searchGifs(query: String, isTrending: Boolean = false) {
+        if (query == searchGifsQuery && isTrending == this.searchGifsIsTrending) {
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.gifsNeedReload)
+            return
+        }
+        searchGifsQuery = query
+        this.searchGifsIsTrending = isTrending
+        
+        if (isTrending) {
+            val hasFeatured = synchronized(this@EmojiController) { featuredGifs.isNotEmpty() }
+            if (hasFeatured) {
+                synchronized(this@EmojiController) {
+                    searchGifResults.clear()
+                    searchGifResults.addAll(featuredGifs)
+                }
+                notificationCenter.postNotificationOnMainThread(NotificationCenter.gifsNeedReload)
+                return
+            }
+        }
+
+        val serial = synchronized(this@EmojiController) {
+            searchGifResults.clear()
+            ++searchGifsSerial
+        }
+        searchGifsJob?.cancel()
+        isSearchingGifs = true
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.gifsNeedReload)
+        searchGifsJob = appScope.launch(ioDispatcher) {
+            val gifs = if (isTrending) {
+                klipyApi.fetchTrending(BuildConfig.KLIPY_API_URL, BuildConfig.KLIPY_API_KEY)
+            } else {
+                klipyApi.searchGifs(BuildConfig.KLIPY_API_URL, BuildConfig.KLIPY_API_KEY, query)
+            }
             synchronized(this@EmojiController) {
+                if (serial != searchGifsSerial) return@synchronized
                 searchGifResults.clear()
                 searchGifResults.addAll(gifs)
             }
+            if (serial != searchGifsSerial) return@launch
+            isSearchingGifs = false
             notificationCenter.postNotificationOnMainThread(NotificationCenter.gifsNeedReload)
         }
     }
@@ -281,7 +337,9 @@ class EmojiController @Inject constructor(
 
     fun invalidateStickerCacheAndReload() {
         cacheTracker.invalidate("stickers_by_user")
-        synchronized(this) { stickersLoaded = false }
+        synchronized(this) { 
+            stickersLoaded = false 
+        }
         loadStickers()
     }
 
@@ -315,9 +373,14 @@ class EmojiController @Inject constructor(
     }
 
     fun cleanup() {
-        synchronized(this) { ++emojiLoadSerial }
+        synchronized(this) { 
+            ++emojiLoadSerial 
+            ++searchGifsSerial
+        }
         emojiLoadJob?.cancel()
         emojiLoadJob = null
+        searchGifsJob?.cancel()
+        searchGifsJob = null
         synchronized(this) {
             emojis.clear()
             emojisDict.clear()
@@ -329,5 +392,7 @@ class EmojiController @Inject constructor(
         }
         emojisLoaded = false
         stickersLoaded = false
+        gifCategoriesLoaded = false
+        featuredGifsLoaded = false
     }
 }

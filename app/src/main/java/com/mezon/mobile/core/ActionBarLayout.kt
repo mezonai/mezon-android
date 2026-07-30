@@ -22,8 +22,6 @@ import android.view.Window
 import android.view.animation.DecelerateInterpolator
 import android.widget.FrameLayout
 import android.view.KeyEvent
-import android.window.OnBackInvokedCallback
-import android.window.OnBackInvokedDispatcher
 import com.mezon.mobile.core.AndroidUtilities
 
 class ActionBarLayout(context: Context, private val activity: Activity) :
@@ -212,8 +210,6 @@ class ActionBarLayout(context: Context, private val activity: Activity) :
     private var velocityTracker: VelocityTracker? = null
     private var backAnimator: ValueAnimator? = null
 
-    private var onBackInvokedCallback: Any? = null
-
     private var headerShadowDrawable: Drawable? = null
 
     private var waitingForKeyboardCloseRunnable: Runnable? = null
@@ -244,26 +240,6 @@ class ActionBarLayout(context: Context, private val activity: Activity) :
             intArrayOf(0x1A000000, 0x00000000)
         ).apply { setSize(0, AndroidUtilities.getShadowHeight()) }
 
-        registerBackCallback()
-    }
-
-    private fun registerBackCallback() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val callback = OnBackInvokedCallback { onBackPressed() }
-            onBackInvokedCallback = callback
-            activity.onBackInvokedDispatcher.registerOnBackInvokedCallback(
-                OnBackInvokedDispatcher.PRIORITY_DEFAULT, callback
-            )
-        }
-    }
-
-    fun unregisterBackCallback() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            (onBackInvokedCallback as? OnBackInvokedCallback)?.let {
-                activity.onBackInvokedDispatcher.unregisterOnBackInvokedCallback(it)
-            }
-            onBackInvokedCallback = null
-        }
     }
 
     fun setDependencies(themeColors: ThemeColors, notificationCenter: NotificationCenter) {
@@ -420,7 +396,6 @@ class ActionBarLayout(context: Context, private val activity: Activity) :
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
-        unregisterBackCallback()
         waitingForKeyboardCloseRunnable?.let { AndroidUtilities.cancelRunOnUIThread(it) }
         waitingForKeyboardCloseRunnable = null
     }
@@ -476,7 +451,7 @@ class ActionBarLayout(context: Context, private val activity: Activity) :
     fun onBackPressedInternal(): Boolean {
         if (startedTracking || checkTransitionAnimation()) return true
         val last = fragmentStack.lastOrNull() ?: return false
-        if (!last.onBackPressed()) return false
+        if (!last.onBackPressed()) return true
         if (fragmentStack.size > 1) {
             closeLastFragment(animated = true)
             return true

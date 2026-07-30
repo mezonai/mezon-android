@@ -14,6 +14,7 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.ui.cells.AvatarView
+import com.mezon.mobile.ui.cells.MezonIcon
 
 data class DmMenuOptions(
     val showLeaveGroup: Boolean,
@@ -54,6 +55,13 @@ class DmMenuBottomSheet(
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val sectionGap = 14f
+        val newOriginalColorIcons = setOf(
+            MezonIcon.markUnreadIcon,
+            MezonIcon.pinIcon,
+            MezonIcon.bellIcon,
+            MezonIcon.bellSlashIcon,
+            MezonIcon.userFriendIcon,
+        )
 
         fun dismissAndRun(action: () -> Unit): Runnable = Runnable {
             dismiss()
@@ -62,7 +70,7 @@ class DmMenuBottomSheet(
 
         fun buildRow(
             label: String,
-            icon: com.mezon.mobile.ui.cells.MezonIcon,
+            icon: MezonIcon,
             labelColor: Int = theme.colorText,
             iconColor: Int = theme.textStrong,
             onClick: () -> Unit,
@@ -74,7 +82,8 @@ class DmMenuBottomSheet(
                 label,
                 labelColor,
                 iconColor,
-                dismissAndRun(onClick),
+                keepOriginalIconColors = icon in newOriginalColorIcons,
+                onPress = dismissAndRun(onClick),
             )
             return row
         }
@@ -115,10 +124,11 @@ class DmMenuBottomSheet(
                 setTextColor(theme.textStrong)
                 textSize = 17f
                 typeface = Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER_VERTICAL
                 maxLines = 2
                 ellipsize = android.text.TextUtils.TruncateAt.END
             },
-            LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f)
+            LayoutHelper.createLinear(0, 60, 1f, Gravity.CENTER_VERTICAL)
         )
 
         val groupRows = buildList {
@@ -171,7 +181,7 @@ class DmMenuBottomSheet(
                 add(
                     buildRow(
                         context.getString(R.string.dm_add_friend),
-                        com.mezon.mobile.ui.cells.MezonIcon.userFriendIcon,
+                        MezonIcon.userFriendIcon,
                         onClick = onAddFriend,
                     )
                 )
@@ -202,7 +212,7 @@ class DmMenuBottomSheet(
                 add(
                     buildRow(
                         context.getString(R.string.dm_menu_mark_as_read),
-                        com.mezon.mobile.ui.cells.MezonIcon.markUnreadIcon,
+                        MezonIcon.markUnreadIcon,
                         onClick = onMarkAsRead,
                     )
                 )
@@ -236,9 +246,9 @@ class DmMenuBottomSheet(
                     context.getString(R.string.dm_menu_mute)
                 }
                 val muteIcon = if (options.isMuted) {
-                    com.mezon.mobile.ui.cells.MezonIcon.bellIcon
+                    MezonIcon.bellIcon
                 } else {
-                    com.mezon.mobile.ui.cells.MezonIcon.bellSlashIcon
+                    MezonIcon.bellSlashIcon
                 }
                 add(
                     buildRow(

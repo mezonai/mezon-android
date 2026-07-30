@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -59,10 +60,7 @@ class FilesTabHelper(
         override fun resolveSharerName(item: ChannelDocumentItem): String {
             if (item.uploader == anonymousUserId) return "Anonymous"
             val m = memberResolver.resolveMember(item.uploader, clanId, channelId, channelType)
-            return m?.let {
-                if (clanId == 0L) it.displayName.ifBlank { it.username }
-                else it.clanNick.ifBlank { it.displayName.ifBlank { it.username } }
-            } ?: ""
+            return m?.username.orEmpty()
         }
 
         override fun formatTime(createTimeSeconds: Int): String {
@@ -89,9 +87,12 @@ class FilesTabHelper(
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             val pad = LayoutHelper.dp(10f)
-            val gapBelowSearch = LayoutHelper.dp(8f)
-            setPadding(pad, pad, pad, pad + gapBelowSearch)
-            setBackgroundColor(0)
+            minimumHeight = LayoutHelper.dp(40f)
+            setPadding(pad, 0, pad, 0)
+            background = GradientDrawable().apply {
+                setColor(themeColors.surfaceVariant)
+                cornerRadius = LayoutHelper.dpf(10f)
+            }
         }
         val searchIcon = ImageView(context).apply {
             val d = MezonIcon.magnifyingIcon.getDrawable(context).mutate()
@@ -119,7 +120,7 @@ class FilesTabHelper(
             searchRow.addView(this, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL, 8f, 0f, 2f, 0f))
         }
 
-        root.addView(searchRow, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.TOP))
+        root.addView(searchRow, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 40, Gravity.TOP, 10f, 8f, 10f, 0f))
 
         adapter = ChannelFilesAdapter(themeColors, rowResolver)
         val ad = adapter!!
@@ -129,10 +130,10 @@ class FilesTabHelper(
             clipToPadding = false
             setPadding(LayoutHelper.dp(10f), 0, LayoutHelper.dp(10f), LayoutHelper.dp(6f))
         }
-        root.addView(recyclerView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.TOP, 0f, 52f, 0f, 0f))
+        root.addView(recyclerView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.TOP, 0f, 56f, 0f, 0f))
 
         emptyView = buildEmptyView(context)
-        root.addView(emptyView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.TOP, 0f, 52f, 0f, 0f))
+        root.addView(emptyView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.TOP, 0f, 56f, 0f, 0f))
 
         loadingView = ProgressBar(context).apply { visibility = View.VISIBLE }
         root.addView(loadingView, LayoutHelper.createFrame(48, 48, Gravity.CENTER))

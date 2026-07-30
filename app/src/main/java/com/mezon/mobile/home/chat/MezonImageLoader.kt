@@ -94,6 +94,16 @@ class MezonImageLoader private constructor(context: Context) {
         override fun sizeOf(key: String, bitmap: Bitmap): Int = bitmap.byteCount / 1024
     }
 
+    private val animatedCache = object : LruCache<String, Drawable>(
+        (maxMemory / 6).coerceAtMost(ANIMATED_CACHE_MAX_KB)
+    ) {
+        override fun sizeOf(key: String, d: Drawable): Int {
+            val bytes = (d as? android.graphics.drawable.BitmapDrawable)?.bitmap?.byteCount
+                ?: (d.intrinsicWidth.coerceAtLeast(1) * d.intrinsicHeight.coerceAtLeast(1) * 4 * 3)
+            return (bytes / 1024).coerceAtLeast(1)
+        }
+    }
+
     private val diskCacheDir: File = File(context.cacheDir, "img_cache").also { it.mkdirs() }
     private val maxDiskCacheBytes = 512L * 1024 * 1024
 
@@ -120,7 +130,8 @@ class MezonImageLoader private constructor(context: Context) {
         val reqWidth: Int,
         val reqHeight: Int,
         val animated: Boolean,
-        val ephemeral: Boolean
+        val ephemeral: Boolean,
+        val cacheAnimated: Boolean = false
     )
 
     init {
@@ -130,14 +141,17 @@ class MezonImageLoader private constructor(context: Context) {
                     level >= ComponentCallbacks2.TRIM_MEMORY_COMPLETE -> {
                         smallCache.evictAll()
                         largeCache.evictAll()
+                        animatedCache.evictAll()
                     }
                     level >= ComponentCallbacks2.TRIM_MEMORY_MODERATE -> {
                         smallCache.trimToSize(smallCache.maxSize() / 4)
                         largeCache.trimToSize(largeCache.maxSize() / 4)
+                        animatedCache.evictAll()
                     }
                     level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND -> {
                         smallCache.trimToSize(smallCache.maxSize() / 2)
                         largeCache.trimToSize(largeCache.maxSize() / 2)
+                        animatedCache.trimToSize(animatedCache.maxSize() / 2)
                     }
                 }
             }
@@ -145,6 +159,7 @@ class MezonImageLoader private constructor(context: Context) {
             override fun onLowMemory() {
                 smallCache.evictAll()
                 largeCache.evictAll()
+                animatedCache.evictAll()
             }
         })
     }
@@ -194,10 +209,12 @@ class MezonImageLoader private constructor(context: Context) {
         reqHeight: Int,
         onSuccess: (Drawable) -> Unit,
         onError: ((Exception) -> Unit)? = null,
-        noCache: Boolean = false
+        noCache: Boolean = false,
+        cacheAnimated: Boolean = false
     ): Cancellable {
         @Suppress("UNCHECKED_CAST")
         return loadInternal(url, reqWidth, reqHeight, animated = true, noCache = noCache,
+            cacheAnimated = cacheAnimated,
             onSuccess = onSuccess as (Any) -> Unit, onError = onError)
     }
 
@@ -211,7 +228,8 @@ class MezonImageLoader private constructor(context: Context) {
         animated: Boolean,
         noCache: Boolean,
         onSuccess: (Any) -> Unit,
-        onError: ((Exception) -> Unit)?
+        onError: ((Exception) -> Unit)?,
+        cacheAnimated: Boolean = false
     ): Cancellable {
         if (url.isEmpty() || !isValidHttpUrl(url)) {
             onError?.invoke(IllegalArgumentException("Invalid URL: $url"))
@@ -224,6 +242,13 @@ class MezonImageLoader private constructor(context: Context) {
 
         if (!animated && !noCache) {
             getFromMemory(memKey)?.let { cached ->
+                runOnMain { onSuccess(cached) }
+                return Cancellable.EMPTY
+            }
+        }
+
+        if (animated && cacheAnimated && !noCache) {
+            animatedCache.get(memKey)?.let { cached ->
                 runOnMain { onSuccess(cached) }
                 return Cancellable.EMPTY
             }
@@ -242,7 +267,7 @@ class MezonImageLoader private constructor(context: Context) {
             val urlFile = diskFileForUrl(logicalUrl)
             if (urlFile.exists() && urlFile.length() > 0L) {
                 touchFile(urlFile)
-                if (animated) decodeAnimatedInBackground(urlFile, memKey, reqWidth, reqHeight, ephemeral = false)
+                if (animated) decodeAnimatedInBackground(urlFile, memKey, reqWidth, reqHeight, ephemeral = false, cacheEntry = cacheAnimated)
                 else decodeInBackground(urlFile, memKey, reqWidth, reqHeight, ephemeral = false)
                 return Cancellable {
                     cb.cancel()
@@ -251,7 +276,7 @@ class MezonImageLoader private constructor(context: Context) {
             }
         }
 
-        enqueueDecodeAfterDownload(logicalUrl, memKey, reqWidth, reqHeight, animated, noCache)
+        enqueueDecodeAfterDownload(logicalUrl, memKey, reqWidth, reqHeight, animated, noCache, cacheAnimated)
         ensureNetworkFetch(url, logicalUrl)
         return Cancellable {
             cb.cancel()
@@ -265,9 +290,10 @@ class MezonImageLoader private constructor(context: Context) {
         reqWidth: Int,
         reqHeight: Int,
         animated: Boolean,
-        ephemeral: Boolean
+        ephemeral: Boolean,
+        cacheAnimated: Boolean = false
     ) {
-        val task = PendingDecode(memKey, reqWidth, reqHeight, animated, ephemeral)
+        val task = PendingDecode(memKey, reqWidth, reqHeight, animated, ephemeral, cacheAnimated)
         pendingDecodes.compute(logicalUrl) { _, existing ->
             val list = existing ?: mutableListOf()
             synchronized(list) { list.add(task) }
@@ -309,22 +335,24 @@ class MezonImageLoader private constructor(context: Context) {
                     }
                     return
                 }
+                val urlFile = diskFileForUrl(logicalUrl)
+                val tmpFile = File(urlFile.parentFile, urlFile.name + ".tmp")
                 try {
-                    val urlFile = diskFileForUrl(logicalUrl)
                     urlFile.parentFile?.mkdirs()
                     response.body?.byteStream()?.use { input ->
-                        FileOutputStream(urlFile).use { output -> input.copyTo(output) }
+                        FileOutputStream(tmpFile).use { output -> input.copyTo(output) }
                     } ?: throw IOException("Empty body")
                     response.close()
+                    if (!tmpFile.renameTo(urlFile)) {
+                        try { urlFile.delete() } catch (_: Throwable) {}
+                        if (!tmpFile.renameTo(urlFile)) throw IOException("Cache rename failed")
+                    }
                     trimDiskCache()
                     dispatchAllDecodeSuccess(logicalUrl, urlFile)
                 } catch (e: Exception) {
+                    try { tmpFile.delete() } catch (_: Throwable) {}
                     val ex = e as? Exception ?: Exception(e)
                     if (attempt < MAX_NETWORK_RETRIES && e is IOException) {
-                        try {
-                            diskFileForUrl(logicalUrl).delete()
-                        } catch (_: Throwable) {
-                        }
                         mainHandler.postDelayed({
                             ensureNetworkFetch(fetchUrl, logicalUrl, attempt + 1)
                         }, retryDelayMs(attempt))
@@ -341,7 +369,7 @@ class MezonImageLoader private constructor(context: Context) {
         val copy: List<PendingDecode>
         synchronized(list) { copy = ArrayList(list) }
         for (task in copy) {
-            if (task.animated) decodeAnimatedInBackground(file, task.memKey, task.reqWidth, task.reqHeight, task.ephemeral)
+            if (task.animated) decodeAnimatedInBackground(file, task.memKey, task.reqWidth, task.reqHeight, task.ephemeral, task.cacheAnimated)
             else decodeInBackground(file, task.memKey, task.reqWidth, task.reqHeight, task.ephemeral)
         }
     }
@@ -439,7 +467,7 @@ class MezonImageLoader private constructor(context: Context) {
         }
     }
 
-    private fun decodeAnimatedInBackground(file: File, cacheKey: String, reqWidth: Int = 0, reqHeight: Int = 0, ephemeral: Boolean = false) {
+    private fun decodeAnimatedInBackground(file: File, cacheKey: String, reqWidth: Int = 0, reqHeight: Int = 0, ephemeral: Boolean = false, cacheEntry: Boolean = false) {
         DECODE_EXECUTOR.execute {
             try {
                 val intrinsicMode = reqWidth <= 0 && reqHeight <= 0
@@ -465,15 +493,19 @@ class MezonImageLoader private constructor(context: Context) {
                             val h = info.size.height
                             if (w > 0 && h > 0) {
                                 val scale = kotlin.math.min(reqWidth.toFloat() / w, reqHeight.toFloat() / h)
-                                decoder.setTargetSize(
-                                    (w * scale).toInt().coerceAtLeast(1),
-                                    (h * scale).toInt().coerceAtLeast(1)
-                                )
+                                    .coerceAtMost(1f)
+                                if (scale < 1f) {
+                                    decoder.setTargetSize(
+                                        (w * scale).toInt().coerceAtLeast(1),
+                                        (h * scale).toInt().coerceAtLeast(1)
+                                    )
+                                }
                             } else {
                                 decoder.setTargetSize(reqWidth, reqHeight)
                             }
                         }
                     }
+                    if (cacheEntry && !ephemeral) animatedCache.put(cacheKey, drawable)
                     dispatchSuccess(cacheKey, drawable)
                 } else {
                     val boundsOpts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -495,6 +527,7 @@ class MezonImageLoader private constructor(context: Context) {
                             clampBitmap(firstFrame, reqWidth, reqHeight)
                         }
                         val drawable = android.graphics.drawable.BitmapDrawable(null, firstFrame)
+                        if (cacheEntry && !ephemeral) animatedCache.put(cacheKey, drawable)
                         dispatchSuccess(cacheKey, drawable)
                         if (ephemeral) try { file.delete() } catch (_: Throwable) {}
                     } else {
@@ -526,6 +559,7 @@ class MezonImageLoader private constructor(context: Context) {
     fun clearMemoryCache() {
         smallCache.evictAll()
         largeCache.evictAll()
+        animatedCache.evictAll()
     }
 
     fun clearDiskCache() {
@@ -726,6 +760,7 @@ class MezonImageLoader private constructor(context: Context) {
             return raw.coerceAtMost(RETRY_MAX_DELAY_MS)
         }
         private const val MAX_DECODE_QUEUE = 64
+        private const val ANIMATED_CACHE_MAX_KB = 48 * 1024
         private const val MAX_LOCAL_COPY_BYTES = 64L * 1024 * 1024
         private const val STREAM_COPY_CHUNK_BYTES = 64 * 1024
         private const val LARGE_FILE_TRIM_PRIORITY_BYTES = 384_000
@@ -757,10 +792,17 @@ class MezonImageLoader private constructor(context: Context) {
 
         private val DECODE_EXECUTOR: ThreadPoolExecutor = run {
             val cores = (Runtime.getRuntime().availableProcessors() - 1).coerceAtLeast(2)
+            val threadIndex = java.util.concurrent.atomic.AtomicInteger(0)
             ThreadPoolExecutor(
                 cores, cores,
                 60L, TimeUnit.SECONDS,
                 LinkedBlockingQueue(),
+                { r ->
+                    Thread({
+                        android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
+                        r.run()
+                    }, "MezonImageDecode-${threadIndex.incrementAndGet()}")
+                },
                 ThreadPoolExecutor.CallerRunsPolicy()
             )
         }

@@ -127,20 +127,21 @@ class LoginFragment : BaseFragment() {
         form.addView(phoneRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.START, 0f, 0f, 0f, 12f))
 
         countryButton = TextView(context).apply {
+            text = "${selectedCountry.flag} ${selectedCountry.prefix}"
+            setTextColor(0xFF374151.toInt())
             textSize = 15f
-            setTextColor(0xFF000000.toInt())
             gravity = Gravity.CENTER
             val pad = LayoutHelper.dp(12)
             setPadding(pad, pad, pad, pad)
             val bg = GradientDrawable().apply {
-                setColor(0xFFF6F6F6.toInt())
+                setColor(0xFFFFFFFF.toInt())
+                setStroke(LayoutHelper.dp(1), 0xFFD1D5DB.toInt())
                 cornerRadius = LayoutHelper.dpf(12f)
-                setStroke(LayoutHelper.dp(1), 0xFFCCCCCC.toInt())
             }
             background = bg
             setOnClickListener { showCountryDropdown(it) }
         }
-        phoneRow.addView(countryButton, LinearLayout.LayoutParams(LayoutHelper.WRAP_CONTENT, LayoutHelper.dp(50)).apply {
+        phoneRow.addView(countryButton, LinearLayout.LayoutParams(LayoutHelper.WRAP_CONTENT, LayoutHelper.dp(48)).apply {
             marginEnd = LayoutHelper.dp(8)
         })
 
@@ -149,6 +150,7 @@ class LoginFragment : BaseFragment() {
             setHint(getString(R.string.common_login_phone_number))
             editText.inputType = InputType.TYPE_CLASS_PHONE
             editText.imeOptions = EditorInfo.IME_ACTION_DONE
+            setInputContainerMinHeightDp(48)
         }
         phoneRow.addView(phoneCell, LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f))
 
@@ -157,6 +159,11 @@ class LoginFragment : BaseFragment() {
             setHint(getString(R.string.common_login_email_address))
             editText.inputType = InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
             editText.imeOptions = EditorInfo.IME_ACTION_NEXT
+            setInputContainerMinHeightDp(48)
+            val drawable = androidx.core.content.ContextCompat.getDrawable(context, R.drawable.ic_email_outline)?.mutate()
+            drawable?.setBounds(0, 0, LayoutHelper.dp(24), LayoutHelper.dp(24))
+            editText.setCompoundDrawables(drawable, null, null, null)
+            editText.compoundDrawablePadding = LayoutHelper.dp(8)
         }
         form.addView(emailCell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.START, 0f, 0f, 0f, 12f))
 
@@ -169,7 +176,13 @@ class LoginFragment : BaseFragment() {
             setLightInputAppearance()
             setHint(getString(R.string.common_login_password))
             editText.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            editText.typeface = android.graphics.Typeface.DEFAULT
             editText.imeOptions = EditorInfo.IME_ACTION_DONE
+            setInputContainerMinHeightDp(48)
+            val drawable = androidx.core.content.ContextCompat.getDrawable(context, R.drawable.ic_lock_outline)?.mutate()
+            drawable?.setBounds(0, 0, LayoutHelper.dp(24), LayoutHelper.dp(24))
+            editText.setCompoundDrawables(drawable, null, null, null)
+            editText.compoundDrawablePadding = LayoutHelper.dp(8)
         }
         passwordRow.addView(passwordCell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.START, 0f, 0f, 0f, 12f))
 
@@ -185,7 +198,7 @@ class LoginFragment : BaseFragment() {
             minHeight = 0
             minimumHeight = 0
             setPadding(0, 0, 0, 0)
-            CompoundButtonCompat.setButtonTintList(this, ColorStateList.valueOf(themeColors.onSurface))
+            CompoundButtonCompat.setButtonTintList(this, ColorStateList.valueOf(0xFF5E5E5E.toInt()))
             alpha = 1f
             setOnCheckedChangeListener { _, isChecked ->
                 passwordCell.editText.inputType = if (isChecked) {
@@ -193,6 +206,7 @@ class LoginFragment : BaseFragment() {
                 } else {
                     InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
                 }
+                passwordCell.editText.typeface = android.graphics.Typeface.DEFAULT
                 passwordCell.editText.setSelection(passwordCell.getText().length)
             }
         }
@@ -202,7 +216,7 @@ class LoginFragment : BaseFragment() {
 
         showPasswordLabel = TextView(context).apply {
             text = getString(R.string.common_login_show_password)
-            setTextColor(themeColors.onSurface)
+            setTextColor(0xFF5E5E5E.toInt())
             textSize = 14f
             setPadding(LayoutHelper.dp(4), 0, 0, 0)
             setOnClickListener { showPasswordCheck.toggle() }
@@ -210,13 +224,6 @@ class LoginFragment : BaseFragment() {
         showPasswordRow.addView(showPasswordLabel, LinearLayout.LayoutParams(
             LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT
         ).apply { gravity = Gravity.CENTER_VERTICAL })
-
-        errorText = TextView(context).apply {
-            setTextColor(themeColors.error)
-            textSize = 12f
-            visibility = View.GONE
-        }
-        form.addView(errorText, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.START, 0f, 0f, 0f, 8f))
 
         val buttonFrame = FrameLayout(context)
         form.addView(buttonFrame, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 50, 0f, Gravity.START, 0f, 8f, 0f, 0f))
@@ -270,13 +277,7 @@ class LoginFragment : BaseFragment() {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
             override fun afterTextChanged(s: android.text.Editable?) {
-                if (errorText.visibility == View.VISIBLE) {
-                    errorText.visibility = View.GONE
-                }
-                submitButton.isEnabled = true
-                submitButton.visibility = View.VISIBLE
-                progressBar.visibility = View.GONE
-                submitButton.invalidate()
+                validateForm()
             }
         }
         phoneCell.editText.addTextChangedListener(resetWatcher)
@@ -323,14 +324,35 @@ class LoginFragment : BaseFragment() {
                 emailCell.visibility = View.VISIBLE
                 passwordRow.visibility = View.VISIBLE
                 submitButton.setText(getString(R.string.common_login_log_in))
-                altText.text = getString(R.string.common_login_cannot_access_email)
+                altText.text = getString(R.string.common_login_password_not_set)
                 altLink1.text = getString(R.string.common_login_with_sms)
                 altLink1.setOnClickListener { applyMode(LoginMode.SMS) }
                 altLink2.text = getString(R.string.common_login_with_email_otp)
                 altLink2.setOnClickListener { applyMode(LoginMode.OTP) }
             }
         }
-        errorText.visibility = View.GONE
+        validateForm()
+    }
+
+    private fun validateForm() {
+        progressBar.visibility = View.GONE
+        submitButton.visibility = View.VISIBLE
+        
+        var isEnabled = true
+        if (currentMode == LoginMode.OTP) {
+            val email = emailCell.getText().trim()
+            isEnabled = email.isNotEmpty() && isValidEmail(email)
+        } else if (currentMode == LoginMode.PASSWORD) {
+            val email = emailCell.getText().trim()
+            val pass = passwordCell.getText()
+            isEnabled = email.isNotEmpty() && isValidEmail(email) && pass.isNotEmpty()
+        } else if (currentMode == LoginMode.SMS) {
+            val phone = phoneCell.getText().trim()
+            isEnabled = phone.isNotEmpty() && isValidPhone(phone)
+        }
+        
+        submitButton.isEnabled = isEnabled
+        submitButton.invalidate()
     }
 
     private fun updateCountryButton() {
@@ -344,9 +366,9 @@ class LoginFragment : BaseFragment() {
         val list = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
             val bg = GradientDrawable().apply {
-                setColor(themeColors.surface)
+                setColor(0xFFFFFFFF.toInt())
                 cornerRadius = LayoutHelper.dpf(8f)
-                setStroke(LayoutHelper.dp(1), themeColors.outline)
+                setStroke(LayoutHelper.dp(1), 0xFFD1D5DB.toInt())
             }
             background = bg
         }
@@ -355,15 +377,16 @@ class LoginFragment : BaseFragment() {
             val row = TextView(ctx).apply {
                 text = "${country.flag}  ${getString(country.nameResId)}  (${country.prefix})"
                 textSize = 14f
-                setTextColor(themeColors.onSurface)
+                setTextColor(0xFF374151.toInt())
                 val pad = LayoutHelper.dp(12)
                 setPadding(pad, pad, pad, pad)
                 if (country == selectedCountry) {
-                    setBackgroundColor(themeColors.primaryContainer)
+                    setBackgroundColor(0xFFF3F4F6.toInt())
                 }
                 setOnClickListener {
                     selectedCountry = country
                     updateCountryButton()
+                    validateForm()
                     countryPopup?.dismiss()
                 }
             }
@@ -507,21 +530,22 @@ class LoginFragment : BaseFragment() {
                 .onFailure { err ->
                     Log.e(TAG, "Password login failed: ${err.message}", err)
                     hideLoading()
-                    val ctx = getContext() ?: return@onFailure
+                    val ctx = getContext() ?: return@onFailure    
+                    val rawUserMessage = NetworkErrorMessages.userMessage(
+                        ctx,
+                        err,
+                        err.message ?: ""
+                    )
                     showToast(
                         ctx,
-                        NetworkErrorMessages.userMessage(
-                            ctx,
-                            err,
-                            messageForPasswordLoginFailure(err.message)
-                        )
+                        messageForPasswordLoginFailure(rawUserMessage)
                     )
                 }
         }
     }
 
     private fun messageForPasswordLoginFailure(message: String?): String {
-        val genericInvalid = getString(R.string.common_login_login_failed)
+        val genericInvalid = getString(R.string.common_login_email_password_incorrect)
         val m = message?.trim().orEmpty()
         if (m.isEmpty()) return genericInvalid
         if (m.trimEnd('.').trim().equals("Invalid credentials", ignoreCase = true)) {
@@ -577,7 +601,6 @@ class LoginFragment : BaseFragment() {
         submitButton.isEnabled = false
         submitButton.visibility = View.INVISIBLE
         progressBar.visibility = View.VISIBLE
-        errorText.visibility = View.GONE
     }
 
     private fun hideLoading() {
@@ -587,7 +610,7 @@ class LoginFragment : BaseFragment() {
     }
 
     private fun showToast(ctx: Context, message: String) {
-        android.widget.Toast.makeText(ctx, message, android.widget.Toast.LENGTH_SHORT).show()
+        com.mezon.mobile.ui.MezonToast.show(this, com.mezon.mobile.ui.cells.ToastOverlay.ToastType.ERROR, message)
     }
 
     companion object {

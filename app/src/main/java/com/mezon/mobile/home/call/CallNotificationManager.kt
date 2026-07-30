@@ -6,10 +6,21 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.os.Build
 import android.os.SystemClock
+import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.app.Person
+import androidx.core.graphics.drawable.IconCompat
+import com.mezon.mobile.MainActivity
 import com.mezon.mobile.R
+import com.mezon.mobile.core.AvatarDrawable
+import com.mezon.mobile.home.chat.MezonImageLoader
+import com.mezon.mobile.util.avatarImgproxyUrl
+
+private const val TAG = "CallNotificationManager"
 
 class CallNotificationManager(private val context: Context) {
 
@@ -21,6 +32,8 @@ class CallNotificationManager(private val context: Context) {
     }
 
     private fun createCallChannels() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+
         val incomingChannel = NotificationChannel(
             CHANNEL_INCOMING_CALL,
             "Incoming Calls",
@@ -34,6 +47,17 @@ class CallNotificationManager(private val context: Context) {
             vibrationPattern = longArrayOf(0, 1000, 500, 1000, 500, 1000)
         }
 
+        val incomingQuietChannel = NotificationChannel(
+            CHANNEL_INCOMING_CALL_QUIET,
+            "Incoming Calls (call screen showing)",
+            NotificationManager.IMPORTANCE_LOW
+        ).apply {
+            description = "Incoming call while the full call screen is already on screen"
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            setSound(null, null)
+            enableVibration(false)
+        }
+
         val ongoingChannel = NotificationChannel(
             CHANNEL_ONGOING_CALL,
             "Ongoing Calls",
@@ -44,7 +68,63 @@ class CallNotificationManager(private val context: Context) {
             enableVibration(false)
         }
 
-        notificationManager.createNotificationChannels(listOf(incomingChannel, ongoingChannel))
+        notificationManager.createNotificationChannels(
+            listOf(incomingChannel, incomingQuietChannel, ongoingChannel)
+        )
+    }
+
+    private val avatarSizePx: Int
+        get() = (AVATAR_ICON_DP * context.resources.displayMetrics.density).toInt()
+
+    private fun letterAvatarBitmap(callerName: String, callerId: String): Bitmap {
+        val size = avatarSizePx.coerceAtLeast(1)
+        val drawable = AvatarDrawable().apply {
+            cornerRadius = 0f
+            setInfo(callerId.toLongOrNull() ?: 0L, callerName)
+            setBounds(0, 0, size, size)
+        }
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        drawable.draw(Canvas(bitmap))
+        return bitmap
+    }
+
+    private fun personFor(callerName: String, callerAvatar: String?, callerId: String): Person {
+        val cached = callerAvatar?.trim()?.takeIf { it.isNotEmpty() }
+            ?.let { avatarCache[it] }
+            ?.takeIf { !it.isRecycled }
+        val bitmap = cached ?: letterAvatarBitmap(callerName, callerId)
+        return Person.Builder()
+            .setName(callerName)
+            .setKey(callerId)
+            .setIcon(IconCompat.createWithAdaptiveBitmap(bitmap))
+            .setImportant(true)
+            .build()
+    }
+
+    fun warmAvatarThenRepost(
+        callerAvatar: String?,
+        notificationId: Int,
+        rebuild: () -> Notification
+    ) {
+        val url = callerAvatar?.trim()?.takeIf { it.isNotEmpty() } ?: return
+        if (avatarCache.containsKey(url)) return
+        val sizePx = avatarSizePx.coerceAtLeast(1)
+        try {
+            MezonImageLoader.getInstance(context).load(
+                avatarImgproxyUrl(url, sizePx), sizePx, sizePx,
+                onSuccess = { bitmap ->
+                    avatarCache[url] = bitmap
+                    try {
+                        notificationManager.notify(notificationId, rebuild())
+                    } catch (e: Exception) {
+                        Log.w(TAG, "avatar repost failed", e)
+                    }
+                },
+                onError = { }
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "avatar load could not start", e)
+        }
     }
 
     private fun baseIncomingCallActivityIntent(extra: Intent.() -> Unit = {}): Intent {
@@ -58,13 +138,37 @@ class CallNotificationManager(private val context: Context) {
         }
     }
 
-    private fun createIncomingCallNotification(
+    private fun openCallScreenIntent(): PendingIntent = PendingIntent.getActivity(
+        context, REQ_OPEN_CALL,
+        Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra(EXTRA_OPEN_CALL, true)
+        },
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+    )
+
+    private fun hangUpIntent(): PendingIntent = PendingIntent.getBroadcast(
+        context, REQ_END,
+        Intent(context, CallActionReceiver::class.java).setAction(CallActionReceiver.ACTION_END),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+    )
+
+    private fun declineIntent(): PendingIntent = PendingIntent.getBroadcast(
+        context, REQ_DECLINE,
+        Intent(context, CallActionReceiver::class.java).setAction(CallActionReceiver.ACTION_DECLINE),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+    )
+
+    fun buildIncomingCallNotification(
         callerName: String,
         callerAvatar: String?,
         callerId: String,
         channelId: String,
         offerJson: String? = null,
-        useFullScreenIntent: Boolean = true
+        useFullScreenIntent: Boolean = true,
+        quiet: Boolean = false
     ): Notification {
         val commonExtras = Intent().apply {
             putExtra(CallManager.EXTRA_CALLER_NAME, callerName)
@@ -77,42 +181,48 @@ class CallNotificationManager(private val context: Context) {
                 putExtra(CallManager.EXTRA_OFFER_JSON, offerJson)
             }
         }
+
         val fullScreenIntent = PendingIntent.getActivity(
-            context, 2,
+            context, REQ_FULL_SCREEN,
             baseIncomingCallActivityIntent { putExtras(commonExtras) },
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
+        val answerIntent = PendingIntent.getActivity(
+            context, REQ_ANSWER,
+            baseIncomingCallActivityIntent {
+                putExtras(commonExtras)
+                putExtra(CallManager.EXTRA_AUTO_ANSWER, true)
+            },
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
 
-        return if (Build.VERSION.SDK_INT >= 31) {
-            val builder = Notification.Builder(context, CHANNEL_INCOMING_CALL)
-                .setContentTitle("Incoming Call")
-                .setContentText("$callerName is calling...")
-                .setContentIntent(fullScreenIntent)
-                .setOngoing(true)
-                .setCategory(Notification.CATEGORY_CALL)
-                .setTimeoutAfter(30_000)
-                .setColor(0xFF7029C6.toInt())
-                .setSmallIcon(R.drawable.ic_notification)
-            if (useFullScreenIntent) {
-                builder.setFullScreenIntent(fullScreenIntent, true)
-            }
-            builder.build()
-        } else {
-            val builder = NotificationCompat.Builder(context, CHANNEL_INCOMING_CALL)
-                .setContentTitle("Incoming Call")
-                .setContentText("$callerName is calling...")
-                .setContentIntent(fullScreenIntent)
-                .setOngoing(true)
-                .setCategory(NotificationCompat.CATEGORY_CALL)
-                .setPriority(NotificationCompat.PRIORITY_MAX)
-                .setTimeoutAfter(30_000)
-                .setColor(0xFF7029C6.toInt())
-                .setSmallIcon(R.drawable.ic_notification)
-            if (useFullScreenIntent) {
-                builder.setFullScreenIntent(fullScreenIntent, true)
-            }
-            builder.build()
+        val style = NotificationCompat.CallStyle.forIncomingCall(
+            personFor(callerName, callerAvatar, callerId),
+            declineIntent(),
+            answerIntent
+        )
+
+        val builder = NotificationCompat.Builder(
+            context,
+            if (quiet) CHANNEL_INCOMING_CALL_QUIET else CHANNEL_INCOMING_CALL
+        )
+            .setStyle(style)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentIntent(fullScreenIntent)
+            .setOngoing(true)
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setPriority(
+                if (quiet) NotificationCompat.PRIORITY_DEFAULT else NotificationCompat.PRIORITY_MAX
+            )
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setTimeoutAfter(30_000)
+            .setColor(CALL_ACCENT_COLOR)
+            .setColorized(true)
+
+        if (!quiet && useFullScreenIntent) {
+            builder.setFullScreenIntent(fullScreenIntent, true)
         }
+        return builder.build()
     }
 
     fun showIncomingCallNotification(
@@ -123,79 +233,74 @@ class CallNotificationManager(private val context: Context) {
         offerJson: String? = null,
         useFullScreenIntent: Boolean = true
     ) {
-        notificationManager.notify(
-            INCOMING_CALL_NOTIFICATION_ID,
-            createIncomingCallNotification(
-                callerName,
-                callerAvatar,
-                callerId,
-                channelId,
-                offerJson,
-                useFullScreenIntent
+        val build = {
+            buildIncomingCallNotification(
+                callerName, callerAvatar, callerId, channelId, offerJson, useFullScreenIntent
             )
-        )
+        }
+        notificationManager.notify(INCOMING_CALL_NOTIFICATION_ID, build())
+        warmAvatarThenRepost(callerAvatar, INCOMING_CALL_NOTIFICATION_ID, build)
     }
 
-    fun buildIncomingCallNotification(
+    fun buildInCallNotification(
         callerName: String,
         callerAvatar: String?,
         callerId: String,
-        channelId: String,
-        offerJson: String? = null,
-        useFullScreenIntent: Boolean = true
-    ): Notification =
-        createIncomingCallNotification(
-            callerName,
-            callerAvatar,
-            callerId,
-            channelId,
-            offerJson,
-            useFullScreenIntent
-        )
+        isVideo: Boolean,
+        connectedTime: Long
+    ): Notification {
+        val style = NotificationCompat.CallStyle
+            .forOngoingCall(personFor(callerName, callerAvatar, callerId), hangUpIntent())
+            .setIsVideo(isVideo)
 
-    fun buildConnectingNotification(callerName: String): Notification {
-        val openIntent = PendingIntent.getActivity(
-            context, 8,
-            baseIncomingCallActivityIntent(),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        val builder = NotificationCompat.Builder(context, CHANNEL_ONGOING_CALL)
+            .setStyle(style)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentIntent(openCallScreenIntent())
+            .setOngoing(true)
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setColor(CALL_ACCENT_COLOR)
+            .setColorized(true)
+
+        if (connectedTime > 0L) {
+            builder.setUsesChronometer(true)
+                .setShowWhen(true)
+                .setWhen(System.currentTimeMillis() - (SystemClock.elapsedRealtime() - connectedTime))
+        } else {
+            builder.setUsesChronometer(false).setShowWhen(false)
+        }
+        return builder.build()
+    }
+
+    fun buildFallbackCallNotification(callerName: String, incoming: Boolean): Notification {
+        val builder = NotificationCompat.Builder(
+            context,
+            if (incoming) CHANNEL_INCOMING_CALL else CHANNEL_ONGOING_CALL
         )
-        return NotificationCompat.Builder(context, CHANNEL_INCOMING_CALL)
-            .setContentTitle("Connecting...")
+            .setContentTitle(if (incoming) "Incoming call" else "Ongoing call")
             .setContentText(callerName)
             .setSmallIcon(R.drawable.ic_notification)
             .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_CALL)
-            .setContentIntent(openIntent)
-            .setColor(0xFF7029C6.toInt())
-            .build()
-    }
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setColor(CALL_ACCENT_COLOR)
 
-    fun buildOngoingNotification(callerName: String, connectedTime: Long): Notification {
-        val endIntent = PendingIntent.getBroadcast(
-            context, 3,
-            Intent(context, CallActionReceiver::class.java).setAction(CallActionReceiver.ACTION_END),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-
-        val openCallIntent = PendingIntent.getActivity(
-            context, 4,
-            baseIncomingCallActivityIntent(),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-
-        return NotificationCompat.Builder(context, CHANNEL_ONGOING_CALL)
-            .setContentTitle("Call with $callerName")
-            .setContentText("Ongoing call")
-            .setSmallIcon(R.drawable.ic_notification)
-            .setOngoing(true)
-            .setUsesChronometer(true)
-            .setWhen(System.currentTimeMillis() - (SystemClock.elapsedRealtime() - connectedTime))
-            .addAction(0, "End call", endIntent)
-            .setContentIntent(openCallIntent)
-            .setColor(0xFF7029C6.toInt())
-            .setCategory(NotificationCompat.CATEGORY_CALL)
-            .build()
+        if (incoming) {
+            val open = PendingIntent.getActivity(
+                context, REQ_FALLBACK,
+                baseIncomingCallActivityIntent(),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+            builder.setContentIntent(open)
+                .setFullScreenIntent(open, true)
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .addAction(0, "Decline", declineIntent())
+        } else {
+            builder.setContentIntent(openCallScreenIntent())
+                .addAction(0, "End call", hangUpIntent())
+        }
+        return builder.build()
     }
 
     fun dismissIncomingNotification() {
@@ -210,7 +315,20 @@ class CallNotificationManager(private val context: Context) {
         private const val INTENT_FLAG_ACTIVITY_SHOW_WHEN_LOCKED = 0x00080000
         private const val INTENT_FLAG_ACTIVITY_TURN_SCREEN_ON = 0x00200000
 
+        private const val REQ_FULL_SCREEN = 2
+        private const val REQ_END = 3
+        private const val REQ_OPEN_CALL = 4
+        private const val REQ_ANSWER = 5
+        private const val REQ_DECLINE = 6
+        private const val REQ_FALLBACK = 7
+
+        private const val AVATAR_ICON_DP = 64
+        private val CALL_ACCENT_COLOR = 0xFF7029C6.toInt()
+
+        private val avatarCache = HashMap<String, Bitmap>(4)
+
         const val CHANNEL_INCOMING_CALL = "incoming_call"
+        const val CHANNEL_INCOMING_CALL_QUIET = "incoming_call_quiet"
         const val CHANNEL_ONGOING_CALL = "ongoing_call"
         const val INCOMING_CALL_NOTIFICATION_ID = 9001
         const val ONGOING_CALL_NOTIFICATION_ID = 9002

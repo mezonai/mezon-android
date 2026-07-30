@@ -3,6 +3,9 @@ package com.mezon.mobile.home.chat
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
+import androidx.core.content.FileProvider
+import java.io.File
+import java.io.IOException
 
 data class AttachmentPickerItem(
     val id: Long,
@@ -16,8 +19,13 @@ data class AttachmentPickerItem(
     val duration: Int,
     val isVideo: Boolean,
     val isSelected: Boolean = false,
-    val selectionIndex: Int = -1
+    val selectionIndex: Int = -1,
+    val ownedCachePath: String? = null,
 ) {
+
+    fun deleteOwnedCacheFile() {
+        ownedCachePath?.let { path -> runCatching { File(path).delete() } }
+    }
 
     val isFileType: Boolean
         get() = !mimeType.startsWith("image/") && !mimeType.startsWith("video/")
@@ -66,6 +74,33 @@ data class AttachmentPickerItem(
                 size = fileSize,
                 duration = 0,
                 isVideo = false
+            )
+        }
+
+        fun fromPlainText(context: Context, content: String): AttachmentPickerItem? {
+            val bytes = content.toByteArray(Charsets.UTF_8)
+            val filename = "${System.currentTimeMillis()}.txt"
+            val outFile = try {
+                val dir = File(context.cacheDir, "text_attachments").apply { mkdirs() }
+                File(dir, filename).apply { writeBytes(bytes) }
+            } catch (_: IOException) {
+                return null
+            }
+
+            val authority = "${context.packageName}.fileprovider"
+            val contentUri = FileProvider.getUriForFile(context, authority, outFile)
+            return AttachmentPickerItem(
+                id = contentUri.hashCode().toLong(),
+                uri = contentUri,
+                path = contentUri.toString(),
+                filename = filename,
+                mimeType = "text/plain",
+                width = 0,
+                height = 0,
+                size = bytes.size.toLong(),
+                duration = 0,
+                isVideo = false,
+                ownedCachePath = outFile.absolutePath,
             )
         }
     }

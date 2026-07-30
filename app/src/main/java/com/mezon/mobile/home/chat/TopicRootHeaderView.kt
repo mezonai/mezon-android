@@ -144,16 +144,23 @@ private class TopicRootMetaView(
             avatarDisposable?.cancel()
             if (message.senderAvatar.isNotBlank()) {
                 val proxy = avatarImgproxyUrl(message.senderAvatar, AVATAR_SIZE)
+                avatarDrawable.setLoadingPlaceholder(true)
                 avatarDisposable = MezonImageLoader.getInstance(context).load(
                     proxy,
                     AVATAR_SIZE,
                     AVATAR_SIZE,
                     onSuccess = { bmp ->
+                        avatarDrawable.setLoadingPlaceholder(false)
                         avatarDrawable.setPhoto(bmp)
+                        invalidate()
+                    },
+                    onError = {
+                        avatarDrawable.setLoadingPlaceholder(false)
                         invalidate()
                     }
                 )
             } else {
+                avatarDrawable.setLoadingPlaceholder(false)
                 avatarDrawable.setPhoto(null)
             }
         }

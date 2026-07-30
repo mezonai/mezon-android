@@ -54,6 +54,7 @@ import com.mezon.mobile.util.FileUtils
 import com.mezon.mobile.util.parseContentPreview
 import com.mezon.mobile.util.AttachmentUploader
 import com.mezon.mobile.home.call.messagePreviewForDialog
+import com.mezon.mobile.home.call.messageHeaderPreviewForDialog
 import dagger.Lazy
 import com.mezon.mezon.api.ChannelDescription
 import com.mezon.mezon.rtapi.LastSeenMessageEvent
@@ -872,7 +873,10 @@ class DialogsController @Inject constructor(
             if (idx >= 0) dialogs[idx] = u
             updated = u
         }
-        updated?.let { appScope.launch(ioDispatcher) { directMessageDao.upsert(it) } }
+        updated?.let {
+            appScope.launch(ioDispatcher) { directMessageDao.upsert(it) }
+            postDialogsReadRefresh()
+        }
     }
 
     fun markDialogAsRead(channelId: Long, postEvent: Boolean = true, seenTimestampSeconds: Int = 0, seenMessageId: Long = 0L) {
@@ -901,12 +905,16 @@ class DialogsController @Inject constructor(
             val row = updated!!
             appScope.launch(ioDispatcher) { directMessageDao.upsert(row) }
             if (postEvent) {
-                notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
-                notificationCenter.postNotificationOnMainThread(
-                    NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_READ_DIALOG_MESSAGE
-                )
+                postDialogsReadRefresh()
             }
         }
+    }
+
+    private fun postDialogsReadRefresh() {
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_READ_DIALOG_MESSAGE
+        )
     }
 
     suspend fun markDialogAsReadFromMenu(channelId: Long): Result<Unit> = withContext(ioDispatcher) {
@@ -914,7 +922,8 @@ class DialogsController @Inject constructor(
             sessionManager.withAutoRefresh { session ->
                 api.markAsRead(session.apiUrl, session.token, channelId = channelId)
             }
-            markDialogAsRead(channelId)
+            markDialogAsRead(channelId, seenMessageId = getDialog(channelId)?.lastSentMessageId ?: 0L)
+            postDialogsReadRefresh()
         }
     }
 
@@ -1268,12 +1277,20 @@ class DialogsController @Inject constructor(
                     next = next.copy(lastSentMessageTs = mergedTs)
                 }
             }
-            if (m.content.isNotEmpty()) {
+            if (m.content.isNotEmpty() || next.lastMessageContent.isBlank()) {
                 val sameLastMessage = m.id != 0L && m.id == next.lastSentMessageId
                 val sameTsHeader = m.id == 0L && ts > 0L && ts == next.lastSentMessageTs
                 val needsPreview = next.lastMessageContent.isBlank() || sameLastMessage || sameTsHeader || isNewer
                 if (needsPreview) {
-                    val preview = formatDirectMessagePreview(messagePreviewForDialog(appContext, m.content))
+                    val preview = formatDirectMessagePreview(
+                        messageHeaderPreviewForDialog(
+                            appContext,
+                            m.content,
+                            m.id,
+                            ts,
+                            m.senderId
+                        )
+                    )
                     if (preview.isNotBlank() && preview != next.lastMessageContent) {
                         changed = true
                         next = next.copy(lastMessageContent = preview)

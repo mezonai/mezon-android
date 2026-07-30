@@ -42,11 +42,17 @@ class MezonApplication : Application() {
         val seedStartupCacheFromDataStore: suspend () -> Unit = {
             runCatching {
                 val prefs = dataStore.data.first()
-                StartupCache.seed(
-                    hasSession = prefs[SessionKeys.TOKEN] != null,
-                    themeMode = prefs[stringPreferencesKey("app_theme")] ?: "dark",
-                    locale = prefs[stringPreferencesKey("app_language")] ?: "en"
-                )
+                val hasToken = prefs[SessionKeys.TOKEN] != null
+                val hadSession = StartupCache.isSeeded && StartupCache.hasSession
+                if (!hasToken && hadSession) {
+                    StartupCache.sessionRecoveryNeedsRelogin = true
+                } else {
+                    StartupCache.seed(
+                        hasSession = hasToken,
+                        themeMode = prefs[stringPreferencesKey("app_theme")] ?: "dark",
+                        locale = prefs[stringPreferencesKey("app_language")] ?: "en"
+                    )
+                }
             }
             Unit
         }

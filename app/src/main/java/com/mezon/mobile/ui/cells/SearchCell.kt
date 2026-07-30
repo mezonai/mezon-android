@@ -12,6 +12,7 @@ import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.mezon.mobile.R
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
@@ -86,7 +87,7 @@ class SearchCell(context: Context, private val theme: ThemeColors) : LinearLayou
         }.apply {
             setTextColor(theme.onSurface)
             setHintTextColor(theme.onSurfaceVariant)
-            hint = "Search"
+            hint = context.getString(R.string.common_search)
             textSize = 14f
             background = null
             setPadding(0, 0, 0, 0)
@@ -114,7 +115,7 @@ class SearchCell(context: Context, private val theme: ThemeColors) : LinearLayou
         addView(barContainer, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f))
 
         cancelButton = TextView(context).apply {
-            text = "Cancel"
+            text = context.getString(R.string.common_cancel)
             setTextColor(theme.primary)
             textSize = 14f
             visibility = View.GONE
@@ -148,6 +149,11 @@ class SearchCell(context: Context, private val theme: ThemeColors) : LinearLayou
         }
     }
 
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        badgeView.maxWidth = (w * BADGE_MAX_WIDTH_RATIO).toInt()
+    }
+
     fun setPlaceholder(text: String) {
         editText.hint = text
     }
@@ -171,5 +177,9 @@ class SearchCell(context: Context, private val theme: ThemeColors) : LinearLayou
             editText.requestFocus()
             AndroidUtilities.showKeyboard(editText)
         }
+    }
+
+    companion object {
+        private const val BADGE_MAX_WIDTH_RATIO = 0.3f
     }
 }

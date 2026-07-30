@@ -107,34 +107,37 @@
     <string name="common_login_log_in">Log In</string>
     <string name="common_login_sign_in">Sign In</string>
     <string name="common_login_invalid_credentials">Email or password is invalid</string>
+    <string name="common_login_email_password_incorrect">Email or Password is incorrect.</string>
     <string name="common_login_login_failed">Invalid email or password. Please try again.</string>
     <string name="common_login_login_too_fast">Login too fast. Please wait %1$d seconds before trying again.</string>
     <string name="common_login_get_started">Get Started</string>
-    <string name="common_login_enter_phone">Enter phone number</string>
-    <string name="common_login_enter_email_address">Enter email address</string>
-    <string name="common_login_choose_another_option">Choose another option</string>
+    <string name="common_login_enter_phone">Enter your phone number</string>
+    <string name="common_login_enter_email_address">Enter your email</string>
+    <string name="common_login_choose_another_option">Or choose another option</string>
     <string name="common_login_phone_number">Phone number</string>
     <string name="common_login_email_address">Email address</string>
     <string name="common_login_show_password">Show password</string>
-    <string name="common_login_send">Send</string>
-    <string name="common_login_cannot_access_email">Cannot access your email?</string>
-    <string name="common_login_cannot_access_phone">Cannot access your phone?</string>
-    <string name="common_login_with_sms">Login with SMS</string>
+    <string name="common_login_send">Send OTP</string>
+    <string name="common_login_cannot_access_email">Couldn\'t access your email inbox?</string>
+    <string name="common_login_password_not_set">Password hasn\'t been set yet?</string>
+    <string name="common_login_cannot_access_phone">Couldn\'t access your phone number?</string>
+    <string name="common_login_with_sms">Login with SMS OTP</string>
     <string name="common_login_with_email_otp">Login with Email OTP</string>
-    <string name="common_login_with_password">Login with Password</string>
+    <string name="common_login_with_password">Login with Email &amp; Password</string>
     <string name="common_login_invalid_phone">Invalid phone number</string>
     <string name="common_login_invalid_email">Invalid email address</string>
     <string name="common_login_country_vietnam">Vietnam</string>
     <string name="common_login_country_japan">Japan</string>
     <string name="common_login_country_usa">USA</string>
 
-    <string name="otp_login_to_mezon">Login to Mezon</string>
+    <string name="otp_login_to_mezon">Login to Mezon account</string>
     <string name="otp_enter_code_from">Enter code from</string>
     <string name="otp_verify">Verify OTP (%1$d)</string>
     <string name="otp_resend">Resend OTP</string>
-    <string name="otp_did_not_receive">Didn\'t receive code?</string>
+    <string name="otp_did_not_receive">Didn\'t receive a code?</string>
     <string name="otp_change_email">Change email</string>
     <string name="otp_change_phone">Change phone</string>
+    <string name="otp_invalid">Invalid OTP</string>
     <string name="otp_not_match">OTP does not match</string>
     <string name="otp_resend_failed">Failed to resend OTP</string>
     <!-- <string name="otp_verify_failed">Failed to verify OTP</string> -->
@@ -147,7 +150,8 @@
     <string name="update_username_hint">Your name…</string>
     <string name="update_username_preview">Username: %1$s</string>
     <string name="update_username_button">Update</string>
-    <string name="update_username_error">There’s an issue or the name already exists, please choose another one.</string>
+    <string name="update_username_error">Couldn’t update your name. Please try again.</string>
+    <string name="update_username_taken_error">This name is already taken. Please choose a different one.</string>
     <string name="update_username_change_phone_question">Want to sign in again with your phone number?</string>
     <string name="update_username_change_phone_link">Return to login with phone number</string>
 
@@ -271,6 +275,7 @@
     <string name="message_toast_copy_image_done">Copied image</string>
     <string name="message_toast_copy_image_failed">Could not copy image</string>
     <string name="message_paste_failed">Could not paste image</string>
+    <string name="message_convert_to_file_failed">Could not convert message to a file</string>
     <string name="message_forwarded">Forwarded</string>
     <string name="message_reply_deleted">Original message was deleted</string>
 
@@ -337,6 +342,7 @@
     <string name="message_attachment_video">Video</string>
     <string name="message_attachment_gif">GIF</string>
     <string name="message_attachment_file">File</string>
+    <string name="message_attachment_embed">Embed</string>
     <string name="message_attachment_contact">Contact</string>
     <string name="message_attachment_location">Location</string>
     <string name="message_attachment_poll">Poll</string>
@@ -386,8 +392,11 @@
     <string name="notif_tab_messages">Messages</string>
     <string name="notif_tab_topics">Topics</string>
     <string name="notif_tab_topics_empty">No topic activity</string>
-    <string name="notif_topic_and_you">Topic and you</string>
-    <string name="notif_replied_to">Replied To:</string>
+    <string name="notif_topic_discussion">TOPIC DISCUSSION</string>
+    <string name="notif_original_message">Original message:</string>
+    <string name="notif_topic_original_attachment">[Attachment]</string>
+    <string name="notif_topic_original_contact">[Contact]</string>
+    <string name="notif_topic_original_interactive_message">[Interactive message]</string>
     <string name="topic_discussion">Topic Discussion</string>
     <string name="topic_creator">Creator</string>
     <string name="topic_view">View topic</string>
@@ -564,6 +573,17 @@
     <string name="image_crop_rotate_left_cd">Rotate left</string>
     <string name="image_crop_rotate_right_cd">Rotate right</string>
     <string name="image_crop_reset_cd">Reset</string>
+    <string name="image_editor_edit">Edit</string>
+    <string name="image_editor_crop">Crop</string>
+    <string name="image_editor_draw">Draw</string>
+    <string name="image_editor_eraser">Eraser</string>
+    <string name="image_editor_brush_size">Brush size</string>
+    <string name="image_editor_text">Text</string>
+    <string name="image_editor_text_hint">Enter text</string>
+    <string name="image_editor_text_done">Done</string>
+    <string name="image_editor_undo">Undo</string>
+    <string name="image_editor_failed">Could not edit this image</string>
+    <string name="image_editor_color_cd">Drawing color %1$d</string>
     <string name="clan_settings_remove_logo">Remove clan logo</string>
     <string name="clan_settings_logo_permission_denied">You don\'t have permission to change the clan logo.</string>
     <string name="clan_settings_logo_too_large">Clan logo image must be 1 MB or smaller.</string>
@@ -1163,6 +1183,7 @@
     <string name="permission_no_storage">Mezon needs access to your storage to send and save media. Please go to Settings and enable the permission.</string>
     <string name="permission_no_camera">Mezon needs access to your camera. Please go to Settings and enable the permission.</string>
     <string name="camera_not_available">No camera app is available.</string>
+    <string name="camera_in_use_error">Camera is currently in use. Please close any other camera apps you are running.</string>
     <string name="camera_capture_failed">Couldn\'t use this photo. Please try again.</string>
     <string name="camera_photo_preview">Captured photo preview</string>
     <string name="camera_retake">Retake</string>
@@ -1260,6 +1281,22 @@
     <string name="search_section_voice_channels">Voice Channels</string>
     <string name="search_section_streaming_channels">Streaming Channels</string>
     <string name="search_join_channel">Join</string>
+    <string name="search_tab_members">Members</string>
+    <string name="search_tab_channels">Channels</string>
+    <string name="search_tab_messages">Messages</string>
+    <string name="search_messages_placeholder">Search messages…</string>
+    <string name="search_channels_placeholder">Search channels…</string>
+    <string name="search_filter_results">Filter results</string>
+    <string name="search_filter_from_label">from:</string>
+    <string name="search_filter_from_description">from user</string>
+    <string name="search_filter_mentions_label">mentions:</string>
+    <string name="search_filter_mentions_description">mention user</string>
+    <string name="search_filter_channel_badge">in: %1$s</string>
+    <string name="search_filter_user_badge">%1$s %2$s</string>
+    <string name="search_message_attachment">[Attachment]</string>
+    <string name="search_user_fallback">User</string>
+    <string name="search_type_to_search_messages">Type to search messages</string>
+    <string name="search_no_messages_found">No messages found</string>
 
     <string name="buzz_dialog_title">Enter your message Buzz!!</string>
     <string name="buzz_dialog_send">Send</string>
@@ -1379,9 +1416,18 @@
     <string name="channel_menu_edit_thread">Edit Thread</string>
     <string name="channel_menu_mute_channel">Mute Channel</string>
     <string name="channel_menu_unmute_channel">Unmute Channel</string>
+    <string name="channel_action_mute_short">Mute</string>
+    <string name="channel_action_unmute_short">Unmute</string>
     <string name="channel_menu_mute_thread">Mute Thread</string>
     <string name="channel_menu_unmute_thread">Unmute Thread</string>
     <string name="channel_menu_notification_settings">Notification Settings</string>
+    <string name="channel_notification_settings_title">Notification Settings</string>
+    <string name="channel_notification_settings_use_default">Use default settings</string>
+    <string name="channel_notification_settings_default_all_messages">All messages</string>
+    <string name="channel_notification_settings_all_messages">All messages</string>
+    <string name="channel_notification_settings_mentions_only">Only @mention</string>
+    <string name="channel_notification_settings_nothing">Nothing</string>
+    <string name="channel_notification_settings_update_failed">Could not update notification settings</string>
     <string name="channel_mute_sheet_title_channel">Mute this channel</string>
     <string name="channel_mute_sheet_title_thread">Mute this thread</string>
     <string name="channel_mute_duration_15m">For 15 Minutes</string>
@@ -1641,6 +1687,7 @@
     <string name="call_full_screen_intent_open_settings">Turn on</string>
     <string name="call_full_screen_intent_start_call_anyway">Start call anyway</string>
     <string name="call_full_screen_intent_incoming_hint">Fullscreen while locked off — tap to turn on</string>
+    <string name="call_ongoing_banner_title">Ongoing call</string>
 
     <!-- Sound Effect Settings -->
     <string name="sound_upload_instructions_title">Upload Instructions</string>
@@ -1693,4 +1740,15 @@
     <string name="transaction_detail_time">Time</string>
     <string name="transaction_detail_sender">Sender name</string>
     <string name="transaction_detail_receiver">Receiver name</string>
+    <string name="emoji_tab_emoji">Emojis</string>
+    <string name="emoji_tab_gif">GIFs</string>
+    <string name="emoji_tab_sticker">Stickers</string>
+    <string name="emoji_search_emoji_placeholder">Find the perfect emoji</string>
+    <string name="emoji_search_gif_placeholder">Find the perfect GIF</string>
+    <string name="emoji_search_sticker_placeholder">Find the perfect sticker</string>
+    <string name="emoji_gifs_empty">GIFs will appear here</string>
+    <string name="emoji_trending_gifs">Trending GIFs</string>
+
+    <string name="message_toast_save_success">Save successfully</string>
+    <string name="message_toast_save_failed">Save failed</string>
 </resources>

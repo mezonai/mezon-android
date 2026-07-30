@@ -11,6 +11,7 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.recyclerview.widget.LinearLayoutManager
+import com.mezon.mobile.MainActivity
 import com.mezon.mobile.R
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
@@ -404,7 +405,18 @@ class NotificationsFragment : BaseFragment() {
             entity.channelType.takeIf { it != 0 } ?: CHANNEL_TYPE_CHANNEL
         }
 
-        onOpenChat?.invoke(channelId, channelName, clanId, channelType)
+        val activity = getParentActivity() as? MainActivity
+        if (activity != null) {
+            activity.openChat(
+                channelId = channelId,
+                channelName = channelName,
+                clanId = clanId,
+                channelType = channelType,
+                messageId = entity.messageId
+            )
+        } else {
+            onOpenChat?.invoke(channelId, channelName, clanId, channelType)
+        }
     }
 
     private fun openTopicFromSdTopic(item: SdTopicEntity) {

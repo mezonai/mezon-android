@@ -1,14 +1,7 @@
 package com.mezon.mobile.home.call
 
-import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothHeadset
-import android.bluetooth.BluetoothProfile
-import android.content.BroadcastReceiver
 import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
 import android.media.AudioAttributes
-import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.RingtoneManager
@@ -19,43 +12,57 @@ import android.os.Vibrator
 import android.os.VibratorManager
 import android.os.VibrationEffect
 import android.util.Log
+import com.twilio.audioswitch.AudioDevice
+import io.livekit.android.audio.AudioSwitchHandler
 
 private const val TAG = "CallAudioManager"
 
-enum class AudioOutputDevice {
-    EARPIECE, SPEAKER, BLUETOOTH
-}
+class CallAudioManager(context: Context) {
 
-class CallAudioManager(private val context: Context) {
+    private val appContext = context.applicationContext
+    private val audioManager = appContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    private val powerManager = appContext.getSystemService(Context.POWER_SERVICE) as PowerManager
 
-    private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-    private val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+    private val audioSwitch = AudioSwitchHandler(appContext).apply {
+        focusMode = AudioManager.AUDIOFOCUS_GAIN
+        forceHandleAudioRouting = true
+        preferredDeviceList = listOf(
+            AudioDevice.BluetoothHeadset::class.java,
+            AudioDevice.WiredHeadset::class.java,
+            AudioDevice.Earpiece::class.java,
+            AudioDevice.Speakerphone::class.java,
+        )
+    }
 
-    private var audioFocusRequest: AudioFocusRequest? = null
+    private val deviceChangeListener: (List<AudioDevice>, AudioDevice?) -> Unit = { devices, selected ->
+        if (desiredSpeaker && selected !is AudioDevice.Speakerphone) {
+            devices.firstOrNull { it is AudioDevice.Speakerphone }?.let { audioSwitch.selectDevice(it) }
+        }
+    }
+
+    private var switchStarted = false
+    private var desiredSpeaker = false
+
     private var proximityWakeLock: PowerManager.WakeLock? = null
     private var cpuWakeLock: PowerManager.WakeLock? = null
     private var tonePlayer: MediaPlayer? = null
     private var toneGenerator: ToneGenerator? = null
     private var vibrator: Vibrator? = null
     private var isVibrating = false
-    private var currentOutput = AudioOutputDevice.EARPIECE
-    private var bluetoothReceiver: BroadcastReceiver? = null
     var isStarted = false; private set
+
+    init {
+        audioSwitch.registerAudioDeviceChangeListener(deviceChangeListener)
+    }
 
     fun start(isVideo: Boolean) {
         if (isStarted) return
         isStarted = true
 
-        requestAudioFocus()
-        audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+        activateRouting()
         acquireCpuWakeLock()
-        registerBluetoothReceiver()
-
-        if (isVideo) {
-            setSpeaker()
-        } else {
-            setEarpiece()
-        }
+        applyInitialRoute(isVideo)
+        ensureAudibleCallVolume()
     }
 
     fun startForIncomingRing() {
@@ -70,18 +77,9 @@ class CallAudioManager(private val context: Context) {
             start(isVideo)
             return
         }
-        if (audioFocusRequest == null) {
-            requestAudioFocus()
-        }
-        audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
-        if (bluetoothReceiver == null) {
-            registerBluetoothReceiver()
-        }
-        if (isVideo) {
-            setSpeaker()
-        } else {
-            setEarpiece()
-        }
+        activateRouting()
+        applyInitialRoute(isVideo)
+        ensureAudibleCallVolume()
     }
 
     fun startRinging() {
@@ -96,46 +94,68 @@ class CallAudioManager(private val context: Context) {
         if (!isStarted) return
         isStarted = false
 
-        abandonAudioFocus()
-        unregisterBluetoothReceiver()
-        audioManager.mode = AudioManager.MODE_NORMAL
+        if (switchStarted) {
+            audioSwitch.stop()
+            switchStarted = false
+        }
+    }
+
+    private fun activateRouting() {
+        if (switchStarted) return
+        audioSwitch.start()
+        switchStarted = true
+    }
+
+    private fun applyInitialRoute(isVideo: Boolean) {
+        val hasHeadset = audioSwitch.availableAudioDevices.any {
+            it is AudioDevice.BluetoothHeadset || it is AudioDevice.WiredHeadset
+        }
+        when {
+            isVideo -> setSpeaker()
+            hasHeadset -> {
+                desiredSpeaker = false
+                releaseProximityWakeLock()
+            }
+            else -> setEarpiece()
+        }
     }
 
     fun setEarpiece() {
-        currentOutput = AudioOutputDevice.EARPIECE
-        if (Build.VERSION.SDK_INT >= 31) {
-            audioManager.clearCommunicationDevice()
-        } else {
-            @Suppress("DEPRECATION")
-            audioManager.isSpeakerphoneOn = false
-        }
+        desiredSpeaker = false
+        audioSwitch.availableAudioDevices
+            .firstOrNull { it is AudioDevice.Earpiece }
+            ?.let { audioSwitch.selectDevice(it) }
         acquireProximityWakeLock()
     }
 
     fun setSpeaker() {
-        currentOutput = AudioOutputDevice.SPEAKER
-        if (Build.VERSION.SDK_INT >= 31) {
-            val devices = audioManager.availableCommunicationDevices
-            val speaker = devices.firstOrNull { it.type == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
-            speaker?.let { audioManager.setCommunicationDevice(it) }
-        } else {
-            @Suppress("DEPRECATION")
-            audioManager.isSpeakerphoneOn = true
-        }
+        desiredSpeaker = true
+        audioSwitch.availableAudioDevices
+            .firstOrNull { it is AudioDevice.Speakerphone }
+            ?.let { audioSwitch.selectDevice(it) }
         releaseProximityWakeLock()
     }
 
     fun setBluetooth() {
-        currentOutput = AudioOutputDevice.BLUETOOTH
-        if (Build.VERSION.SDK_INT >= 31) {
-            val devices = audioManager.availableCommunicationDevices
-            val bt = devices.firstOrNull { it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO }
-            bt?.let { audioManager.setCommunicationDevice(it) }
-        } else {
-            @Suppress("DEPRECATION")
-            audioManager.startBluetoothSco()
-        }
+        desiredSpeaker = false
+        audioSwitch.availableAudioDevices
+            .firstOrNull { it is AudioDevice.BluetoothHeadset }
+            ?.let { audioSwitch.selectDevice(it) }
         releaseProximityWakeLock()
+    }
+
+    private fun ensureAudibleCallVolume() {
+        try {
+            val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL)
+            if (max <= 0) return
+            val target = (max * 0.7f).toInt().coerceIn(1, max)
+            val current = audioManager.getStreamVolume(AudioManager.STREAM_VOICE_CALL)
+            if (current < target) {
+                audioManager.setStreamVolume(AudioManager.STREAM_VOICE_CALL, target, 0)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "ensureAudibleCallVolume failed", e)
+        }
     }
 
     fun playDialTone() {
@@ -153,14 +173,14 @@ class CallAudioManager(private val context: Context) {
         try {
             val ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
             tonePlayer = MediaPlayer().apply {
-                setWakeMode(context, PowerManager.PARTIAL_WAKE_LOCK)
+                setWakeMode(appContext, PowerManager.PARTIAL_WAKE_LOCK)
                 setAudioAttributes(
                     AudioAttributes.Builder()
                         .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
                         .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                         .build()
                 )
-                setDataSource(context, ringtoneUri)
+                setDataSource(appContext, ringtoneUri)
                 isLooping = true
                 setVolume(1f, 1f)
                 prepare()
@@ -216,11 +236,11 @@ class CallAudioManager(private val context: Context) {
         isVibrating = true
 
         vibrator = if (Build.VERSION.SDK_INT >= 31) {
-            val vm = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+            val vm = appContext.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
             vm.defaultVibrator
         } else {
             @Suppress("DEPRECATION")
-            context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+            appContext.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
         }
 
         val pattern = longArrayOf(0, 1000, 500, 1000, 500, 1000)
@@ -232,29 +252,6 @@ class CallAudioManager(private val context: Context) {
         isVibrating = false
         vibrator?.cancel()
         vibrator = null
-    }
-
-    private fun requestAudioFocus() {
-        audioFocusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
-        audioFocusRequest = null
-        val attrs = AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-            .build()
-
-        audioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-            .setAudioAttributes(attrs)
-            .setOnAudioFocusChangeListener { }
-            .build()
-
-        audioManager.requestAudioFocus(audioFocusRequest!!)
-    }
-
-    private fun abandonAudioFocus() {
-        audioFocusRequest?.let {
-            audioManager.abandonAudioFocusRequest(it)
-        }
-        audioFocusRequest = null
     }
 
     private fun acquireProximityWakeLock() {
@@ -287,40 +284,5 @@ class CallAudioManager(private val context: Context) {
             if (it.isHeld) it.release()
         }
         cpuWakeLock = null
-    }
-
-    private fun registerBluetoothReceiver() {
-        bluetoothReceiver = object : BroadcastReceiver() {
-            override fun onReceive(context: Context, intent: Intent) {
-                val state = intent.getIntExtra(BluetoothProfile.EXTRA_STATE, -1)
-                when (state) {
-                    BluetoothProfile.STATE_CONNECTED -> {
-                        if (currentOutput != AudioOutputDevice.SPEAKER) {
-                            setBluetooth()
-                        }
-                    }
-                    BluetoothProfile.STATE_DISCONNECTED -> {
-                        if (currentOutput == AudioOutputDevice.BLUETOOTH) {
-                            setEarpiece()
-                        }
-                    }
-                }
-            }
-        }
-
-        val filter = IntentFilter().apply {
-            addAction(BluetoothHeadset.ACTION_CONNECTION_STATE_CHANGED)
-            addAction(AudioManager.ACTION_SCO_AUDIO_STATE_UPDATED)
-        }
-        context.registerReceiver(bluetoothReceiver, filter)
-    }
-
-    private fun unregisterBluetoothReceiver() {
-        bluetoothReceiver?.let {
-            try {
-                context.unregisterReceiver(it)
-            } catch (_: Exception) {}
-        }
-        bluetoothReceiver = null
     }
 }

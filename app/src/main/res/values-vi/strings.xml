@@ -87,6 +87,7 @@
     <string name="qr_login_require_mobile_session">Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại để xác nhận đăng nhập QR.</string>
     <string name="qr_camera_denied_title">Không có quyền camera</string>
     <string name="camera_not_available">Không tìm thấy ứng dụng camera.</string>
+    <string name="camera_in_use_error">Camera hiện không hoạt động. Hãy đóng mọi ứng dụng camera khác mà bạn đang chạy.</string>
     <string name="camera_capture_failed">Không thể sử dụng ảnh này. Vui lòng thử lại.</string>
     <string name="camera_photo_preview">Xem trước ảnh vừa chụp</string>
     <string name="camera_retake">Chụp lại</string>
@@ -118,6 +119,7 @@
     <string name="common_login_log_in">Đăng nhập</string>
     <string name="common_login_sign_in">Đăng nhập</string>
     <string name="common_login_invalid_credentials">Email hoặc mật khẩu không hợp lệ</string>
+    <string name="common_login_email_password_incorrect">Email hoặc mật khẩu không chính xác.</string>
     <string name="common_login_login_failed">Email hoặc mật khẩu không hợp lệ. Vui lòng thử lại.</string>
     <string name="common_login_login_too_fast">Đăng nhập quá nhanh. Vui lòng đợi %1$d giây trước khi thử lại.</string>
     <string name="common_login_get_started">Bắt đầu nào</string>
@@ -127,8 +129,9 @@
     <string name="common_login_phone_number">Số điện thoại</string>
     <string name="common_login_email_address">Địa chỉ email</string>
     <string name="common_login_show_password">Hiển thị mật khẩu</string>
-    <string name="common_login_send">Gửi</string>
+    <string name="common_login_send">Gửi OTP</string>
     <string name="common_login_cannot_access_email">Không thể truy cập email?</string>
+    <string name="common_login_password_not_set">Chưa thiết lập mật khẩu?</string>
     <string name="common_login_cannot_access_phone">Không thể truy cập điện thoại?</string>
     <string name="common_login_with_sms">Đăng nhập bằng SMS</string>
     <string name="common_login_with_email_otp">Đăng nhập bằng Email OTP</string>
@@ -152,6 +155,16 @@
     <string name="otp_send_failed">Gửi OTP thất bại</string>
     <string name="otp_change_confirm_title">Đổi %1$s?</string>
     <string name="otp_change_confirm_message">Bạn sẽ quay lại màn hình đăng nhập.</string>
+
+    <string name="update_username_title">Nhập tên Mezon</string>
+    <string name="update_username_subtitle">Vui lòng dùng tên thật của bạn để mọi người dễ nhận ra bạn hơn.</string>
+    <string name="update_username_hint">Tên của bạn…</string>
+    <string name="update_username_preview">Tên người dùng: %1$s</string>
+    <string name="update_username_button">Cập nhật</string>
+    <string name="update_username_error">Không thể cập nhật tên. Vui lòng thử lại.</string>
+    <string name="update_username_taken_error">Tên này đã có người sử dụng. Vui lòng chọn tên khác.</string>
+    <string name="update_username_change_phone_question">Bạn muốn đăng nhập lại bằng số điện thoại?</string>
+    <string name="update_username_change_phone_link">Quay lại đăng nhập bằng số điện thoại</string>
 
     <!-- common.sessionExpired -->
     <string name="common_session_expired_title">Phiên đăng nhập đã hết hạn hoặc lỗi mạng</string>
@@ -244,7 +257,7 @@
     <!-- message -->
     <string name="message_actions_edit">Chỉnh sửa tin nhắn</string>
     <string name="message_actions_reply">Trả lời</string>
-    <string name="message_actions_create_thread">Tạo Thread</string>
+    <string name="message_actions_create_thread">Tạo chủ đề</string>
     <string name="message_actions_copy_text">Sao chép văn bản</string>
     <string name="message_actions_delete">Xóa tin nhắn</string>
     <string name="message_actions_pin">Ghim tin nhắn</string>
@@ -278,6 +291,7 @@
     <string name="message_toast_copy_image_done">Đã sao chép ảnh</string>
     <string name="message_toast_copy_image_failed">Không thể sao chép ảnh</string>
     <string name="message_paste_failed">Không thể dán ảnh</string>
+    <string name="message_convert_to_file_failed">Không thể chuyển tin nhắn thành tệp</string>
     <string name="message_forwarded">Đã chuyển tiếp</string>
     <string name="forward_screen_title">Chuyển tiếp tới</string>
     <string name="forward_extra_hint">Thêm nhận xét (tuỳ chọn)</string>
@@ -321,8 +335,11 @@
     <string name="notif_tab_messages">Tin nhắn</string>
     <string name="notif_tab_topics">Chủ đề</string>
     <string name="notif_tab_topics_empty">Không có hoạt động chủ đề</string>
-    <string name="notif_topic_and_you">Chủ đề và bạn</string>
-    <string name="notif_replied_to">Trả lời:</string>
+    <string name="notif_topic_discussion">THẢO LUẬN CHỦ ĐỀ</string>
+    <string name="notif_original_message">Tin nhắn gốc:</string>
+    <string name="notif_topic_original_attachment">[Tệp đính kèm]</string>
+    <string name="notif_topic_original_contact">[Liên hệ]</string>
+    <string name="notif_topic_original_interactive_message">[Tin nhắn tương tác]</string>
     <string name="topic_discussion">Thảo luận chủ đề</string>
     <string name="topic_creator">Người tạo</string>
     <string name="topic_view">Xem chủ đề</string>
@@ -484,6 +501,17 @@
     <string name="image_crop_rotate_left_cd">Xoay trái</string>
     <string name="image_crop_rotate_right_cd">Xoay phải</string>
     <string name="image_crop_reset_cd">Đặt lại</string>
+    <string name="image_editor_edit">Chỉnh sửa</string>
+    <string name="image_editor_crop">Cắt</string>
+    <string name="image_editor_draw">Vẽ</string>
+    <string name="image_editor_eraser">Cục tẩy</string>
+    <string name="image_editor_brush_size">Độ dày nét vẽ</string>
+    <string name="image_editor_text">Văn bản</string>
+    <string name="image_editor_text_hint">Nhập văn bản</string>
+    <string name="image_editor_text_done">Xong</string>
+    <string name="image_editor_undo">Hoàn tác</string>
+    <string name="image_editor_failed">Không thể chỉnh sửa ảnh này</string>
+    <string name="image_editor_color_cd">Màu vẽ %1$d</string>
     <string name="clan_settings_remove_logo">Gỡ biểu tượng clan</string>
     <string name="clan_settings_logo_permission_denied">Bạn không có quyền thay đổi biểu tượng clan.</string>
     <string name="clan_settings_logo_too_large">Ảnh biểu tượng clan tối đa 1 MB.</string>
@@ -1039,6 +1067,22 @@
     <string name="search_section_voice_channels">Kênh thoại</string>
     <string name="search_section_streaming_channels">Kênh phát trực tuyến</string>
     <string name="search_join_channel">Tham gia</string>
+    <string name="search_tab_members">Thành viên</string>
+    <string name="search_tab_channels">Kênh</string>
+    <string name="search_tab_messages">Tin nhắn</string>
+    <string name="search_messages_placeholder">Tìm tin nhắn…</string>
+    <string name="search_channels_placeholder">Tìm kênh…</string>
+    <string name="search_filter_results">Lọc kết quả</string>
+    <string name="search_filter_from_label">from:</string>
+    <string name="search_filter_from_description">từ người dùng</string>
+    <string name="search_filter_mentions_label">mentions:</string>
+    <string name="search_filter_mentions_description">nhắc đến người dùng</string>
+    <string name="search_filter_channel_badge">in: %1$s</string>
+    <string name="search_filter_user_badge">%1$s %2$s</string>
+    <string name="search_message_attachment">[Tệp đính kèm]</string>
+    <string name="search_user_fallback">Người dùng</string>
+    <string name="search_type_to_search_messages">Nhập để tìm kiếm tin nhắn</string>
+    <string name="search_no_messages_found">Không tìm thấy tin nhắn</string>
 
     <string name="voice_room_agent_request_failed">Không cập nhật được trợ lý thoại.</string>
     <string name="voice_room_agent_server_error">Lỗi máy chủ khi cập nhật trợ lý thoại. Vui lòng thử lại sau.</string>
@@ -1165,20 +1209,20 @@
     <string name="send_token_error_exceeds_balance">Số tiền vượt quá số dư</string>
     <string name="send_token_error_balance_parse">Không đọc được số dư ví</string>
 
-    <string name="create_thread_name_label">Tên Thread</string>
-    <string name="create_thread_name_placeholder">Thread mới</string>
-    <string name="create_thread_new_title">Thread mới</string>
-    <string name="create_thread_private_title">Thread riêng tư</string>
-    <string name="create_thread_private_desc">Chỉ những người bạn mời và quản trị viên mới thấy Thread này</string>
-    <string name="create_thread_error_name">Vui lòng nhập tên Thread hợp lệ (tối đa 64 ký tự, chỉ chữ, số, _ hoặc -).</string>
-    <string name="create_thread_error_too_short">Tên thread phải dài hơn 3 ký tự</string>
-    <string name="create_thread_failed_title">Tạo Thread thất bại</string>
-    <string name="create_thread_failed_message">Không tìm thấy Thread hoặc bạn không có quyền cập nhật</string>
-    <string name="create_thread_empty_cta">Tạo Thread</string>
-    <string name="thread_list_title">Thread</string>
-    <string name="thread_list_search_hint">Tìm kiếm Thread</string>
-    <string name="thread_list_empty_title">Chưa có thread nào</string>
-    <string name="thread_list_empty_description">Tập trung vào cuộc trò chuyện bằng thread - một kênh văn bản tạm thời.</string>
+    <string name="create_thread_name_label">Tên chủ đề</string>
+    <string name="create_thread_name_placeholder">Chủ đề mới</string>
+    <string name="create_thread_new_title">Chủ đề mới</string>
+    <string name="create_thread_private_title">Chủ đề riêng tư</string>
+    <string name="create_thread_private_desc">Chỉ những người bạn mời và quản trị viên mới thấy chủ đề này</string>
+    <string name="create_thread_error_name">Vui lòng nhập tên chủ đề hợp lệ (tối đa 64 ký tự, chỉ chữ, số, _ hoặc -).</string>
+    <string name="create_thread_error_too_short">Tên chủ đề phải dài hơn 3 ký tự</string>
+    <string name="create_thread_failed_title">Tạo chủ đề thất bại</string>
+    <string name="create_thread_failed_message">Không tìm thấy chủ đề hoặc bạn không có quyền cập nhật</string>
+    <string name="create_thread_empty_cta">Tạo chủ đề</string>
+    <string name="thread_list_title">Chủ đề</string>
+    <string name="thread_list_search_hint">Tìm kiếm chủ đề</string>
+    <string name="thread_list_empty_title">Chưa có chủ đề nào</string>
+    <string name="thread_list_empty_description">Tập trung vào cuộc trò chuyện bằng chủ đề - một kênh văn bản tạm thời.</string>
     <string name="thread_list_joined_threads">Chủ đề đã tham gia</string>
     <string name="thread_list_active_threads">Chủ đề đang hoạt động</string>
     <string name="thread_list_archived_threads">Chủ đề cũ hơn</string>
@@ -1187,17 +1231,18 @@
     <string name="message_attachment_video">Video</string>
     <string name="message_attachment_gif">GIF</string>
     <string name="message_attachment_file">Tệp</string>
+    <string name="message_attachment_embed">Embed</string>
     <string name="message_attachment_contact">Liên hệ</string>
     <string name="message_attachment_location">Vị trí</string>
     <string name="message_attachment_poll">Bình chọn</string>
-    <string name="system_msg_started_thread_lead">Đã tạo thread:</string>
+    <string name="system_msg_started_thread_lead">Đã tạo chủ đề:</string>
     <string name="system_msg_pin_link_phrase">một tin nhắn</string>
     <string name="system_msg_pin_pinned_lead">đã ghim</string>
     <string name="system_msg_pin_to_channel_see">vào kênh này. Xem</string>
     <string name="system_msg_all_pins">tất cả tin nhắn</string>
     <string name="system_msg_pin_messages_suffix">đã ghim.</string>
     <string name="system_msg_thread_sentence_see">Xem</string>
-    <string name="system_msg_all_threads">tất cả thread</string>
+    <string name="system_msg_all_threads">tất cả chủ đề</string>
     <string name="channel_files_search_placeholder">Tìm kiếm tệp</string>
     <string name="channel_files_media_empty_description">Chúng tôi đã tìm kiếm rất xa. Thật không may, không có kết quả được tìm thấy</string>
     <string name="channel_files_shared_by">Được chia sẻ bởi %1$s</string>
@@ -1225,16 +1270,25 @@
     <string name="channel_menu_mark_favorite">Thêm vào yêu thích</string>
     <string name="channel_menu_unmark_favorite">Bỏ khỏi yêu thích</string>
     <string name="channel_menu_copy_link">Sao chép liên kết</string>
-    <string name="channel_menu_threads">Thread</string>
+    <string name="channel_menu_threads">Chủ đề</string>
     <string name="channel_menu_edit_channel">Chỉnh sửa kênh</string>
-    <string name="channel_menu_edit_thread">Chỉnh sửa thread</string>
+    <string name="channel_menu_edit_thread">Chỉnh sửa chủ đề</string>
     <string name="channel_menu_mute_channel">Tắt thông báo kênh</string>
     <string name="channel_menu_unmute_channel">Bật thông báo kênh</string>
+    <string name="channel_action_mute_short">Tắt thông báo</string>
+    <string name="channel_action_unmute_short">Bật thông báo</string>
     <string name="channel_menu_mute_thread">Tắt thông báo chủ đề</string>
     <string name="channel_menu_unmute_thread">Bật thông báo chủ đề</string>
     <string name="channel_menu_notification_settings">Cài đặt thông báo</string>
+    <string name="channel_notification_settings_title">Cài đặt thông báo</string>
+    <string name="channel_notification_settings_use_default">Dùng cài đặt mặc định</string>
+    <string name="channel_notification_settings_default_all_messages">Tất cả</string>
+    <string name="channel_notification_settings_all_messages">Tất cả</string>
+    <string name="channel_notification_settings_mentions_only">Chỉ @mention</string>
+    <string name="channel_notification_settings_nothing">Không có gì</string>
+    <string name="channel_notification_settings_update_failed">Không thể cập nhật cài đặt thông báo</string>
     <string name="channel_mute_sheet_title_channel">Tắt thông báo kênh này</string>
-    <string name="channel_mute_sheet_title_thread">Tắt thông báo thread này</string>
+    <string name="channel_mute_sheet_title_thread">Tắt thông báo chủ đề này</string>
     <string name="channel_mute_duration_15m">15 phút</string>
     <string name="channel_mute_duration_1h">1 giờ</string>
     <string name="channel_mute_duration_3h">3 giờ</string>
@@ -1248,15 +1302,15 @@
     <string name="category_menu_create_channel">Tạo kênh</string>
     <string name="category_menu_create_channel_unavailable">Chưa thể tạo kênh cho danh mục này lúc này.</string>
     <string name="channel_open_no_view_permission">Bạn không có quyền xem kênh này.</string>
-    <!-- Channel / thread settings (ChannelSetting RN port) -->
+    <!-- Channel / chủ đề settings (ChannelSetting RN port) -->
     <string name="channel_settings_title_channel">Cài đặt kênh</string>
-    <string name="channel_settings_title_thread">Cài đặt thread</string>
-    <string name="channel_settings_thread_name_title">Tên thread</string>
+    <string name="channel_settings_title_thread">Cài đặt chủ đề</string>
+    <string name="channel_settings_thread_name_title">Tên chủ đề</string>
     <string name="channel_settings_topic_title">Chủ đề</string>
     <string name="channel_settings_name_duplicate_channel">Tên kênh này đã được dùng trong clan.</string>
-    <string name="channel_settings_name_duplicate_thread">Tên thread này đã được dùng trong clan.</string>
+    <string name="channel_settings_name_duplicate_thread">Tên chủ đề này đã được dùng trong clan.</string>
     <string name="channel_settings_name_invalid_channel">Nhập tên kênh hợp lệ (1–64 ký tự).</string>
-    <string name="channel_settings_name_invalid_thread">Nhập tên thread hợp lệ (1–64 ký tự).</string>
+    <string name="channel_settings_name_invalid_thread">Nhập tên chủ đề hợp lệ (1–64 ký tự).</string>
     <string name="channel_settings_updated">Đã cập nhật</string>
     <string name="channel_settings_menu_change_category">Đổi danh mục</string>
     <string name="channel_settings_menu_channel_permission">Quyền kênh</string>
@@ -1267,13 +1321,13 @@
     <string name="channel_settings_menu_ban_list">Người dùng bị cấm</string>
     <string name="channel_settings_menu_webhook">Webhook</string>
     <string name="channel_settings_menu_delete_channel">Xóa kênh</string>
-    <string name="channel_settings_menu_delete_thread">Xóa thread</string>
+    <string name="channel_settings_menu_delete_thread">Xóa chủ đề</string>
     <string name="channel_settings_menu_leave_channel">Rời kênh</string>
-    <string name="channel_settings_menu_leave_thread">Rời thread</string>
+    <string name="channel_settings_menu_leave_thread">Rời chủ đề</string>
     <string name="channel_settings_delete_confirm_channel_title">Xóa kênh?</string>
-    <string name="channel_settings_delete_confirm_thread_title">Xóa thread?</string>
+    <string name="channel_settings_delete_confirm_thread_title">Xóa chủ đề?</string>
     <string name="channel_settings_delete_confirm_message">Thao tác này sẽ xóa vĩnh viễn "%s". Không thể hoàn tác.</string>
-    <string name="channel_settings_leave_confirm_title">Rời thread?</string>
+    <string name="channel_settings_leave_confirm_title">Rời chủ đề?</string>
     <string name="channel_settings_leave_confirm_message">Bạn sẽ không còn thấy "%s" trong clan này.</string>
     <string name="channel_settings_delete_system_channel">Kênh này dùng cho tin nhắn hệ thống và không thể xóa.</string>
     <string name="channel_settings_delete_failed">Không xóa được: %s</string>
@@ -1340,7 +1394,7 @@
     <string name="channel_permission_title">Quyền kênh</string>
     <string name="channel_permission_tab_basic">Cơ bản</string>
     <string name="channel_permission_tab_advanced">Nâng cao</string>
-    <string name="channel_permission_private_channel">Kênh riêng</string>
+    <string name="channel_permission_private_channel">Kênh riêng tư</string>
     <string name="channel_permission_private_desc">Chỉ thành viên và vai trò được mời mới truy cập được kênh này.</string>
     <string name="channel_permission_who_can_access">Ai có thể truy cập</string>
     <string name="channel_permission_add_members_roles">Thêm thành viên và vai trò</string>
@@ -1486,6 +1540,7 @@
     <string name="call_full_screen_intent_open_settings">Bật trong cài đặt</string>
     <string name="call_full_screen_intent_start_call_anyway">Vẫn gọi</string>
     <string name="call_full_screen_intent_incoming_hint">Đang tắt toàn màn hình khi khóa — chạm để bật</string>
+    <string name="call_ongoing_banner_title">Cuộc gọi đang diễn ra</string>
 
     <string name="advanced_share_contact">Chia sẻ danh thiếp</string>
     <string name="share_contact_title">Chia sẻ danh thiếp</string>
@@ -1569,4 +1624,17 @@
     <string name="community_settings_error_banner_size">Kích thước ảnh phải nhỏ hơn 10 MB</string>
     <string name="community_settings_error_banner_type">Vui lòng chọn file ảnh hợp lệ</string>
     <string name="community_settings_permission_denied">Bạn không có quyền quản lý cài đặt cộng đồng</string>
+    <string name="emoji_tab_emoji">Biểu cảm</string>
+    <string name="emoji_tab_gif">GIFs</string>
+    <string name="emoji_tab_sticker">Nhãn dán</string>
+    <string name="emoji_search_emoji_placeholder">Tìm kiếm biểu cảm</string>
+    <string name="emoji_search_gif_placeholder">Tìm kiếm GIF</string>
+    <string name="emoji_search_sticker_placeholder">Tìm kiếm nhãn dán</string>
+    <string name="emoji_gifs_empty">GIF sẽ xuất hiện ở đây</string>
+    <string name="emoji_trending_gifs">Thịnh hành</string>
+    <string name="action_save_media">Lưu ảnh</string>
+    <string name="action_copy_image">Sao chép ảnh</string>
+    <string name="action_share_image">Chia sẻ ảnh</string>
+    <string name="message_toast_save_success">Lưu thành công</string>
+    <string name="message_toast_save_failed">Lưu thất bại</string>
 </resources>

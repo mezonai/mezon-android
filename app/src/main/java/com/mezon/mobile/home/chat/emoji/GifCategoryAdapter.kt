@@ -4,21 +4,21 @@ import android.view.ViewGroup
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.core.ThemeColors
-import com.mezon.mobile.network.TenorCategory
+import com.mezon.mobile.network.KlipyCategory
 
 class GifCategoryAdapter(
     private val themeColors: ThemeColors,
-    private val onCategoryClick: (TenorCategory) -> Unit
+    private val onCategoryClick: (KlipyCategory) -> Unit
 ) : RecyclerView.Adapter<GifCategoryAdapter.CategoryViewHolder>() {
 
-    private val categories = ArrayList<TenorCategory>()
+    private val categories = ArrayList<KlipyCategory>()
 
     init { setHasStableIds(true) }
 
     override fun getItemId(position: Int): Long =
         if (position in categories.indices) categories[position].name.hashCode().toLong() else RecyclerView.NO_ID
 
-    fun setData(newCategories: List<TenorCategory>) {
+    fun setData(newCategories: List<KlipyCategory>) {
         val result = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
             override fun getOldListSize() = categories.size
             override fun getNewListSize() = newCategories.size

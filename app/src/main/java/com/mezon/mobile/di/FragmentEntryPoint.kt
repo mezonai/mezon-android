@@ -15,6 +15,7 @@ import com.mezon.mobile.home.PinMessageController
 import com.mezon.mobile.home.chat.AudioPlayerController
 import com.mezon.mobile.home.call.CallController
 import com.mezon.mobile.home.call.CallManager
+import com.mezon.mobile.home.call.CallTelecomBridge
 import com.mezon.mobile.home.call.WebRtcInfra
 import com.mezon.mobile.home.chat.EmojiController
 import com.mezon.mobile.home.clans.settings.SoundEffectSettingsController
@@ -118,6 +119,7 @@ interface FragmentEntryPoint {
     fun apiCacheTracker(): ApiCacheTracker
     fun callController(): CallController
     fun callManager(): CallManager
+    fun callTelecomBridge(): CallTelecomBridge
     fun webRtcInfra(): WebRtcInfra
     fun okHttpClient(): OkHttpClient
     fun sentryReporter(): SentryReporter

@@ -11,7 +11,12 @@ import javax.net.ssl.SSLException
 
 
 object NetworkErrorMessages {
-    fun userMessage(context: Context, throwable: Throwable?, fallback: String): String {
+    fun userMessage(
+        context: Context,
+        throwable: Throwable?,
+        fallback: String,
+        allowRawMessage: Boolean = true
+    ): String {
         if (throwable == null) return fallback
         var t: Throwable? = throwable
         val seen = HashSet<Throwable>(8)
@@ -21,6 +26,7 @@ object NetworkErrorMessages {
             t = t.cause
             depth++
         }
+        if (!allowRawMessage) return fallback
         val raw = throwable.message?.trim().orEmpty()
         return raw.ifEmpty { fallback }
     }

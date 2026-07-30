@@ -44,6 +44,7 @@ class CallController @Inject constructor(
     private val userController: UserController,
     private val webRtcInfra: WebRtcInfra,
     private val callManager: CallManager,
+    private val telecomBridge: CallTelecomBridge,
     private val chatController: Lazy<ChatController>,
     private val callLogHelper: CallLogHelper,
     @ApplicationContext private val appContext: Context,
@@ -166,6 +167,13 @@ class CallController @Inject constructor(
         callAudioManager = CallAudioManager(appContext).also { it.start(isVideo) }
         callAudioManager?.playDialTone()
 
+        telecomBridge.startOutgoing(callInfo)
+        try {
+            CallForegroundService.startOutgoing(appContext, callInfo)
+        } catch (e: Exception) {
+            Log.w(TAG, "startOutgoing FGS failed", e)
+        }
+
         webRtcInfra.prewarm()
         peerConnection = PeerConnectionWrapper(appContext, this, webRtcInfra)
 
@@ -252,6 +260,7 @@ class CallController @Inject constructor(
         Log.d(TAG, "acceptCall: peer=${state.callInfo.peerName}, video=${state.callInfo.isVideo}")
         cancelTimeout()
         callAudioManager?.stopTone()
+        telecomBridge.markActive()
 
         val callInfo = state.callInfo
         markInCall(callInfo)
@@ -268,7 +277,7 @@ class CallController @Inject constructor(
         notificationCenter.postNotificationOnMainThread(NotificationCenter.callStateChanged, callState)
 
         try {
-            CallForegroundService.startConnecting(appContext, callInfo.peerName)
+            CallForegroundService.startConnecting(appContext, callInfo)
         } catch (e: Exception) {
             Log.w(TAG, "startConnecting FGS failed", e)
             try {
@@ -331,7 +340,7 @@ class CallController @Inject constructor(
             Log.d(TAG, "acceptCallFromFcm: parsing FCM offer data")
             val parsed = parseSignalingData(offerJson)
             val callerName = parsed.optString("callerName", "Unknown")
-            val callerAvatar = parsed.optString("callerAvatar", "")
+            val callerAvatar = parsed.optString("callerAvatar", "").takeIf { it != "null" } ?: ""
             val callerIdStr = parsed.optString("callerId", "0")
             val channelIdStr = parsed.optString("channelId", "0")
 
@@ -512,22 +521,16 @@ class CallController @Inject constructor(
         }
     }
 
-    private fun isAppInForegroundForIncomingCall(): Boolean =
+    fun isAppInForegroundForIncomingCall(): Boolean =
         MainActivity.isResumed && !callManager.isDeviceLockedOrScreenOff()
 
-    private fun tryPresentIncomingCallBackgroundUi(callInfo: CallInfo, offerJsonPayload: String) {
+    fun presentIncomingCall(callInfo: CallInfo, offerJsonPayload: String) {
+        telecomBridge.startIncoming(callInfo, offerJsonPayload)
         if (isAppInForegroundForIncomingCall()) return
-        try {
-            callManager.showIncomingCall(
-                callInfo.peerName,
-                callInfo.peerId.toString(),
-                callInfo.channelId.toString(),
-                offerJsonPayload,
-                callInfo.isVideo
-            )
-        } catch (e: Exception) {
-            Log.w(TAG, "Telecom showIncomingCall failed", e)
-        }
+        startIncomingRingUi(callInfo, offerJsonPayload)
+    }
+
+    private fun startIncomingRingUi(callInfo: CallInfo, offerJsonPayload: String) {
         val useFsi = callManager.canUseFullScreenIntent()
         try {
             CallForegroundService.startRinging(
@@ -537,7 +540,8 @@ class CallController @Inject constructor(
                 callInfo.peerId.toString(),
                 callInfo.channelId.toString(),
                 offerJsonPayload,
-                useFsi
+                useFsi,
+                callManager.isDeviceLockedOrScreenOff()
             )
         } catch (e: Exception) {
             Log.e(TAG, "incoming ring FGS failed, fallback notify", e)
@@ -631,6 +635,12 @@ class CallController @Inject constructor(
         notificationCenter.postNotificationOnMainThread(NotificationCenter.callMediaChanged)
     }
 
+    fun restartCamera() {
+        if (isLocalVideoEnabled) {
+            peerConnection?.restartCamera()
+        }
+    }
+
     fun toggleSpeaker() {
         isSpeakerOn = !isSpeakerOn
         if (isSpeakerOn) {
@@ -674,6 +684,8 @@ class CallController @Inject constructor(
         val logPrivate = activeCallIsPrivate
 
         StartupCache.suppressHomeListApiForIncomingCallWake = false
+
+        telecomBridge.endWithReason(reason)
 
         try {
             CallForegroundService.stop(appContext)
@@ -812,7 +824,7 @@ class CallController @Inject constructor(
         try {
             val parsed = parseSignalingData(jsonData)
             val callerName = parsed.optString("callerName", "Unknown")
-            val callerAvatar = parsed.optString("callerAvatar", "")
+            val callerAvatar = parsed.optString("callerAvatar", "").takeIf { it != "null" } ?: ""
 
             val sdpString = SdpCompressor.sdpPlainTextFromNegotiationJson(parsed)
             if (sdpString.isNullOrEmpty()) {
@@ -858,7 +870,7 @@ class CallController @Inject constructor(
             if (!MainActivity.isResumed) {
                 StartupCache.suppressHomeListApiForIncomingCallWake = true
             }
-            tryPresentIncomingCallBackgroundUi(callInfo, jsonData)
+            presentIncomingCall(callInfo, jsonData)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to handle offer", e)
         }
@@ -1073,12 +1085,13 @@ class CallController @Inject constructor(
         callState = CallState.Connected(callInfo, connectedTime)
         cancelTimeout()
         callAudioManager?.stopTone()
+        telecomBridge.markActive()
         sendMediaStatus()
         scheduleRemoteVideoRevealRefreshIfNeeded()
         pushCancelCallOnConnected(callInfo)
         notificationCenter.postNotificationOnMainThread(NotificationCenter.callStateChanged, callState)
         try {
-            CallForegroundService.startConnected(appContext, callInfo.peerName, connectedTime)
+            CallForegroundService.startConnected(appContext, callInfo, connectedTime)
         } catch (_: Exception) {
         }
     }

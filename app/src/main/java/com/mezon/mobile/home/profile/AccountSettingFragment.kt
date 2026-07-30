@@ -6,6 +6,7 @@ import android.view.ViewGroup
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.R
+import com.mezon.mobile.auth.AuthRepository
 import com.mezon.mobile.core.AlertsCreator
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
@@ -16,6 +17,7 @@ import com.mezon.mobile.ui.cells.HeaderCell
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.ShadowSectionCell
 import com.mezon.mobile.ui.cells.TextSettingsCell
+import kotlinx.coroutines.launch
 
 class AccountSettingFragment : BaseFragment() {
 
@@ -27,6 +29,7 @@ class AccountSettingFragment : BaseFragment() {
 
     private lateinit var accountController: AccountController
     private lateinit var userController: UserController
+    private lateinit var authRepository: AuthRepository
 
     var onNavigateUpdateEmail: ((currentEmail: String) -> Unit)? = null
     var onNavigateUpdatePhone: ((currentPhone: String) -> Unit)? = null
@@ -55,6 +58,7 @@ class AccountSettingFragment : BaseFragment() {
     override fun onInject(entryPoint: FragmentEntryPoint) {
         accountController = entryPoint.accountController()
         userController = entryPoint.userController()
+        authRepository = entryPoint.authRepository()
     }
 
     override fun onFragmentCreate(): Boolean {
@@ -189,7 +193,10 @@ class AccountSettingFragment : BaseFragment() {
         ) {
             accountController.deleteAccount { success ->
                 if (success) {
-                    notificationCenter.postNotificationOnMainThread(NotificationCenter.sessionExpired)
+                    fragmentScope.launch {
+                        authRepository.logout()
+                        notificationCenter.postNotificationOnMainThread(NotificationCenter.appDidLogout)
+                    }
                 } else {
                     AlertsCreator.showSimpleAlert(
                         requireContext(),

@@ -16,14 +16,14 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.SharedConfig
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.chat.MezonImageLoader
-import com.mezon.mobile.network.TenorCategory
+import com.mezon.mobile.network.KlipyCategory
 
 private val CELL_HEIGHT = LayoutHelper.dp(100f)
 private val CORNER_RADIUS = LayoutHelper.dp(10f).toFloat()
 
 class GifCategoryCell(context: Context, private val themeColors: ThemeColors) : View(context) {
 
-    private var category: TenorCategory? = null
+    private var category: KlipyCategory? = null
     private var drawable: Drawable? = null
     private var cancellable: MezonImageLoader.Cancellable? = null
     private val loader = MezonImageLoader.getInstance(context)
@@ -43,16 +43,17 @@ class GifCategoryCell(context: Context, private val themeColors: ThemeColors) : 
         }
     }
 
-    fun getCategory(): TenorCategory? = category
+    fun getCategory(): KlipyCategory? = category
 
-    fun setCategory(item: TenorCategory) {
-        if (category?.name == item.name) return
+    fun setCategory(item: KlipyCategory) {
+        if (category == item) return
         stopAnimation()
         cancellable?.cancel()
         drawable = null
         category = item
 
-        nameLayout = buildNameLayout(item.name, measuredWidth.coerceAtLeast(LayoutHelper.dp(100f)))
+        val nameToDisplay = if (item.isTrending) context.getString(com.mezon.mobile.R.string.emoji_trending_gifs) else item.name
+        nameLayout = buildNameLayout(nameToDisplay, measuredWidth.coerceAtLeast(LayoutHelper.dp(100f)))
 
         val reqW = if (measuredWidth > 0) measuredWidth else LayoutHelper.dp(170f)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && !SharedConfig.deviceIsLow()) {
@@ -60,9 +61,10 @@ class GifCategoryCell(context: Context, private val themeColors: ThemeColors) : 
                 onSuccess = { d ->
                     drawable = d
                     d.callback = drawableCallback
-                    if (d is AnimatedImageDrawable) d.start()
+                    if (d is AnimatedImageDrawable && isScrollIdle()) d.start()
                     invalidate()
-                })
+                },
+                cacheAnimated = true)
         } else {
             cancellable = loader.load(item.imageUrl, reqW, CELL_HEIGHT, onSuccess = { bmp ->
                 drawable = android.graphics.drawable.BitmapDrawable(resources, bmp)
@@ -85,7 +87,8 @@ class GifCategoryCell(context: Context, private val themeColors: ThemeColors) : 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         val cat = category ?: return
-        nameLayout = buildNameLayout(cat.name, w)
+        val nameToDisplay = if (cat.isTrending) context.getString(com.mezon.mobile.R.string.emoji_trending_gifs) else cat.name
+        nameLayout = buildNameLayout(nameToDisplay, w)
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -124,10 +127,23 @@ class GifCategoryCell(context: Context, private val themeColors: ThemeColors) : 
         canvas.restore()
     }
 
+    private fun isScrollIdle(): Boolean {
+        val rv = parent as? androidx.recyclerview.widget.RecyclerView ?: return true
+        return rv.scrollState == androidx.recyclerview.widget.RecyclerView.SCROLL_STATE_IDLE
+    }
+
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         val d = drawable
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && d is AnimatedImageDrawable) d.start()
+        if (d != null) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && d is AnimatedImageDrawable && isScrollIdle()) d.start()
+        } else {
+            val cat = category
+            if (cat != null && cancellable == null) {
+                category = null
+                setCategory(cat)
+            }
+        }
     }
 
     override fun onDetachedFromWindow() {

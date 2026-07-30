@@ -66,14 +66,18 @@ class CallAvatarView(
     fun setData(name: String, username: String, avatarUrl: String?) {
         peerName = name
         avatarDrawable.setInfo(0L, username.ifEmpty { name })
-        if (currentAvatarUrl != avatarUrl) {
-            currentAvatarUrl = avatarUrl
+        
+        val actualAvatarUrl = if (avatarUrl == "null") null else avatarUrl
+        
+        if (currentAvatarUrl != actualAvatarUrl) {
+            currentAvatarUrl = actualAvatarUrl
             cancellable?.cancel()
             cancellable = null
-            if (avatarUrl.isNullOrBlank()) {
+            if (actualAvatarUrl.isNullOrBlank()) {
+                avatarDrawable.setLoadingPlaceholder(false)
                 avatarDrawable.setPhoto(null)
             } else if (attachedToWindow) {
-                loadAvatar(avatarUrl)
+                loadAvatar(actualAvatarUrl)
             }
         }
         invalidate()
@@ -156,7 +160,7 @@ class CallAvatarView(
         val avatarTop = LayoutHelper.dp(10).toFloat()
         val avatarRadius = avatarSize / 2f
 
-        if (!isConnected) {
+        if (!isConnected && ringAnimator != null) {
             drawRingCircles(canvas, cx, avatarTop + avatarRadius)
         }
 
@@ -220,6 +224,9 @@ class CallAvatarView(
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         attachedToWindow = true
+        if (!isConnected && !connectingSpinner) {
+            startRingAnimation()
+        }
         val url = currentAvatarUrl
         if (!url.isNullOrBlank() && cancellable == null && !avatarDrawable.hasPhoto()) {
             loadAvatar(url)
@@ -229,18 +236,20 @@ class CallAvatarView(
     private fun loadAvatar(url: String) {
         val sizePx = avatarSize
         val proxyUrl = avatarImgproxyUrl(url, sizePx)
+        avatarDrawable.setLoadingPlaceholder(true)
         cancellable = MezonImageLoader.getInstance(context).load(
             proxyUrl,
             sizePx,
             sizePx,
             onSuccess = { bmp: Bitmap ->
                 cancellable = null
+                avatarDrawable.setLoadingPlaceholder(false)
                 avatarDrawable.setPhoto(bmp)
                 invalidate()
             },
             onError = {
                 cancellable = null
-                avatarDrawable.setPhoto(null)
+                avatarDrawable.setLoadingPlaceholder(false)
                 invalidate()
             }
         )

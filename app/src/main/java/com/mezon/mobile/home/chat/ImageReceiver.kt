@@ -27,6 +27,7 @@ class ImageReceiver(private val parentView: View) {
     private var currentThumbUrl: String? = null
     private var attached = false
     private var pendingLoad: Pair<String?, String?>? = null
+    private var pendingForceAnimated = false
     private var mainCancellable: MezonImageLoader.Cancellable? = null
     private var thumbCancellable: MezonImageLoader.Cancellable? = null
     private var isAnimatedRequest = false
@@ -45,6 +46,7 @@ class ImageReceiver(private val parentView: View) {
     private var currentAlpha = 1f
     private var lastAlphaUpdateTime = 0L
     private val crossfadeDuration = 200f
+    var onMainImageLoaded: (() -> Unit)? = null
     private var allowStartAnimation = true
     private var skipUpdateFrame = false
     private var centerCrop = true
@@ -74,6 +76,18 @@ class ImageReceiver(private val parentView: View) {
         imageY = y
         imageW = w
         imageH = h
+    }
+
+    fun mainImageSize(): Pair<Int, Int>? {
+        animatedDrawable?.let { d ->
+            val w = d.intrinsicWidth
+            val h = d.intrinsicHeight
+            if (w > 0 && h > 0) return w to h
+        }
+        imageBitmap?.let { bmp ->
+            if (!bmp.isRecycled && bmp.width > 0 && bmp.height > 0) return bmp.width to bmp.height
+        }
+        return null
     }
 
     fun setRoundRadius(radius: Int) {
@@ -121,7 +135,8 @@ class ImageReceiver(private val parentView: View) {
             pendingLoad = null
             currentUrl = null
             currentThumbUrl = null
-            setImage(url, thumbUrl, parentView.context)
+            setImage(url, thumbUrl, parentView.context, pendingForceAnimated)
+            pendingForceAnimated = false
         }
         pendingLocalUri?.let { uri ->
             pendingLocalUri = null
@@ -131,7 +146,10 @@ class ImageReceiver(private val parentView: View) {
             val url = currentUrl
             val thumb = currentThumbUrl
             if (url != null && imageBitmap == null && animatedDrawable == null && mainCancellable == null) {
-                setImage(url, thumb, parentView.context)
+                val wasAnimated = isAnimatedRequest
+                currentUrl = null
+                currentThumbUrl = null
+                setImage(url, thumb, parentView.context, wasAnimated)
             }
         }
     }
@@ -147,7 +165,7 @@ class ImageReceiver(private val parentView: View) {
         pendingLocalUri = null
     }
 
-    fun setImage(url: String?, thumbUrl: String?, context: Context) {
+    fun setImage(url: String?, thumbUrl: String?, context: Context, forceAnimated: Boolean = false) {
         if (url == null && thumbUrl == null) {
             if (currentUrl == null && currentThumbUrl == null && !hasImage() &&
                 mainCancellable == null && thumbCancellable == null) return
@@ -174,6 +192,7 @@ class ImageReceiver(private val parentView: View) {
                 thumbCancellable = null
             }
             pendingLoad = Pair(url, thumbUrl)
+            pendingForceAnimated = forceAnimated
             return
         }
 
@@ -201,7 +220,7 @@ class ImageReceiver(private val parentView: View) {
             val rw = if (requestW > 0) requestW else 800
             val rh = if (requestH > 0) requestH else 800
 
-            isAnimatedRequest = url.contains(".gif", true) ||
+            isAnimatedRequest = forceAnimated || url.contains(".gif", true) ||
                 (url.contains(".webp", true) && !url.endsWith("@webp"))
 
             if (isAnimatedRequest) {
@@ -234,6 +253,7 @@ class ImageReceiver(private val parentView: View) {
                             thumbBitmap = null
                         }
                         parentView.invalidate()
+                        onMainImageLoaded?.invoke()
                     },
                     onError = {
                         if (currentUrl == expectedUrl) onLoadError(url, rw, rh, loader)
@@ -250,6 +270,7 @@ class ImageReceiver(private val parentView: View) {
                     currentAlpha = 1f
                     thumbBitmap = null
                     parentView.invalidate()
+                    onMainImageLoaded?.invoke()
                     return
                 }
 
@@ -275,6 +296,7 @@ class ImageReceiver(private val parentView: View) {
                             thumbBitmap = null
                         }
                         parentView.invalidate()
+                        onMainImageLoaded?.invoke()
                     },
                     onError = {
                         if (currentUrl == expectedUrl) onLoadError(url, rw, rh, loader)
@@ -594,6 +616,7 @@ class ImageReceiver(private val parentView: View) {
         currentUrl = null
         currentThumbUrl = null
         pendingLoad = null
+        pendingForceAnimated = false
         pendingLocalUri = null
         loadExhausted = false
     }

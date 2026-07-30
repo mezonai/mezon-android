@@ -17,7 +17,7 @@ fun createImgproxyUrl(
     maxEdgePx: Int = MAX_PROXY_DIM
 ): String {
     if (sourceUrl.isEmpty()) return sourceUrl
-    if (!sourceUrl.startsWith("https://cdn.mezon") && !sourceUrl.startsWith("https://profile.mezon")) {
+    if (!sourceUrl.startsWith("https://cdn.mezon") && !sourceUrl.startsWith("https://cdn.komu") && !sourceUrl.startsWith("https://profile.mezon")) {
         return sourceUrl
     }
     val cap = maxEdgePx.coerceAtLeast(1).coerceAtMost(4096)
@@ -43,13 +43,13 @@ fun plainSourceUrlFromImgproxy(processedUrl: String): String? {
     return decoded.takeIf { it.startsWith("http://") || it.startsWith("https://") }
 }
 
-private val AVATAR_BUCKETS_PX = intArrayOf(64, 96, 144, 192, 256)
+private val AVATAR_BUCKETS_PX = intArrayOf(192, 256)
 
 fun absoluteResourceUrl(raw: String): String {
     val t = raw.trim()
     if (t.isEmpty()) return ""
     if (t.startsWith("http://") || t.startsWith("https://")) {
-        if (t.startsWith("http://") && (t.contains("cdn.mezon") || t.contains("profile.mezon"))) {
+        if (t.startsWith("http://") && (t.contains("cdn.mezon") || t.contains("cdn.komu") || t.contains("profile.mezon"))) {
             return "https://${t.removePrefix("http://")}"
         }
         return t

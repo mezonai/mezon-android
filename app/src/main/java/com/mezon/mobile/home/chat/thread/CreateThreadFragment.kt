@@ -60,6 +60,7 @@ import com.mezon.mobile.home.chat.input.VoiceRecordingOverlay
 import com.mezon.mobile.home.chat.ChatAttachAlert
 import com.mezon.mobile.home.chat.CameraPhotoCapture
 import com.mezon.mobile.home.chat.CameraPhotoReviewDialog
+import com.mezon.mobile.home.chat.ChatImageEditorDialog
 import com.mezon.mobile.home.chat.CameraPermissionPrompt
 import com.mezon.mobile.home.chat.EmojiItem
 import com.mezon.mobile.home.chat.emoji.EmojiView
@@ -151,6 +152,8 @@ class CreateThreadFragment : BaseFragment() {
     private var useTopicFlow = false
 
     private lateinit var chatController: ChatController
+    private lateinit var callController: com.mezon.mobile.home.call.CallController
+    private lateinit var voiceController: com.mezon.mobile.home.voice.VoiceController
     private lateinit var topicController: TopicController
     private lateinit var channelController: ChannelController
     private lateinit var sessionManager: SessionManager
@@ -201,6 +204,7 @@ class CreateThreadFragment : BaseFragment() {
     private var pendingCameraCapture: CameraPhotoCapture? = null
     private var cameraSourceAlert: ChatAttachAlert? = null
     private var activeCameraReview: CameraPhotoReviewDialog? = null
+    private var activeImageEditor: ChatImageEditorDialog? = null
     private val pendingAttachmentThumbTasks = ArrayList<Runnable?>()
     private val mentionTrackers = mutableListOf<MentionData>()
     private val hashtagTrackers = mutableListOf<HashtagData>()
@@ -271,6 +275,8 @@ class CreateThreadFragment : BaseFragment() {
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
         chatController = entryPoint.chatController()
+        callController = entryPoint.callController()
+        voiceController = entryPoint.voiceController()
         topicController = entryPoint.topicController()
         channelController = entryPoint.channelController()
         sessionManager = entryPoint.sessionManager()
@@ -1076,8 +1082,7 @@ class CreateThreadFragment : BaseFragment() {
     private fun openAttachAlert() {
         dismissPasteImagePopup()
         val ctx = getContext() ?: return
-        val preselected = pendingAttachments.filter { !it.isFileType }
-        val alert = ChatAttachAlert(ctx, mediaController, themeColors, preselected)
+        val alert = ChatAttachAlert(ctx, mediaController, themeColors, emptyList())
         cameraSourceAlert = alert
         alert.attachDelegate = object : ChatAttachAlert.ChatAttachAlertDelegate {
             override fun canSelectMore(): Boolean {
@@ -1086,10 +1091,15 @@ class CreateThreadFragment : BaseFragment() {
 
             override fun onSelectionChanged(item: AttachmentPickerItem, selected: Boolean) {
                 if (selected) {
-                    if (pendingAttachments.any { it.id == item.id }) return
                     pendingAttachments.add(item)
                 } else {
-                    pendingAttachments.removeAll { it.id == item.id }
+                    val idx = pendingAttachments.indexOfLast { it.id == item.id }
+                    if (idx >= 0) {
+                        val removed = pendingAttachments.removeAt(idx)
+                        if (pendingAttachments.none { it.id == item.id }) {
+                            removed.deleteOwnedCacheFile()
+                        }
+                    }
                 }
                 updateAttachmentPreview()
                 updateSendButtonState()
@@ -1097,6 +1107,26 @@ class CreateThreadFragment : BaseFragment() {
 
             override fun onFilesRequested() {
                 launchDocumentPicker()
+            }
+
+            override fun canEdit(item: AttachmentPickerItem): Boolean =
+                pendingAttachments.size == 1 &&
+                    !item.isVideo &&
+                    item.mimeType.startsWith("image/", ignoreCase = true)
+
+            override fun onEditRequested(item: AttachmentPickerItem) {
+                val currentIndex = pendingAttachments.indexOfFirst { it.id == item.id }
+                if (currentIndex < 0) return
+                activeImageEditor?.dismiss()
+                val editor = ChatImageEditorDialog(ctx, pendingAttachments[currentIndex]) { edited ->
+                    alert.dismiss()
+                    trySubmit(edited)
+                }
+                activeImageEditor = editor
+                editor.setOnDismissListener {
+                    if (activeImageEditor === editor) activeImageEditor = null
+                }
+                editor.show()
             }
 
             override fun onCameraRequested() {
@@ -1162,6 +1192,16 @@ class CreateThreadFragment : BaseFragment() {
 
     private fun launchCameraPhoto(): Boolean {
         val ctx = getContext() ?: return false
+        
+        if ((callController.isCallSessionActive() && callController.isLocalVideoEnabled) ||
+            (voiceController.isJoined && voiceController.isLocalVideoEnabled)) {
+            com.mezon.mobile.core.AlertDialog.Builder(ctx)
+                .setMessage(getString(R.string.camera_in_use_error))
+                .setPositiveButton(getString(android.R.string.ok), null)
+                .show()
+            return false
+        }
+
         val capture = CameraPhotoCapture.create(ctx)
         if (capture == null) {
             MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.camera_not_available))
@@ -1219,31 +1259,18 @@ class CreateThreadFragment : BaseFragment() {
             capture.discard()
             return
         }
-        lateinit var review: CameraPhotoReviewDialog
-        review = CameraPhotoReviewDialog(
-            context = ctx,
-            capture = capture,
-            onRetake = {
-                launchCameraPhoto().also { launched ->
-                    if (launched) capture.discard()
-                }
-            },
-            onUsePhoto = {
-                if (activeCameraReview === review) activeCameraReview = null
-                if (pendingAttachments.none { it.id == item.id }) pendingAttachments.add(item)
-                cameraSourceAlert?.dismissWithoutAnimation()
-                updateAttachmentPreview()
-                updateSendButtonState()
-            },
-            onCancelReview = {
-                if (activeCameraReview === review) activeCameraReview = null
-                capture.discard()
-            }
-        )
-        val previousReview = activeCameraReview
-        activeCameraReview = review
-        review.show()
-        previousReview?.dismiss()
+        val editor = ChatImageEditorDialog(ctx, item) { edited ->
+            cameraSourceAlert?.dismissWithoutAnimation()
+            trySubmit(edited)
+            capture.discard()
+        }
+        activeImageEditor?.dismiss()
+        activeImageEditor = editor
+        editor.setOnDismissListener {
+            if (activeImageEditor === editor) activeImageEditor = null
+            capture.discard()
+        }
+        editor.show()
     }
 
     override fun onRequestPermissionsResult(
@@ -1308,7 +1335,7 @@ class CreateThreadFragment : BaseFragment() {
                 setBackgroundColor(0x80000000.toInt())
                 setPadding(LayoutHelper.dp(2f), LayoutHelper.dp(2f), LayoutHelper.dp(2f), LayoutHelper.dp(2f))
                 setOnClickListener {
-                    pendingAttachments.removeAt(i)
+                    pendingAttachments.removeAt(i).deleteOwnedCacheFile()
                     updateAttachmentPreview()
                     updateSendButtonState()
                 }
@@ -1494,7 +1521,7 @@ class CreateThreadFragment : BaseFragment() {
                     updateSendButtonState()
                 }
 
-                override fun onGifSelected(gifUrl: String) {
+                override fun onGifSelected(gifUrl: String, width: Int, height: Int) {
                     if (gifUrl.isBlank()) return
                     pendingStickerSend = PendingStickerSend(gifUrl, "image/gif", null)
                     hideEmojiView(animated = false)
@@ -1918,12 +1945,14 @@ class CreateThreadFragment : BaseFragment() {
 
     private fun sendComposerToThread(
         threadChannelId: Long,
-        threadPrivate: Boolean
+        threadPrivate: Boolean,
+        attachmentOverride: List<AttachmentPickerItem>? = null,
     ) {
+        val outgoingAttachments = attachmentOverride ?: pendingAttachments
         val rawInput = composerField.text?.toString() ?: ""
         val text = rawInput.trim()
         val ctx = getContext() ?: return
-        if (text.isBlank() && pendingAttachments.isEmpty()) {
+        if (text.isBlank() && outgoingAttachments.isEmpty()) {
             pendingStickerSend?.let { st ->
                 chatController.sendDirectAttachment(
                     threadChannelId, clanId, CHANNEL_TYPE_THREAD, threadPrivate,
@@ -1957,10 +1986,10 @@ class CreateThreadFragment : BaseFragment() {
         }
         val hashtags = hashtagsFromTrackers.ifEmpty { null }
         val emojiMarkers = buildEmojiMarkers(cleanedText)
-        if (pendingAttachments.isNotEmpty()) {
+        if (outgoingAttachments.isNotEmpty()) {
             chatController.sendMessageWithAttachments(
                 threadChannelId, clanId, CHANNEL_TYPE_THREAD, threadPrivate, cleanedText,
-                ArrayList(pendingAttachments),
+                ArrayList(outgoingAttachments),
                 ctx.contentResolver,
                 null,
                 mentions,
@@ -2094,15 +2123,16 @@ class CreateThreadFragment : BaseFragment() {
         }
     }
 
-    private fun captureTopicComposerPayload(): TopicComposerPayload? {
+    private fun captureTopicComposerPayload(attachmentOverride: AttachmentPickerItem? = null): TopicComposerPayload? {
         val rawInput = composerField.text?.toString() ?: ""
         val text = rawInput.trim()
-        val hasAttachments = pendingAttachments.isNotEmpty()
+        val outgoingAttachments = attachmentOverride?.let { arrayListOf(it) } ?: ArrayList(pendingAttachments)
+        val hasAttachments = outgoingAttachments.isNotEmpty()
         val hasSticker = pendingStickerSend != null
         if (text.isBlank() && !hasAttachments && !hasSticker) return null
         return TopicComposerPayload(
             rawInput = rawInput,
-            attachments = ArrayList(pendingAttachments),
+            attachments = outgoingAttachments,
             sticker = pendingStickerSend,
             mentions = ArrayList(mentionTrackers),
             hashtags = ArrayList(hashtagTrackers),
@@ -2142,13 +2172,23 @@ class CreateThreadFragment : BaseFragment() {
         }
     }
 
-    private fun trySubmit() {
-        if (isSubmitting) return
+    private fun trySubmit(attachmentOverride: AttachmentPickerItem? = null) {
+        fun discardUnusedOverride() {
+            if (attachmentOverride != null && pendingAttachments.none { it.uri == attachmentOverride.uri }) {
+                attachmentOverride.deleteOwnedCacheFile()
+            }
+        }
+        if (isSubmitting) {
+            discardUnusedOverride()
+            return
+        }
         if (fromTopicFlow && anonymousController.isAnonymous(clanId)) {
+            discardUnusedOverride()
             MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.channel_permissions_no_access))
             return
         }
         if (!canCreateThreadForCurrentFlow()) {
+            discardUnusedOverride()
             MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.channel_permissions_no_access))
             return
         }
@@ -2156,6 +2196,7 @@ class CreateThreadFragment : BaseFragment() {
         if (!fromTopicFlow) {
             val nameErr = validateThreadName(nameField?.text?.toString().orEmpty())
             if (nameErr.isNotEmpty()) {
+                discardUnusedOverride()
                 errorText?.text = nameErr
                 nameErrorRow?.visibility = View.VISIBLE
                 MezonToast.show(this, ToastOverlay.ToastType.ERROR, nameErr)
@@ -2167,6 +2208,7 @@ class CreateThreadFragment : BaseFragment() {
         isSubmitting = true
         sendButton?.isEnabled = false
         attachButton?.isEnabled = false
+        var attachmentHandedOff = false
 
         fragmentScope.launch {
             try {
@@ -2184,11 +2226,12 @@ class CreateThreadFragment : BaseFragment() {
                         topicController.createTopic(
                             clanId = clanId,
                             parentChannelId = parentChannelId,
-                            messageId = seedMessageId
+                            messageId = seedMessageId,
+                            rootMessage = seedMessage
                         )
                     } ?: throw IllegalStateException("create topic failed")
                     val topicRootMessageId = createdTopic.messageId.takeIf { it != 0L } ?: seedMessageId
-                    val composerPayload = captureTopicComposerPayload()
+                    val composerPayload = captureTopicComposerPayload(attachmentOverride)
                     withContext(mainDispatcher) {
                         submitProgress?.visibility = View.GONE
                         isSubmitting = false
@@ -2196,6 +2239,7 @@ class CreateThreadFragment : BaseFragment() {
                         attachButton?.isEnabled = true
                         if (composerPayload != null) {
                             sendComposerToTopic(createdTopic.id, composerPayload)
+                            if (attachmentOverride != null) attachmentHandedOff = true
                             composerField.text?.clear()
                             emojiObjPicked.clear()
                             mentionTrackers.clear()
@@ -2264,7 +2308,12 @@ class CreateThreadFragment : BaseFragment() {
                     delay(80)
                 }
                 withContext(mainDispatcher) {
-                    sendComposerToThread(desc.channelId, threadPrivate)
+                    sendComposerToThread(
+                        desc.channelId,
+                        threadPrivate,
+                        attachmentOverride?.let(::listOf),
+                    )
+                    if (attachmentOverride != null) attachmentHandedOff = true
                 }
                 delay(80)
                 withContext(mainDispatcher) {
@@ -2291,6 +2340,11 @@ class CreateThreadFragment : BaseFragment() {
                 }
             } catch (_: Exception) {
                 withContext(mainDispatcher) {
+                    if (!attachmentHandedOff && attachmentOverride != null &&
+                        pendingAttachments.none { it.uri == attachmentOverride.uri }
+                    ) {
+                        attachmentOverride.deleteOwnedCacheFile()
+                    }
                     submitProgress?.visibility = View.GONE
                     isSubmitting = false
                     sendButton?.isEnabled = true
@@ -2516,6 +2570,9 @@ class CreateThreadFragment : BaseFragment() {
     }
 
     override fun onFragmentDestroy() {
+        activeImageEditor?.setOnDismissListener(null)
+        activeImageEditor?.dismiss()
+        activeImageEditor = null
         waitingForKeyboardOpen = false
         mainHandler.removeCallbacks(voiceLongPressRunnable)
         voiceCompleteRunnable?.let { mainHandler.removeCallbacks(it) }
@@ -2527,6 +2584,7 @@ class CreateThreadFragment : BaseFragment() {
         dismissPasteImagePopup()
         for (t in pendingAttachmentThumbTasks) ThumbnailCache.cancel(t)
         pendingAttachmentThumbTasks.clear()
+        pendingAttachments.forEach { it.deleteOwnedCacheFile() }
         pendingAttachments.clear()
         mentionTrackers.clear()
         hashtagTrackers.clear()

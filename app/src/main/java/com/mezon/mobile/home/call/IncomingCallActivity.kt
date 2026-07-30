@@ -3,9 +3,11 @@ package com.mezon.mobile.home.call
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
+import com.mezon.mobile.MainActivity
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.drawable.GradientDrawable
+import android.media.AudioManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -44,6 +46,7 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
     private var callerName: String = "Unknown"
     private var callerUsername: String = ""
     private var callerAvatar: String? = null
+    private var autoAnswer = false
     private var dismissed = false
     private var connecting = false
     private var observersAttached = false
@@ -105,12 +108,12 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
 
         if (!hasRealCall) {
             Log.d(TAG, "onCreate: no real incoming call, finishing (stale TelecomManager connection)")
-            MezonCallConnection.activeConnection?.let {
-                it.setCallDisconnected(DisconnectCause.CANCELED)
-            }
+            CallTelecomBridge.from(this)?.endWithCause(DisconnectCause.CANCELED)
             finish()
             return
         }
+
+        incomingCallUiShown = true
 
         setShowWhenLocked(true)
         setTurnScreenOn(true)
@@ -118,6 +121,8 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
             WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
                 WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
         )
+
+        volumeControlStream = AudioManager.STREAM_VOICE_CALL
 
         if (callInfo != null) {
             callerName = callInfo.peerName
@@ -150,8 +155,12 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
                 showConnectedUi(state.connectedTime)
             }
             else -> {
-                scheduleIncomingRingtoneFromActivity()
-                handler.postDelayed(autoDeclineRunnable, 30_000)
+                if (autoAnswer) {
+                    acceptCall()
+                } else {
+                    scheduleIncomingRingtoneFromActivity()
+                    handler.postDelayed(autoDeclineRunnable, 30_000)
+                }
             }
         }
     }
@@ -178,6 +187,9 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
         loadIncomingData(intent)
         bindUiData()
         refreshFullScreenIntentHint()
+        if (autoAnswer) {
+            acceptCall()
+        }
     }
 
     override fun onRequestPermissionsResult(
@@ -542,6 +554,8 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
     }
 
     private fun loadIncomingData(intent: Intent?) {
+        autoAnswer = intent?.getBooleanExtra(CallManager.EXTRA_AUTO_ANSWER, false) == true
+
         val prefs = getSharedPreferences("call_data", MODE_PRIVATE)
         val fromPrefsOffer = prefs.getString("incoming_call", null)
         val fromIntentOffer = intent?.getStringExtra(CallManager.EXTRA_OFFER_JSON)?.trim()?.takeIf { it.isNotEmpty() }
@@ -650,7 +664,8 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
         connecting = true
 
         cancelDeferredIncomingRingtone()
-        callAudioManager?.stopTone()
+        callAudioManager?.stop()
+        callAudioManager = null
         handler.removeCallbacks(autoDeclineRunnable)
         handler.postDelayed(acceptTimeoutRunnable, 60_000)
 
@@ -733,9 +748,8 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
 
         val controller = CallController.instance
         connectedHeader = DmCallHeaderView(this, tc).apply {
-            onCloseClick = {
-                controller?.hangup()
-                finishCallActivity()
+            onMinimizeClick = {
+                minimizeCallToApp()
             }
             onSwitchCameraClick = {
                 controller?.switchCamera()
@@ -995,11 +1009,24 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
 
         ensureCallController()?.rejectCallFromIncomingCallUi(offerJson)
 
-        MezonCallConnection.activeConnection?.let {
-            it.setCallDisconnected(DisconnectCause.REJECTED)
-        }
-
         CallNotificationManager(this).dismissIncomingNotification()
+        finishCallActivity()
+    }
+
+    private fun minimizeCallToApp() {
+        try {
+            startActivity(
+                Intent(this, MainActivity::class.java).apply {
+                    addFlags(
+                        Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    )
+                }
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "minimize: could not bring MainActivity to front", e)
+        }
         finishCallActivity()
     }
 
@@ -1014,6 +1041,7 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
     }
 
     override fun onDestroy() {
+        incomingCallUiShown = false
         lastConnectedMainVideoMode = null
         pendingConnectedVideoAfterCameraGrant = false
         pendingConnectedUnmuteMicAfterAudioGrant = false
@@ -1037,8 +1065,14 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
         @Volatile
         private var incomingCallUiForeground = false
 
+        @Volatile
+        private var incomingCallUiShown = false
+
         @JvmStatic
         fun shouldSuppressMainTabsIncomingOverlay(): Boolean = incomingCallUiForeground
+
+        @JvmStatic
+        fun isIncomingCallUiShown(): Boolean = incomingCallUiShown
 
         internal fun setIncomingCallUiForeground(foreground: Boolean) {
             incomingCallUiForeground = foreground

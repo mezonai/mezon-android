@@ -44,6 +44,8 @@ class ChatAttachAlert(
         fun onSelectionChanged(item: AttachmentPickerItem, selected: Boolean)
         fun onCameraRequested() {}
         fun onFilesRequested() {}
+        fun canEdit(item: AttachmentPickerItem): Boolean = false
+        fun onEditRequested(item: AttachmentPickerItem) {}
         fun onSendRequested() {}
         fun onDismissed() {}
     }
@@ -57,6 +59,7 @@ class ChatAttachAlert(
     private var headerRowView: LinearLayout? = null
     private var adapter: PhotoAttachAdapter? = null
     private var sendBtn: SendButtonView? = null
+    private var editBtn: View? = null
     private var swipeDismissFromHandle = false
     private var didNotifyDismiss = false
 
@@ -148,11 +151,36 @@ class ChatAttachAlert(
             FrameLayout.LayoutParams.MATCH_PARENT, headerHeight, Gravity.TOP
         ))
 
-        sendBtn = SendButtonView(context, theme)
-        sendBtn!!.visibility = View.GONE
-        sendBtn!!.setOnClickListener { onSendClicked() }
+        val actionRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        editBtn = TextView(context).apply {
+            visibility = View.GONE
+            isClickable = true
+            isFocusable = true
+            text = context.getString(R.string.image_editor_edit)
+            textSize = 16f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(Color.BLACK)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = LayoutHelper.dpf(8f)
+                setColor(Color.WHITE)
+            }
+            setOnClickListener { onEditClicked() }
+        }
+        actionRow.addView(editBtn, LinearLayout.LayoutParams(0, LayoutHelper.dp(48f), 1f).apply {
+            rightMargin = LayoutHelper.dp(8f)
+        })
+
+        sendBtn = SendButtonView(context, theme).apply {
+            visibility = View.GONE
+            setOnClickListener { onSendClicked() }
+        }
+        actionRow.addView(sendBtn, LinearLayout.LayoutParams(0, LayoutHelper.dp(48f), 3f))
         parent.addView(
-            sendBtn,
+            actionRow,
             FrameLayout.LayoutParams(
                 LayoutHelper.MATCH_PARENT, LayoutHelper.dp(48f),
                 Gravity.BOTTOM
@@ -264,6 +292,19 @@ class ChatAttachAlert(
         val count = selectedPhotosOrder.size
         sendBtn?.visibility = if (count > 0) View.VISIBLE else View.GONE
         sendBtn?.setCount(count)
+        val editableItem = selectedPhotosOrder.singleOrNull()?.let { selectedPhotos[it] }
+        editBtn?.visibility = if (
+            editableItem != null &&
+            !editableItem.isVideo &&
+            editableItem.mimeType.startsWith("image/", ignoreCase = true) &&
+            attachDelegate?.canEdit(editableItem) == true
+        ) View.VISIBLE else View.GONE
+    }
+
+    private fun onEditClicked() {
+        val item = selectedPhotosOrder.singleOrNull()?.let { selectedPhotos[it] } ?: return
+        if (attachDelegate?.canEdit(item) != true) return
+        attachDelegate?.onEditRequested(item)
     }
 
     private fun onSendClicked() {

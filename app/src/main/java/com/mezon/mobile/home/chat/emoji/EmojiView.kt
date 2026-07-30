@@ -29,12 +29,14 @@ import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.home.chat.EmojiController
 import com.mezon.mobile.home.chat.EmojiItem
 import com.mezon.mobile.home.chat.StickerItem
-import com.mezon.mobile.network.TenorCategory
-import com.mezon.mobile.network.TenorGif
+import com.mezon.mobile.network.KlipyCategory
+import com.mezon.mobile.network.KlipyGif
 import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.R
 
 private const val TAB_EMOJI = 0
 private const val TAB_GIF = 1
@@ -52,7 +54,7 @@ class EmojiView(
     interface EmojiViewDelegate {
         fun onEmojiSelected(emoji: EmojiItem)
         fun onStickerSelected(sticker: StickerItem, isAudio: Boolean)
-        fun onGifSelected(gifUrl: String)
+        fun onGifSelected(gifUrl: String, width: Int = 0, height: Int = 0)
         fun onBackspace()
         fun onSearchFocusChanged(focused: Boolean) {}
         fun onDismissRequested() {}
@@ -64,6 +66,8 @@ class EmojiView(
 
     var delegate: EmojiViewDelegate? = null
     private var currentTab = TAB_EMOJI
+    private var ignoreFocusChange = false
+    private var ignoreTextChange = false
     private var emojiController: EmojiController? = null
 
     private val handler = Handler(Looper.getMainLooper())
@@ -91,6 +95,13 @@ class EmojiView(
     private var gifCategoryAdapter: GifCategoryAdapter? = null
     private var gifSearchActive = false
     private var gifAdapter: GifGridAdapter? = null
+    private var gifProgressBar: android.widget.ProgressBar? = null
+    private var gifEmptyView: android.widget.LinearLayout? = null
+    
+    private lateinit var searchBar: FrameLayout
+    private lateinit var categoryHeaderContainer: LinearLayout
+    private lateinit var categoryTitleText: TextView
+    private var currentGifCategory: KlipyCategory? = null
 
     private val gifScrollListener = object : RecyclerView.OnScrollListener() {
         override fun onScrollStateChanged(rv: RecyclerView, newState: Int) {
@@ -135,9 +146,9 @@ class EmojiView(
             setPadding(0, LayoutHelper.dp(4f), 0, LayoutHelper.dp(4f))
         }
 
-        tabEmoji = createTabButton("Emoji")
-        tabGif = createTabButton("GIF")
-        tabSticker = createTabButton("Sticker")
+        tabEmoji = createTabButton(context.getString(R.string.emoji_tab_emoji))
+        tabGif = createTabButton(context.getString(R.string.emoji_tab_gif))
+        tabSticker = createTabButton(context.getString(R.string.emoji_tab_sticker))
 
         tabEmoji.setOnClickListener { switchTab(TAB_EMOJI) }
         tabGif.setOnClickListener { switchTab(TAB_GIF) }
@@ -152,12 +163,12 @@ class EmojiView(
         }
         root.addView(tabBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
-        val searchBar = FrameLayout(context).apply {
+        searchBar = FrameLayout(context).apply {
             setPadding(LayoutHelper.dp(10f), LayoutHelper.dp(10f), LayoutHelper.dp(10f), LayoutHelper.dp(10f))
         }
 
         searchField = EditText(context).apply {
-            hint = "Search"
+            hint = context.getString(R.string.common_search)
             setHintTextColor(themeColors.textDisabled)
             setTextColor(themeColors.onSurface)
             textSize = 14f
@@ -186,14 +197,47 @@ class EmojiView(
         })
         root.addView(searchBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
+        categoryHeaderContainer = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            visibility = View.GONE
+            setPadding(LayoutHelper.dp(16f), LayoutHelper.dp(12f), LayoutHelper.dp(16f), LayoutHelper.dp(12f))
+            
+            val backBtn = ImageView(context).apply {
+                val d = MezonIcon.backArrowLarge.getDrawable(context).mutate()
+                d.colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
+                setImageDrawable(d)
+                setOnClickListener {
+                    currentGifCategory = null
+                    gifSearchActive = false
+                    updateGifGridVisibility()
+                    searchField.setText("")
+                    searchRunnable?.let { handler.removeCallbacks(it) }
+                    searchRunnable = null
+                }
+            }
+            addView(backBtn, LayoutHelper.createLinear(24, 24))
+            
+            categoryTitleText = TextView(context).apply {
+                textSize = 16f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setTextColor(themeColors.onSurface)
+            }
+            addView(categoryTitleText, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.CENTER_VERTICAL, 12f, 0f, 0f, 0f))
+        }
+        root.addView(categoryHeaderContainer, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+
         searchField.setOnFocusChangeListener { _, hasFocus ->
-            delegate?.onSearchFocusChanged(hasFocus)
+            if (!ignoreFocusChange) {
+                delegate?.onSearchFocusChanged(hasFocus)
+            }
         }
 
         searchField.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
             override fun afterTextChanged(s: Editable?) {
+                if (ignoreTextChange) return
                 val query = s?.toString()?.trim() ?: ""
                 searchRunnable?.let { handler.removeCallbacks(it) }
                 searchRunnable = Runnable { performSearch(query) }
@@ -232,10 +276,26 @@ class EmojiView(
 
     fun init(controller: EmojiController) {
         emojiController = controller
+        
+        controller.notificationCenter.listen(this, NotificationCenter.emojisNeedReload) { _, _ ->
+            onEmojisReloaded()
+        }
+        controller.notificationCenter.listen(this, NotificationCenter.stickersNeedReload) { _, _ ->
+            onStickersReloaded()
+        }
+        controller.notificationCenter.listen(this, NotificationCenter.gifsNeedReload) { _, _ ->
+            onGifsReloaded()
+        }
     }
 
     fun onOpen(forceTab: Int = -1) {
-        if (forceTab >= 0) {
+        ignoreTextChange = true
+        searchField.text?.clear()
+        ignoreTextChange = false
+        gifSearchActive = false
+        currentGifCategory = null
+
+        if (forceTab >= 0 && forceTab != currentTab) {
             switchTab(forceTab)
         } else {
             ensureCurrentTabVisible()
@@ -261,8 +321,11 @@ class EmojiView(
         if (currentTab == tab) return
         currentTab = tab
         updateTabSelection()
+        ignoreTextChange = true
         searchField.text?.clear()
+        ignoreTextChange = false
         gifSearchActive = false
+        currentGifCategory = null
 
         ensureGrid(tab)
         updateGifGridVisibility()
@@ -278,19 +341,73 @@ class EmojiView(
     }
 
     private fun updateGifGridVisibility() {
+        val ctrl = emojiController ?: return
         if (currentTab == TAB_GIF) {
             gifCategoryGrid?.visibility = if (gifSearchActive) View.GONE else View.VISIBLE
             gifGrid?.visibility = if (gifSearchActive) View.VISIBLE else View.GONE
+
+            if (gifSearchActive && currentGifCategory != null) {
+                if (currentGifCategory!!.isTrending) {
+                    ignoreFocusChange = true
+                    if (searchField.hasFocus()) {
+                        searchField.clearFocus()
+                        AndroidUtilities.hideKeyboard(searchField)
+                    }
+                    searchBar.visibility = View.GONE
+                    ignoreFocusChange = false
+                    categoryHeaderContainer.visibility = View.VISIBLE
+                    categoryTitleText.text = context.getString(R.string.emoji_trending_gifs)
+                } else {
+                    searchBar.visibility = View.VISIBLE
+                    categoryHeaderContainer.visibility = View.GONE
+                    searchField.hint = context.getString(R.string.emoji_search_gif_placeholder)
+                }
+            } else {
+                searchBar.visibility = View.VISIBLE
+                categoryHeaderContainer.visibility = View.GONE
+                searchField.hint = when (currentTab) {
+                    TAB_EMOJI -> context.getString(R.string.emoji_search_emoji_placeholder)
+                    TAB_GIF -> context.getString(R.string.emoji_search_gif_placeholder)
+                    TAB_STICKER -> context.getString(R.string.emoji_search_sticker_placeholder)
+                    else -> context.getString(R.string.common_search)
+                }
+            }
+            
+            val results = if (gifSearchActive) synchronized(ctrl) { ctrl.searchGifResults.toList() } else emptyList<KlipyGif>()
+            if (gifSearchActive && ctrl.isSearchingGifs) {
+                gifProgressBar?.visibility = View.VISIBLE
+                gifEmptyView?.visibility = View.GONE
+            } else {
+                gifProgressBar?.visibility = View.GONE
+                gifEmptyView?.visibility = if (gifSearchActive && results.isEmpty()) View.VISIBLE else View.GONE
+            }
         } else {
+            searchBar.visibility = View.VISIBLE
+            categoryHeaderContainer.visibility = View.GONE
             gifCategoryGrid?.visibility = View.GONE
             gifGrid?.visibility = View.GONE
+            gifProgressBar?.visibility = View.GONE
+            gifEmptyView?.visibility = View.GONE
         }
     }
 
-    private fun onGifCategoryTapped(category: TenorCategory) {
+    private fun onGifCategoryTapped(category: KlipyCategory) {
         gifSearchActive = true
+        currentGifCategory = category
         updateGifGridVisibility()
-        emojiController?.searchGifs(category.name)
+        
+        ignoreTextChange = true
+        if (category.isTrending) {
+            searchField.setText("")
+        } else {
+            searchField.setText(category.name)
+            searchField.setSelection(category.name.length)
+        }
+        ignoreTextChange = false
+        
+        searchRunnable?.let { handler.removeCallbacks(it) }
+        searchRunnable = null
+        emojiController?.searchGifs(category.query, isTrending = category.isTrending)
     }
 
     private fun ensureGrid(tab: Int) {
@@ -361,7 +478,7 @@ class EmojiView(
                 }
                 if (gifGrid == null) {
                     gifAdapter = GifGridAdapter(themeColors) { gif ->
-                        delegate?.onGifSelected(gif.gifUrl)
+                        delegate?.onGifSelected(gif.gifUrl, gif.width, gif.height)
                     }
                     gifGrid = RecyclerListView(context).apply {
                         layoutManager = androidx.recyclerview.widget.StaggeredGridLayoutManager(2, androidx.recyclerview.widget.StaggeredGridLayoutManager.VERTICAL)
@@ -377,6 +494,46 @@ class EmojiView(
                     }
                     contentContainer.addView(gifGrid, matchLp)
                 }
+                if (gifProgressBar == null) {
+                    gifProgressBar = android.widget.ProgressBar(context).apply {
+                        visibility = View.GONE
+                    }
+                    contentContainer.addView(gifProgressBar, FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.WRAP_CONTENT,
+                        FrameLayout.LayoutParams.WRAP_CONTENT,
+                        Gravity.CENTER
+                    ))
+                }
+                if (gifEmptyView == null) {
+                    gifEmptyView = android.widget.LinearLayout(context).apply {
+                        orientation = android.widget.LinearLayout.VERTICAL
+                        gravity = Gravity.CENTER
+                        visibility = View.GONE
+                        
+                        val icon = ImageView(context).apply {
+                            val d = MezonIcon.magnifyingIcon.getDrawable(context).mutate()
+                            d.colorFilter = PorterDuffColorFilter(themeColors.textDisabled, PorterDuff.Mode.SRC_IN)
+                            setImageDrawable(d)
+                            alpha = 0.5f
+                        }
+                        addView(icon, LayoutHelper.createLinear(48, 48, 0f, Gravity.CENTER_HORIZONTAL))
+                        
+                        val text = TextView(context).apply {
+                            text = context.getString(R.string.emoji_gifs_empty)
+                            textSize = 15f
+                            setTextColor(themeColors.textDisabled)
+                            setTypeface(null, android.graphics.Typeface.BOLD)
+                            gravity = Gravity.CENTER
+                            alpha = 0.6f
+                        }
+                        addView(text, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.CENTER_HORIZONTAL, 0f, 12f, 0f, 0f))
+                    }
+                    contentContainer.addView(gifEmptyView, FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.WRAP_CONTENT,
+                        FrameLayout.LayoutParams.WRAP_CONTENT,
+                        Gravity.CENTER
+                    ))
+                }
             }
         }
     }
@@ -384,6 +541,7 @@ class EmojiView(
     private fun loadGifData() {
         val ctrl = emojiController ?: return
         ctrl.loadGifCategories()
+        ctrl.loadFeaturedGifs()
         val cats = synchronized(ctrl) { ArrayList(ctrl.gifCategories) }
         if (cats.isNotEmpty()) {
             gifCategoryAdapter?.setData(cats)
@@ -409,6 +567,7 @@ class EmojiView(
             val results = synchronized(ctrl) { ArrayList(ctrl.searchGifResults) }
             gifAdapter?.setData(results)
         }
+        updateGifGridVisibility()
     }
 
     private fun loadEmojiData() {
@@ -430,12 +589,13 @@ class EmojiView(
 
     private fun performSearch(query: String) {
         val ctrl = emojiController ?: return
-        if (query.isBlank()) {
+        if (query.isEmpty()) {
             when (currentTab) {
                 TAB_EMOJI -> loadEmojiData()
                 TAB_STICKER -> loadStickerData()
                 TAB_GIF -> {
                     gifSearchActive = false
+                    currentGifCategory = null
                     updateGifGridVisibility()
                     loadGifData()
                 }
@@ -473,6 +633,12 @@ class EmojiView(
             (tab.background as? android.graphics.drawable.GradientDrawable)?.setColor(
                 if (isSelected) themeColors.primary else Color.TRANSPARENT
             )
+        }
+        searchField.hint = when (currentTab) {
+            TAB_EMOJI -> context.getString(R.string.emoji_search_emoji_placeholder)
+            TAB_GIF -> context.getString(R.string.emoji_search_gif_placeholder)
+            TAB_STICKER -> context.getString(R.string.emoji_search_sticker_placeholder)
+            else -> context.getString(R.string.common_search)
         }
     }
 
@@ -617,6 +783,10 @@ class EmojiView(
             })
             start()
         }
+    }
+    
+    fun isGifTrendingActive(): Boolean {
+        return gifSearchActive && currentGifCategory?.isTrending == true
     }
 
     override fun onDetachedFromWindow() {

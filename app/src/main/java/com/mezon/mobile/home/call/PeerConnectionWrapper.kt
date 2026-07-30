@@ -165,7 +165,7 @@ class PeerConnectionWrapper(
         holdLocalCandidates = true 
         addLocalMedia(isVideo)
 
-        val constraints = sessionOfferConstraints()
+        val constraints = sessionOfferConstraints(offerToReceiveVideo = isVideo)
 
         peerConnection?.createOffer(object : SimpleSdpObserver() {
             override fun onCreateSuccess(sdp: SessionDescription?) {
@@ -356,7 +356,7 @@ class PeerConnectionWrapper(
     }
 
     fun createRenegotiationOffer(callback: (SessionDescription) -> Unit) {
-        val constraints = sessionOfferConstraints()
+        val constraints = sessionOfferConstraints(offerToReceiveVideo = true)
         peerConnection?.createOffer(object : SimpleSdpObserver() {
             override fun onCreateSuccess(sdp: SessionDescription?) {
                 sdp?.let { offer ->
@@ -411,15 +411,38 @@ class PeerConnectionWrapper(
 
     fun setLocalVideoEnabled(enabled: Boolean) {
         val capturer = videoCapturer
-        if (capturer != null && enabled && !captureStarted) {
-            try {
-                capturer.startCapture(1280, 720, 30)
-                captureStarted = true
-            } catch (e: Exception) {
-                android.util.Log.e(TAG, "startCapture failed", e)
+        if (enabled) {
+            if (capturer != null && !captureStarted) {
+                try {
+                    capturer.startCapture(1280, 720, 30)
+                    captureStarted = true
+                } catch (e: Exception) {
+                    android.util.Log.e(TAG, "startCapture failed", e)
+                }
+            }
+        } else {
+            if (capturer != null && captureStarted) {
+                try {
+                    capturer.stopCapture()
+                    captureStarted = false
+                } catch (e: Exception) {
+                    android.util.Log.e(TAG, "stopCapture failed", e)
+                }
             }
         }
         localVideoTrack?.setEnabled(enabled)
+    }
+
+    fun restartCamera() {
+        val capturer = videoCapturer
+        if (capturer != null && captureStarted) {
+            try {
+                capturer.stopCapture()
+                capturer.startCapture(1280, 720, 30)
+            } catch (e: Exception) {
+                android.util.Log.e(TAG, "restartCamera failed", e)
+            }
+        }
     }
 
     fun switchCamera() {
@@ -557,10 +580,10 @@ class PeerConnectionWrapper(
         }
     }
 
-    private fun sessionOfferConstraints(): MediaConstraints {
+    private fun sessionOfferConstraints(offerToReceiveVideo: Boolean): MediaConstraints {
         return MediaConstraints().apply {
             mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "true"))
-            mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", if (offerToReceiveVideo) "true" else "false"))
             mandatory.add(MediaConstraints.KeyValuePair("VoiceActivityDetection", "true"))
         }
     }
@@ -661,7 +684,7 @@ class PeerConnectionWrapper(
     }
 
     companion object {
-        private const val ICE_RECONNECT_TIMEOUT_MS = 3000L
+        private const val ICE_RECONNECT_TIMEOUT_MS = 15_000L
     }
 }
 

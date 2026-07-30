@@ -77,6 +77,7 @@ import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.home.qr.QrScanFragment
 import com.mezon.mobile.home.profile.UserController
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -102,6 +103,10 @@ class ClansFragment : BaseFragment() {
     private lateinit var clanEventController: ClanEventController
     private var clanMenuSheet: ClanMenuBottomSheet? = null
     private var clanEventSheet: ClanEventBottomSheet? = null
+    private var channelMenuSheet: ChannelMenuBottomSheet? = null
+    private var channelMenuClanId = 0L
+    private var channelMenuChannelId = 0L
+    private var channelNotificationSettingsSheet: ChannelNotificationSettingsBottomSheet? = null
 
     var onOpenChat: ((channelId: Long, channelName: String, clanId: Long, channelType: Int) -> Unit)? = null
     var onSwitchToMessages: (() -> Unit)? = null
@@ -171,6 +176,11 @@ class ClansFragment : BaseFragment() {
             if (clanId == clansController.selectedClanId.value) {
                 updateChannelList()
             }
+            if (clanId == channelMenuClanId) {
+                channelMenuSheet?.updateMuteState(
+                    channelController.isChannelMuted(clanId, channelMenuChannelId)
+                )
+            }
         }
         observe(NotificationCenter.channelAppsDidLoad) { _, _, args ->
             if (fragmentView == null || listFrozen) return@observe
@@ -231,6 +241,9 @@ class ClansFragment : BaseFragment() {
             serverRail.setBackgroundColor(themeColors.serverRailBg)
             serverAdapter.notifyDataSetChanged()
             channelListView.invalidateTheme()
+            if (::memberCountText.isInitialized) {
+                updateMemberCount()
+            }
             updateClanPanelHeaderMode()
         }
 
@@ -253,6 +266,12 @@ class ClansFragment : BaseFragment() {
                 onSwitchToMessages?.invoke()
             }
         }
+        fragmentScope.launch(Dispatchers.Main.immediate) {
+            channelController.notificationSettingTypes.collect { settings ->
+                val sheet = channelNotificationSettingsSheet ?: return@collect
+                settings[sheet.channelId]?.let(sheet::updateSelection)
+            }
+        }
         return true
     }
 
@@ -261,6 +280,10 @@ class ClansFragment : BaseFragment() {
         clanMenuSheet = null
         clanEventSheet?.dismiss()
         clanEventSheet = null
+        channelMenuSheet?.dismiss()
+        clearChannelMenuSheet()
+        channelNotificationSettingsSheet?.dismiss()
+        channelNotificationSettingsSheet = null
         super.onFragmentDestroy()
     }
 
@@ -367,7 +390,7 @@ class ClansFragment : BaseFragment() {
                 val canDelete = permissionPolicy.canDeleteChannelFromMenu(channel, selClan)
                 val menuChannel = (channelController.findChannelById(channel.channelId, selClan) ?: channel)
                     .copy(isMuted = channelController.isChannelMuted(selClan, channel.channelId))
-                ChannelMenuBottomSheet(
+                val sheet = ChannelMenuBottomSheet(
                     context,
                     menuChannel,
                     clan.clanName,
@@ -394,6 +417,9 @@ class ClansFragment : BaseFragment() {
                     onMuteChannel = {
                         handleChannelMute(channel, selClan)
                     },
+                    onNotificationSettings = {
+                        openChannelNotificationSettings(channel, selClan)
+                    },
                     onOpenThreadList = {
                         openThreadList(channel, selClan)
                     },
@@ -406,7 +432,23 @@ class ClansFragment : BaseFragment() {
                     onDeleteChannel = {
                         confirmDeleteChannel(channel, selClan)
                     },
-                ).show()
+                )
+                channelMenuSheet?.dismiss()
+                channelMenuSheet = sheet
+                channelMenuClanId = selClan
+                channelMenuChannelId = channel.channelId
+                sheet.setOnDismissListener {
+                    if (channelMenuSheet === sheet) {
+                        clearChannelMenuSheet()
+                    }
+                }
+                sheet.show()
+                fragmentScope.launch(Dispatchers.Main.immediate) {
+                    channelController.refreshChannelNotificationState(selClan, channel.channelId)
+                    if (sheet.isShowing) {
+                        sheet.updateMuteState(channelController.isChannelMuted(selClan, channel.channelId))
+                    }
+                }
             }
             onSectionLongClick = sectionLongClick@ { catId, categoryName, _ ->
                 val selClan = clansController.selectedClanId.value
@@ -455,6 +497,12 @@ class ClansFragment : BaseFragment() {
         viewJustCreated = true
 
         return root
+    }
+
+    private fun clearChannelMenuSheet() {
+        channelMenuSheet = null
+        channelMenuClanId = 0L
+        channelMenuChannelId = 0L
     }
 
     private fun LinearLayout.applyChannelPanelBg() {
@@ -724,6 +772,7 @@ class ClansFragment : BaseFragment() {
     override fun onResume() {
         super.onResume()
         ensureVoiceMembersLoaded()
+        updateMemberCount()
     }
 
     override fun onBecomeFullyVisible() {
@@ -883,17 +932,19 @@ class ClansFragment : BaseFragment() {
 
     private fun updateMemberCount() {
         val clanId = clansController.selectedClanId.value
-        if (!userClanController.hasClanMembersCache(clanId)) {
+        val hasCache = userClanController.hasClanMembersCache(clanId)
+        if (!hasCache) {
             memberCountText.visibility = View.INVISIBLE
             return
         }
         val count = userClanController.getClanMemberCount(clanId)
         val isCommunity = renderedIsCommunity == true
-        val key = "$count|$isCommunity"
-        val alreadyShown = memberCountText.visibility == View.VISIBLE && memberCountText.alpha >= 1f
+        val key = "$count|$isCommunity|${themeColors.resolvedMode}"
+        val alreadyShown = memberCountText.visibility == View.VISIBLE
         if (renderedSubtitleKey == key && alreadyShown) return
         val wasHidden = !alreadyShown
         renderedSubtitleKey = key
+        memberCountText.setTextColor(themeColors.textDisabled)
         memberCountText.text = buildSubtitleText(count, isCommunity)
         memberCountText.visibility = View.VISIBLE
         if (wasHidden) {
@@ -907,7 +958,7 @@ class ClansFragment : BaseFragment() {
     }
 
     private fun buildSubtitleText(count: Int, isCommunity: Boolean): CharSequence {
-        val ctx = fragmentView?.context ?: return ""
+        val ctx = memberCountText.context
         val memberWord = if (count == 1) {
             ctx.getString(R.string.common_member)
         } else {
@@ -1050,7 +1101,6 @@ class ClansFragment : BaseFragment() {
                 clan.logo.ifBlank { null },
                 clan.isCommunity,
                 members.size,
-                false,
                 permissionState,
                 showEmptyCategories,
                 { enabled ->
@@ -1396,6 +1446,53 @@ class ClansFragment : BaseFragment() {
                 }
             }
         }.show()
+    }
+
+    private fun openChannelNotificationSettings(channel: ClanChannelEntity, clanId: Long) {
+        val ctx = fragmentView?.context ?: return
+        val sheet = ChannelNotificationSettingsBottomSheet(
+            context = ctx,
+            channelId = channel.channelId,
+            initialType = channelController.getCachedChannelNotificationType(channel.channelId),
+        ) { notificationType, complete ->
+            fragmentScope.launch(Dispatchers.Main.immediate) {
+                val result = channelController.setChannelNotificationType(
+                    clanId = clanId,
+                    channelId = channel.channelId,
+                    notificationType = notificationType,
+                )
+                complete(result.isSuccess)
+                if (result.isFailure) {
+                    MezonToast.show(
+                        this@ClansFragment,
+                        ToastOverlay.ToastType.ERROR,
+                        getString(R.string.channel_notification_settings_update_failed),
+                    )
+                }
+            }
+        }
+        channelNotificationSettingsSheet?.dismiss()
+        channelNotificationSettingsSheet = sheet
+        sheet.setOnDismissListener {
+            if (channelNotificationSettingsSheet === sheet) {
+                channelNotificationSettingsSheet = null
+            }
+        }
+        sheet.show()
+
+        fragmentScope.launch(Dispatchers.Main.immediate) {
+            val notificationTypeDeferred = async {
+                channelController.refreshChannelNotificationState(clanId, channel.channelId).getOrNull()
+            }
+            val clanDefaultTypeDeferred = async {
+                channelController.getClanDefaultNotificationType(clanId).getOrNull()
+            }
+            val notificationType = notificationTypeDeferred.await()
+            val clanDefaultType = clanDefaultTypeDeferred.await()
+            if (channelNotificationSettingsSheet === sheet && sheet.isShowing) {
+                sheet.completeInitialLoad(notificationType, clanDefaultType)
+            }
+        }
     }
 
     private fun confirmLeaveThread(channel: ClanChannelEntity, clanId: Long) {

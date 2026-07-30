@@ -2,6 +2,7 @@ package com.mezon.mobile.home.chat.channelinfo
 
 import android.content.Context
 import android.graphics.drawable.GradientDrawable
+import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
 import android.widget.FrameLayout
@@ -52,7 +53,7 @@ class ChannelFileDocumentRowView(
     private fun updateBackground() {
         background = GradientDrawable().apply {
             cornerRadius = LayoutHelper.dpf(8f)
-            setColor(theme.channelPanelBg)
+            setColor(theme.surfaceVariant)
         }
     }
 
@@ -67,10 +68,12 @@ class ChannelFileDocumentRowView(
         nameView.setTextColor(theme.blurple)
         nameView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14f)
         nameView.maxLines = 1
+        nameView.ellipsize = TextUtils.TruncateAt.END
         sharedView.text = sharedFooterText
         sharedView.setTextColor(theme.onSurface)
         sharedView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 12f)
         sharedView.maxLines = 1
+        sharedView.ellipsize = TextUtils.TruncateAt.END
         timeView.text = timeLabel
         timeView.setTextColor(theme.textDisabled)
         timeView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 12f)

@@ -29,7 +29,9 @@ import com.mezon.mezon.api.createChannelDescRequest
 import com.mezon.mezon.api.ClanDescList
 import com.mezon.mezon.api.NotificationSetting
 import com.mezon.mezon.api.NotificationUserChannel
+import com.mezon.mezon.api.SetNotificationRequest
 import com.mezon.mezon.api.notificationChannel
+import com.mezon.mezon.api.setNotificationRequest
 import com.mezon.mezon.api.SystemMessage
 import com.mezon.mezon.api.SystemMessageRequest
 import com.mezon.mezon.api.PinMessagesList
@@ -300,6 +302,16 @@ private data class ConfirmLoginGatewayBody(
 
 
 private val CONTENT_TYPE_PROTO = ContentType("application", "proto")
+
+internal fun buildSetNotificationChannelRequest(
+    channelId: Long,
+    clanId: Long,
+    notificationType: Int,
+): SetNotificationRequest = setNotificationRequest {
+    channelCategoryId = channelId
+    this.clanId = clanId
+    this.notificationType = notificationType
+}
 
 @Serializable
 private data class ClanDiscoverGatewayRequest(
@@ -842,6 +854,7 @@ class MezonApi @Inject constructor(
         val request = sessionRefreshRequest {
             this.token = refreshToken
             this.isRemember = isRemember
+            this.vars["m"] = "true"
         }
         val basicCreds = Base64.encodeToString(
             "$SERVER_KEY:".toByteArray(),
@@ -859,7 +872,7 @@ class MezonApi @Inject constructor(
         if (!response.status.isSuccess()) {
             val errorBody = response.bodyAsText()
             val code = response.status.value
-            if (code == 401 || code == 403 || code == 500) {
+            if (code == 401 || code == 403) {
                 throw UnauthorizedException("SessionRefresh: $code Unauthorized")
             }
             throw RuntimeException("SessionRefresh failed ($code): $errorBody")
@@ -1064,6 +1077,26 @@ class MezonApi @Inject constructor(
             this.notificationType = notificationType
         }
         rpc(apiUrl, token, "SetNotificationClanSetting", request.toByteArray())
+    }
+
+    suspend fun setNotificationChannel(
+        apiUrl: String,
+        token: String,
+        channelId: Long,
+        clanId: Long,
+        notificationType: Int,
+    ) {
+        val request = buildSetNotificationChannelRequest(channelId, clanId, notificationType)
+        rpc(apiUrl, token, "SetNotificationChannelSetting", request.toByteArray())
+    }
+
+    suspend fun deleteNotificationChannel(
+        apiUrl: String,
+        token: String,
+        channelId: Long,
+    ) {
+        val request = notificationChannel { this.channelId = channelId }
+        rpc(apiUrl, token, "DeleteNotificationChannel", request.toByteArray())
     }
 
     suspend fun deleteClanDesc(
@@ -1689,6 +1722,12 @@ class MezonApi @Inject constructor(
         token: String,
         request: com.mezon.mezon.rtapi.ChannelMessageUpdate
     ): ByteArray = rpc(apiUrl, token, "UpdateChannelMessage", request.toByteArray())
+
+    suspend fun deleteChannelMessage(
+        apiUrl: String,
+        token: String,
+        request: com.mezon.mezon.rtapi.ChannelMessageRemove
+    ): ByteArray = rpc(apiUrl, token, "DeleteChannelMessage", request.toByteArray())
 
     suspend fun channelMessageReact(
         apiUrl: String,

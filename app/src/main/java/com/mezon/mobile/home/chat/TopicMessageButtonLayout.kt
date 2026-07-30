@@ -136,16 +136,23 @@ internal class TopicMessageButtonLayout(
             if (creatorAvatarUrl.isNotBlank()) {
                 val proxy = avatarImgproxyUrl(creatorAvatarUrl, TOPIC_AVATAR_SIZE)
                 val loader = MezonImageLoader.getInstance(context)
+                topicAvatarDrawable.setLoadingPlaceholder(true)
                 topicAvatarDisposable = loader.load(
                     proxy,
                     TOPIC_AVATAR_SIZE,
                     TOPIC_AVATAR_SIZE,
                     onSuccess = { bmp ->
+                        topicAvatarDrawable.setLoadingPlaceholder(false)
                         topicAvatarDrawable.setPhoto(bmp)
+                        invalidateCallback?.invoke()
+                    },
+                    onError = {
+                        topicAvatarDrawable.setLoadingPlaceholder(false)
                         invalidateCallback?.invoke()
                     }
                 )
             } else {
+                topicAvatarDrawable.setLoadingPlaceholder(false)
                 topicAvatarDrawable.setPhoto(null)
             }
         }

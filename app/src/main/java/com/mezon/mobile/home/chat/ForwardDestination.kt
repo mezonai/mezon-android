@@ -9,7 +9,8 @@ data class ForwardDestination(
     val channelType: Int,
     val displayLabel: String,
     val subtitle: String,
-    val isChannelPrivate: Boolean
+    val isChannelPrivate: Boolean,
+    val parentId: Long = 0L
 ) {
     fun joinIsPublicFlag(): Boolean {
         val t = channelType
