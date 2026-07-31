@@ -111,14 +111,18 @@ class RoleSetupMembersFragment : BaseFragment() {
     private fun reloadRoleMemberSelection() {
         if (!isEditMode || !::adapter.isInitialized) return
         fragmentScope.launch {
-            val ids = roleController.loadAllRoleMemberUserIds(roleId)
-            withContext(Dispatchers.Main.immediate) {
-                initialMemberIds.clear()
-                initialMemberIds.addAll(ids)
-                selectedUserIds.clear()
-                selectedUserIds.addAll(ids)
-                adapter.refresh()
-                updateActionState()
+            try {
+                val ids = roleController.loadAllRoleMemberUserIds(roleId)
+                withContext(Dispatchers.Main.immediate) {
+                    initialMemberIds.clear()
+                    initialMemberIds.addAll(ids)
+                    selectedUserIds.clear()
+                    selectedUserIds.addAll(ids)
+                    adapter.refresh()
+                    updateActionState()
+                }
+            } catch (e: Exception) {
+                
             }
         }
     }
