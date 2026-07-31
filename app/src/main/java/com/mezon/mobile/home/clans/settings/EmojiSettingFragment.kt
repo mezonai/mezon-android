@@ -508,11 +508,7 @@ class EmojiSettingFragment : BaseFragment() {
                     file.name.endsWith(".webp", true) -> "image/webp"
                     else -> "image/jpeg"
                 }
-                val ext = when {
-                    isGif -> "gif"
-                    mime == "image/webp" -> "webp"
-                    else -> "jpg"
-                }
+                val ext = "webp"
 
                 val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                 BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
@@ -521,6 +517,7 @@ class EmojiSettingFragment : BaseFragment() {
 
                 val primaryFilename = "emojis/$primaryId.$ext"
                 val primaryUrl = uploadBytes(bytes, primaryFilename, mime, w, h)
+                val parsedPrimaryId = primaryUrl.substringAfterLast('/').substringBeforeLast('.').toLongOrNull() ?: primaryId
 
                 val emojiRecordId = if (isForSale) {
                     val thumbBmp = decodeSaleThumbBytes(bytes, w, h, isGif)
@@ -534,11 +531,11 @@ class EmojiSettingFragment : BaseFragment() {
                     val thumbId = newEmojiNumericId()
                     val thumbBytes = encodeTinyJpeg(scaled)
                     scaled.recycle()
-                    val thumbName = "emojis/$thumbId.jpg"
+                    val thumbName = "emojis/$thumbId.webp"
                     uploadBytes(thumbBytes, thumbName, "image/jpeg", 35, 35)
-                    thumbId
+                    parsedPrimaryId
                 } else {
-                    primaryId
+                    parsedPrimaryId
                 }
 
                 val shortname = ":$innerName:"
