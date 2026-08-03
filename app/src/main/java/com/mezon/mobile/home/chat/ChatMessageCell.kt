@@ -994,7 +994,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             val isLocalUri = att.url.startsWith("content://") || att.url.startsWith("file://")
             val isVideo = att.filetype.startsWith("video/", true)
             slotIsVideo[i] = isVideo
-            slotPresignPending[i] = msg.isPresignAttachmentPending(att.url, filter)
+            slotPresignPending[i] = msg.isPresignAttachmentPending(att.url, filter, snapshot.allPresignFinished)
             slotUploadPending[i] = !slotPresignPending[i] && msg.isAttachmentUploadPending(att.url, filter)
             slotUploadFailed[i] = msg.attachmentUploadFailed(att.url) ||
                 (att.url == msg.attachmentUrl && msg.isLocalAttachmentUrl(att.url) &&
@@ -1948,7 +1948,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         fileAttachmentUrls.clear()
         for (att in files) {
             fileAttachmentUrls.add(att.url)
-            filePresignPending.add(msg.isPresignAttachmentPending(att.url, filter))
+            filePresignPending.add(msg.isPresignAttachmentPending(att.url, filter, snapshot.allPresignFinished))
             fileUploadPending.add(
                 !filePresignPending.last() && msg.isAttachmentUploadPending(att.url, filter)
             )
