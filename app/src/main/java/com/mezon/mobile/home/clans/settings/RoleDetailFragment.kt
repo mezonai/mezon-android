@@ -83,7 +83,7 @@ class RoleDetailFragment : BaseFragment() {
     private lateinit var colorChevron: ImageView
     private lateinit var colorLock: ImageView
     private lateinit var deleteBtn: TextView
-    private lateinit var iconAvatar: AvatarView
+    private lateinit var iconAvatar: com.mezon.mobile.ui.cells.CdnIconView
     private lateinit var iconPlaceholder: ImageView
     private lateinit var iconRemoveBtn: TextView
     private lateinit var iconLock: ImageView
@@ -373,9 +373,9 @@ class RoleDetailFragment : BaseFragment() {
             setPadding(LayoutHelper.dp(12f), LayoutHelper.dp(12f), LayoutHelper.dp(12f), LayoutHelper.dp(12f))
         }
         iconPickerHit.addView(iconPlaceholder, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
-        iconAvatar = AvatarView(context).apply {
+        iconAvatar = com.mezon.mobile.ui.cells.CdnIconView(context, themeColors).apply {
             setSizeDp(50)
-            setRoundRadius(25f)
+            setCircular(true)
             visibility = View.GONE
         }
         iconPickerHit.addView(iconAvatar, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
@@ -460,7 +460,6 @@ class RoleDetailFragment : BaseFragment() {
         applyDetailEditableState(role)
         updateSaveActionState(role)
         refreshColorRowUi()
-        iconAvatar.setInfo(role.roleId, role.title)
         refreshIconPreview()
         refreshRemoveIconVisibility()
     }
@@ -756,8 +755,6 @@ class RoleDetailFragment : BaseFragment() {
         iconPlaceholder.visibility = if (hasIcon) View.GONE else View.VISIBLE
         iconAvatar.visibility = if (hasIcon) View.VISIBLE else View.GONE
         if (hasIcon) {
-            val r = roleController.getRole(clanId, roleId)
-            iconAvatar.setInfo(r?.roleId ?: roleId, r?.title ?: draftName)
             iconAvatar.setImageUrl(draftIconUrl)
         } else {
             iconAvatar.setImageUrl(null)

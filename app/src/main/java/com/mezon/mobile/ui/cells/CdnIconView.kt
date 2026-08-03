@@ -2,11 +2,9 @@ package com.mezon.mobile.ui.cells
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapShader
 import android.graphics.Canvas
-import android.graphics.Matrix
 import android.graphics.Paint
-import android.graphics.Shader
+import android.os.SystemClock
 import android.view.View
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
@@ -14,21 +12,25 @@ import com.mezon.mobile.home.chat.MezonImageLoader
 
 class CdnIconView(context: Context, private val theme: ThemeColors) : View(context) {
 
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private var drawable: android.graphics.drawable.Drawable? = null
     private val placeholderPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private var bitmap: Bitmap? = null
     private var sizeDp = 24
     private var isCircular = false
     private var currentUrl: String? = null
     private var cancellable: MezonImageLoader.Cancellable? = null
     private var attachedToWindow = false
 
-    private var cachedShader: BitmapShader? = null
-    private var cachedShaderBitmap: Bitmap? = null
-    private var cachedShaderWidth = 0
-    private val shaderMatrix = Matrix()
-    private val srcRect = android.graphics.Rect()
-    private val dstRect = android.graphics.Rect()
+    private val drawableCallback = object : android.graphics.drawable.Drawable.Callback {
+        override fun invalidateDrawable(who: android.graphics.drawable.Drawable) {
+            invalidate()
+        }
+        override fun scheduleDrawable(who: android.graphics.drawable.Drawable, what: Runnable, `when`: Long) {
+            postDelayed(what, `when` - SystemClock.uptimeMillis())
+        }
+        override fun unscheduleDrawable(who: android.graphics.drawable.Drawable, what: Runnable) {
+            removeCallbacks(what)
+        }
+    }
 
     fun setSizeDp(dp: Int) {
         sizeDp = dp
@@ -45,9 +47,8 @@ class CdnIconView(context: Context, private val theme: ThemeColors) : View(conte
         currentUrl = url
         cancellable?.cancel()
         cancellable = null
-        bitmap = null
-        cachedShader = null
-        cachedShaderBitmap = null
+        drawable?.callback = null
+        drawable = null
         if (url.isNullOrEmpty()) {
             invalidate()
             return
@@ -58,27 +59,33 @@ class CdnIconView(context: Context, private val theme: ThemeColors) : View(conte
 
     private fun loadImage(url: String) {
         val px = LayoutHelper.dp(sizeDp)
-        cancellable = MezonImageLoader.getInstance(context).load(
+        cancellable = MezonImageLoader.getInstance(context).loadDrawable(
             url, px, px,
-            onSuccess = { bmp ->
-                bitmap = bmp
-                cachedShader = null
-                cachedShaderBitmap = null
+            cacheAnimated = true,
+            onSuccess = { drw ->
+                drawable?.callback = null
+                drawable = drw
+                drw.callback = drawableCallback
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P && drw is android.graphics.drawable.AnimatedImageDrawable) {
+                    drw.start()
+                }
                 invalidate()
             },
             onError = {
-                bitmap = null
-                cachedShader = null
-                cachedShaderBitmap = null
+                drawable?.callback = null
+                drawable = null
                 invalidate()
             }
         )
     }
 
     fun setBitmap(bmp: Bitmap?) {
-        bitmap = bmp
-        cachedShader = null
-        cachedShaderBitmap = null
+        drawable?.callback = null
+        if (bmp != null) {
+            drawable = android.graphics.drawable.BitmapDrawable(resources, bmp)
+        } else {
+            drawable = null
+        }
         invalidate()
     }
 
@@ -86,7 +93,7 @@ class CdnIconView(context: Context, private val theme: ThemeColors) : View(conte
         super.onAttachedToWindow()
         attachedToWindow = true
         val url = currentUrl
-        if (url != null && bitmap == null && cancellable == null) {
+        if (url != null && drawable == null && cancellable == null) {
             loadImage(url)
         }
     }
@@ -106,24 +113,19 @@ class CdnIconView(context: Context, private val theme: ThemeColors) : View(conte
     override fun hasOverlappingRendering(): Boolean = false
 
     override fun onDraw(canvas: Canvas) {
-        val bmp = bitmap
-        if (bmp != null && !bmp.isRecycled) {
+        val drw = drawable
+        if (drw != null) {
             if (isCircular) {
-                if (cachedShader == null || cachedShaderBitmap !== bmp || cachedShaderWidth != width) {
-                    cachedShader = BitmapShader(bmp, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
-                    cachedShaderBitmap = bmp
-                    cachedShaderWidth = width
-                    val scale = width.toFloat() / bmp.width
-                    shaderMatrix.setScale(scale, scale)
-                    cachedShader!!.setLocalMatrix(shaderMatrix)
-                }
-                paint.shader = cachedShader
-                canvas.drawCircle(width / 2f, height / 2f, width / 2f, paint)
-                paint.shader = null
+                canvas.save()
+                val path = android.graphics.Path()
+                path.addCircle(width / 2f, height / 2f, width / 2f, android.graphics.Path.Direction.CW)
+                canvas.clipPath(path)
+                drw.setBounds(0, 0, width, height)
+                drw.draw(canvas)
+                canvas.restore()
             } else {
-                srcRect.set(0, 0, bmp.width, bmp.height)
-                dstRect.set(0, 0, width, height)
-                canvas.drawBitmap(bmp, srcRect, dstRect, paint)
+                drw.setBounds(0, 0, width, height)
+                drw.draw(canvas)
             }
         } else {
             placeholderPaint.color = theme.surfaceVariant
@@ -135,8 +137,7 @@ class CdnIconView(context: Context, private val theme: ThemeColors) : View(conte
         }
     }
 
-    fun clearShaderCache() {
-        cachedShader = null
-        cachedShaderBitmap = null
+    override fun verifyDrawable(who: android.graphics.drawable.Drawable): Boolean {
+        return who == drawable || super.verifyDrawable(who)
     }
 }

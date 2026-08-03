@@ -372,6 +372,30 @@ class StickerSettingsFragment : BaseFragment() {
         dialog.show()
 
         fragmentScope.launch {
+            if (isGif && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val drawable = withContext(ioDispatcher) {
+                    try {
+                        val source = ImageDecoder.createSource(file)
+                        ImageDecoder.decodeDrawable(source) { decoder, _, _ ->
+                            decoder.setTargetSize(previewSide, previewSide)
+                        }
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+                if (drawable != null) {
+                    withContext(mainDispatcher) {
+                        if (!isFinished && previewIv.isAttachedToWindow) {
+                            previewIv.setImageDrawable(drawable)
+                            if (drawable is android.graphics.drawable.AnimatedImageDrawable) {
+                                drawable.start()
+                            }
+                        }
+                    }
+                    return@launch
+                }
+            }
+
             val bmp = withContext(ioDispatcher) {
                 try {
                     val bytes = file.readBytes()
@@ -735,12 +759,16 @@ class StickerSettingsFragment : BaseFragment() {
                     "${BuildConfig.MEZON_BASE_IMG_URL}/stickers/${sticker.id}.webp"
                 }
                 val loadSize = LayoutHelper.dp(110f)
-                MezonImageLoader.getInstance(ctx).load(
+                MezonImageLoader.getInstance(ctx).loadDrawable(
                     displayUrl,
                     loadSize,
                     loadSize,
-                    onSuccess = { bmp -> views.imageView.setImageBitmap(bmp) },
+                    onSuccess = { d -> 
+                        views.imageView.setImageDrawable(d)
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P && d is android.graphics.drawable.AnimatedImageDrawable) d.start()
+                    },
                     onError = { _ -> views.imageView.setImageDrawable(null) },
+                    cacheAnimated = true
                 )
 
                 if (row.canManage) {

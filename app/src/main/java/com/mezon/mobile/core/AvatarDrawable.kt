@@ -7,12 +7,17 @@ import android.graphics.Color
 import android.graphics.ColorFilter
 import android.graphics.LinearGradient
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
+import android.graphics.drawable.Animatable
 import android.graphics.drawable.Drawable
+import android.os.SystemClock
 import android.text.TextPaint
+import android.view.View
+import java.lang.ref.WeakReference
 
 class AvatarDrawable : Drawable() {
 
@@ -94,10 +99,27 @@ class AvatarDrawable : Drawable() {
     private var cachedGradientHeight = 0f
     private var lastBoundsWidth = -1
     private var lastBoundsHeight = -1
+    private var animatedDrawable: Drawable? = null
+    private var hostViewRef: WeakReference<View>? = null
+    private val clipPath = Path()
+
+    private val childAnimCallback = object : Drawable.Callback {
+        override fun invalidateDrawable(who: Drawable) {
+            invalidateSelf()
+            hostViewRef?.get()?.invalidate()
+        }
+        override fun scheduleDrawable(who: Drawable, what: Runnable, `when`: Long) {
+            val view = hostViewRef?.get() ?: return
+            view.postDelayed(what, `when` - SystemClock.uptimeMillis())
+        }
+        override fun unscheduleDrawable(who: Drawable, what: Runnable) {
+            hostViewRef?.get()?.removeCallbacks(what)
+        }
+    }
 
     fun setInfo(id: Long, username: String?) {
         val normalized = normalizeUsername(username)
-        if (id == currentUserId && photoBitmap != null) {
+        if (id == currentUserId && (photoBitmap != null || animatedDrawable != null)) {
             bgColor = getColorForName(normalized)
             bgColor2 = bgColor
             initial = getAvatarSymbols(normalized)
@@ -109,6 +131,7 @@ class AvatarDrawable : Drawable() {
         bgColor2 = bgColor
         hasGradient = false
         initial = getAvatarSymbols(normalized)
+        clearAnimatedDrawable()
         photoBitmap = null
         loadingPlaceholder = false
         cachedShader = null
@@ -179,13 +202,44 @@ class AvatarDrawable : Drawable() {
     }
 
     fun setPhoto(bitmap: Bitmap?) {
+        clearAnimatedDrawable()
         photoBitmap = bitmap
         cachedShader = null
         cachedShaderBitmap = null
         invalidateSelf()
     }
 
-    fun hasPhoto(): Boolean = photoBitmap != null
+    fun hasPhoto(): Boolean = photoBitmap != null || animatedDrawable != null
+
+    fun attachToView(view: View) {
+        hostViewRef = WeakReference(view)
+    }
+
+    fun setAnimatedPhoto(drawable: Drawable?) {
+        clearAnimatedDrawable()
+        animatedDrawable = drawable
+        photoBitmap = null
+        cachedShader = null
+        cachedShaderBitmap = null
+        loadingPlaceholder = false
+        drawable?.callback = childAnimCallback
+        invalidateSelf()
+    }
+
+    fun startAnimation() {
+        (animatedDrawable as? Animatable)?.start()
+    }
+
+    fun stopAnimation() {
+        (animatedDrawable as? Animatable)?.stop()
+    }
+
+    private fun clearAnimatedDrawable() {
+        val old = animatedDrawable ?: return
+        (old as? Animatable)?.stop()
+        old.callback = null
+        animatedDrawable = null
+    }
 
     override fun draw(canvas: Canvas) {
         val bounds = bounds
@@ -200,6 +254,18 @@ class AvatarDrawable : Drawable() {
         if (boundsChanged) {
             lastBoundsWidth = bounds.width()
             lastBoundsHeight = bounds.height()
+        }
+
+        val anim = animatedDrawable
+        if (anim != null) {
+            canvas.save()
+            clipPath.reset()
+            clipPath.addRoundRect(roundRectF, r, r, Path.Direction.CW)
+            canvas.clipPath(clipPath)
+            anim.setBounds(bounds.left, bounds.top, bounds.right, bounds.bottom)
+            anim.draw(canvas)
+            canvas.restore()
+            return
         }
 
         val photo = photoBitmap

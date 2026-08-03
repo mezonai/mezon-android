@@ -127,7 +127,7 @@ private class TopicRootMetaView(
     private var timeLayout: StaticLayout? = null
     private var avatarDisposable: MezonImageLoader.Cancellable? = null
     private var roleIconDisposable: MezonImageLoader.Cancellable? = null
-    private var roleIconBitmap: android.graphics.Bitmap? = null
+    private var roleIconDrawable: android.graphics.drawable.Drawable? = null
     private var roleIconUrl: String? = null
     private var reserveRoleIcon = false
     private var currentAvatarUrl: String? = null
@@ -206,34 +206,39 @@ private class TopicRootMetaView(
             roleIconDisposable?.cancel()
             roleIconDisposable = null
             roleIconUrl = null
-            roleIconBitmap = null
-            return
-        }
-        if (iconUrl == roleIconUrl && roleIconBitmap != null) return
-        roleIconDisposable?.cancel()
-        roleIconUrl = iconUrl
-        roleIconBitmap = null
-        val loader = MezonImageLoader.getInstance(context)
-        val cached = loader.getBitmapFromMemory(iconUrl, ROLE_ICON_SIZE, ROLE_ICON_SIZE)
-        if (cached != null) {
-            roleIconBitmap = cached
-            rebuildTextLayouts()
+            roleIconDrawable?.callback = null
+            roleIconDrawable = null
             invalidate()
             return
         }
-        roleIconDisposable = loader.load(iconUrl, ROLE_ICON_SIZE, ROLE_ICON_SIZE, onSuccess = { bmp ->
+        if (iconUrl == roleIconUrl && roleIconDrawable != null) return
+        roleIconDisposable?.cancel()
+        roleIconUrl = iconUrl
+        roleIconDrawable?.callback = null
+        roleIconDrawable = null
+
+        val loader = MezonImageLoader.getInstance(context)
+        roleIconDisposable = loader.loadDrawable(iconUrl, ROLE_ICON_SIZE, ROLE_ICON_SIZE, cacheAnimated = true, onSuccess = { drw ->
             if (roleIconUrl == iconUrl) {
-                roleIconBitmap = bmp
+                roleIconDrawable = drw
+                drw.callback = this
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P && drw is android.graphics.drawable.AnimatedImageDrawable) {
+                    drw.start()
+                }
                 rebuildTextLayouts()
                 invalidate()
             }
         }, onError = {
             if (roleIconUrl == iconUrl) {
-                roleIconBitmap = null
-                rebuildTextLayouts()
+                roleIconDrawable?.callback = null
+                roleIconDrawable = null
                 invalidate()
             }
         })
+    }
+
+    override fun verifyDrawable(who: android.graphics.drawable.Drawable): Boolean {
+        return who == roleIconDrawable || super.verifyDrawable(who)
     }
 
     private fun rebuildTextLayouts() {
@@ -287,16 +292,16 @@ private class TopicRootMetaView(
             canvas.translate(textLeft.toFloat(), y)
             it.draw(canvas)
             canvas.restore()
-            if (reserveRoleIcon && roleIconBitmap != null) {
-                val iconX = textLeft + it.getLineWidth(0).toInt() + ROLE_ICON_GAP
-                val iconY = y + (it.height - ROLE_ICON_SIZE) / 2f
+            if (reserveRoleIcon && roleIconDrawable != null) {
+                val ix = textLeft + it.getLineWidth(0).toInt() + ROLE_ICON_GAP
+                val iy = y + (it.height - ROLE_ICON_SIZE) / 2f
                 roleIconRect.set(
-                    iconX.toFloat(),
-                    iconY,
-                    (iconX + ROLE_ICON_SIZE).toFloat(),
-                    iconY + ROLE_ICON_SIZE
+                    ix.toFloat(), iy,
+                    (ix + ROLE_ICON_SIZE).toFloat(), (iy + ROLE_ICON_SIZE).toFloat()
                 )
-                canvas.drawBitmap(roleIconBitmap!!, null, roleIconRect, roleIconPaint)
+                val drw = roleIconDrawable!!
+                drw.setBounds(roleIconRect.left.toInt(), roleIconRect.top.toInt(), roleIconRect.right.toInt(), roleIconRect.bottom.toInt())
+                drw.draw(canvas)
             }
             y += it.height + TIME_GAP
         }

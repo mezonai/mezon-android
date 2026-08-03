@@ -350,7 +350,7 @@ class InputSuggestionCell(
         val size = LayoutHelper.dp(effectiveDp.toFloat())
         currentImageUrl = url
         val loader = MezonImageLoader.getInstance(context)
-        imageDisposable = loader.loadDrawable(url, size, size, onSuccess = { drawable ->
+        imageDisposable = loader.loadDrawable(url, size, size, cacheAnimated = true, onSuccess = { drawable ->
             if (currentImageUrl == url) {
                 leadingDrawable = drawable
                 drawable.callback = this@InputSuggestionCell
@@ -403,5 +403,8 @@ class InputSuggestionCell(
             isFilterBitmap = true
             isDither = true
         }
+    }
+    override fun verifyDrawable(who: android.graphics.drawable.Drawable): Boolean {
+        return who == leadingDrawable || super.verifyDrawable(who)
     }
 }

@@ -32,6 +32,7 @@ import com.mezon.mobile.util.FileUtils
 import com.mezon.mobile.util.PresignFinishContent
 import com.mezon.mobile.util.avatarImgproxyUrl
 import com.mezon.mobile.util.createImgproxyUrl
+import com.mezon.mobile.util.isAnimatedImageUrl
 import com.mezon.mobile.util.getEmojiDirectUrl
 import com.mezon.mobile.util.getEmojiUrl
 import com.mezon.mobile.util.MentionColors
@@ -180,7 +181,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     var isInPinMode: Boolean = false
     var isTopicHeaderContent: Boolean = false
 
-    private val avatarDrawable = AvatarDrawable()
+    private val avatarDrawable = AvatarDrawable().also { it.attachToView(this) }
     private var currentAvatarUrl: String? = null
     private var measuredCellHeight = LayoutHelper.dp(60)
 
@@ -380,7 +381,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         isDither = true
     }
     private var senderRoleIconUrl: String? = null
-    private var senderRoleIconBitmap: Bitmap? = null
+    private var senderRoleIconDrawable: android.graphics.drawable.Drawable? = null
     private var senderRoleIconCancellable: MezonImageLoader.Cancellable? = null
     private var cachedSenderNameW = 0f
     private var reserveSenderRoleIcon = false
@@ -401,6 +402,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         ogpImage.onAttachedToWindow()
         linkInviteBlock.onAttachedToWindow()
         embedMessage.onAttachedToWindow()
+        avatarDrawable.startAnimation()
 
         reactionEmojiDrawables.forEach {
             if (it is android.graphics.drawable.AnimatedImageDrawable) {
@@ -431,6 +433,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             it?.callback = null
         }
         topicButtonLayout.cancelAvatarLoad()
+        avatarDrawable.stopAnimation()
         avatarCancellable?.cancel()
         avatarCancellable = null
         senderRoleIconCancellable?.cancel()
@@ -1150,7 +1153,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         senderRoleIconCancellable?.cancel()
         senderRoleIconCancellable = null
         senderRoleIconUrl = null
-        senderRoleIconBitmap = null
+        senderRoleIconDrawable?.callback = null
+        senderRoleIconDrawable = null
     }
 
     private fun loadSenderRoleIcon(url: String) {
@@ -1158,38 +1162,46 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             clearSenderRoleIcon()
             return
         }
-        if (url == senderRoleIconUrl && senderRoleIconBitmap != null) return
+        if (url == senderRoleIconUrl && senderRoleIconDrawable != null) return
         senderRoleIconCancellable?.cancel()
         senderRoleIconCancellable = null
         senderRoleIconUrl = url
-        senderRoleIconBitmap = null
+        senderRoleIconDrawable?.callback = null
+        senderRoleIconDrawable = null
         val sz = ROLE_ICON_SIZE
         val loader = MezonImageLoader.getInstance(context)
-        val cached = loader.getBitmapFromMemory(url, sz, sz)
-        if (cached != null) {
-            senderRoleIconBitmap = cached
-            invalidate()
-            return
-        }
-        senderRoleIconCancellable = loader.load(url, sz, sz, onSuccess = { bmp ->
+
+        senderRoleIconCancellable = loader.loadDrawable(url, sz, sz, cacheAnimated = true, onSuccess = { drw ->
             if (senderRoleIconUrl == url) {
-                senderRoleIconBitmap = bmp
+                senderRoleIconDrawable = drw
+                drw.callback = this
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P && drw is android.graphics.drawable.AnimatedImageDrawable) {
+                    drw.start()
+                }
                 invalidate()
             }
         }, onError = {
             if (senderRoleIconUrl == url) {
-                senderRoleIconBitmap = null
+                senderRoleIconDrawable?.callback = null
+                senderRoleIconDrawable = null
                 invalidate()
             }
         })
     }
 
+    override fun verifyDrawable(who: android.graphics.drawable.Drawable): Boolean {
+        return who == senderRoleIconDrawable || super.verifyDrawable(who)
+    }
+
     private fun drawSenderRoleIconAfterName(canvas: Canvas, contentLeft: Int, yOff: Float, sender: StaticLayout) {
-        if (!reserveSenderRoleIcon || senderRoleIconBitmap == null) return
+        if (!reserveSenderRoleIcon || senderRoleIconDrawable == null) return
         val ix = contentLeft + cachedSenderNameW + ROLE_ICON_GAP
         val iy = yOff + (sender.height - ROLE_ICON_SIZE) / 2f
         tmpRect.set(ix.toFloat(), iy, (ix + ROLE_ICON_SIZE).toFloat(), (iy + ROLE_ICON_SIZE).toFloat())
-        canvas.drawBitmap(senderRoleIconBitmap!!, null, tmpRect, roleIconBitmapPaint)
+        
+        val drw = senderRoleIconDrawable!!
+        drw.setBounds(tmpRect.left.toInt(), tmpRect.top.toInt(), tmpRect.right.toInt(), tmpRect.bottom.toInt())
+        drw.draw(canvas)
     }
 
     private fun currentWidth(): Int {
@@ -2216,13 +2228,18 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         if (url.isNotEmpty()) {
             val proxyUrl = avatarImgproxyUrl(url, AVATAR_SIZE)
             val loader = MezonImageLoader.getInstance(context)
-            val cached = loader.getBitmapFromMemory(proxyUrl, AVATAR_SIZE, AVATAR_SIZE)
-            if (cached != null) {
-                avatarDrawable.setLoadingPlaceholder(false)
-                avatarDrawable.setPhoto(cached)
-                avatarDrawable.setDrawableByInfo(true)
-                avatarFallbackVisible = true
-                return
+            val absoluteUrlFallback = com.mezon.mobile.util.plainSourceUrlFromImgproxy(proxyUrl) ?: proxyUrl
+            val isAnimated = com.mezon.mobile.util.isAnimatedImageUrl(absoluteUrlFallback)
+            
+            if (!isAnimated) {
+                val cached = loader.getBitmapFromMemory(proxyUrl, AVATAR_SIZE, AVATAR_SIZE)
+                if (cached != null) {
+                    avatarDrawable.setLoadingPlaceholder(false)
+                    avatarDrawable.setPhoto(cached)
+                    avatarDrawable.setDrawableByInfo(true)
+                    avatarFallbackVisible = true
+                    return
+                }
             }
 
             avatarDrawable.setLoadingPlaceholder(true)
@@ -2230,18 +2247,50 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             avatarFallbackVisible = false
             avatarLoadStartTime = System.currentTimeMillis()
 
-            avatarCancellable = loader.load(proxyUrl, AVATAR_SIZE, AVATAR_SIZE, onSuccess = { bmp ->
+            val successCallback: (Any) -> Unit = { drawable ->
                 avatarDrawable.setLoadingPlaceholder(false)
-                avatarDrawable.setPhoto(bmp)
+                if (drawable is android.graphics.drawable.Animatable) {
+                    avatarDrawable.setAnimatedPhoto(drawable as android.graphics.drawable.Drawable)
+                    avatarDrawable.startAnimation()
+                } else if (drawable is android.graphics.drawable.BitmapDrawable) {
+                    avatarDrawable.setPhoto(drawable.bitmap)
+                } else if (drawable is android.graphics.Bitmap) {
+                    avatarDrawable.setPhoto(drawable)
+                }
                 avatarDrawable.setDrawableByInfo(true)
                 avatarFallbackVisible = true
                 invalidate()
-            }, onError = {
-                avatarDrawable.setLoadingPlaceholder(false)
-                avatarDrawable.setDrawableByInfo(true)
-                avatarFallbackVisible = true
-                invalidate()
-            })
+            }
+
+            val errorCallback: (Throwable) -> Unit = {
+                if (absoluteUrlFallback != proxyUrl) {
+                    avatarCancellable = loader.loadDrawable(
+                        absoluteUrlFallback, AVATAR_SIZE, AVATAR_SIZE, successCallback,
+                        onError = {
+                            avatarDrawable.setLoadingPlaceholder(false)
+                            avatarDrawable.setDrawableByInfo(true)
+                            avatarFallbackVisible = true
+                            invalidate()
+                        }
+                    )
+                } else {
+                    avatarDrawable.setLoadingPlaceholder(false)
+                    avatarDrawable.setDrawableByInfo(true)
+                    avatarFallbackVisible = true
+                    invalidate()
+                }
+            }
+
+            if (isAnimated) {
+                avatarCancellable = loader.loadDrawable(absoluteUrlFallback, AVATAR_SIZE, AVATAR_SIZE, successCallback, {
+                    avatarDrawable.setLoadingPlaceholder(false)
+                    avatarDrawable.setDrawableByInfo(true)
+                    avatarFallbackVisible = true
+                    invalidate()
+                })
+            } else {
+                avatarCancellable = loader.load(proxyUrl, AVATAR_SIZE, AVATAR_SIZE, { bmp -> successCallback(bmp) }, errorCallback)
+            }
         } else {
             avatarDrawable.setPhoto(null)
             avatarDrawable.setDrawableByInfo(true)
@@ -2290,25 +2339,60 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             return
         }
         val proxyUrl = avatarImgproxyUrl(url, REPLY_AVATAR_SIZE)
+        val absoluteUrlFallback = com.mezon.mobile.util.plainSourceUrlFromImgproxy(proxyUrl) ?: proxyUrl
+        val isAnimated = com.mezon.mobile.util.isAnimatedImageUrl(absoluteUrlFallback)
         val loader = MezonImageLoader.getInstance(context)
-        val cached = loader.getBitmapFromMemory(proxyUrl, REPLY_AVATAR_SIZE, REPLY_AVATAR_SIZE)
-        if (cached != null) {
-            replyAvatarDrawable.setLoadingPlaceholder(false)
-            replyAvatarDrawable.setPhoto(cached)
-            replyAvatarDrawable.setDrawableByInfo(true)
-            return
+        
+        if (!isAnimated) {
+            val cached = loader.getBitmapFromMemory(proxyUrl, REPLY_AVATAR_SIZE, REPLY_AVATAR_SIZE)
+            if (cached != null) {
+                replyAvatarDrawable.setLoadingPlaceholder(false)
+                replyAvatarDrawable.setPhoto(cached)
+                replyAvatarDrawable.setDrawableByInfo(true)
+                return
+            }
         }
+        
         replyAvatarDrawable.setLoadingPlaceholder(true)
         replyAvatarDrawable.setDrawableByInfo(true)
-        replyAvatarCancellable = loader.load(proxyUrl, REPLY_AVATAR_SIZE, REPLY_AVATAR_SIZE, onSuccess = { bmp ->
+
+        val successCallback: (Any) -> Unit = { drawable ->
             replyAvatarDrawable.setLoadingPlaceholder(false)
-            replyAvatarDrawable.setPhoto(bmp)
+            if (drawable is android.graphics.drawable.Animatable) {
+                replyAvatarDrawable.setAnimatedPhoto(drawable as android.graphics.drawable.Drawable)
+                replyAvatarDrawable.startAnimation()
+            } else if (drawable is android.graphics.drawable.BitmapDrawable) {
+                replyAvatarDrawable.setPhoto(drawable.bitmap)
+            } else if (drawable is android.graphics.Bitmap) {
+                replyAvatarDrawable.setPhoto(drawable)
+            }
             replyAvatarDrawable.setDrawableByInfo(true)
             invalidate()
-        }, onError = {
-            replyAvatarDrawable.setLoadingPlaceholder(false)
-            replyAvatarDrawable.setDrawableByInfo(true)
-        })
+        }
+
+        val errorCallback: (Throwable) -> Unit = {
+            if (absoluteUrlFallback != proxyUrl) {
+                replyAvatarCancellable = loader.loadDrawable(
+                    absoluteUrlFallback, REPLY_AVATAR_SIZE, REPLY_AVATAR_SIZE, successCallback,
+                    onError = {
+                        replyAvatarDrawable.setLoadingPlaceholder(false)
+                        replyAvatarDrawable.setDrawableByInfo(true)
+                    }
+                )
+            } else {
+                replyAvatarDrawable.setLoadingPlaceholder(false)
+                replyAvatarDrawable.setDrawableByInfo(true)
+            }
+        }
+
+        if (isAnimated) {
+            replyAvatarCancellable = loader.loadDrawable(absoluteUrlFallback, REPLY_AVATAR_SIZE, REPLY_AVATAR_SIZE, successCallback, {
+                replyAvatarDrawable.setLoadingPlaceholder(false)
+                replyAvatarDrawable.setDrawableByInfo(true)
+            })
+        } else {
+            replyAvatarCancellable = loader.load(proxyUrl, REPLY_AVATAR_SIZE, REPLY_AVATAR_SIZE, { bmp -> successCallback(bmp) }, errorCallback)
+        }
     }
 
     private fun loadReplyAnonymousAvatar() {

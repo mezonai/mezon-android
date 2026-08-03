@@ -238,7 +238,11 @@ class MezonImageLoader private constructor(context: Context) {
 
         val baseLogical = stableUrlForDiskAndMemory(url)
         val logicalUrl = if (noCache) "$baseLogical#nocache=${ephemeralIdGen.incrementAndGet()}" else baseLogical
-        val memKey = cacheKey(logicalUrl, reqWidth, reqHeight)
+        val memKey = if (animated && !cacheAnimated) {
+            cacheKey(logicalUrl, reqWidth, reqHeight) + "_${ephemeralIdGen.incrementAndGet()}"
+        } else {
+            cacheKey(logicalUrl, reqWidth, reqHeight)
+        }
 
         if (!animated && !noCache) {
             getFromMemory(memKey)?.let { cached ->

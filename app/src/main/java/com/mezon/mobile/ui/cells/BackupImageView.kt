@@ -111,6 +111,7 @@ class BackupImageView(context: Context) : View(context) {
         cancellable?.cancel()
         cancellable = null
         imageUrl = null
+        loadedDrawable?.callback = null
         loadedDrawable = context.resources.getDrawable(resId, null)
         invalidate()
     }
@@ -119,6 +120,7 @@ class BackupImageView(context: Context) : View(context) {
         cancellable?.cancel()
         cancellable = null
         imageUrl = null
+        loadedDrawable?.callback = null
         loadedDrawable = drawable
         invalidate()
     }
@@ -131,17 +133,53 @@ class BackupImageView(context: Context) : View(context) {
         cancellable?.cancel()
         val w = if (decodeWidth > 0) decodeWidth else measuredWidth.coerceAtLeast(LayoutHelper.dp(48))
         val h = if (decodeHeight > 0) decodeHeight else measuredHeight.coerceAtLeast(LayoutHelper.dp(48))
-        cancellable = MezonImageLoader.getInstance(context).load(
-            url, w, h,
-            onSuccess = { bmp ->
-                loadedDrawable = BitmapDrawable(context.resources, bmp)
-                invalidate()
-            },
-            onError = {
+        val proxyUrl = url
+        val absoluteUrlFallback = com.mezon.mobile.util.plainSourceUrlFromImgproxy(proxyUrl) ?: proxyUrl
+        val isAnimated = com.mezon.mobile.util.isAnimatedImageUrl(absoluteUrlFallback)
+        val loader = MezonImageLoader.getInstance(context)
+
+        val successCallback: (Any) -> Unit = { result ->
+            loadedDrawable?.callback = null
+            if (result is android.graphics.drawable.Animatable) {
+                loadedDrawable = result as android.graphics.drawable.Drawable
+                loadedDrawable?.callback = drawableCallback
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P && loadedDrawable is android.graphics.drawable.AnimatedImageDrawable) {
+                    (loadedDrawable as android.graphics.drawable.AnimatedImageDrawable).start()
+                }
+            } else if (result is android.graphics.drawable.BitmapDrawable) {
+                loadedDrawable = result
+            } else if (result is android.graphics.Bitmap) {
+                loadedDrawable = BitmapDrawable(context.resources, result)
+            }
+            invalidate()
+        }
+
+        val errorCallback: (Throwable) -> Unit = {
+            if (absoluteUrlFallback != proxyUrl) {
+                cancellable = loader.loadDrawable(
+                    absoluteUrlFallback, w, h, successCallback,
+                    onError = {
+                        loadedDrawable?.callback = null
+                        loadedDrawable = null
+                        invalidate()
+                    }
+                )
+            } else {
+                loadedDrawable?.callback = null
                 loadedDrawable = null
                 invalidate()
             }
-        )
+        }
+
+        if (isAnimated) {
+            cancellable = loader.loadDrawable(absoluteUrlFallback, w, h, successCallback, {
+                loadedDrawable?.callback = null
+                loadedDrawable = null
+                invalidate()
+            })
+        } else {
+            cancellable = loader.load(proxyUrl, w, h, { bmp -> successCallback(bmp) }, errorCallback)
+        }
     }
 
     override fun onAttachedToWindow() {
@@ -244,5 +282,21 @@ class BackupImageView(context: Context) : View(context) {
         super.onInitializeAccessibilityNodeInfo(info)
         info.className = "android.widget.ImageView"
         contentDescription?.let { info.contentDescription = it }
+    }
+
+    private val drawableCallback = object : android.graphics.drawable.Drawable.Callback {
+        override fun invalidateDrawable(who: android.graphics.drawable.Drawable) {
+            invalidate()
+        }
+        override fun scheduleDrawable(who: android.graphics.drawable.Drawable, what: Runnable, `when`: Long) {
+            postDelayed(what, `when` - android.os.SystemClock.uptimeMillis())
+        }
+        override fun unscheduleDrawable(who: android.graphics.drawable.Drawable, what: Runnable) {
+            removeCallbacks(what)
+        }
+    }
+
+    override fun verifyDrawable(who: android.graphics.drawable.Drawable): Boolean {
+        return who == loadedDrawable || super.verifyDrawable(who)
     }
 }

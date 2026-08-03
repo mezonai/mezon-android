@@ -504,11 +504,17 @@ class WebhookEditFragment : BaseFragment() {
         val ctx = avatarView.context
         val s = LayoutHelper.dp(100f)
         if (draftAvatar.isNotBlank()) {
-            avatarLoadDisposable = MezonImageLoader.getInstance(ctx).load(
+            avatarLoadDisposable = MezonImageLoader.getInstance(ctx).loadDrawable(
                 draftAvatar,
                 s,
                 s,
-                onSuccess = { bmp -> avatarView.setImageBitmap(bmp) },
+                cacheAnimated = true,
+                onSuccess = { drawable ->
+                    avatarView.setImageDrawable(drawable)
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P && drawable is android.graphics.drawable.AnimatedImageDrawable) {
+                        drawable.start()
+                    }
+                },
                 onError = { avatarView.setImageDrawable(null) },
             )
         } else {

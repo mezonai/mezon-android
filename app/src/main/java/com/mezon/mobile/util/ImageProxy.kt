@@ -8,6 +8,21 @@ private const val IMGPROXY_BASE_URL = BuildConfig.MEZON_IMGPROXY_BASE_URL
 private const val IMGPROXY_KEY = BuildConfig.MEZON_IMGPROXY_KEY
 private const val MAX_BYTES = 2_097_152
 private const val MAX_PROXY_DIM = 1200
+private val SKIP_PROXY_EXTENSIONS = setOf("gif", "webp")
+
+private fun sourceExtension(url: String): String {
+    if (url.isEmpty()) return ""
+    val path = try {
+        java.net.URI(url).path ?: ""
+    } catch (_: Exception) {
+        url
+    }
+    val dot = path.lastIndexOf('.')
+    return if (dot >= 0 && dot < path.length - 1) path.substring(dot + 1).lowercase() else ""
+}
+
+private fun shouldSkipProxy(sourceUrl: String): Boolean =
+    SKIP_PROXY_EXTENSIONS.contains(sourceExtension(sourceUrl))
 
 fun createImgproxyUrl(
     sourceUrl: String,
@@ -20,6 +35,7 @@ fun createImgproxyUrl(
     if (!sourceUrl.startsWith("https://cdn.mezon") && !sourceUrl.startsWith("https://cdn.komu") && !sourceUrl.startsWith("https://profile.mezon")) {
         return sourceUrl
     }
+    if (shouldSkipProxy(sourceUrl)) return sourceUrl
     val cap = maxEdgePx.coerceAtLeast(1).coerceAtMost(4096)
     val w = widthPx.coerceAtMost(cap)
     val h = heightPx.coerceAtMost(cap)
@@ -61,6 +77,13 @@ fun absoluteResourceUrl(raw: String): String {
 
 fun avatarImgproxyUrl(sourceUrl: String, sizePx: Int): String {
     if (sourceUrl.isEmpty()) return sourceUrl
+    if (shouldSkipProxy(sourceUrl)) return sourceUrl
     val bucket = AVATAR_BUCKETS_PX.firstOrNull { it >= sizePx } ?: AVATAR_BUCKETS_PX.last()
     return createImgproxyUrl(sourceUrl, bucket, bucket, "fill")
+}
+
+fun isAnimatedImageUrl(url: String): Boolean {
+    if (url.isEmpty()) return false
+    val ext = sourceExtension(url)
+    return ext == "gif" || ext == "webp"
 }

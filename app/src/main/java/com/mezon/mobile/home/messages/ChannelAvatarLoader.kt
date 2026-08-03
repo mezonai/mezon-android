@@ -1,10 +1,13 @@
 package com.mezon.mobile.home.messages
 
 import android.content.Context
+import android.graphics.drawable.Animatable
+import android.graphics.drawable.BitmapDrawable
 import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.util.avatarImgproxyUrl
+import com.mezon.mobile.util.isAnimatedImageUrl
 
 data class ChannelAvatarRequest(
     val channelType: Int,
@@ -76,18 +79,52 @@ fun loadChannelAvatar(
 
     avatarDrawable.setLoadingPlaceholder(true)
     val expectedKey = proxyUrl
-    state.disposable = loader.load(
-        proxyUrl, request.sizePx, request.sizePx,
-        onSuccess = { bmp ->
-            if (state.loadKey != expectedKey) return@load
+
+    val absoluteUrlFallback = com.mezon.mobile.util.plainSourceUrlFromImgproxy(proxyUrl) ?: proxyUrl
+    val isAnimated = isAnimatedImageUrl(absoluteUrlFallback)
+
+    val successCallback: (Any) -> Unit = { result ->
+        if (state.loadKey == expectedKey) {
             avatarDrawable.setLoadingPlaceholder(false)
-            avatarDrawable.setPhoto(bmp)
-            onInvalidate()
-        },
-        onError = {
-            if (state.loadKey != expectedKey) return@load
-            avatarDrawable.setLoadingPlaceholder(false)
+            if (result is android.graphics.drawable.Animatable) {
+                avatarDrawable.setAnimatedPhoto(result as android.graphics.drawable.Drawable)
+                avatarDrawable.startAnimation()
+            } else if (result is android.graphics.drawable.BitmapDrawable) {
+                avatarDrawable.setPhoto(result.bitmap)
+            } else if (result is android.graphics.Bitmap) {
+                avatarDrawable.setPhoto(result)
+            }
             onInvalidate()
         }
-    )
+    }
+
+    val errorCallback: (Throwable) -> Unit = {
+        if (absoluteUrlFallback != proxyUrl) {
+            state.disposable = loader.loadDrawable(
+                absoluteUrlFallback, request.sizePx, request.sizePx, successCallback,
+                onError = {
+                    if (state.loadKey == expectedKey) {
+                        avatarDrawable.setLoadingPlaceholder(false)
+                        onInvalidate()
+                    }
+                }
+            )
+        } else {
+            if (state.loadKey == expectedKey) {
+                avatarDrawable.setLoadingPlaceholder(false)
+                onInvalidate()
+            }
+        }
+    }
+
+    if (isAnimated) {
+        state.disposable = loader.loadDrawable(absoluteUrlFallback, request.sizePx, request.sizePx, successCallback, {
+            if (state.loadKey == expectedKey) {
+                avatarDrawable.setLoadingPlaceholder(false)
+                onInvalidate()
+            }
+        })
+    } else {
+        state.disposable = loader.load(proxyUrl, request.sizePx, request.sizePx, { bmp -> successCallback(bmp) }, errorCallback)
+    }
 }

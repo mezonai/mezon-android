@@ -404,11 +404,17 @@ class WebhooksListFragment : BaseFragment() {
             }
         }
         if (avatarUrl.isNotBlank()) {
-            MezonImageLoader.getInstance(ctx).load(
+            MezonImageLoader.getInstance(ctx).loadDrawable(
                 avatarUrl,
                 w50,
                 w50,
-                onSuccess = { bmp -> img.setImageBitmap(bmp) },
+                cacheAnimated = true,
+                onSuccess = { drawable ->
+                    img.setImageDrawable(drawable)
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P && drawable is android.graphics.drawable.AnimatedImageDrawable) {
+                        drawable.start()
+                    }
+                },
                 onError = {
                     img.setImageDrawable(null)
                     img.background = android.graphics.drawable.GradientDrawable().apply {
