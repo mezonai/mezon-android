@@ -130,6 +130,7 @@ class EditProfileFragment : BaseFragment() {
 
     private var currentDmLogoUrl: String = ""
     private lateinit var dmLogoView: AvatarView
+    private lateinit var removeDmLogoIcon: ImageView
     private lateinit var saveButtonView: View
     private var isUploadingAvatar = false
     private var isUploadingDmLogo = false
@@ -376,22 +377,24 @@ class EditProfileFragment : BaseFragment() {
             setSizeDp(50)
             setOnClickListener { openDmLogoPicker() }
         }
-        bindDmLogoPreview()
         val dmWrapper = FrameLayout(context)
         dmWrapper.addView(dmLogoView, LayoutHelper.createFrame(50, 50))
         
         val removeIconBg = GradientDrawable().apply {
             setColor(themeColors.error)
             cornerRadius = LayoutHelper.dpf(999f)
+            setStroke(LayoutHelper.dp(1.5f), 0xFFFFFFFF.toInt())
         }
-        val removeIcon = ImageView(context).apply {
+        removeDmLogoIcon = ImageView(context).apply {
             background = removeIconBg
             setImageResource(R.drawable.ic_close_icon) 
             imageTintList = android.content.res.ColorStateList.valueOf(0xFFFFFFFF.toInt())
-            setPadding(LayoutHelper.dp(2), LayoutHelper.dp(2), LayoutHelper.dp(2), LayoutHelper.dp(2))
+            setPadding(LayoutHelper.dp(4), LayoutHelper.dp(4), LayoutHelper.dp(4), LayoutHelper.dp(4))
             setOnClickListener { removeDmLogo() }
         }
-        dmWrapper.addView(removeIcon, LayoutHelper.createFrame(16, 16, Gravity.TOP or Gravity.END))
+        dmWrapper.addView(removeDmLogoIcon, LayoutHelper.createFrame(22, 22, Gravity.TOP or Gravity.END))
+        
+        bindDmLogoPreview()
         dmGroupCard.addView(dmWrapper, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT))
 
         content.addView(dmGroupCard, LayoutHelper.createLinear(
@@ -912,6 +915,9 @@ class EditProfileFragment : BaseFragment() {
         if (!::dmLogoView.isInitialized) return
         val url = currentDmLogoUrl.ifEmpty { com.mezon.mobile.BuildConfig.MEZON_LOGO_URL }
         dmLogoView.setImageUrl(url)
+        if (::removeDmLogoIcon.isInitialized) {
+            removeDmLogoIcon.visibility = if (url == com.mezon.mobile.BuildConfig.MEZON_LOGO_URL) View.GONE else View.VISIBLE
+        }
     }
 
     private fun removeDmLogo() {
