@@ -114,6 +114,10 @@ class DialogsController @Inject constructor(
         private set
 
     @Volatile
+    var dmBadgesServerSynced = false
+        private set
+
+    @Volatile
     private var currentChannelId: Long? = null
 
     private val buzzStates = HashMap<Long, Long>()
@@ -182,6 +186,7 @@ class DialogsController @Inject constructor(
             participantsByChannel.clear()
             buzzStates.clear()
             dialogsLoaded = false
+            dmBadgesServerSynced = false
             currentChannelId = null
             mutedDmChannelIds = null
             dmNotificationSettings.clear()
@@ -603,10 +608,11 @@ class DialogsController @Inject constructor(
                 }
                 if (hasCache && cacheTracker.shouldCall(cacheKey) == ApiCacheTracker.ShouldCall.SKIP) {
                     if (!dialogsLoaded) dialogsLoaded = true
+                    val wasBadgesSynced = dmBadgesServerSynced
                     val badgePatched = sessionManager.withAutoRefresh { session ->
                         syncDmBadgesWithApi(session) || syncDmMutedStateFromLocalCache()
                     }
-                    if (badgePatched) {
+                    if (badgePatched || (!wasBadgesSynced && dmBadgesServerSynced)) {
                         notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
                     }
                     badgeCoordinator.get().processDeferredQueue()
@@ -656,6 +662,7 @@ class DialogsController @Inject constructor(
                     )
 
                     putDialogs(merged)
+                    dmBadgesServerSynced = true
                     cacheTracker.markCalled(cacheKey)
                     syncDmMutedStateFromLocalCache()
                     syncDmBadgesWithApi(session)
@@ -1542,6 +1549,7 @@ class DialogsController @Inject constructor(
         val currentUserId = session.userId.toLongOrNull() ?: 0L
         return runCatching {
             val badge = api.listChannelBadgeCount(session.apiUrl, session.token, 0L)
+            dmBadgesServerSynced = true
             applyDmReadStatePatchFromSocket(badge.channeldescList, currentUserId)
         }.getOrElse { e ->
             Log.e(TAG, "syncDmBadgesWithApi failed", e)

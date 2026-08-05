@@ -21,7 +21,7 @@ val mezonSecrets: Properties = Properties().apply {
 
 android {
     namespace = "com.mezon.mobile"
-    compileSdk = 35
+    compileSdk = 36
 
     val signingPropsFile = rootProject.file("signing.properties")
     val signingProps = Properties().apply {
@@ -38,9 +38,9 @@ android {
     defaultConfig {
         applicationId = "com.mezon.mobile"
         minSdk = 24
-        targetSdk = 35
-        versionCode = 1016
-        versionName = "1.1.177"
+        targetSdk = 36
+        versionCode = 1121
+        versionName = "1.1.200"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -175,6 +175,9 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 kotlin {
@@ -268,6 +271,7 @@ dependencies {
     // Test
     testImplementation(libs.junit)
     testImplementation(libs.mockk)
+    testImplementation("org.json:json:20240303")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 }

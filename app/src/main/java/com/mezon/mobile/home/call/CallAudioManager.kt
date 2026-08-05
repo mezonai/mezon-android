@@ -11,6 +11,7 @@ import android.os.PowerManager
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.os.VibrationEffect
+import android.telecom.CallAudioState
 import android.util.Log
 import com.twilio.audioswitch.AudioDevice
 import io.livekit.android.audio.AudioSwitchHandler
@@ -36,7 +37,11 @@ class CallAudioManager(context: Context) {
 
     private val deviceChangeListener: (List<AudioDevice>, AudioDevice?) -> Unit = { devices, selected ->
         if (desiredSpeaker && selected !is AudioDevice.Speakerphone) {
+            requestTelecomRoute(CallAudioState.ROUTE_SPEAKER)
             devices.firstOrNull { it is AudioDevice.Speakerphone }?.let { audioSwitch.selectDevice(it) }
+        }
+        if (desiredSpeaker && selected is AudioDevice.Speakerphone) {
+            ensureAudibleCallVolume()
         }
     }
 
@@ -126,6 +131,7 @@ class CallAudioManager(context: Context) {
 
     fun setEarpiece() {
         desiredSpeaker = false
+        requestTelecomRoute(CallAudioState.ROUTE_EARPIECE)
         audioSwitch.availableAudioDevices
             .firstOrNull { it is AudioDevice.Earpiece }
             ?.let { audioSwitch.selectDevice(it) }
@@ -134,6 +140,7 @@ class CallAudioManager(context: Context) {
 
     fun setSpeaker() {
         desiredSpeaker = true
+        requestTelecomRoute(CallAudioState.ROUTE_SPEAKER)
         audioSwitch.availableAudioDevices
             .firstOrNull { it is AudioDevice.Speakerphone }
             ?.let { audioSwitch.selectDevice(it) }
@@ -142,10 +149,24 @@ class CallAudioManager(context: Context) {
 
     fun setBluetooth() {
         desiredSpeaker = false
+        requestTelecomRoute(CallAudioState.ROUTE_BLUETOOTH)
         audioSwitch.availableAudioDevices
             .firstOrNull { it is AudioDevice.BluetoothHeadset }
             ?.let { audioSwitch.selectDevice(it) }
         releaseProximityWakeLock()
+    }
+
+    fun reapplyDesiredRoute() {
+        if (!isStarted) return
+        if (desiredSpeaker) setSpeaker()
+    }
+
+    private fun requestTelecomRoute(route: Int) {
+        try {
+            CallTelecomBridge.from(appContext)?.requestAudioRoute(route)
+        } catch (e: Exception) {
+            Log.w(TAG, "requestTelecomRoute failed", e)
+        }
     }
 
     private fun ensureAudibleCallVolume() {
