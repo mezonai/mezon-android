@@ -43,6 +43,7 @@ object PresignFinishContent {
         fun isUnfinished(url: String): Boolean {
             if (url.isBlank()) return false
             if (url.startsWith("content://") || url.startsWith("file://")) return false
+            if (!isMezonCdnUrl(url)) return false
             val keys = finishedKeys ?: return false
             val key = presignKey(url)
             return key.isNotEmpty() && !keys.contains(key)
@@ -56,6 +57,18 @@ object PresignFinishContent {
         fun <T> filterDisplayable(attachments: List<T>, urlSelector: (T) -> String): List<T> {
             if (!expirePending) return attachments
             return attachments.filter { !isExpired(urlSelector(it)) }
+        }
+
+        /**
+         * A sender that dies before its final flush leaves the last keys unsent, so
+         * matching by name alone would keep those attachments hidden until they are
+         * dropped. Once as many keys have arrived as there are presignable
+         * attachments, everything is considered uploaded - same rule as web/desktop.
+         */
+        fun <T> allFinished(attachments: List<T>, urlSelector: (T) -> String): Boolean {
+            val keys = finishedKeys ?: return false
+            val presignable = attachments.count { isMezonCdnUrl(urlSelector(it)) }
+            return presignable > 0 && keys.size >= presignable
         }
 
         fun <T> hasDisplayable(attachments: List<T>, urlSelector: (T) -> String): Boolean {
@@ -90,6 +103,20 @@ object PresignFinishContent {
         } catch (_: Exception) {
             null
         }
+    }
+
+    /**
+     * Only attachments living on a mezon CDN are uploaded through a presigned URL,
+     * so only those can be waiting for a `presign_finish` key. Anything else - a
+     * Tenor GIF, an image someone linked from the web - is already reachable and
+     * must never be hidden (nor dropped once the message passes its expiry).
+     */
+    fun isMezonCdnUrl(url: String): Boolean {
+        val trimmed = url.trim()
+        return trimmed.startsWith("https://cdn.mezon") ||
+            trimmed.startsWith("https://cdn.komu") ||
+            trimmed.startsWith("http://cdn.mezon") ||
+            trimmed.startsWith("http://cdn.komu")
     }
 
     fun presignKey(cdnUrl: String): String {

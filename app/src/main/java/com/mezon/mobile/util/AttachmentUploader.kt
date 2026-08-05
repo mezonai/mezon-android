@@ -492,7 +492,10 @@ object AttachmentUploader {
         )
         val urls = start.urlsList
         val uploadId = start.uploadId
-        val serverFilename = start.filename.ifEmpty { uploadFilename }
+        // The object key must come from the server: falling back to the local name
+        // silently builds a CDN url that points at nothing.
+        val serverFilename = start.filename
+        require(serverFilename.isNotEmpty()) { "multipart upload start returned an empty filename" }
         val cdnUrl = "$cdnBaseUrl/$serverFilename"
         if (urls.size == 1 && uploadId.isEmpty()) {
             Log.d(TAG, "presign multipart→single file=$uploadFilename cdnUrl=$cdnUrl minioUrl=${urls[0]}")
@@ -537,7 +540,10 @@ object AttachmentUploader {
         )
         val urls = start.urlsList
         val uploadId = start.uploadId
-        val serverFilename = start.filename.ifEmpty { uploadFilename }
+        // The object key must come from the server: falling back to the local name
+        // silently builds a CDN url that points at nothing.
+        val serverFilename = start.filename
+        require(serverFilename.isNotEmpty()) { "multipart upload start returned an empty filename" }
         val cdnUrl = "$cdnBaseUrl/$serverFilename"
         if (urls.size == 1 && uploadId.isEmpty()) {
             Log.d(TAG, "presign multipart→single bytes file=$uploadFilename cdnUrl=$cdnUrl minioUrl=${urls[0]}")

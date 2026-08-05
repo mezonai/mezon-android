@@ -148,14 +148,16 @@ data class MessageEntity(
 
     data class DisplayAttachmentSnapshot(
         val filter: PresignFinishContent.PresignFilterContext,
+        val allPresignFinished: Boolean,
         val media: List<AttachmentInfo>,
         val files: List<AttachmentInfo>,
     ) {
         val hasMedia: Boolean get() = media.isNotEmpty()
         val hasFiles: Boolean get() = files.isNotEmpty()
         val hasActivePresignPending: Boolean
-            get() = filter.hasActivePending(media, { it.url }) ||
-                filter.hasActivePending(files, { it.url })
+            get() = !allPresignFinished &&
+                (filter.hasActivePending(media, { it.url }) ||
+                    filter.hasActivePending(files, { it.url }))
     }
 
     fun displayAttachmentSnapshot(
@@ -164,8 +166,10 @@ data class MessageEntity(
         val filter = PresignFinishContent.PresignFilterContext.from(content, timestampSeconds, nowSeconds)
         val mediaSource = allImageAttachments
         val filesSource = allFileAttachments
+        val allFinished = filter.allFinished(mediaSource + filesSource) { it.url }
         return DisplayAttachmentSnapshot(
             filter = filter,
+            allPresignFinished = allFinished,
             media = filter.filterDisplayable(mediaSource) { it.url },
             files = filter.filterDisplayable(filesSource) { it.url },
         )
@@ -356,8 +360,10 @@ data class MessageEntity(
     fun isPresignAttachmentPending(
         url: String,
         filter: PresignFinishContent.PresignFilterContext,
+        allPresignFinished: Boolean = false,
     ): Boolean {
         if (isMe) return false
+        if (allPresignFinished) return false
         if (isLocalAttachmentUrl(url)) return false
         return filter.isUnfinished(url)
     }
