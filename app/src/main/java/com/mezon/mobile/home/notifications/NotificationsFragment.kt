@@ -386,7 +386,9 @@ class NotificationsFragment : BaseFragment() {
                 fragmentScope.launch {
                     val dmChannelId = dialogsController.getOrCreateDm(entity.senderId)
                     if (dmChannelId != 0L) {
-                        openChatFromNotification(entity, dmChannelId)
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            openChatFromNotification(entity, dmChannelId)
+                        }
                     }
                 }
                 return
