@@ -631,6 +631,7 @@ class CallController @Inject constructor(
         }
         isLocalVideoEnabled = next
         peerConnection?.setLocalVideoEnabled(isLocalVideoEnabled)
+        telecomBridge.updateVideoState(next)
         if (next && !isSpeakerOn && callAudioManager?.hasExternalAudioDevice() != true) {
             isSpeakerOn = true
             callAudioManager?.setSpeaker()
@@ -1090,6 +1091,7 @@ class CallController @Inject constructor(
         cancelTimeout()
         callAudioManager?.stopTone()
         telecomBridge.markActive()
+        callAudioManager?.reapplyDesiredRoute()
         sendMediaStatus()
         run {
             val pc = peerConnection

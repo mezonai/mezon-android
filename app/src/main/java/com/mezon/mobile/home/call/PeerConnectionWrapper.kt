@@ -13,7 +13,9 @@ import org.webrtc.MediaConstraints
 import org.webrtc.MediaStream
 import org.webrtc.PeerConnection
 import org.webrtc.PeerConnectionFactory
+import org.webrtc.RtpParameters
 import org.webrtc.RtpReceiver
+import org.webrtc.RtpSender
 import org.webrtc.SdpObserver
 import org.webrtc.SessionDescription
 import org.webrtc.SurfaceTextureHelper
@@ -448,7 +450,7 @@ class PeerConnectionWrapper(
         if (enabled) {
             if (capturer != null && !captureStarted) {
                 try {
-                    capturer.startCapture(1280, 720, 30)
+                    capturer.startCapture(CAPTURE_WIDTH, CAPTURE_HEIGHT, CAPTURE_FPS)
                     captureStarted = true
                 } catch (e: Exception) {
                     android.util.Log.e(TAG, "startCapture failed", e)
@@ -472,7 +474,7 @@ class PeerConnectionWrapper(
         if (capturer != null && captureStarted) {
             try {
                 capturer.stopCapture()
-                capturer.startCapture(1280, 720, 30)
+                capturer.startCapture(CAPTURE_WIDTH, CAPTURE_HEIGHT, CAPTURE_FPS)
             } catch (e: Exception) {
                 android.util.Log.e(TAG, "restartCamera failed", e)
             }
@@ -664,7 +666,22 @@ class PeerConnectionWrapper(
         }
         localVideoTrack = factory.createVideoTrack("video0", vs)
         localVideoTrack?.setEnabled(false)
-        peerConnection?.addTrack(localVideoTrack, listOf("stream0"))
+        val sender = peerConnection?.addTrack(localVideoTrack, listOf("stream0"))
+        sender?.let { tuneVideoSender(it) }
+    }
+
+    private fun tuneVideoSender(sender: RtpSender) {
+        try {
+            val params = sender.parameters
+            params.degradationPreference = RtpParameters.DegradationPreference.MAINTAIN_FRAMERATE
+            params.encodings.forEach {
+                it.maxBitrateBps = MAX_VIDEO_BITRATE_BPS
+                it.maxFramerate = CAPTURE_FPS
+            }
+            sender.parameters = params
+        } catch (e: Exception) {
+            android.util.Log.w(TAG, "tuneVideoSender failed", e)
+        }
     }
 
     private fun applyLocalRendererMirror() {
@@ -719,6 +736,10 @@ class PeerConnectionWrapper(
 
     companion object {
         private const val ICE_RECONNECT_TIMEOUT_MS = 15_000L
+        private const val CAPTURE_WIDTH = 960
+        private const val CAPTURE_HEIGHT = 540
+        private const val CAPTURE_FPS = 30
+        private const val MAX_VIDEO_BITRATE_BPS = 1_200_000
     }
 }
 

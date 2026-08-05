@@ -44,7 +44,9 @@ class CallManager @Inject constructor(
         try {
             var capabilities = PhoneAccount.CAPABILITY_SELF_MANAGED
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                capabilities = capabilities or PhoneAccount.CAPABILITY_SUPPORTS_VIDEO_CALLING
+                capabilities = capabilities or
+                    PhoneAccount.CAPABILITY_SUPPORTS_VIDEO_CALLING or
+                    PhoneAccount.CAPABILITY_VIDEO_CALLING
             }
             val account = PhoneAccount.builder(phoneAccountHandle, "Mezon")
                 .setCapabilities(capabilities)
@@ -115,6 +117,10 @@ class CallManager @Inject constructor(
             putString(EXTRA_CHANNEL_ID, channelId)
             putString(EXTRA_OFFER_JSON, offerForBundle)
             putBoolean(EXTRA_IS_VIDEO_CALL, isVideoCall)
+            putInt(
+                TelecomManager.EXTRA_INCOMING_VIDEO_STATE,
+                if (isVideoCall) VideoProfile.STATE_BIDIRECTIONAL else VideoProfile.STATE_AUDIO_ONLY
+            )
         }
         val manager = telecomManager ?: return false
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {

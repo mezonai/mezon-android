@@ -8,6 +8,7 @@ import android.telecom.ConnectionRequest
 import android.telecom.ConnectionService
 import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
+import android.telecom.VideoProfile
 import android.util.Log
 
 private const val TAG = "MezonCallConnService"
@@ -23,9 +24,11 @@ class MezonCallConnectionService : ConnectionService() {
         Log.d(TAG, "onCreateIncomingConnection: caller=$incomingCaller, hasOffer=$hasOffer, controllerState=${CallController.instance?.callState?.let { it::class.simpleName }}")
         val connection = MezonCallConnection(applicationContext)
 
+        var isVideo = false
         request?.extras?.let { extras ->
             val callerName = extras.getString(CallManager.EXTRA_CALLER_NAME, "Unknown")
             val callerId = extras.getString(CallManager.EXTRA_CALLER_ID, "")
+            isVideo = extras.getBoolean(CallManager.EXTRA_IS_VIDEO_CALL, false)
             connection.setCallerDisplayName(callerName, TelecomManager.PRESENTATION_ALLOWED)
             connection.setAddress(Uri.parse("tel:$callerId"), TelecomManager.PRESENTATION_ALLOWED)
             connection.putExtras(Bundle(extras))
@@ -33,8 +36,9 @@ class MezonCallConnectionService : ConnectionService() {
         }
 
         connection.setConnectionProperties(Connection.PROPERTY_SELF_MANAGED)
-        connection.setConnectionCapabilities(Connection.CAPABILITY_MUTE)
+        connection.setConnectionCapabilities(connectionCapabilitiesFor(isVideo))
         connection.setAudioModeIsVoip(true)
+        connection.setVideoState(videoStateFor(isVideo))
         connection.setRinging()
         silenceSystemIncomingRingtone(connection)
 
@@ -50,15 +54,18 @@ class MezonCallConnectionService : ConnectionService() {
         val connection = MezonCallConnection(applicationContext)
 
         val outgoingExtras = request?.extras?.getBundle(TelecomManager.EXTRA_OUTGOING_CALL_EXTRAS)
+        var isVideo = false
         outgoingExtras?.let { extras ->
             val peerName = extras.getString(CallManager.EXTRA_CALLER_NAME, "Unknown")
+            isVideo = extras.getBoolean(CallManager.EXTRA_IS_VIDEO_CALL, false)
             connection.setCallerDisplayName(peerName, TelecomManager.PRESENTATION_ALLOWED)
         }
         request?.address?.let { connection.setAddress(it, TelecomManager.PRESENTATION_ALLOWED) }
 
         connection.setConnectionProperties(Connection.PROPERTY_SELF_MANAGED)
-        connection.setConnectionCapabilities(Connection.CAPABILITY_MUTE)
+        connection.setConnectionCapabilities(connectionCapabilitiesFor(isVideo))
         connection.setAudioModeIsVoip(true)
+        connection.setVideoState(videoStateFor(isVideo))
         connection.setDialing()
 
         CallTelecomBridge.from(applicationContext)?.attach(connection)
@@ -102,6 +109,19 @@ class MezonCallConnectionService : ConnectionService() {
             offerJson = offerFallback,
             useFullScreenIntent = true
         )
+    }
+
+    private fun videoStateFor(isVideo: Boolean): Int =
+        if (isVideo) VideoProfile.STATE_BIDIRECTIONAL else VideoProfile.STATE_AUDIO_ONLY
+
+    private fun connectionCapabilitiesFor(isVideo: Boolean): Int {
+        var capabilities = Connection.CAPABILITY_MUTE
+        if (isVideo) {
+            capabilities = capabilities or
+                Connection.CAPABILITY_SUPPORTS_VT_LOCAL_BIDIRECTIONAL or
+                Connection.CAPABILITY_SUPPORTS_VT_REMOTE_BIDIRECTIONAL
+        }
+        return capabilities
     }
 
     private fun silenceSystemIncomingRingtone(connection: Connection) {

@@ -299,9 +299,9 @@ class ClansFragment : BaseFragment() {
             isVerticalScrollBarEnabled = false
             itemAnimator = DefaultItemAnimator().apply {
                 supportsChangeAnimations = false
-                addDuration = 180L
-                removeDuration = 180L
-                moveDuration = 220L
+                addDuration = 100L
+                removeDuration = 100L
+                moveDuration = 140L
             }
             setSelectorType(RecyclerListView.SELECTOR_CIRCLE_TO_BOUND)
             addOnScrollListener(object : RecyclerView.OnScrollListener() {
@@ -858,8 +858,11 @@ class ClansFragment : BaseFragment() {
     }
 
     private fun updateServerRail() {
-        val unreadDms = dialogsController.getDialogs()
-            .filter { it.unreadCount > 0 && !it.isMute }
+        val unreadDms = if (dialogsController.dmBadgesServerSynced) {
+            dialogsController.getDialogs().filter { it.unreadCount > 0 && !it.isMute }
+        } else {
+            emptyList()
+        }
         val clans = clansController.clans.value
         val selectedId = clansController.selectedClanId.value
         val logoUrl = accountController.accountInfo.value.logo
