@@ -211,7 +211,7 @@ class ChannelQuickActionFragment : BaseFragment() {
                     setMargins(pad, pad, pad, pad)
                 },
             )
-            addView(iconCircle, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT))
+            addView(iconCircle, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, gravity = Gravity.CENTER_HORIZONTAL))
 
             emptyTitleView = TextView(context).apply {
                 textSize = 18f
@@ -409,15 +409,58 @@ class ChannelQuickActionFragment : BaseFragment() {
             orientation = LinearLayout.VERTICAL
             setPadding(LayoutHelper.dp(4f), LayoutHelper.dp(8f), LayoutHelper.dp(4f), 0)
         }
-        val keyField = dialogField(context, getString(R.string.channel_quick_action_flash_key_hint), existing?.menuName.orEmpty(), singleLine = true)
+
+        fun requiredLabel(textResId: Int): CharSequence {
+            val s = android.text.SpannableStringBuilder(getString(textResId))
+            s.append(" *")
+            s.setSpan(android.text.style.ForegroundColorSpan(themeColors.redStrong), s.length - 1, s.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            return s
+        }
+
+        body.addView(
+            TextView(context).apply {
+                text = requiredLabel(R.string.channel_quick_action_flash_name_label)
+                textSize = 14f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(themeColors.textStrong)
+            },
+            LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 0f, 0f, 8f),
+        )
+        val keyField = dialogField(context, getString(R.string.channel_quick_action_flash_name_hint), existing?.menuName.orEmpty(), singleLine = true)
+        body.addView(keyField, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 0f, 0f, 6f))
+        body.addView(
+            TextView(context).apply {
+                text = getString(R.string.channel_quick_action_flash_name_desc)
+                textSize = 13f
+                setTextColor(themeColors.textDisabled)
+            },
+            LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 0f, 0f, 14f),
+        )
+
+        body.addView(
+            TextView(context).apply {
+                text = requiredLabel(R.string.channel_quick_action_flash_content_label)
+                textSize = 14f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(themeColors.textStrong)
+            },
+            LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 0f, 0f, 8f),
+        )
         val contentField = dialogField(
             context,
             getString(R.string.channel_quick_action_flash_content_hint),
             existing?.actionMsg.orEmpty(),
             singleLine = false,
         )
-        body.addView(keyField, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 0f, 0f, 12f))
-        body.addView(contentField, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+        body.addView(contentField, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 0f, 0f, 6f))
+        body.addView(
+            TextView(context).apply {
+                text = getString(R.string.channel_quick_action_flash_content_desc)
+                textSize = 13f
+                setTextColor(themeColors.textDisabled)
+            },
+            LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 0f, 0f, 14f),
+        )
 
         val titleRes = if (existing == null) R.string.channel_quick_action_create_flash_title
         else R.string.channel_quick_action_edit_flash_title
@@ -437,7 +480,29 @@ class ChannelQuickActionFragment : BaseFragment() {
 
         val dialog = builder.create()
         dialog.setOnShowListener {
-            dialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE)?.setOnClickListener {
+            val positiveButton = dialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE)
+
+            fun updateButtonState() {
+                val key = keyField.text.toString().trim()
+                val content = contentField.text.toString().trim()
+                val isValid = key.isNotEmpty() && content.isNotEmpty()
+                positiveButton?.isEnabled = isValid
+                positiveButton?.alpha = if (isValid) 1.0f else 0.5f
+            }
+
+            keyField.addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                override fun afterTextChanged(s: android.text.Editable?) { updateButtonState() }
+            })
+            contentField.addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                override fun afterTextChanged(s: android.text.Editable?) { updateButtonState() }
+            })
+            updateButtonState()
+
+            positiveButton?.setOnClickListener {
                 val key = normalizeMenuName(keyField.text.toString())
                 val content = contentField.text.toString().trim()
                 if (key.isEmpty() || content.isEmpty()) {
@@ -458,9 +523,16 @@ class ChannelQuickActionFragment : BaseFragment() {
             setPadding(LayoutHelper.dp(4f), LayoutHelper.dp(8f), LayoutHelper.dp(4f), 0)
         }
 
+        fun requiredLabel(textResId: Int): CharSequence {
+            val s = android.text.SpannableStringBuilder(getString(textResId))
+            s.append(" *")
+            s.setSpan(android.text.style.ForegroundColorSpan(themeColors.redStrong), s.length - 1, s.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            return s
+        }
+
         body.addView(
             TextView(context).apply {
-                text = getString(R.string.channel_quick_action_menu_name_label)
+                text = requiredLabel(R.string.channel_quick_action_menu_name_label)
                 textSize = 14f
                 typeface = Typeface.DEFAULT_BOLD
                 setTextColor(themeColors.textStrong)
@@ -521,7 +593,23 @@ class ChannelQuickActionFragment : BaseFragment() {
 
         val dialog = builder.create()
         dialog.setOnShowListener {
-            dialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE)?.setOnClickListener {
+            val positiveButton = dialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE)
+
+            fun updateButtonState() {
+                val name = nameField.text.toString().trim()
+                val isValid = name.isNotEmpty()
+                positiveButton?.isEnabled = isValid
+                positiveButton?.alpha = if (isValid) 1.0f else 0.5f
+            }
+
+            nameField.addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                override fun afterTextChanged(s: android.text.Editable?) { updateButtonState() }
+            })
+            updateButtonState()
+
+            positiveButton?.setOnClickListener {
                 val name = normalizeMenuName(nameField.text.toString())
                 if (name.isEmpty()) return@setOnClickListener
                 dialog.dismiss()
