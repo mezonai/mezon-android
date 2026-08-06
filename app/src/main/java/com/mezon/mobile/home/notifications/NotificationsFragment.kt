@@ -33,6 +33,7 @@ import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
 import com.mezon.mobile.ui.cells.MezonIcon
+import kotlinx.coroutines.launch
 
 private data class TabDef(val category: Int, val labelRes: Int, val icon: MezonIcon)
 
@@ -380,6 +381,24 @@ class NotificationsFragment : BaseFragment() {
             return
         }
         val channelId = entity.channelId
+        if (channelId == 0L) {
+            if (entity.clanId == 0L && entity.senderId != 0L) {
+                fragmentScope.launch {
+                    val dmChannelId = dialogsController.getOrCreateDm(entity.senderId)
+                    if (dmChannelId != 0L) {
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            openChatFromNotification(entity, dmChannelId)
+                        }
+                    }
+                }
+                return
+            }
+            return
+        }
+        openChatFromNotification(entity, channelId)
+    }
+
+    private fun openChatFromNotification(entity: NotificationEntity, channelId: Long) {
         if (channelId == 0L) return
         val rawClanId = entity.clanId
         val dm = dialogsController.getDialog(channelId)
