@@ -19,7 +19,7 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         private set
     var hasBuzz = false
 
-    private val avatarDrawable = AvatarDrawable()
+    private val avatarDrawable = AvatarDrawable().also { it.attachToView(this) }
     private val avatarLoadState = ChannelAvatarLoadState()
     private var attachedToWindow = false
     private var needsLayout = false
@@ -42,11 +42,13 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
             invalidate()
         }
         directMessage?.let { loadAvatar(it) }
+        avatarDrawable.startAnimation()
     }
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         attachedToWindow = false
+        avatarDrawable.stopAnimation()
         avatarLoadState.cancel()
     }
 
@@ -209,7 +211,7 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
 
     private fun loadAvatar(dm: DirectMessage) {
         loadChannelAvatar(
-            context,
+            this,
             avatarDrawable,
             ChannelAvatarRequest(
                 channelType = dm.type,

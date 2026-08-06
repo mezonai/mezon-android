@@ -102,7 +102,7 @@ class ProfileSearchCell(context: Context, private val theme: ThemeColors) : Base
 
     private fun loadAvatar(m: SearchMember, avatarId: Long, placeholderKey: String) {
         loadChannelAvatar(
-            context,
+            this,
             avatarDrawable,
             ChannelAvatarRequest(
                 channelType = if (m.isDm) m.channelType else 0,

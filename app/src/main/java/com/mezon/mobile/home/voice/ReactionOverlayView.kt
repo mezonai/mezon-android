@@ -13,6 +13,7 @@ import android.text.TextUtils
 import android.view.View
 import android.view.animation.LinearInterpolator
 import android.view.animation.PathInterpolator
+import android.graphics.drawable.Drawable
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.util.getEmojiUrl
@@ -70,7 +71,7 @@ class ReactionOverlayView(context: Context) : View(context) {
         var currentY: Float,
         var alpha: Float,
         var scale: Float,
-        var bitmap: Bitmap? = null,
+        var drawable: Drawable? = null,
         var displayName: String? = null
     )
 
@@ -143,7 +144,7 @@ class ReactionOverlayView(context: Context) : View(context) {
             if (trimmedName != null) {
                 fe.displayName = TextUtils.ellipsize(trimmedName, namePaint, NAME_MAX_WIDTH, TextUtils.TruncateAt.END).toString()
             }
-            loadEmojiBitmapIfNeeded(fe)
+            loadEmojiDrawableIfNeeded(fe)
             activeEmojis.add(fe)
         }
         ensureTickerRunning()
@@ -176,6 +177,8 @@ class ReactionOverlayView(context: Context) : View(context) {
             val fe = iter.next()
             val elapsed = now - fe.spawnTime
             if (elapsed >= ANIMATION_DURATION_MS) {
+                (fe.drawable as? android.graphics.drawable.Animatable)?.stop()
+                fe.drawable?.callback = null
                 iter.remove()
                 continue
             }
@@ -233,18 +236,18 @@ class ReactionOverlayView(context: Context) : View(context) {
             val fe = activeEmojis[i]
             if (fe.alpha <= 0f) continue
             val alphaInt = (fe.alpha * 255f).toInt().coerceIn(0, 255)
-            val bitmap = fe.bitmap
+            val drawable = fe.drawable
             val scaledHalf = EMOJI_BITMAP_SIZE * fe.scale * 0.5f
             var emojiDrawn = false
-            if (bitmap != null) {
-                bitmapPaint.alpha = alphaInt
-                tmpDstRect.set(
-                    fe.x - scaledHalf,
-                    fe.currentY - scaledHalf,
-                    fe.x + scaledHalf,
-                    fe.currentY + scaledHalf
+            if (drawable != null) {
+                drawable.alpha = alphaInt
+                drawable.setBounds(
+                    (fe.x - scaledHalf).toInt(),
+                    (fe.currentY - scaledHalf).toInt(),
+                    (fe.x + scaledHalf).toInt(),
+                    (fe.currentY + scaledHalf).toInt()
                 )
-                canvas.drawBitmap(bitmap, null, tmpDstRect, bitmapPaint)
+                drawable.draw(canvas)
                 emojiDrawn = true
             } else if (!fe.isServerEmojiId) {
                 emojiPaint.alpha = alphaInt
@@ -263,6 +266,10 @@ class ReactionOverlayView(context: Context) : View(context) {
 
     fun cancelAll() {
         stopTicker()
+        for (fe in activeEmojis) {
+            (fe.drawable as? android.graphics.drawable.Animatable)?.stop()
+            fe.drawable?.callback = null
+        }
         activeEmojis.clear()
         pendingEmojis.clear()
         invalidate()
@@ -273,23 +280,49 @@ class ReactionOverlayView(context: Context) : View(context) {
         cancelAll()
     }
 
-    private fun loadEmojiBitmapIfNeeded(fe: FloatingEmoji) {
+    private val animationCallback = object : Drawable.Callback {
+        override fun invalidateDrawable(who: Drawable) {
+            invalidate()
+        }
+        override fun scheduleDrawable(who: Drawable, what: Runnable, `when`: Long) {
+            postDelayed(what, `when` - SystemClock.uptimeMillis())
+        }
+        override fun unscheduleDrawable(who: Drawable, what: Runnable) {
+            removeCallbacks(what)
+        }
+    }
+
+    private fun loadEmojiDrawableIfNeeded(fe: FloatingEmoji) {
         if (!fe.isServerEmojiId) return
         val url = getEmojiUrl(fe.emoji) ?: return
         val loader = MezonImageLoader.getInstance(context)
-        val cached = loader.getBitmapFromMemory(url, EMOJI_BITMAP_SIZE, EMOJI_BITMAP_SIZE)
-        if (cached != null) {
-            fe.bitmap = cached
-            return
+
+        fun load(loadUrl: String, isRetry: Boolean) {
+            loader.loadDrawable(
+                loadUrl,
+                EMOJI_BITMAP_SIZE,
+                EMOJI_BITMAP_SIZE,
+                onSuccess = { drawable ->
+                    if (!activeEmojis.contains(fe)) return@loadDrawable
+                    if (drawable is android.graphics.drawable.Animatable) {
+                        drawable.callback = animationCallback
+                        drawable.start()
+                    }
+                    fe.drawable = drawable
+                    invalidate()
+                },
+                onError = {
+                    if (!isRetry) {
+                        val direct = com.mezon.mobile.util.getEmojiDirectUrl(fe.emoji)
+                        if (direct != null && direct != loadUrl) {
+                            load(direct, true)
+                        }
+                    }
+                },
+                cacheAnimated = false
+            )
         }
-        loader.load(
-            url,
-            EMOJI_BITMAP_SIZE,
-            EMOJI_BITMAP_SIZE,
-            onSuccess = { bmp ->
-                fe.bitmap = bmp
-                invalidate()
-            }
-        )
+
+        load(url, false)
     }
 }

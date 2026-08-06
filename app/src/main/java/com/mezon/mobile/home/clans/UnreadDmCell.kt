@@ -71,7 +71,7 @@ class UnreadDmCell(
 
     private fun loadAvatar(dm: DirectMessage) {
         loadChannelAvatar(
-            context,
+            this,
             avatar,
             ChannelAvatarRequest(
                 channelType = dm.type,

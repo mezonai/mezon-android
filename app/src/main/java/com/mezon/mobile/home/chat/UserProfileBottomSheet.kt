@@ -357,23 +357,52 @@ class UserProfileBottomSheet(
         }
         profileAvatarDrawable.setLoadingPlaceholder(true)
         img.setImageDrawable(profileAvatarDrawable)
-        avatarLoadDisposable = loader.load(
-            proxyUrl,
-            size,
-            size,
-            onSuccess = { bmp ->
-                avatarLoadDisposable = null
-                profileAvatarDrawable.setLoadingPlaceholder(false)
-                profileAvatarDrawable.setPhoto(bmp)
-                profileAvatarView?.setImageDrawable(profileAvatarDrawable)
-                backdropColorView?.setBackgroundColor(ColorUtilities.getDominantColor(bmp))
-            },
-            onError = {
+        avatarLoadDisposable?.cancel()
+        val absoluteUrlFallback = com.mezon.mobile.util.plainSourceUrlFromImgproxy(proxyUrl) ?: proxyUrl
+        val isAnimated = com.mezon.mobile.util.isAnimatedImageUrl(absoluteUrlFallback)
+
+        val successCallback: (Any) -> Unit = { result ->
+            avatarLoadDisposable = null
+            profileAvatarDrawable.setLoadingPlaceholder(false)
+            if (result is android.graphics.drawable.Animatable) {
+                profileAvatarDrawable.setAnimatedPhoto(result as android.graphics.drawable.Drawable)
+                profileAvatarDrawable.startAnimation()
+            } else if (result is android.graphics.drawable.BitmapDrawable) {
+                profileAvatarDrawable.setPhoto(result.bitmap)
+                backdropColorView?.setBackgroundColor(ColorUtilities.getDominantColor(result.bitmap))
+            } else if (result is android.graphics.Bitmap) {
+                profileAvatarDrawable.setPhoto(result)
+                backdropColorView?.setBackgroundColor(ColorUtilities.getDominantColor(result))
+            }
+            profileAvatarView?.setImageDrawable(profileAvatarDrawable)
+        }
+
+        val errorCallback: (Throwable) -> Unit = {
+            if (absoluteUrlFallback != proxyUrl) {
+                avatarLoadDisposable = loader.loadDrawable(
+                    absoluteUrlFallback, size, size, successCallback,
+                    onError = {
+                        avatarLoadDisposable = null
+                        profileAvatarDrawable.setLoadingPlaceholder(false)
+                        profileAvatarView?.setImageDrawable(profileAvatarDrawable)
+                    }
+                )
+            } else {
                 avatarLoadDisposable = null
                 profileAvatarDrawable.setLoadingPlaceholder(false)
                 profileAvatarView?.setImageDrawable(profileAvatarDrawable)
             }
-        )
+        }
+
+        if (isAnimated) {
+            avatarLoadDisposable = loader.loadDrawable(absoluteUrlFallback, size, size, successCallback, {
+                avatarLoadDisposable = null
+                profileAvatarDrawable.setLoadingPlaceholder(false)
+                profileAvatarView?.setImageDrawable(profileAvatarDrawable)
+            })
+        } else {
+            avatarLoadDisposable = loader.load(proxyUrl, size, size, { bmp -> successCallback(bmp) }, errorCallback)
+        }
     }
 
     // ─── User Info Card ───────────────────────────────────────────────

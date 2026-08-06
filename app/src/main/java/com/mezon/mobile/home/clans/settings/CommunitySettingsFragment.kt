@@ -517,9 +517,12 @@ class CommunitySettingsFragment : BaseFragment() {
             }
         }
 
-        fun applyLocalBannerPreview(bitmap: android.graphics.Bitmap, previewUrl: String) {
+        fun applyLocalBannerPreview(drawable: android.graphics.drawable.Drawable, previewUrl: String) {
             lastBannerUrl = previewUrl
-            bannerImageView.setImageBitmap(bitmap)
+            bannerImageView.setImageDrawable(drawable)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P && drawable is android.graphics.drawable.AnimatedImageDrawable) {
+                drawable.start()
+            }
             bannerCameraIcon.visibility = View.GONE
             bannerRemoveBtn.visibility = View.VISIBLE
         }
@@ -534,11 +537,13 @@ class CommunitySettingsFragment : BaseFragment() {
             if (hasBanner) {
                 val ctx = bannerImageView.context
                 val h = LayoutHelper.dp(140f)
-                MezonImageLoader.getInstance(ctx).load(previewUrl, 0, h, onSuccess = { bitmap ->
+                val w = com.mezon.mobile.core.AndroidUtilities.displaySize.x
+                MezonImageLoader.getInstance(ctx).loadDrawable(previewUrl, w, h, onSuccess = { drawable ->
                     if (lastBannerUrl == previewUrl) {
-                        bannerImageView.setImageBitmap(bitmap)
+                        bannerImageView.setImageDrawable(drawable)
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P && drawable is android.graphics.drawable.AnimatedImageDrawable) drawable.start()
                     }
-                })
+                }, cacheAnimated = true)
             } else {
                 bannerImageView.setImageDrawable(null)
             }
@@ -659,8 +664,8 @@ class CommunitySettingsFragment : BaseFragment() {
                         MezonToast.show(this@CommunitySettingsFragment, ToastOverlay.ToastType.ERROR, getString(R.string.community_settings_error_banner))
                     is BannerLoadResult.Ok -> {
                         controller.onBannerPicked(result.bytes, result.mimeType, result.ext, previewUri)
-                        result.bitmap?.let { bmp ->
-                            formHolder?.applyLocalBannerPreview(bmp, previewUri)
+                        result.drawable?.let { d ->
+                            formHolder?.applyLocalBannerPreview(d, previewUri)
                         }
                     }
                 }
@@ -682,18 +687,44 @@ class CommunitySettingsFragment : BaseFragment() {
             val ext = when (mimeType) {
                 "image/png" -> "png"
                 "image/webp" -> "webp"
+                "image/gif" -> "gif"
                 else -> "jpg"
             }
-            val boundsOpts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, boundsOpts)
-            val maxEdgePx = maxOf(boundsOpts.outWidth, boundsOpts.outHeight)
-            var sample = 1
-            while (maxEdgePx / sample > MAX_BANNER_DECODE_EDGE) {
-                sample *= 2
+            
+            var drawable: android.graphics.drawable.Drawable? = null
+            val isAnimated = mimeType == "image/gif" || mimeType == "image/webp"
+            if (isAnimated && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                try {
+                    val source = android.graphics.ImageDecoder.createSource(java.nio.ByteBuffer.wrap(bytes))
+                    drawable = android.graphics.ImageDecoder.decodeDrawable(source) { decoder, info, _ ->
+                        val maxW = com.mezon.mobile.core.AndroidUtilities.displaySize.x
+                        val maxH = LayoutHelper.dp(140f)
+                        if (maxW > 0 && maxH > 0) {
+                            val scale = Math.max(maxW.toFloat() / info.size.width, maxH.toFloat() / info.size.height)
+                            if (scale < 1f) {
+                                decoder.setTargetSize((info.size.width * scale).toInt(), (info.size.height * scale).toInt())
+                            }
+                        }
+                    }
+                } catch (_: Exception) {
+                }
             }
-            val decodeOpts = BitmapFactory.Options().apply { inSampleSize = sample }
-            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decodeOpts)
-            BannerLoadResult.Ok(bytes, mimeType, ext, bitmap)
+
+            if (drawable == null) {
+                val boundsOpts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, boundsOpts)
+                val maxEdgePx = maxOf(boundsOpts.outWidth, boundsOpts.outHeight)
+                var sample = 1
+                while (maxEdgePx / sample > MAX_BANNER_DECODE_EDGE) {
+                    sample *= 2
+                }
+                val decodeOpts = BitmapFactory.Options().apply { inSampleSize = sample }
+                val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decodeOpts)
+                if (bitmap != null) {
+                    drawable = android.graphics.drawable.BitmapDrawable(ctx.resources, bitmap)
+                }
+            }
+            BannerLoadResult.Ok(bytes, mimeType, ext, drawable)
         } catch (_: Exception) {
             BannerLoadResult.Failed
         }
@@ -707,7 +738,7 @@ class CommunitySettingsFragment : BaseFragment() {
             val bytes: ByteArray,
             val mimeType: String,
             val ext: String,
-            val bitmap: android.graphics.Bitmap?,
+            val drawable: android.graphics.drawable.Drawable?,
         ) : BannerLoadResult
     }
 }

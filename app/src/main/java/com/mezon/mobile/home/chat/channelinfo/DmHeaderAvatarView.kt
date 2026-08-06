@@ -37,7 +37,7 @@ class DmHeaderAvatarView(context: Context) : View(context) {
 
     private fun bindAvatar() {
         loadChannelAvatar(
-            context,
+            this,
             avatarDrawable,
             ChannelAvatarRequest(
                 channelType = channelType,

@@ -250,8 +250,8 @@ class ReactionDetailBottomSheet(
     }
 
     private inner class SenderViewHolder(val row: LinearLayout) : RecyclerView.ViewHolder(row) {
-        private val avatarView = ImageView(row.context).apply {
-            scaleType = ImageView.ScaleType.CENTER_CROP
+        private val avatarView = com.mezon.mobile.ui.cells.BackupImageView(row.context).apply {
+            setAspectFill(true)
             outlineProvider = object : android.view.ViewOutlineProvider() {
                 override fun getOutline(view: View, outline: android.graphics.Outline) {
                     outline.setOval(0, 0, view.width, view.height)
@@ -294,25 +294,8 @@ class ReactionDetailBottomSheet(
                 member.clanAvatar.ifBlank { member.avatarUrl }
             } else ""
 
-            val loader = MezonImageLoader.getInstance(row.context)
-            val size = LayoutHelper.dp(36)
-            if (avatarUrl.isNotBlank()) {
-                val cached = loader.getBitmapFromMemory(avatarUrl, size, size)
-                if (cached != null) {
-                    avatarView.setImageBitmap(cached)
-                } else {
-                    val ad = AvatarDrawable()
-                    ad.setInfo(sender.senderId, member?.username)
-                    avatarView.setImageDrawable(ad)
-                    loader.load(avatarUrl, size, size, onSuccess = { bmp ->
-                        avatarView.setImageBitmap(bmp)
-                    })
-                }
-            } else {
-                val ad = AvatarDrawable()
-                ad.setInfo(sender.senderId, member?.username)
-                avatarView.setImageDrawable(ad)
-            }
+            val proxyUrl = if (avatarUrl.isNotBlank()) com.mezon.mobile.util.avatarImgproxyUrl(avatarUrl, LayoutHelper.dp(36)) else null
+            avatarView.setImage(proxyUrl, sender.senderId, member?.username ?: "")
         }
     }
 }
