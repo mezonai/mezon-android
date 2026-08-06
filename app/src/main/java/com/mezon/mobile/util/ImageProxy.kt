@@ -35,7 +35,6 @@ fun createImgproxyUrl(
     if (!sourceUrl.startsWith("https://cdn.mezon") && !sourceUrl.startsWith("https://cdn.komu") && !sourceUrl.startsWith("https://profile.mezon")) {
         return sourceUrl
     }
-    if (shouldSkipProxy(sourceUrl)) return sourceUrl
     val cap = maxEdgePx.coerceAtLeast(1).coerceAtMost(4096)
     val w = widthPx.coerceAtMost(cap)
     val h = heightPx.coerceAtMost(cap)

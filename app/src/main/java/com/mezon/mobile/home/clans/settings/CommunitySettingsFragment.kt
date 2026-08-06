@@ -520,7 +520,7 @@ class CommunitySettingsFragment : BaseFragment() {
         fun applyLocalBannerPreview(drawable: android.graphics.drawable.Drawable, previewUrl: String) {
             lastBannerUrl = previewUrl
             bannerImageView.setImageDrawable(drawable)
-            if (drawable is android.graphics.drawable.AnimatedImageDrawable) {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P && drawable is android.graphics.drawable.AnimatedImageDrawable) {
                 drawable.start()
             }
             bannerCameraIcon.visibility = View.GONE

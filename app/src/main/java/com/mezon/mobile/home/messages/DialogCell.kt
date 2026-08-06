@@ -211,7 +211,7 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
 
     private fun loadAvatar(dm: DirectMessage) {
         loadChannelAvatar(
-            context,
+            this,
             avatarDrawable,
             ChannelAvatarRequest(
                 channelType = dm.type,

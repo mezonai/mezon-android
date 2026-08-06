@@ -9,6 +9,8 @@ import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.util.avatarImgproxyUrl
 import com.mezon.mobile.util.isAnimatedImageUrl
 
+import android.view.View
+
 data class ChannelAvatarRequest(
     val channelType: Int,
     val avatarUrl: String,
@@ -28,20 +30,21 @@ class ChannelAvatarLoadState {
 }
 
 fun loadChannelAvatar(
-    context: Context,
+    hostView: View,
     avatarDrawable: AvatarDrawable,
     request: ChannelAvatarRequest,
     state: ChannelAvatarLoadState,
     attached: Boolean,
     onInvalidate: () -> Unit
 ) {
+    avatarDrawable.attachToView(hostView)
     avatarDrawable.setInfo(request.avatarId, request.placeholderKey)
 
     if (request.channelType == CHANNEL_TYPE_GROUP && isDefaultGroupAvatarUrl(request.avatarUrl)) {
         if (state.loadKey == GroupAvatar.DEFAULT_LOAD_KEY && avatarDrawable.hasPhoto()) return
         state.cancel()
         state.loadKey = GroupAvatar.DEFAULT_LOAD_KEY
-        avatarDrawable.setPhoto(GroupAvatar.bitmap(context))
+        avatarDrawable.setPhoto(GroupAvatar.bitmap(hostView.context))
         onInvalidate()
         return
     }
@@ -64,7 +67,7 @@ fun loadChannelAvatar(
     state.cancel()
     state.loadKey = proxyUrl
 
-    val loader = MezonImageLoader.getInstance(context)
+    val loader = MezonImageLoader.getInstance(hostView.context)
     val cached = loader.getBitmapFromMemory(proxyUrl, request.sizePx, request.sizePx)
     if (cached != null) {
         avatarDrawable.setPhoto(cached)

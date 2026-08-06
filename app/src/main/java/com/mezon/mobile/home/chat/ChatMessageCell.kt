@@ -403,6 +403,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         linkInviteBlock.onAttachedToWindow()
         embedMessage.onAttachedToWindow()
         avatarDrawable.startAnimation()
+        replyAvatarDrawable.startAnimation()
 
         reactionEmojiDrawables.forEach {
             if (it is android.graphics.drawable.AnimatedImageDrawable) {
@@ -434,6 +435,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
         topicButtonLayout.cancelAvatarLoad()
         avatarDrawable.stopAnimation()
+        replyAvatarDrawable.stopAnimation()
         avatarCancellable?.cancel()
         avatarCancellable = null
         senderRoleIconCancellable?.cancel()
@@ -1171,7 +1173,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val sz = ROLE_ICON_SIZE
         val loader = MezonImageLoader.getInstance(context)
 
-        senderRoleIconCancellable = loader.loadDrawable(url, sz, sz, cacheAnimated = true, onSuccess = { drw ->
+        senderRoleIconCancellable = loader.loadDrawable(url, sz, sz, cacheAnimated = false, onSuccess = { drw ->
             if (senderRoleIconUrl == url) {
                 senderRoleIconDrawable = drw
                 drw.callback = this
@@ -2172,7 +2174,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var replyBlockTop = 0f
     private var replyBlockRight = 0f
     private var replyBlockBottom = 0f
-    private val replyAvatarDrawable = AvatarDrawable()
+    private val replyAvatarDrawable = AvatarDrawable().also { it.attachToView(this) }
     private var replyAvatarCancellable: MezonImageLoader.Cancellable? = null
 
     private fun buildReplyLayouts(textWidth: Int) {

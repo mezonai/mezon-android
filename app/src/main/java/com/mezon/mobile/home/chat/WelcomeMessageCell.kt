@@ -96,7 +96,7 @@ class WelcomeMessageCell(context: Context, private val theme: ThemeColors) : Vie
         val placeholderKey = avatarPlaceholderKey.ifEmpty { channelName }
         val avatarId = if (avatarUserId != 0L) avatarUserId else channelName.hashCode().toLong()
         loadChannelAvatar(
-            context,
+            this,
             avatarDrawable,
             ChannelAvatarRequest(
                 channelType = channelType,

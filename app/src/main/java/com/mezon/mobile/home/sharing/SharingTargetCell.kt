@@ -71,7 +71,7 @@ class SharingTargetCell(context: Context, private val theme: ThemeColors) : View
             t.channelLabel
         }
         loadChannelAvatar(
-            context,
+            this,
             avatarDrawable,
             ChannelAvatarRequest(
                 channelType = t.channelType,

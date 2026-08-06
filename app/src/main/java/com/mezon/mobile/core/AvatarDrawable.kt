@@ -109,11 +109,20 @@ class AvatarDrawable : Drawable() {
             hostViewRef?.get()?.invalidate()
         }
         override fun scheduleDrawable(who: Drawable, what: Runnable, `when`: Long) {
-            val view = hostViewRef?.get() ?: return
-            view.postDelayed(what, `when` - SystemClock.uptimeMillis())
+            val view = hostViewRef?.get()
+            if (view != null) {
+                view.postDelayed(what, `when` - SystemClock.uptimeMillis())
+            } else {
+                scheduleSelf(what, `when`)
+            }
         }
         override fun unscheduleDrawable(who: Drawable, what: Runnable) {
-            hostViewRef?.get()?.removeCallbacks(what)
+            val view = hostViewRef?.get()
+            if (view != null) {
+                view.removeCallbacks(what)
+            } else {
+                unscheduleSelf(what)
+            }
         }
     }
 
