@@ -1372,7 +1372,6 @@
     <string name="channel_quick_action_edit_flash_title">Sửa tin nhanh</string>
     <string name="channel_quick_action_create_menu_title">Tạo menu nhanh</string>
     <string name="channel_quick_action_edit_menu_title">Sửa menu nhanh</string>
-    <string name="channel_quick_action_flash_key_hint">Key (Ví dụ: hello)</string>
     <string name="channel_quick_action_flash_content_hint">Nội dung (Ví dụ: Chào buổi sáng, Chúc bạn một ngày tốt lành!)</string>
     <string name="channel_quick_action_menu_name_label">Tên menu *</string>
     <string name="channel_quick_action_menu_name_hint">menu-name</string>

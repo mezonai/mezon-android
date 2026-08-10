@@ -258,6 +258,7 @@ class ClansFragment : BaseFragment() {
         observe(NotificationCenter.selectedClanChanged) { _, _, args ->
             if (fragmentView == null || !clansController.clansLoaded) return@observe
             val clanId = args.firstOrNull() as? Long ?: 0L
+            if (clanId != 0L) discoveringFromRailWhileHasClans = false
             updateServerRail()
             if (clanId != 0L) {
                 userClanController.loadClanMembers(clanId)

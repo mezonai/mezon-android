@@ -31,6 +31,8 @@ import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.friends.FriendController
 import com.mezon.mobile.home.friends.FriendsHomeFragment
+import com.mezon.mobile.home.friends.createFriendRequestBadgeView
+import com.mezon.mobile.home.friends.updateFriendRequestBadge
 import com.mezon.mobile.home.wallet.SendTokenFragment
 import com.mezon.mobile.ui.cells.AvatarView
 import com.mezon.mobile.ui.cells.MezonIcon
@@ -102,6 +104,7 @@ class ProfileFragment : BaseFragment() {
     private lateinit var badgeStatusText: TextView
     private lateinit var walletSection: LinearLayout
     private lateinit var friendsAvatarsContainer: LinearLayout
+    private lateinit var friendsRequestBadgeText: TextView
     private lateinit var scrollView: ScrollView
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
@@ -153,7 +156,7 @@ class ProfileFragment : BaseFragment() {
     override fun onBecomeFullyVisible() {
         super.onBecomeFullyVisible()
         accountController.loadAccount(noCache = false)
-        friendController.loadFriends()
+        friendController.loadFriendRelations(noCache = true)
         walletController.fetchWalletDetail()
         updateUI()
     }
@@ -470,19 +473,36 @@ class ProfileFragment : BaseFragment() {
         }
         contentColumn.addView(friendsCard, createCardMarginParams())
 
+        val friendsLeftContent = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        friendsCard.addView(
+            friendsLeftContent,
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        )
+
         val friendsLabel = TextView(context).apply {
             text = getString(R.string.profile_your_friends)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             setTextColor(themeColors.onSurface)
             typeface = Typeface.DEFAULT_BOLD
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
         }
-        friendsCard.addView(friendsLabel, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        friendsLeftContent.addView(
+            friendsLabel,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
 
         friendsAvatarsContainer = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
-        friendsCard.addView(
+        friendsLeftContent.addView(
             friendsAvatarsContainer,
             LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LayoutHelper.dp(32))
-                .apply { rightMargin = LayoutHelper.dp(8) }
+                .apply { leftMargin = LayoutHelper.dp(12) }
         )
 
         val friendAvatarBgColor = themeColors.surfaceVariant
@@ -509,6 +529,14 @@ class ProfileFragment : BaseFragment() {
                 }
             )
         }
+
+        friendsRequestBadgeText = createFriendRequestBadgeView(context, themeColors)
+        friendsCard.addView(
+            friendsRequestBadgeText,
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LayoutHelper.dp(18)).apply {
+                rightMargin = LayoutHelper.dp(8)
+            }
+        )
 
         val friendsChevron = ImageView(context).apply {
             setImageResource(MezonIcon.chevronSmallRightIcon.resId)
@@ -701,6 +729,9 @@ class ProfileFragment : BaseFragment() {
             } else {
                 if (slot.visibility != View.INVISIBLE) slot.visibility = View.INVISIBLE
             }
+        }
+        if (::friendsRequestBadgeText.isInitialized) {
+            friendsRequestBadgeText.updateFriendRequestBadge(friendController.pendingReceivedCount.value, themeColors)
         }
     }
 

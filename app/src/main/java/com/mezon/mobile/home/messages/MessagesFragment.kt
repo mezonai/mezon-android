@@ -32,6 +32,8 @@ import com.mezon.mobile.home.friends.FRIEND_STATE_FRIEND
 import com.mezon.mobile.home.friends.FRIEND_STATE_INVITE_RECEIVED
 import com.mezon.mobile.home.friends.FRIEND_STATE_INVITE_SENT
 import com.mezon.mobile.home.friends.FriendController
+import com.mezon.mobile.home.friends.createFriendRequestBadgeView
+import com.mezon.mobile.home.friends.updateFriendRequestBadge
 import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
@@ -412,20 +414,7 @@ class MessagesFragment : BaseFragment() {
         val iconWrap = FrameLayout(context)
         iconWrap.addView(icon, LayoutHelper.createFrame(14, 14, Gravity.CENTER))
 
-        addFriendBadgeText = TextView(context).apply {
-            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 10f)
-            setTypeface(typeface, Typeface.BOLD)
-            setTextColor(Color.WHITE)
-            gravity = Gravity.CENTER
-            minWidth = LayoutHelper.dp(16)
-            setPadding(LayoutHelper.dp(4), 0, LayoutHelper.dp(4), 0)
-            background = android.graphics.drawable.GradientDrawable().apply {
-                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
-                cornerRadius = LayoutHelper.dp(8f).toFloat()
-                setColor(themeColors.error)
-            }
-            visibility = View.GONE
-        }
+        addFriendBadgeText = createFriendRequestBadgeView(context, themeColors)
         buttonContent.addView(iconWrap, LinearLayout.LayoutParams(
             LayoutHelper.dp(18), LayoutHelper.dp(18)
         ).apply {
@@ -444,7 +433,7 @@ class MessagesFragment : BaseFragment() {
             gravity = Gravity.CENTER_VERTICAL
         })
 
-        pill.addView(addFriendBadgeText, LinearLayout.LayoutParams(LayoutHelper.WRAP_CONTENT, LayoutHelper.dp(16)).apply {
+        pill.addView(addFriendBadgeText, LinearLayout.LayoutParams(LayoutHelper.WRAP_CONTENT, LayoutHelper.dp(18)).apply {
             gravity = Gravity.CENTER_VERTICAL
         })
 
@@ -456,10 +445,9 @@ class MessagesFragment : BaseFragment() {
         if (!::addFriendBadgeText.isInitialized) return
         val pending = friendController.pendingReceivedCount.value
         if (pending > 0) {
-            addFriendBadgeText.text = pending.toString()
-            addFriendBadgeText.visibility = View.VISIBLE
+            addFriendBadgeText.updateFriendRequestBadge(pending, themeColors)
         } else {
-            addFriendBadgeText.visibility = View.GONE
+            addFriendBadgeText.updateFriendRequestBadge(0, themeColors)
         }
     }
 

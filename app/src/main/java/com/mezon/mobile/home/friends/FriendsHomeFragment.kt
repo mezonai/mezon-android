@@ -61,6 +61,7 @@ class FriendsHomeFragment : BaseFragment() {
     private lateinit var searchInput: EditText
     private lateinit var requestRow: LinearLayout
     private lateinit var requestCountText: TextView
+    private lateinit var requestBadgeText: TextView
     private lateinit var recyclerView: RecyclerListView
     private lateinit var emptyText: TextView
     private lateinit var adapter: FriendRelationAdapter
@@ -280,6 +281,12 @@ class FriendsHomeFragment : BaseFragment() {
         }
         textWrap.addView(requestCountText)
 
+        requestBadgeText = createFriendRequestBadgeView(context, themeColors)
+        row.addView(
+            requestBadgeText,
+            LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, 18, rightMargin = 8f)
+        )
+
         val chevron = ImageView(context).apply {
             setImageDrawable(MezonIcon.chevronSmallRightIcon.getDrawable(context))
             colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
@@ -296,6 +303,9 @@ class FriendsHomeFragment : BaseFragment() {
         }
         emptyText.setTextColor(themeColors.onSurfaceVariant)
         requestCountText.setTextColor(themeColors.onSurfaceVariant)
+        if (::requestBadgeText.isInitialized) {
+            requestBadgeText.updateFriendRequestBadge(friendController.pendingReceivedCount.value, themeColors)
+        }
     }
 
     private fun reloadList() {
@@ -320,6 +330,7 @@ class FriendsHomeFragment : BaseFragment() {
         ).size
         val sentCount = sentFriendInvitesForUi(friendController.sentFriendRequests.value).size
         requestCountText.text = getString(R.string.friends_request_counts, receivedCount, sentCount)
+        requestBadgeText.updateFriendRequestBadge(receivedCount, themeColors)
         val shouldShowRequest = normalized.isEmpty() || filtered.isEmpty()
         requestRow.visibility = if (shouldShowRequest) View.VISIBLE else View.GONE
         emptyText.visibility = if (filtered.isEmpty()) View.VISIBLE else View.GONE
