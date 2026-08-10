@@ -8,6 +8,7 @@ import com.google.firebase.messaging.RemoteMessage
 import com.mezon.mobile.MainActivity
 import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.home.call.IncomingCallFcmHandler
+import com.mezon.mobile.home.friends.FriendController
 import dagger.hilt.android.AndroidEntryPoint
 
 import javax.inject.Inject
@@ -22,6 +23,7 @@ class MezonFirebaseService : FirebaseMessagingService() {
     @Inject lateinit var fcmRepository: FcmRepository
     @Inject lateinit var activeChannelTracker: ActiveChannelTracker
     @Inject lateinit var incomingCallFcmHandler: IncomingCallFcmHandler
+    @Inject lateinit var friendController: FriendController
 
     companion object {
         private val CHANNEL_LINK_REGEX = Regex("""/chat/clans/(\d+)/channels/(\d+)""")
@@ -65,7 +67,7 @@ class MezonFirebaseService : FirebaseMessagingService() {
             Log.i(TAG, "data payload (no offer key), keys=[$keysStr]")
         }
 
-        handleDataPayload(data)
+        handleDataPayload(data, message.notification?.title, message.notification?.body)
     }
 
     private fun logRemoteMessageForDiagnostics(message: RemoteMessage) {
@@ -120,6 +122,15 @@ class MezonFirebaseService : FirebaseMessagingService() {
         val notification = message.notification ?: return
         val title = notification.title ?: getString(com.mezon.mobile.R.string.app_name)
         val body = notification.body ?: ""
+        if (NotificationHelper.isFriendRequestNotification(title, body)) {
+            friendController.loadFriendRelations(noCache = true)
+            if (isAppInForeground()) {
+                notificationHelper.showInAppToast(title, body, friendRequest = true)
+            } else {
+                notificationHelper.showFriendRequestNotification(title, body)
+            }
+            return
+        }
 
         if (isAppInForeground()) {
             notificationHelper.showInAppToast(title, body)
@@ -129,10 +140,21 @@ class MezonFirebaseService : FirebaseMessagingService() {
     }
 
 
-    private fun handleDataPayload(data: Map<String, String>) {
-        val title = data["title"] ?: getString(com.mezon.mobile.R.string.app_name)
-        val body = data["body"] ?: data["message"] ?: return
+    private fun handleDataPayload(data: Map<String, String>, fallbackTitle: String? = null, fallbackBody: String? = null) {
+        val title = data["title"] ?: fallbackTitle ?: getString(com.mezon.mobile.R.string.app_name)
+        val body = data["body"] ?: data["message"] ?: fallbackBody ?: ""
+        val isFriendRequest = NotificationHelper.isFriendRequestNotification(title, body, data)
+        if (body.isEmpty() && !isFriendRequest && data["link"].isNullOrEmpty()) return
         if (isCallCompanionSystemMessageBody(body)) {
+            return
+        }
+        if (isFriendRequest) {
+            friendController.loadFriendRelations(noCache = true)
+            if (isAppInForeground()) {
+                notificationHelper.showInAppToast(title, body, friendRequest = true)
+            } else {
+                notificationHelper.showFriendRequestNotification(title, body)
+            }
             return
         }
         val link = data["link"] ?: ""

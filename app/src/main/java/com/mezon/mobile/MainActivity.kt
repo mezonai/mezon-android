@@ -60,6 +60,8 @@ import com.mezon.mobile.home.call.IncomingCallActivity
 import com.mezon.mobile.home.call.IncomingCallFcmHandler
 import com.mezon.mobile.home.call.OngoingCallBanner
 import com.mezon.mobile.home.clans.ClanChannelEntity
+import com.mezon.mobile.home.friends.AddFriendFragment
+import com.mezon.mobile.home.friends.FriendController
 import com.mezon.mobile.home.sharing.SharingFragment
 import com.mezon.mobile.home.stream.StreamingRoomFragment
 import com.mezon.mobile.home.voice.VoiceOverlayManager
@@ -129,6 +131,7 @@ class MainActivity : BasePermissionsActivity(),
     @Inject lateinit var themeColors: ThemeColors
     @Inject lateinit var notificationCenter: NotificationCenter
     @Inject lateinit var dialogsController: DialogsController
+    @Inject lateinit var friendController: FriendController
     @Inject lateinit var messageActivitiesController: MessageActivitiesController
     @Inject lateinit var connectionController: ConnectionController
     @Inject lateinit var notificationHelper: NotificationHelper
@@ -1121,6 +1124,22 @@ class MainActivity : BasePermissionsActivity(),
     fun isStreamingOverlayVisible(): Boolean = streamingOverlayManager?.isVisible() == true
     fun isStreamingOverlayExpanded(): Boolean = streamingOverlayManager?.isExpanded() == true
 
+    fun openFriendRequestsFromNotification(noAnimation: Boolean = true) {
+        if (!StartupCache.hasSession) return
+        friendController.loadFriendRelations(noCache = true)
+
+        if (actionBarLayout.getLastFragment() is AddFriendFragment) {
+            switchToTabForClan(0L)
+            return
+        }
+
+        clearStackAboveTabs()
+        switchToTabForClan(0L)
+        val params = INavigationLayout.NavigationParams(AddFriendFragment())
+            .setNoAnimation(noAnimation)
+        actionBarLayout.presentFragment(params)
+    }
+
     fun openChat(
         channelId: Long,
         channelName: String,
@@ -1483,6 +1502,18 @@ class MainActivity : BasePermissionsActivity(),
         val action = intent.action
         val isFromNotification = action != null && action.startsWith(NotificationHelper.ACTION_OPEN_CHAT)
         val extras = intent.extras ?: return
+
+        if (action == NotificationHelper.ACTION_OPEN_FRIEND_REQUESTS ||
+            NotificationHelper.isFriendRequestNotificationExtras(extras)
+        ) {
+            intent.putExtra(NotificationHelper.EXTRA_FRIEND_REQUEST_CONSUMED, true)
+            intent.removeExtra(NotificationHelper.EXTRA_FRIEND_REQUEST)
+            intent.setAction(null)
+            if (StartupCache.hasSession) {
+                openFriendRequestsFromNotification(noAnimation = true)
+            }
+            return
+        }
 
         val clanId = extras.getLong(NotificationHelper.EXTRA_CLAN_ID, 0L)
         val channelId = extras.getLong(NotificationHelper.EXTRA_CHANNEL_ID, 0L)
