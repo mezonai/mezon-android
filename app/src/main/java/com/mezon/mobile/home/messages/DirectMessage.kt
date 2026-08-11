@@ -94,11 +94,18 @@ private const val PREVIEW_MAX_UTF8_BYTES = 32
 private const val PREVIEW_ELLIPSIS_THRESHOLD_BYTES = PREVIEW_MAX_UTF8_BYTES - 3
 private const val PREVIEW_ELLIPSIS = "..."
 
-fun formatDirectMessagePreview(preview: String): String {
-    if (preview.isEmpty() || preview.endsWith(PREVIEW_ELLIPSIS)) return preview
+private val HEADING_REGEX = Regex("^#{1,6}\\s+", RegexOption.MULTILINE)
 
-    val byteCount = preview.toByteArray(Charsets.UTF_8).size
-    return if (byteCount >= PREVIEW_ELLIPSIS_THRESHOLD_BYTES) preview + PREVIEW_ELLIPSIS else preview
+private fun stripHeadingMarkdown(text: String): String {
+    return HEADING_REGEX.replace(text, "")
+}
+
+fun formatDirectMessagePreview(preview: String): String {
+    val stripped = stripHeadingMarkdown(preview)
+    if (stripped.isEmpty() || stripped.endsWith(PREVIEW_ELLIPSIS)) return stripped
+
+    val byteCount = stripped.toByteArray(Charsets.UTF_8).size
+    return if (byteCount >= PREVIEW_ELLIPSIS_THRESHOLD_BYTES) stripped + PREVIEW_ELLIPSIS else stripped
 }
 
 fun ChannelDescription.toDirectMessage(currentUserId: Long, previewContext: android.content.Context? = null): DirectMessage {

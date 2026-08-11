@@ -199,7 +199,7 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         val badgeSpace = if (badgeLayout != null) BADGE_MIN_W + BADGE_GAP else 0
         val previewWidth = contentWidth - badgeSpace - buzzSpace
         val previewText = when {
-            dm.lastMessageContent.isNotEmpty() -> dm.lastMessageContent
+            dm.lastMessageContent.isNotEmpty() -> formatDirectMessagePreview(dm.lastMessageContent)
             dm.lastSentMessageId > 0L || dm.lastSentMessageTs > 0L -> ""
             else -> context.getString(R.string.dm_no_messages)
         }
