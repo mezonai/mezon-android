@@ -136,7 +136,7 @@ class MessagesFragment : BaseFragment() {
         }
 
         if (!StartupCache.suppressHomeListApiForIncomingCallWake) {
-            controller.loadDialogs()
+            controller.loadDialogs(noCache = true)
         }
         return true
     }

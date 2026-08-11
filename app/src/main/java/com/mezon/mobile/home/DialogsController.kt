@@ -589,7 +589,7 @@ class DialogsController @Inject constructor(
         return participants
     }
 
-    fun loadDialogs(page: Int = 1, limit: Int = 500) {
+    fun loadDialogs(page: Int = 1, limit: Int = 500, noCache: Boolean = false) {
         appScope.launch(ioDispatcher) {
             try {
                 ensureDialogsHydratedFromDb()
@@ -606,7 +606,7 @@ class DialogsController @Inject constructor(
                     badgeCoordinator.get().processDeferredQueue()
                     return@launch
                 }
-                if (hasCache && cacheTracker.shouldCall(cacheKey) == ApiCacheTracker.ShouldCall.SKIP) {
+                if (hasCache && cacheTracker.shouldCall(cacheKey, noCache = noCache) == ApiCacheTracker.ShouldCall.SKIP) {
                     if (!dialogsLoaded) dialogsLoaded = true
                     val wasBadgesSynced = dmBadgesServerSynced
                     val badgePatched = sessionManager.withAutoRefresh { session ->
@@ -1214,7 +1214,7 @@ class DialogsController @Inject constructor(
                         } else {
                             dm.label.ifBlank { existing.label }
                         },
-                        avatarUrl = dm.avatarUrl.ifBlank { existing.avatarUrl },
+                        avatarUrl = dm.avatarUrl,
                         displayName = if (keepExistingIdentity && existing.displayName.isNotBlank()) {
                             existing.displayName
                         } else {
