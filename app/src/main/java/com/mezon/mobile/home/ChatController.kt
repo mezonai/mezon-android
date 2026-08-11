@@ -532,7 +532,10 @@ class ChatController @Inject constructor(
         val isPublic = if (threadLike) false else !effectivePrivate
         if (!mezonSocket.awaitConnected()) return
         if (effectiveClanId != 0L) {
-            runCatching { mezonSocket.joinClanChat(effectiveClanId) }
+            runCatching {
+                channelController.get().awaitChannelsForClan(effectiveClanId)
+                mezonSocket.joinClanChat(effectiveClanId)
+            }
         }
         mezonSocket.joinChat(effectiveClanId, channelId, effectiveType, isPublic)
         Log.d(TAG, "Joined channel $channelId (clanId=$effectiveClanId type=$effectiveType isPublic=$isPublic)")

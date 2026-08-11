@@ -43,6 +43,7 @@ class ConnectionController @Inject constructor(
     private val dialogsController: DialogsController,
     private val messageActivitiesController: MessageActivitiesController,
     private val clansController: ClansController,
+    private val channelController: dagger.Lazy<com.mezon.mobile.home.clans.ChannelController>,
     private val callController: dagger.Lazy<CallController>,
     private val badgeCoordinator: dagger.Lazy<BadgeCoordinator>,
     private val topicBadgeTracker: dagger.Lazy<TopicBadgeTracker>,
@@ -152,7 +153,10 @@ class ConnectionController @Inject constructor(
         val selectedClanId = clansController.selectedClanId.value
         if (selectedClanId != 0L) {
             appScope.launch {
-                try { mezonSocket.joinClanChat(selectedClanId) }
+                try {
+                    channelController.get().awaitChannelsForClan(selectedClanId)
+                    mezonSocket.joinClanChat(selectedClanId)
+                }
                 catch (e: Exception) { Log.e(TAG, "joinClanChat($selectedClanId) failed", e) }
             }
         }

@@ -137,6 +137,7 @@ class ClansController @Inject constructor(
             sessionManager.saveLastClanId(clanId)
             try {
                 if (clanId != 0L && mezonSocket.awaitConnected()) {
+                    channelController.awaitChannelsForClan(clanId)
                     mezonSocket.joinClanChat(clanId)
                 }
             } catch (e: Exception) {
