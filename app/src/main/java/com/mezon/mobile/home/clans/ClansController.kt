@@ -97,11 +97,18 @@ class ClansController @Inject constructor(
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.clansDidLoad)
                 val lastClanId = withContext(ioDispatcher) { sessionManager.getLastClanId() }
                 val initialClan = cached.firstOrNull { it.clanId == lastClanId } ?: cached.first()
-                selectClan(initialClan.clanId)
+                restoreInitialClan(initialClan.clanId)
                 badgeCoordinator.get().processDeferredQueue()
             }
         }
         observeSocketEvents()
+    }
+
+    @Synchronized
+    private fun restoreInitialClan(clanId: Long): Boolean {
+        if (_selectedClanId.value != 0L) return false
+        selectClanInternal(clanId, force = false)
+        return true
     }
 
     fun cleanup() {
@@ -111,7 +118,12 @@ class ClansController @Inject constructor(
         ClanCell.clearAvatarCache()
     }
 
+    @Synchronized
     fun selectClan(clanId: Long, force: Boolean = false) {
+        selectClanInternal(clanId, force)
+    }
+
+    private fun selectClanInternal(clanId: Long, force: Boolean) {
         if (!force && _selectedClanId.value == clanId) return
         _selectedClanId.value = clanId
         channelController.loadChannelsForClan(clanId)
@@ -276,29 +288,14 @@ class ClansController @Inject constructor(
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.clansDidLoad)
                 badgeCoordinator.get().processDeferredQueue()
 
-                val previousSelected = _selectedClanId.value
-                if (previousSelected == 0L && sorted.isNotEmpty()) {
-                    _selectedClanId.value = sorted.first().clanId
-                }
+                val initializedDefaultClan = sorted.isNotEmpty() && restoreInitialClan(sorted.first().clanId)
                 val sel = _selectedClanId.value
                 if (sel != 0L) {
                     channelController.loadChannelsForClanNow(sel, force)
                     channelAppController.loadAppsForClan(sel, force)
                     roleController.loadPermissionCatalogIfNeeded()
-                    roleController.loadPermissionsUserForClan(sel, force = previousSelected == 0L)
+                    roleController.loadPermissionsUserForClan(sel, force = initializedDefaultClan)
                     roleController.loadRolesForClan(sel)
-                    if (previousSelected == 0L && sorted.isNotEmpty()) {
-                        notificationCenter.postNotificationOnMainThread(NotificationCenter.selectedClanChanged, sel)
-                        appScope.launch {
-                            try {
-                                if (mezonSocket.awaitConnected()) {
-                                    mezonSocket.joinClanChat(sel)
-                                }
-                            } catch (e: Exception) {
-                                Log.e(TAG, "joinClanChat($sel) failed", e)
-                            }
-                        }
-                    }
                 }
 
                 fetchClanBadgeCountsIfNeeded(force)

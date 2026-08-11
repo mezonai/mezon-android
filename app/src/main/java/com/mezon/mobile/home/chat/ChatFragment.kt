@@ -1183,7 +1183,7 @@ open class ChatFragment : BaseFragment() {
                 isLoading = false
                 isLoadingMore = false
                 if (fragmentView != null && messages.isEmpty()) {
-                    showError(args.getOrNull(1) as? String ?: "Failed to load")
+                    showEmpty()
                 } else if (fragmentView != null) {
                     refreshUI()
                 }
@@ -1428,6 +1428,19 @@ open class ChatFragment : BaseFragment() {
         notificationCenter.addPostponeNotificationsCallback(postponeNewMessagesCallback)
 
         isLoading = true
+        if (openedFromNotification) {
+            fragmentScope.launch(ioDispatcher) {
+                if (sessionManager.ensureFreshSession() != null) {
+                    loadInitialMessages()
+                }
+            }
+        } else {
+            loadInitialMessages()
+        }
+        return true
+    }
+
+    private fun loadInitialMessages() {
         if (startLoadFromMessageId != 0L) {
             chatController.loadMessagesAround(
                 channelId = channelId,
@@ -1446,7 +1459,6 @@ open class ChatFragment : BaseFragment() {
                 topicId = topicId
             )
         }
-        return true
     }
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
@@ -3196,14 +3208,6 @@ open class ChatFragment : BaseFragment() {
             showLoadingPending = true
             mainHandler.postDelayed(showLoadingRunnable, LOADING_INDICATOR_DELAY_MS)
         }
-    }
-
-    private fun showError(message: String) {
-        cancelPendingLoading()
-        loadingView.visibility = View.GONE
-        recyclerView.visibility = View.INVISIBLE
-        errorView.visibility = View.VISIBLE
-        errorView.text = message
     }
 
     private fun showMessages() {
