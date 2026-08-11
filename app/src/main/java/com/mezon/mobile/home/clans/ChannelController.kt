@@ -42,6 +42,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
@@ -52,6 +53,7 @@ private const val NOTIFICATION_CODE_USER_MENTIONED = -9
 private const val NOTIFICATION_CODE_USER_REPLIED = -11
 private const val MAX_BADGE_CACHE = 500
 private const val CHANNEL_NOTIFICATION_STATE_CACHE_TTL_MS = 30_000L
+private const val CHANNEL_DESCS_GATE_TIMEOUT_MS = 5_000L
 
 const val FAVORITE_CATEGORY_ID = -1L
 const val FAVORITE_CATEGORY_NAME = "Favorites"
@@ -193,6 +195,15 @@ class ChannelController @Inject constructor(
 
     suspend fun loadChannelsForClanSuspend(clanId: Long, force: Boolean = false) {
         loadChannelsForClanNow(clanId, force)
+    }
+
+    suspend fun awaitChannelsForClan(clanId: Long, timeoutMs: Long = CHANNEL_DESCS_GATE_TIMEOUT_MS) {
+        if (clanId == 0L) return
+        if (!_channelsByClan.value[clanId].isNullOrEmpty()) return
+        loadChannelsForClan(clanId)
+        withTimeoutOrNull(timeoutMs) {
+            channelsByClan.first { !it[clanId].isNullOrEmpty() }
+        }
     }
 
     fun purgeClanChannelsCache(clanId: Long) {
