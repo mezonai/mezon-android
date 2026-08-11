@@ -112,10 +112,10 @@ fun ChannelDescription.toDirectMessage(currentUserId: Long, previewContext: andr
         username = usernamesList.getOrElse(otherIndex) { "" }
         participantName = displayNamesList.getOrElse(otherIndex) { "" }
             .ifBlank { username.ifBlank { channelLabel } }
-        avatarUrl = when {
-            channelAvatar.isNotEmpty() -> channelAvatar
-            isGroup -> ""
-            else -> avatarsList.getOrElse(otherIndex) { "" }
+        avatarUrl = if (isGroup) {
+            channelAvatar
+        } else {
+            avatarsList.getOrElse(otherIndex) { "" }.ifBlank { channelAvatar }
         }
         otherUserId = if (isGroup) 0L else getUserIds(otherIndex)
     } else if (isGroup) {
@@ -134,10 +134,7 @@ fun ChannelDescription.toDirectMessage(currentUserId: Long, previewContext: andr
             username = usernamesList.getOrElse(fallbackIndex) { "" }
             participantName = displayNamesList.getOrElse(fallbackIndex) { "" }
                 .ifBlank { username.ifBlank { channelLabel } }
-            avatarUrl = when {
-                channelAvatar.isNotEmpty() -> channelAvatar
-                else -> avatarsList.getOrElse(fallbackIndex) { "" }
-            }
+            avatarUrl = avatarsList.getOrElse(fallbackIndex) { "" }.ifBlank { channelAvatar }
             otherUserId = if (userIdsCount > fallbackIndex) getUserIds(fallbackIndex) else 0L
         } else {
             username = ""
