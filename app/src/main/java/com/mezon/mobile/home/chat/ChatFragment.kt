@@ -579,6 +579,7 @@ open class ChatFragment : BaseFragment() {
             val changedClanId = args.getOrNull(0) as? Long ?: return@observe
             if (changedClanId != clanId || !::adapter.isInitialized) return@observe
             adapter.currentUserRoleIds = resolveSelfRoleIds()
+            updateVisibleRows(NotificationCenter.UPDATE_MASK_NAME)
         }
         observe(NotificationCenter.selectedClanChanged) { _, _, _ ->
             if (isPaused) return@observe
@@ -2099,6 +2100,15 @@ open class ChatFragment : BaseFragment() {
             }
             override fun didPressReply(cell: ChatMessageCell, replyMessageId: Long) {
                 scrollToReplyMessage(replyMessageId)
+            }
+            override fun resolveReplyIdentity(senderId: Long): Pair<String, String>? {
+                val member = memberResolver.resolveMember(senderId, clanId, channelId, channelType)
+                    ?: return null
+                val name = member.clanNick.ifBlank {
+                    member.displayName.ifBlank { member.username }
+                }
+                val avatar = member.clanAvatar.ifBlank { member.avatarUrl }
+                return if (name.isBlank() && avatar.isBlank()) null else name to avatar
             }
             override fun didTapReaction(cell: ChatMessageCell, msg: MessageEntity, group: ReactionGroup) {
                 handleReactionTap(msg, group)

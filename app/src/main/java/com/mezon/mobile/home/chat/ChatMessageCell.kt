@@ -704,6 +704,14 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             if (nameChanged || senderDisplayRoleChanged(msg.senderId)) {
                 rebuildLayout = true
             }
+            if (hasReply) {
+                val oldReplyName = replySenderName
+                val oldReplyAvatar = replySenderAvatarUrl
+                parseReply(msg)
+                if (oldReplyName != replySenderName || oldReplyAvatar != replySenderAvatarUrl) {
+                    rebuildLayout = true
+                }
+            }
             val isAnon = msg.senderId == ANONYMOUS_USER_ID
             val avatarUsername = if (isAnon) "Anonymous" else msg.senderName.ifBlank { msg.senderUsername }
             avatarDrawable.setInfo(msg.senderId, avatarUsername)
@@ -2134,7 +2142,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 ?.replace("\\\"", "\"")
                 ?: ""
             replySenderName = refClanNick.ifBlank {
-                refDisplayName.ifBlank { replySenderUsername.ifBlank { "Anonymous" } }
+                refDisplayName.ifBlank { replySenderUsername }
             }
             val rawRefContent = refContentMatch?.groupValues?.getOrNull(1)
                 ?.replace("\\n", " ")
@@ -2144,15 +2152,25 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
             val senderIdMatch = REFERENCE_SENDER_ID_REGEX.find(content)
             replySenderId = senderIdMatch?.groupValues?.getOrNull(1)?.toLongOrNull() ?: 0L
+            val avatarMatch = REFERENCE_AVATAR_REGEX.find(content)
+            replySenderAvatarUrl = avatarMatch?.groupValues?.getOrNull(1)?.replace("\\/", "/")
+
             val isAnonymousReply = replySenderId == ANONYMOUS_USER_ID
             if (isAnonymousReply) {
                 replySenderName = "Anonymous"
                 replySenderUsername = "Anonymous"
+            } else if (replySenderId != 0L &&
+                (replySenderName.isBlank() || replySenderAvatarUrl.isNullOrBlank())
+            ) {
+                val cachedIdentity = delegate?.resolveReplyIdentity(replySenderId)
+                if (replySenderName.isBlank()) {
+                    replySenderName = cachedIdentity?.first.orEmpty().ifBlank { replySenderId.toString() }
+                }
+                if (replySenderAvatarUrl.isNullOrBlank()) {
+                    replySenderAvatarUrl = cachedIdentity?.second
+                }
             }
             replyHasAttachment = content.contains("\"has_attachment\":true")
-
-            val avatarMatch = REFERENCE_AVATAR_REGEX.find(content)
-            replySenderAvatarUrl = avatarMatch?.groupValues?.getOrNull(1)?.replace("\\/", "/")
 
             replyAvatarDrawable.setInfo(replySenderId, replySenderUsername.ifBlank { replySenderName })
             if (isAnonymousReply) loadReplyAnonymousAvatar() else loadReplyAvatar(replySenderAvatarUrl ?: "")
@@ -2450,6 +2468,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         fun didLongPress(cell: ChatMessageCell, msg: MessageEntity) {}
         fun didClickAvatar(cell: ChatMessageCell, msg: MessageEntity) {}
         fun didPressReply(cell: ChatMessageCell, replyMessageId: Long) {}
+        fun resolveReplyIdentity(senderId: Long): Pair<String, String>? = null
         fun didTapReaction(cell: ChatMessageCell, msg: MessageEntity, group: ReactionGroup) {}
         fun didLongPressReaction(cell: ChatMessageCell, msg: MessageEntity, group: ReactionGroup) {}
         fun didTapAddReaction(cell: ChatMessageCell, msg: MessageEntity) {}
