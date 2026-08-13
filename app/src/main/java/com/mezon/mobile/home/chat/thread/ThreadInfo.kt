@@ -61,6 +61,7 @@ fun ThreadInfo.toClanChannelEntity(
         lastSeenMessageTs = existing?.lastSeenMessageTs ?: 0L,
         lastSentMessageTs = existing?.lastSentMessageTs ?: 0L,
         active = if (active != 0) active else existing?.active ?: 0,
-        categoryOrder = existing?.categoryOrder ?: parentChannel?.categoryOrder ?: 0
+        categoryOrder = existing?.categoryOrder ?: parentChannel?.categoryOrder ?: 0,
+        creatorId = creatorId.takeIf { it != 0L } ?: existing?.creatorId ?: 0L,
     )
 }

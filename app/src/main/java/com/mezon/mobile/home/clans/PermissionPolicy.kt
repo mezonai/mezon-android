@@ -129,10 +129,17 @@ class PermissionPolicy @Inject constructor(
         if (clanId == 0L || channel.channelId == 0L) return false
         if (isWelcomeChannel(clanId, channel.channelId)) return false
         return if (channel.isThread) {
-            ensurePermissionChecker(listOf(CLAN_OWNER, MANAGE_THREAD, ADMINISTRATOR), channel.channelId, clanId)
-            checkPermission(CLAN_OWNER, channel.channelId, clanId) ||
-                checkPermission(ADMINISTRATOR, null, clanId) ||
-                checkPermission(MANAGE_THREAD, channel.channelId, clanId)
+            ensurePermissionChecker(
+                listOf(CLAN_OWNER, MANAGE_THREAD, ADMINISTRATOR, MANAGE_CHANNEL),
+                channel.channelId,
+                clanId,
+            )
+            val isOwner = checkPermission(CLAN_OWNER, channel.channelId, clanId)
+            val isAdministrator = checkPermission(ADMINISTRATOR, null, clanId)
+            val isCreator = channel.creatorId != 0L && channel.creatorId == userController.userId
+            val canManageThread = checkPermission(MANAGE_THREAD, channel.channelId, clanId) ||
+                checkPermission(MANAGE_CHANNEL, null, clanId)
+            isOwner || isAdministrator || (isCreator && canManageThread)
         } else {
             ensurePermissionChecker(listOf(ADMINISTRATOR, MANAGE_CHANNEL), null, clanId)
             canManageChannelForClan(clanId)
