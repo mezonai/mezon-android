@@ -91,7 +91,7 @@ class TransferSuccessFragment : BaseFragment() {
             orientation = LinearLayout.VERTICAL
             setPadding(LayoutHelper.dp(24), LayoutHelper.dp(32), LayoutHelper.dp(24), LayoutHelper.dp(24))
         }
-        cardView = body
+        cardView = outer
 
         val scroll = ScrollView(context).apply {
             overScrollMode = ScrollView.OVER_SCROLL_NEVER
