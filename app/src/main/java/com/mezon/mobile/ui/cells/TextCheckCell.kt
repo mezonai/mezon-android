@@ -99,6 +99,10 @@ class TextCheckCell(context: Context, private val theme: ThemeColors) : FrameLay
         switchView.alpha = if (enabled) 1f else 0.45f
     }
 
+    fun setCheckInteractionEnabled(enabled: Boolean) {
+        switchView.isEnabled = enabled
+    }
+
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED))
         val h = measuredHeight.coerceAtLeast(LayoutHelper.dp(50)) + if (needDivider) 1 else 0

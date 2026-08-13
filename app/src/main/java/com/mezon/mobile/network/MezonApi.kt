@@ -95,6 +95,7 @@ import com.mezon.mezon.api.listChannelUsersRequest
 import com.mezon.mezon.api.listClanUsersRequest
 import com.mezon.mezon.api.removeChannelUsersRequest
 import com.mezon.mezon.api.removeClanUsersRequest
+import com.mezon.mezon.api.transferOwnershipRequest
 import com.mezon.mezon.api.ListChannelAppsResponse
 import com.mezon.mezon.api.GenerateHashChannelAppsResponse
 import com.mezon.mezon.api.listChannelAppsRequest
@@ -2129,6 +2130,19 @@ class MezonApi @Inject constructor(
             this.userIds.addAll(userIds)
         }
         rpc(apiUrl, token, "RemoveClanUsers", request.toByteArray())
+    }
+
+    suspend fun transferClanOwnership(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        newOwnerId: Long
+    ) {
+        val request = transferOwnershipRequest {
+            this.clanId = clanId
+            this.newOwnerId = newOwnerId
+        }
+        rpc(apiUrl, token, "TransferOwnership", request.toByteArray())
     }
 
     suspend fun listRoles(

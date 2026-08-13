@@ -1,8 +1,6 @@
 package com.mezon.mobile.home.clans.settings
 
-import android.Manifest
 import android.content.Context
-import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -12,43 +10,30 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.recyclerview.widget.DiffUtil
-import com.mezon.mobile.MainActivity
 import com.mezon.mobile.R
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
-import com.mezon.mobile.core.AlertDialog
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.ClanMember
-import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.UserClanController
-import com.mezon.mobile.home.call.CallController
-import com.mezon.mobile.home.call.CallFragment
-import com.mezon.mobile.home.call.CallManager
 import com.mezon.mobile.home.clans.RoleController
-import com.mezon.mobile.home.friends.FriendController
-import com.mezon.mobile.home.friends.sendProfileFriendRequest
-import com.mezon.mobile.home.profile.UserController
-import com.mezon.mobile.ui.MezonToast
+import com.mezon.mobile.home.clans.PermissionPolicy
+import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.ui.cells.ActionBarView
 import com.mezon.mobile.ui.cells.AvatarView
 import com.mezon.mobile.ui.cells.SearchCell
-import com.mezon.mobile.ui.cells.ToastOverlay
-import com.mezon.mobile.home.chat.UserProfileBottomSheet
-import com.mezon.mobile.network.CHANNEL_TYPE_DM
-import kotlinx.coroutines.CoroutineScope
+import com.mezon.mobile.util.createImgproxyUrl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
@@ -57,8 +42,6 @@ class ClanMembersFragment : BaseFragment() {
 
     companion object {
         private const val ARG_CLAN_ID = "clanId"
-        private const val REQUEST_CALL_AUDIO = 9051
-
         fun newInstance(clanId: Long): ClanMembersFragment =
             ClanMembersFragment().apply {
                 arguments = Bundle().apply {
@@ -70,26 +53,18 @@ class ClanMembersFragment : BaseFragment() {
     private var clanId = 0L
     private lateinit var userClanController: UserClanController
     private lateinit var roleController: RoleController
-    private lateinit var friendController: FriendController
-    private lateinit var userController: UserController
-    private lateinit var dialogsController: DialogsController
-    private lateinit var callController: CallController
-    private lateinit var callManager: CallManager
+    private lateinit var permissionPolicy: PermissionPolicy
 
     private lateinit var searchInput: SearchCell
     private lateinit var recyclerView: RecyclerView
     private lateinit var adapter: ClanMembersAdapter
     private var filter = ""
-    private var pendingCallPermissionCallback: (() -> Unit)? = null
+    private var listRefreshPending = false
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
         userClanController = entryPoint.userClanController()
         roleController = entryPoint.roleController()
-        friendController = entryPoint.friendController()
-        userController = entryPoint.userController()
-        dialogsController = entryPoint.dialogsController()
-        callController = entryPoint.callController()
-        callManager = entryPoint.callManager()
+        permissionPolicy = entryPoint.permissionPolicy()
     }
 
     override fun onFragmentCreate(): Boolean {
@@ -100,17 +75,15 @@ class ClanMembersFragment : BaseFragment() {
             roleController.loadRolesForClan(clanId, force = true)
         }
         observe(NotificationCenter.clanMembersDidLoad) { _, _, args ->
-            if (isPaused) return@observe
             val id = args.firstOrNull() as? Long ?: return@observe
             if (id == clanId && ::adapter.isInitialized) {
-                adapter.refresh()
+                if (isPaused) listRefreshPending = true else adapter.refresh()
             }
         }
         observe(NotificationCenter.clanRolesDidLoad) { _, _, args ->
-            if (isPaused) return@observe
             val id = args.firstOrNull() as? Long ?: return@observe
             if (id == clanId && ::adapter.isInitialized) {
-                adapter.refresh()
+                if (isPaused) listRefreshPending = true else adapter.refresh()
             }
         }
         return true
@@ -134,8 +107,11 @@ class ClanMembersFragment : BaseFragment() {
         searchInput = SearchCell(context, themeColors).apply {
             setPlaceholder(getString(R.string.clan_roles_members_search))
             onTextChanged = {
-                filter = it.trim()
-                adapter.refresh()
+                val nextFilter = it.trim()
+                if (filter != nextFilter) {
+                    filter = nextFilter
+                    adapter.refresh(resetScroll = true)
+                }
             }
         }
         root.addView(searchInput, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 14f, 8f, 14f, 0f))
@@ -153,180 +129,35 @@ class ClanMembersFragment : BaseFragment() {
         return root
     }
 
+    override fun onBecomeFullyVisible() {
+        super.onBecomeFullyVisible()
+        if (listRefreshPending && ::adapter.isInitialized) {
+            listRefreshPending = false
+            adapter.refresh()
+        }
+    }
+
     private fun handleMemberClick(member: ClanMember) {
-        val ctx = getContext() ?: return
-        val displayName = member.clanNick.takeIf { it.isNotBlank() } ?: member.displayName.takeIf { it.isNotBlank() } ?: member.username
-        val avatarUrl = member.clanAvatar.takeIf { it.isNotBlank() } ?: member.avatarUrl
-
-        val sheet = UserProfileBottomSheet(
-            context = ctx,
-            userId = member.userId,
-            displayName = displayName,
-            username = member.username,
-            avatarUrl = avatarUrl,
-            isOwnProfile = member.userId == userController.userId,
-            isDM = false,
-            isWebhook = false,
-            roles = roleController.profileRoleChipsForMember(clanId, member.roleIds).map { chip ->
-                UserProfileBottomSheet.UserProfileRole(
-                    id = chip.roleId,
-                    title = chip.title,
-                    color = chip.color,
-                    iconUrl = chip.iconUrl
-                )
-            },
-            listener = object : UserProfileBottomSheet.UserProfileListener {
-                override fun onSendMessage(userId: Long) {
-                    openProfileDm(member.userId, displayName, member.username)
-                }
-                override fun onVoiceCall(userId: Long) {
-                    startProfileVoiceCall(member.userId, displayName, member.username, avatarUrl)
-                }
-                override fun onAddFriend(userId: Long) {
-                    sendProfileFriendRequest(friendController, member.userId, member.username)
-                }
-                override fun onTransferFunds(userId: Long) {
-                    openProfileTransferFunds(member.userId, member.username)
-                }
-            }
-        )
-        sheet.setDrawNavigationBar(true)
-        sheet.show()
-    }
-
-    private fun openProfileDm(userId: Long, displayName: String, username: String) {
-        if (userId == 0L) return
-        fragmentScope.launch {
-            val dmId = withContext(Dispatchers.IO) { dialogsController.getOrCreateDm(userId) }
-            withContext(Dispatchers.Main) {
-                if (dmId == 0L) {
-                    MezonToast.show(this@ClanMembersFragment, ToastOverlay.ToastType.ERROR, getString(R.string.contact_shared_error))
-                    return@withContext
-                }
-                val activity = getParentActivity() as? MainActivity
-                activity?.openChat(
-                    dmId,
-                    displayName.ifBlank { username },
-                    0L,
-                    CHANNEL_TYPE_DM
-                )
-            }
-        }
-    }
-
-    private fun startProfileVoiceCall(
-        userId: Long,
-        displayName: String,
-        username: String,
-        avatarUrl: String
-    ) {
-        if (userId == 0L) return
-        val myId = userController.userId
-        if (userId == myId) {
-            MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.cannot_call_yourself))
-            return
-        }
-        if (friendController.isUserBlocked(userId)) {
-            MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.no_permission_call_blocked))
-            return
-        }
-        if (callController.isCallSessionActive()) return
-
-        requestCallPermissions {
-            fragmentScope.launch {
-                val dmChannelId = withContext(Dispatchers.IO) { dialogsController.getOrCreateDm(userId) }
-                withContext(Dispatchers.Main) {
-                    if (dmChannelId == 0L) {
-                        MezonToast.show(this@ClanMembersFragment, ToastOverlay.ToastType.ERROR, getString(R.string.contact_shared_error))
-                        return@withContext
-                    }
-                    val avatar = avatarUrl.takeIf { it.isNotBlank() }
-                    callController.startCall(
-                        userId,
-                        displayName,
-                        avatar,
-                        dmChannelId,
-                        0L,
-                        CHANNEL_TYPE_DM,
-                        false,
-                        isVideo = false,
-                        peerUsername = username
-                    )
-                    presentFragment(CallFragment())
-                }
-            }
-        }
-    }
-
-    private fun requestCallPermissions(onGranted: () -> Unit) {
-        val activity = getParentActivity()
-        if (activity == null) {
-            onGranted()
-            return
-        }
-        val needed = mutableListOf<String>()
-        if (ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO)
-            != PackageManager.PERMISSION_GRANTED) {
-            needed.add(Manifest.permission.RECORD_AUDIO)
-        }
-        if (needed.isEmpty()) {
-            runOutgoingCallAfterFullScreenIntentPrompt(onGranted)
-        } else {
-            pendingCallPermissionCallback = { runOutgoingCallAfterFullScreenIntentPrompt(onGranted) }
-            ActivityCompat.requestPermissions(activity, needed.toTypedArray(), REQUEST_CALL_AUDIO)
-        }
-    }
-
-    private fun runOutgoingCallAfterFullScreenIntentPrompt(startCall: () -> Unit) {
-        val act = getParentActivity()
-        if (!callManager.needsFullScreenIntentSettings() || act == null) {
-            startCall()
-            return
-        }
-        AlertDialog.Builder(act)
-            .setTitle(getString(R.string.call_full_screen_intent_title))
-            .setMessage(getString(R.string.call_full_screen_intent_message))
-            .setPositiveButton(getString(R.string.call_full_screen_intent_open_settings)) { d, _ ->
-                callManager.launchFullScreenIntentSettings(act)
-                d.dismiss()
-            }
-            .setNegativeButton(getString(R.string.call_full_screen_intent_start_call_anyway)) { d, _ ->
-                d.dismiss()
-                startCall()
-            }
-            .show()
-    }
-
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<out String>,
-        grantResults: IntArray
-    ) {
-        if (requestCode == REQUEST_CALL_AUDIO) {
-            val audioGranted = permissions.indices.any { i ->
-                permissions[i] == Manifest.permission.RECORD_AUDIO &&
-                    grantResults.getOrNull(i) == PackageManager.PERMISSION_GRANTED
-            }
-            if (audioGranted) {
-                pendingCallPermissionCallback?.invoke()
-            } else {
-                MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.permission_no_audio))
-            }
-            pendingCallPermissionCallback = null
-        }
+        val permission = permissionPolicy.clanSettingsPermissionState(clanId)
+        if (!permission.isCanEditRole) return
+        presentFragment(ClanMemberManageFragment.newInstance(clanId, member.userId))
     }
 
     private inner class ClanMembersAdapter : RecyclerView.Adapter<ClanMembersAdapter.Holder>() {
 
         private var rows: List<ClanMember> = emptyList()
-        private val diffScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         private var diffJob: Job? = null
+        private var scrollResetPending = false
+        private var showSearchEmptyState = false
 
         init {
             setHasStableIds(true)
         }
 
-        fun refresh() {
+        fun refresh(resetScroll: Boolean = false) {
+            scrollResetPending = scrollResetPending || resetScroll
+            diffJob?.cancel()
+            diffJob = null
             val all = userClanController.getClanMembers(clanId)
             val q = filter.lowercase(Locale.getDefault())
             val nextRows = if (q.isEmpty()) all else all.filter { m ->
@@ -334,39 +165,70 @@ class ClanMembersFragment : BaseFragment() {
                 displayName.lowercase(Locale.getDefault()).contains(q) ||
                     m.username.lowercase(Locale.getDefault()).contains(q)
             }
+            val nextShowSearchEmptyState = q.isNotEmpty() && nextRows.isEmpty()
+            if (showSearchEmptyState != nextShowSearchEmptyState) {
+                showSearchEmptyState = nextShowSearchEmptyState
+                rows = nextRows
+                notifyDataSetChanged()
+                resetScrollIfNeeded()
+                return
+            }
             if (nextRows.size < 50) {
                 val diff = DiffUtil.calculateDiff(MemberDiffCallback(rows, nextRows))
                 rows = nextRows
                 diff.dispatchUpdatesTo(this)
+                resetScrollIfNeeded()
             } else {
                 val oldRows = rows
-                diffJob?.cancel()
-                diffJob = diffScope.launch {
+                diffJob = fragmentScope.launch(Dispatchers.Main.immediate) {
                     val diff = withContext(Dispatchers.Default) {
                         DiffUtil.calculateDiff(MemberDiffCallback(oldRows, nextRows))
                     }
                     rows = nextRows
                     diff.dispatchUpdatesTo(this@ClanMembersAdapter)
+                    resetScrollIfNeeded()
                 }
             }
         }
 
-        override fun getItemCount(): Int = rows.size
+        private fun resetScrollIfNeeded() {
+            if (!scrollResetPending) return
+            scrollResetPending = false
+            recyclerView.scrollToPosition(0)
+        }
 
-        override fun getItemId(position: Int): Long = rows[position].userId
+        override fun getItemCount(): Int = if (showSearchEmptyState) 1 else rows.size
+
+        override fun getItemId(position: Int): Long =
+            if (showSearchEmptyState) Long.MIN_VALUE else rows[position].userId
+
+        override fun getItemViewType(position: Int): Int = if (showSearchEmptyState) 1 else 0
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder {
+            if (viewType == 1) {
+                val emptyView = TextView(parent.context).apply {
+                    text = getString(R.string.clan_roles_members_none)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+                    setTextColor(ClanRolesUiTheme.textOnScreenMuted(themeColors))
+                    gravity = Gravity.CENTER
+                    layoutParams = RecyclerView.LayoutParams(
+                        RecyclerView.LayoutParams.MATCH_PARENT,
+                        RecyclerView.LayoutParams.MATCH_PARENT
+                    )
+                }
+                return Holder(emptyView, null)
+            }
             val cell = MemberRowCell(parent.context, themeColors, roleController, clanId) { member ->
                 handleMemberClick(member)
             }
-            return Holder(cell)
+            return Holder(cell, cell)
         }
 
         override fun onBindViewHolder(holder: Holder, position: Int) {
-            holder.cell.bind(rows[position], position < rows.lastIndex)
+            holder.cell?.bind(rows[position], position < rows.lastIndex)
         }
 
-        inner class Holder(val cell: MemberRowCell) : RecyclerView.ViewHolder(cell)
+        inner class Holder(itemView: View, val cell: MemberRowCell?) : RecyclerView.ViewHolder(itemView)
     }
 
     private class MemberDiffCallback(
@@ -564,6 +426,13 @@ class ClanMembersFragment : BaseFragment() {
                     }, LinearLayout.LayoutParams(LayoutHelper.dp(8), LayoutHelper.dp(8)).apply {
                         marginEnd = LayoutHelper.dp(6)
                     })
+                    if (chip.iconUrl.isNotBlank()) {
+                        chipView.addView(RoleIconView(context).apply {
+                            setRoleIconUrl(chip.iconUrl)
+                        }, LinearLayout.LayoutParams(LayoutHelper.dp(14), LayoutHelper.dp(14)).apply {
+                            marginEnd = LayoutHelper.dp(4)
+                        })
+                    }
                     chipView.addView(TextView(context).apply {
                         text = chip.title.uppercase(Locale.getDefault())
                         setTextColor(themeColors.colorText)
@@ -576,6 +445,65 @@ class ClanMembersFragment : BaseFragment() {
                 }
             }
             invalidate()
+        }
+
+        private class RoleIconView(context: Context) : ImageView(context) {
+            private var iconUrl = ""
+            private var loadToken: MezonImageLoader.Cancellable? = null
+            private var attached = false
+
+            init {
+                scaleType = ScaleType.CENTER_CROP
+                background = GradientDrawable().apply {
+                    setColor(Color.TRANSPARENT)
+                    cornerRadius = LayoutHelper.dpf(7f)
+                }
+                clipToOutline = true
+            }
+
+            fun setRoleIconUrl(url: String) {
+                val next = url.trim()
+                if (iconUrl == next) return
+                iconUrl = next
+                loadToken?.cancel()
+                loadToken = null
+                setImageDrawable(null)
+                if (attached) loadIcon()
+            }
+
+            private fun loadIcon() {
+                val expectedUrl = iconUrl
+                if (expectedUrl.isEmpty()) return
+                val size = LayoutHelper.dp(14)
+                val requestUrl = createImgproxyUrl(expectedUrl, size * 2, size * 2, "fill")
+                loadToken = MezonImageLoader.getInstance(context).load(
+                    requestUrl,
+                    size,
+                    size,
+                    onSuccess = { bitmap ->
+                        if (iconUrl == expectedUrl) {
+                            loadToken = null
+                            setImageBitmap(bitmap)
+                        }
+                    },
+                    onError = {
+                        if (iconUrl == expectedUrl) loadToken = null
+                    }
+                )
+            }
+
+            override fun onAttachedToWindow() {
+                super.onAttachedToWindow()
+                attached = true
+                if (drawable == null && loadToken == null) loadIcon()
+            }
+
+            override fun onDetachedFromWindow() {
+                super.onDetachedFromWindow()
+                attached = false
+                loadToken?.cancel()
+                loadToken = null
+            }
         }
 
         override fun dispatchDraw(canvas: android.graphics.Canvas) {

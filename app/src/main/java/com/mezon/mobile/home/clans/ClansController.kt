@@ -511,6 +511,34 @@ class ClansController @Inject constructor(
         }
     }
 
+    suspend fun kickMember(clanId: Long, userId: Long): Result<Unit> = runCatching {
+        require(clanId != 0L && userId != 0L)
+        sessionManager.withAutoRefresh { session ->
+            withContext(ioDispatcher) {
+                api.removeClanUsers(session.apiUrl, session.token, clanId, listOf(userId))
+            }
+        }
+        userClanController.removeClanMember(clanId, userId)
+    }.onFailure { Log.e(TAG, "kickMember($clanId, $userId) failed", it) }
+
+    suspend fun transferOwnership(clanId: Long, newOwnerId: Long): Result<Unit> = runCatching {
+        require(clanId != 0L && newOwnerId != 0L)
+        sessionManager.withAutoRefresh { session ->
+            withContext(ioDispatcher) {
+                api.transferClanOwnership(session.apiUrl, session.token, clanId, newOwnerId)
+            }
+        }
+        withContext(Dispatchers.Main.immediate) {
+            val index = _clans.value.indexOfFirst { it.clanId == clanId }
+            if (index >= 0) {
+                val updated = _clans.value[index].copy(creatorId = newOwnerId)
+                _clans.value = _clans.value.toMutableList().also { it[index] = updated }
+                appScope.launch(ioDispatcher) { clanDao.upsert(updated) }
+                notificationCenter.postNotificationOnMainThread(NotificationCenter.clanInfoUpdated, clanId)
+            }
+        }
+    }.onFailure { Log.e(TAG, "transferOwnership($clanId, $newOwnerId) failed", it) }
+
     private fun applyClanLeftLocally(clanId: Long) {
         cacheTracker.invalidate(apiCacheKey("listClanDescs"))
         cacheTracker.invalidate(apiCacheKey("listClanUsers", clanId.toString()))
