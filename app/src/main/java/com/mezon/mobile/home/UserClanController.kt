@@ -56,6 +56,8 @@ class UserClanController @Inject constructor(
 ) {
 
     init {
+        appScope.launch { observeClanUserAdded() }
+        appScope.launch { observeClanUsersRemoved() }
         appScope.launch { observeUserChannelAdded() }
         appScope.launch { observeUserChannelRemoved() }
     }
@@ -151,6 +153,54 @@ class UserClanController @Inject constructor(
         synchronized(this) {
             val ix = membersByClan.indexOfKey(clanId)
             if (ix >= 0) membersByClan.removeAt(ix)
+        }
+    }
+
+    fun removeClanMember(clanId: Long, userId: Long) {
+        if (clanId == 0L || userId == 0L) return
+        removeClanMembers(clanId, setOf(userId))
+    }
+
+    private fun removeClanMembers(clanId: Long, userIds: Set<Long>) {
+        if (clanId == 0L || userIds.isEmpty()) return
+        val changed = synchronized(this) {
+            val current = membersByClan[clanId] ?: return@synchronized false
+            val next = current.filterNot { it.userId in userIds }
+            if (next.size != current.size) {
+                membersByClan.put(clanId, next)
+                true
+            } else {
+                false
+            }
+        }
+        if (changed) {
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.clanMembersDidLoad, clanId)
+        }
+    }
+
+    private suspend fun observeClanUserAdded() {
+        socketEventDispatcher.addClanUserEvents.collect { event ->
+            val clanId = event.clanId
+            if (clanId == 0L || !event.hasUser() || event.user.userId == 0L) return@collect
+            val member = event.user.toClanMember(clanId)
+            val changed = synchronized(this) {
+                val current = membersByClan[clanId] ?: return@synchronized false
+                if (current.any { it.userId == member.userId }) {
+                    false
+                } else {
+                    membersByClan.put(clanId, current + member)
+                    true
+                }
+            }
+            if (changed) {
+                notificationCenter.postNotificationOnMainThread(NotificationCenter.clanMembersDidLoad, clanId)
+            }
+        }
+    }
+
+    private suspend fun observeClanUsersRemoved() {
+        socketEventDispatcher.userClanRemovedEvents.collect { event ->
+            removeClanMembers(event.clanId, event.userIdsList.filter { it != 0L }.toSet())
         }
     }
 
