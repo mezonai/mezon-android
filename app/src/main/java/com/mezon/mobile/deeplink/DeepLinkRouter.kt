@@ -3,6 +3,8 @@ package com.mezon.mobile.deeplink
 import android.net.Uri
 import com.mezon.mobile.MainActivity
 import com.mezon.mobile.R
+import com.mezon.mobile.auth.AuthRepository
+import com.mezon.mobile.core.AlertsCreator
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.StartupCache
@@ -12,6 +14,7 @@ import com.mezon.mobile.home.clans.channelapp.ChannelAppController
 import com.mezon.mobile.home.clans.channelapp.ChannelAppFragment
 import com.mezon.mobile.home.qr.QrPayloadParser
 import com.mezon.mobile.home.qr.QrProfileFragment
+import com.mezon.mobile.session.SessionExpiredException
 import com.mezon.mobile.ui.cells.ToastOverlay
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.CoroutineDispatcher
@@ -25,6 +28,7 @@ class DeepLinkRouter @Inject constructor(
     private val clansController: ClansController,
     private val channelAppController: ChannelAppController,
     private val notificationCenter: NotificationCenter,
+    private val authRepository: AuthRepository,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) {
     @Volatile
@@ -56,7 +60,7 @@ class DeepLinkRouter @Inject constructor(
     }
 
     fun dispatchRoute(activity: MainActivity, route: DeepLinkRoute, sourceUrl: String? = null) {
-        if (!StartupCache.hasSession || StartupCache.needsUsernameSetup) {
+        if (route !is DeepLinkRoute.Login && (!StartupCache.hasSession || StartupCache.needsUsernameSetup)) {
             pendingRoute = route
             pendingSourceUrl = sourceUrl
             return
@@ -74,8 +78,54 @@ class DeepLinkRouter @Inject constructor(
                     activity,
                     InstallClanFragment.newInstance(route.appId, InstallKind.APP, sourceUrl)
                 )
+                is DeepLinkRoute.Login -> dispatchLogin(activity, route)
             }
         }
+    }
+
+    private fun dispatchLogin(activity: MainActivity, route: DeepLinkRoute.Login) {
+        if (!StartupCache.hasSession || StartupCache.needsUsernameSetup) {
+            ToastOverlay(activity, activity.themeColors).show(
+                activity.drawerLayoutContainer,
+                ToastOverlay.ToastType.INFO,
+                activity.getString(R.string.qr_login_require_login),
+                null
+            )
+            return
+        }
+        val dialog = AlertsCreator.createConfirmDialog(
+            activity,
+            activity.getString(R.string.qr_login_title),
+            activity.getString(R.string.qr_login_message),
+            confirmText = activity.getString(R.string.qr_login_confirm),
+            cancelText = activity.getString(R.string.common_cancel)
+        ) {
+            activity.lifecycleScope.launch {
+                val result = authRepository.confirmLoginByQr(route.loginId)
+                val toast = ToastOverlay(activity, activity.themeColors)
+                if (result.isSuccess) {
+                    toast.show(
+                        activity.drawerLayoutContainer,
+                        ToastOverlay.ToastType.SUCCESS,
+                        activity.getString(R.string.qr_login_success),
+                        null
+                    )
+                } else {
+                    val messageRes = if (result.exceptionOrNull() is SessionExpiredException) {
+                        R.string.qr_login_require_mobile_session
+                    } else {
+                        R.string.qr_login_failed
+                    }
+                    toast.show(
+                        activity.drawerLayoutContainer,
+                        ToastOverlay.ToastType.ERROR,
+                        activity.getString(messageRes),
+                        null
+                    )
+                }
+            }
+        }
+        dialog.show()
     }
 
     private fun dispatchProfile(activity: MainActivity, route: DeepLinkRoute.Profile) {
