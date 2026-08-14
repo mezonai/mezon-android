@@ -85,6 +85,7 @@
     <string name="qr_login_success">Xác nhận đăng nhập thành công</string>
     <string name="qr_login_failed">Xác nhận đăng nhập thất bại</string>
     <string name="qr_login_require_mobile_session">Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại để xác nhận đăng nhập QR.</string>
+    <string name="qr_login_require_login">Vui lòng đăng nhập Mezon trước để xác nhận đăng nhập QR.</string>
     <string name="qr_camera_denied_title">Không có quyền camera</string>
     <string name="camera_not_available">Không tìm thấy ứng dụng camera.</string>
     <string name="camera_in_use_error">Camera hiện không hoạt động. Hãy đóng mọi ứng dụng camera khác mà bạn đang chạy.</string>

@@ -81,6 +81,7 @@
     <string name="qr_login_success">Login confirmed</string>
     <string name="qr_login_failed">Failed to confirm login</string>
     <string name="qr_login_require_mobile_session">Your session has expired. Please log in again to confirm QR login.</string>
+    <string name="qr_login_require_login">Please log in to Mezon first to confirm QR login.</string>
     <string name="qr_camera_denied_title">Camera permission denied</string>
     <string name="qr_camera_denied_message">Please allow camera access in Settings to scan QR codes.</string>
     <string name="qr_scan_title_hint">Scan QR Code</string>

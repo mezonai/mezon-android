@@ -42,6 +42,7 @@ object QrPayloadParser {
                 is DeepLinkRoute.Profile -> QrAction.Profile(route.username, route.data)
                 is DeepLinkRoute.BotInstall -> QrAction.BotInstall(route.appId)
                 is DeepLinkRoute.AppInstall -> QrAction.AppInstall(route.appId)
+                is DeepLinkRoute.Login -> QrAction.Login(route.loginId)
             }
         }
 
