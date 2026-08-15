@@ -13,6 +13,7 @@ import com.mezon.mobile.home.clans.CHANNEL_TYPE_VOICE
 import com.mezon.mobile.home.clans.ClanChannelEntity
 import com.mezon.mobile.home.clans.ClansController
 import com.mezon.mobile.home.clans.toClanChannelEntity
+import com.mezon.mobile.home.friends.FriendController
 import com.mezon.mobile.home.messages.DirectMessage
 import com.mezon.mobile.network.ApiCacheTracker
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
@@ -67,6 +68,7 @@ class SearchController @Inject constructor(
     private val api: MezonApi,
     private val sessionManager: SessionManager,
     private val dialogsController: DialogsController,
+    private val friendController: FriendController,
     private val clansController: ClansController,
     private val userClanController: UserClanController,
     private val notificationCenter: NotificationCenter,
@@ -100,6 +102,29 @@ class SearchController @Inject constructor(
         appScope.launch {
             dispatcher.channelDeletedEvents.collect { event ->
                 removeChannelData(event.channelId)
+            }
+        }
+        appScope.launch {
+            dispatcher.channelCreatedEvents.collect { event ->
+                if (event.channelId == 0L || event.clanId == 0L) return@collect
+                if (event.channelType == CHANNEL_TYPE_DM || event.channelType == CHANNEL_TYPE_GROUP) {
+                    return@collect
+                }
+                upsertChannelData(
+                    ClanChannelEntity(
+                        clanId = event.clanId,
+                        channelId = event.channelId,
+                        parentId = event.parentId,
+                        categoryId = event.categoryId,
+                        categoryName = "",
+                        channelLabel = event.channelLabel,
+                        type = event.channelType,
+                        isPrivate = event.channelPrivate != 0,
+                        topic = "",
+                        unreadCount = 0,
+                        isMuted = false
+                    )
+                )
             }
         }
     }
@@ -141,6 +166,27 @@ class SearchController @Inject constructor(
         }
     }
 
+    private fun upsertChannelData(incoming: ClanChannelEntity) {
+        synchronized(this) {
+            val existing = channelById[incoming.channelId]
+            val channel = existing?.copy(
+                clanId = incoming.clanId,
+                parentId = incoming.parentId,
+                categoryId = incoming.categoryId,
+                channelLabel = incoming.channelLabel.ifBlank { existing.channelLabel },
+                type = incoming.type.takeIf { it != 0 } ?: existing.type,
+                isPrivate = incoming.isPrivate
+            ) ?: incoming
+
+            allChannels.removeAll { it.channelId == channel.channelId }
+            allChannels.add(channel)
+            channelById[channel.channelId] = channel
+            cachedChannelsQuery = null
+            cachedChannelsResult.clear()
+        }
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.searchChannelsDidLoad)
+    }
+
     @Synchronized
     fun getMembers(): List<SearchMember> = ArrayList(allMembers)
 
@@ -158,6 +204,7 @@ class SearchController @Inject constructor(
 
     fun loadMembers(noCache: Boolean = false) {
         userClanController.loadUsers(noCache)
+        friendController.loadFriends(noCache)
         rebuildMembers()
     }
 
@@ -183,6 +230,25 @@ class SearchController @Inject constructor(
                 val seenUserIds = HashSet<Long>(dmUserIds)
                 seenUserIds.add(currentUserId)
 
+                val friendMembers = ArrayList<SearchMember>()
+                for (friend in friendController.friends.value) {
+                    val user = friend.user
+                    if (user.id == 0L || user.id in seenUserIds) continue
+                    seenUserIds.add(user.id)
+                    friendMembers.add(
+                        SearchMember(
+                            id = user.id,
+                            username = user.username,
+                            displayName = user.displayName.ifBlank { user.username },
+                            avatarUrl = user.avatarUrl,
+                            isOnline = user.online,
+                            isDm = false,
+                            channelId = 0L,
+                            channelType = 0
+                        )
+                    )
+                }
+
                 val nonDmMembers = ArrayList<SearchMember>()
                 for (user in clanUsers) {
                     if (user.id in seenUserIds) continue
@@ -193,6 +259,7 @@ class SearchController @Inject constructor(
                 synchronized(this@SearchController) {
                     allMembers.clear()
                     allMembers.addAll(dmMembers)
+                    allMembers.addAll(friendMembers)
                     allMembers.addAll(nonDmMembers)
                     membersLoaded = true
                     cachedMembersQuery = null
