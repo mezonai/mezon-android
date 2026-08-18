@@ -337,7 +337,7 @@
     <string name="thread_list_empty_description">Stay focus on conversation with a thread - a temporary text channel.</string>
     <string name="thread_list_joined_threads">Joined Threads</string>
     <string name="thread_list_active_threads">Active Threads</string>
-    <string name="thread_list_archived_threads">Older Threads</string>
+    <string name="thread_list_archived_threads">Archived Threads</string>
     <string name="chat_welcome_start_of_thread">Started by %1$s</string>
     <string name="message_attachment_photo">Photo</string>
     <string name="message_attachment_video">Video</string>
