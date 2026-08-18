@@ -9,6 +9,7 @@ import android.graphics.PorterDuffColorFilter
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -60,15 +61,18 @@ import com.mezon.mobile.search.SearchController
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.ui.cells.AvatarView
+import com.mezon.mobile.ui.cells.BackupImageView
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.PopupMenu
 import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.util.parseContentPreview
 import com.mezon.mobile.util.parseMarkdownAndStrip
 import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 class SharingFragment(
@@ -82,6 +86,7 @@ class SharingFragment(
     private lateinit var sessionManager: SessionManager
     private lateinit var appScope: CoroutineScope
     private lateinit var ioDispatcher: CoroutineDispatcher
+    private lateinit var mainDispatcher: CoroutineDispatcher
     private lateinit var channelController: ChannelController
     private lateinit var friendController: FriendController
     private lateinit var permissionPolicy: PermissionPolicy
@@ -113,6 +118,9 @@ class SharingFragment(
 
     private val sharedUris: List<Uri>
         get() = (payload as? SharingPayload.FromDevice)?.uris ?: emptyList()
+
+    private val existingAttachment: AttachmentInfo?
+        get() = (payload as? SharingPayload.FromExistingAttachment)?.attachment
 
     private val sharedText: String?
         get() = (payload as? SharingPayload.FromDevice)?.text
@@ -146,6 +154,7 @@ class SharingFragment(
     private var currentFilter = FilterType.ALL
     private var displayLimit = LOCAL_PAGE_SIZE
     private var isSending = false
+    private var pendingDeviceShareKey: Pair<Long, Long>? = null
 
     private val debounceHandler = Handler(Looper.getMainLooper())
     private var debounceRunnable: Runnable? = null
@@ -158,6 +167,7 @@ class SharingFragment(
         sessionManager = entryPoint.sessionManager()
         appScope = entryPoint.applicationScope()
         ioDispatcher = entryPoint.ioDispatcher()
+        mainDispatcher = entryPoint.mainDispatcher()
         channelController = entryPoint.channelController()
         friendController = entryPoint.friendController()
         permissionPolicy = entryPoint.permissionPolicy()
@@ -204,13 +214,23 @@ class SharingFragment(
             val changedClanId = args.firstOrNull() as? Long ?: return@observe
             if (hasTargetForClan(changedClanId)) refreshSendButtonEnabled()
         }
-        observe(NotificationCenter.pendingMessageSent) { _, _, _ ->
-            if (fragmentView == null || !isSending || isForwardMode) return@observe
+        observe(NotificationCenter.pendingMessageSent) { _, _, args ->
+            if (fragmentView == null || !isSending || payload !is SharingPayload.FromDevice) return@observe
+            val expected = pendingDeviceShareKey ?: return@observe
+            val channelId = args.getOrNull(0) as? Long ?: return@observe
+            val tempId = args.getOrNull(1) as? Long ?: return@observe
+            if (expected.first != channelId || expected.second != tempId) return@observe
+            pendingDeviceShareKey = null
             isSending = false
             finishFragment()
         }
-        observe(NotificationCenter.pendingMessageError) { _, _, _ ->
-            if (fragmentView == null || !isSending || isForwardMode) return@observe
+        observe(NotificationCenter.pendingMessageError) { _, _, args ->
+            if (fragmentView == null || !isSending || payload !is SharingPayload.FromDevice) return@observe
+            val expected = pendingDeviceShareKey ?: return@observe
+            val channelId = args.getOrNull(0) as? Long ?: return@observe
+            val tempId = args.getOrNull(1) as? Long ?: return@observe
+            if (expected.first != channelId || expected.second != tempId) return@observe
+            pendingDeviceShareKey = null
             isSending = false
             setSendingState(false)
             showErrorToast()
@@ -677,8 +697,8 @@ class SharingFragment(
             }
             loadThumbnail(img, uri)
 
-            val mime = sharedMimeType ?: getParentActivity()?.contentResolver?.getType(uri)
-            if (mime != null && mime.startsWith("video/")) {
+            val mime = resolveSharedMimeType(context.contentResolver, uri)
+            if (mime.startsWith("video/", ignoreCase = true)) {
                 val playOverlay = ImageView(context).apply {
                     val d = MezonIcon.playIcon.getDrawable(context)
                     d.colorFilter = PorterDuffColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN)
@@ -691,8 +711,27 @@ class SharingFragment(
             if (index > 0) lp.leftMargin = LayoutHelper.dp(8)
             thumbRow.addView(frame, lp)
         }
+        existingAttachment?.let { attachment ->
+            val frame = FrameLayout(context)
+            val image = BackupImageView(context).apply {
+                setAspectFill(true)
+                setRoundRadius(LayoutHelper.dp(8))
+                setBackgroundColor(themeColors.tertiary)
+                attachment.thumb.takeIf { it.isNotBlank() && it != attachment.url }?.let {
+                    setImage(it)
+                }
+            }
+            frame.addView(image, LayoutHelper.createFrame(60, 60))
+            val playOverlay = ImageView(context).apply {
+                val drawable = MezonIcon.playIcon.getDrawable(context)
+                drawable.colorFilter = PorterDuffColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN)
+                setImageDrawable(drawable)
+            }
+            frame.addView(playOverlay, LayoutHelper.createFrame(20, 20, Gravity.CENTER))
+            thumbRow.addView(frame, LinearLayout.LayoutParams(LayoutHelper.dp(60), LayoutHelper.dp(60)))
+        }
         thumbScroll.addView(thumbRow)
-        if (sharedUris.isNotEmpty()) {
+        if (sharedUris.isNotEmpty() || existingAttachment != null) {
             area.addView(thumbScroll, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
         }
 
@@ -1153,30 +1192,72 @@ class SharingFragment(
         }
         AndroidUtilities.hideKeyboard(captionInput)
 
-        val contentResolver = getParentActivity()?.contentResolver ?: run {
-            finishFragment()
-            return
-        }
-
         val caption = captionInput.text?.toString()?.trim() ?: sharedText ?: ""
         val mdResult = parseMarkdownAndStrip(caption)
         val cleanedText = mdResult.cleanedText
         val mdMarkers = mdResult.markers.ifEmpty { null }
 
-        if (sharedUris.isNotEmpty()) {
+        existingAttachment?.let { attachment ->
             setSendingState(true)
-            val attachments = buildAttachments(contentResolver)
-            chatController.shareMediaToChannel(
+            chatController.shareExistingMediaToChannel(
                 channelId = target.channelId,
                 clanId = target.clanId,
                 channelType = target.channelType,
                 isChannelPrivate = target.isPrivate,
                 text = cleanedText,
-                attachments = attachments,
-                contentResolver = contentResolver,
+                attachment = attachment,
                 markdownMarkers = mdMarkers,
                 parentId = target.parentId
-            )
+            ) { ok ->
+                if (fragmentView == null) return@shareExistingMediaToChannel
+                setSendingState(false)
+                if (ok) {
+                    finishFragment()
+                } else {
+                    showErrorToast()
+                }
+            }
+            return
+        }
+
+        if (sharedUris.isNotEmpty()) {
+            val activity = getParentActivity() ?: run {
+                showErrorToast()
+                return
+            }
+            pendingDeviceShareKey = null
+            setSendingState(true)
+            val contentResolver = activity.contentResolver
+            val metadataContext = activity.applicationContext
+            fragmentScope.launch(mainDispatcher) {
+                val attachments = try {
+                    withContext(ioDispatcher) {
+                        buildAttachments(metadataContext, contentResolver)
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    if (fragmentView != null) {
+                        pendingDeviceShareKey = null
+                        setSendingState(false)
+                        showErrorToast()
+                    }
+                    return@launch
+                }
+                if (fragmentView == null || !isSending) return@launch
+                val tempId = chatController.shareMediaToChannel(
+                    channelId = target.channelId,
+                    clanId = target.clanId,
+                    channelType = target.channelType,
+                    isChannelPrivate = target.isPrivate,
+                    text = cleanedText,
+                    attachments = attachments,
+                    contentResolver = contentResolver,
+                    markdownMarkers = mdMarkers,
+                    parentId = target.parentId
+                )
+                pendingDeviceShareKey = target.channelId to tempId
+            }
         } else if (cleanedText.isNotBlank()) {
             if (target.isClanChannel) {
                 chatController.openChannel(target.channelId, target.clanId, target.channelType, target.isPrivate)
@@ -1193,20 +1274,27 @@ class SharingFragment(
         }
     }
 
-    private fun buildAttachments(contentResolver: ContentResolver): List<AttachmentPickerItem> {
+    private fun buildAttachments(context: Context, contentResolver: ContentResolver): List<AttachmentPickerItem> {
         return sharedUris.mapIndexed { index, uri ->
-            val mimeType = sharedMimeType ?: contentResolver.getType(uri) ?: "application/octet-stream"
+            val mimeType = resolveSharedMimeType(contentResolver, uri)
             val filename = resolveFilename(contentResolver, uri, index, mimeType)
             val size = resolveFileSize(contentResolver, uri)
             var width = 0
             var height = 0
-            if (mimeType.startsWith("image/")) {
+            var duration = 0
+            if (mimeType.startsWith("image/", ignoreCase = true)) {
                 try {
                     val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                     contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
                     width = opts.outWidth
                     height = opts.outHeight
                 } catch (_: Exception) {}
+            } else if (mimeType.startsWith("video/", ignoreCase = true)) {
+                resolveVideoMetadata(context, uri)?.let { metadata ->
+                    width = metadata.width
+                    height = metadata.height
+                    duration = metadata.durationSeconds
+                }
             }
             AttachmentPickerItem(
                 id = index.toLong(),
@@ -1217,9 +1305,62 @@ class SharingFragment(
                 width = width,
                 height = height,
                 size = size,
-                duration = 0,
-                isVideo = mimeType.startsWith("video/")
+                duration = duration,
+                isVideo = mimeType.startsWith("video/", ignoreCase = true)
             )
+        }
+    }
+
+    private fun resolveSharedMimeType(contentResolver: ContentResolver, uri: Uri): String {
+        val uriMimeType = runCatching { contentResolver.getType(uri) }
+            .getOrNull()
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+        val intentMimeType = sharedMimeType
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+        return listOfNotNull(uriMimeType, intentMimeType)
+            .maxByOrNull(::mimeTypeSpecificity)
+            ?.takeIf { mimeTypeSpecificity(it) > 0 }
+            ?: "application/octet-stream"
+    }
+
+    private fun mimeTypeSpecificity(mimeType: String): Int {
+        if (mimeType.equals("application/octet-stream", ignoreCase = true)) return 0
+        val type = mimeType.substringBefore('/', "").trim()
+        val subtype = mimeType.substringAfter('/', "").trim()
+        if (type.isEmpty() || type == "*" || subtype.isEmpty()) return 0
+        return if (subtype == "*") 1 else 2
+    }
+
+    private data class VideoMetadata(
+        val width: Int,
+        val height: Int,
+        val durationSeconds: Int
+    )
+
+    private fun resolveVideoMetadata(context: Context, uri: Uri): VideoMetadata? {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(context, uri)
+            val rawWidth = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
+                ?.toIntOrNull() ?: 0
+            val rawHeight = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
+                ?.toIntOrNull() ?: 0
+            val rotation = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
+                ?.toIntOrNull() ?: 0
+            val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                ?.toLongOrNull() ?: 0L
+            val swapDimensions = rotation % 180 != 0
+            VideoMetadata(
+                width = if (swapDimensions) rawHeight else rawWidth,
+                height = if (swapDimensions) rawWidth else rawHeight,
+                durationSeconds = (durationMs / 1000L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+            )
+        } catch (_: Exception) {
+            null
+        } finally {
+            runCatching { retriever.release() }
         }
     }
 
@@ -1265,5 +1406,8 @@ class SharingFragment(
 
         fun fromDevice(uris: List<Uri>, text: String?, mimeType: String?) =
             SharingFragment(SharingPayload.FromDevice(uris, text, mimeType))
+
+        fun fromExistingAttachment(attachment: AttachmentInfo) =
+            SharingFragment(SharingPayload.FromExistingAttachment(attachment))
     }
 }

@@ -1652,6 +1652,13 @@
     <string name="action_save_media">Lưu ảnh</string>
     <string name="action_copy_image">Sao chép ảnh</string>
     <string name="action_share_image">Chia sẻ ảnh</string>
+    <string name="action_save_video">Lưu video</string>
+    <string name="action_share_video">Chia sẻ video</string>
+    <string name="video_share_preparing">Đang chuẩn bị video…</string>
+    <string name="video_share_preparing_progress">Đang chuẩn bị video… %1$d%%</string>
+    <string name="video_save_downloading">Đang tải video…</string>
+    <string name="video_save_downloading_progress">Đang tải video… %1$d%%</string>
     <string name="message_toast_save_success">Lưu thành công</string>
     <string name="message_toast_save_failed">Lưu thất bại</string>
+    <string name="message_toast_share_failed">Chia sẻ thất bại</string>
 </resources>

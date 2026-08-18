@@ -381,6 +381,12 @@
     <string name="action_copy_link">Copy Media Link</string>
     <string name="action_copy_image">Copy Image</string>
     <string name="action_share_image">Share Image</string>
+    <string name="action_save_video">Save Video</string>
+    <string name="action_share_video">Share Video</string>
+    <string name="video_share_preparing">Preparing video…</string>
+    <string name="video_share_preparing_progress">Preparing video… %1$d%%</string>
+    <string name="video_save_downloading">Downloading video…</string>
+    <string name="video_save_downloading_progress">Downloading video… %1$d%%</string>
     <string name="message_slide_to_cancel">Slide to cancel</string>
     <string name="message_voice_record_failed">Could not start voice recording.</string>
     <string name="message_voice_record_too_short">Recording is too short.</string>
@@ -1773,4 +1779,5 @@
 
     <string name="message_toast_save_success">Save successfully</string>
     <string name="message_toast_save_failed">Save failed</string>
+    <string name="message_toast_share_failed">Share failed</string>
 </resources>

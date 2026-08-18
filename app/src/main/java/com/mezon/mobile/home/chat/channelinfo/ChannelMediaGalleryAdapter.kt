@@ -384,8 +384,42 @@ internal class ChannelMediaGalleryAdapter(
                 }
 
         when {
-            tapped.isVideo ->
-                VideoPlayerDialog(ctx).play(url)
+            tapped.isVideo -> {
+                val member = members()[tapped.uploaderId]
+                val senderName = if (tapped.uploaderId == anonymousUserId) {
+                    ctx.getString(com.mezon.mobile.R.string.advanced_anonymous)
+                } else if (isDm) {
+                    member?.displayName?.takeIf { it.isNotBlank() }
+                        ?: member?.username?.takeIf { it.isNotBlank() }
+                        ?: "User"
+                } else {
+                    member?.clanNick?.takeIf { it.isNotBlank() }
+                        ?: member?.displayName?.takeIf { it.isNotBlank() }
+                        ?: member?.username?.takeIf { it.isNotBlank() }
+                        ?: "User"
+                }
+                val senderAvatar = if (isDm) {
+                    member?.avatarUrl
+                } else {
+                    member?.clanAvatar?.takeIf { it.isNotBlank() } ?: member?.avatarUrl
+                }
+                VideoPlayerDialog(ctx).play(
+                    VideoPlayerDialog.VideoItem(
+                        url = url,
+                        senderName = senderName,
+                        senderAvatarUrl = senderAvatar,
+                        timestamp = tapped.createTimeSeconds.toLong(),
+                        uploaderId = tapped.uploaderId,
+                        thumbnailUrl = tapped.thumbnail,
+                        filename = tapped.filename,
+                        mimeType = tapped.filetype,
+                        width = tapped.width,
+                        height = tapped.height,
+                        size = tapped.size,
+                        duration = tapped.duration
+                    )
+                )
+            }
 
             tapped.filetype.contains("gif", true) -> {
                 val item = orderedImages.firstOrNull { it.url == url } ?: PhotoViewer.GalleryItem(url, "User", null, 0)

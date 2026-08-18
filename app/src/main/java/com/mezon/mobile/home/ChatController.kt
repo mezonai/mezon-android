@@ -1733,7 +1733,7 @@ class ChatController @Inject constructor(
         contentResolver: android.content.ContentResolver,
         markdownMarkers: List<MarkdownMarker>? = null,
         parentId: Long = 0L
-    ) {
+    ): Long {
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
         val baseContent = when {
@@ -1827,6 +1827,68 @@ class ChatController @Inject constructor(
                     NotificationCenter.pendingMessageError, channelId, tempId
                 )
             }
+        }
+        return tempId
+    }
+
+    fun shareExistingMediaToChannel(
+        channelId: Long,
+        clanId: Long,
+        channelType: Int,
+        isChannelPrivate: Boolean,
+        text: String,
+        attachment: AttachmentInfo,
+        markdownMarkers: List<MarkdownMarker>? = null,
+        parentId: Long = 0L,
+        onComplete: (ok: Boolean) -> Unit
+    ) {
+        if (attachment.url.isBlank()) {
+            appScope.launch(Dispatchers.Main) { onComplete(false) }
+            return
+        }
+        val mode = channelTypeToStreamMode(channelType)
+        val isPublic = !isChannelPrivate
+        val content = when {
+            text.isBlank() -> PresignFinishContent.emptyOutgoingContent()
+            !markdownMarkers.isNullOrEmpty() -> buildTextContentWithEmojis(text, null, null, markdownMarkers)
+            else -> buildTextContent(text)
+        }
+        val protoAttachment = messageAttachment {
+            url = attachment.url
+            filename = attachment.filename
+            filetype = attachment.filetype
+            size = attachment.size
+            width = attachment.width
+            height = attachment.height
+            if (attachment.thumb.isNotEmpty()) thumbnail = attachment.thumb
+            if (attachment.duration != 0) duration = attachment.duration
+        }
+        appScope.launch(ioDispatcher) {
+            val ok = try {
+                runCatching {
+                    joinChannelOnSocket(channelId, clanId, channelType, isChannelPrivate, parentId)
+                }
+                sessionManager.withAutoRefresh { session ->
+                    ensureActiveArchivedThreadIfNeeded(session.apiUrl, session.token, channelId, clanId, channelType)
+                    val request = channelMessageSend {
+                        this.clanId = clanId
+                        this.channelId = channelId
+                        this.mode = mode
+                        this.isPublic = isPublic
+                        this.content = content
+                        attachments.add(protoAttachment)
+                        if (isAnonymousSend(clanId)) anonymousMessage = true
+                    }
+                    channelSend(session.apiUrl, session.token, request)
+                    markForwardTargetUsed(channelId, channelType)
+                }
+                true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                false
+            }
+            withContext(Dispatchers.Main) { onComplete(ok) }
         }
     }
 

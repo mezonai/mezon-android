@@ -2071,7 +2071,28 @@ open class ChatFragment : BaseFragment() {
                 val thumbBmp = cell.getMediaBitmap(attachmentIndex)
 
                 if (isVideo) {
-                    VideoPlayerDialog(context).play(url)
+                    val uploaderId = msg.senderId
+                    val (senderName, senderAvatarUrl) = resolveGallerySender(
+                        uploaderId,
+                        msg.senderName,
+                        msg.senderAvatar
+                    )
+                    VideoPlayerDialog(context).play(
+                        VideoPlayerDialog.VideoItem(
+                            url = url,
+                            senderName = senderName,
+                            senderAvatarUrl = senderAvatarUrl,
+                            timestamp = msg.timestampSeconds,
+                            uploaderId = uploaderId,
+                            thumbnailUrl = att.thumb,
+                            filename = att.filename,
+                            mimeType = att.filetype,
+                            width = att.width,
+                            height = att.height,
+                            size = att.size,
+                            duration = att.duration
+                        )
+                    )
                 } else {
                     val seed = allMedia.filter { !it.filetype.startsWith("video/") && it.url.isNotEmpty() }.map { it.url }
                     openChannelPhotoViewer(context, url, thumbBmp, seed, msg)
