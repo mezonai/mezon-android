@@ -68,6 +68,9 @@ import com.mezon.mobile.home.chat.HashtagSpan
 import com.mezon.mobile.home.chat.ImageClipboardCoordinator
 import com.mezon.mobile.home.chat.MediaController
 import com.mezon.mobile.home.chat.MessageEntity
+import com.mezon.mobile.home.chat.isGifAttachment
+import com.mezon.mobile.home.chat.isImageAttachmentType
+import com.mezon.mobile.home.chat.isVideoAttachmentType
 import com.mezon.mobile.home.chat.PasteImagePasteTooltipContent
 import com.mezon.mobile.home.chat.StickerItem
 import com.mezon.mobile.home.chat.ThumbnailCache
@@ -792,10 +795,9 @@ class CreateThreadFragment : BaseFragment() {
         var fil = 0
         for (a in all) {
             when {
-                a.filetype.startsWith("image/", ignoreCase = true) ||
-                    a.filetype.contains("gif", ignoreCase = true) ||
-                    a.url.contains("tenor.com", ignoreCase = true) -> img++
-                a.filetype.startsWith("video/", ignoreCase = true) -> vid++
+                isGifAttachment(a.filetype, a.filename, a.url) ||
+                    isImageAttachmentType(a.filetype) -> img++
+                isVideoAttachmentType(a.filetype) -> vid++
                 else -> fil++
             }
         }

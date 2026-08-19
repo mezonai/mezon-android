@@ -8,6 +8,8 @@ import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.home.chat.AttachmentInfo
 import com.mezon.mobile.home.chat.MessageEntity
+import com.mezon.mobile.home.chat.isImageAttachmentType
+import com.mezon.mobile.home.chat.isVideoAttachmentType
 import com.mezon.mobile.network.ApiCacheTracker
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.network.apiCacheKey
@@ -34,7 +36,7 @@ data class ChannelGalleryMediaItem(
     val uploaderId: Long,
     val messageId: Long
 ) {
-    val isVideo: Boolean get() = filetype.lowercase(Locale.US).startsWith("video/")
+    val isVideo: Boolean get() = isVideoAttachmentType(filetype)
 }
 
 private class ChannelGalleryState {
@@ -401,9 +403,8 @@ private fun MessageEntity.toGalleryMediaItems(): List<ChannelGalleryMediaItem> {
 }
 
 private fun AttachmentInfo.toGalleryMediaItem(message: MessageEntity, index: Int): ChannelGalleryMediaItem? {
-    val ft = filetype.lowercase(Locale.US)
-    val image = ft.startsWith("image/")
-    val video = ft.startsWith("video/")
+    val image = isImageAttachmentType(filetype)
+    val video = isVideoAttachmentType(filetype)
     if (!image && !video) return null
 
     val u = url.trim()
@@ -422,9 +423,8 @@ private fun AttachmentInfo.toGalleryMediaItem(message: MessageEntity, index: Int
 }
 
 private fun ChannelAttachment.toFilteredMediaOrNull(): ChannelGalleryMediaItem? {
-    val ft = filetype.lowercase(Locale.US)
-    val image = ft.startsWith("image/")
-    val video = ft.startsWith("video/")
+    val image = isImageAttachmentType(filetype)
+    val video = isVideoAttachmentType(filetype)
     if (!image && !video) return null
 
     val u = url

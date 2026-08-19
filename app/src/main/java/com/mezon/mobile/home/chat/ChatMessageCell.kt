@@ -1017,13 +1017,12 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             receiver.setCenterCrop(true)
             val isStickerAttachment = att.filetype.equals("sticker", ignoreCase = true) ||
                 att.url.contains("/stickers/", ignoreCase = true)
-            val isAnimated = att.filetype.contains("gif", true) ||
-                att.url.contains("tenor.com", true) ||
+            val isAnimated = isGifAttachment(att.filetype, att.filename, att.url) ||
                 isStickerAttachment
             applyMediaCornerRadius(receiver)
             receiver.setRequestedSize(pw, ph)
             val isLocalUri = att.url.startsWith("content://") || att.url.startsWith("file://")
-            val isVideo = att.filetype.startsWith("video/", true)
+            val isVideo = isVideoAttachmentType(att.filetype)
             slotIsVideo[i] = isVideo
             slotPresignPending[i] = msg.isPresignAttachmentPending(att.url, filter, snapshot.allPresignFinished)
             slotUploadPending[i] = !slotPresignPending[i] && msg.isAttachmentUploadPending(att.url, filter)

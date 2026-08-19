@@ -2067,13 +2067,15 @@ open class ChatFragment : BaseFragment() {
                 val url = att.url
                 if (url.isEmpty()) return
 
-                val isVideo = att.filetype.startsWith("video/")
+                val isVideo = isVideoAttachmentType(att.filetype)
                 val thumbBmp = cell.getMediaBitmap(attachmentIndex)
 
                 if (isVideo) {
                     VideoPlayerDialog(context).play(url)
                 } else {
-                    val seed = allMedia.filter { !it.filetype.startsWith("video/") && it.url.isNotEmpty() }.map { it.url }
+                    val seed = allMedia.filter {
+                        !isVideoAttachmentType(it.filetype) && it.url.isNotEmpty()
+                    }.map { it.url }
                     openChannelPhotoViewer(context, url, thumbBmp, seed, msg)
                 }
             }
@@ -6498,8 +6500,9 @@ open class ChatFragment : BaseFragment() {
         val showEditMessage = msg.canEditMessage(userId)
         val allMedia = msg.allImageAttachments
         val hasMedia = allMedia.isNotEmpty() ||
-            msg.attachmentUrl.isNotEmpty() && (msg.attachmentFiletype.startsWith("image/") || msg.attachmentFiletype.startsWith("video/"))
-        val hasImage = allMedia.any { it.filetype.startsWith("image/") }
+            msg.attachmentUrl.isNotEmpty() &&
+            (isImageAttachmentType(msg.attachmentFiletype) || isVideoAttachmentType(msg.attachmentFiletype))
+        val hasImage = allMedia.any { isImageAttachmentType(it.filetype) }
         val allowFwd = !msg.isPollMessage
 
         val sheet = MessageActionBottomSheet(

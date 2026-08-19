@@ -14,6 +14,9 @@ import com.mezon.mobile.home.chat.canEditMessage
 import com.mezon.mobile.home.chat.ForwardDestination
 import com.mezon.mobile.home.chat.applyReactionEvent
 import com.mezon.mobile.home.chat.mergeChannelContentMentionsAndRefs
+import com.mezon.mobile.home.chat.isGifAttachment
+import com.mezon.mobile.home.chat.isImageAttachmentType
+import com.mezon.mobile.home.chat.isVideoAttachmentType
 import com.mezon.mobile.home.chat.toMessageEntity
 import com.mezon.mobile.network.ApiCacheTracker
 import com.mezon.mobile.network.CODE_CHAT_REMOVE
@@ -2296,7 +2299,7 @@ class ChatController @Inject constructor(
         val attachment = messageAttachment {
             this.filename = item.filename
             this.url = presigned.cdnUrl
-            this.filetype = item.mimeType
+            this.filetype = AttachmentUploader.attachmentTypeForUpload(item.mimeType)
             this.size = item.size.toInt()
             this.width = item.width
             this.height = item.height
@@ -2333,7 +2336,7 @@ class ChatController @Inject constructor(
         val attachment = messageAttachment {
             this.filename = item.filename
             this.url = presigned.cdnUrl
-            this.filetype = item.mimeType
+            this.filetype = AttachmentUploader.attachmentTypeForUpload(item.mimeType)
             this.size = fileSize.toInt()
             this.width = item.width
             this.height = item.height
@@ -2512,7 +2515,7 @@ class ChatController @Inject constructor(
         }
         val firstItem = allItems.first()
         val messageType = when {
-            uploadedByIndex.getOrNull(0) != null -> resolveOptimisticTypeFromMime(uploadedByIndex[0]!!.filetype)
+            uploadedByIndex.getOrNull(0) != null -> resolveOptimisticTypeFromAttachment(uploadedByIndex[0]!!)
             else -> resolveOptimisticType(firstItem)
         }
         val extraArr = org.json.JSONArray()
@@ -2542,7 +2545,7 @@ class ChatController @Inject constructor(
         val tail = if (uploaded.size > 1) uploaded.subList(1, uploaded.size) else emptyList()
         val firstItem = pendingLocal.firstOrNull()
         val messageType = when {
-            first != null -> resolveOptimisticTypeFromMime(first.filetype)
+            first != null -> resolveOptimisticTypeFromAttachment(first)
             firstItem != null -> resolveOptimisticType(firstItem)
             else -> MessageEntity.TYPE_TEXT
         }
@@ -2573,12 +2576,11 @@ class ChatController @Inject constructor(
         val messageType: Int,
     )
 
-    private fun resolveOptimisticTypeFromMime(mimeType: String): Int {
-        val ft = mimeType.lowercase()
+    private fun resolveOptimisticTypeFromAttachment(attachment: MessageAttachment): Int {
         return when {
-            ft.startsWith("image/gif") -> MessageEntity.TYPE_GIF
-            ft.startsWith("image/") -> MessageEntity.TYPE_PHOTO
-            ft.startsWith("video/") -> MessageEntity.TYPE_VIDEO
+            isGifAttachment(attachment.filetype, attachment.filename, attachment.url) -> MessageEntity.TYPE_GIF
+            isImageAttachmentType(attachment.filetype) -> MessageEntity.TYPE_PHOTO
+            isVideoAttachmentType(attachment.filetype) -> MessageEntity.TYPE_VIDEO
             else -> MessageEntity.TYPE_FILE
         }
     }

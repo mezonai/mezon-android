@@ -262,12 +262,11 @@ private fun PinMessageData.toMessageEntity(): MessageEntity {
     val type = when {
         pollCode == MessageEntity.CODE_POLL -> MessageEntity.TYPE_TEXT
         first == null || first.url.isEmpty() -> MessageEntity.TYPE_TEXT
-        first.filetype.startsWith("image/gif", true) -> MessageEntity.TYPE_GIF
+        isGifAttachment(first.filetype, first.filename, first.url) -> MessageEntity.TYPE_GIF
         first.filetype.equals("sticker", true) -> MessageEntity.TYPE_GIF
-        first.url.contains("tenor.com", true) -> MessageEntity.TYPE_GIF
         first.url.contains("/stickers/") -> MessageEntity.TYPE_GIF
-        first.filetype.startsWith("image/", true) -> MessageEntity.TYPE_PHOTO
-        first.filetype.startsWith("video/", true) -> MessageEntity.TYPE_VIDEO
+        isImageAttachmentType(first.filetype) -> MessageEntity.TYPE_PHOTO
+        isVideoAttachmentType(first.filetype) -> MessageEntity.TYPE_VIDEO
         first.url.isNotEmpty() -> MessageEntity.TYPE_FILE
         else -> MessageEntity.TYPE_TEXT
     }
