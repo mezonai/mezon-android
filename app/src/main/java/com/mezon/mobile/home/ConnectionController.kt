@@ -23,7 +23,6 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
@@ -77,7 +76,6 @@ class ConnectionController @Inject constructor(
         appScope.launch { connectSocket() }
         appScope.launch { joinClanOnConnected() }
         appScope.launch { observeSessionExpired() }
-        appScope.launch { observeNetworkRestore() }
         appScope.launch { observeSocketReconnect() }
     }
 
@@ -95,7 +93,7 @@ class ConnectionController @Inject constructor(
             try { sessionManager.requireValidSession() }
             catch (e: java.io.IOException) { return@launch }
             catch (e: Exception) { Log.e(TAG, "Failed to refresh session", e); return@launch }
-            mezonSocket.reconnectIfNeeded()
+            mezonSocket.reconnectNow("app foreground")
         }
     }
 
@@ -121,9 +119,9 @@ class ConnectionController @Inject constructor(
             val before = mezonSocket.connectionState.value
             Log.i(
                 TAG,
-                "reconnectSocketForOfferSignaling: session OK, socketState=$before → reconnectIfNeeded (no-op unless DISCONNECTED)"
+                "reconnectSocketForOfferSignaling: session OK, socketState=$before → reconnectNow (no-op unless DISCONNECTED)"
             )
-            mezonSocket.reconnectIfNeeded()
+            mezonSocket.reconnectNow("incoming call offer")
         }
     }
 
@@ -176,7 +174,7 @@ class ConnectionController @Inject constructor(
             if (session != null) {
                 val s = sessionManager.ensureFreshSession() ?: return@collect
                 Log.d(TAG, "Ensuring WebSocket connection... wsUrl=${s.wsUrl}")
-                mezonSocket.connect(s.wsUrl, s.token)
+                mezonSocket.connect(s.wsUrl, s.token, s.tcpUrl)
             } else {
                 mezonSocket.disconnect()
                 if (StartupCache.hasSession) {
@@ -209,15 +207,6 @@ class ConnectionController @Inject constructor(
         mezonSocket.reconnected.collect {
             Log.d(TAG, "Socket reconnected — triggering full refresh")
             refreshOnReconnect()
-        }
-    }
-
-    private suspend fun observeNetworkRestore() {
-        networkMonitor.isOnline.collectLatest { online ->
-            if (online && mezonSocket.connectionState.value == ConnectionState.DISCONNECTED) {
-                Log.d(TAG, "Network restored — triggering reconnect")
-                mezonSocket.reconnectIfNeeded()
-            }
         }
     }
 

@@ -256,6 +256,7 @@ data class AuthSessionResponse(
     @SerialName("api_url") val apiUrl: String = "",
     @SerialName("ws_url") val wsUrl: String = "",
     @SerialName("id_token") val idToken: String = "",
+    @SerialName("tcp_url") val tcpUrl: String = "",
     val username: String? = null,
     val created: Boolean? = null
 )

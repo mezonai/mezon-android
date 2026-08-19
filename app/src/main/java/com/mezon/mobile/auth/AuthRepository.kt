@@ -48,7 +48,8 @@ class AuthRepository @Inject constructor(
                     apiUrl = response.apiUrl,
                     wsUrl = response.wsUrl,
                     userId = response.userId,
-                    idToken = response.idToken
+                    idToken = response.idToken,
+                    tcpUrl = response.tcpUrl
                 )
                 sessionManager.clearSession()
                 walletCacheStore.clear()
@@ -96,7 +97,8 @@ class AuthRepository @Inject constructor(
                     apiUrl = session.apiUrl,
                     wsUrl = session.wsUrl,
                     userId = session.userId,
-                    idToken = session.idToken
+                    idToken = session.idToken,
+                    tcpUrl = session.tcpUrl
                 )
                 sessionManager.clearSession()
                 StartupCache.needsUsernameSetup = session.created == true
@@ -123,6 +125,7 @@ class AuthRepository @Inject constructor(
                     userId = userIdStr,
                     idToken = session.idToken.ifEmpty { current.idToken },
                     isRemember = current.isRemember,
+                    tcpUrl = current.tcpUrl,
                 )
                 walletCacheStore.clear()
                 sessionManager.saveSession(merged)
