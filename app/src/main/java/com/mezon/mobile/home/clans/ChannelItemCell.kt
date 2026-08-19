@@ -43,6 +43,8 @@ class ChannelItemCell(
         private val ACTIVE_INSET = LayoutHelper.dp(2).toFloat()
         private val BADGE_GAP = LayoutHelper.dp(4)
         private val BADGE_TEXT_PAD = LayoutHelper.dp(8).toFloat()
+        private val EVENT_ICON_UPCOMING_STATE = intArrayOf(android.R.attr.state_selected)
+        private val EVENT_ICON_ONGOING_STATE = intArrayOf(android.R.attr.state_activated)
 
         fun resolveChannelIcon(
             type: Int,
@@ -67,6 +69,7 @@ class ChannelItemCell(
         private set
     private var isActive = false
     private var voiceActive = false
+    private var eventStatus = ClanEventStatus.CREATED
     private var truncatedName: String = ""
     private var truncatedNameWidth = -1
     private var currentIconDrawable: Drawable? = null
@@ -75,6 +78,7 @@ class ChannelItemCell(
     private var currentIconAgeRestricted: Boolean = false
     private var cachedIconColorFilter: PorterDuffColorFilter? = null
     private var cachedIconColor: Int = 0
+    private val eventIconDrawable by lazy { MezonIcon.calendarIcon.getDrawable(context) }
     private val voiceActiveColorFilter = PorterDuffColorFilter(VOICE_ACTIVE_GREEN, PorterDuff.Mode.SRC_IN)
     private val badgeRectF = RectF()
 
@@ -82,15 +86,32 @@ class ChannelItemCell(
     private val paddingHPx = LayoutHelper.dp(16)
     private val iconSizePx = LayoutHelper.dp(12)
     private val iconMarginPx = LayoutHelper.dp(8)
+    private val eventIconSizePx = LayoutHelper.dp(16)
+    private val eventIconLeadingMarginPx = LayoutHelper.dp(6)
+    private val eventIconTrailingMarginPx = LayoutHelper.dp(8)
     private val badgeSizePx = LayoutHelper.dp(20)
     private val unreadDotRadius = LayoutHelper.dp(3f).toFloat()
 
 
 
-    fun bind(channel: ClanChannelEntity, active: Boolean, voiceActive: Boolean = false) {
+    fun bind(
+        channel: ClanChannelEntity,
+        active: Boolean,
+        voiceActive: Boolean = false,
+        eventStatus: Int? = null,
+    ) {
         this.channel = channel
         this.isActive = active
         this.voiceActive = voiceActive
+        this.eventStatus = normalizeEventStatus(eventStatus)
+        truncatedName = ""
+        invalidate()
+    }
+
+    fun setEventStatus(eventStatus: Int?) {
+        val normalized = normalizeEventStatus(eventStatus)
+        if (this.eventStatus == normalized) return
+        this.eventStatus = normalized
         truncatedName = ""
         invalidate()
     }
@@ -192,7 +213,26 @@ class ChannelItemCell(
         icon.setBounds(iconLeft, iconTop, iconLeft + iconSizePx, iconTop + iconSizePx)
         icon.draw(canvas)
 
-        val textX = paddingHPx + iconSizePx + iconMarginPx
+        val hasChannelEvent = eventStatus == ClanEventStatus.UPCOMING || eventStatus == ClanEventStatus.ONGOING
+        val textX = if (hasChannelEvent) {
+            val eventIconLeft = paddingHPx + iconSizePx + eventIconLeadingMarginPx
+            eventIconDrawable.state = if (eventStatus == ClanEventStatus.ONGOING) {
+                EVENT_ICON_ONGOING_STATE
+            } else {
+                EVENT_ICON_UPCOMING_STATE
+            }
+            eventIconDrawable.alpha = if (isMutedVisual) (255 * MUTED_CONTENT_ALPHA).toInt() else 255
+            eventIconDrawable.setBounds(
+                eventIconLeft,
+                ((height - eventIconSizePx) / 2f).toInt(),
+                eventIconLeft + eventIconSizePx,
+                ((height + eventIconSizePx) / 2f).toInt(),
+            )
+            eventIconDrawable.draw(canvas)
+            eventIconLeft + eventIconSizePx + eventIconTrailingMarginPx
+        } else {
+            paddingHPx + iconSizePx + iconMarginPx
+        }
         val badgeWidth = if (showMentionBadge) badgeSizePx + BADGE_GAP else 0
         val availW = width - textX - paddingHPx - badgeWidth
 
@@ -220,6 +260,11 @@ class ChannelItemCell(
     private fun withAlpha(color: Int, alphaFraction: Float): Int {
         val alpha = (255f * alphaFraction).toInt().coerceIn(0, 255)
         return color and 0x00FFFFFF or (alpha shl 24)
+    }
+
+    private fun normalizeEventStatus(status: Int?): Int = when (status) {
+        ClanEventStatus.UPCOMING, ClanEventStatus.ONGOING -> status
+        else -> ClanEventStatus.CREATED
     }
 
     private fun resolveIconDrawable(type: Int, isPrivate: Boolean, isAgeRestricted: Boolean = false): Drawable {

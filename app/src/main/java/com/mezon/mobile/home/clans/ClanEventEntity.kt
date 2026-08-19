@@ -75,3 +75,48 @@ fun EventManagement.toClanEventEntity(): ClanEventEntity = ClanEventEntity(
     repeatType = repeatType,
     isPrivate = isPrivate,
 )
+
+internal fun channelEventStatuses(events: List<ClanEventEntity>): Map<Long, Int> {
+    val statuses = HashMap<Long, Int>()
+    for (event in events) {
+        if (event.channelId == 0L) continue
+        when (event.eventStatus) {
+            ClanEventStatus.ONGOING -> statuses[event.channelId] = ClanEventStatus.ONGOING
+            ClanEventStatus.UPCOMING -> if (statuses[event.channelId] != ClanEventStatus.ONGOING) {
+                statuses[event.channelId] = ClanEventStatus.UPCOMING
+            }
+        }
+    }
+    return statuses
+}
+
+internal data class ClanEventStatusUpdate(
+    val found: Boolean,
+    val changed: Boolean,
+)
+
+internal fun updateClanEventStatus(
+    events: MutableList<ClanEventEntity>,
+    eventId: Long,
+    eventStatus: Int,
+    startTimeSeconds: Int,
+): ClanEventStatusUpdate {
+    val index = events.indexOfFirst { it.id == eventId }
+    if (index < 0) return ClanEventStatusUpdate(found = false, changed = false)
+
+    val event = events[index]
+    val updatedStartTime = if (eventStatus == ClanEventStatus.COMPLETED && startTimeSeconds != 0) {
+        startTimeSeconds
+    } else {
+        event.startTimeSeconds
+    }
+    if (event.eventStatus == eventStatus && event.startTimeSeconds == updatedStartTime) {
+        return ClanEventStatusUpdate(found = true, changed = false)
+    }
+
+    events[index] = event.copy(
+        eventStatus = eventStatus,
+        startTimeSeconds = updatedStartTime,
+    )
+    return ClanEventStatusUpdate(found = true, changed = true)
+}

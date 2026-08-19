@@ -11,9 +11,14 @@ import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.home.profile.AccountController
 import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.session.SessionManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
@@ -36,6 +41,9 @@ class ClanEventController @Inject constructor(
     private val loadErrorsByClan = ConcurrentHashMap<Long, String>()
     private val loadingClanIds = ConcurrentHashMap.newKeySet<Long>()
     private val cacheLock = Any()
+    private val socketVersionsByClan = HashMap<Long, Long>()
+    private val loadJobsLock = Any()
+    private val loadJobsByClan = HashMap<Long, Job>()
 
     init {
         appScope.launch { observeClanEventCreated() }
@@ -45,7 +53,16 @@ class ClanEventController @Inject constructor(
         socketEventDispatcher.clanEventCreated.collect {
             val clanId = it.clanId
             if (clanId != 0L) {
-                loadEvents(clanId, force = true)
+                val statusApplied = applyEventStatusUpdate(
+                    clanId = clanId,
+                    eventId = it.eventId,
+                    eventStatus = it.eventStatus,
+                    startTimeSeconds = it.startTimeSeconds,
+                    action = it.action,
+                )
+                if (!statusApplied || it.eventStatus == ClanEventStatus.COMPLETED) {
+                    loadEvents(clanId, force = true)
+                }
             }
         }
     }
@@ -58,6 +75,10 @@ class ClanEventController @Inject constructor(
         eventsByClan[clanId]?.firstOrNull { it.id == eventId }
     }
 
+    fun getChannelEventStatuses(clanId: Long): Map<Long, Int> = synchronized(cacheLock) {
+        channelEventStatuses(eventsByClan[clanId].orEmpty())
+    }
+
     fun getLoadError(clanId: Long): String? = loadErrorsByClan[clanId]
 
     fun getChannel(clanId: Long, channelId: Long): ClanChannelEntity? {
@@ -66,6 +87,53 @@ class ClanEventController @Inject constructor(
     }
 
     fun isLoading(clanId: Long): Boolean = loadingClanIds.contains(clanId)
+
+    private fun applyEventStatusUpdate(
+        clanId: Long,
+        eventId: Long,
+        eventStatus: Int,
+        startTimeSeconds: Int,
+        action: Int,
+    ): Boolean {
+        if (action != EVENT_STATUS_UPDATE_ACTION ||
+            (eventStatus != ClanEventStatus.UPCOMING &&
+                eventStatus != ClanEventStatus.ONGOING &&
+                eventStatus != ClanEventStatus.COMPLETED)
+        ) {
+            return false
+        }
+        var statusChanged = false
+        val eventFound = synchronized(cacheLock) {
+            val events = eventsByClan[clanId]
+            if (events == null) {
+                markSocketUpdateLocked(clanId)
+                return@synchronized false
+            }
+            val update = updateClanEventStatus(
+                events = events,
+                eventId = eventId,
+                eventStatus = eventStatus,
+                startTimeSeconds = startTimeSeconds,
+            )
+            if (!update.found) {
+                markSocketUpdateLocked(clanId)
+                return@synchronized false
+            }
+
+            markSocketUpdateLocked(clanId)
+            if (update.changed) {
+                statusChanged = true
+            }
+            true
+        }
+        if (statusChanged) {
+            notificationCenter.postNotificationOnMainThread(
+                NotificationCenter.clanEventsDidLoad,
+                clanId,
+            )
+        }
+        return eventFound
+    }
 
     fun visibleEvents(clanId: Long, currentUserId: Long): List<ClanEventEntity> {
         val textChannelIds = channelController.getChannels(clanId)
@@ -81,44 +149,95 @@ class ClanEventController @Inject constructor(
     fun loadEvents(clanId: Long, force: Boolean = false) {
         if (clanId == 0L) return
         val cacheKey = apiCacheKey("listEvents", clanId)
-        appScope.launch(ioDispatcher) {
-            if (!force && apiCacheTracker.shouldCall(cacheKey) == ApiCacheTracker.ShouldCall.SKIP) {
-                val cached = synchronized(cacheLock) { eventsByClan[clanId] }
-                if (!cached.isNullOrEmpty()) {
-                    notificationCenter.postNotificationOnMainThread(
-                        NotificationCenter.clanEventsDidLoad,
-                        clanId,
-                    )
-                    return@launch
+        if (!force && apiCacheTracker.shouldCall(cacheKey) == ApiCacheTracker.ShouldCall.SKIP) {
+            val hasCachedResult = synchronized(cacheLock) { eventsByClan.containsKey(clanId) }
+            if (hasCachedResult) {
+                notificationCenter.postNotificationOnMainThread(
+                    NotificationCenter.clanEventsDidLoad,
+                    clanId,
+                )
+                return
+            }
+        }
+
+        lateinit var loadJob: Job
+        synchronized(loadJobsLock) {
+            val previousJob = loadJobsByClan[clanId]
+            if (!force && previousJob?.isActive == true) return
+            previousJob?.cancel()
+            val socketVersionAtStart = synchronized(cacheLock) {
+                socketVersionsByClan[clanId] ?: 0L
+            }
+            loadJob = appScope.launch(ioDispatcher, start = CoroutineStart.LAZY) {
+                performLoadEvents(clanId, cacheKey, socketVersionAtStart)
+            }
+            loadJobsByClan[clanId] = loadJob
+            loadingClanIds.add(clanId)
+        }
+        loadJob.start()
+    }
+
+    private suspend fun performLoadEvents(clanId: Long, cacheKey: String, socketVersionAtStart: Long) {
+        val currentJob = currentCoroutineContext().job
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.clanEventsDidLoad,
+            clanId,
+        )
+        try {
+            val list = sessionManager.withAutoRefresh { session ->
+                api.listEvents(session.apiUrl, session.token, clanId)
+            }
+            val mapped = ArrayList(list.map { it.toClanEventEntity() })
+            val applied = synchronized(loadJobsLock) {
+                if (loadJobsByClan[clanId] !== currentJob) {
+                    false
+                } else {
+                    synchronized(cacheLock) {
+                        if ((socketVersionsByClan[clanId] ?: 0L) != socketVersionAtStart) {
+                            false
+                        } else {
+                            eventsByClan[clanId] = mapped
+                            true
+                        }
+                    }
                 }
             }
-            loadingClanIds.add(clanId)
-            notificationCenter.postNotificationOnMainThread(
-                NotificationCenter.clanEventsDidLoad,
-                clanId,
-            )
-            try {
-                val list = sessionManager.withAutoRefresh { session ->
-                    api.listEvents(session.apiUrl, session.token, clanId)
-                }
-                val mapped = ArrayList(list.map { it.toClanEventEntity() })
-                synchronized(cacheLock) {
-                    eventsByClan[clanId] = mapped
-                }
+            if (applied) {
                 loadErrorsByClan.remove(clanId)
                 apiCacheTracker.markCalled(cacheKey)
-            } catch (e: Exception) {
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            val isLatestLoad = synchronized(loadJobsLock) {
+                loadJobsByClan[clanId] === currentJob
+            }
+            if (isLatestLoad) {
                 Log.w(TAG, "loadEvents failed clanId=$clanId", e)
                 loadErrorsByClan[clanId] = e.message?.takeIf { it.isNotBlank() }
                     ?: "Failed to load events"
-            } finally {
-                loadingClanIds.remove(clanId)
+            }
+        } finally {
+            val finishedLatestLoad = synchronized(loadJobsLock) {
+                if (loadJobsByClan[clanId] === currentJob) {
+                    loadJobsByClan.remove(clanId)
+                    loadingClanIds.remove(clanId)
+                    true
+                } else {
+                    false
+                }
+            }
+            if (finishedLatestLoad) {
                 notificationCenter.postNotificationOnMainThread(
                     NotificationCenter.clanEventsDidLoad,
                     clanId,
                 )
             }
         }
+    }
+
+    private fun markSocketUpdateLocked(clanId: Long) {
+        socketVersionsByClan[clanId] = (socketVersionsByClan[clanId] ?: 0L) + 1L
     }
 
     fun createEvent(
@@ -328,5 +447,6 @@ class ClanEventController @Inject constructor(
 
     companion object {
         private const val TAG = "ClanEventController"
+        private const val EVENT_STATUS_UPDATE_ACTION = 0
     }
 }

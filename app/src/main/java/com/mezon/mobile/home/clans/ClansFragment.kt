@@ -207,6 +207,15 @@ class ClansFragment : BaseFragment() {
                 clanEventSheet?.loadClanEvent()
             }
         }
+        observe(NotificationCenter.clanEventsDidLoad) { _, _, args ->
+            if (fragmentView == null || isPaused || listFrozen) return@observe
+            val clanId = args.firstOrNull() as? Long ?: return@observe
+            if (clanId == clansController.selectedClanId.value) {
+                channelListView.updateChannelEventStatuses(
+                    clanEventController.getChannelEventStatuses(clanId),
+                )
+            }
+        }
         observe(NotificationCenter.dialogsNeedReload) { _, _, _ ->
             if (fragmentView == null || isPaused || listFrozen) return@observe
             updateServerRail()
@@ -231,6 +240,7 @@ class ClansFragment : BaseFragment() {
             if (fragmentView == null || listFrozen) return@observe
             val clanId = clansController.selectedClanId.value
             if (clanId == 0L) return@observe
+            clanEventController.loadEvents(clanId, force = true)
             voiceController.fetchVoiceChannelMembers(clanId, noCache = true)
             streamingController.fetchStreamChannelMembers(clanId, noCache = true)
             syncVoiceMembersUi()
@@ -262,6 +272,7 @@ class ClansFragment : BaseFragment() {
             updateServerRail()
             if (clanId != 0L) {
                 userClanController.loadClanMembers(clanId)
+                clanEventController.loadEvents(clanId)
                 updateChannelList()
             } else if (!isPaused && clansController.getClanCount() == 0) {
                 onSwitchToMessages?.invoke()
@@ -492,6 +503,7 @@ class ClansFragment : BaseFragment() {
             val selectedId = clansController.selectedClanId.value
             if (selectedId != 0L) {
                 updateChannelList()
+                clanEventController.loadEvents(selectedId)
                 userClanController.loadClanMembers(selectedId)
             }
         }
@@ -774,6 +786,12 @@ class ClansFragment : BaseFragment() {
         super.onResume()
         ensureVoiceMembersLoaded()
         updateMemberCount()
+        val clanId = clansController.selectedClanId.value
+        if (clanId != 0L && ::channelListView.isInitialized) {
+            channelListView.updateChannelEventStatuses(
+                clanEventController.getChannelEventStatuses(clanId),
+            )
+        }
     }
 
     override fun onBecomeFullyVisible() {
@@ -1173,7 +1191,7 @@ class ClansFragment : BaseFragment() {
         val clanId = clansController.selectedClanId.value
         val showEmptyCategories = showEmptyCategoryStore.isEnabled(clanId)
         val sections = channelController.getChannelSections(clanId, showEmptyCategories)
-        channelListView.bind(clanId, sections)
+        channelListView.bind(clanId, sections, clanEventController.getChannelEventStatuses(clanId))
         if (clanId != lastVoiceFetchClanId) {
             lastVoiceFetchClanId = clanId
             fragmentView?.post {

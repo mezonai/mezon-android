@@ -49,6 +49,7 @@ class ChannelListView(
     private var boundClanId: Long = 0L
     private var currentSections: List<ChannelSection> = emptyList()
     private var currentChannelApps: List<ChannelAppUiModel> = emptyList()
+    private var eventStatusesByChannel: Map<Long, Int> = emptyMap()
     private var onChannelAppClick: ((ChannelAppUiModel) -> Unit)? = null
     private var onChannelAppViewAllClick: (() -> Unit)? = null
 
@@ -158,10 +159,14 @@ class ChannelListView(
         submitRowsGated(newRows)
     }
 
-    fun bind(clanId: Long, sections: List<ChannelSection>) {
-        if (clanId != boundClanId) {
+    fun bind(clanId: Long, sections: List<ChannelSection>, eventStatuses: Map<Long, Int>) {
+        val clanChanged = clanId != boundClanId
+        if (clanChanged) {
             boundClanId = clanId
             applyExpandState(expandStore.load(clanId))
+            eventStatusesByChannel = HashMap(eventStatuses)
+        } else {
+            updateChannelEventStatuses(eventStatuses)
         }
         val prevCategoryIds = currentSections.mapNotNull { if (it.categoryId != FAVORITE_CATEGORY_ID) it.categoryId else null }.toSet()
         val newCategoryIds = sections.mapNotNull { if (it.categoryId != FAVORITE_CATEGORY_ID) it.categoryId else null }.toSet()
@@ -182,6 +187,7 @@ class ChannelListView(
     fun clear() {
         currentSections = emptyList()
         currentChannelApps = emptyList()
+        eventStatusesByChannel = emptyMap()
         boundClanId = 0L
         allExpanded = true
         expandedCategories.clear()
@@ -226,6 +232,34 @@ class ChannelListView(
 
     fun invalidateTheme() {
         adapter.notifyDataSetChanged()
+    }
+
+    fun updateChannelEventStatuses(statuses: Map<Long, Int>) {
+        if (eventStatusesByChannel == statuses) return
+        val previous = eventStatusesByChannel
+        val changedChannelIds = HashSet<Long>()
+        changedChannelIds.addAll(previous.keys)
+        changedChannelIds.addAll(statuses.keys)
+        changedChannelIds.removeAll { previous[it] == statuses[it] }
+        eventStatusesByChannel = HashMap(statuses)
+
+        val count = recyclerView.childCount
+        for (i in 0 until count) {
+            when (val child = recyclerView.getChildAt(i)) {
+                is ChannelItemCell -> {
+                    val channelId = child.channel?.channelId ?: continue
+                    if (channelId in changedChannelIds) {
+                        child.setEventStatus(eventStatusesByChannel[channelId])
+                    }
+                }
+                is ChannelThreadCell -> {
+                    val channelId = child.thread?.channelId ?: continue
+                    if (channelId in changedChannelIds) {
+                        child.setEventStatus(eventStatusesByChannel[channelId])
+                    }
+                }
+            }
+        }
     }
 
     fun updateVisibleRows(mask: Int, freshChannels: Map<Long, ClanChannelEntity>? = null) {
@@ -556,10 +590,21 @@ class ChannelListView(
                     (holder as SectionVH).cell.bind(row.categoryName, row.isExpanded, row.isFavorite)
                 }
                 is ChannelRow.Channel -> {
-                    (holder as ChannelVH).cell.bind(row.channel, row.isActive, row.voiceActive)
+                    (holder as ChannelVH).cell.bind(
+                        row.channel,
+                        row.isActive,
+                        row.voiceActive,
+                        eventStatusesByChannel[row.channel.channelId],
+                    )
                 }
                 is ChannelRow.Thread -> {
-                    (holder as ThreadVH).cell.bind(row.thread, row.isFirst, row.isLast, row.isActive)
+                    (holder as ThreadVH).cell.bind(
+                        row.thread,
+                        row.isFirst,
+                        row.isLast,
+                        row.isActive,
+                        eventStatusesByChannel[row.thread.channelId],
+                    )
                 }
                 is ChannelRow.VoiceMember -> {
                     (holder as VoiceMemberVH).cell.setUser(
