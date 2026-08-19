@@ -420,6 +420,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         cancelPresignExpireTick()
+        removeCallbacks(sendingDimTickRunnable)
+        sendingDimTickScheduled = false
         attachedToWindow = false
         photoImage.onDetachedFromWindow()
         extraPhotoImages.forEach { it.onDetachedFromWindow() }
@@ -528,6 +530,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         drawEphemeral = false
         drawError = false
         drawSending = false
+        removeCallbacks(sendingDimTickRunnable)
+        sendingDimTickScheduled = false
+        sendingVisualMessageId = 0L
+        sendingVisualStartedAtMs = 0L
         hasPendingMediaUploads = false
         parsedContent = ""
         hasCallLogCard = false
@@ -581,6 +587,13 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var lastBoundId = 0L
     private var lastBoundContentHash = 0
     private var lastBoundCombined = false
+    private var sendingVisualMessageId = 0L
+    private var sendingVisualStartedAtMs = 0L
+    private var sendingDimTickScheduled = false
+    private val sendingDimTickRunnable = Runnable {
+        sendingDimTickScheduled = false
+        if (hasPendingSendVisual()) invalidate()
+    }
 
     fun resetForRebind() {
         lastBoundId = 0L
@@ -635,6 +648,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 hasPendingMediaUploads = false
                 hasPendingFileUploads = false
             }
+            syncSendingVisualTimer(msg)
             updateColors(msg)
             if (drawPhotoImage) computePhotoSize(msg)
             buildLayouts(msg)
@@ -682,6 +696,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             drawError = msg.isError && !msg.hasPartialAttachmentUploadFailure
             val snapshot = msg.displayAttachmentSnapshot()
             applyDisplaySnapshot(msg, snapshot)
+            syncSendingVisualTimer(msg)
             if (BuildConfig.DEBUG) {
                 Log.d(
                     TAG,
@@ -745,6 +760,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 applyDisplaySnapshot(m, snapshot)
                 loadPhotoImage(m)
             }
+            if (m != null) syncSendingVisualTimer(m)
             needInvalidate = true
         }
 
@@ -753,6 +769,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             if (newMsg != null) messageEntity = newMsg
             val snapshot = m.displayAttachmentSnapshot()
             applyDisplaySnapshot(m, snapshot)
+            syncSendingVisualTimer(m)
             if (drawPhotoImage) computePhotoSize(m) else clearPhotoReceivers()
             buildLayouts(m)
             if (drawPhotoImage) loadPhotoImage(m) else clearPhotoReceivers()
@@ -793,6 +810,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             drawEphemeral = m.isEphemeral
             drawError = m.isError && !m.hasPartialAttachmentUploadFailure
             drawSending = m.isSending
+            syncSendingVisualTimer(m)
             updateColors(m)
             buildLayouts(m)
             if (!drawPhotoImage) clearPhotoReceivers()
@@ -3069,7 +3087,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
         val alpha = when {
             drawError -> 0.6f
-            drawSending || hasPendingMediaUploads || hasPendingFileUploads -> 0.7f
+            hasPendingSendVisual() -> if (hasSendingGraceElapsed()) 0.7f else 1f
             else -> 1f
         }
         if (alpha < 1f) {
@@ -3090,6 +3108,44 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         if (drawError) {
             drawErrorText(canvas, msg)
         }
+    }
+
+    private fun syncSendingVisualTimer(msg: MessageEntity) {
+        if (!hasPendingSendVisual()) {
+            removeCallbacks(sendingDimTickRunnable)
+            sendingDimTickScheduled = false
+            sendingVisualMessageId = 0L
+            sendingVisualStartedAtMs = 0L
+            return
+        }
+        if (sendingVisualMessageId != msg.id) {
+            removeCallbacks(sendingDimTickRunnable)
+            sendingDimTickScheduled = false
+            sendingVisualMessageId = msg.id
+            sendingVisualStartedAtMs = android.os.SystemClock.elapsedRealtime()
+        }
+    }
+
+    private fun hasPendingSendVisual(): Boolean =
+        drawSending || hasPendingMediaUploads || hasPendingFileUploads
+
+    private fun hasSendingGraceElapsed(): Boolean {
+        var startedAt = sendingVisualStartedAtMs
+        if (startedAt == 0L) {
+            startedAt = android.os.SystemClock.elapsedRealtime()
+            sendingVisualMessageId = messageEntity?.id ?: 0L
+            sendingVisualStartedAtMs = startedAt
+        }
+        val elapsedMs = android.os.SystemClock.elapsedRealtime() - startedAt
+        val remainingMs = SENDING_BRIGHT_GRACE_MS - elapsedMs
+        if (remainingMs > 0L) {
+            if (visibleOnScreen && !sendingDimTickScheduled) {
+                sendingDimTickScheduled = true
+                postDelayed(sendingDimTickRunnable, remainingMs)
+            }
+            return false
+        }
+        return true
     }
 
     private fun drawSendingIndicator(canvas: Canvas) {
@@ -4797,6 +4853,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         const val COMBINE_TIME_THRESHOLD = 2 * 60L
         private const val TAG = "ChatMessageCell"
         private const val EMBED_INPUT_TAG = "EmbedFormInput"
+        private const val SENDING_BRIGHT_GRACE_MS = 2_000L
         private val ANONYMOUS_USER_ID = BuildConfig.MEZON_ANONYMOUS_USER_ID.toLongOrNull() ?: 0L
         private val anonymousAvatarBitmaps = HashMap<Int, Bitmap>(2)
 

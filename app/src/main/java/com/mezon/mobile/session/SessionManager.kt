@@ -37,7 +37,8 @@ data class StoredSession(
     val wsUrl: String,
     val userId: String,
     val idToken: String = "",
-    val isRemember: Boolean = false
+    val isRemember: Boolean = false,
+    val tcpUrl: String = ""
 )
 
 @Singleton
@@ -86,7 +87,8 @@ class SessionManager @Inject constructor(
             wsUrl = prefs[SessionKeys.WS_URL] ?: "",
             userId = prefs[SessionKeys.USER_ID] ?: "",
             idToken = decryptSecret(prefs[SessionKeys.ID_TOKEN] ?: ""),
-            isRemember = prefs[SessionKeys.IS_REMEMBER] ?: false
+            isRemember = prefs[SessionKeys.IS_REMEMBER] ?: false,
+            tcpUrl = prefs[SessionKeys.TCP_URL] ?: ""
         )
     }
 
@@ -198,6 +200,7 @@ class SessionManager @Inject constructor(
                 userId = current.userId,
                 idToken = protoSession.getIdToken().ifEmpty { current.idToken },
                 isRemember = current.isRemember,
+                tcpUrl = current.tcpUrl,
             )
 
             if (!persistSession(newSession, requiredEpoch = epochAtStart)) {
@@ -274,6 +277,7 @@ class SessionManager @Inject constructor(
                 prefs[SessionKeys.USER_ID] = session.userId
                 prefs[SessionKeys.ID_TOKEN] = encryptedIdToken
                 prefs[SessionKeys.IS_REMEMBER] = session.isRemember
+                prefs[SessionKeys.TCP_URL] = session.tcpUrl
             }
         }
         return true
@@ -322,7 +326,21 @@ class SessionManager @Inject constructor(
         remove(SessionKeys.USER_ID)
         remove(SessionKeys.ID_TOKEN)
         remove(SessionKeys.IS_REMEMBER)
+        remove(SessionKeys.TCP_URL)
         remove(SessionKeys.LAST_CLAN_ID)
+    }
+
+    suspend fun applyRefreshedSession(proto: com.mezon.mezon.api.Session) {
+        val current = sessionFlow.first() ?: return
+        val updated = current.copy(
+            token = proto.token.ifEmpty { current.token },
+            refreshToken = proto.refreshToken.ifEmpty { current.refreshToken }
+        )
+        saveSession(updated)
+    }
+
+    fun signalSessionExpired() {
+        emitSessionExpired()
     }
 }
 

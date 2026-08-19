@@ -81,8 +81,10 @@ import com.mezon.mezon.rtapi.channelMessageRemove
 import com.mezon.mezon.rtapi.channelMessageSend
 import com.mezon.mezon.rtapi.channelMessageUpdate
 import com.mezon.mobile.network.ConnectionState
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -164,6 +166,15 @@ class ChatController @Inject constructor(
     private val attachmentJobsByTempId = LongSparseArray<IncrementalAttachmentJob>()
     private val attachmentJobsByRealId = LongSparseArray<IncrementalAttachmentJob>()
     private val pendingAttachmentEntityByTempId = LongSparseArray<MessageEntity>()
+    private data class OnlineMessageRefresh(
+        val channelId: Long,
+        val clanId: Long,
+        val topicId: Long,
+        val anchorMessageId: Long = 0L,
+        val requireExactAnchor: Boolean = false
+    )
+
+    private val pendingOnlineMessageRefreshJobs = ConcurrentHashMap<OnlineMessageRefresh, Job>()
     private val imageCompressionSlots = Semaphore(IMAGE_COMPRESSION_PARALLELISM)
     private val largeUploadSlots = Semaphore(LARGE_ATTACHMENT_PARALLELISM)
 
@@ -335,6 +346,8 @@ class ChatController @Inject constructor(
     }
 
     fun cleanup() {
+        pendingOnlineMessageRefreshJobs.values.forEach { it.cancel() }
+        pendingOnlineMessageRefreshJobs.clear()
         synchronized(this) {
             dialogMessage.clear()
             initialFetchDone.clear()
@@ -549,6 +562,10 @@ class ChatController @Inject constructor(
         topicId: Long = 0L
     ) {
         val cacheKey = messageCacheKey(channelId, topicId)
+        val onlineRefresh = OnlineMessageRefresh(channelId, clanId, topicId)
+        if (networkMonitor.isOnline.value) {
+            pendingOnlineMessageRefreshJobs.remove(onlineRefresh)?.cancel()
+        }
         appScope.launch(ioDispatcher) {
             try {
                 val cacheTrackerKey = apiCacheKey("fetchMessages", clanId, cacheKey, topicId)
@@ -570,6 +587,9 @@ class ChatController @Inject constructor(
                         notificationCenter.postNotificationOnMainThread(
                             NotificationCenter.messagesDidLoad, cacheKey, ArrayList<MessageEntity>(), false, false, true
                         )
+                    }
+                    if (preferHttp) {
+                        scheduleMessageRefreshWhenOnline(onlineRefresh)
                     }
                     return@launch
                 }
@@ -630,7 +650,52 @@ class ChatController @Inject constructor(
                         NotificationCenter.messagesLoadError, cacheKey, e.message ?: "Failed to load"
                     )
                 }
+                if (preferHttp && !networkMonitor.isOnline.value) {
+                    scheduleMessageRefreshWhenOnline(onlineRefresh)
+                }
             }
+        }
+    }
+
+    private fun scheduleMessageRefreshWhenOnline(
+        refresh: OnlineMessageRefresh
+    ) {
+        lateinit var job: Job
+        job = appScope.launch(start = CoroutineStart.LAZY) {
+            try {
+                Log.d(
+                    TAG,
+                    "Waiting for network before notification refresh channel=${refresh.channelId} clan=${refresh.clanId} topic=${refresh.topicId} anchor=${refresh.anchorMessageId}"
+                )
+                networkMonitor.isOnline.first { it }
+                if (!pendingOnlineMessageRefreshJobs.remove(refresh, job)) return@launch
+                if (refresh.anchorMessageId == 0L) {
+                    loadMessages(
+                        refresh.channelId,
+                        refresh.clanId,
+                        forceRefresh = true,
+                        preferHttp = true,
+                        topicId = refresh.topicId
+                    )
+                } else {
+                    loadMessagesAround(
+                        refresh.channelId,
+                        refresh.clanId,
+                        refresh.anchorMessageId,
+                        requireExactAnchor = refresh.requireExactAnchor,
+                        preferHttp = true,
+                        topicId = refresh.topicId
+                    )
+                }
+            } finally {
+                pendingOnlineMessageRefreshJobs.remove(refresh, job)
+            }
+        }
+        val existing = pendingOnlineMessageRefreshJobs.putIfAbsent(refresh, job)
+        if (existing == null) {
+            job.start()
+        } else {
+            job.cancel()
         }
     }
 
@@ -643,6 +708,16 @@ class ChatController @Inject constructor(
         topicId: Long = 0L
     ) {
         val cacheKey = messageCacheKey(channelId, topicId)
+        val onlineRefresh = OnlineMessageRefresh(
+            channelId = channelId,
+            clanId = clanId,
+            topicId = topicId,
+            anchorMessageId = anchorMessageId,
+            requireExactAnchor = requireExactAnchor
+        )
+        if (networkMonitor.isOnline.value) {
+            pendingOnlineMessageRefreshJobs.remove(onlineRefresh)?.cancel()
+        }
         appScope.launch(ioDispatcher) {
             try {
                 val cacheTrackerKey = apiCacheKey("fetchMessages", clanId, cacheKey, topicId)
@@ -681,6 +756,9 @@ class ChatController @Inject constructor(
                         }
                     } else if (fromDb.isEmpty()) {
                         Log.d(TAG, "Offline — no cached messages for channel $cacheKey (around)")
+                    }
+                    if (preferHttp) {
+                        scheduleMessageRefreshWhenOnline(onlineRefresh)
                     }
                     return@launch
                 }
@@ -733,6 +811,9 @@ class ChatController @Inject constructor(
                 notificationCenter.postNotificationOnMainThread(
                     NotificationCenter.messagesLoadError, cacheKey, e.message ?: "Failed to load"
                 )
+                if (preferHttp && !networkMonitor.isOnline.value) {
+                    scheduleMessageRefreshWhenOnline(onlineRefresh)
+                }
             }
         }
     }
@@ -856,7 +937,7 @@ class ChatController @Inject constructor(
         request: ChannelMessageSend
     ): com.mezon.mezon.rtapi.ChannelMessageAck {
         val req = correctSendClanIdentity(request)
-        if (mezonSocket.connectionState.value == ConnectionState.CONNECTED) {
+        if (mezonSocket.canSendChannelMessageRealtime(req.clanId, req.channelId)) {
             try {
                 return sendChannelMessageViaSocket(req)
             } catch (e: CancellationException) {
@@ -868,6 +949,12 @@ class ChatController @Inject constructor(
                     "fallback HTTP channelId=${req.channelId} clanId=${req.clanId} err=${e.message}"
                 )
             }
+        } else if (mezonSocket.connectionState.value == ConnectionState.CONNECTED) {
+            Log.d(
+                TAG,
+                "Channel message using HTTP until realtime is fresh and joined " +
+                    "channelId=${req.channelId} clanId=${req.clanId} gen=${mezonSocket.connectGen}"
+            )
         }
         return withContext(ioDispatcher) {
             api.sendChannelMessage(apiUrl, token, req)

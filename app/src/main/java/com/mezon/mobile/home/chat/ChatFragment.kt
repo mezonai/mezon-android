@@ -7336,6 +7336,9 @@ open class ChatFragment : BaseFragment() {
         }
         messages[idx] = updated
         messagesDict.put(realId, updated)
+        if (::adapter.isInitialized) {
+            adapter.preserveOptimisticStableId(tempId, realId)
+        }
         Log.d(TAG, "applyRealId tempId=$tempId → realId=$realId")
         if (fragmentView == null) return
         val cellMask = when {
@@ -7381,6 +7384,9 @@ open class ChatFragment : BaseFragment() {
         val updated = old.copy(sendState = MessageEntity.SEND_STATE_SENT)
         messages[idx] = updated
         messagesDict.put(tempId, updated)
+        if (::adapter.isInitialized) {
+            adapter.preserveOptimisticStableId(tempId, tempId)
+        }
         if (fragmentView == null) return
         for (i in 0 until recyclerView.childCount) {
             val cell = recyclerView.getChildAt(i) as? ChatMessageCell ?: continue
