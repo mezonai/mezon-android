@@ -112,6 +112,7 @@ class ClansFragment : BaseFragment() {
     var onSwitchToMessages: (() -> Unit)? = null
 
     private lateinit var serverRail: RecyclerListView
+    private lateinit var pinnedDmLogo: DmLogoCell
     private lateinit var channelListView: ChannelListView
     private lateinit var serverAdapter: ServerRailAdapter
     private lateinit var channelPanel: LinearLayout
@@ -239,6 +240,8 @@ class ClansFragment : BaseFragment() {
             if (fragmentView == null) return@observe
             fragmentView?.setBackgroundColor(themeColors.serverRailBg)
             serverRail.setBackgroundColor(themeColors.serverRailBg)
+            (pinnedDmLogo.parent as? View)?.setBackgroundColor(themeColors.serverRailBg)
+            pinnedDmLogo.invalidate()
             serverAdapter.notifyDataSetChanged()
             channelListView.invalidateTheme()
             if (::memberCountText.isInitialized) {
@@ -320,9 +323,6 @@ class ClansFragment : BaseFragment() {
         serverRail.adapter = serverAdapter
         serverRail.setOnItemClickListener(RecyclerListView.OnItemClickListener { view, _ ->
             when (view) {
-                is DmLogoCell -> {
-                    onSwitchToMessages?.invoke()
-                }
                 is ClanCell -> {
                     val clan = view.currentClan ?: return@OnItemClickListener
                     onClanSelected(clan)
@@ -482,7 +482,31 @@ class ClansFragment : BaseFragment() {
         channelPanel.addView(discoverListSection.rootView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
         discoverListSection.rootView.visibility = View.GONE
 
-        root.addView(serverRail, LayoutHelper.createLinear(56, LayoutHelper.MATCH_PARENT))
+        pinnedDmLogo = DmLogoCell(context, themeColors).apply {
+            isClickable = true
+            isFocusable = true
+            val rippleMask = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(0xFFFFFFFF.toInt())
+            }
+            foreground = RippleDrawable(
+                ColorStateList.valueOf(themeColors.onSurface and 0x1AFFFFFF),
+                null,
+                rippleMask
+            )
+            setOnClickListener { onSwitchToMessages?.invoke() }
+            setLogoUrl(accountController.accountInfo.value.logo)
+            setPendingFriendCount(friendController.pendingReceivedCount.value)
+        }
+
+        val railColumn = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(themeColors.serverRailBg)
+        }
+        railColumn.addView(pinnedDmLogo, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+        railColumn.addView(serverRail, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
+
+        root.addView(railColumn, LayoutHelper.createLinear(56, LayoutHelper.MATCH_PARENT))
         root.addView(channelPanel, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f).apply {
             topMargin = LayoutHelper.dp(8)
         })
@@ -867,7 +891,10 @@ class ClansFragment : BaseFragment() {
         val clans = clansController.clans.value
         val selectedId = clansController.selectedClanId.value
         val logoUrl = accountController.accountInfo.value.logo
+        pinnedDmLogo.setLogoUrl(logoUrl)
+        pinnedDmLogo.setPendingFriendCount(friendController.pendingReceivedCount.value)
         val highlightDiscoverRail = discoveringFromRailWhileHasClans && clans.isNotEmpty()
+        val wasAtTop = !serverRail.canScrollVertically(-1)
         serverAdapter.submitData(
             unreadDms,
             clans,
@@ -876,6 +903,7 @@ class ClansFragment : BaseFragment() {
             newPendingFriendCount = friendController.pendingReceivedCount.value,
             embeddedDiscoverRail = highlightDiscoverRail
         )
+        if (wasAtTop) serverRail.scrollToPosition(0)
 
         updateClanPanelHeaderMode()
 
@@ -1678,7 +1706,7 @@ class ClansFragment : BaseFragment() {
         private var pendingFriendCount = 0
         private var logoUrl = ""
 
-        private val dmHeaderCount = 1
+        private val dmHeaderCount = 0
         private val discoverRailCellEnabled = true
         private val hasSeparator: Boolean
             get() = clans.isNotEmpty()
@@ -1731,7 +1759,6 @@ class ClansFragment : BaseFragment() {
             discoverHighlight: Boolean
         ): List<RailRow> {
             val rows = ArrayList<RailRow>(unreadList.size + clanList.size + 4)
-            rows.add(RailRow(Long.MIN_VALUE, VIEW_TYPE_DM_HEADER, listOf(logo, pendingCount)))
             for (dm in unreadList) {
                 rows.add(RailRow(dm.channelId, VIEW_TYPE_UNREAD_DM, listOf(dm.unreadCount, dm.lastMessageContent)))
             }
@@ -1753,12 +1780,6 @@ class ClansFragment : BaseFragment() {
             return rows
         }
 
-        fun updatePendingFriendCount(count: Int) {
-            if (pendingFriendCount == count) return
-            pendingFriendCount = count
-            notifyItemChanged(0)
-        }
-
         override fun getItemCount(): Int {
             val sep = if (hasSeparator) 1 else 0
             val discoverSlots = if (discoverRailCellEnabled) 1 else 0
@@ -1766,7 +1787,6 @@ class ClansFragment : BaseFragment() {
         }
 
         override fun getItemId(position: Int): Long {
-            if (position == 0) return Long.MIN_VALUE
             val afterHeader = position - dmHeaderCount
             if (afterHeader < unreadDms.size) return unreadDms[afterHeader].channelId
             if (hasSeparator && afterHeader == unreadDms.size) return Long.MIN_VALUE + 1
@@ -1777,7 +1797,6 @@ class ClansFragment : BaseFragment() {
         }
 
         override fun getItemViewType(position: Int): Int {
-            if (position == 0) return VIEW_TYPE_DM_HEADER
             val afterHeader = position - dmHeaderCount
             if (afterHeader < unreadDms.size) return VIEW_TYPE_UNREAD_DM
             if (hasSeparator && afterHeader == unreadDms.size) return VIEW_TYPE_SEPARATOR
@@ -1793,7 +1812,6 @@ class ClansFragment : BaseFragment() {
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
             val view: View = when (viewType) {
-                VIEW_TYPE_DM_HEADER -> DmLogoCell(parent.context, themeColors)
                 VIEW_TYPE_UNREAD_DM -> UnreadDmCell(parent.context, themeColors)
                 VIEW_TYPE_SEPARATOR -> SeparatorView(parent.context, themeColors)
                 VIEW_TYPE_DISCOVER -> DiscoverRailCell(parent.context, themeColors)
@@ -1805,10 +1823,6 @@ class ClansFragment : BaseFragment() {
 
         override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
             when (val view = holder.itemView) {
-                is DmLogoCell -> {
-                    view.setLogoUrl(logoUrl)
-                    view.setPendingFriendCount(pendingFriendCount)
-                }
                 is UnreadDmCell -> {
                     val idx = position - dmHeaderCount
                     if (idx in unreadDms.indices) view.setData(unreadDms[idx])

@@ -1587,7 +1587,7 @@ class ChatController @Inject constructor(
         private const val ATTACHMENT_UPLOAD_PARALLELISM = 4
         private const val PRESIGN_EDIT_BATCH_SIZE = 4
         private const val PRESIGN_FINISH_SYNC_DELAY_MS = 300L
-        private const val PRESIGN_SEND_FIRST_MIN_COUNT = 4
+        private const val PRESIGN_SEND_FIRST_MIN_COUNT = 1
         private const val IMAGE_COMPRESSION_PARALLELISM = 2
         private const val LARGE_ATTACHMENT_BYTES = 50L * 1024 * 1024
         private const val LARGE_ATTACHMENT_PARALLELISM = 3

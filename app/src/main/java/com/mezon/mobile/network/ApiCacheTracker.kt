@@ -11,6 +11,7 @@ class ApiCacheTracker @Inject constructor() {
     companion object {
         private const val TAG = "ApiCacheTracker"
         const val DEFAULT_CACHE_TTL_MS = 20 * 60 * 1_000L // 20 minutes
+        const val LIST_CACHE_TTL_MS = 5 * 60 * 1_000L
         private const val MAX_ENTRIES = 1_000
     }
 

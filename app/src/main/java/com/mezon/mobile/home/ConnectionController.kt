@@ -93,7 +93,11 @@ class ConnectionController @Inject constructor(
             try { sessionManager.requireValidSession() }
             catch (e: java.io.IOException) { return@launch }
             catch (e: Exception) { Log.e(TAG, "Failed to refresh session", e); return@launch }
+            val stateBefore = mezonSocket.connectionState.value
             mezonSocket.reconnectNow("app foreground")
+            if (stateBefore == ConnectionState.CONNECTED) {
+                dialogsController.refreshDmBadgesOnForegroundThrottled()
+            }
         }
     }
 
