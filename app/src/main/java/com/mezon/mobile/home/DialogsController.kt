@@ -5,6 +5,7 @@ import android.content.ContentResolver
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.os.SystemClock
 import android.util.LongSparseArray
 import android.util.Log
 import com.mezon.mezon.api.AllUsersAddChannelResponse
@@ -76,6 +77,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 private const val TAG = "DialogsController"
 private const val MUTE_LOG_TAG = "DialogsController:Mute"
 private const val MAX_TRANSCODE_SOURCE_BYTES = 32 * 1024 * 1024
+private const val DM_BADGES_SYNC_THROTTLE_MS = 10_000L
 
 private fun logMute(message: String) {
     if (BuildConfig.DEBUG) Log.d(MUTE_LOG_TAG, message)
@@ -127,6 +129,10 @@ class DialogsController @Inject constructor(
     private val dbHydrateMutex = Mutex()
     @Volatile
     private var dbHydrated = false
+
+    private val dmBadgesSyncThrottleLock = Any()
+    @Volatile
+    private var lastDmBadgesSyncElapsedMs = 0L
 
     fun resolveDmIsMuted(channelId: Long, apiIsMute: Boolean, existingIsMute: Boolean = false): Boolean {
         mutedDmChannelIds?.let { if (channelId in it) return true }
@@ -676,6 +682,30 @@ class DialogsController @Inject constructor(
                 dialogsLoaded = true
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsLoadError, e.message ?: "Failed to load")
                 badgeCoordinator.get().processDeferredQueue()
+            }
+        }
+    }
+
+    fun refreshDmBadgesOnForegroundThrottled(minIntervalMs: Long = DM_BADGES_SYNC_THROTTLE_MS) {
+        val now = SystemClock.elapsedRealtime()
+        synchronized(dmBadgesSyncThrottleLock) {
+            val last = lastDmBadgesSyncElapsedMs
+            if (last != 0L && now - last < minIntervalMs) return
+            lastDmBadgesSyncElapsedMs = now
+        }
+        appScope.launch(ioDispatcher) {
+            if (!networkMonitor.isOnline.value) return@launch
+            try {
+                ensureDialogsHydratedFromDb()
+                val wasBadgesSynced = dmBadgesServerSynced
+                val badgePatched = sessionManager.withAutoRefresh { session ->
+                    syncDmBadgesWithApi(session) || syncDmMutedStateFromLocalCache()
+                }
+                if (badgePatched || (!wasBadgesSynced && dmBadgesServerSynced)) {
+                    notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "refreshDmBadgesOnForegroundThrottled failed", e)
             }
         }
     }
@@ -1548,6 +1578,7 @@ class DialogsController @Inject constructor(
     private suspend fun syncDmBadgesWithApi(session: StoredSession): Boolean {
         val currentUserId = session.userId.toLongOrNull() ?: 0L
         return runCatching {
+            lastDmBadgesSyncElapsedMs = SystemClock.elapsedRealtime()
             val badge = api.listChannelBadgeCount(session.apiUrl, session.token, 0L)
             dmBadgesServerSynced = true
             applyDmReadStatePatchFromSocket(badge.channeldescList, currentUserId)

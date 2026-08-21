@@ -408,7 +408,7 @@ class MezonApi @Inject constructor(
             "ListWebhookByChannelId",
             "SearchMessage"
         )
-        private val READ_RETRYABLE_API_NAMES = SOCKET_RPC_API_NAMES
+        private val READ_RETRYABLE_API_NAMES = SOCKET_RPC_API_NAMES + "GenerateHashChannelApps"
     }
 
     private val linkInvitePreviewCache = android.util.LruCache<Long, LinkInvitePreview>(256)

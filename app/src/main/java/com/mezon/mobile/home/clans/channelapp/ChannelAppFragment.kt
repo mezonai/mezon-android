@@ -15,10 +15,8 @@ import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.view.animation.DecelerateInterpolator
-import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
-import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
@@ -36,6 +34,7 @@ import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.ui.cells.MezonIcon
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -70,7 +69,8 @@ class ChannelAppFragment : BaseFragment() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var loadJob: Job? = null
     private var prefetchJob: Job? = null
-    private val fullUrlDeferred = CompletableDeferred<String>()
+    private var fullUrlDeferred = CompletableDeferred<String>()
+    private var errorView: View? = null
     private val statusBarInset: Int
         get() = AndroidUtilities.statusBarHeight.coerceAtLeast(0)
     private val headerPrimaryColor: Int
@@ -88,14 +88,14 @@ class ChannelAppFragment : BaseFragment() {
         channelId = arguments?.getLong(ARG_CHANNEL_ID) ?: 0L
         clanId = arguments?.getLong(ARG_CLAN_ID) ?: 0L
         appId = arguments?.getLong(ARG_APP_ID) ?: 0L
-        appUrl = arguments?.getString(ARG_APP_URL).orEmpty()
+        appUrl = normalizeAppUrl(arguments?.getString(ARG_APP_URL).orEmpty())
         appName = arguments?.getString(ARG_APP_NAME).orEmpty()
         prefetchFullUrl()
         return true
     }
 
     private fun prefetchFullUrl() {
-        if (appUrl.isBlank() || appId == 0L) return
+        if (appUrl.isBlank() || appId == 0L || !isAllowedAppUrl(appUrl)) return
         prefetchJob?.cancel()
         prefetchJob = scope.launch {
             try {
@@ -106,7 +106,7 @@ class ChannelAppFragment : BaseFragment() {
                 }
                 val encoded = URLEncoder.encode(resp.webAppData, "UTF-8")
                 val sep = if (appUrl.contains("?")) "&" else "?"
-                fullUrlDeferred.complete("$appUrl${sep}data=$encoded")
+                fullUrlDeferred.complete("$appUrl${sep}data=$encoded&clanId=$clanId")
             } catch (e: Exception) {
                 fullUrlDeferred.completeExceptionally(e)
             }
@@ -229,6 +229,15 @@ class ChannelAppFragment : BaseFragment() {
                     super.onPageFinished(view, url)
                     hideSkeleton()
                 }
+
+                override fun onReceivedError(
+                    view: WebView?,
+                    request: android.webkit.WebResourceRequest?,
+                    error: android.webkit.WebResourceError?
+                ) {
+                    super.onReceivedError(view, request, error)
+                    if (request?.isForMainFrame == true) showLoadError()
+                }
             }
             webChromeClient = object : WebChromeClient() {
                 override fun onProgressChanged(view: WebView?, newProgress: Int) {
@@ -237,6 +246,7 @@ class ChannelAppFragment : BaseFragment() {
             }
         }
         webView = wv
+        wv.resumeTimers()
         content.addView(
             wv,
             0,
@@ -446,11 +456,120 @@ class ChannelAppFragment : BaseFragment() {
                     return@launch
                 }
                 webView?.loadUrl(fullUrl)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                val ctx = getParentActivity() ?: return@launch
-                Toast.makeText(ctx, e.message ?: "Error", Toast.LENGTH_SHORT).show()
-                finishFragment()
+                showLoadError()
             }
+        }
+    }
+
+    private fun showLoadError() {
+        val content = webContentContainer ?: return
+        cancelAutoCollapse()
+        showHeader(resetTimer = false, animated = true)
+        skeletonView?.animate()?.cancel()
+        skeletonView?.visibility = View.GONE
+        skeletonView?.stop()
+        webView?.stopLoading()
+        val error = errorView ?: buildErrorView(content.context).also { built ->
+            errorView = built
+            content.addView(
+                built,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+            )
+        }
+        error.bringToFront()
+        error.visibility = View.VISIBLE
+    }
+
+    private fun buildErrorView(context: Context): View {
+        val container = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setBackgroundColor(themeColors.background)
+            isClickable = true
+        }
+        val message = TextView(context).apply {
+            text = context.getString(com.mezon.mobile.R.string.channel_app_launch_unavailable)
+            setTextColor(themeColors.colorText)
+            textSize = 15f
+            gravity = Gravity.CENTER
+            setPadding(LayoutHelper.dp(32), 0, LayoutHelper.dp(32), 0)
+        }
+        container.addView(
+            message,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+        val retry = TextView(context).apply {
+            text = context.getString(com.mezon.mobile.R.string.common_retry)
+            setTextColor(Color.WHITE)
+            textSize = 15f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setPadding(
+                LayoutHelper.dp(28),
+                LayoutHelper.dp(10),
+                LayoutHelper.dp(28),
+                LayoutHelper.dp(10)
+            )
+            background = GradientDrawable().apply {
+                cornerRadius = LayoutHelper.dp(20f).toFloat()
+                setColor(themeColors.primary)
+            }
+            foreground = RippleDrawable(
+                ColorStateList.valueOf(0x33FFFFFF),
+                null,
+                GradientDrawable().apply {
+                    cornerRadius = LayoutHelper.dp(20f).toFloat()
+                    setColor(0xFFFFFFFF.toInt())
+                }
+            )
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { retryLoad() }
+        }
+        container.addView(
+            retry,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = LayoutHelper.dp(20) }
+        )
+        return container
+    }
+
+    private fun retryLoad() {
+        errorView?.visibility = View.GONE
+        skeletonHidden = false
+        skeletonView?.apply {
+            animate().cancel()
+            alpha = 1f
+            visibility = View.VISIBLE
+            start()
+        }
+        webView?.animate()?.cancel()
+        webView?.alpha = 0f
+        fullUrlDeferred = CompletableDeferred()
+        prefetchFullUrl()
+        loadApp()
+    }
+
+    private fun normalizeAppUrl(raw: String): String {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return trimmed
+        return when {
+            trimmed.startsWith("https://", ignoreCase = true) -> trimmed
+            trimmed.startsWith("http://", ignoreCase = true) ->
+                "https://" + trimmed.substring("http://".length)
+            !trimmed.contains("://") -> "https://$trimmed"
+            else -> trimmed
         }
     }
 
@@ -473,12 +592,7 @@ class ChannelAppFragment : BaseFragment() {
             webChromeClient = null
             webViewClient = WebViewClient()
             loadUrl("about:blank")
-            clearHistory()
-            clearCache(true)
-            clearFormData()
-            clearSslPreferences()
             onPause()
-            pauseTimers()
             removeAllViews()
             (parent as? android.view.ViewGroup)?.removeView(this)
             destroy()
@@ -487,14 +601,10 @@ class ChannelAppFragment : BaseFragment() {
         skeletonView?.stop()
         skeletonView = null
         webContentContainer = null
+        errorView = null
         headerBar = null
         headerContentRow = null
         floatingExpandButton = null
-        runCatching {
-            CookieManager.getInstance().removeAllCookies(null)
-            CookieManager.getInstance().flush()
-            WebStorage.getInstance().deleteAllData()
-        }
         super.onFragmentDestroy()
     }
 
@@ -531,6 +641,11 @@ class ChannelAppFragment : BaseFragment() {
 
         fun stop() {
             running = false
+        }
+
+        fun start() {
+            running = true
+            postInvalidateOnAnimation()
         }
 
         override fun onDraw(canvas: Canvas) {

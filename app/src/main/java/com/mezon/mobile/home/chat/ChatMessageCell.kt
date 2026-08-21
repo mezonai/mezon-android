@@ -3091,7 +3091,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
         val alpha = when {
             drawError -> 0.6f
-            hasPendingSendVisual() -> if (hasSendingGraceElapsed()) 0.7f else 1f
+            drawSending -> if (hasSendingGraceElapsed()) 0.7f else 1f
             else -> 1f
         }
         if (alpha < 1f) {

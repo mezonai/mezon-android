@@ -7,8 +7,12 @@ import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.network.NetworkMonitor
 import com.mezon.mobile.network.UnauthorizedException
+import android.os.Handler
+import android.os.Looper
 import android.util.Base64
 import android.util.Log
+import android.webkit.CookieManager
+import android.webkit.WebStorage
 import java.io.IOException
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.MutablePreferences
@@ -143,7 +147,16 @@ class SessionManager @Inject constructor(
             Log.w(TAG, "Token expired but offline — returning cached session")
             return session
         }
-        return refresh()
+        return try {
+            refresh()
+        } catch (e: SessionExpiredException) {
+            throw e
+        } catch (e: kotlin.coroutines.cancellation.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Token expired but refresh failed transiently — returning cached session", e)
+            session
+        }
     }
 
     internal var launchRetryBaseMs: Long = 1000L
@@ -315,6 +328,19 @@ class SessionManager @Inject constructor(
             failCount = 0
             dataStore.edit { prefs -> prefs.removeAllSessionData() }
             secretStorage.deleteKey(SESSION_SECRET_ALIAS)
+        }
+        clearWebViewData()
+    }
+
+    private fun clearWebViewData() {
+        Handler(Looper.getMainLooper()).post {
+            runCatching {
+                CookieManager.getInstance().removeAllCookies(null)
+                CookieManager.getInstance().flush()
+                WebStorage.getInstance().deleteAllData()
+            }.onFailure { e ->
+                Log.w(TAG, "Failed to clear WebView data on logout", e)
+            }
         }
     }
 
