@@ -54,7 +54,7 @@ class EmojiView(
     interface EmojiViewDelegate {
         fun onEmojiSelected(emoji: EmojiItem)
         fun onStickerSelected(sticker: StickerItem, isAudio: Boolean)
-        fun onGifSelected(gifUrl: String, width: Int = 0, height: Int = 0)
+        fun onGifSelected(gifUrl: String)
         fun onBackspace()
         fun onSearchFocusChanged(focused: Boolean) {}
         fun onDismissRequested() {}
@@ -478,7 +478,7 @@ class EmojiView(
                 }
                 if (gifGrid == null) {
                     gifAdapter = GifGridAdapter(themeColors) { gif ->
-                        delegate?.onGifSelected(gif.gifUrl, gif.width, gif.height)
+                        delegate?.onGifSelected(gif.gifUrl)
                     }
                     gifGrid = RecyclerListView(context).apply {
                         layoutManager = androidx.recyclerview.widget.StaggeredGridLayoutManager(2, androidx.recyclerview.widget.StaggeredGridLayoutManager.VERTICAL)

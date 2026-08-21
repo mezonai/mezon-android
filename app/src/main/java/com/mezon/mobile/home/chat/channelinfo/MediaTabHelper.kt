@@ -1,9 +1,15 @@
 package com.mezon.mobile.home.chat.channelinfo
 
 import android.content.Context
+import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.util.Log
+import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.BuildConfig
@@ -13,6 +19,7 @@ import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.ChannelGalleryController
 import com.mezon.mobile.home.ChannelGalleryMediaItem
+import com.mezon.mobile.home.ChannelGalleryMediaType
 import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.MemberResolver
 import com.mezon.mobile.ui.cells.ScreenStateView
@@ -45,6 +52,9 @@ class MediaTabHelper(
     private var recyclerView: RecyclerListView? = null
     private var screenState: ScreenStateView? = null
     private var gallerySkeleton: ChannelMediaGallerySkeletonView? = null
+    private var imageTab: TextView? = null
+    private var videoTab: TextView? = null
+    private var selectedMediaType = ChannelGalleryMediaType.IMAGE
 
     private var lastOlderFetchMs = 0L
 
@@ -62,24 +72,37 @@ class MediaTabHelper(
                 hostContext = hostContext
             )
 
-        val root = FrameLayout(context)
+        val root = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        root.addView(
+            buildMediaTypeTabs(context),
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LayoutHelper.dp(42f)).apply {
+                val margin = LayoutHelper.dp(8f)
+                setMargins(margin, margin, margin, margin)
+            }
+        )
+
+        val content = FrameLayout(context)
+        root.addView(content, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
 
         val screen =
             ScreenStateView(context, themeColors).apply {
                 screenState = this
                 onRetry = {
-                    galleryController.clearAndReload(channelId, clanId)
+                    galleryController.clearAndReload(channelId, clanId, mediaType = selectedMediaType)
                     applySync(context)
                 }
             }
-        root.addView(screen, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
+        content.addView(screen, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
         val skeleton =
             ChannelMediaGallerySkeletonView(context, themeColors) {
                 computeCellSizePx(context)
             }
         gallerySkeleton = skeleton
-        root.addView(skeleton, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
+        content.addView(skeleton, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
         skeleton.visibility = View.GONE
 
         val lv =
@@ -110,19 +133,76 @@ class MediaTabHelper(
                 })
             }
 
-        root.addView(lv, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
+        content.addView(lv, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
         recyclerView?.visibility = View.GONE
 
-        galleryController.ensureLoaded(channelId, clanId)
+        galleryController.ensureLoaded(channelId, clanId, mediaType = selectedMediaType)
         applySync(context)
 
         return root
     }
 
+    private fun buildMediaTypeTabs(context: Context): View {
+        val tabs = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(LayoutHelper.dp(4f), LayoutHelper.dp(4f), LayoutHelper.dp(4f), LayoutHelper.dp(4f))
+            background = roundedBackground(themeColors.surfaceVariant, 12f)
+        }
+        imageTab = buildMediaTypeTab(context, getString(R.string.channel_gallery_images), ChannelGalleryMediaType.IMAGE)
+        videoTab = buildMediaTypeTab(context, getString(R.string.channel_gallery_videos), ChannelGalleryMediaType.VIDEO)
+        tabs.addView(imageTab, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f))
+        tabs.addView(videoTab, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f))
+        updateMediaTypeTabs()
+        return tabs
+    }
+
+    private fun buildMediaTypeTab(
+        context: Context,
+        label: String,
+        mediaType: ChannelGalleryMediaType
+    ): TextView = TextView(context).apply {
+        text = label
+        gravity = Gravity.CENTER
+        setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 14f)
+        typeface = Typeface.DEFAULT_BOLD
+        setOnClickListener { selectMediaType(context, mediaType) }
+    }
+
+    private fun selectMediaType(context: Context, mediaType: ChannelGalleryMediaType) {
+        if (selectedMediaType == mediaType) return
+        selectedMediaType = mediaType
+        lastOlderFetchMs = 0L
+        updateMediaTypeTabs()
+        recyclerView?.scrollToPosition(0)
+        galleryController.ensureLoaded(channelId, clanId, mediaType = selectedMediaType)
+        applySync(context)
+    }
+
+    private fun updateMediaTypeTabs() {
+        listOf(
+            imageTab to ChannelGalleryMediaType.IMAGE,
+            videoTab to ChannelGalleryMediaType.VIDEO
+        ).forEach { (tab, mediaType) ->
+            val selected = selectedMediaType == mediaType
+            tab?.setTextColor(if (selected) Color.WHITE else themeColors.onSurfaceVariant)
+            tab?.background = roundedBackground(
+                if (selected) themeColors.blurple else Color.TRANSPARENT,
+                9f
+            )
+        }
+    }
+
+    private fun roundedBackground(color: Int, radiusDp: Float): GradientDrawable =
+        GradientDrawable().apply {
+            setColor(color)
+            cornerRadius = LayoutHelper.dpf(radiusDp)
+        }
+
     override fun reload() {
         val ctx = hostContext() ?: return
-        galleryController.ensureLoaded(channelId, clanId)
+        galleryController.ensureLoaded(channelId, clanId, mediaType = selectedMediaType)
         recyclerView?.visibility = View.GONE
         applySync(ctx)
     }
@@ -131,7 +211,8 @@ class MediaTabHelper(
         applySync(context)
     }
 
-    fun onGalleryLoadFailure(context: Context) {
+    fun onGalleryLoadFailure(context: Context, mediaType: ChannelGalleryMediaType) {
+        if (mediaType != selectedMediaType) return
         gallerySkeleton?.visibility = View.GONE
         screenState?.showError(context.getString(R.string.channel_gallery_load_error))
         recyclerView?.visibility = View.GONE
@@ -145,10 +226,11 @@ class MediaTabHelper(
     private fun applySync(context: Context) {
         val screen = screenState ?: return
 
-        val items = galleryController.getItems(channelId)
-        val paging = galleryController.isPagingLoading(channelId)
-        val initialDone = galleryController.isInitialLoadFinished(channelId)
-        val fetching = galleryController.isFetching(channelId) || galleryController.isInitialLoading(channelId)
+        val items = galleryController.getItems(channelId, selectedMediaType)
+        val paging = galleryController.isPagingLoading(channelId, selectedMediaType)
+        val initialDone = galleryController.isInitialLoadFinished(channelId, selectedMediaType)
+        val fetching = galleryController.isFetching(channelId, selectedMediaType) ||
+            galleryController.isInitialLoading(channelId, selectedMediaType)
 
         val resolverIds = LinkedHashSet<Long>()
         items.forEach {
@@ -186,15 +268,15 @@ class MediaTabHelper(
     }
 
     private fun tryLoadOlder() {
-        if (!galleryController.hasMoreBefore(channelId)) {
+        if (!galleryController.hasMoreBefore(channelId, selectedMediaType)) {
             dbgTryLoadOlderSkip("hasMoreBefore_false")
             return
         }
-        if (galleryController.isPagingLoading(channelId)) {
+        if (galleryController.isPagingLoading(channelId, selectedMediaType)) {
             dbgTryLoadOlderSkip("paging_loading")
             return
         }
-        if (galleryController.isInitialLoading(channelId)) {
+        if (galleryController.isInitialLoading(channelId, selectedMediaType)) {
             dbgTryLoadOlderSkip("initial_loading")
             return
         }
@@ -208,7 +290,7 @@ class MediaTabHelper(
             Log.d(DBG_TAG, "tryLoadOlder fetch ch=$channelId clan=$clanId")
         }
 
-        galleryController.fetchOlderIfNeeded(channelId, clanId)
+        galleryController.fetchOlderIfNeeded(channelId, clanId, mediaType = selectedMediaType)
         lastOlderFetchMs = now
     }
 
