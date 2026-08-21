@@ -14,6 +14,9 @@ import com.mezon.mobile.home.chat.canEditMessage
 import com.mezon.mobile.home.chat.ForwardDestination
 import com.mezon.mobile.home.chat.applyReactionEvent
 import com.mezon.mobile.home.chat.mergeChannelContentMentionsAndRefs
+import com.mezon.mobile.home.chat.isGifAttachment
+import com.mezon.mobile.home.chat.isImageAttachmentType
+import com.mezon.mobile.home.chat.isVideoAttachmentType
 import com.mezon.mobile.home.chat.toMessageEntity
 import com.mezon.mobile.network.ApiCacheTracker
 import com.mezon.mobile.network.CODE_CHAT_REMOVE
@@ -81,8 +84,10 @@ import com.mezon.mezon.rtapi.channelMessageRemove
 import com.mezon.mezon.rtapi.channelMessageSend
 import com.mezon.mezon.rtapi.channelMessageUpdate
 import com.mezon.mobile.network.ConnectionState
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -164,6 +169,15 @@ class ChatController @Inject constructor(
     private val attachmentJobsByTempId = LongSparseArray<IncrementalAttachmentJob>()
     private val attachmentJobsByRealId = LongSparseArray<IncrementalAttachmentJob>()
     private val pendingAttachmentEntityByTempId = LongSparseArray<MessageEntity>()
+    private data class OnlineMessageRefresh(
+        val channelId: Long,
+        val clanId: Long,
+        val topicId: Long,
+        val anchorMessageId: Long = 0L,
+        val requireExactAnchor: Boolean = false
+    )
+
+    private val pendingOnlineMessageRefreshJobs = ConcurrentHashMap<OnlineMessageRefresh, Job>()
     private val imageCompressionSlots = Semaphore(IMAGE_COMPRESSION_PARALLELISM)
     private val largeUploadSlots = Semaphore(LARGE_ATTACHMENT_PARALLELISM)
 
@@ -335,6 +349,8 @@ class ChatController @Inject constructor(
     }
 
     fun cleanup() {
+        pendingOnlineMessageRefreshJobs.values.forEach { it.cancel() }
+        pendingOnlineMessageRefreshJobs.clear()
         synchronized(this) {
             dialogMessage.clear()
             initialFetchDone.clear()
@@ -549,6 +565,10 @@ class ChatController @Inject constructor(
         topicId: Long = 0L
     ) {
         val cacheKey = messageCacheKey(channelId, topicId)
+        val onlineRefresh = OnlineMessageRefresh(channelId, clanId, topicId)
+        if (networkMonitor.isOnline.value) {
+            pendingOnlineMessageRefreshJobs.remove(onlineRefresh)?.cancel()
+        }
         appScope.launch(ioDispatcher) {
             try {
                 val cacheTrackerKey = apiCacheKey("fetchMessages", clanId, cacheKey, topicId)
@@ -570,6 +590,9 @@ class ChatController @Inject constructor(
                         notificationCenter.postNotificationOnMainThread(
                             NotificationCenter.messagesDidLoad, cacheKey, ArrayList<MessageEntity>(), false, false, true
                         )
+                    }
+                    if (preferHttp) {
+                        scheduleMessageRefreshWhenOnline(onlineRefresh)
                     }
                     return@launch
                 }
@@ -630,7 +653,52 @@ class ChatController @Inject constructor(
                         NotificationCenter.messagesLoadError, cacheKey, e.message ?: "Failed to load"
                     )
                 }
+                if (preferHttp && !networkMonitor.isOnline.value) {
+                    scheduleMessageRefreshWhenOnline(onlineRefresh)
+                }
             }
+        }
+    }
+
+    private fun scheduleMessageRefreshWhenOnline(
+        refresh: OnlineMessageRefresh
+    ) {
+        lateinit var job: Job
+        job = appScope.launch(start = CoroutineStart.LAZY) {
+            try {
+                Log.d(
+                    TAG,
+                    "Waiting for network before notification refresh channel=${refresh.channelId} clan=${refresh.clanId} topic=${refresh.topicId} anchor=${refresh.anchorMessageId}"
+                )
+                networkMonitor.isOnline.first { it }
+                if (!pendingOnlineMessageRefreshJobs.remove(refresh, job)) return@launch
+                if (refresh.anchorMessageId == 0L) {
+                    loadMessages(
+                        refresh.channelId,
+                        refresh.clanId,
+                        forceRefresh = true,
+                        preferHttp = true,
+                        topicId = refresh.topicId
+                    )
+                } else {
+                    loadMessagesAround(
+                        refresh.channelId,
+                        refresh.clanId,
+                        refresh.anchorMessageId,
+                        requireExactAnchor = refresh.requireExactAnchor,
+                        preferHttp = true,
+                        topicId = refresh.topicId
+                    )
+                }
+            } finally {
+                pendingOnlineMessageRefreshJobs.remove(refresh, job)
+            }
+        }
+        val existing = pendingOnlineMessageRefreshJobs.putIfAbsent(refresh, job)
+        if (existing == null) {
+            job.start()
+        } else {
+            job.cancel()
         }
     }
 
@@ -643,6 +711,16 @@ class ChatController @Inject constructor(
         topicId: Long = 0L
     ) {
         val cacheKey = messageCacheKey(channelId, topicId)
+        val onlineRefresh = OnlineMessageRefresh(
+            channelId = channelId,
+            clanId = clanId,
+            topicId = topicId,
+            anchorMessageId = anchorMessageId,
+            requireExactAnchor = requireExactAnchor
+        )
+        if (networkMonitor.isOnline.value) {
+            pendingOnlineMessageRefreshJobs.remove(onlineRefresh)?.cancel()
+        }
         appScope.launch(ioDispatcher) {
             try {
                 val cacheTrackerKey = apiCacheKey("fetchMessages", clanId, cacheKey, topicId)
@@ -681,6 +759,9 @@ class ChatController @Inject constructor(
                         }
                     } else if (fromDb.isEmpty()) {
                         Log.d(TAG, "Offline — no cached messages for channel $cacheKey (around)")
+                    }
+                    if (preferHttp) {
+                        scheduleMessageRefreshWhenOnline(onlineRefresh)
                     }
                     return@launch
                 }
@@ -733,6 +814,9 @@ class ChatController @Inject constructor(
                 notificationCenter.postNotificationOnMainThread(
                     NotificationCenter.messagesLoadError, cacheKey, e.message ?: "Failed to load"
                 )
+                if (preferHttp && !networkMonitor.isOnline.value) {
+                    scheduleMessageRefreshWhenOnline(onlineRefresh)
+                }
             }
         }
     }
@@ -856,7 +940,7 @@ class ChatController @Inject constructor(
         request: ChannelMessageSend
     ): com.mezon.mezon.rtapi.ChannelMessageAck {
         val req = correctSendClanIdentity(request)
-        if (mezonSocket.connectionState.value == ConnectionState.CONNECTED) {
+        if (mezonSocket.canSendChannelMessageRealtime(req.clanId, req.channelId)) {
             try {
                 return sendChannelMessageViaSocket(req)
             } catch (e: CancellationException) {
@@ -868,6 +952,12 @@ class ChatController @Inject constructor(
                     "fallback HTTP channelId=${req.channelId} clanId=${req.clanId} err=${e.message}"
                 )
             }
+        } else if (mezonSocket.connectionState.value == ConnectionState.CONNECTED) {
+            Log.d(
+                TAG,
+                "Channel message using HTTP until realtime is fresh and joined " +
+                    "channelId=${req.channelId} clanId=${req.clanId} gen=${mezonSocket.connectGen}"
+            )
         }
         return withContext(ioDispatcher) {
             api.sendChannelMessage(apiUrl, token, req)
@@ -1497,7 +1587,7 @@ class ChatController @Inject constructor(
         private const val ATTACHMENT_UPLOAD_PARALLELISM = 4
         private const val PRESIGN_EDIT_BATCH_SIZE = 4
         private const val PRESIGN_FINISH_SYNC_DELAY_MS = 300L
-        private const val PRESIGN_SEND_FIRST_MIN_COUNT = 4
+        private const val PRESIGN_SEND_FIRST_MIN_COUNT = 1
         private const val IMAGE_COMPRESSION_PARALLELISM = 2
         private const val LARGE_ATTACHMENT_BYTES = 50L * 1024 * 1024
         private const val LARGE_ATTACHMENT_PARALLELISM = 3
@@ -2271,7 +2361,7 @@ class ChatController @Inject constructor(
         val attachment = messageAttachment {
             this.filename = item.filename
             this.url = presigned.cdnUrl
-            this.filetype = item.mimeType
+            this.filetype = AttachmentUploader.attachmentTypeForUpload(item.mimeType)
             this.size = item.size.toInt()
             this.width = item.width
             this.height = item.height
@@ -2308,7 +2398,7 @@ class ChatController @Inject constructor(
         val attachment = messageAttachment {
             this.filename = item.filename
             this.url = presigned.cdnUrl
-            this.filetype = item.mimeType
+            this.filetype = AttachmentUploader.attachmentTypeForUpload(item.mimeType)
             this.size = fileSize.toInt()
             this.width = item.width
             this.height = item.height
@@ -2487,7 +2577,7 @@ class ChatController @Inject constructor(
         }
         val firstItem = allItems.first()
         val messageType = when {
-            uploadedByIndex.getOrNull(0) != null -> resolveOptimisticTypeFromMime(uploadedByIndex[0]!!.filetype)
+            uploadedByIndex.getOrNull(0) != null -> resolveOptimisticTypeFromAttachment(uploadedByIndex[0]!!)
             else -> resolveOptimisticType(firstItem)
         }
         val extraArr = org.json.JSONArray()
@@ -2517,7 +2607,7 @@ class ChatController @Inject constructor(
         val tail = if (uploaded.size > 1) uploaded.subList(1, uploaded.size) else emptyList()
         val firstItem = pendingLocal.firstOrNull()
         val messageType = when {
-            first != null -> resolveOptimisticTypeFromMime(first.filetype)
+            first != null -> resolveOptimisticTypeFromAttachment(first)
             firstItem != null -> resolveOptimisticType(firstItem)
             else -> MessageEntity.TYPE_TEXT
         }
@@ -2548,12 +2638,11 @@ class ChatController @Inject constructor(
         val messageType: Int,
     )
 
-    private fun resolveOptimisticTypeFromMime(mimeType: String): Int {
-        val ft = mimeType.lowercase()
+    private fun resolveOptimisticTypeFromAttachment(attachment: MessageAttachment): Int {
         return when {
-            ft.startsWith("image/gif") -> MessageEntity.TYPE_GIF
-            ft.startsWith("image/") -> MessageEntity.TYPE_PHOTO
-            ft.startsWith("video/") -> MessageEntity.TYPE_VIDEO
+            isGifAttachment(attachment.filetype, attachment.filename, attachment.url) -> MessageEntity.TYPE_GIF
+            isImageAttachmentType(attachment.filetype) -> MessageEntity.TYPE_PHOTO
+            isVideoAttachmentType(attachment.filetype) -> MessageEntity.TYPE_VIDEO
             else -> MessageEntity.TYPE_FILE
         }
     }

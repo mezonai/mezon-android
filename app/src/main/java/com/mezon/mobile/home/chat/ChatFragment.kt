@@ -327,6 +327,7 @@ open class ChatFragment : BaseFragment() {
     private var topicRootHeader: TopicRootHeaderView? = null
     private var activePhotoViewer: PhotoViewer? = null
     private var photoViewerSelectedUrl = ""
+    private var photoViewerSourceMessage: MessageEntity? = null
     private var cachedTopicRootMessage: MessageEntity? = null
     private val messageListKey: Long
         get() = if (topicId != 0L) topicId else channelId
@@ -2067,7 +2068,7 @@ open class ChatFragment : BaseFragment() {
                 val url = att.url
                 if (url.isEmpty()) return
 
-                val isVideo = att.filetype.startsWith("video/")
+                val isVideo = isVideoAttachmentType(att.filetype)
                 val thumbBmp = cell.getMediaBitmap(attachmentIndex)
 
                 if (isVideo) {
@@ -2094,7 +2095,9 @@ open class ChatFragment : BaseFragment() {
                         )
                     )
                 } else {
-                    val seed = allMedia.filter { !it.filetype.startsWith("video/") && it.url.isNotEmpty() }.map { it.url }
+                    val seed = allMedia.filter {
+                        !isVideoAttachmentType(it.filetype) && it.url.isNotEmpty()
+                    }.map { it.url }
                     openChannelPhotoViewer(context, url, thumbBmp, seed, msg)
                 }
             }
@@ -2909,7 +2912,7 @@ open class ChatFragment : BaseFragment() {
                     if (sticker.isForSale && sticker.src.isBlank()) return
                     val url = resolveStickerSourceUrl(sticker.id, sticker.src)
                     if (url.isBlank()) return
-                    val filetype = if (isAudio) "audio/mpeg" else "image/gif"
+                    val filetype = if (isAudio) "audio/mpeg" else "sticker"
                     val references = buildReplyReferences()
                     chatController.sendDirectAttachment(
                         channelId, clanId, channelType, resolveChannelPrivate(),
@@ -2919,13 +2922,12 @@ open class ChatFragment : BaseFragment() {
                     hideEmojiView()
                 }
 
-                override fun onGifSelected(gifUrl: String, width: Int, height: Int) {
+                override fun onGifSelected(gifUrl: String) {
                     if (!ensureCanSendMessageOrNotify()) return
                     val references = buildReplyReferences()
                     chatController.sendDirectAttachment(
                         channelId, clanId, channelType, resolveChannelPrivate(),
-                        gifUrl, "image/gif", references = references, topicId = topicId,
-                        width = width, height = height
+                        gifUrl, "sticker", references = references, topicId = topicId
                     )
                     clearReplyState()
                     hideEmojiView()
@@ -3032,6 +3034,7 @@ open class ChatFragment : BaseFragment() {
         activePhotoViewer?.setOnDismissListener(null)
         activePhotoViewer?.dismiss()
         activePhotoViewer = null
+        photoViewerSourceMessage = null
         dismissPasteImagePopup()
         waitingForKeyboardOpen = false
         AndroidUtilities.cancelRunOnUIThread(openKeyboardRunnable)
@@ -3993,10 +3996,14 @@ open class ChatFragment : BaseFragment() {
         val viewer = PhotoViewer(context)
         activePhotoViewer = viewer
         photoViewerSelectedUrl = url
+        photoViewerSourceMessage = msg
         viewer.onCurrentUrlChanged = { photoViewerSelectedUrl = it }
         viewer.onReachedOldestEdge = { channelGalleryController.fetchOlderIfNeeded(channelId, clanId) }
         viewer.setOnDismissListener {
-            if (activePhotoViewer === viewer) activePhotoViewer = null
+            if (activePhotoViewer === viewer) {
+                activePhotoViewer = null
+                photoViewerSourceMessage = null
+            }
         }
         val initial = buildPhotoViewerItems(url, seedUrls, msg)
         val idx = initial.indexOfFirst { it.url == url }.coerceAtLeast(0)
@@ -4021,7 +4028,7 @@ open class ChatFragment : BaseFragment() {
 
     private fun refreshActivePhotoViewerGallery() {
         val viewer = activePhotoViewer ?: return
-        val items = buildPhotoViewerItems(photoViewerSelectedUrl)
+        val items = buildPhotoViewerItems(photoViewerSelectedUrl, msg = photoViewerSourceMessage)
         if (items.isEmpty()) return
         viewer.updateGallery(items, photoViewerSelectedUrl)
     }
@@ -6519,8 +6526,9 @@ open class ChatFragment : BaseFragment() {
         val showEditMessage = msg.canEditMessage(userId)
         val allMedia = msg.allImageAttachments
         val hasMedia = allMedia.isNotEmpty() ||
-            msg.attachmentUrl.isNotEmpty() && (msg.attachmentFiletype.startsWith("image/") || msg.attachmentFiletype.startsWith("video/"))
-        val hasImage = allMedia.any { it.filetype.startsWith("image/") }
+            msg.attachmentUrl.isNotEmpty() &&
+            (isImageAttachmentType(msg.attachmentFiletype) || isVideoAttachmentType(msg.attachmentFiletype))
+        val hasImage = allMedia.any { isImageAttachmentType(it.filetype) }
         val allowFwd = !msg.isPollMessage
 
         val sheet = MessageActionBottomSheet(
@@ -7357,6 +7365,9 @@ open class ChatFragment : BaseFragment() {
         }
         messages[idx] = updated
         messagesDict.put(realId, updated)
+        if (::adapter.isInitialized) {
+            adapter.preserveOptimisticStableId(tempId, realId)
+        }
         Log.d(TAG, "applyRealId tempId=$tempId → realId=$realId")
         if (fragmentView == null) return
         val cellMask = when {
@@ -7402,6 +7413,9 @@ open class ChatFragment : BaseFragment() {
         val updated = old.copy(sendState = MessageEntity.SEND_STATE_SENT)
         messages[idx] = updated
         messagesDict.put(tempId, updated)
+        if (::adapter.isInitialized) {
+            adapter.preserveOptimisticStableId(tempId, tempId)
+        }
         if (fragmentView == null) return
         for (i in 0 until recyclerView.childCount) {
             val cell = recyclerView.getChildAt(i) as? ChatMessageCell ?: continue

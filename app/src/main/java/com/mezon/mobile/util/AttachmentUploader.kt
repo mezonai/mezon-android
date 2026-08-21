@@ -32,6 +32,16 @@ object AttachmentUploader {
     private const val MULTIPART_MIN_FILE_SIZE = 50L * 1024 * 1024
     private const val MULTIPART_UPLOAD_ENABLED = true
 
+    internal fun attachmentTypeForUpload(filetype: String): String {
+        val normalized = filetype.lowercase()
+        return when {
+            normalized.contains("image") -> "image"
+            normalized.contains("video") -> "video"
+            normalized.contains("audio") -> "audio"
+            else -> "doc"
+        }
+    }
+
     private class MultipartNotApplicable : Exception()
 
     @Volatile
@@ -290,7 +300,7 @@ object AttachmentUploader {
             }
         }
         val presign = api.uploadAttachmentFile(
-            apiUrl, token, uploadFilename, mimeType, sizeBytes.toInt(), width, height,
+            apiUrl, token, uploadFilename, attachmentTypeForUpload(mimeType), sizeBytes.toInt(), width, height,
         )
         val cdnUrl = "$cdnBaseUrl/${presign.filename}"
         Log.d(TAG, "presign bytes file=$uploadFilename cdnUrl=$cdnUrl minioUrl=${presign.url}")
@@ -325,7 +335,7 @@ object AttachmentUploader {
             }
         }
         val presign = api.uploadAttachmentFile(
-            apiUrl, token, uploadFilename, mimeType, fileSize.toInt(), width, height,
+            apiUrl, token, uploadFilename, attachmentTypeForUpload(mimeType), fileSize.toInt(), width, height,
         )
         val cdnUrl = "$cdnBaseUrl/${presign.filename}"
         Log.d(TAG, "presign file=$uploadFilename cdnUrl=$cdnUrl minioUrl=${presign.url}")
@@ -487,7 +497,7 @@ object AttachmentUploader {
     ): PresignedFileResult {
         val requestedPartCount = multipartPartCount(sizeBytes.toLong())
         val start = api.multipartUploadAttachmentFileStart(
-            apiUrl, token, uploadFilename, mimeType, sizeBytes, width, height,
+            apiUrl, token, uploadFilename, attachmentTypeForUpload(mimeType), sizeBytes, width, height,
             partCount = requestedPartCount,
         )
         val urls = start.urlsList
@@ -535,7 +545,7 @@ object AttachmentUploader {
     ): PresignedFileResult {
         val requestedPartCount = multipartPartCount(sizeBytes.toLong())
         val start = api.multipartUploadAttachmentFileStart(
-            apiUrl, token, uploadFilename, mimeType, sizeBytes, width, height,
+            apiUrl, token, uploadFilename, attachmentTypeForUpload(mimeType), sizeBytes, width, height,
             partCount = requestedPartCount,
         )
         val urls = start.urlsList

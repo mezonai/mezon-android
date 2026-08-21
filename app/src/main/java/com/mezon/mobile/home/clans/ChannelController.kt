@@ -358,9 +358,16 @@ class ChannelController @Inject constructor(
                 }
                 entities
             }
-            cacheTracker.markCalled(cacheKey)
+            cacheTracker.markCalled(cacheKey, ttlMs = ApiCacheTracker.LIST_CACHE_TTL_MS)
             val merged = _channelsByClan.value[clanId] ?: entitiesList
-            withContext(ioDispatcher) { clanChannelDao.upsertAll(merged) }
+            withContext(ioDispatcher) {
+                if (merged.isEmpty()) {
+                    clanChannelDao.deleteByClan(clanId)
+                } else {
+                    clanChannelDao.deleteMissing(clanId, merged.map { it.channelId })
+                    clanChannelDao.upsertAll(merged)
+                }
+            }
             notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
         } catch (_: Exception) {
         } finally {
@@ -1172,6 +1179,10 @@ class ChannelController @Inject constructor(
 
     private fun mergeCache(clanId: Long, apiChannels: List<ClanChannelEntity>) {
         val existing = _channelsByClan.value[clanId] ?: emptyList()
+        if (apiChannels.isEmpty() && existing.isNotEmpty()) {
+            Log.w(TAG, "mergeCache: empty channel list for clan=$clanId with ${existing.size} cached — keeping cache")
+            return
+        }
         val existingMap = existing.associateBy { it.channelId }
         val merged = apiChannels.map { apiCh ->
             val apiNorm = withClanIdFromContext(clanId, apiCh)
@@ -1205,15 +1216,15 @@ class ChannelController @Inject constructor(
         }
         val mergedIds = HashSet<Long>(merged.size)
         for (ch in merged) mergedIds.add(ch.channelId)
-        val preservedExtras = existing.filter { cached ->
-            cached.channelId !in mergedIds &&
-                cached.clanId == clanId &&
-                cached.type != CHANNEL_TYPE_DM &&
-                cached.type != CHANNEL_TYPE_GROUP
-        }.map { ch ->
-            ch.copy(isMuted = resolveChannelMuted(clanId, ch.channelId, ch.isMuted))
+        val openId = currentOpenChannelId
+        val preservedOpen = if (openId != 0L && openId !in mergedIds) {
+            existing.filter { it.channelId == openId }.map { ch ->
+                ch.copy(isMuted = resolveChannelMuted(clanId, ch.channelId, ch.isMuted))
+            }
+        } else {
+            emptyList()
         }
-        val finalList = if (preservedExtras.isEmpty()) merged else merged + preservedExtras
+        val finalList = if (preservedOpen.isEmpty()) merged else merged + preservedOpen
         updateCache(clanId, sortChannels(finalList))
     }
 

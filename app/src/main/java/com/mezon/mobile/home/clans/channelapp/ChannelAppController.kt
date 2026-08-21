@@ -141,7 +141,7 @@ class ChannelAppController @Inject constructor(
                     appLogo = proto.appLogo
                 )
             }
-            cacheTracker.markCalled(cacheKey)
+            cacheTracker.markCalled(cacheKey, ttlMs = ApiCacheTracker.LIST_CACHE_TTL_MS)
 
             val existing = _appsByClan.value[clanId] ?: emptyList()
             if (!isSame(existing, newList)) {

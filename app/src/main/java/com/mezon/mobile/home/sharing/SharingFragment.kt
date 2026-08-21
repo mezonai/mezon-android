@@ -47,6 +47,10 @@ import com.mezon.mobile.home.chat.AttachmentPickerItem
 import com.mezon.mobile.home.chat.ForwardDestination
 import com.mezon.mobile.home.chat.ForwardNavigationStash
 import com.mezon.mobile.home.chat.MessageEntity
+import com.mezon.mobile.home.chat.isGifAttachment
+import com.mezon.mobile.home.chat.isImageAttachmentType
+import com.mezon.mobile.home.chat.isMediaAttachment
+import com.mezon.mobile.home.chat.isVideoAttachmentType
 import com.mezon.mobile.home.clans.CHANNEL_TYPE_VOICE
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.ClansController
@@ -1089,10 +1093,9 @@ class SharingFragment(
         var fil = 0
         for (a in all) {
             when {
-                a.filetype.startsWith("image/", ignoreCase = true) ||
-                    a.filetype.contains("gif", ignoreCase = true) ||
-                    a.url.contains("tenor.com", ignoreCase = true) -> img++
-                a.filetype.startsWith("video/", ignoreCase = true) -> vid++
+                isGifAttachment(a.filetype, a.filename, a.url) ||
+                    isImageAttachmentType(a.filetype) -> img++
+                isVideoAttachmentType(a.filetype) -> vid++
                 else -> fil++
             }
         }
@@ -1116,12 +1119,7 @@ class SharingFragment(
             previewFilesRow.visibility = View.GONE
         }
 
-        val mediaOnly = all.filter {
-            it.filetype.startsWith("image/", ignoreCase = true) ||
-                it.filetype.startsWith("video/", ignoreCase = true) ||
-                it.filetype.contains("gif", ignoreCase = true) ||
-                it.url.contains("tenor.com", ignoreCase = true)
-        }
+        val mediaOnly = all.filter { isMediaAttachment(it.filetype, it.url, it.filename) }
         if (mediaOnly.isNotEmpty()) {
             val a0 = mediaOnly[0]
             previewThumbHost.bind(a0.url, a0.thumb.takeIf { it.isNotBlank() } ?: a0.url)

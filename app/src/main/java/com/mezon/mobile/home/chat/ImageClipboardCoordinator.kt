@@ -48,14 +48,15 @@ class ImageClipboardCoordinator @Inject constructor(
 
     fun resolvePrimaryImageUrlForCopy(msg: MessageEntity): String? {
         val imgs = msg.allImageAttachments.filter { att ->
-            val ft = att.filetype.lowercase(Locale.US)
-            if (ft.startsWith("video/")) return@filter false
-            ft.startsWith("image/") || ft.contains("gif") || att.url.contains("tenor.com", ignoreCase = true)
+            if (isVideoAttachmentType(att.filetype)) return@filter false
+            isImageAttachmentType(att.filetype) ||
+                isGifAttachment(att.filetype, att.filename, att.url)
         }
         if (imgs.isNotEmpty()) return imgs.firstOrNull()?.url?.takeIf { it.isNotBlank() }
         if (msg.attachmentUrl.isNotBlank() && msg.hasMedia) {
-            val ft = msg.attachmentFiletype.lowercase(Locale.US)
-            if (ft.startsWith("image/") || ft.contains("gif") || msg.attachmentUrl.contains("tenor.com", ignoreCase = true)) {
+            if (isImageAttachmentType(msg.attachmentFiletype) ||
+                isGifAttachment(msg.attachmentFiletype, msg.attachmentFilename, msg.attachmentUrl)
+            ) {
                 return msg.attachmentUrl
             }
         }

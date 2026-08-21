@@ -33,7 +33,9 @@ import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.clans.ChannelCanvasController
 import com.mezon.mobile.home.clans.ChannelMuteBottomSheet
 import com.mezon.mobile.home.ChannelFilesController
+import com.mezon.mobile.home.ChannelFilesType
 import com.mezon.mobile.home.ChannelGalleryController
+import com.mezon.mobile.home.ChannelGalleryMediaType
 import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.DmGroupAvatarUploadResult
 import com.mezon.mobile.home.MemberResolver
@@ -212,12 +214,14 @@ class ChannelInfoFragment : BaseFragment() {
         observe(NotificationCenter.channelFilesDidLoad) { _, _, args ->
             if (isPaused) return@observe
             val ch = args.firstOrNull() as? Long ?: return@observe
-            if (ch == channelId) filesTab?.onRemoteChannelFiles(ch)
+            val filesType = args.getOrNull(1) as? ChannelFilesType ?: ChannelFilesType.DOC
+            if (ch == channelId) filesTab?.onRemoteChannelFiles(ch, filesType)
         }
         observe(NotificationCenter.channelFilesLoadError) { _, _, args ->
             if (isPaused) return@observe
             val ch = args.firstOrNull() as? Long ?: return@observe
-            if (ch == channelId) filesTab?.onRemoteChannelFiles(ch)
+            val filesType = args.getOrNull(1) as? ChannelFilesType ?: ChannelFilesType.DOC
+            if (ch == channelId) filesTab?.onRemoteChannelFiles(ch, filesType)
         }
         observe(NotificationCenter.channelPermissionsDidLoad) { _, _, args ->
             if (isPaused) return@observe
@@ -245,11 +249,12 @@ class ChannelInfoFragment : BaseFragment() {
             if (fragmentView == null) return@observe
             val ch = args.firstOrNull() as? Long ?: return@observe
             if (ch != channelId) return@observe
+            val mediaType = args.getOrNull(1) as? ChannelGalleryMediaType ?: ChannelGalleryMediaType.IMAGE
             if (isPaused) {
-                pendingGalleryError = true
+                pendingGalleryError = mediaType
                 return@observe
             }
-            fragmentView?.context?.let { ctx -> mediaTab?.onGalleryLoadFailure(ctx) }
+            fragmentView?.context?.let { ctx -> mediaTab?.onGalleryLoadFailure(ctx, mediaType) }
         }
 
         observe(NotificationCenter.channelCanvasesDidLoad) { _, _, args ->
@@ -270,16 +275,16 @@ class ChannelInfoFragment : BaseFragment() {
         return true
     }
 
-    private var pendingGalleryError = false
+    private var pendingGalleryError: ChannelGalleryMediaType? = null
 
     override fun onBecomeFullyVisible() {
         super.onBecomeFullyVisible()
-        if (channelGalleryController.isInitialLoadFinished(channelId)) {
-            fragmentView?.context?.let { ctx -> mediaTab?.syncFromApi(ctx) }
-        } else if (pendingGalleryError) {
-            fragmentView?.context?.let { ctx -> mediaTab?.onGalleryLoadFailure(ctx) }
+        filesTab?.reload()
+        fragmentView?.context?.let { ctx ->
+            mediaTab?.syncFromApi(ctx)
+            pendingGalleryError?.let { mediaType -> mediaTab?.onGalleryLoadFailure(ctx, mediaType) }
         }
-        pendingGalleryError = false
+        pendingGalleryError = null
     }
 
     override fun dismissDialogOnPause(dialog: Dialog): Boolean {

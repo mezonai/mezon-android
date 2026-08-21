@@ -967,6 +967,8 @@
     <string name="channel_app_launch">Khởi chạy ứng dụng</string>
     <string name="channel_app_help">Trợ giúp</string>
     <string name="channel_app_launch_unavailable">Không mở được ứng dụng. Hãy thử lại.</string>
+    <string name="channel_gallery_images">Hình ảnh</string>
+    <string name="channel_gallery_videos">Video</string>
     <string name="channel_gallery_empty">Chưa có ảnh hoặc video được chia sẻ.</string>
     <string name="channel_gallery_load_error">Không tải được nội dung media. Hãy thử lại.</string>
     <!-- Edit Profile -->
@@ -1262,6 +1264,8 @@
     <string name="system_msg_thread_sentence_see">Xem</string>
     <string name="system_msg_all_threads">tất cả chủ đề</string>
     <string name="channel_files_search_placeholder">Tìm kiếm tệp</string>
+    <string name="channel_files_docs">Tài liệu</string>
+    <string name="channel_files_audios">Âm thanh</string>
     <string name="channel_files_media_empty_description">Chúng tôi đã tìm kiếm rất xa. Thật không may, không có kết quả được tìm thấy</string>
     <string name="channel_files_shared_by">Được chia sẻ bởi %1$s</string>
 

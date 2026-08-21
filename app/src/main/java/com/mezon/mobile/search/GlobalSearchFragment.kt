@@ -185,6 +185,11 @@ class GlobalSearchFragment : BaseFragment() {
             if (channelScopedMembers != null) return@observe
             searchController.rebuildMembers()
         }
+        observe(NotificationCenter.friendsLoaded) { _, _, _ ->
+            if (fragmentView == null || isPaused) return@observe
+            if (channelScopedMembers != null) return@observe
+            searchController.rebuildMembers()
+        }
         observe(NotificationCenter.clanMembersDidLoad) { _, _, _ ->
             if (fragmentView == null || isPaused) return@observe
             if (channelScopedMembers != null) {
