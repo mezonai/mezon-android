@@ -363,10 +363,14 @@
     <string name="unpin_message_confirm_title">Unpin Message</string>
     <string name="unpin_message_confirm_description">Please confirm if you would like to remove this pinned message?</string>
     <string name="pin_message_empty">This channel doesn\'t have any pinned messages\u2026 yet.</string>
+    <string name="channel_gallery_images">Images</string>
+    <string name="channel_gallery_videos">Videos</string>
     <string name="channel_gallery_empty">No shared photos or videos yet.</string>
     <string name="channel_gallery_load_error">Couldn\'t load media. Try again.</string>
 
     <string name="channel_files_search_placeholder">Search Files</string>
+    <string name="channel_files_docs">Docs</string>
+    <string name="channel_files_audios">Audios</string>
     <string name="channel_canvas_search_placeholder">Search Canvas</string>
     <string name="channel_canvas_untitled">Untitled</string>
     <string name="channel_canvas_link_copied">Canvas link copied!</string>

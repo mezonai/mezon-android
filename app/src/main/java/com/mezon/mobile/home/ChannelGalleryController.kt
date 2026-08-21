@@ -39,6 +39,16 @@ data class ChannelGalleryMediaItem(
     val isVideo: Boolean get() = isVideoAttachmentType(filetype)
 }
 
+enum class ChannelGalleryMediaType(val apiValue: String) {
+    IMAGE("image"),
+    VIDEO("video")
+}
+
+private data class ChannelGalleryKey(
+    val channelId: Long,
+    val mediaType: ChannelGalleryMediaType
+)
+
 private class ChannelGalleryState {
     val items = ArrayList<ChannelGalleryMediaItem>()
     var hasMoreBefore = true
@@ -57,9 +67,9 @@ class ChannelGalleryController @Inject constructor(
     @ApplicationScope private val appScope: CoroutineScope
 ) {
 
-    private val stateByChannel = HashMap<Long, ChannelGalleryState>()
-    private val mutexByChannel = HashMap<Long, Mutex>()
-    private val loadingChannels = Collections.synchronizedSet(HashSet<Long>())
+    private val stateByGallery = HashMap<ChannelGalleryKey, ChannelGalleryState>()
+    private val mutexByGallery = HashMap<ChannelGalleryKey, Mutex>()
+    private val loadingGalleries = Collections.synchronizedSet(HashSet<ChannelGalleryKey>())
 
     private val messageObserver = object : NotificationCenter.NotificationCenterDelegate {
         override fun didReceivedNotification(id: Int, account: Int, vararg args: Any?) {
@@ -96,108 +106,142 @@ class ChannelGalleryController @Inject constructor(
         notificationCenter.addObserver(messageObserver, NotificationCenter.messageDidDelete)
     }
 
-    fun getItems(channelId: Long): List<ChannelGalleryMediaItem> =
-        synchronized(stateByChannel) {
-            stateByChannel[channelId]?.items?.toList() ?: emptyList()
+    fun getItems(
+        channelId: Long,
+        mediaType: ChannelGalleryMediaType = ChannelGalleryMediaType.IMAGE
+    ): List<ChannelGalleryMediaItem> =
+        synchronized(stateByGallery) {
+            stateByGallery[ChannelGalleryKey(channelId, mediaType)]?.items?.toList() ?: emptyList()
         }
 
-    fun hasMoreBefore(channelId: Long): Boolean =
-        synchronized(stateByChannel) {
-            stateByChannel[channelId]?.hasMoreBefore != false
+    fun hasMoreBefore(
+        channelId: Long,
+        mediaType: ChannelGalleryMediaType = ChannelGalleryMediaType.IMAGE
+    ): Boolean =
+        synchronized(stateByGallery) {
+            stateByGallery[ChannelGalleryKey(channelId, mediaType)]?.hasMoreBefore != false
         }
 
-    fun isInitialLoading(channelId: Long): Boolean =
-        synchronized(stateByChannel) {
-            stateByChannel[channelId]?.initialLoading ?: false
+    fun isInitialLoading(
+        channelId: Long,
+        mediaType: ChannelGalleryMediaType = ChannelGalleryMediaType.IMAGE
+    ): Boolean =
+        synchronized(stateByGallery) {
+            stateByGallery[ChannelGalleryKey(channelId, mediaType)]?.initialLoading ?: false
         }
 
-    fun isPagingLoading(channelId: Long): Boolean =
-        synchronized(stateByChannel) {
-            stateByChannel[channelId]?.pagingLoading ?: false
+    fun isPagingLoading(
+        channelId: Long,
+        mediaType: ChannelGalleryMediaType = ChannelGalleryMediaType.IMAGE
+    ): Boolean =
+        synchronized(stateByGallery) {
+            stateByGallery[ChannelGalleryKey(channelId, mediaType)]?.pagingLoading ?: false
         }
 
-    fun isInitialLoadFinished(channelId: Long): Boolean =
-        synchronized(stateByChannel) {
-            stateByChannel[channelId]?.initialLoadFinished == true
+    fun isInitialLoadFinished(
+        channelId: Long,
+        mediaType: ChannelGalleryMediaType = ChannelGalleryMediaType.IMAGE
+    ): Boolean =
+        synchronized(stateByGallery) {
+            stateByGallery[ChannelGalleryKey(channelId, mediaType)]?.initialLoadFinished == true
         }
 
-    fun isFetching(channelId: Long): Boolean = synchronized(loadingChannels) { channelId in loadingChannels }
+    fun isFetching(
+        channelId: Long,
+        mediaType: ChannelGalleryMediaType = ChannelGalleryMediaType.IMAGE
+    ): Boolean =
+        synchronized(loadingGalleries) { ChannelGalleryKey(channelId, mediaType) in loadingGalleries }
 
-    fun ensureLoaded(channelId: Long, clanId: Long, forceRefresh: Boolean = false) {
-        val cacheKey = apiCacheKey("channelGallery", channelId)
+    fun ensureLoaded(
+        channelId: Long,
+        clanId: Long,
+        forceRefresh: Boolean = false,
+        mediaType: ChannelGalleryMediaType = ChannelGalleryMediaType.IMAGE
+    ) {
+        val key = ChannelGalleryKey(channelId, mediaType)
+        val cacheKey = galleryCacheKey(key)
         if (!forceRefresh &&
             apiCacheTracker.shouldCall(cacheKey) == ApiCacheTracker.ShouldCall.SKIP &&
-            isInitialLoadFinished(channelId)
+            isInitialLoadFinished(channelId, mediaType)
         ) {
-            notificationCenter.postNotificationOnMainThread(NotificationCenter.channelGalleryDidLoad, channelId)
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.channelGalleryDidLoad, channelId, mediaType)
             return
         }
-        synchronized(loadingChannels) {
-            if (!loadingChannels.add(channelId)) return
+        synchronized(loadingGalleries) {
+            if (!loadingGalleries.add(key)) return
         }
         if (forceRefresh) {
             apiCacheTracker.invalidate(cacheKey)
-            resetState(channelId)
-        } else if (isInitialLoadFinished(channelId)) {
-            resetState(channelId)
+            resetState(key)
+        } else if (isInitialLoadFinished(channelId, mediaType)) {
+            resetState(key)
         } else {
-            synchronized(stateByChannel) {
-                stateByChannel.getOrPut(channelId) { ChannelGalleryState() }
+            synchronized(stateByGallery) {
+                stateByGallery.getOrPut(key) { ChannelGalleryState() }
             }
         }
         appScope.launch {
             try {
-                mutexFor(channelId).withLock {
-                    loadImpl(channelId, clanId, isInitial = true)
+                mutexFor(key).withLock {
+                    loadImpl(key, clanId, isInitial = true)
                 }
             } finally {
-                synchronized(loadingChannels) { loadingChannels.remove(channelId) }
+                synchronized(loadingGalleries) { loadingGalleries.remove(key) }
             }
         }
     }
 
-    fun clearAndReload(channelId: Long, clanId: Long) {
-        ensureLoaded(channelId, clanId, forceRefresh = true)
+    fun clearAndReload(
+        channelId: Long,
+        clanId: Long,
+        mediaType: ChannelGalleryMediaType = ChannelGalleryMediaType.IMAGE
+    ) {
+        ensureLoaded(channelId, clanId, forceRefresh = true, mediaType = mediaType)
     }
 
-    private fun resetState(channelId: Long) {
-        synchronized(stateByChannel) {
-            val st = stateByChannel[channelId] ?: ChannelGalleryState()
+    private fun resetState(key: ChannelGalleryKey) {
+        synchronized(stateByGallery) {
+            val st = stateByGallery[key] ?: ChannelGalleryState()
             st.items.clear()
             st.hasMoreBefore = true
             st.initialLoadFinished = false
             st.initialLoading = false
             st.pagingLoading = false
-            stateByChannel[channelId] = st
+            stateByGallery[key] = st
         }
     }
 
-    fun fetchOlderIfNeeded(channelId: Long, clanId: Long) {
+    fun fetchOlderIfNeeded(
+        channelId: Long,
+        clanId: Long,
+        mediaType: ChannelGalleryMediaType = ChannelGalleryMediaType.IMAGE
+    ) {
+        val key = ChannelGalleryKey(channelId, mediaType)
         appScope.launch {
-            mutexFor(channelId).withLock {
+            mutexFor(key).withLock {
                 val st =
-                    synchronized(stateByChannel) {
-                        stateByChannel[channelId]
+                    synchronized(stateByGallery) {
+                        stateByGallery[key]
                     } ?: return@withLock
 
                 if (!st.initialLoadFinished || st.pagingLoading || !st.hasMoreBefore || st.initialLoading) return@withLock
 
                 if (st.items.isEmpty()) return@withLock
 
-                loadImpl(channelId, clanId, isInitial = false)
+                loadImpl(key, clanId, isInitial = false)
             }
         }
     }
 
-    private fun mutexFor(channelId: Long): Mutex =
-        synchronized(mutexByChannel) {
-            mutexByChannel.getOrPut(channelId) { Mutex() }
+    private fun mutexFor(key: ChannelGalleryKey): Mutex =
+        synchronized(mutexByGallery) {
+            mutexByGallery.getOrPut(key) { Mutex() }
         }
 
-    private suspend fun loadImpl(channelId: Long, clanId: Long, isInitial: Boolean) {
+    private suspend fun loadImpl(key: ChannelGalleryKey, clanId: Long, isInitial: Boolean) {
         val state =
-            synchronized(stateByChannel) {
-                stateByChannel.getOrPut(channelId) { ChannelGalleryState() }
+            synchronized(stateByGallery) {
+                stateByGallery.getOrPut(key) { ChannelGalleryState() }
             }
 
         val shouldProceed =
@@ -234,13 +278,15 @@ class ChannelGalleryController @Inject constructor(
                         apiUrl = session.apiUrl,
                         token = session.token,
                         clanId = clanId,
-                        channelId = channelId,
+                        channelId = key.channelId,
                         limit = PAGE_LIMIT,
+                        fileType = key.mediaType.apiValue,
                         beforeTimeSeconds = beforeSecs
                     )
                 }
 
                 val batchSorted = raw.attachmentsList.mapNotNull { it.toFilteredMediaOrNull() }
+                    .filter { (key.mediaType == ChannelGalleryMediaType.VIDEO) == it.isVideo }
                     .distinctBy { it.id }
                     .sortedWith(
                         compareByDescending<ChannelGalleryMediaItem> { it.createTimeSeconds }.thenByDescending { it.id }
@@ -284,29 +330,37 @@ class ChannelGalleryController @Inject constructor(
                     val hm = synchronized(state) { state.hasMoreBefore }
                     Log.d(
                         TAG,
-                        "loadMore ch=$channelId initial=$isInitial before=$beforeSecs " +
+                        "loadMore ch=${key.channelId} initial=$isInitial before=$beforeSecs " +
                             "raw=${raw.attachmentsList.size} batch=${batchSorted.size} " +
                             "appended=$appendedCount hasMoreBefore=$hm"
                     )
                 }
 
                 if (isInitial) {
-                    apiCacheTracker.markCalled(apiCacheKey("channelGallery", channelId))
+                    apiCacheTracker.markCalled(galleryCacheKey(key))
                 }
 
-                notificationCenter.postNotificationOnMainThread(NotificationCenter.channelGalleryDidLoad, channelId)
+                notificationCenter.postNotificationOnMainThread(
+                    NotificationCenter.channelGalleryDidLoad,
+                    key.channelId,
+                    key.mediaType
+                )
             }
         } catch (e: Exception) {
-            Log.e(TAG, "listChannelAttachments channel=$channelId", e)
+            Log.e(TAG, "listChannelAttachments channel=${key.channelId}", e)
             synchronized(state) {
                 if (isInitial) state.initialLoadFinished = true
             }
 
             if (isInitial) {
-                apiCacheTracker.invalidate(apiCacheKey("channelGallery", channelId))
+                apiCacheTracker.invalidate(galleryCacheKey(key))
             }
 
-            notificationCenter.postNotificationOnMainThread(NotificationCenter.channelGalleryLoadError, channelId)
+            notificationCenter.postNotificationOnMainThread(
+                NotificationCenter.channelGalleryLoadError,
+                key.channelId,
+                key.mediaType
+            )
         } finally {
             synchronized(state) {
                 when {
@@ -322,64 +376,77 @@ class ChannelGalleryController @Inject constructor(
         if (!message.isRenderable) return false
         if (message.code != MessageEntity.CODE_CHAT && message.code != MessageEntity.CODE_CHAT_UPDATE) return false
 
-        val channelId = message.channelId
-        val cacheKey = apiCacheKey("channelGallery", channelId)
-        if (!isInitialLoadFinished(channelId)) {
-            apiCacheTracker.invalidate(cacheKey)
-            return false
-        }
-
         val batch = message.toGalleryMediaItems()
         if (batch.isEmpty()) return false
 
         var changed = false
-        synchronized(stateByChannel) {
-            val state = stateByChannel[channelId] ?: return false
-            val existingUrls = state.items.mapTo(HashSet(state.items.size)) { it.url }
-            val existingIds = state.items.mapTo(HashSet(state.items.size)) { it.id }
+        batch.groupBy { if (it.isVideo) ChannelGalleryMediaType.VIDEO else ChannelGalleryMediaType.IMAGE }
+            .forEach typeLoop@{ (mediaType, mediaItems) ->
+                val key = ChannelGalleryKey(message.channelId, mediaType)
+                val state = synchronized(stateByGallery) { stateByGallery[key] }
+                if (state == null || !state.initialLoadFinished) {
+                    apiCacheTracker.invalidate(galleryCacheKey(key))
+                    return@typeLoop
+                }
 
-            batch.forEach { candidate ->
-                if (candidate.url in existingUrls || candidate.id in existingIds) return@forEach
-                state.items.add(candidate)
-                existingUrls.add(candidate.url)
-                existingIds.add(candidate.id)
-                changed = true
-            }
+                var stateChanged = false
+                synchronized(state) {
+                    val existingUrls = state.items.mapTo(HashSet(state.items.size)) { it.url }
+                    val existingIds = state.items.mapTo(HashSet(state.items.size)) { it.id }
 
-            if (changed) {
-                state.items.sortWith(
-                    compareByDescending<ChannelGalleryMediaItem> { it.createTimeSeconds }
-                        .thenByDescending { it.id }
-                )
+                    mediaItems.forEach candidateLoop@{ candidate ->
+                        if (candidate.url in existingUrls || candidate.id in existingIds) return@candidateLoop
+                        state.items.add(candidate)
+                        existingUrls.add(candidate.url)
+                        existingIds.add(candidate.id)
+                        stateChanged = true
+                        changed = true
+                    }
+
+                    if (stateChanged) {
+                        state.items.sortWith(
+                            compareByDescending<ChannelGalleryMediaItem> { it.createTimeSeconds }
+                                .thenByDescending { it.id }
+                        )
+                    }
+                }
+                if (stateChanged) apiCacheTracker.invalidate(galleryCacheKey(key))
             }
-        }
 
         if (!changed) return false
 
-        apiCacheTracker.invalidate(cacheKey)
-        notificationCenter.postNotificationOnMainThread(NotificationCenter.channelGalleryDidLoad, channelId)
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.channelGalleryDidLoad, message.channelId)
         return true
     }
 
     private fun removeByMessageId(channelId: Long, messageId: Long): Boolean {
-        synchronized(stateByChannel) {
-            val state = stateByChannel[channelId] ?: return false
-            if (!state.initialLoadFinished) return false
-            val before = state.items.size
-            state.items.removeAll { it.messageId == messageId }
-            return state.items.size != before
+        synchronized(stateByGallery) {
+            var changed = false
+            stateByGallery
+                .filterKeys { it.channelId == channelId }
+                .values
+                .filter { it.initialLoadFinished }
+                .forEach { state ->
+                    val before = state.items.size
+                    state.items.removeAll { it.messageId == messageId }
+                    if (state.items.size != before) changed = true
+                }
+            return changed
         }
     }
 
+    private fun galleryCacheKey(key: ChannelGalleryKey): String =
+        apiCacheKey("channelGallery", key.channelId, key.mediaType.apiValue)
+
     fun cleanup() {
-        synchronized(stateByChannel) {
-            stateByChannel.clear()
+        synchronized(stateByGallery) {
+            stateByGallery.clear()
         }
-        synchronized(mutexByChannel) {
-            mutexByChannel.clear()
+        synchronized(mutexByGallery) {
+            mutexByGallery.clear()
         }
-        synchronized(loadingChannels) {
-            loadingChannels.clear()
+        synchronized(loadingGalleries) {
+            loadingGalleries.clear()
         }
     }
 }

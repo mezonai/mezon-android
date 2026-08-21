@@ -1517,15 +1517,15 @@ class CreateThreadFragment : BaseFragment() {
                     if (sticker.isForSale && sticker.src.isBlank()) return
                     val url = resolveStickerSourceUrl(sticker.id, sticker.src)
                     if (url.isBlank()) return
-                    val filetype = if (isAudio) "audio/mpeg" else "image/gif"
+                    val filetype = if (isAudio) "audio/mpeg" else "sticker"
                     pendingStickerSend = PendingStickerSend(url, filetype, sticker.id.toString())
                     hideEmojiView(animated = false)
                     updateSendButtonState()
                 }
 
-                override fun onGifSelected(gifUrl: String, width: Int, height: Int) {
+                override fun onGifSelected(gifUrl: String) {
                     if (gifUrl.isBlank()) return
-                    pendingStickerSend = PendingStickerSend(gifUrl, "image/gif", null)
+                    pendingStickerSend = PendingStickerSend(gifUrl, "sticker", null)
                     hideEmojiView(animated = false)
                     updateSendButtonState()
                 }
