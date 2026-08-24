@@ -383,6 +383,7 @@ open class ChatFragment : BaseFragment() {
     }
 
     private val sentByApiRealIds = HashSet<Long>()
+    private val pendingEchoTempIds = HashSet<Long>()
 
     private var replyingToMessage: MessageEntity? = null
     private var replyBar: LinearLayout? = null
@@ -603,6 +604,7 @@ open class ChatFragment : BaseFragment() {
             val isCache = args[4] as? Boolean ?: false
             val serverLastSeenId = args.getOrNull(5) as? Long ?: 0L
             val loadType = args.getOrNull(6) as? Int ?: LOAD_TYPE_INITIAL
+            var rebuildUnchanged = false
             if (serverLastSeenId != 0L) {
                 val newSeen = maxOf(lastSeenMessageId, serverLastSeenId)
                 if (newSeen != lastSeenMessageId) {
@@ -738,13 +740,35 @@ open class ChatFragment : BaseFragment() {
                         it.isMe && (it.isSending || (it.isPollMessage && it.id !in loadedIds))
                     }
 
+                    val prevRendered = ArrayList(messages)
+                    val prevMoreTop = hasMoreTop
+                    val prevMoreBottom = hasMoreBottom
+                    val claimedEchoIds = HashSet<Long>()
+                    val reconciledPending = outgoingPending.filter { pending ->
+                        if (!pending.isSending || pending.id in loadedIds) return@filter true
+                        val pendingKey = selfMessageEchoKey(pending)
+                        val echo = loadedMessages.firstOrNull {
+                            it.isMe && it.senderId == pending.senderId &&
+                                it.id !in claimedEchoIds &&
+                                selfMessageEchoKey(it) == pendingKey
+                        } ?: return@filter true
+                        claimedEchoIds.add(echo.id)
+                        if (::adapter.isInitialized) {
+                            adapter.preserveOptimisticStableId(pending.id, echo.id)
+                        }
+                        pendingEchoTempIds.remove(pending.id)
+                        messagesDict.delete(pending.id)
+                        Log.d(TAG, "messagesDidLoad reconciled pending tempId=${pending.id} → realId=${echo.id}")
+                        false
+                    }
+
                     if (hasOverlap) {
                         for (m in loadedMessages) messagesDict.put(m.id, m)
                     } else {
                         messagesDict.clear()
                         for (m in loadedMessages) messagesDict.put(m.id, m)
                     }
-                    for (m in outgoingPending) {
+                    for (m in reconciledPending) {
                         if (messagesDict.get(m.id) == null) messagesDict.put(m.id, m)
                     }
                     for (m in chatController.getActivePendingAttachmentMessages(messageListKey)) {
@@ -761,6 +785,11 @@ open class ChatFragment : BaseFragment() {
 
                     hasUnread = savedHasUnread
                     lastSeenMessageId = savedLastSeen
+
+                    rebuildUnchanged = hasMoreTop == prevMoreTop &&
+                        hasMoreBottom == prevMoreBottom &&
+                        messages.size == prevRendered.size &&
+                        messages.indices.all { renderEquivalent(messages[it], prevRendered[it]) }
                 }
             }
 
@@ -831,6 +860,12 @@ open class ChatFragment : BaseFragment() {
                     updatePageDownVisibility()
                 } else {
                     Log.d(TAG, "messagesDidLoad decision: wasFirstLoad=$wasFirstLoad hasUnread=$hasUnread isCache=$isCache firstLoad=$firstLoad msgs=${messages.size}")
+
+                    if (rebuildUnchanged && !wasFirstLoad && pendingHighlightMessageId == 0L) {
+                        Log.d(TAG, "messagesDidLoad skip refresh: list unchanged")
+                        if (!isViewingOlder) markAsRead()
+                        return@observe
+                    }
 
                     var anchorMsgId = 0L
                     var anchorOffset = 0
@@ -916,6 +951,16 @@ open class ChatFragment : BaseFragment() {
                 return@observe
             }
             val entity = args[1] as? MessageEntity ?: return@observe
+            if (entity.channelId != 0L && entity.channelId != messageListKey) {
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        TAG,
+                        "didReceiveNewMessages skip entity channel mismatch id=${entity.id} " +
+                            "entityChannel=${entity.channelId} key=$messageListKey"
+                    )
+                }
+                return@observe
+            }
             if (BuildConfig.DEBUG) {
                 val refId = debugReferencedMessageId(entity.content)
                 val refIdx = if (refId != 0L) messages.indexOfFirst { it.id == refId } else -1
@@ -1093,12 +1138,10 @@ open class ChatFragment : BaseFragment() {
         observe(NotificationCenter.messageDidUpdate) { _, _, args ->
             if (args.size < 2) return@observe
             val eventKey = args[0] as? Long ?: return@observe
+            if (eventKey != messageListKey) return@observe
             val updateEntity = args[1] as? MessageEntity ?: return@observe
             val idx = messages.indexOfFirst { it.id == updateEntity.id }
-            if (idx < 0) {
-                if (eventKey != messageListKey) return@observe
-                return@observe
-            }
+            if (idx < 0) return@observe
             if (idx >= 0) {
                 val existing = messages[idx]
                 val newContent = updateEntity.content.takeIf { it.isNotBlank() } ?: existing.content
@@ -3056,6 +3099,7 @@ open class ChatFragment : BaseFragment() {
         messages.clear()
         messagesDict.clear()
         sentByApiRealIds.clear()
+        pendingEchoTempIds.clear()
         for (t in pendingAttachmentThumbTasks) ThumbnailCache.cancel(t)
         pendingAttachmentThumbTasks.clear()
         attachmentProgressReloadRunnable?.let { AndroidUtilities.cancelRunOnUIThread(it) }
@@ -3189,6 +3233,22 @@ open class ChatFragment : BaseFragment() {
         finishFragment()
     }
 
+    private fun renderEquivalent(a: MessageEntity, b: MessageEntity): Boolean =
+        a.id == b.id &&
+            a.content == b.content &&
+            a.code == b.code &&
+            a.senderId == b.senderId &&
+            a.timestampSeconds == b.timestampSeconds &&
+            a.updateTimeSeconds == b.updateTimeSeconds &&
+            a.hideEditted == b.hideEditted &&
+            a.reactionsJson == b.reactionsJson &&
+            a.sendState == b.sendState &&
+            a.isError == b.isError &&
+            a.attachmentUrl == b.attachmentUrl &&
+            a.extraAttachmentsJson == b.extraAttachmentsJson &&
+            a.senderName == b.senderName &&
+            a.senderAvatar == b.senderAvatar
+
     private fun selfMessageEchoKey(entity: MessageEntity): String =
         "${entity.code}:${parseContentText(entity.content).trim()}"
 
@@ -3198,16 +3258,19 @@ open class ChatFragment : BaseFragment() {
         val contentMatch = messages.indexOfFirst { pending ->
             pending.isMe &&
                 pending.senderId == entity.senderId &&
-                (pending.isSending || pending.sendState == MessageEntity.SEND_STATE_ERROR) &&
+                (pending.isSending || pending.sendState == MessageEntity.SEND_STATE_ERROR ||
+                    pending.id in pendingEchoTempIds) &&
                 selfMessageEchoKey(pending) == echoKey
         }
         if (contentMatch >= 0) return contentMatch
         return messages.indexOfFirst {
-            it.isSending && it.isMe && it.senderId == entity.senderId && it.code == entity.code
+            (it.isSending || it.id in pendingEchoTempIds) &&
+                it.isMe && it.senderId == entity.senderId && it.code == entity.code
         }
     }
 
     private fun insertSendingOptimisticMessage(entity: MessageEntity): Int {
+        if (entity.isMe) pendingEchoTempIds.add(entity.id)
         val existingIndex = messages.indexOfFirst { it.id == entity.id }
         if (existingIndex >= 0) {
             messages[existingIndex] = entity
@@ -6377,7 +6440,7 @@ open class ChatFragment : BaseFragment() {
         chatController.sendReaction(
             channelId, clanId, channelType, resolveChannelPrivate(),
             msg.id, group.emojiId, group.emoji,
-            1, actionDelete = false, msg.senderId
+            1, actionDelete = false, msg.senderId, topicId = topicId
         )
     }
 
@@ -6389,7 +6452,7 @@ open class ChatFragment : BaseFragment() {
             chatController.sendReaction(
                 channelId, clanId, channelType, resolveChannelPrivate(),
                 msg.id, emojiId, emojiShortname,
-                1, actionDelete = false, msg.senderId
+                1, actionDelete = false, msg.senderId, topicId = topicId
             )
         }
         sheet.show()
@@ -6413,7 +6476,7 @@ open class ChatFragment : BaseFragment() {
                 chatController.sendReaction(
                     channelId, clanId, channelType, resolveChannelPrivate(),
                     msg.id, emojiId, emoji,
-                    count, actionDelete = true, msg.senderId
+                    count, actionDelete = true, msg.senderId, topicId = topicId
                 )
             }
         )
@@ -6554,7 +6617,8 @@ open class ChatFragment : BaseFragment() {
                 override fun onReactionSelected(emojiId: Long, emoji: String, message: MessageEntity) {
                     chatController.sendReaction(
                         channelId, clanId, channelType, resolveChannelPrivate(),
-                        message.id, emojiId, emoji, 1, actionDelete = false, message.senderId
+                        message.id, emojiId, emoji, 1, actionDelete = false, message.senderId,
+                        topicId = topicId
                     )
                 }
                 override fun onOpenEmojiPicker(message: MessageEntity) {
@@ -7156,7 +7220,8 @@ open class ChatFragment : BaseFragment() {
                     emoji = GIVE_COFFEE_EMOJI,
                     count = 1,
                     actionDelete = false,
-                    messageSenderId = msg.senderId
+                    messageSenderId = msg.senderId,
+                    topicId = topicId
                 )
 
                 val dmChannelId = withContext(ioDispatcher) {
@@ -7326,6 +7391,7 @@ open class ChatFragment : BaseFragment() {
         }
         val idx = messages.indexOfFirst { it.id == tempId }
         if (idx < 0) {
+            pendingEchoTempIds.remove(tempId)
             if (messagesDict.get(realId) != null) return
             Log.d(TAG, "applyRealId tempId=$tempId not found")
             return
@@ -7333,6 +7399,10 @@ open class ChatFragment : BaseFragment() {
 
         if (messagesDict.get(realId) != null) {
             Log.d(TAG, "applyRealId tempId=$tempId realId=$realId already present, dropping optimistic")
+            if (::adapter.isInitialized) {
+                adapter.preserveOptimisticStableId(tempId, realId)
+            }
+            pendingEchoTempIds.remove(tempId)
             messagesDict.delete(tempId)
             messages.removeAt(idx)
             if (fragmentView != null) {
@@ -7343,6 +7413,7 @@ open class ChatFragment : BaseFragment() {
         }
 
         val old = messages[idx]
+        pendingEchoTempIds.remove(tempId)
         messagesDict.delete(tempId)
         val pendingEntity = chatController.takePendingAttachmentEntityForTempId(tempId)
         val updated = when {

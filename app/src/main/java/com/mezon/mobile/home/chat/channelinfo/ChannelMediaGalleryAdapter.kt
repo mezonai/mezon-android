@@ -1,8 +1,12 @@
 package com.mezon.mobile.home.chat.channelinfo
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Color
+import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.GradientDrawable
+import android.media.MediaMetadataRetriever
+import android.util.LruCache
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -226,7 +230,6 @@ internal class ChannelMediaGalleryAdapter(
             }
         root.addView(videoDimmer, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
-        val playSize = LayoutHelper.dp(30f)
         val play =
             ImageView(ctx).apply {
                 visibility = View.GONE
@@ -236,7 +239,7 @@ internal class ChannelMediaGalleryAdapter(
             }
         root.addView(
             play,
-            LayoutHelper.createFrame(playSize, playSize, Gravity.CENTER)
+            LayoutHelper.createFrame(30, 30, Gravity.CENTER)
         )
 
         val avPad = LayoutHelper.dp(26f)
@@ -291,6 +294,8 @@ internal class ChannelMediaGalleryAdapter(
     override fun onViewRecycled(holder: RecyclerView.ViewHolder) {
         if (holder is GridVH) {
             holder.slots.forEach {
+                it.thumbJob?.cancel()
+                it.thumbJob = null
                 it.thumb.cancelLoad()
                 it.av.visibility = View.VISIBLE
                 it.videoDimmer.visibility = View.GONE
@@ -304,6 +309,8 @@ internal class ChannelMediaGalleryAdapter(
         slot.root.tag = item
         if (item == null) {
             slot.root.visibility = View.INVISIBLE
+            slot.thumbJob?.cancel()
+            slot.thumbJob = null
             slot.thumb.cancelLoad()
             slot.thumb.setImageDrawable(null)
             slot.av.visibility = View.GONE
@@ -342,8 +349,62 @@ internal class ChannelMediaGalleryAdapter(
         val cs = cellSizePx()
         slot.thumb.setSize(cs, cs)
 
-        val displayUrl = galleryThumbLoadUrl(item, cs)
-        slot.thumb.setImage(displayUrl)
+        slot.thumbJob?.cancel()
+        slot.thumbJob = null
+        if (showVideo) {
+            val cached = videoThumbCache.get(item.url)
+            if (cached != null) {
+                slot.thumb.setImageDrawable(BitmapDrawable(slot.thumb.resources, cached))
+            } else {
+                slot.thumb.setImageDrawable(null)
+                slot.thumbJob = scope.launch {
+                    val frame = withContext(Dispatchers.IO) { extractRemoteVideoFrame(item.url, cs) }
+                    if (frame != null &&
+                        (slot.root.tag as? ChannelGalleryMediaItem)?.url == item.url
+                    ) {
+                        slot.thumb.setImageDrawable(BitmapDrawable(slot.thumb.resources, frame))
+                    }
+                }
+            }
+        } else {
+            slot.thumb.setImage(galleryThumbLoadUrl(item, cs))
+        }
+    }
+
+    private fun extractRemoteVideoFrame(url: String, targetPx: Int): Bitmap? {
+        if (url.isBlank()) return null
+        videoThumbCache.get(url)?.let { return it }
+        val retriever = MediaMetadataRetriever()
+        return try {
+            if (url.startsWith("content://") || url.startsWith("file://")) {
+                val ctx = hostContext() ?: return null
+                retriever.setDataSource(ctx, android.net.Uri.parse(url))
+            } else {
+                retriever.setDataSource(url, HashMap())
+            }
+            val frame = retriever.getFrameAtTime(
+                1_000_000L,
+                MediaMetadataRetriever.OPTION_CLOSEST_SYNC
+            ) ?: return null
+            val maxEdge = (targetPx * 2).coerceAtLeast(320)
+            val scaled =
+                if (frame.width <= maxEdge && frame.height <= maxEdge) {
+                    frame
+                } else {
+                    val scale = maxEdge.toFloat() / maxOf(frame.width, frame.height)
+                    val dw = (frame.width * scale).toInt().coerceAtLeast(1)
+                    val dh = (frame.height * scale).toInt().coerceAtLeast(1)
+                    val out = Bitmap.createScaledBitmap(frame, dw, dh, true)
+                    if (out !== frame) frame.recycle()
+                    out
+                }
+            videoThumbCache.put(url, scaled)
+            scaled
+        } catch (_: Exception) {
+            null
+        } finally {
+            runCatching { retriever.release() }
+        }
     }
 
     private fun onMediaCellClicked(tapped: ChannelGalleryMediaItem) {
@@ -448,7 +509,13 @@ internal class ChannelMediaGalleryAdapter(
         val play: ImageView,
         val av: AvatarView,
         val anonymousAv: ImageView
-    )
+    ) {
+        var thumbJob: Job? = null
+    }
+}
+
+private val videoThumbCache = object : LruCache<String, Bitmap>(8 * 1024 * 1024) {
+    override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
 }
 
 private fun galleryThumbLoadUrl(item: ChannelGalleryMediaItem, cellPx: Int): String {
