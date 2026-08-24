@@ -720,7 +720,6 @@ class SharingFragment(
             val image = BackupImageView(context).apply {
                 setAspectFill(true)
                 setRoundRadius(LayoutHelper.dp(8))
-                setOmitEmptyPlaceholder(true)
                 setBackgroundColor(themeColors.tertiary)
                 attachment.thumb.takeIf { it.isNotBlank() && it != attachment.url }?.let {
                     setImage(it)
