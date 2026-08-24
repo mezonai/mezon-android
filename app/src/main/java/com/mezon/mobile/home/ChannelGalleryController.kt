@@ -41,7 +41,8 @@ data class ChannelGalleryMediaItem(
     val width: Int = 0,
     val height: Int = 0,
     val size: Int = 0,
-    val duration: Int = 0
+    val duration: Int = 0,
+    val isPending: Boolean = false
 ) {
     val isVideo: Boolean get() = isVideoAttachmentType(filetype)
 }
@@ -409,13 +410,20 @@ class ChannelGalleryController @Inject constructor(
 
                 var stateChanged = false
                 synchronized(state) {
-                    val existingUrls = state.items.mapTo(HashSet(state.items.size)) { it.url }
                     val existingIds = state.items.mapTo(HashSet(state.items.size)) { it.id }
 
                     mediaItems.forEach candidateLoop@{ candidate ->
-                        if (candidate.url in existingUrls || candidate.id in existingIds) return@candidateLoop
-                        state.items.add(candidate)
-                        existingUrls.add(candidate.url)
+                        if (candidate.id in existingIds) return@candidateLoop
+                        val pendingIndex = if (!candidate.isPending) {
+                            state.items.indexOfFirst { it.isPending && it.url == candidate.url }
+                        } else {
+                            -1
+                        }
+                        if (pendingIndex >= 0) {
+                            state.items[pendingIndex] = candidate
+                        } else {
+                            state.items.add(candidate)
+                        }
                         existingIds.add(candidate.id)
                         stateChanged = true
                         changed = true
@@ -509,7 +517,8 @@ private fun AttachmentInfo.toGalleryMediaItem(message: MessageEntity, index: Int
         width = width,
         height = height,
         size = size,
-        duration = duration
+        duration = duration,
+        isPending = message.isSending
     )
 }
 

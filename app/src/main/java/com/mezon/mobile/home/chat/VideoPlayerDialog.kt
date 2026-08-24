@@ -1,10 +1,8 @@
 package com.mezon.mobile.home.chat
 
 import android.animation.ObjectAnimator
-import android.app.Dialog
 import android.app.DownloadManager
 import android.content.BroadcastReceiver
-import android.content.ComponentName
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
@@ -15,7 +13,6 @@ import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Environment
-import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -26,6 +23,8 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
+import androidx.activity.ComponentDialog
+import androidx.activity.OnBackPressedCallback
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
@@ -40,15 +39,13 @@ import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.di.FragmentEntryPoint
+import com.mezon.mobile.home.sharing.ExistingVideoShareStore
 import com.mezon.mobile.home.sharing.VideoShareRefinementContract
 import com.mezon.mobile.ui.cells.BackupImageView
 import com.mezon.mobile.ui.cells.PopupMenu
 import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.util.avatarImgproxyUrl
 import dagger.hilt.android.EntryPointAccessors
-import java.text.SimpleDateFormat
-import java.util.Calendar
-import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -60,7 +57,7 @@ private const val VIDEO_SEEK_INCREMENT_MS = 15_000L
 private const val VIDEO_CONTROLLER_TIMEOUT_MS = 3_000
 private const val VIDEO_SAVE_PROGRESS_POLL_INTERVAL_MS = 300L
 private const val NO_PENDING_DOWNLOAD_ID = -1L
-private val VIDEO_ANONYMOUS_USER_ID = BuildConfig.MEZON_ANONYMOUS_USER_ID.toLongOrNull() ?: 0L
+private val VIDEO_ANONYMOUS_USER_ID = BuildConfig.MEZON_ANONYMOUS_USER_ID.toLongOrNull() ?: -1L
 
 private fun Context.findLifecycleOwner(): LifecycleOwner? {
     var current: Context? = this
@@ -74,7 +71,7 @@ private fun Context.findLifecycleOwner(): LifecycleOwner? {
 }
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-class VideoPlayerDialog(context: Context) : Dialog(context, android.R.style.Theme_Black_NoTitleBar_Fullscreen) {
+class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.style.Theme_Black_NoTitleBar_Fullscreen) {
 
     companion object {
         private var activeInstance: java.lang.ref.WeakReference<VideoPlayerDialog>? = null
@@ -138,13 +135,17 @@ class VideoPlayerDialog(context: Context) : Dialog(context, android.R.style.Them
             if (!isShowing) return
             player?.let { playbackPositionMs = it.currentPosition }
             releasePlayer()
+            stopSaveProgress()
             stoppedForLifecycle = true
         }
 
         override fun onStart(owner: LifecycleOwner) {
-            if (!isShowing || !stoppedForLifecycle || !::currentItem.isInitialized) return
-            initializePlayer(playbackPositionMs, playWhenReady = false)
-            stoppedForLifecycle = false
+            if (!isShowing) return
+            if (stoppedForLifecycle && ::currentItem.isInitialized) {
+                initializePlayer(playbackPositionMs, playWhenReady = false)
+                stoppedForLifecycle = false
+            }
+            pendingDownloadId.takeIf { it != NO_PENDING_DOWNLOAD_ID }?.let(::startSaveProgress)
         }
 
         override fun onResume(owner: LifecycleOwner) {
@@ -167,7 +168,18 @@ class VideoPlayerDialog(context: Context) : Dialog(context, android.R.style.Them
         override fun onReceive(receiverContext: Context?, intent: Intent?) {
             if (intent?.action != DownloadManager.ACTION_DOWNLOAD_COMPLETE) return
             val downloadId = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, NO_PENDING_DOWNLOAD_ID)
-            handleDownloadTerminalStatus(downloadId, getDownloadStatus(downloadId))
+            if (downloadId != pendingDownloadId) return
+            val pendingResult = goAsync()
+            entryPoint.applicationScope().launch(entryPoint.ioDispatcher()) {
+                try {
+                    val status = getDownloadStatus(downloadId)
+                    withContext(entryPoint.mainDispatcher()) {
+                        handleDownloadTerminalStatus(downloadId, status)
+                    }
+                } finally {
+                    pendingResult.finish()
+                }
+            }
         }
     }
 
@@ -177,6 +189,11 @@ class VideoPlayerDialog(context: Context) : Dialog(context, android.R.style.Them
 
     init {
         requestWindowFeature(Window.FEATURE_NO_TITLE)
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                dismissWithAnimation()
+            }
+        })
         window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         window?.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
         window?.setBackgroundDrawable(backgroundDrawable)
@@ -469,25 +486,9 @@ class VideoPlayerDialog(context: Context) : Dialog(context, android.R.style.Them
         val item = currentItem
         nameLabel.text = item.senderName.takeIf { it.isNotBlank() } ?: "User"
 
-        val timestamp = item.timestamp
-        if (timestamp > 0) {
-            val messageCalendar = Calendar.getInstance().apply { timeInMillis = timestamp * 1000L }
-            val currentCalendar = Calendar.getInstance().apply { timeInMillis = System.currentTimeMillis() }
-            val isToday = messageCalendar.get(Calendar.YEAR) == currentCalendar.get(Calendar.YEAR) &&
-                messageCalendar.get(Calendar.DAY_OF_YEAR) == currentCalendar.get(Calendar.DAY_OF_YEAR)
-            val isYesterday =
-                (messageCalendar.get(Calendar.YEAR) == currentCalendar.get(Calendar.YEAR) &&
-                    messageCalendar.get(Calendar.DAY_OF_YEAR) == currentCalendar.get(Calendar.DAY_OF_YEAR) - 1) ||
-                    (currentCalendar.get(Calendar.DAY_OF_YEAR) == 1 &&
-                        messageCalendar.get(Calendar.YEAR) == currentCalendar.get(Calendar.YEAR) - 1 &&
-                        messageCalendar.get(Calendar.DAY_OF_YEAR) == messageCalendar.getActualMaximum(Calendar.DAY_OF_YEAR))
-            val time = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(timestamp * 1000L))
-
-            dateLabel.text = when {
-                isToday -> "${context.getString(R.string.common_today_at)} $time"
-                isYesterday -> "${context.getString(R.string.common_yesterday_at)} $time"
-                else -> SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()).format(Date(timestamp * 1000L))
-            }
+        val formattedDate = formatViewerHeaderDate(context, item.timestamp)
+        if (formattedDate != null) {
+            dateLabel.text = formattedDate
             dateLabel.visibility = View.VISIBLE
         } else {
             dateLabel.visibility = View.GONE
@@ -511,13 +512,15 @@ class VideoPlayerDialog(context: Context) : Dialog(context, android.R.style.Them
     private fun showMoreOptions(anchorView: View) {
         if (System.currentTimeMillis() - lastMenuDismissTime < 200) return
 
-        optionsMenu = PopupMenu(context, ThemeColors.instance).apply {
+        optionsMenu = PopupMenu(context, ThemeColors.instance, fullWidthDividers = true).apply {
             addItem(context.getString(R.string.action_save_video))
-            addItem(context.getString(R.string.action_share_video))
+            addItem(context.getString(R.string.action_share_video_to_mezon))
+            addItem(context.getString(R.string.action_share_video_to_other_apps))
             setOnItemClickListener { index ->
                 when (index) {
                     0 -> saveVideo()
-                    1 -> shareVideo()
+                    1 -> shareVideoToMezon()
+                    2 -> shareVideoToOtherApps()
                 }
             }
             setOnDismissListener {
@@ -666,9 +669,9 @@ class VideoPlayerDialog(context: Context) : Dialog(context, android.R.style.Them
         return getDownloadProgress(downloadId)?.status
     }
 
-    private fun shareVideo() {
+    private fun buildShareAttachment(): AttachmentInfo? {
         val item = currentItem
-        if (item.url.isEmpty()) return
+        if (item.url.isEmpty()) return null
         val currentVideoSize = player?.videoSize
         val resolvedWidth = item.width.takeIf { it > 0 } ?: currentVideoSize?.width?.takeIf { it > 0 } ?: 0
         val resolvedHeight = item.height.takeIf { it > 0 } ?: currentVideoSize?.height?.takeIf { it > 0 } ?: 0
@@ -682,7 +685,7 @@ class VideoPlayerDialog(context: Context) : Dialog(context, android.R.style.Them
             ?: VideoShareRefinementContract.mimeTypeFromUrl(item.url)
         val filename = item.filename.takeIf { it.isNotBlank() }
             ?: VideoShareRefinementContract.filenameFromUrl(item.url, mimeType)
-        val attachment = AttachmentInfo(
+        return AttachmentInfo(
             url = item.url,
             thumb = item.thumbnailUrl,
             width = resolvedWidth,
@@ -692,24 +695,18 @@ class VideoPlayerDialog(context: Context) : Dialog(context, android.R.style.Them
             size = item.size,
             duration = resolvedDuration
         )
+    }
+
+    private fun shareVideoToMezon() {
+        val attachment = buildShareAttachment() ?: return
         try {
-            val targetIntent = Intent(Intent.ACTION_SEND).apply {
-                type = mimeType
+            val token = ExistingVideoShareStore.put(attachment)
+            val shareIntent = Intent(context, MainActivity::class.java).apply {
+                action = Intent.ACTION_SEND
+                type = attachment.filetype
+                putExtra(VideoShareRefinementContract.EXTRA_INTERNAL_SHARE_TOKEN, token)
             }
-            val mezonComponent = ComponentName(context, MainActivity::class.java)
-            val mezonIntent = Intent(targetIntent).apply {
-                component = mezonComponent
-                putExtra(VideoShareRefinementContract.EXTRA_INTERNAL_TARGET, true)
-            }
-            val chooser = Intent.createChooser(targetIntent, context.getString(R.string.action_share_video)).apply {
-                putExtra(
-                    Intent.EXTRA_CHOOSER_REFINEMENT_INTENT_SENDER,
-                    VideoShareRefinementContract.createIntentSender(context, attachment)
-                )
-                putExtra(Intent.EXTRA_INITIAL_INTENTS, arrayOf(mezonIntent))
-                putExtra(Intent.EXTRA_EXCLUDE_COMPONENTS, arrayOf(mezonComponent))
-            }
-            context.startActivity(chooser)
+            context.startActivity(shareIntent)
         } catch (_: Exception) {
             if (isShowing) {
                 showToast(ToastOverlay.ToastType.ERROR, R.string.message_toast_share_failed)
@@ -717,8 +714,14 @@ class VideoPlayerDialog(context: Context) : Dialog(context, android.R.style.Them
         }
     }
 
-    @Suppress("OVERRIDE_DEPRECATION")
-    override fun onBackPressed() {
-        dismissWithAnimation()
+    private fun shareVideoToOtherApps() {
+        val attachment = buildShareAttachment() ?: return
+        try {
+            context.startActivity(VideoShareRefinementContract.createPreparationIntent(context, attachment))
+        } catch (_: Exception) {
+            if (isShowing) {
+                showToast(ToastOverlay.ToastType.ERROR, R.string.message_toast_share_failed)
+            }
+        }
     }
 }

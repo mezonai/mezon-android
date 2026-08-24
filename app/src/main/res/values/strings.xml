@@ -387,6 +387,8 @@
     <string name="action_share_image">Share Image</string>
     <string name="action_save_video">Save Video</string>
     <string name="action_share_video">Share Video</string>
+    <string name="action_share_video_to_mezon">Share to Mezon</string>
+    <string name="action_share_video_to_other_apps">Share to other apps</string>
     <string name="video_share_preparing">Preparing video…</string>
     <string name="video_share_preparing_progress">Preparing video… %1$d%%</string>
     <string name="video_save_downloading">Downloading video…</string>

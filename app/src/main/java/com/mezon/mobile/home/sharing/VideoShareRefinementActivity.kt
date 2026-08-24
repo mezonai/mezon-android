@@ -1,17 +1,13 @@
 package com.mezon.mobile.home.sharing
 
-import android.app.Activity
-import android.app.PendingIntent
 import android.content.ClipData
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
-import android.os.ResultReceiver
-import android.util.Log
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -19,7 +15,10 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import androidx.core.content.FileProvider
+import com.mezon.mobile.MainActivity
 import com.mezon.mobile.R
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.home.chat.AttachmentInfo
@@ -70,11 +69,9 @@ internal object ExistingVideoShareStore {
 }
 
 internal object VideoShareRefinementContract {
-    const val LOG_TAG = "VideoShareRoute"
     const val EXTRA_INTERNAL_SHARE_TOKEN = "com.mezon.mobile.extra.INTERNAL_VIDEO_SHARE_TOKEN"
-    const val EXTRA_INTERNAL_TARGET = "com.mezon.mobile.extra.INTERNAL_VIDEO_SHARE_TARGET"
 
-    private const val ACTION_REFINE = "com.mezon.mobile.action.REFINE_VIDEO_SHARE"
+    private const val ACTION_PREPARE = "com.mezon.mobile.action.PREPARE_VIDEO_SHARE"
     private const val EXTRA_URL = "video_url"
     private const val EXTRA_THUMB = "video_thumb"
     private const val EXTRA_WIDTH = "video_width"
@@ -84,11 +81,11 @@ internal object VideoShareRefinementContract {
     private const val EXTRA_SIZE = "video_size"
     private const val EXTRA_DURATION = "video_duration"
 
-    fun createIntentSender(context: Context, attachment: AttachmentInfo): android.content.IntentSender {
+    fun createPreparationIntent(context: Context, attachment: AttachmentInfo): Intent {
         val nonce = UUID.randomUUID().toString()
-        val refinementIntent = Intent(context, VideoShareRefinementActivity::class.java).apply {
-            action = ACTION_REFINE
-            data = Uri.parse("mezon://video-share-refinement/$nonce")
+        return Intent(context, VideoShareRefinementActivity::class.java).apply {
+            action = ACTION_PREPARE
+            data = Uri.parse("mezon://video-share-preparation/$nonce")
             putExtra(EXTRA_URL, attachment.url)
             putExtra(EXTRA_THUMB, attachment.thumb)
             putExtra(EXTRA_WIDTH, attachment.width)
@@ -98,8 +95,6 @@ internal object VideoShareRefinementContract {
             putExtra(EXTRA_SIZE, attachment.size)
             putExtra(EXTRA_DURATION, attachment.duration)
         }
-        val flags = PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_MUTABLE
-        return PendingIntent.getActivity(context, nonce.hashCode(), refinementIntent, flags).intentSender
     }
 
     fun readAttachment(intent: Intent): AttachmentInfo? {
@@ -169,7 +164,7 @@ internal object VideoShareRefinementContract {
     }
 }
 
-class VideoShareRefinementActivity : Activity() {
+class VideoShareRefinementActivity : ComponentActivity() {
     private companion object {
         const val CONNECT_TIMEOUT_MS = 15_000
         const val READ_TIMEOUT_MS = 30_000
@@ -177,40 +172,28 @@ class VideoShareRefinementActivity : Activity() {
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private var resultReceiver: ResultReceiver? = null
     @Volatile
     private var activeConnection: HttpURLConnection? = null
 
     @Volatile
     private var partialFile: File? = null
-    private var resultSent = false
+    private var flowCompleted = false
+    private var isResumed = false
+    private var pendingChooser: Intent? = null
     private lateinit var progressLabel: TextView
     private lateinit var progressBar: ProgressBar
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        val selectedIntent = intent.parcelableExtra(Intent.EXTRA_INTENT, Intent::class.java)
-        resultReceiver = intent.parcelableExtra(Intent.EXTRA_RESULT_RECEIVER, ResultReceiver::class.java)
-        val attachment = VideoShareRefinementContract.readAttachment(intent)
-        if (selectedIntent == null || resultReceiver == null || attachment == null) {
-            sendCanceledAndFinish()
-            return
-        }
-
-        val selectedPackage = selectedIntent.component?.packageName ?: selectedIntent.`package`
-        val hasInternalExtra = selectedIntent.getBooleanExtra(
-            VideoShareRefinementContract.EXTRA_INTERNAL_TARGET,
-            false
-        )
-        val packageMatches = selectedPackage == packageName
-        val isInternalTarget = hasInternalExtra || packageMatches
-        if (isInternalTarget) {
-            val token = ExistingVideoShareStore.put(attachment)
-            val refined = Intent(selectedIntent).apply {
-                putExtra(VideoShareRefinementContract.EXTRA_INTERNAL_SHARE_TOKEN, token)
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                cancelPreparationAndFinish()
             }
-            sendRefinedIntentAndFinish(refined)
+        })
+
+        val attachment = VideoShareRefinementContract.readAttachment(intent)
+        if (attachment == null) {
+            cancelPreparationAndFinish()
             return
         }
 
@@ -225,18 +208,26 @@ class VideoShareRefinementActivity : Activity() {
                     "$packageName.fileprovider",
                     downloaded
                 )
-                partialFile = null
-                val refined = Intent(selectedIntent).apply {
+                val targetIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = attachment.filetype
                     putExtra(Intent.EXTRA_STREAM, uri)
                     clipData = ClipData.newRawUri("video", uri)
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
-                sendRefinedIntentAndFinish(refined)
+                val mezonComponent = ComponentName(this@VideoShareRefinementActivity, MainActivity::class.java)
+                val chooser = Intent.createChooser(
+                    targetIntent,
+                    getString(R.string.action_share_video)
+                ).apply {
+                    putExtra(Intent.EXTRA_EXCLUDE_COMPONENTS, arrayOf(mezonComponent))
+                }
+                pendingChooser = chooser
+                openChooserIfReady()
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
                 Toast.makeText(this@VideoShareRefinementActivity, R.string.message_toast_share_failed, Toast.LENGTH_SHORT).show()
-                sendCanceledAndFinish()
+                cancelPreparationAndFinish()
             }
         }
     }
@@ -336,7 +327,11 @@ class VideoShareRefinementActivity : Activity() {
                 }
             }
             currentCoroutineContext().ensureActive()
-            trimShareCache(directory, destination.length(), destination)
+            try {
+                trimShareCache(directory, destination.length(), destination)
+            } catch (_: Exception) {
+                // Cache cleanup must not invalidate a completed download.
+            }
             return destination
         } catch (e: Exception) {
             partialFile?.delete()
@@ -377,47 +372,46 @@ class VideoShareRefinementActivity : Activity() {
         error("Unable to trim shared video cache")
     }
 
-    private fun sendRefinedIntentAndFinish(refined: Intent) {
-        if (resultSent) return
-        resultSent = true
-        val result = Bundle().apply { putParcelable(Intent.EXTRA_INTENT, refined) }
-        resultReceiver?.send(RESULT_OK, result)
-        finish()
-    }
-
-    private fun sendCanceledAndFinish() {
-        if (!resultSent) {
-            resultSent = true
-            resultReceiver?.send(RESULT_CANCELED, Bundle.EMPTY)
+    private fun openChooserIfReady() {
+        if (flowCompleted || !isResumed) return
+        val chooser = pendingChooser ?: return
+        try {
+            startActivity(chooser)
+            pendingChooser = null
+            partialFile = null
+            flowCompleted = true
+            finish()
+        } catch (_: Exception) {
+            Toast.makeText(this, R.string.message_toast_share_failed, Toast.LENGTH_SHORT).show()
+            cancelPreparationAndFinish()
         }
-        finish()
     }
 
-    @Suppress("OVERRIDE_DEPRECATION")
-    override fun onBackPressed() {
-        scope.cancel()
+    private fun cancelPreparationAndFinish() {
+        if (flowCompleted) return
+        flowCompleted = true
         activeConnection?.disconnect()
         partialFile?.delete()
-        sendCanceledAndFinish()
+        partialFile = null
+        scope.cancel()
+        finish()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        isResumed = true
+        openChooserIfReady()
+    }
+
+    override fun onPause() {
+        isResumed = false
+        super.onPause()
     }
 
     override fun onDestroy() {
-        if (!resultSent && isFinishing) {
-            resultSent = true
-            resultReceiver?.send(RESULT_CANCELED, Bundle.EMPTY)
-        }
         activeConnection?.disconnect()
-        partialFile?.delete()
+        if (!flowCompleted) partialFile?.delete()
         scope.cancel()
         super.onDestroy()
-    }
-
-    private fun <T : android.os.Parcelable> Intent.parcelableExtra(key: String, type: Class<T>): T? {
-        return if (Build.VERSION.SDK_INT >= 33) {
-            getParcelableExtra(key, type)
-        } else {
-            @Suppress("DEPRECATION")
-            getParcelableExtra(key)
-        }
     }
 }

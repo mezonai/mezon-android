@@ -7,6 +7,7 @@ import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -21,7 +22,11 @@ import androidx.core.content.ContextCompat
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 
-class PopupMenu(private val context: Context, private val theme: ThemeColors) {
+class PopupMenu(
+    private val context: Context,
+    private val theme: ThemeColors,
+    private val fullWidthDividers: Boolean = false
+) {
 
     private val items = ArrayList<MenuItem>()
     private var popupWindow: PopupWindow? = null
@@ -59,7 +64,7 @@ class PopupMenu(private val context: Context, private val theme: ThemeColors) {
 
         items.forEachIndexed { index, item ->
             val cell = PopupItemCell(context, theme)
-            cell.bind(item, index < items.size - 1)
+            cell.bind(item, index < items.size - 1, fullWidthDividers)
             cell.setOnClickListener {
                 onItemClick?.invoke(index)
                 dismiss()
@@ -120,6 +125,7 @@ class PopupMenu(private val context: Context, private val theme: ThemeColors) {
 
         private var menuItem: MenuItem? = null
         private var needDivider = false
+        private var fullWidthDivider = false
         private val cellHeight = LayoutHelper.dp(44)
         private val iconSize = LayoutHelper.dp(16)
         private val iconTextGap = LayoutHelper.dp(12)
@@ -136,9 +142,10 @@ class PopupMenu(private val context: Context, private val theme: ThemeColors) {
             }
         }
 
-        fun bind(item: MenuItem, divider: Boolean) {
+        fun bind(item: MenuItem, divider: Boolean, fullWidthDivider: Boolean) {
             menuItem = item
             needDivider = divider
+            this.fullWidthDivider = fullWidthDivider
             invalidate()
         }
 
@@ -171,13 +178,21 @@ class PopupMenu(private val context: Context, private val theme: ThemeColors) {
 
             val textX = if (item.icon != null) leftPad + iconSize + iconTextGap else leftPad
             val textY = cellHeight / 2f - (textPaint.descent() + textPaint.ascent()) / 2
-            canvas.drawText(item.text, textX.toFloat(), textY, textPaint)
+            val availableTextWidth = (width - textX - leftPad).coerceAtLeast(0)
+            val displayText = TextUtils.ellipsize(
+                item.text,
+                textPaint,
+                availableTextWidth.toFloat(),
+                TextUtils.TruncateAt.END
+            )
+            canvas.drawText(displayText, 0, displayText.length, textX.toFloat(), textY, textPaint)
 
             textPaint.color = theme.onSurface
 
             if (needDivider) {
                 canvas.drawRect(
-                    leftPad.toFloat(), cellHeight.toFloat(),
+                    if (fullWidthDivider) 0f else leftPad.toFloat(),
+                    cellHeight.toFloat(),
                     width.toFloat(), (cellHeight + 1).toFloat(),
                     theme.dividerPaint
                 )

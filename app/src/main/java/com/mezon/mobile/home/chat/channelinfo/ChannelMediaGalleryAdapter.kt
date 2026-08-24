@@ -226,17 +226,17 @@ internal class ChannelMediaGalleryAdapter(
             }
         root.addView(videoDimmer, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
-        val playSize = LayoutHelper.dp(30f)
+        val playSize = LayoutHelper.dp(28f)
         val play =
             ImageView(ctx).apply {
                 visibility = View.GONE
-                val d = MezonIcon.playCircleIcon.getDrawable(context).mutate()
+                val d = MezonIcon.playIcon.getDrawable(context).mutate()
                 DrawableCompat.setTint(d, Color.WHITE)
                 setImageDrawable(d)
             }
         root.addView(
             play,
-            LayoutHelper.createFrame(playSize, playSize, Gravity.CENTER)
+            FrameLayout.LayoutParams(playSize, playSize, Gravity.CENTER)
         )
 
         val avPad = LayoutHelper.dp(26f)
@@ -343,7 +343,11 @@ internal class ChannelMediaGalleryAdapter(
         slot.thumb.setSize(cs, cs)
 
         val displayUrl = galleryThumbLoadUrl(item, cs)
-        slot.thumb.setImage(displayUrl)
+        if (displayUrl == null) {
+            slot.thumb.cancelLoad()
+        } else {
+            slot.thumb.setImage(displayUrl)
+        }
     }
 
     private fun onMediaCellClicked(tapped: ChannelGalleryMediaItem) {
@@ -451,9 +455,9 @@ internal class ChannelMediaGalleryAdapter(
     )
 }
 
-private fun galleryThumbLoadUrl(item: ChannelGalleryMediaItem, cellPx: Int): String {
-    val u = item.url.trim()
-    if (u.isEmpty()) return u
+private fun galleryThumbLoadUrl(item: ChannelGalleryMediaItem, cellPx: Int): String? {
+    val u = if (item.isVideo) item.thumbnail.trim() else item.url.trim()
+    if (u.isEmpty()) return null
     val ft = item.filetype.lowercase(Locale.US)
     val pathLower = u.lowercase(Locale.US)
     val isGif =

@@ -38,9 +38,6 @@ import com.mezon.mobile.util.createImgproxyUrl
 import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.text.SimpleDateFormat
-import java.util.Calendar
-import java.util.Date
 import java.util.Locale
 
 import kotlin.math.abs
@@ -460,31 +457,14 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
         val item = currentItem ?: return
         nameLabel?.text = item.senderName.takeIf { it.isNotBlank() } ?: "User"
         
-        val ts = item.timestamp
-        if (ts > 0) {
-            val msgCal = Calendar.getInstance().apply { timeInMillis = ts * 1000L }
-            val nowCal = Calendar.getInstance().apply { timeInMillis = System.currentTimeMillis() }
-
-            val msgYear = msgCal.get(Calendar.YEAR)
-            val msgDayOfYear = msgCal.get(Calendar.DAY_OF_YEAR)
-            val nowYear = nowCal.get(Calendar.YEAR)
-            val nowDayOfYear = nowCal.get(Calendar.DAY_OF_YEAR)
-
-            val isToday = msgYear == nowYear && msgDayOfYear == nowDayOfYear
-            val isYesterday = (msgYear == nowYear && msgDayOfYear == nowDayOfYear - 1) ||
-                    (nowDayOfYear == 1 && msgYear == nowYear - 1 &&
-                            msgDayOfYear == msgCal.getActualMaximum(Calendar.DAY_OF_YEAR))
-
-            val timeStr = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(ts * 1000L))
-
-            dateLabel?.text = when {
-                isToday -> "${context.getString(R.string.common_today_at)} $timeStr"
-                isYesterday -> "${context.getString(R.string.common_yesterday_at)} $timeStr"
-                else -> SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()).format(Date(ts * 1000L))
+        val formattedDate = formatViewerHeaderDate(context, item.timestamp)
+        dateLabel?.apply {
+            if (formattedDate != null) {
+                text = formattedDate
+                visibility = View.VISIBLE
+            } else {
+                visibility = View.GONE
             }
-            dateLabel?.visibility = View.VISIBLE
-        } else {
-            dateLabel?.visibility = View.GONE
         }
 
         avatarView?.let { view ->
@@ -514,7 +494,11 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
             return
         }
         val url = currentUrl
-        optionsMenu = com.mezon.mobile.ui.cells.PopupMenu(context, ThemeColors.instance).apply {
+        optionsMenu = com.mezon.mobile.ui.cells.PopupMenu(
+            context,
+            ThemeColors.instance,
+            fullWidthDividers = true
+        ).apply {
             addItem(context.getString(R.string.action_save_media))
             addItem(context.getString(R.string.action_copy_image))
             addItem(context.getString(R.string.action_share_image))

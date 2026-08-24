@@ -1943,16 +1943,18 @@ class ChatController @Inject constructor(
             !markdownMarkers.isNullOrEmpty() -> buildTextContentWithEmojis(text, null, null, markdownMarkers)
             else -> buildTextContent(text)
         }
+        val messageFiletype = if (isVideoAttachmentType(attachment.filetype)) "video" else attachment.filetype
         val protoAttachment = messageAttachment {
             url = attachment.url
             filename = attachment.filename
-            filetype = attachment.filetype
+            filetype = messageFiletype
             size = attachment.size
             width = attachment.width
             height = attachment.height
             if (attachment.thumb.isNotEmpty()) thumbnail = attachment.thumb
             if (attachment.duration != 0) duration = attachment.duration
         }
+        val anon = isAnonymousSend(clanId)
         appScope.launch(ioDispatcher) {
             val ok = try {
                 runCatching {
@@ -1967,10 +1969,40 @@ class ChatController @Inject constructor(
                         this.isPublic = isPublic
                         this.content = content
                         attachments.add(protoAttachment)
-                        if (isAnonymousSend(clanId)) anonymousMessage = true
+                        if (anon) anonymousMessage = true
                     }
-                    channelSend(session.apiUrl, session.token, request)
+                    val ack = channelSend(session.apiUrl, session.token, request)
                     markForwardTargetUsed(channelId, channelType)
+                    if (ack.messageId != 0L) {
+                        val user = userController.get()
+                        val (senderName, senderAvatar) = optimisticSenderPresentation(user, clanId, channelType, anon)
+                        val sent = MessageEntity(
+                            id = ack.messageId,
+                            channelId = channelId,
+                            senderId = if (anon) ANONYMOUS_USER_ID else user.userId,
+                            senderName = senderName,
+                            senderUsername = if (anon) "Anonymous" else user.username,
+                            senderAvatar = senderAvatar,
+                            content = content,
+                            timestampSeconds = System.currentTimeMillis() / 1000,
+                            code = MessageEntity.CODE_CHAT,
+                            isMe = true,
+                            messageType = resolveOptimisticTypeFromAttachment(protoAttachment),
+                            attachmentUrl = attachment.url,
+                            attachmentThumb = attachment.thumb,
+                            attachmentWidth = attachment.width,
+                            attachmentHeight = attachment.height,
+                            attachmentFilename = attachment.filename,
+                            attachmentFiletype = messageFiletype,
+                            attachmentSize = attachment.size,
+                            attachmentDuration = attachment.duration
+                        )
+                        notificationCenter.postNotificationOnMainThread(
+                            NotificationCenter.didReceiveNewMessages,
+                            channelId,
+                            sent
+                        )
+                    }
                 }
                 true
             } catch (e: CancellationException) {
