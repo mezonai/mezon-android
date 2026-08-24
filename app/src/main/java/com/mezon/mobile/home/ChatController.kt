@@ -462,11 +462,14 @@ class ChatController @Inject constructor(
                     )
                     val entity = response.messagesList
                         .map { it.toMessageEntity(currentUserId) }
-                        .firstOrNull { it.id == messageId }
+                        .firstOrNull {
+                            it.id == messageId && (it.topicId == 0L || it.isTopicRootMessage)
+                        }
                     if (entity != null) {
-                        messageDao.upsert(entity)
+                        val stored = remapForCache(entity, channelId)
+                        messageDao.upsert(stored)
                         notificationCenter.postNotificationOnMainThread(
-                            NotificationCenter.didReceiveNewMessages, channelId, entity
+                            NotificationCenter.didReceiveNewMessages, channelId, stored
                         )
                         true
                     } else {
@@ -3505,10 +3508,13 @@ class ChatController @Inject constructor(
         pendingApiReactions.remove(key)
     }
 
+    private fun reactionCacheKey(reaction: com.mezon.mezon.api.MessageReaction): Long =
+        if (reaction.topicId != 0L) reaction.topicId else reaction.channelId
+
     private fun shouldIgnoreSocketReactionAsDuplicate(reaction: com.mezon.mezon.api.MessageReaction): Boolean {
         prunePendingApiReactions()
         val key = ReactionDedup(
-            reaction.channelId,
+            reactionCacheKey(reaction),
             reaction.messageId,
             reaction.emojiId,
             reaction.senderId,
@@ -3525,7 +3531,7 @@ class ChatController @Inject constructor(
         val last = lastApiReactionDedup ?: return false
         val (k, t) = last
         if (now - t > 4000L) return false
-        return k.channelId == reaction.channelId &&
+        return k.channelId == reactionCacheKey(reaction) &&
             k.messageId == reaction.messageId &&
             k.emojiId == reaction.emojiId &&
             k.senderId == reaction.senderId &&
@@ -3535,7 +3541,7 @@ class ChatController @Inject constructor(
     private fun handleReactionEvent(reaction: com.mezon.mezon.api.MessageReaction) {
         if (shouldIgnoreSocketReactionAsDuplicate(reaction)) return
         publishReactionUiAndPersist(
-            reaction.channelId,
+            reactionCacheKey(reaction),
             reaction.messageId,
             reaction.emojiId,
             reaction.emoji,
@@ -3600,14 +3606,16 @@ class ChatController @Inject constructor(
         emoji: String,
         count: Int,
         actionDelete: Boolean,
-        messageSenderId: Long
+        messageSenderId: Long,
+        topicId: Long = 0L
     ) {
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
+        val cacheKey = if (topicId != 0L) topicId else channelId
         val uc = userController.get()
         val selfIdForDedup = uc.userId
         val pendingKey = if (selfIdForDedup != 0L) {
-            ReactionDedup(channelId, messageId, emojiId, selfIdForDedup, actionDelete)
+            ReactionDedup(cacheKey, messageId, emojiId, selfIdForDedup, actionDelete)
         } else null
         pendingKey?.let { registerPendingApiReaction(it) }
         val anon = isAnonymousSend(clanId)
@@ -3628,14 +3636,14 @@ class ChatController @Inject constructor(
                         count = count,
                         messageSenderId = messageSenderId,
                         actionDelete = actionDelete,
-                        topicId = 0L,
+                        topicId = topicId,
                         emojiRecentId = 0L,
                         senderName = reactionSenderName
                     )
                     val selfId = session.userId.toLongOrNull() ?: 0L
                     if (selfId != 0L) {
                         publishReactionUiAndPersist(
-                            channelId,
+                            cacheKey,
                             messageId,
                             emojiId,
                             emoji,
