@@ -413,7 +413,11 @@ class ChannelGalleryController @Inject constructor(
                     val existingIds = state.items.mapTo(HashSet(state.items.size)) { it.id }
 
                     mediaItems.forEach candidateLoop@{ candidate ->
-                        if (candidate.id in existingIds) return@candidateLoop
+                        val alreadyLoaded = candidate.id in existingIds ||
+                            (candidate.messageId != 0L && state.items.any {
+                                !it.isPending && it.messageId == candidate.messageId && it.url == candidate.url
+                            })
+                        if (alreadyLoaded) return@candidateLoop
                         val pendingIndex = if (!candidate.isPending) {
                             state.items.indexOfFirst { it.isPending && it.url == candidate.url }
                         } else {
