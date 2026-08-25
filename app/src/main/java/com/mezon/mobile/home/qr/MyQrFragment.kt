@@ -651,20 +651,12 @@ class MyQrFragment : BaseFragment() {
     private fun captureQrBitmap(): Bitmap? {
         if (snapshotCard.width <= 0 || snapshotCard.height <= 0) return null
 
-        val previousActionVisibility = actionRow.visibility
-
-        return try {
-            actionRow.visibility = View.INVISIBLE
-
-            Bitmap.createBitmap(
-                snapshotCard.width,
-                snapshotCard.height,
-                Bitmap.Config.ARGB_8888
-            ).also { bitmap ->
-                snapshotCard.draw(Canvas(bitmap))
-            }
-        } finally {
-            actionRow.visibility = previousActionVisibility
+        return Bitmap.createBitmap(
+            snapshotCard.width,
+            snapshotCard.height,
+            Bitmap.Config.ARGB_8888
+        ).also { bitmap ->
+            snapshotCard.draw(Canvas(bitmap))
         }
     }
 
