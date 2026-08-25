@@ -139,6 +139,13 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".home.sharing.VideoShareRefinementActivity"
+            android:configChanges="keyboardHidden|orientation|screenSize"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:theme="@style/Theme.Mezon.VideoShareRefinement" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

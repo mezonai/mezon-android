@@ -12,6 +12,14 @@
         <item name="postSplashScreenTheme">@style/Theme.Mezon</item>
     </style>
 
+    <style name="Theme.Mezon.VideoShareRefinement" parent="Theme.Mezon">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+    </style>
+
     <style name="MezonRecyclerListView" parent="android:Widget">
         <item name="android:scrollbars">vertical</item>
         <item name="android:fadeScrollbars">true</item>
