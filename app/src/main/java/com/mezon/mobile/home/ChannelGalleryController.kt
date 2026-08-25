@@ -4,6 +4,7 @@ import android.util.Log
 import com.mezon.mobile.BuildConfig
 import com.mezon.mezon.api.ChannelAttachment
 import com.mezon.mobile.core.NotificationCenter
+import com.mezon.mobile.data.db.MessageDao
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.home.chat.AttachmentInfo
@@ -34,7 +35,14 @@ data class ChannelGalleryMediaItem(
     val filetype: String,
     val createTimeSeconds: Int,
     val uploaderId: Long,
-    val messageId: Long
+    val messageId: Long,
+    val thumbnail: String = "",
+    val filename: String = "",
+    val width: Int = 0,
+    val height: Int = 0,
+    val size: Int = 0,
+    val duration: Int = 0,
+    val isPending: Boolean = false
 ) {
     val isVideo: Boolean get() = isVideoAttachmentType(filetype)
 }
@@ -63,6 +71,7 @@ class ChannelGalleryController @Inject constructor(
     private val sessionManager: SessionManager,
     private val notificationCenter: NotificationCenter,
     private val apiCacheTracker: ApiCacheTracker,
+    private val messageDao: MessageDao,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     @ApplicationScope private val appScope: CoroutineScope
 ) {
@@ -285,8 +294,18 @@ class ChannelGalleryController @Inject constructor(
                     )
                 }
 
-                val batchSorted = raw.attachmentsList.mapNotNull { it.toFilteredMediaOrNull() }
-                    .filter { (key.mediaType == ChannelGalleryMediaType.VIDEO) == it.isVideo }
+                val messageIds = raw.attachmentsList.mapNotNull { attachment ->
+                    attachment.messageId.takeIf { it != 0L }
+                }.distinct()
+                val cachedMessages = withContext(ioDispatcher) {
+                    if (messageIds.isEmpty()) emptyMap<Long, MessageEntity>()
+                    else messageDao.getByIds(key.channelId, messageIds).associateBy { it.id }
+                }
+                val batchSorted = raw.attachmentsList.mapNotNull { attachment ->
+                    attachment.toFilteredMediaOrNull()
+                        ?.takeIf { (key.mediaType == ChannelGalleryMediaType.VIDEO) == it.isVideo }
+                        ?.enrichFromMessage(cachedMessages[attachment.messageId])
+                }
                     .distinctBy { it.id }
                     .sortedWith(
                         compareByDescending<ChannelGalleryMediaItem> { it.createTimeSeconds }.thenByDescending { it.id }
@@ -391,13 +410,24 @@ class ChannelGalleryController @Inject constructor(
 
                 var stateChanged = false
                 synchronized(state) {
-                    val existingUrls = state.items.mapTo(HashSet(state.items.size)) { it.url }
                     val existingIds = state.items.mapTo(HashSet(state.items.size)) { it.id }
 
                     mediaItems.forEach candidateLoop@{ candidate ->
-                        if (candidate.url in existingUrls || candidate.id in existingIds) return@candidateLoop
-                        state.items.add(candidate)
-                        existingUrls.add(candidate.url)
+                        val alreadyLoaded = candidate.id in existingIds ||
+                            (candidate.messageId != 0L && state.items.any {
+                                !it.isPending && it.messageId == candidate.messageId && it.url == candidate.url
+                            })
+                        if (alreadyLoaded) return@candidateLoop
+                        val pendingIndex = if (!candidate.isPending) {
+                            state.items.indexOfFirst { it.isPending && it.url == candidate.url }
+                        } else {
+                            -1
+                        }
+                        if (pendingIndex >= 0) {
+                            state.items[pendingIndex] = candidate
+                        } else {
+                            state.items.add(candidate)
+                        }
                         existingIds.add(candidate.id)
                         stateChanged = true
                         changed = true
@@ -485,7 +515,14 @@ private fun AttachmentInfo.toGalleryMediaItem(message: MessageEntity, index: Int
         filetype = filetype,
         createTimeSeconds = message.timestampSeconds.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
         uploaderId = message.senderId,
-        messageId = message.id
+        messageId = message.id,
+        thumbnail = thumb,
+        filename = filename,
+        width = width,
+        height = height,
+        size = size,
+        duration = duration,
+        isPending = message.isSending
     )
 }
 
@@ -504,6 +541,25 @@ private fun ChannelAttachment.toFilteredMediaOrNull(): ChannelGalleryMediaItem? 
         filetype = filetype,
         createTimeSeconds = createTimeSeconds,
         uploaderId = uploader,
-        messageId = messageId
+        messageId = messageId,
+        filename = filename,
+        width = width,
+        height = height,
+        size = filesize.trim().toLongOrNull()
+            ?.coerceIn(0L, Int.MAX_VALUE.toLong())
+            ?.toInt()
+            ?: 0
+    )
+}
+
+private fun ChannelGalleryMediaItem.enrichFromMessage(message: MessageEntity?): ChannelGalleryMediaItem {
+    val attachment = message?.allImageAttachments?.firstOrNull { it.url == url } ?: return this
+    return copy(
+        thumbnail = thumbnail.ifBlank { attachment.thumb },
+        filename = filename.ifBlank { attachment.filename },
+        width = width.takeIf { it > 0 } ?: attachment.width,
+        height = height.takeIf { it > 0 } ?: attachment.height,
+        size = size.takeIf { it > 0 } ?: attachment.size,
+        duration = duration.takeIf { it > 0 } ?: attachment.duration
     )
 }

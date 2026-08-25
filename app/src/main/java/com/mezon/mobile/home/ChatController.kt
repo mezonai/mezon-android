@@ -1826,7 +1826,7 @@ class ChatController @Inject constructor(
         contentResolver: android.content.ContentResolver,
         markdownMarkers: List<MarkdownMarker>? = null,
         parentId: Long = 0L
-    ) {
+    ): Long {
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
         val baseContent = when {
@@ -1920,6 +1920,100 @@ class ChatController @Inject constructor(
                     NotificationCenter.pendingMessageError, channelId, tempId
                 )
             }
+        }
+        return tempId
+    }
+
+    fun shareExistingMediaToChannel(
+        channelId: Long,
+        clanId: Long,
+        channelType: Int,
+        isChannelPrivate: Boolean,
+        text: String,
+        attachment: AttachmentInfo,
+        markdownMarkers: List<MarkdownMarker>? = null,
+        parentId: Long = 0L,
+        onComplete: (ok: Boolean) -> Unit
+    ) {
+        if (attachment.url.isBlank()) {
+            appScope.launch(Dispatchers.Main) { onComplete(false) }
+            return
+        }
+        val mode = channelTypeToStreamMode(channelType)
+        val isPublic = !isChannelPrivate
+        val content = when {
+            text.isBlank() -> PresignFinishContent.emptyOutgoingContent()
+            !markdownMarkers.isNullOrEmpty() -> buildTextContentWithEmojis(text, null, null, markdownMarkers)
+            else -> buildTextContent(text)
+        }
+        val messageFiletype = if (isVideoAttachmentType(attachment.filetype)) "video" else attachment.filetype
+        val protoAttachment = messageAttachment {
+            url = attachment.url
+            filename = attachment.filename
+            filetype = messageFiletype
+            size = attachment.size
+            width = attachment.width
+            height = attachment.height
+            if (attachment.thumb.isNotEmpty()) thumbnail = attachment.thumb
+            if (attachment.duration != 0) duration = attachment.duration
+        }
+        val anon = isAnonymousSend(clanId)
+        appScope.launch(ioDispatcher) {
+            val ok = try {
+                runCatching {
+                    joinChannelOnSocket(channelId, clanId, channelType, isChannelPrivate, parentId)
+                }
+                sessionManager.withAutoRefresh { session ->
+                    ensureActiveArchivedThreadIfNeeded(session.apiUrl, session.token, channelId, clanId, channelType)
+                    val request = channelMessageSend {
+                        this.clanId = clanId
+                        this.channelId = channelId
+                        this.mode = mode
+                        this.isPublic = isPublic
+                        this.content = content
+                        attachments.add(protoAttachment)
+                        if (anon) anonymousMessage = true
+                    }
+                    val ack = channelSend(session.apiUrl, session.token, request)
+                    markForwardTargetUsed(channelId, channelType)
+                    if (ack.messageId != 0L) {
+                        val user = userController.get()
+                        val (senderName, senderAvatar) = optimisticSenderPresentation(user, clanId, channelType, anon)
+                        val sent = MessageEntity(
+                            id = ack.messageId,
+                            channelId = channelId,
+                            senderId = if (anon) ANONYMOUS_USER_ID else user.userId,
+                            senderName = senderName,
+                            senderUsername = if (anon) "Anonymous" else user.username,
+                            senderAvatar = senderAvatar,
+                            content = content,
+                            timestampSeconds = System.currentTimeMillis() / 1000,
+                            code = MessageEntity.CODE_CHAT,
+                            isMe = true,
+                            messageType = resolveOptimisticTypeFromAttachment(protoAttachment),
+                            attachmentUrl = attachment.url,
+                            attachmentThumb = attachment.thumb,
+                            attachmentWidth = attachment.width,
+                            attachmentHeight = attachment.height,
+                            attachmentFilename = attachment.filename,
+                            attachmentFiletype = messageFiletype,
+                            attachmentSize = attachment.size,
+                            attachmentDuration = attachment.duration
+                        )
+                        notificationCenter.postNotificationOnMainThread(
+                            NotificationCenter.didReceiveNewMessages,
+                            channelId,
+                            sent
+                        )
+                    }
+                }
+                true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                false
+            }
+            withContext(Dispatchers.Main) { onComplete(ok) }
         }
     }
 
