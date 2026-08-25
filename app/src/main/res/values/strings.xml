@@ -61,10 +61,16 @@
     <string name="qr_my_code">My QR Code</string>
     <string name="qr_profile">My QR Profile</string>
     <string name="qr_transfer">Transfer QR</string>
-    <string name="qr_share_with_others">Share with others</string>
     <string name="qr_transfer_hint">Scan this QR code to transfer funds</string>
-    <string name="qr_profile_hint">Scan this QR to chat with me or view my profile</string>
     <string name="qr_brand_title">Mezon</string>
+    <string name="qr_profile_badge" translatable="false">PROFILE QR</string>
+    <string name="qr_transfer_badge" translatable="false">TRANSFER QR</string>
+    <string name="qr_verified_by">Verified by Mezon</string>
+    <string name="qr_center_image_title">QR center image</string>
+    <string name="qr_center_image_device">Choose from device</string>
+    <string name="qr_center_image_avatar">Use profile avatar</string>
+    <string name="qr_center_image_mezon">Use Mezon logo</string>
+    <string name="qr_center_image_load_failed">Could not load the selected image</string>
     <string name="qr_token_balance">Balance: %1$s</string>
     <string name="qr_download_success">QR saved to gallery</string>
     <string name="qr_download_failed">Failed to save QR</string>

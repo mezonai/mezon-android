@@ -7,6 +7,7 @@ import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -171,7 +172,14 @@ class PopupMenu(private val context: Context, private val theme: ThemeColors) {
 
             val textX = if (item.icon != null) leftPad + iconSize + iconTextGap else leftPad
             val textY = cellHeight / 2f - (textPaint.descent() + textPaint.ascent()) / 2
-            canvas.drawText(item.text, textX.toFloat(), textY, textPaint)
+            val availableTextWidth = (width - textX - leftPad).coerceAtLeast(0)
+            val displayText = TextUtils.ellipsize(
+                item.text,
+                textPaint,
+                availableTextWidth.toFloat(),
+                TextUtils.TruncateAt.END
+            )
+            canvas.drawText(displayText.toString(), textX.toFloat(), textY, textPaint)
 
             textPaint.color = theme.onSurface
 

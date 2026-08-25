@@ -111,11 +111,10 @@ class InviteQrBottomSheet(
         val bitmap = qrBitmap ?: QrCodeUtils.generateQr(inviteUrl, size).also { qrBitmap = it }
         qrCard.bind(
             QrInviteCardCell.Model(
-                title = clanName,
-                subtitle = context.getString(R.string.invite_qr_hint),
                 qrBitmap = bitmap,
                 avatarUrl = clanLogo,
                 avatarName = clanName,
+                appearance = QrInviteCardCell.Appearance.INVITE,
             ),
         )
     }
