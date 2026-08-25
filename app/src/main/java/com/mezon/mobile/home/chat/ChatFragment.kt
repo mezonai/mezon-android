@@ -2354,6 +2354,10 @@ open class ChatFragment : BaseFragment() {
                     )
                 )
             }
+
+            override fun onWaveWelcomeClick(message: MessageEntity) {
+                sendWaveWelcome(message)
+            }
         }
         adapter.loadLinkInvitePreview = { id -> mezonApi.getLinkInvitePreview(id) }
         adapter.channelType = channelType
@@ -7512,6 +7516,45 @@ open class ChatFragment : BaseFragment() {
             hasAttachment = target.hasMedia || target.isFileAttachment
         }
         return listOf(ref)
+    }
+
+    private fun sendWaveWelcome(message: MessageEntity) {
+        if (!ensureCanSendMessageOrNotify()) return
+        if (editingMessage != null) clearEditState()
+
+        val references = if (channelType == CHANNEL_TYPE_DM) {
+            null
+        } else {
+            listOf(
+                com.mezon.mezon.api.messageRef {
+                    messageId = 0L
+                    messageRefId = message.id
+                    refType = 0
+                    messageSenderId = message.senderId
+                    messageSenderUsername = WaveWelcome.SENDER_DISPLAY_NAME
+                    messageSenderClanNick = WaveWelcome.SENDER_DISPLAY_NAME
+                    messageSenderDisplayName = WaveWelcome.SENDER_DISPLAY_NAME
+                    messageSenderAvatar = WaveWelcome.SENDER_AVATAR_URL
+                    hasAttachment = message.allAttachmentsInfo.isNotEmpty()
+                    content = message.content.ifBlank { "{}" }
+                }
+            )
+        }
+
+        chatController.sendDirectAttachment(
+            channelId = channelId,
+            clanId = clanId,
+            channelType = channelType,
+            isChannelPrivate = resolveChannelPrivate(),
+            url = WaveWelcome.stickerUrl(message.timestampSeconds),
+            filetype = "image/gif",
+            filename = WaveWelcome.STICKER_FILENAME,
+            references = references,
+            topicId = topicId,
+            width = WaveWelcome.STICKER_WIDTH,
+            height = WaveWelcome.STICKER_HEIGHT,
+            size = WaveWelcome.STICKER_SIZE,
+        )
     }
 
     private var pendingHighlightMessageId = 0L

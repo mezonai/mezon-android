@@ -1308,7 +1308,8 @@ class ChatController @Inject constructor(
         references: List<com.mezon.mezon.api.MessageRef>? = null,
         topicId: Long = 0L,
         width: Int = 0,
-        height: Int = 0
+        height: Int = 0,
+        size: Int = 0
     ) {
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
@@ -1323,6 +1324,7 @@ class ChatController @Inject constructor(
                 this.width = width
                 this.height = height
             }
+            if (size > 0) this.size = size
         }
 
         val tempId = generateTempId(cacheKey)
@@ -1352,6 +1354,7 @@ class ChatController @Inject constructor(
             attachmentFilename = filename.orEmpty(),
             attachmentWidth = width,
             attachmentHeight = height,
+            attachmentSize = size,
             sendState = MessageEntity.SEND_STATE_SENDING,
             topicId = topicId
         )
