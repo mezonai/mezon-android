@@ -124,7 +124,8 @@ class GlobalSearchFragment : BaseFragment() {
     private var filterChannelId = 0L
     private var filterChannelName = ""
     private var hideChannelsTab = false
-    private var visibleTabs = listOf(TAB_MEMBERS, TAB_CHANNELS, TAB_MESSAGES)
+    private var isDirectMessageSearch = false
+    private var visibleTabs = listOf(TAB_MEMBERS, TAB_CHANNELS)
     private var argClanId = 0L
     private var argChannelType = 0
     private var channelScopedMembers: List<SearchMember>? = null
@@ -161,14 +162,16 @@ class GlobalSearchFragment : BaseFragment() {
             filterChannelId = argChannelId
             filterChannelName = argChannelName
             hideChannelsTab = true
+            isDirectMessageSearch = argClanId == 0L
             buildChannelScopedMembers()
         }
 
-        visibleTabs = if (hideChannelsTab) {
-            listOf(TAB_MEMBERS, TAB_MESSAGES)
-        } else {
-            listOf(TAB_MEMBERS, TAB_CHANNELS, TAB_MESSAGES)
+        visibleTabs = when {
+            isDirectMessageSearch -> listOf(TAB_MESSAGES)
+            hideChannelsTab -> listOf(TAB_MEMBERS, TAB_MESSAGES)
+            else -> listOf(TAB_MEMBERS, TAB_CHANNELS)
         }
+        currentTab = visibleTabs.first()
 
         observe(NotificationCenter.searchMembersDidLoad) { _, _, _ ->
             if (fragmentView == null || isPaused) return@observe
@@ -365,6 +368,7 @@ class GlobalSearchFragment : BaseFragment() {
         }
         tabHeader = SearchTabHeader(context, themeColors).apply {
             setTabs(tabLabels)
+            visibility = if (visibleTabs.size == 1) View.GONE else View.VISIBLE
             onTabSelected = { visualIndex ->
                 searchRunnable?.let { handler.removeCallbacks(it) }
                 currentTab = visibleTabs.getOrElse(visualIndex) { TAB_MEMBERS }
@@ -479,7 +483,7 @@ class GlobalSearchFragment : BaseFragment() {
         if (channelScopedMembers != null) {
             loadingView.visibility = View.GONE
             recyclerView.visibility = View.VISIBLE
-            updateMembersList()
+            updateCurrentTab()
             updateTabCounts()
         } else {
             loadingView.visibility = View.VISIBLE
@@ -657,6 +661,7 @@ class GlobalSearchFragment : BaseFragment() {
                 isLoadingMore = true
                 searchController.loadMoreMessages(
                     channelId = filterChannelId,
+                    clanId = argClanId,
                     content = searchText,
                     username = filterUsername(),
                     mentionUserId = filterMentionUserId()
@@ -711,7 +716,9 @@ class GlobalSearchFragment : BaseFragment() {
     }
 
     private fun updateFilterButtonVisibility() {
-        val showFilter = (currentTab == TAB_MEMBERS || currentTab == TAB_MESSAGES) &&
+        val showFilter = hideChannelsTab &&
+            !isDirectMessageSearch &&
+            (currentTab == TAB_MEMBERS || currentTab == TAB_MESSAGES) &&
             !isChannelPickerMode &&
             !isPickingFilterUser
         filterButton?.visibility = if (showFilter) View.VISIBLE else View.GONE
@@ -945,6 +952,7 @@ class GlobalSearchFragment : BaseFragment() {
     private fun searchMessages() {
         searchController.searchMessagesApi(
             channelId = filterChannelId,
+            clanId = argClanId,
             content = searchText,
             username = filterUsername(),
             mentionUserId = filterMentionUserId()

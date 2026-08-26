@@ -258,7 +258,8 @@ class SearchController @Inject constructor(
     private var messageSearchGeneration = 0L
 
     fun searchMessagesApi(
-        channelId: Long = 0L,
+        channelId: Long,
+        clanId: Long,
         content: String = "",
         username: String = "",
         mentionUserId: Long = 0L,
@@ -278,8 +279,6 @@ class SearchController @Inject constructor(
         appScope.launch(ioDispatcher) {
             try {
                 sessionManager.withAutoRefresh { session ->
-                    val clanId = clansController.selectedClanId.value
-
                     val filters = ArrayList<Pair<String, String>>()
                     filters.add("channel_id" to channelId.toString())
                     filters.add("clan_id" to clanId.toString())
@@ -309,7 +308,8 @@ class SearchController @Inject constructor(
     }
 
     fun loadMoreMessages(
-        channelId: Long = 0L,
+        channelId: Long,
+        clanId: Long,
         content: String = "",
         username: String = "",
         mentionUserId: Long = 0L
@@ -321,6 +321,7 @@ class SearchController @Inject constructor(
         }
         searchMessagesApi(
             channelId = channelId,
+            clanId = clanId,
             content = content,
             username = username,
             mentionUserId = mentionUserId,
