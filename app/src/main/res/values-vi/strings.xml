@@ -65,10 +65,14 @@
     <string name="qr_my_code">Mã QR của tôi</string>
     <string name="qr_profile">Mã QR hồ sơ</string>
     <string name="qr_transfer">Mã QR chuyển tiền</string>
-    <string name="qr_share_with_others">Chia sẻ với người khác</string>
     <string name="qr_transfer_hint">Quét mã QR này để chuyển tiền</string>
-    <string name="qr_profile_hint">Quét mã QR này để chat với tôi hoặc xem hồ sơ của tôi</string>
     <string name="qr_brand_title">Mezon</string>
+    <string name="qr_verified_by">Được xác minh bởi Mezon</string>
+    <string name="qr_center_image_title">Ảnh giữa mã QR</string>
+    <string name="qr_center_image_device">Chọn ảnh từ thiết bị</string>
+    <string name="qr_center_image_avatar">Dùng avatar cá nhân</string>
+    <string name="qr_center_image_mezon">Dùng logo Mezon</string>
+    <string name="qr_center_image_load_failed">Không thể tải ảnh đã chọn</string>
     <string name="qr_token_balance">Số dư: %1$s đồng</string>
     <string name="qr_download_success">Đã lưu mã QR vào thư viện</string>
     <string name="qr_download_failed">Không thể lưu mã QR</string>
