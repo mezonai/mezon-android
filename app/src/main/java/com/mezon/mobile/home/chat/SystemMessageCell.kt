@@ -3,7 +3,10 @@ package com.mezon.mobile.home.chat
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Typeface
+import android.graphics.drawable.Animatable
 import android.graphics.drawable.Drawable
+import android.graphics.drawable.GradientDrawable
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.ForegroundColorSpan
@@ -13,6 +16,7 @@ import android.view.View
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.appcompat.widget.AppCompatImageView
 import com.mezon.mobile.R
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
@@ -33,6 +37,7 @@ class SystemMessageCell(context: Context, private val theme: ThemeColors) : Line
         fun onMentionClick(userId: String?, roleId: String?)
         fun onJumpToPinnedMessage(messageRefId: Long)
         fun onSeeAllPins()
+        fun onWaveWelcomeClick(message: MessageEntity)
     }
 
     var delegate: Delegate? = null
@@ -58,6 +63,48 @@ class SystemMessageCell(context: Context, private val theme: ThemeColors) : Line
         setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, paint.textSize)
         setTextColor(paint.color)
         typeface = paint.typeface
+    }
+
+    private val waveStickerView = WaveStickerImageView(context).apply {
+        scaleType = ImageView.ScaleType.FIT_CENTER
+        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+    }
+
+    private val waveWelcomeView = LinearLayout(context).apply {
+        orientation = HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        isClickable = true
+        isFocusable = true
+        visibility = View.GONE
+        setPadding(WAVE_H_PAD, WAVE_V_PAD, WAVE_H_PAD, WAVE_V_PAD)
+        background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = WAVE_CORNER_RADIUS.toFloat()
+            setColor(theme.tertiary)
+        }
+
+        addView(waveStickerView, LayoutParams(WAVE_IMAGE_SIZE, WAVE_IMAGE_SIZE))
+        addView(
+            TextView(context).apply {
+                text = context.getString(R.string.dm_wave_welcome)
+                maxLines = 1
+                includeFontPadding = false
+                setTextColor(theme.onSurface)
+                setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13f)
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            },
+            LayoutParams(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT).apply {
+                marginStart = WAVE_INNER_GAP
+            }
+        )
+
+        contentDescription = context.getString(R.string.dm_wave_welcome)
+        setOnClickListener {
+            messageEntity
+                ?.takeIf { it.code == MessageEntity.CODE_WELCOME }
+                ?.let { delegate?.onWaveWelcomeClick(it) }
+        }
     }
 
     private val textColumn: LinearLayout
@@ -122,6 +169,12 @@ class SystemMessageCell(context: Context, private val theme: ThemeColors) : Line
                 topMargin = GAP_V
             }
         )
+        textColumn.addView(
+            waveWelcomeView,
+            LayoutParams(LayoutHelper.WRAP_CONTENT, WAVE_BUTTON_HEIGHT).apply {
+                topMargin = WAVE_TOP_GAP
+            }
+        )
 
         row.addView(textColumn)
         addView(row)
@@ -169,6 +222,10 @@ class SystemMessageCell(context: Context, private val theme: ThemeColors) : Line
         bindIcon(msg, resolveIcon(msg))
         bindBody(msg)
         return true
+    }
+
+    fun recycle() {
+        waveStickerView.clearImage()
     }
 
     private fun bindIcon(msg: MessageEntity, d: Drawable?) {
@@ -237,7 +294,6 @@ class SystemMessageCell(context: Context, private val theme: ThemeColors) : Line
         } else {
             highlightTextView.visibility = View.GONE
             plainMessageTextView.visibility = View.VISIBLE
-            timeTextView.visibility = View.GONE
 
             val bodyCore: CharSequence = when {
                 msg.code == MessageEntity.CODE_CREATE_THREAD && textStr.isBlank() -> systemFallbackText(msg)
@@ -252,8 +308,27 @@ class SystemMessageCell(context: Context, private val theme: ThemeColors) : Line
                     systemMentionGate = mentionInteractiveGate
                 )
             }
-            plainMessageTextView.text = appendInlineTime(bodyCore, timeStr)
+            if (msg.code == MessageEntity.CODE_WELCOME) {
+                timeTextView.visibility = View.VISIBLE
+                timeTextView.text = timeStr
+                plainMessageTextView.text = bodyCore
+            } else {
+                timeTextView.visibility = View.GONE
+                plainMessageTextView.text = appendInlineTime(bodyCore, timeStr)
+            }
         }
+
+        bindWaveWelcome(msg)
+    }
+
+    private fun bindWaveWelcome(msg: MessageEntity) {
+        if (msg.code != MessageEntity.CODE_WELCOME) {
+            waveWelcomeView.visibility = View.GONE
+            waveStickerView.clearImage()
+            return
+        }
+        waveWelcomeView.visibility = View.VISIBLE
+        waveStickerView.bind(WaveWelcome.stickerUrl(msg.timestampSeconds))
     }
 
     private fun appendInlineTime(body: CharSequence, timeStr: String): CharSequence {
@@ -402,6 +477,13 @@ class SystemMessageCell(context: Context, private val theme: ThemeColors) : Line
         private val PAD_H = LayoutHelper.dp(16)
         private val PAD_V = LayoutHelper.dp(8)
         private val GAP_V = LayoutHelper.dp(2)
+        private val WAVE_IMAGE_SIZE = LayoutHelper.dp(30)
+        private val WAVE_H_PAD = LayoutHelper.dp(10)
+        private val WAVE_V_PAD = LayoutHelper.dp(4)
+        private val WAVE_INNER_GAP = LayoutHelper.dp(6)
+        private val WAVE_TOP_GAP = LayoutHelper.dp(8)
+        private val WAVE_CORNER_RADIUS = LayoutHelper.dp(6)
+        private val WAVE_BUTTON_HEIGHT = WAVE_IMAGE_SIZE + WAVE_V_PAD * 2
 
         private fun iconSizeFor(code: Int): Int = when (code) {
             MessageEntity.CODE_FIRST_MESSAGE,
@@ -410,5 +492,72 @@ class SystemMessageCell(context: Context, private val theme: ThemeColors) : Line
             MessageEntity.CODE_UPCOMING_EVENT -> LayoutHelper.dp(24)
             else -> ICON_SIZE_SMALL
         }
+    }
+}
+
+private class WaveStickerImageView(context: Context) : AppCompatImageView(context) {
+
+    private val imageLoader = MezonImageLoader.getInstance(context)
+    private var imageRequest: MezonImageLoader.Cancellable? = null
+    private var imageUrl: String? = null
+    private var bindGeneration = 0
+
+    fun bind(url: String) {
+        if (url == imageUrl && (drawable != null || imageRequest != null)) return
+        clearImage()
+        imageUrl = url
+        loadIfNeeded()
+    }
+
+    fun clearImage() {
+        bindGeneration++
+        imageRequest?.cancel()
+        imageRequest = null
+        imageUrl = null
+        (drawable as? Animatable)?.stop()
+        setImageDrawable(null)
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        (drawable as? Animatable)?.start() ?: loadIfNeeded()
+    }
+
+    override fun onDetachedFromWindow() {
+        imageRequest?.cancel()
+        imageRequest = null
+        (drawable as? Animatable)?.stop()
+        super.onDetachedFromWindow()
+    }
+
+    private fun loadIfNeeded() {
+        val expectedUrl = imageUrl ?: return
+        if (!isAttachedToWindow || drawable != null || imageRequest != null) return
+        val expectedGeneration = bindGeneration
+        val request = imageLoader.loadDrawable(
+            expectedUrl,
+            WAVE_DECODE_SIZE,
+            WAVE_DECODE_SIZE,
+            onSuccess = { loadedDrawable ->
+                if (expectedGeneration != bindGeneration || imageUrl != expectedUrl) return@loadDrawable
+                imageRequest = null
+                setImageDrawable(loadedDrawable)
+                if (isAttachedToWindow) (loadedDrawable as? Animatable)?.start()
+            },
+            onError = {
+                if (expectedGeneration == bindGeneration && imageUrl == expectedUrl) {
+                    imageRequest = null
+                }
+            }
+        )
+        if (expectedGeneration == bindGeneration && imageUrl == expectedUrl && drawable == null) {
+            imageRequest = request
+        } else {
+            request.cancel()
+        }
+    }
+
+    private companion object {
+        val WAVE_DECODE_SIZE = LayoutHelper.dp(30)
     }
 }

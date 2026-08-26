@@ -416,8 +416,9 @@ class ChatAdapter(
     }
 
     override fun onViewRecycled(holder: RecyclerView.ViewHolder) {
-        if (holder is MessageViewHolder) {
-            holder.cell.clearState()
+        when (holder) {
+            is MessageViewHolder -> holder.cell.clearState()
+            is SystemViewHolder -> holder.cell.recycle()
         }
     }
 
