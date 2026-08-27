@@ -331,7 +331,7 @@ class QrScanFragment : BaseFragment() {
             }
             is QrAction.LuckyMoney -> {
                 stopScanning()
-                presentFragment(SendTokenFragment.newInstance(value))
+                presentFragment(ClaimLuckyMoneyFragment.newInstance(action.id))
             }
             is QrAction.DeepLink -> {
                 val route = DeepLinkParser.parse(action.url)
