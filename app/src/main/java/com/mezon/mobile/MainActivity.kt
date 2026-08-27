@@ -49,6 +49,7 @@ import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.messages.MessageActivitiesController
 import com.mezon.mobile.home.MainTabsActivity
 import com.mezon.mobile.home.chat.ChatFragment
+import com.mezon.mobile.home.chat.PendingCameraCapture
 import com.mezon.mobile.home.chat.PhotoViewer
 import com.mezon.mobile.home.chat.VideoPlayerDialog
 import com.mezon.mobile.home.call.CallController
@@ -245,6 +246,7 @@ class MainActivity : BasePermissionsActivity(),
                 } else {
                     showHome()
                     setupSplashDismiss()
+                    if (savedInstanceState != null) restoreChatForPendingCameraCapture()
                 }
             } else {
                 showLogin()
@@ -270,6 +272,9 @@ class MainActivity : BasePermissionsActivity(),
             AndroidUtilities.runOnUIThread(run, 2000L)
         }
         requestNotificationPermission()
+        lifecycleScope.launch(Dispatchers.IO) {
+            PendingCameraCapture.sweepOrphans(this@MainActivity)
+        }
 
         NotificationCenter.getGlobalInstance().addObserver(this, NotificationCenter.themeChanged)
         NotificationCenter.getGlobalInstance().addObserver(this, NotificationCenter.languageChanged)
@@ -862,6 +867,18 @@ class MainActivity : BasePermissionsActivity(),
             if (actionBarLayout.getFragmentStack().size >= sizeBefore) break
         }
         rewireTopFragmentCallbacks()
+    }
+
+    private fun restoreChatForPendingCameraCapture() {
+        val pending = PendingCameraCapture.peek(this) ?: return
+        if (pending.channelId == 0L) return
+        openChat(
+            channelId = pending.channelId,
+            channelName = pending.channelName,
+            clanId = pending.clanId,
+            channelType = pending.channelType,
+            noAnimation = true
+        )
     }
 
     private fun showHome() {

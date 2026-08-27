@@ -5478,7 +5478,15 @@ open class ChatFragment : BaseFragment() {
         pendingCameraCapture?.discard()
         pendingCameraCapture = capture
         try {
-            startActivityForResult(capture.intent, REQUEST_CODE_TAKE_PHOTO)
+            startActivityForResult(capture.captureIntent(), REQUEST_CODE_TAKE_PHOTO)
+            PendingCameraCapture.remember(
+                ctx,
+                capture.file,
+                channelId,
+                channelName,
+                clanId,
+                channelType
+            )
             return true
         } catch (_: android.content.ActivityNotFoundException) {
             pendingCameraCapture = null
@@ -5490,8 +5498,14 @@ open class ChatFragment : BaseFragment() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         if (requestCode == REQUEST_CODE_TAKE_PHOTO) {
-            val capture = pendingCameraCapture
+            val cameraContext = getContext()
+            val capture = pendingCameraCapture ?: cameraContext?.let { ctx ->
+                PendingCameraCapture.peek(ctx)
+                    ?.takeIf { it.channelId == channelId && it.clanId == clanId }
+                    ?.let { CameraPhotoCapture.restore(ctx, it.filePath) }
+            }
             pendingCameraCapture = null
+            cameraContext?.let { PendingCameraCapture.clear(it) }
             if (resultCode != android.app.Activity.RESULT_OK) {
                 capture?.discard()
                 activeCameraReview?.dismiss()
@@ -5499,7 +5513,7 @@ open class ChatFragment : BaseFragment() {
                 return
             }
             val item = capture?.toAttachment()
-            if (item == null) {
+            if (capture == null || item == null) {
                 capture?.discard()
                 MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.camera_capture_failed))
                 return

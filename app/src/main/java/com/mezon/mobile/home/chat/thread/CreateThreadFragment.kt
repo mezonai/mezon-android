@@ -1212,7 +1212,7 @@ class CreateThreadFragment : BaseFragment() {
         pendingCameraCapture?.discard()
         pendingCameraCapture = capture
         try {
-            startActivityForResult(capture.intent, REQUEST_CODE_TAKE_PHOTO)
+            startActivityForResult(capture.captureIntent(), REQUEST_CODE_TAKE_PHOTO)
             return true
         } catch (_: android.content.ActivityNotFoundException) {
             pendingCameraCapture = null
