@@ -36,6 +36,7 @@ import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.MainActivity
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AndroidUtilities
+import com.mezon.mobile.core.InAppOverlayHost
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.di.FragmentEntryPoint
@@ -412,12 +413,14 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
         backgroundDrawable.alpha = 0
         activeInstance = java.lang.ref.WeakReference(this)
         super.show()
+        InAppOverlayHost.register(this, dismissOnOverlayTap = true)
         registerLifecycleObserver()
         ObjectAnimator.ofInt(backgroundDrawable, "alpha", 0, 255).setDuration(200).start()
         playerView.showController()
     }
 
     override fun dismiss() {
+        InAppOverlayHost.unregister(this)
         resumePlaybackOnForeground = false
         stoppedForLifecycle = false
         unregisterLifecycleObserver()

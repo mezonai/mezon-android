@@ -19,6 +19,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import com.mezon.mobile.core.AndroidUtilities
+import com.mezon.mobile.core.InAppOverlayHost
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 
@@ -52,18 +53,19 @@ class ToastOverlay(context: Context, private val theme: ThemeColors) : FrameLayo
             durationMs: Long = 3000L,
             onTap: (() -> Unit)? = null
         ) {
+            val host = InAppOverlayHost.topContainer() ?: parent
             val current = visibleInstance
             if (current != null && current.parent != null && current.childCount == 1) {
                 val inApp = current.getChildAt(0) as? InAppNotificationToastView
                 if (inApp != null) {
                     inApp.updateContent(title, body)
-                    current.rebindInAppFromNextNotification(parent, durationMs, onTap)
+                    current.rebindInAppFromNextNotification(host, durationMs, onTap)
                     return
                 }
             }
             hideVisible()
             ToastOverlay(activity, activity.themeColors)
-                .attachInAppFirstShow(parent, title, body, durationMs, onTap)
+                .attachInAppFirstShow(host, title, body, durationMs, onTap)
         }
     }
 
@@ -78,6 +80,12 @@ class ToastOverlay(context: Context, private val theme: ThemeColors) : FrameLayo
     }
 
     private var passThroughGesture = false
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        handler.removeCallbacksAndMessages(null)
+        if (visibleInstance === this) visibleInstance = null
+    }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
         if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
@@ -218,9 +226,11 @@ class ToastOverlay(context: Context, private val theme: ThemeColors) : FrameLayo
     private fun bindInAppNotificationInteraction(toastView: View, onTap: (() -> Unit)?) {
         toastView.isClickable = onTap != null
         if (onTap != null) {
+            val fromInAppNotification = toastView is InAppNotificationToastView
             toastView.setOnClickListener {
                 handler.removeCallbacksAndMessages(null)
                 dismiss()
+                if (fromInAppNotification) InAppOverlayHost.dismissTappableHosts()
                 onTap()
             }
         } else {

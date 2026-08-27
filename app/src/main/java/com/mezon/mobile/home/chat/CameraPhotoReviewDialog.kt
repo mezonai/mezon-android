@@ -13,6 +13,7 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.mezon.mobile.R
+import com.mezon.mobile.core.InAppOverlayHost
 import com.mezon.mobile.core.LayoutHelper
 
 class CameraPhotoReviewDialog(
@@ -115,7 +116,13 @@ class CameraPhotoReviewDialog(
         super.cancel()
     }
 
+    override fun show() {
+        super.show()
+        InAppOverlayHost.register(this, dismissOnOverlayTap = false)
+    }
+
     override fun dismiss() {
+        InAppOverlayHost.unregister(this)
         rootView.animate().cancel()
         imageRequest?.cancel()
         imageRequest = null

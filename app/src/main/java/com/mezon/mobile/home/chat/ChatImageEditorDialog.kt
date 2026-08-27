@@ -33,6 +33,7 @@ import android.widget.Toast
 import androidx.core.content.FileProvider
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AndroidUtilities
+import com.mezon.mobile.core.InAppOverlayHost
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.shared.TransformCanvasView
@@ -106,6 +107,7 @@ class ChatImageEditorDialog(
 
     override fun show() {
         super.show()
+        InAppOverlayHost.register(this, dismissOnOverlayTap = false)
         window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         if (!toolLabelsScheduled) {
             toolLabelsScheduled = true
@@ -826,6 +828,7 @@ class ChatImageEditorDialog(
     }
 
     override fun dismiss() {
+        InAppOverlayHost.unregister(this)
         decodeJob?.cancel()
         decodeJob = null
         editorCanvas.removeCallbacks(hideToolLabelsRunnable)

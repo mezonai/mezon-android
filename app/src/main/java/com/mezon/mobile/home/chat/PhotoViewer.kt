@@ -29,6 +29,7 @@ import androidx.viewpager2.widget.ViewPager2
 import com.github.chrisbanes.photoview.PhotoView
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AndroidUtilities
+import com.mezon.mobile.core.InAppOverlayHost
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.di.FragmentEntryPoint
@@ -386,10 +387,12 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
         backgroundDrawable.alpha = 0
         activeInstance = java.lang.ref.WeakReference(this)
         super.show()
+        InAppOverlayHost.register(this, dismissOnOverlayTap = true)
         ObjectAnimator.ofInt(backgroundDrawable, "alpha", 0, 255).setDuration(200).start()
     }
 
     override fun dismiss() {
+        InAppOverlayHost.unregister(this)
         if (activeInstance?.get() === this) {
             activeInstance = null
         }
