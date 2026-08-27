@@ -23,21 +23,45 @@ import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
 
-private val ESTIMATED_PLACEHOLDER_HEIGHT = LayoutHelper.dp(133f) + LayoutHelper.dp(16)
-
-private enum class AnimPhase { SPINNING, LANDING, DONE }
-
-private data class SpriteFrame(val name: String, val x: Int, val y: Int, val w: Int, val h: Int)
-
 private data class CellAnimator(
-    val repeatCount: Int,
-    val finalIndex: Float,
-    var phase: AnimPhase = AnimPhase.SPINNING,
-    var progress: Float = 0f,
-    var currentLoop: Int = 0,
-    var phaseStartNs: Long = 0L,
-    var phaseDurationNs: Long = 500_000_000L,
+    val frameKeys: List<String>,
+    val repeatCount: Int?,
+    var frameIndex: Int = 0,
+    var startedAtNs: Long = 0L,
+    var finished: Boolean = false,
 )
+
+internal data class EmbedAnimationFrameState(
+    val frameIndex: Int,
+    val finished: Boolean,
+    val nextBoundaryDelayNs: Long?,
+)
+
+internal fun resolveEmbedAnimationFrameState(
+    elapsedNs: Long,
+    durationNs: Long,
+    frameCount: Int,
+    repeatCount: Int?,
+): EmbedAnimationFrameState {
+    if (frameCount <= 1) return EmbedAnimationFrameState(0, finished = true, nextBoundaryDelayNs = null)
+    val safeDurationNs = durationNs.coerceAtLeast(1L)
+    val safeElapsedNs = elapsedNs.coerceAtLeast(0L)
+    val finiteRepeat = repeatCount?.takeIf { it > 0 }
+    val completedIterations = safeElapsedNs / safeDurationNs
+    if (finiteRepeat != null && completedIterations >= finiteRepeat) {
+        return EmbedAnimationFrameState(frameCount - 1, finished = true, nextBoundaryDelayNs = null)
+    }
+
+    val iterationNs = safeElapsedNs % safeDurationNs
+    val frameIndex = ((iterationNs.toDouble() / safeDurationNs.toDouble()) * frameCount)
+        .toInt()
+        .coerceIn(0, frameCount - 1)
+    val nextBoundaryNs = ceil(
+        (frameIndex + 1).toDouble() * safeDurationNs.toDouble() / frameCount.toDouble(),
+    ).toLong()
+    val delayNs = (nextBoundaryNs - iterationNs).coerceAtLeast(1L)
+    return EmbedAnimationFrameState(frameIndex, finished = false, nextBoundaryDelayNs = delayNs)
+}
 
 internal class EmbedAnimationRuntime(
     private val parent: View,
@@ -50,12 +74,9 @@ internal class EmbedAnimationRuntime(
     private var jsonCall: Call? = null
     private var bitmapLoad: MezonImageLoader.Cancellable? = null
     @Volatile private var loadFailed: Boolean = false
+    @Volatile private var disposed: Boolean = false
 
     private val framesByKey = mutableMapOf<String, AtlasFrame>()
-    private var orderedFrames: List<SpriteFrame> = emptyList()
-    private var animationBase = 0f
-    private var inputRangeX = floatArrayOf(0f)
-    private var outputRangeX = floatArrayOf(0f)
 
     private var atlasMetaW = 1
     private var atlasMetaH = 1
@@ -65,20 +86,14 @@ internal class EmbedAnimationRuntime(
     private var memoLayouts: List<CellLayout>? = null
 
     private var cellAnimators: List<CellAnimator> = emptyList()
-    private var sharedPhase = AnimPhase.SPINNING
-    private var sharedProgress = 0f
-    private var sharedLoop = 0
-    private var sharedPhaseStartNs = 0L
-    private var sharedPhaseDurationNs = 500_000_000L
-    private var sharedFinalIndex = 0f
     private var tickerRunning = false
 
     var onAnimationFinished: (() -> Unit)? = null
+    var onLayoutMetricsChanged: (() -> Unit)? = null
 
     private val bmpPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
     private val drawSrcRect = Rect()
     private val drawDstRectF = RectF()
-    private val clipRect = RectF()
 
     private val frameCallback = object : Choreographer.FrameCallback {
         override fun doFrame(frameTimeNanos: Long) {
@@ -87,21 +102,30 @@ internal class EmbedAnimationRuntime(
                 stopTicker()
                 return
             }
-            advanceAnimations(frameTimeNanos)
-            invalidateIfAlive()
+            val advance = advanceAnimations(frameTimeNanos)
+            if (advance.frameChanged) invalidateIfAlive()
             if (!shouldAnimate()) {
                 stopTicker()
                 notifyAnimationFinished()
                 return
             }
-            Choreographer.getInstance().postFrameCallback(this)
+            val delayMs = advance.nextBoundaryDelayNs
+                ?.let { ceil(it.toDouble() / 1_000_000.0).toLong() }
+                ?.coerceAtLeast(1L)
+                ?: 1L
+            Choreographer.getInstance().postFrameCallbackDelayed(this, delayMs)
         }
     }
 
     fun isAnimating(): Boolean = shouldAnimate()
 
+    fun isNonTerminating(): Boolean =
+        !spec.isStaticResult && (spec.repeat == null || spec.repeat <= 0)
+
     fun dispose() {
+        disposed = true
         onAnimationFinished = null
+        onLayoutMetricsChanged = null
         stopTicker()
         jsonCall?.cancel()
         jsonCall = null
@@ -110,7 +134,6 @@ internal class EmbedAnimationRuntime(
         atlas = null
         memoLayouts = null
         memoContentW = -1
-        orderedFrames = emptyList()
         cellAnimators = emptyList()
         loadFailed = false
         synchronized(framesByKey) {
@@ -118,18 +141,29 @@ internal class EmbedAnimationRuntime(
         }
     }
 
-    fun placeholderHeightPx(): Int = BOX_BIG_PX + CELL_GAP_Y
+    fun onAttachedToWindow() {
+        if (disposed) return
+        ensureTickerRunning()
+        invalidateIfAlive()
+    }
+
+    fun onDetachedFromWindow() {
+        stopTicker()
+    }
+
+    fun placeholderHeightPx(): Int {
+        val count = max(1, spec.pool.size)
+        return if (spec.vertical) {
+            count * PLACEHOLDER_H + (count + 1) * CELL_GAP_Y
+        } else {
+            MIN_BLOCK_ROW_H + CELL_GAP_Y * 2
+        }
+    }
 
     private fun invalidateLayouts() {
         memoContentW = -1
         memoLayouts = null
     }
-
-    private fun cellRepeatCount(index: Int): Int =
-        if (spec.repeat != null) spec.repeat + index else 0
-
-    private fun hasSharedCells(): Boolean =
-        spec.pool.indices.any { cellRepeatCount(it) == 0 }
 
     private fun prototypeFrame(): AtlasFrame? {
         synchronized(framesByKey) {
@@ -162,26 +196,26 @@ internal class EmbedAnimationRuntime(
 
     private fun computeLayouts(contentWidthPx: Int): List<CellLayout>? {
         if (contentWidthPx <= 0 || spec.pool.isEmpty()) return null
-        val proto = prototypeFrame() ?: return null
 
         synchronized(framesByKey) {
             if (framesByKey.isEmpty()) return null
-            val widthItem = proto.w.coerceAtLeast(1)
-            val heightItem = proto.h.coerceAtLeast(1)
-
-            val n = spec.pool.size
-            val gap = CELL_GAP_X
-            val wideEnough = contentWidthPx > BOX_BIG_PX * n + gap * max(0, n - 1)
-
-            val boxPx = if (wideEnough) BOX_BIG_PX else BOX_SMALL_PX
-            val denom = min(widthItem, heightItem).coerceAtLeast(1)
-            val ratio = boxPx.toFloat() / denom
-
-            val dstWbig = heightItem * ratio
-            val dstHbig = widthItem * ratio
-
             return spec.pool.map { lane ->
-                CellLayout(dstWbig, dstHbig, frameKeyForDraw(lane))
+                val firstFrame = lane.firstNotNullOfOrNull { framesByKey[it.trim()] }
+                    ?: prototypeFrame()
+                    ?: return null
+                val widthItem = firstFrame.w.coerceAtLeast(1)
+                val heightItem = firstFrame.h.coerceAtLeast(1)
+                val denominator = if (spec.isStaticResult) {
+                    widthItem
+                } else {
+                    min(widthItem, heightItem).coerceAtLeast(1)
+                }
+                val ratio = BOX_SMALL_PX.toFloat() / denominator
+                CellLayout(
+                    dstW = widthItem * ratio,
+                    dstH = heightItem * ratio,
+                    frameKey = frameKeyForDraw(lane),
+                )
             }
         }
     }
@@ -196,13 +230,35 @@ internal class EmbedAnimationRuntime(
 
     fun blockHeightPx(contentWidthPx: Int): Int {
         val lays = layoutsFor(contentWidthPx) ?: return placeholderHeightPx()
-        val rowH = ceil(lays.maxOfOrNull { it.dstH }?.toDouble() ?: BOX_BIG_PX.toDouble()).toInt()
-            .coerceAtLeast(MIN_BLOCK_ROW_H)
-        return rowH + CELL_GAP_Y * 2
+        val scale = layoutScale(lays, contentWidthPx)
+        val contentH = if (spec.vertical) {
+            lays.sumOf { ceil((it.dstH * scale).toDouble()).toInt() } +
+                CELL_GAP_Y * max(0, lays.size - 1)
+        } else {
+            ceil((lays.maxOfOrNull { it.dstH } ?: BOX_SMALL_PX.toFloat()) * scale)
+                .toInt()
+                .coerceAtLeast(MIN_BLOCK_ROW_H)
+        }
+        return contentH + CELL_GAP_Y * 2
+    }
+
+    private fun layoutScale(cells: List<CellLayout>, contentWidthPx: Int): Float {
+        if (contentWidthPx <= 0 || cells.isEmpty()) return 1f
+        val desiredWidth = if (spec.vertical) {
+            cells.maxOf { it.dstW }
+        } else {
+            cells.sumOf { ceil(it.dstW.toDouble()).toInt() }.toFloat() +
+                CELL_GAP_X.toFloat() * max(0, cells.size - 1)
+        }
+        return if (desiredWidth > contentWidthPx) {
+            contentWidthPx / desiredWidth.coerceAtLeast(1f)
+        } else {
+            1f
+        }
     }
 
     fun startLoading(context: android.content.Context) {
-        if (loadFailed) return
+        if (disposed || loadFailed) return
         synchronized(framesByKey) {
             if (framesByKey.isNotEmpty()) return
         }
@@ -216,19 +272,23 @@ internal class EmbedAnimationRuntime(
         jsonCall = call
         call.enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                if (call != jsonCall) return
+                if (disposed || call != jsonCall) return
                 jsonCall = null
                 loadFailed = true
-                parent.post { invalidateIfAlive() }
+                parent.post {
+                    if (!disposed) invalidateIfAlive()
+                }
             }
 
             override fun onResponse(call: Call, response: Response) {
                 try {
-                    if (call != jsonCall) return
+                    if (disposed || call != jsonCall) return
                     jsonCall = null
                     val ok = ingestAtlasBody(response.body?.string())
+                    if (disposed) return
                     if (!ok) loadFailed = true
                     parent.post {
+                        if (disposed) return@post
                         invalidateIfAlive()
                         if (ok) {
                             invalidateLayouts()
@@ -243,15 +303,15 @@ internal class EmbedAnimationRuntime(
     }
 
     private fun ingestAtlasBody(bodyStr: String?): Boolean {
-        if (bodyStr.isNullOrBlank()) return false
+        if (disposed || bodyStr.isNullOrBlank()) return false
         return try {
             val obj = JSONObject(bodyStr)
             val meta = obj.optJSONObject("meta") ?: return false
             val size = meta.optJSONObject("size") ?: return false
             val mw = size.optDouble("w", size.optDouble("width", 0.0)).toInt().coerceAtLeast(1)
             val mh = size.optDouble("h", size.optDouble("height", 0.0)).toInt().coerceAtLeast(1)
-            val frames = mutableListOf<SpriteFrame>()
             synchronized(framesByKey) {
+                if (disposed) return false
                 atlasMetaW = mw
                 atlasMetaH = mh
                 framesByKey.clear()
@@ -266,18 +326,8 @@ internal class EmbedAnimationRuntime(
                     val w = fr.optDouble("w", fr.optDouble("width", 0.0)).toInt().coerceAtLeast(1)
                     val h = fr.optDouble("h", fr.optDouble("height", 0.0)).toInt().coerceAtLeast(1)
                     framesByKey[key] = AtlasFrame(x, y, w, h)
-                    frames.add(SpriteFrame(key, x, y, w, h))
                 }
                 if (framesByKey.isEmpty()) return false
-                orderedFrames = if (spec.repeat != null) {
-                    frames.sortedWith(compareBy({ it.x }, { it.y }))
-                } else {
-                    frames.toList()
-                }
-                val ranges = computeInputOutputRanges(orderedFrames)
-                animationBase = ranges.first
-                inputRangeX = ranges.second
-                outputRangeX = ranges.third
                 true
             }
         } catch (_: Exception) {
@@ -285,29 +335,8 @@ internal class EmbedAnimationRuntime(
         }
     }
 
-    private fun computeInputOutputRanges(frames: List<SpriteFrame>): Triple<Float, FloatArray, FloatArray> {
-        if (frames.isEmpty()) return Triple(0f, floatArrayOf(0f), floatArrayOf(0f))
-        var base = 0f
-        val input = mutableListOf(base)
-        val output = mutableListOf(-frames[0].x.toFloat())
-        for (i in 1 until frames.size) {
-            if (frames[i].x != frames[i - 1].x) {
-                base += 0.5f
-                input.add(base)
-                output.add(-frames[i - 1].x.toFloat())
-                base += 0.5f
-                input.add(base)
-                output.add(-frames[i].x.toFloat())
-            } else {
-                base += 1f
-                input.add(base)
-                output.add(-frames[i].x.toFloat())
-            }
-        }
-        return Triple(base, input.toFloatArray(), output.toFloatArray())
-    }
-
     private fun startBitmapLoad(appContext: android.content.Context) {
+        if (disposed) return
         val mw: Int
         val mh: Int
         synchronized(framesByKey) {
@@ -326,151 +355,87 @@ internal class EmbedAnimationRuntime(
             reqWidth = reqW,
             reqHeight = reqH,
             onSuccess = { bmp ->
+                if (disposed) return@load
                 synchronized(framesByKey) {
+                    if (disposed) return@synchronized
                     if (!bmp.isRecycled) atlas = bmp
                 }
+                if (disposed || atlas == null) return@load
                 initAnimators()
                 invalidateLayouts()
                 parent.post {
+                    if (disposed) return@post
                     invalidateIfAlive()
-                    parent.requestLayout()
+                    onLayoutMetricsChanged?.invoke() ?: parent.requestLayout()
                 }
             },
             onError = {
+                if (disposed) return@load
                 loadFailed = true
-                parent.post { invalidateIfAlive() }
+                parent.post {
+                    if (!disposed) invalidateIfAlive()
+                }
             },
         )
     }
 
     private fun initAnimators() {
-        if (orderedFrames.isEmpty()) return
-        cellAnimators = spec.pool.mapIndexed { index, lane ->
-            val repeatCount = cellRepeatCount(index)
-            val finalKey = lane.lastOrNull()?.trim().orEmpty()
-                .ifEmpty { lane.firstOrNull()?.trim().orEmpty() }
-            val idx = orderedFrames.indexOfFirst { it.name == finalKey }
-            val finalIndex = if (idx >= 0) idx.toFloat() else (orderedFrames.size - 1).toFloat()
-            CellAnimator(repeatCount = repeatCount, finalIndex = finalIndex)
-        }
-        if (spec.isStaticResult) {
-            for (anim in cellAnimators) {
-                anim.phase = AnimPhase.DONE
-                anim.progress = anim.finalIndex
-            }
-            sharedProgress = sharedFinalIndex
-            sharedPhase = AnimPhase.DONE
-            return
-        }
         val now = System.nanoTime()
-        for (anim in cellAnimators) {
-            if (anim.repeatCount > 0) {
-                startSpinPhase(anim, now)
+        val finiteRepeat = spec.repeat?.takeIf { it > 0 }
+        cellAnimators = synchronized(framesByKey) {
+            spec.pool.map { lane ->
+                val validKeys = lane.map { it.trim() }
+                    .filter { it.isNotEmpty() && framesByKey.containsKey(it) }
+                val fallbackKey = framesByKey.keys.firstOrNull().orEmpty()
+                val keys = validKeys.ifEmpty { listOf(fallbackKey) }.filter { it.isNotEmpty() }
+                CellAnimator(
+                    frameKeys = keys,
+                    repeatCount = finiteRepeat,
+                    frameIndex = if (spec.isStaticResult) max(0, keys.lastIndex) else 0,
+                    startedAtNs = now,
+                    finished = spec.isStaticResult || keys.size <= 1,
+                )
             }
-        }
-        if (hasSharedCells()) {
-            sharedFinalIndex = cellAnimators.firstOrNull { it.repeatCount == 0 }?.finalIndex
-                ?: (orderedFrames.size - 1).toFloat()
-            startSharedSpin(now)
         }
         ensureTickerRunning()
     }
 
-    private fun spinDurationNs(repeatCount: Int): Long =
-        if (repeatCount > 0) 500_000_000L
-        else max(500_000_000L, orderedFrames.size * 30L * 1_000_000L)
+    private data class AnimationAdvance(
+        val frameChanged: Boolean,
+        val nextBoundaryDelayNs: Long?,
+    )
 
-    private fun startSpinPhase(anim: CellAnimator, nowNs: Long = System.nanoTime()) {
-        anim.phase = AnimPhase.SPINNING
-        anim.progress = 0f
-        anim.phaseStartNs = nowNs
-        anim.phaseDurationNs = spinDurationNs(anim.repeatCount)
-    }
-
-    private fun startLandingPhase(anim: CellAnimator, nowNs: Long = System.nanoTime()) {
-        anim.phase = AnimPhase.LANDING
-        anim.progress = 0f
-        anim.phaseStartNs = nowNs
-        val ratio = if (animationBase > 0f) anim.finalIndex / animationBase else 1f
-        anim.phaseDurationNs = (500f * ratio).toLong().coerceAtLeast(1L) * 1_000_000L
-    }
-
-    private fun startSharedSpin(nowNs: Long = System.nanoTime()) {
-        sharedPhase = AnimPhase.SPINNING
-        sharedProgress = 0f
-        sharedLoop = 0
-        sharedPhaseStartNs = nowNs
-        sharedPhaseDurationNs = spinDurationNs(0)
-    }
-
-    private fun startSharedLanding(nowNs: Long = System.nanoTime()) {
-        sharedPhase = AnimPhase.LANDING
-        sharedProgress = 0f
-        sharedPhaseStartNs = nowNs
-        val ratio = if (animationBase > 0f) sharedFinalIndex / animationBase else 1f
-        sharedPhaseDurationNs = (500f * ratio).toLong().coerceAtLeast(1L) * 1_000_000L
-    }
-
-    private fun phaseProgress(nowNs: Long, startNs: Long, durationNs: Long): Float {
-        if (durationNs <= 0L) return 1f
-        return ((nowNs - startNs).toFloat() / durationNs.toFloat()).coerceIn(0f, 1f)
-    }
-
-    private fun advanceAnimations(@Suppress("UNUSED_PARAMETER") frameTimeNanos: Long) {
-        val now = System.nanoTime()
+    private fun advanceAnimations(frameTimeNanos: Long): AnimationAdvance {
+        val durationNs = (spec.durationSec.toDouble() * 1_000_000_000.0)
+            .toLong()
+            .coerceAtLeast(1L)
+        var frameChanged = false
+        var nextBoundaryDelayNs: Long? = null
         for (anim in cellAnimators) {
-            if (anim.repeatCount <= 0) continue
-            when (anim.phase) {
-                AnimPhase.SPINNING -> {
-                    val t = phaseProgress(now, anim.phaseStartNs, anim.phaseDurationNs)
-                    anim.progress = t * animationBase
-                    if (t >= 1f) {
-                        anim.currentLoop++
-                        if (anim.currentLoop < anim.repeatCount) {
-                            startSpinPhase(anim, now)
-                        } else {
-                            startLandingPhase(anim, now)
-                        }
-                    }
-                }
-                AnimPhase.LANDING -> {
-                    val t = phaseProgress(now, anim.phaseStartNs, anim.phaseDurationNs)
-                    anim.progress = t * anim.finalIndex
-                    if (t >= 1f) {
-                        anim.phase = AnimPhase.DONE
-                        anim.progress = anim.finalIndex
-                    }
-                }
-                AnimPhase.DONE -> Unit
+            if (anim.finished || anim.frameKeys.size <= 1) continue
+            val elapsedNs = (frameTimeNanos - anim.startedAtNs).coerceAtLeast(0L)
+            val state = resolveEmbedAnimationFrameState(
+                elapsedNs = elapsedNs,
+                durationNs = durationNs,
+                frameCount = anim.frameKeys.size,
+                repeatCount = anim.repeatCount,
+            )
+            if (anim.frameIndex != state.frameIndex) {
+                anim.frameIndex = state.frameIndex
+                frameChanged = true
+            }
+            anim.finished = state.finished
+            val laneDelayNs = state.nextBoundaryDelayNs
+            if (laneDelayNs != null && (nextBoundaryDelayNs == null || laneDelayNs < nextBoundaryDelayNs)) {
+                nextBoundaryDelayNs = laneDelayNs
             }
         }
-
-        if (!hasSharedCells()) return
-        when (sharedPhase) {
-            AnimPhase.SPINNING -> {
-                val t = phaseProgress(now, sharedPhaseStartNs, sharedPhaseDurationNs)
-                sharedProgress = t * animationBase
-                if (t >= 1f) {
-                    sharedLoop++
-                    startSharedSpin(now)
-                }
-            }
-            AnimPhase.LANDING -> {
-                val t = phaseProgress(now, sharedPhaseStartNs, sharedPhaseDurationNs)
-                sharedProgress = t * sharedFinalIndex
-                if (t >= 1f) {
-                    sharedPhase = AnimPhase.DONE
-                    sharedProgress = sharedFinalIndex
-                }
-            }
-            AnimPhase.DONE -> Unit
-        }
+        return AnimationAdvance(frameChanged, nextBoundaryDelayNs)
     }
 
     private fun shouldAnimate(): Boolean {
-        if (spec.isStaticResult || orderedFrames.isEmpty() || atlas == null) return false
-        if (hasSharedCells() && sharedPhase != AnimPhase.DONE) return true
-        return cellAnimators.any { it.repeatCount > 0 && it.phase != AnimPhase.DONE }
+        if (spec.isStaticResult || atlas == null) return false
+        return cellAnimators.any { !it.finished && it.frameKeys.size > 1 }
     }
 
     private fun isParentVisible(): Boolean =
@@ -499,114 +464,7 @@ internal class EmbedAnimationRuntime(
         if (parent.isAttachedToWindow) parent.invalidate()
     }
 
-    private fun interpolate(rangeIn: FloatArray, rangeOut: FloatArray, value: Float): Float {
-        if (rangeIn.isEmpty()) return 0f
-        if (value <= rangeIn[0]) return rangeOut[0]
-        if (value >= rangeIn[rangeIn.size - 1]) return rangeOut[rangeOut.size - 1]
-        for (i in 0 until rangeIn.size - 1) {
-            val in0 = rangeIn[i]
-            val in1 = rangeIn[i + 1]
-            if (value in in0..in1) {
-                val out0 = rangeOut[i]
-                val out1 = rangeOut[i + 1]
-                val span = (in1 - in0).takeIf { it != 0f } ?: 1f
-                val frac = (value - in0) / span
-                return out0 + (out1 - out0) * frac
-            }
-        }
-        return rangeOut[rangeOut.size - 1]
-    }
-
-    private fun translateYForProgress(progress: Float): Float {
-        if (orderedFrames.isEmpty()) return 0f
-        val indices = FloatArray(orderedFrames.size) { it.toFloat() }
-        val ys = FloatArray(orderedFrames.size) { -orderedFrames[it].y.toFloat() }
-        return interpolate(indices, ys, progress)
-    }
-
-    private fun opacityForFrame(frameIndex: Int, progress: Float): Float {
-        val lo = frameIndex - 0.8f
-        val hi = frameIndex + 0.8f
-        return when {
-            progress < lo || progress > hi -> 0f
-            progress <= frameIndex -> {
-                val span = (frameIndex - lo).takeIf { it != 0f } ?: 0.8f
-                ((progress - lo) / span) * 2f
-            }
-            else -> {
-                val span = (hi - frameIndex).takeIf { it != 0f } ?: 0.8f
-                ((hi - progress) / span) * 2f
-            }
-        }.coerceIn(0f, 2f)
-    }
-
-    private fun drawTranslateCell(
-        canvas: Canvas,
-        bmp: Bitmap,
-        left: Float,
-        top: Float,
-        dw: Float,
-        dh: Float,
-        progress: Float,
-    ) {
-        val proto = orderedFrames.firstOrNull() ?: return
-        val scaleX = dw / proto.w.coerceAtLeast(1)
-        val scaleY = dh / proto.h.coerceAtLeast(1)
-        val tx = interpolate(inputRangeX, outputRangeX, progress) * scaleX
-        val ty = translateYForProgress(progress) * scaleY
-
-        val save = canvas.save()
-        clipRect.set(left, top, left + dw, top + dh)
-        canvas.clipRect(clipRect)
-        drawDstRectF.set(
-            left + tx,
-            top + ty,
-            left + tx + atlasMetaW * scaleX,
-            top + ty + atlasMetaH * scaleY,
-        )
-        drawSrcRect.set(0, 0, bmp.width, bmp.height)
-        canvas.drawBitmap(bmp, drawSrcRect, drawDstRectF, bmpPaint)
-        canvas.restoreToCount(save)
-    }
-
-    private fun drawOpacityCell(
-        canvas: Canvas,
-        bmp: Bitmap,
-        left: Float,
-        top: Float,
-        dw: Float,
-        dh: Float,
-        progress: Float,
-    ) {
-        val save = canvas.save()
-        clipRect.set(left, top, left + dw, top + dh)
-        canvas.clipRect(clipRect)
-        for (i in orderedFrames.indices) {
-            val alpha = opacityForFrame(i, progress)
-            if (alpha <= 0f) continue
-            val frame = orderedFrames[i]
-            val scaleX = dw / frame.w.coerceAtLeast(1)
-            val scaleY = dh / frame.h.coerceAtLeast(1)
-            bmpPaint.alpha = (alpha.coerceIn(0f, 1f) * 255f).toInt().coerceIn(0, 255)
-            drawSrcRect.set(
-                frame.x.coerceIn(0, max(0, bmp.width - 1)),
-                frame.y.coerceIn(0, max(0, bmp.height - 1)),
-                (frame.x + frame.w).coerceAtMost(bmp.width),
-                (frame.y + frame.h).coerceAtMost(bmp.height),
-            )
-            drawDstRectF.set(
-                left,
-                top,
-                left + frame.w * scaleX,
-                top + frame.h * scaleY,
-            )
-            canvas.drawBitmap(bmp, drawSrcRect, drawDstRectF, bmpPaint)
-        }
-        bmpPaint.alpha = 255
-        canvas.restoreToCount(save)
-    }
-
-    private fun drawStaticCell(
+    private fun drawSpriteFrame(
         canvas: Canvas,
         bmp: Bitmap,
         left: Float,
@@ -618,11 +476,13 @@ internal class EmbedAnimationRuntime(
         val fr = synchronized(framesByKey) { framesByKey[frameKey] } ?: prototypeFrame() ?: return
         val iw = bmp.width
         val ih = bmp.height
-        val sx = fr.x.coerceIn(0, max(0, iw - 1))
-        val sy = fr.y.coerceIn(0, max(0, ih - 1))
-        val sw = fr.w.coerceIn(1, max(1, iw - sx))
-        val sh = fr.h.coerceIn(1, max(1, ih - sy))
-        drawSrcRect.set(sx, sy, sx + sw, sy + sh)
+        val sourceScaleX = iw.toFloat() / atlasMetaW.coerceAtLeast(1)
+        val sourceScaleY = ih.toFloat() / atlasMetaH.coerceAtLeast(1)
+        val sx = (fr.x * sourceScaleX).toInt().coerceIn(0, max(0, iw - 1))
+        val sy = (fr.y * sourceScaleY).toInt().coerceIn(0, max(0, ih - 1))
+        val right = ceil((fr.x + fr.w) * sourceScaleX).toInt().coerceIn(sx + 1, iw)
+        val bottom = ceil((fr.y + fr.h) * sourceScaleY).toInt().coerceIn(sy + 1, ih)
+        drawSrcRect.set(sx, sy, right, bottom)
         drawDstRectF.set(left, top, left + dw, top + dh)
         canvas.drawBitmap(bmp, drawSrcRect, drawDstRectF, bmpPaint)
     }
@@ -645,45 +505,39 @@ internal class EmbedAnimationRuntime(
 
         if (shouldAnimate()) ensureTickerRunning()
 
-        val rowWDesired = cells.sumOf { ceil(it.dstW.toDouble()).toInt() }.toFloat() +
-            CELL_GAP_X.toFloat() * max(0, cells.size - 1)
-
-        val scale = if (contentWidthPx > 0 && rowWDesired > contentWidthPx) {
-            contentWidthPx / rowWDesired.coerceAtLeast(1f)
-        } else {
-            1f
-        }
-
-        val rowScaledH = cells.maxOf { ceil((it.dstH * scale).toDouble()).toInt() }
-            .coerceAtLeast(MIN_SCALED_ROW_H)
-
-        val gap = CELL_GAP_X * scale
+        val scale = layoutScale(cells, contentWidthPx)
+        val horizontalGap = CELL_GAP_X * scale
         var xCursor = originX
+        var yCursor = originY + CELL_GAP_Y
+        val rowScaledH = if (spec.vertical) {
+            0
+        } else {
+            cells.maxOf { ceil((it.dstH * scale).toDouble()).toInt() }
+                .coerceAtLeast(MIN_SCALED_ROW_H)
+        }
 
         cells.forEachIndexed { index, cell ->
             val dw = cell.dstW * scale
             val dh = cell.dstH * scale
-            val top = originY + (rowScaledH - dh) / 2f
-
-            if (spec.isStaticResult) {
-                drawStaticCell(canvas, bmp, xCursor, top, dw, dh, cell.frameKey)
+            val left: Float
+            val top: Float
+            if (spec.vertical) {
+                left = originX
+                top = yCursor
             } else {
-                val anim = cellAnimators.getOrNull(index)
-                val repeatCount = cellRepeatCount(index)
-                when {
-                    anim != null && repeatCount > 0 -> drawTranslateCell(
-                        canvas, bmp, xCursor, top, dw, dh, anim.progress,
-                    )
-                    repeatCount == 0 -> drawOpacityCell(
-                        canvas, bmp, xCursor, top, dw, dh, sharedProgress,
-                    )
-                    anim != null && anim.phase == AnimPhase.DONE -> drawTranslateCell(
-                        canvas, bmp, xCursor, top, dw, dh, anim.progress,
-                    )
-                    else -> drawStaticCell(canvas, bmp, xCursor, top, dw, dh, cell.frameKey)
-                }
+                left = xCursor
+                top = yCursor + (rowScaledH - dh) / 2f
             }
-            xCursor += dw + gap
+
+            val anim = cellAnimators.getOrNull(index)
+            val frameKey = anim?.frameKeys?.getOrNull(anim.frameIndex) ?: cell.frameKey
+            drawSpriteFrame(canvas, bmp, left, top, dw, dh, frameKey)
+
+            if (spec.vertical) {
+                yCursor += dh + CELL_GAP_Y
+            } else {
+                xCursor += dw + horizontalGap
+            }
         }
     }
 
@@ -700,18 +554,29 @@ internal class EmbedAnimationRuntime(
         }
 
         val n = max(1, spec.pool.size)
-        val gap = CELL_GAP_X.toFloat()
         val content = contentWidthPx.coerceAtLeast(1)
-        val cw = ((content - gap * max(0, n - 1)) / n.toFloat()).coerceAtLeast(MIN_PLACEHOLDER_W.toFloat())
-
-        repeat(n) { i ->
-            val x = originX + i * (cw + gap).coerceAtLeast(4f)
+        if (spec.vertical) {
+            val cw = min(content, BOX_SMALL_PX).toFloat()
+            repeat(n) { i ->
+                val top = originY + CELL_GAP_Y + i * (PLACEHOLDER_H + CELL_GAP_Y)
+                shimmer.draw(
+                    canvas,
+                    originX,
+                    top,
+                    originX + cw,
+                    top + PLACEHOLDER_H,
+                    PLACEHOLDER_RADIUS,
+                    themeDarkEmbed,
+                )
+            }
+        } else {
+            val top = originY + CELL_GAP_Y
             shimmer.draw(
                 canvas,
-                x,
-                originY,
-                x + cw,
-                originY + PLACEHOLDER_H,
+                originX,
+                top,
+                originX + content,
+                top + MIN_BLOCK_ROW_H,
                 PLACEHOLDER_RADIUS,
                 themeDarkEmbed,
             )
@@ -721,15 +586,18 @@ internal class EmbedAnimationRuntime(
     companion object {
         private val CELL_GAP_X = LayoutHelper.dp(6f)
         private val CELL_GAP_Y = LayoutHelper.dp(8f)
-        private val BOX_BIG_PX = LayoutHelper.dp(133f)
         private val BOX_SMALL_PX = LayoutHelper.dp(80f)
         private val MIN_BLOCK_ROW_H = LayoutHelper.dp(40)
         private val MIN_SCALED_ROW_H = LayoutHelper.dp(36)
-        private val MIN_PLACEHOLDER_W = LayoutHelper.dp(48f)
         private val PLACEHOLDER_H = LayoutHelper.dp(120f)
         private val PLACEHOLDER_RADIUS = LayoutHelper.dp(8).toFloat()
     }
 }
 
 internal fun EmbedAnimationSpec.estimatedPlaceholderHeightPx(): Int =
-    ESTIMATED_PLACEHOLDER_HEIGHT
+    if (vertical) {
+        val count = max(1, pool.size)
+        count * LayoutHelper.dp(120f) + (count + 1) * LayoutHelper.dp(8f)
+    } else {
+        LayoutHelper.dp(40f) + LayoutHelper.dp(16f)
+    }

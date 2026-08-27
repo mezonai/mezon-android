@@ -12,11 +12,13 @@ import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.text.Spannable
 import android.text.SpannableString
+import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.StaticLayout
 import android.text.TextUtils
 import android.text.style.ClickableSpan
 import android.text.style.ForegroundColorSpan
+import android.text.style.StyleSpan
 import android.view.MotionEvent
 import android.view.View
 import com.mezon.mobile.BuildConfig
@@ -4499,15 +4501,27 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val container = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
         }
-        private var boundKey = ""
+        private var boundMessageId = Long.MIN_VALUE
+        private var boundComponentId = ""
+        private var boundSpec: EmbedRadioSpec? = null
         private var suppressRadioCb = false
 
         fun bind(messageId: Long, componentId: String, spec: EmbedRadioSpec) {
-            val key = "$messageId|$componentId|${spec.options.joinToString { it.value }}"
-            val identityChanged = boundKey != key
-            boundKey = key
+            val identityChanged =
+                boundMessageId != messageId ||
+                    boundComponentId != componentId ||
+                    boundSpec != spec
+            boundMessageId = messageId
+            boundComponentId = componentId
+            boundSpec = spec
 
             if (identityChanged) {
+                EmbedFormUtil.reconcileComponentValues(
+                    messageId = messageId,
+                    componentId = componentId,
+                    allowedValues = spec.options.map { it.value },
+                    multiple = spec.multi,
+                )
                 container.removeAllViews()
                 if (!spec.multi) {
                     val rg = RadioGroup(context)
@@ -4634,15 +4648,25 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         private fun radioOptionPrimaryText(opt: EmbedRadioOptionSpec): String =
             opt.label.ifEmpty { opt.value }
 
-        private fun radioOptionDisplayCharSeq(opt: EmbedRadioOptionSpec): CharSequence =
-            formatEmbedRichText(
-                if (opt.description.isNotEmpty() && opt.label.isNotEmpty()) {
-                    "${opt.label}\n${opt.description}"
-                } else {
-                    radioOptionPrimaryText(opt)
-                },
-                theme,
-            )
+        private fun radioOptionDisplayCharSeq(opt: EmbedRadioOptionSpec): CharSequence {
+            val label = radioOptionPrimaryText(opt)
+            val out = SpannableStringBuilder(formatEmbedRichText(label, theme))
+            if (out.isNotEmpty()) {
+                out.setSpan(StyleSpan(Typeface.BOLD), 0, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+            if (opt.description.isNotEmpty()) {
+                if (out.isNotEmpty()) out.append('\n')
+                val descStart = out.length
+                out.append(formatEmbedRichText(opt.description, theme))
+                out.setSpan(
+                    ForegroundColorSpan(theme.onSurfaceVariant),
+                    descStart,
+                    out.length,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
+            }
+            return out
+        }
     }
 
     private inner class EmbedInputSlot {
@@ -5183,12 +5207,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         private val EMBED_TITLE_PAINT = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             textSize = LayoutHelper.dpf(14f)
             typeface = android.graphics.Typeface.DEFAULT_BOLD
-        }
-
-        private val EMBED_TITLE_LINK_PAINT = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = LayoutHelper.dpf(14f)
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-            isUnderlineText = true
         }
 
         private val EMBED_DESC_PAINT = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
