@@ -256,6 +256,7 @@ data class AuthSessionResponse(
     @SerialName("api_url") val apiUrl: String = "",
     @SerialName("ws_url") val wsUrl: String = "",
     @SerialName("id_token") val idToken: String = "",
+    @SerialName("tcp_url") val tcpUrl: String = "",
     val username: String? = null,
     val created: Boolean? = null
 )
@@ -407,7 +408,7 @@ class MezonApi @Inject constructor(
             "ListWebhookByChannelId",
             "SearchMessage"
         )
-        private val READ_RETRYABLE_API_NAMES = SOCKET_RPC_API_NAMES
+        private val READ_RETRYABLE_API_NAMES = SOCKET_RPC_API_NAMES + "GenerateHashChannelApps"
     }
 
     private val linkInvitePreviewCache = android.util.LruCache<Long, LinkInvitePreview>(256)

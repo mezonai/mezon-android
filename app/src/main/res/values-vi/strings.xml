@@ -65,15 +65,31 @@
     <string name="qr_my_code">Mã QR của tôi</string>
     <string name="qr_profile">Mã QR hồ sơ</string>
     <string name="qr_transfer">Mã QR chuyển tiền</string>
-    <string name="qr_share_with_others">Chia sẻ với người khác</string>
     <string name="qr_transfer_hint">Quét mã QR này để chuyển tiền</string>
-    <string name="qr_profile_hint">Quét mã QR này để chat với tôi hoặc xem hồ sơ của tôi</string>
     <string name="qr_brand_title">Mezon</string>
+    <string name="qr_verified_by">Được xác minh bởi Mezon</string>
+    <string name="qr_center_image_title">Ảnh giữa mã QR</string>
+    <string name="qr_center_image_device">Chọn ảnh từ thiết bị</string>
+    <string name="qr_center_image_avatar">Dùng avatar cá nhân</string>
+    <string name="qr_center_image_mezon">Dùng logo Mezon</string>
+    <string name="qr_center_image_load_failed">Không thể tải ảnh đã chọn</string>
     <string name="qr_token_balance">Số dư: %1$s đồng</string>
     <string name="qr_download_success">Đã lưu mã QR vào thư viện</string>
     <string name="qr_download_failed">Không thể lưu mã QR</string>
     <string name="qr_share_message">Quét QR để trò chuyện với tôi trên Mezon</string>
     <string name="qr_code_not_valid">Mã QR không hợp lệ</string>
+    <string name="lucky_money_title">Lì xì</string>
+    <string name="lucky_money_processing">Đang xử lý</string>
+    <string name="lucky_money_please_wait">Vui lòng chờ trong giây lát…</string>
+    <string name="lucky_money_congratulations">Bạn đã nhận được lì xì!</string>
+    <string name="lucky_money_claim_to_wallet">Nhận vào ví</string>
+    <string name="lucky_money_claiming">Đang nhận…</string>
+    <string name="lucky_money_claim_success">Nhận thành công</string>
+    <string name="lucky_money_done">Xong</string>
+    <string name="lucky_money_claim_failed">Không nhận được. Vui lòng thử lại.</string>
+    <string name="lucky_money_wallet_not_ready">Ví chưa sẵn sàng. Vui lòng thử lại sau.</string>
+    <string name="lucky_money_service_not_configured">Dịch vụ nhận lì xì chưa được cấu hình.</string>
+    <string name="lucky_money_invalid_payload">Mã QR không phải lì xì hợp lệ.</string>
     <string name="qr_select_photo_with_qr">Vui lòng chọn ảnh có mã QR</string>
     <string name="qr_external_link_title">Mở liên kết?</string>
     <string name="qr_external_link_message">Mã QR này chứa liên kết chưa được xử lý trong Mezon.</string>
@@ -967,6 +983,8 @@
     <string name="channel_app_launch">Khởi chạy ứng dụng</string>
     <string name="channel_app_help">Trợ giúp</string>
     <string name="channel_app_launch_unavailable">Không mở được ứng dụng. Hãy thử lại.</string>
+    <string name="channel_gallery_images">Hình ảnh</string>
+    <string name="channel_gallery_videos">Video</string>
     <string name="channel_gallery_empty">Chưa có ảnh hoặc video được chia sẻ.</string>
     <string name="channel_gallery_load_error">Không tải được nội dung media. Hãy thử lại.</string>
     <!-- Edit Profile -->
@@ -1262,6 +1280,8 @@
     <string name="system_msg_thread_sentence_see">Xem</string>
     <string name="system_msg_all_threads">tất cả chủ đề</string>
     <string name="channel_files_search_placeholder">Tìm kiếm tệp</string>
+    <string name="channel_files_docs">Tài liệu</string>
+    <string name="channel_files_audios">Âm thanh</string>
     <string name="channel_files_media_empty_description">Chúng tôi đã tìm kiếm rất xa. Thật không may, không có kết quả được tìm thấy</string>
     <string name="channel_files_shared_by">Được chia sẻ bởi %1$s</string>
 
@@ -1652,6 +1672,15 @@
     <string name="action_save_media">Lưu ảnh</string>
     <string name="action_copy_image">Sao chép ảnh</string>
     <string name="action_share_image">Chia sẻ ảnh</string>
+    <string name="action_save_video">Lưu video</string>
+    <string name="action_share_video">Chia sẻ video</string>
+    <string name="action_share_video_to_mezon">Chia sẻ đến Mezon</string>
+    <string name="action_share_video_to_other_apps">Chia sẻ đến ứng dụng khác</string>
+    <string name="video_share_preparing">Đang chuẩn bị video…</string>
+    <string name="video_share_preparing_progress">Đang chuẩn bị video… %1$d%%</string>
+    <string name="video_save_downloading">Đang tải video…</string>
+    <string name="video_save_downloading_progress">Đang tải video… %1$d%%</string>
     <string name="message_toast_save_success">Lưu thành công</string>
     <string name="message_toast_save_failed">Lưu thất bại</string>
+    <string name="message_toast_share_failed">Chia sẻ thất bại</string>
 </resources>

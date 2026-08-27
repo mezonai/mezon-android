@@ -4,6 +4,7 @@ import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.util.SentryReporter
+import android.net.Network
 import android.util.Log
 import com.google.protobuf.ByteString as ProtoByteString
 import com.google.protobuf.StringValue
@@ -26,13 +27,12 @@ import com.mezon.mezon.rtapi.lastPinMessageEvent
 import com.mezon.mezon.rtapi.lastSeenMessageEvent
 import com.mezon.mezon.rtapi.markAsRead
 import com.mezon.mezon.rtapi.messageTypingEvent
-import com.mezon.mezon.rtapi.ping
+import com.mezon.mezon.rtapi.pong
 import com.mezon.mezon.rtapi.statusFollow
 import com.mezon.mezon.rtapi.statusUnfollow
 import com.mezon.mezon.rtapi.statusUpdate
 import com.mezon.mezon.rtapi.voiceReactionSend
 import com.mezon.mezon.rtapi.webrtcSignalingFwd
-import java.util.Locale
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -49,13 +49,6 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlin.random.Random
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.Response
-import okhttp3.WebSocket
-import okhttp3.WebSocketListener
-import okio.ByteString
-import okio.ByteString.Companion.toByteString
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
@@ -63,7 +56,6 @@ import javax.inject.Singleton
 
 @Singleton
 class MezonSocket @Inject constructor(
-    private val okHttpClient: OkHttpClient,
     private val sessionManager: SessionManager,
     private val networkMonitor: NetworkMonitor,
     private val sentryReporter: SentryReporter,
@@ -79,16 +71,14 @@ class MezonSocket @Inject constructor(
         private const val MAX_RECONNECT_FAILS = 6
         private const val SEND_TIMEOUT_MS = 10_000L
         private const val STABLE_CONNECTION_RESET_MS = 10_000L
+        private const val CONNECT_ACK_GRACE_MS = 1_000L
 
         const val TYPE_CHECK_CLAN = 0
         const val TYPE_CHECK_CATEGORY = 1
         const val TYPE_CHECK_CHANNEL = 2
         const val TYPE_CHECK_THREAD = 3
         const val TYPE_CHECK_NICKNAME = 4
-
     }
-
-
 
     private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
@@ -99,17 +89,21 @@ class MezonSocket @Inject constructor(
     private val _reconnected = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val reconnected: SharedFlow<Unit> = _reconnected.asSharedFlow()
 
-    private var webSocket: WebSocket? = null
+    private var transport: AbridgedTcpTransport? = null
     private var heartbeatJob: Job? = null
     private var reconnectJob: Job? = null
     private var reconnectHealthResetJob: Job? = null
+    private var connectReadyTimeoutJob: Job? = null
     private var currentWsUrl: String? = null
     private var currentToken: String? = null
+    private var currentTcpUrl: String? = null
+    @Volatile private var currentNetwork: Network? = null
 
     private val cidCounter = AtomicInteger(0)
     private val pendingRequests = ConcurrentHashMap<Int, CompletableDeferred<Envelope>>()
     private val pendingApiRequests = ConcurrentHashMap<Int, CompletableDeferred<ByteArray>>()
-    private val apiResponseStreams = ConcurrentHashMap<Int, ByteArray>()
+    private data class JoinedChannelKey(val clanId: Long, val channelId: Long)
+    private val joinedChannelGenerations = ConcurrentHashMap<JoinedChannelKey, Int>()
     private fun nextCid(): Int = cidCounter.updateAndGet { c -> if (c >= 65534) 1 else c + 1 }
     private var reconnectDelayMs = RECONNECT_MIN_MS
     private var reconnectFailCount = 0
@@ -118,7 +112,10 @@ class MezonSocket @Inject constructor(
     @Volatile private var hasConnectedBefore = false
     @Volatile private var forceRefreshNextReconnect = false
     @Volatile private var lastPongAtMs = 0L
-    @Volatile private var lastPongTimeoutAtMs = 0L
+    @Volatile private var lastPingSentAtMs = 0L
+    @Volatile private var transportReadyPending = false
+    @Volatile private var confirmedInboundGen = 0
+    @Volatile private var lastConfirmedInboundAtMs = 0L
     private val totalReconnectAttempts = AtomicInteger(0)
 
     @Volatile var connectGen: Int = 0
@@ -131,12 +128,43 @@ class MezonSocket @Inject constructor(
 
     private val connectLock = Any()
 
+    init {
+        scope.launch { observeNetwork() }
+    }
+
+    private suspend fun observeNetwork() {
+        networkMonitor.activeNetwork.collect { network ->
+            var handoffKick = false
+            var reconnectKick = false
+            synchronized(connectLock) {
+                val previous = currentNetwork
+                currentNetwork = network
+                if (!userDisconnected && currentWsUrl != null && currentToken != null && network != null) {
+                    val state = _connectionState.value
+                    val connectedish = state == ConnectionState.CONNECTED || state == ConnectionState.CONNECTING
+                    if (connectedish) {
+                        handoffKick = previous != null && previous != network
+                    } else {
+                        reconnectKick = true
+                    }
+                }
+            }
+            if (handoffKick) kickReconnectForHandoff("active network changed")
+            else if (reconnectKick) reconnectNow("network available")
+        }
+    }
+
     private fun cancelReconnectHealthReset() {
         reconnectHealthResetJob?.cancel()
         reconnectHealthResetJob = null
     }
 
-    fun connect(wsUrl: String, token: String) {
+    private fun cancelConnectReadyTimeout() {
+        connectReadyTimeoutJob?.cancel()
+        connectReadyTimeoutJob = null
+    }
+
+    fun connect(wsUrl: String, token: String, tcpUrl: String? = null) {
         synchronized(connectLock) {
             if (_connectionState.value == ConnectionState.CONNECTED ||
                 _connectionState.value == ConnectionState.CONNECTING
@@ -154,27 +182,52 @@ class MezonSocket @Inject constructor(
             cancelReconnectHealthReset()
             currentWsUrl = wsUrl
             currentToken = token
+            currentTcpUrl = tcpUrl
 
-            doConnect(wsUrl, token)
+            doConnect(wsUrl, token, tcpUrl)
         }
     }
 
-    fun reconnectIfNeeded() {
-        Log.d(TAG, "[regression-R5] reconnectIfNeeded: acquiring connectLock (if no further R5 log follows, lock is stuck)")
+    fun reconnectNow(reason: String) {
         synchronized(connectLock) {
             if (_connectionState.value != ConnectionState.DISCONNECTED) return
             if (currentWsUrl == null || currentToken == null) return
-            if (isReconnecting) return
+            if (userDisconnected) return
             if (!networkMonitor.isOnline.value) {
-                Log.d(TAG, "App resumed but offline, skipping reconnect")
+                Log.d(TAG, "reconnectNow($reason): offline, skipping")
                 return
             }
 
-            Log.d(TAG, "App resumed — socket disconnected, triggering reconnect")
+            Log.d(TAG, "reconnectNow($reason) — cancelling pending backoff, reconnecting immediately")
+            reconnectJob?.cancel()
+            isReconnecting = false
             cancelReconnectHealthReset()
             reconnectFailCount = 0
             reconnectDelayMs = RECONNECT_MIN_MS
-            Log.d(TAG, "[regression-R5] reconnectIfNeeded: holding connectLock, calling scheduleReconnect (reentrant lock — must not deadlock)")
+            scheduleReconnect()
+        }
+    }
+
+    private fun kickReconnectForHandoff(reason: String) {
+        synchronized(connectLock) {
+            if (userDisconnected) return
+            if (currentWsUrl == null || currentToken == null) return
+
+            Log.w(TAG, "Network handoff ($reason) — dropping stale socket, redialing on new network")
+            sentryReporter.logSocketWarning("network_handoff", "reason=$reason gen=$connectGen")
+            reconnectJob?.cancel()
+            isReconnecting = false
+            heartbeatJob?.cancel()
+            cancelReconnectHealthReset()
+            cancelConnectReadyTimeout()
+            transportReadyPending = false
+            val t = transport
+            transport = null
+            _connectionState.value = ConnectionState.DISCONNECTED
+            cancelAllPending(reason)
+            t?.close()
+            reconnectFailCount = 0
+            reconnectDelayMs = RECONNECT_MIN_MS
             scheduleReconnect()
         }
     }
@@ -186,14 +239,17 @@ class MezonSocket @Inject constructor(
             hasConnectedBefore = false
             currentWsUrl = null
             currentToken = null
+            currentTcpUrl = null
             heartbeatJob?.cancel()
             reconnectJob?.cancel()
             cancelReconnectHealthReset()
+            cancelConnectReadyTimeout()
+            transportReadyPending = false
             isReconnecting = false
             reconnectFailCount = 0
             reconnectDelayMs = RECONNECT_MIN_MS
-            webSocket?.close(1000, "Client disconnect")
-            webSocket = null
+            transport?.close()
+            transport = null
             _connectionState.value = ConnectionState.DISCONNECTED
             cancelAllPending("Disconnected")
         }
@@ -202,19 +258,17 @@ class MezonSocket @Inject constructor(
     fun forceReconnectForAuthFailure(reason: String) {
         if (userDisconnected) return
         Log.w(TAG, "forceReconnectForAuthFailure: $reason")
-        val ws = webSocket
-        if (ws == null) {
-            if (currentWsUrl != null && currentToken != null) scheduleReconnect()
-            return
-        }
-        val safeReason = reason.take(100)
-        try {
-            ws.close(4001, safeReason)
-        } catch (_: Exception) {
+        synchronized(connectLock) {
+            forceRefreshNextReconnect = true
+            val t = transport
+            transport = null
             _connectionState.value = ConnectionState.DISCONNECTED
             heartbeatJob?.cancel()
             cancelReconnectHealthReset()
+            cancelConnectReadyTimeout()
+            transportReadyPending = false
             cancelAllPending("Auth failure reconnect")
+            t?.close()
             if (!userDisconnected) scheduleReconnect()
         }
     }
@@ -223,19 +277,16 @@ class MezonSocket @Inject constructor(
         if (userDisconnected) return
         Log.w(TAG, "forceReconnect: $reason")
         sentryReporter.logSocketWarning("force_reconnect", "reason=$reason gen=$connectGen")
-        val ws = webSocket
-        if (ws == null) {
-            if (currentWsUrl != null && currentToken != null) scheduleReconnect()
-            return
-        }
-        val safeReason = reason.take(100)
-        try {
-            ws.close(4000, safeReason)
-        } catch (_: Exception) {
+        synchronized(connectLock) {
+            val t = transport
+            transport = null
             _connectionState.value = ConnectionState.DISCONNECTED
             heartbeatJob?.cancel()
             cancelReconnectHealthReset()
+            cancelConnectReadyTimeout()
+            transportReadyPending = false
             cancelAllPending("Force reconnect")
+            t?.close()
             if (!userDisconnected) scheduleReconnect()
         }
     }
@@ -247,25 +298,20 @@ class MezonSocket @Inject constructor(
             block()
         }
 
-        val ws = webSocket
-            ?: throw IllegalStateException("WebSocket not connected")
+        val t = transport
+            ?: throw IllegalStateException("Socket not connected")
 
         val deferred = CompletableDeferred<Envelope>()
         pendingRequests[cid] = deferred
 
-        val bytes = env.toByteArray().toByteString()
-        val sent = ws.send(bytes)
-        if (!sent) {
-            pendingRequests.remove(cid)
-            Log.w(TAG, "send: ws.send returned false case=${env.messageCase} bytes=${bytes.size} state=${_connectionState.value} queueSize=${ws.queueSize()}, forcing reconnect")
-            _connectionState.value = ConnectionState.DISCONNECTED
-            cancelReconnectHealthReset()
-            try { ws.close(1001, "send enqueue failed") } catch (_: Exception) {}
-            if (webSocket === ws) webSocket = null
-            if (!userDisconnected) scheduleReconnect()
-            val err = IllegalStateException("Failed to enqueue WebSocket message")
-            sentryReporter.logSocketFailure("send_enqueue", err, "case=${env.messageCase}")
-            throw err
+        val bytes = env.toByteArray()
+        t.send(bytes) { error ->
+            if (error != null) {
+                pendingRequests.remove(cid)?.completeExceptionally(
+                    IllegalStateException("Failed to send envelope: ${error.message}")
+                )
+                sentryReporter.logSocketFailure("send_enqueue", error, "case=${env.messageCase}")
+            }
         }
 
         return try {
@@ -279,12 +325,16 @@ class MezonSocket @Inject constructor(
     }
 
     fun sendFireAndForget(env: Envelope) {
-        val ws = webSocket ?: return
-        ws.send(env.toByteArray().toByteString())
+        val t = transport ?: return
+        t.send(env.toByteArray()) { }
     }
 
-    suspend fun joinClanChat(clanId: Long): Envelope = send {
-        this.clanJoin = clanJoin { this.clanId = clanId }
+    fun joinClanChat(clanId: Long) {
+        val cid = nextCid()
+        sendFireAndForget(envelope {
+            this.cid = cid
+            this.clanJoin = clanJoin { this.clanId = clanId }
+        })
     }
 
     suspend fun awaitConnected(timeoutMs: Long = 15_000L): Boolean {
@@ -306,8 +356,8 @@ class MezonSocket @Inject constructor(
         body: ByteArray,
         timeoutMs: Long = SEND_TIMEOUT_MS
     ): ByteArray {
-        val ws = webSocket
-            ?: throw IllegalStateException("WebSocket not connected")
+        val t = transport
+            ?: throw IllegalStateException("Socket not connected")
 
         val cid = nextCid()
         val env = envelope {
@@ -322,20 +372,19 @@ class MezonSocket @Inject constructor(
         val deferred = CompletableDeferred<ByteArray>()
         pendingApiRequests[cid] = deferred
 
-        val sent = ws.send(env.toByteArray().toByteString())
-        if (!sent) {
-            pendingApiRequests.remove(cid)
-            apiResponseStreams.remove(cid)
-            val err = IllegalStateException("Failed to enqueue WebSocket api_request_event")
-            sentryReporter.logSocketFailure("api_request_enqueue", err, "api=$apiName")
-            throw err
+        t.send(env.toByteArray()) { error ->
+            if (error != null) {
+                pendingApiRequests.remove(cid)?.completeExceptionally(
+                    IllegalStateException("Failed to send api_request_event '$apiName': ${error.message}")
+                )
+                sentryReporter.logSocketFailure("api_request_enqueue", error, "api=$apiName")
+            }
         }
 
         return try {
             withTimeout(timeoutMs) { deferred.await() }
         } catch (e: TimeoutCancellationException) {
             pendingApiRequests.remove(cid)
-            apiResponseStreams.remove(cid)
             val err = RuntimeException("api_request_event '$apiName' timed out after ${timeoutMs}ms", e)
             sentryReporter.logSocketFailure("api_request_timeout", err, "api=$apiName")
             throw err
@@ -347,12 +396,41 @@ class MezonSocket @Inject constructor(
         channelId: Long,
         channelType: Int,
         isPublic: Boolean
-    ): Envelope = send {
-        this.channelJoin = channelJoin {
-            this.clanId = clanId
-            this.channelId = channelId
-            this.channelType = channelType
-            this.isPublic = isPublic
+    ): Envelope {
+        val generation = connectGen
+        val response = send {
+            this.channelJoin = channelJoin {
+                this.clanId = clanId
+                this.channelId = channelId
+                this.channelType = channelType
+                this.isPublic = isPublic
+            }
+        }
+        if (generation == connectGen && isRealtimeTransportFresh(generation)) {
+            joinedChannelGenerations[JoinedChannelKey(clanId, channelId)] = generation
+        }
+        return response
+    }
+
+    /**
+     * A TCP/TLS socket can be open before the realtime server is ready, or can be stale after
+     * the app resumes. In both cases channel messages should use HTTP instead of waiting for the
+     * socket request timeout. A successful inbound frame and ChannelJoin for this connection
+     * generation are required before using the realtime send path.
+     */
+    fun canSendChannelMessageRealtime(clanId: Long, channelId: Long): Boolean {
+        val generation = connectGen
+        return isRealtimeTransportFresh(generation) &&
+            joinedChannelGenerations[JoinedChannelKey(clanId, channelId)] == generation
+    }
+
+    private fun isRealtimeTransportFresh(generation: Int): Boolean {
+        return synchronized(connectLock) {
+            if (generation == 0 || generation != connectGen) return@synchronized false
+            if (_connectionState.value != ConnectionState.CONNECTED) return@synchronized false
+            if (confirmedInboundGen != generation || transport == null) return@synchronized false
+            val ageMs = System.currentTimeMillis() - lastConfirmedInboundAtMs
+            ageMs >= 0L && ageMs <= PONG_TIMEOUT_MS
         }
     }
 
@@ -609,174 +687,219 @@ class MezonSocket @Inject constructor(
         return result.type == TYPE_CHECK_CLAN && result.exist
     }
 
-    private fun doConnect(wsUrl: String, token: String) {
+    private fun resolveHost(raw: String?): String? {
+        if (raw.isNullOrBlank()) return null
+        var s = raw.trim()
+        val scheme = s.indexOf("://")
+        if (scheme >= 0) s = s.substring(scheme + 3)
+        s = s.substringBefore('/').substringBefore('?')
+        val host = s.substringBefore(':')
+        return host.ifBlank { null }
+    }
+
+    private fun resolvePort(raw: String?): Int? {
+        if (raw.isNullOrBlank()) return null
+        var s = raw.trim()
+        val scheme = s.indexOf("://")
+        if (scheme >= 0) s = s.substring(scheme + 3)
+        s = s.substringBefore('/').substringBefore('?')
+        val colon = s.indexOf(':')
+        if (colon < 0) return null
+        return s.substring(colon + 1).toIntOrNull()
+    }
+
+    private fun doConnect(wsUrl: String, token: String, tcpUrl: String?) {
         synchronized(connectLock) {
             cancelReconnectHealthReset()
-            webSocket?.close(1000, "Reconnecting")
-            webSocket = null
+            cancelConnectReadyTimeout()
+            transportReadyPending = false
+            confirmedInboundGen = 0
+            lastConfirmedInboundAtMs = 0L
+            joinedChannelGenerations.clear()
+            transport?.close()
+            transport = null
+            val serverHost = resolveHost(tcpUrl)
+            val host = serverHost
+                ?: if (BuildConfig.MEZON_ABRIDGED_FALLBACK) resolveHost(wsUrl) else null
+            if (host.isNullOrBlank()) {
+                _connectionState.value = ConnectionState.DISCONNECTED
+                Log.i(TAG, "Abridged TCP unavailable (no tcp_url from server) - using HTTP fallback, keeping session")
+                return
+            }
+            if (serverHost.isNullOrBlank()) {
+                Log.i(TAG, "Abridged TCP: no tcp_url from server, falling back to ws host=$host")
+            }
+
             _connectionState.value = ConnectionState.CONNECTING
             connectGen++
             socketTokenFingerprint = tokenFp(token)
 
-            val host = if (wsUrl.startsWith("ws://") || wsUrl.startsWith("wss://")) {
-                wsUrl
-            } else {
-                "wss://$wsUrl"
-            }
-            val url = "$host/ws?token=$token&status=true&platform=1&lang=en&format=protobuf"
-            Log.d(TAG, "Connecting to: $host/ws?token=***&status=true&platform=1&lang=en&format=protobuf")
+            val port = resolvePort(tcpUrl) ?: BuildConfig.MEZON_TCP_PORT
+            val credential = token
 
-            val request = Request.Builder()
-                .url(url)
-                .header("Authorization", "Bearer $token")
-                .build()
-            webSocket = okHttpClient.newWebSocket(request, socketListener)
+            Log.d(TAG, "[ABRIDGED] connecting host=$host port=$port cred=JWT-token (transport=abridged-tcp, gen=$connectGen)")
+
+            val network = currentNetwork ?: networkMonitor.activeNetwork.value
+            val t = AbridgedTcpTransport()
+            transport = t
+            t.onOpen = { handleTransportOpen(t) }
+            t.onClose = { wasClean -> handleTransportClose(t, wasClean) }
+            t.onError = { error -> handleTransportError(t, error) }
+            t.onEvents = { events -> handleTransportEvents(t, events) }
+            t.connect(host, port, credential, network)
         }
     }
 
-    private val socketListener = object : WebSocketListener() {
-
-        override fun onOpen(webSocket: WebSocket, response: Response) {
-            Log.d(TAG, "Connected")
-            val emitReconnect: Boolean
-            synchronized(connectLock) {
-                if (webSocket !== this@MezonSocket.webSocket) {
-                    Log.d(TAG, "Ignoring onOpen(non-active)")
-                    return
-                }
-                _connectionState.value = ConnectionState.CONNECTED
-                isReconnecting = false
-                lastPongAtMs = System.currentTimeMillis()
-                if (lastPongTimeoutAtMs != 0L) {
-                    val gap = System.currentTimeMillis() - lastPongTimeoutAtMs
-                    if (gap < PONG_TIMEOUT_MS) {
-                        Log.w(TAG, "[regression-R2] reconnected ${gap}ms after a pong-timeout disconnect — likely FALSE POSITIVE pong timeout; consider raising PONG_TIMEOUT_MS")
-                    } else {
-                        Log.d(TAG, "[regression-R2] reconnected ${gap}ms after pong-timeout disconnect (gap >= limit — looks like a real drop)")
-                    }
-                    lastPongTimeoutAtMs = 0L
-                }
-                cancelReconnectHealthReset()
-                reconnectHealthResetJob = scope.launch {
-                    delay(STABLE_CONNECTION_RESET_MS)
-                    synchronized(connectLock) {
-                        if (_connectionState.value == ConnectionState.CONNECTED && !userDisconnected) {
-                            reconnectFailCount = 0
-                            reconnectDelayMs = RECONNECT_MIN_MS
-                        }
-                    }
-                }
-                emitReconnect = hasConnectedBefore
-                hasConnectedBefore = true
+    private fun handleTransportOpen(t: AbridgedTcpTransport) {
+        Log.d(TAG, "[ABRIDGED] transport OPEN — TLS up + handshake sent")
+        synchronized(connectLock) {
+            if (t !== transport) {
+                Log.d(TAG, "Ignoring onOpen(non-active)")
+                return
             }
-            if (emitReconnect) {
-                Log.d(TAG, "Socket reconnected — emitting reconnect event")
-                _reconnected.tryEmit(Unit)
-            }
-            startHeartbeat()
+            transportReadyPending = true
+            scheduleConnectReadyTimeout(t)
+            lastPingSentAtMs = System.currentTimeMillis()
+            t.sendPing(nextCid())
+            Log.d(TAG, "[ABRIDGED] → readiness ping sent gen=$connectGen")
         }
+    }
 
-        override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-            try {
-                val raw = bytes.toByteArray()
-                if (raw.isNotEmpty() && (raw[0].toInt() and 0xFF) == 0xFF) {
-                    handleFramedApiResponse(raw)
-                    return
-                }
-                val envelope = Envelope.parseFrom(raw)
-                handleEnvelope(envelope)
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to parse Envelope", e)
-                sentryReporter.logSocketFailure("parse_envelope", e)
+    private fun handleTransportError(t: AbridgedTcpTransport, error: Throwable) {
+        if (t !== transport) return
+        Log.e(TAG, "Abridged transport error: ${error.message} (type=${error.javaClass.simpleName})")
+        sentryReporter.logSocketFailure("connection", error)
+    }
+
+    private fun handleTransportClose(t: AbridgedTcpTransport, wasClean: Boolean) {
+        Log.d(TAG, "Closed (abridged) wasClean=$wasClean")
+        synchronized(connectLock) {
+            if (t !== transport) {
+                Log.d(TAG, "Ignoring onClose(non-active)")
+                return
             }
-        }
+            val rejectionSuspect = transportReadyPending
+            transportReadyPending = false
+            cancelConnectReadyTimeout()
+            cancelReconnectHealthReset()
+            _connectionState.value = ConnectionState.DISCONNECTED
+            heartbeatJob?.cancel()
+            transport = null
+            cancelAllPending("Connection closed")
 
-        override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-            Log.d(TAG, "Server closing: $code $reason")
-            if (code == 1008 || (code in 4001..4099)) {
-                Log.w(TAG, "Server close suggests auth issue (code=$code), will force refresh on reconnect")
+            if (rejectionSuspect) {
                 forceRefreshNextReconnect = true
+                Log.w(TAG, "Abridged handshake closed before ack - refreshing session and retrying; HTTP fallback active, session kept")
             }
-            webSocket.close(1000, null)
+            if (!userDisconnected) scheduleReconnect()
         }
+    }
 
-        override fun onClosed(sock: WebSocket, code: Int, reason: String) {
-            Log.d(TAG, "Closed: $code $reason")
-            synchronized(connectLock) {
-                if (sock !== webSocket) {
-                    Log.d(TAG, "[regression-R4] Ignoring onClosed(non-active) — stale socket callback correctly skipped, no duplicate reconnect")
-                    return
+    private fun handleTransportEvents(t: AbridgedTcpTransport, events: List<AbridgedParsedEvent>) {
+        if (t !== transport || events.isEmpty()) return
+        confirmInboundReadiness(t)
+        for (event in events) {
+            when (event) {
+                is AbridgedParsedEvent.Pong -> {
+                    val now = System.currentTimeMillis()
+                    val rtt = if (lastPingSentAtMs > 0) now - lastPingSentAtMs else -1
+                    lastPongAtMs = now
+                    Log.d(TAG, "[ABRIDGED] ← pong (rtt=${rtt}ms) — heartbeat healthy")
                 }
-                cancelReconnectHealthReset()
-                _connectionState.value = ConnectionState.DISCONNECTED
-                heartbeatJob?.cancel()
-                cancelAllPending("Connection closed")
-                if (!userDisconnected) scheduleReconnect()
-            }
-        }
-
-        override fun onFailure(sock: WebSocket, t: Throwable, response: Response?) {
-            val httpCode = response?.code
-            val httpMsg = response?.message
-            Log.e(TAG, "WebSocket failure: ${t.message} (http=$httpCode $httpMsg type=${t.javaClass.simpleName})")
-            sentryReporter.logSocketFailure(
-                "connection",
-                t,
-                "http=$httpCode $httpMsg"
-            )
-            synchronized(connectLock) {
-                if (sock !== webSocket) {
-                    Log.d(TAG, "[regression-R4] Ignoring onFailure(non-active) — stale socket callback correctly skipped, no duplicate reconnect")
-                    return
+                is AbridgedParsedEvent.ApiResponse -> {
+                    handleApiResponse(event.cid, event.code, event.payload)
                 }
-                if (httpCode == 401 || httpCode == 403) {
-                    Log.w(TAG, "WebSocket handshake failed with auth code $httpCode, will force refresh on reconnect")
-                    forceRefreshNextReconnect = true
+                is AbridgedParsedEvent.Realtime -> {
+                    handleRealtime(event.payload)
                 }
-                cancelReconnectHealthReset()
-                _connectionState.value = ConnectionState.DISCONNECTED
-                heartbeatJob?.cancel()
-                cancelAllPending("Connection failed: ${t.message}")
-                if (!userDisconnected) scheduleReconnect()
             }
         }
     }
 
-    private fun handleFramedApiResponse(data: ByteArray) {
-        val headerLen = 7
-        if (data.size < headerLen) {
-            Log.w(TAG, "framed RPC frame too small (${data.size}B)")
-            return
+    private fun confirmInboundReadiness(t: AbridgedTcpTransport) {
+        val generation: Int
+        val firstConfirmation: Boolean
+        synchronized(connectLock) {
+            if (t !== transport) return
+            generation = connectGen
+            firstConfirmation = confirmedInboundGen != generation
+            confirmedInboundGen = generation
+            lastConfirmedInboundAtMs = System.currentTimeMillis()
         }
-        val cid = ((data[1].toInt() and 0xFF) shl 8) or (data[2].toInt() and 0xFF)
-        val statusWord =
-            ((data[3].toInt() and 0xFF) shl 24) or
-            ((data[4].toInt() and 0xFF) shl 16) or
-            ((data[5].toInt() and 0xFF) shl 8) or
-            (data[6].toInt() and 0xFF)
-        val responseCode = (statusWord ushr 16) and 0xFFFF
-        val finFlag = statusWord and 0xFFFF
-        val payload = if (data.size > headerLen) data.copyOfRange(headerLen, data.size) else ByteArray(0)
+        if (firstConfirmation) {
+            Log.d(TAG, "[ABRIDGED] realtime readiness confirmed by inbound frame gen=$generation")
+        }
+    }
 
-        val previous = apiResponseStreams[cid] ?: ByteArray(0)
-        val merged = if (payload.isEmpty()) previous else previous + payload
+    private fun scheduleConnectReadyTimeout(t: AbridgedTcpTransport) {
+        cancelConnectReadyTimeout()
+        connectReadyTimeoutJob = scope.launch {
+            delay(CONNECT_ACK_GRACE_MS)
+            handleTransportReadyTimeout(t)
+        }
+    }
 
-        if (finFlag == 0xFF) {
-            apiResponseStreams.remove(cid)
-            val deferred = pendingApiRequests.remove(cid) ?: return
-            if (responseCode == 0) {
-                deferred.complete(merged)
-            } else {
-                val msg = if (merged.isNotEmpty()) String(merged, Charsets.UTF_8) else ""
-                deferred.completeExceptionally(
-                    SocketRpcServerException("Server error code=$responseCode msg='$msg'", responseCode)
-                )
+    private fun handleTransportReadyTimeout(t: AbridgedTcpTransport) {
+        markTransportReady(t)
+    }
+
+    private fun markTransportReady(t: AbridgedTcpTransport): Boolean {
+        val emitReconnect: Boolean
+        val readyGen: Int
+        synchronized(connectLock) {
+            if (t !== transport) return false
+            if (_connectionState.value == ConnectionState.CONNECTED) return true
+            if (_connectionState.value != ConnectionState.CONNECTING || !transportReadyPending) return false
+
+            transportReadyPending = false
+            cancelConnectReadyTimeout()
+            _connectionState.value = ConnectionState.CONNECTED
+            isReconnecting = false
+            lastPongAtMs = System.currentTimeMillis()
+            cancelReconnectHealthReset()
+            reconnectHealthResetJob = scope.launch {
+                delay(STABLE_CONNECTION_RESET_MS)
+                synchronized(connectLock) {
+                    if (_connectionState.value == ConnectionState.CONNECTED && !userDisconnected) {
+                        reconnectFailCount = 0
+                        reconnectDelayMs = RECONNECT_MIN_MS
+                    }
+                }
             }
+            readyGen = connectGen
+            emitReconnect = hasConnectedBefore
+            hasConnectedBefore = true
+        }
+
+        Log.d(TAG, "[ABRIDGED] transport CONNECTED after handshake grace gen=$readyGen")
+        if (emitReconnect) {
+            Log.d(TAG, "Socket reconnected — emitting reconnect event gen=$readyGen")
+            _reconnected.tryEmit(Unit)
+        }
+        startHeartbeat()
+        return true
+    }
+
+    private fun handleApiResponse(cid: Int, code: Int, payload: ByteArray) {
+        val deferred = pendingApiRequests.remove(cid) ?: return
+        if (code == 0) {
+            deferred.complete(payload)
         } else {
-            apiResponseStreams[cid] = merged
+            val msg = if (payload.isNotEmpty()) String(payload, Charsets.UTF_8) else ""
+            deferred.completeExceptionally(
+                SocketRpcServerException("Server error code=$code msg='$msg'", code)
+            )
         }
     }
 
+    private fun handleRealtime(payload: ByteArray) {
+        try {
+            handleEnvelope(Envelope.parseFrom(payload))
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse Envelope", e)
+            sentryReporter.logSocketFailure("parse_envelope", e)
+        }
+    }
 
     private fun handleEnvelope(envelope: Envelope) {
         val cid = envelope.cid
@@ -796,7 +919,6 @@ class MezonSocket @Inject constructor(
             }
             val apiDeferred = pendingApiRequests.remove(cid)
             if (apiDeferred != null) {
-                apiResponseStreams.remove(cid)
                 if (envelope.messageCase == Envelope.MessageCase.ERROR) {
                     val error = envelope.error
                     apiDeferred.completeExceptionally(
@@ -812,10 +934,27 @@ class MezonSocket @Inject constructor(
             }
         }
 
-        if (case == Envelope.MessageCase.PONG) {
-            lastPongAtMs = System.currentTimeMillis()
-            Log.d(TAG, "[heartbeat] pong received")
-            return
+        when (case) {
+            Envelope.MessageCase.PONG -> {
+                lastPongAtMs = System.currentTimeMillis()
+                return
+            }
+            Envelope.MessageCase.PING -> {
+                sendFireAndForget(envelope { this.pong = pong {} })
+                return
+            }
+            Envelope.MessageCase.REFRESH_SESSION_EVENT -> {
+                val refreshed = envelope.refreshSessionEvent
+                scope.launch {
+                    try {
+                        sessionManager.applyRefreshedSession(refreshed)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to apply refresh_session_event", e)
+                    }
+                }
+                return
+            }
+            else -> Unit
         }
 
         if (BuildConfig.DEBUG) {
@@ -839,44 +978,35 @@ class MezonSocket @Inject constructor(
 
                 val sinceLastPong = System.currentTimeMillis() - lastPongAtMs
                 if (sinceLastPong > PONG_TIMEOUT_MS) {
-                    lastPongTimeoutAtMs = System.currentTimeMillis()
-                    Log.w(TAG, "[regression-R2] pong timeout: no pong ${sinceLastPong}ms (limit=${PONG_TIMEOUT_MS}ms) online=${networkMonitor.isOnline.value} — forcing reconnect; a fast reconnect after this = likely FALSE POSITIVE")
+                    Log.w(TAG, "[ABRIDGED] pong timeout: no pong ${sinceLastPong}ms (limit=${PONG_TIMEOUT_MS}ms) — forcing reconnect")
                     handleDeadConnection("heartbeat pong timeout")
                     break
                 }
 
-                val ws = webSocket
-                val pingSent = ws != null && try {
-                    ws.send(envelope { ping = ping {} }.toByteArray().toByteString())
-                } catch (e: Exception) {
-                    Log.w(TAG, "Heartbeat: ping send threw", e)
-                    false
-                }
-                if (!pingSent) {
-                    Log.w(TAG, "Heartbeat: ping enqueue failed — connection dead, forcing reconnect")
-                    handleDeadConnection("heartbeat ping failed")
+                val t = transport
+                if (t == null) {
+                    handleDeadConnection("heartbeat transport null")
                     break
                 }
-                Log.d(TAG, "[heartbeat] ping sent (sinceLastPong=${sinceLastPong}ms)")
+                lastPingSentAtMs = System.currentTimeMillis()
+                t.sendPing(nextCid())
+                Log.d(TAG, "[ABRIDGED] → ping sent (sinceLastPong=${sinceLastPong}ms)")
             }
-            Log.d(TAG, "[regression-R1] heartbeat loop exited cleanly (self-cancel after handleDeadConnection did not throw mid-block)")
         }
     }
 
     private fun handleDeadConnection(reason: String) {
         synchronized(connectLock) {
-            if (_connectionState.value == ConnectionState.DISCONNECTED) {
-                Log.d(TAG, "[regression-R4] handleDeadConnection($reason) skipped — already DISCONNECTED, no duplicate reconnect")
-                return
-            }
-            val ws = webSocket
-            Log.w(TAG, "[regression-R1/R4] handleDeadConnection: reason=$reason wsNull=${ws == null} isReconnecting=$isReconnecting online=${networkMonitor.isOnline.value} — webSocket nulled BEFORE close so stale onClosed/onFailure is ignored")
-            webSocket = null
+            if (_connectionState.value == ConnectionState.DISCONNECTED) return
+            val t = transport
+            transport = null
             _connectionState.value = ConnectionState.DISCONNECTED
             heartbeatJob?.cancel()
             cancelReconnectHealthReset()
+            cancelConnectReadyTimeout()
+            transportReadyPending = false
             cancelAllPending(reason)
-            try { ws?.close(1001, reason.take(100)) } catch (_: Exception) {}
+            t?.close()
             if (!userDisconnected) scheduleReconnect()
         }
     }
@@ -884,10 +1014,7 @@ class MezonSocket @Inject constructor(
     private fun scheduleReconnect() {
         synchronized(connectLock) {
             if (currentWsUrl == null || currentToken == null) return
-            if (isReconnecting) {
-                Log.d(TAG, "[regression-R4] scheduleReconnect skipped — reconnect already in progress (no duplicate reconnectJob)")
-                return
-            }
+            if (isReconnecting) return
 
             reconnectFailCount++
 
@@ -919,7 +1046,7 @@ class MezonSocket @Inject constructor(
                 val baseMs = synchronized(connectLock) { reconnectDelayMs }
                 val delayMs = baseMs + jitter
                 val totalAttempts = totalReconnectAttempts.incrementAndGet()
-                Log.d(TAG, "[regression-R3] Reconnecting in ${delayMs}ms (attempt $reconnectFailCount/$MAX_RECONNECT_FAILS, totalSinceProcessStart=$totalAttempts, base=${baseMs}ms, jitter=${jitter}ms)")
+                Log.d(TAG, "Reconnecting in ${delayMs}ms (attempt $reconnectFailCount/$MAX_RECONNECT_FAILS, totalSinceProcessStart=$totalAttempts)")
                 delay(delayMs)
                 synchronized(connectLock) {
                     reconnectDelayMs = (reconnectDelayMs * 2).coerceAtMost(RECONNECT_MAX_MS)
@@ -945,7 +1072,8 @@ class MezonSocket @Inject constructor(
                         }
                         currentWsUrl = session.wsUrl
                         currentToken = session.token
-                        doConnect(session.wsUrl, session.token)
+                        currentTcpUrl = session.tcpUrl
+                        doConnect(session.wsUrl, session.token, session.tcpUrl)
                         isReconnecting = false
                     }
                 } catch (e: com.mezon.mobile.session.SessionExpiredException) {
@@ -978,6 +1106,5 @@ class MezonSocket @Inject constructor(
             deferred.completeExceptionally(RuntimeException(reason))
         }
         pendingApiRequests.clear()
-        apiResponseStreams.clear()
     }
 }

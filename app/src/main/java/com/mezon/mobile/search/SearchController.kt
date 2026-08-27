@@ -1,6 +1,7 @@
 package com.mezon.mobile.search
 
 import android.util.Log
+import com.mezon.mezon.api.Friend
 import com.mezon.mezon.api.SearchMessageDocument
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.ApplicationScope
@@ -13,6 +14,7 @@ import com.mezon.mobile.home.clans.CHANNEL_TYPE_VOICE
 import com.mezon.mobile.home.clans.ClanChannelEntity
 import com.mezon.mobile.home.clans.ClansController
 import com.mezon.mobile.home.clans.toClanChannelEntity
+import com.mezon.mobile.home.friends.FriendController
 import com.mezon.mobile.home.messages.DirectMessage
 import com.mezon.mobile.network.ApiCacheTracker
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
@@ -69,6 +71,7 @@ class SearchController @Inject constructor(
     private val dialogsController: DialogsController,
     private val clansController: ClansController,
     private val userClanController: UserClanController,
+    private val friendController: FriendController,
     private val notificationCenter: NotificationCenter,
     private val cacheTracker: ApiCacheTracker,
     private val dispatcher: SocketEventDispatcher,
@@ -158,6 +161,7 @@ class SearchController @Inject constructor(
 
     fun loadMembers(noCache: Boolean = false) {
         userClanController.loadUsers(noCache)
+        friendController.loadFriends(noCache)
         rebuildMembers()
     }
 
@@ -188,6 +192,13 @@ class SearchController @Inject constructor(
                     if (user.id in seenUserIds) continue
                     seenUserIds.add(user.id)
                     nonDmMembers.add(user.toSearchMember())
+                }
+
+                for (friend in friendController.friends.value) {
+                    val friendUserId = friend.user.id
+                    if (friendUserId == 0L || friendUserId in seenUserIds) continue
+                    seenUserIds.add(friendUserId)
+                    nonDmMembers.add(friend.toSearchMember())
                 }
 
                 synchronized(this@SearchController) {
@@ -247,7 +258,8 @@ class SearchController @Inject constructor(
     private var messageSearchGeneration = 0L
 
     fun searchMessagesApi(
-        channelId: Long = 0L,
+        channelId: Long,
+        clanId: Long,
         content: String = "",
         username: String = "",
         mentionUserId: Long = 0L,
@@ -267,8 +279,6 @@ class SearchController @Inject constructor(
         appScope.launch(ioDispatcher) {
             try {
                 sessionManager.withAutoRefresh { session ->
-                    val clanId = clansController.selectedClanId.value
-
                     val filters = ArrayList<Pair<String, String>>()
                     filters.add("channel_id" to channelId.toString())
                     filters.add("clan_id" to clanId.toString())
@@ -298,7 +308,8 @@ class SearchController @Inject constructor(
     }
 
     fun loadMoreMessages(
-        channelId: Long = 0L,
+        channelId: Long,
+        clanId: Long,
         content: String = "",
         username: String = "",
         mentionUserId: Long = 0L
@@ -310,6 +321,7 @@ class SearchController @Inject constructor(
         }
         searchMessagesApi(
             channelId = channelId,
+            clanId = clanId,
             content = content,
             username = username,
             mentionUserId = mentionUserId,
@@ -562,6 +574,17 @@ private fun ClanUser.toSearchMember(): SearchMember = SearchMember(
     displayName = displayName,
     avatarUrl = avatarUrl,
     isOnline = isOnline,
+    isDm = false,
+    channelId = 0L,
+    channelType = 0
+)
+
+private fun Friend.toSearchMember(): SearchMember = SearchMember(
+    id = user.id,
+    username = user.username,
+    displayName = user.displayName,
+    avatarUrl = user.avatarUrl,
+    isOnline = user.online,
     isDm = false,
     channelId = 0L,
     channelType = 0

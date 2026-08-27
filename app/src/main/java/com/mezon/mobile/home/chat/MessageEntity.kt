@@ -142,8 +142,10 @@ data class MessageEntity(
     val hasAnyMedia: Boolean
         get() {
             if (hasMedia) return true
-            if (attachmentUrl.isNotEmpty() && isMediaAttachment(attachmentFiletype, attachmentUrl)) return true
-            return extraAttachments.any { isMediaAttachment(it.filetype, it.url) }
+            if (attachmentUrl.isNotEmpty() &&
+                isMediaAttachment(attachmentFiletype, attachmentUrl, attachmentFilename)
+            ) return true
+            return extraAttachments.any { isMediaAttachment(it.filetype, it.url, it.filename) }
         }
 
     data class DisplayAttachmentSnapshot(
@@ -217,7 +219,7 @@ data class MessageEntity(
         get() = messageType == TYPE_FILE && attachmentUrl.isNotEmpty()
 
     val isAudioAttachment: Boolean
-        get() = attachmentUrl.isNotEmpty() && attachmentFiletype.startsWith("audio", ignoreCase = true)
+        get() = attachmentUrl.isNotEmpty() && isAudioAttachmentType(attachmentFiletype)
 
     val hasReactions: Boolean
         get() = reactionsJson.isNotEmpty() && reactionsJson != "[]"
@@ -329,14 +331,16 @@ data class MessageEntity(
 
     val allFileAttachments: List<AttachmentInfo>
         get() {
-            val isFile = { ft: String, url: String ->
-                !isMediaAttachment(ft, url) && !ft.startsWith("audio/", true)
+            val isFile = { ft: String, url: String, filename: String ->
+                !isMediaAttachment(ft, url, filename) && !isAudioAttachmentType(ft)
             }
-            val first = if (attachmentUrl.isNotEmpty() && isFile(attachmentFiletype, attachmentUrl))
+            val first = if (attachmentUrl.isNotEmpty() &&
+                isFile(attachmentFiletype, attachmentUrl, attachmentFilename)
+            )
                 listOf(AttachmentInfo(attachmentUrl, attachmentThumb, attachmentWidth, attachmentHeight,
                     attachmentFilename, attachmentFiletype, attachmentSize, attachmentDuration))
             else emptyList()
-            return first + extraAttachments.filter { isFile(it.filetype, it.url) }
+            return first + extraAttachments.filter { isFile(it.filetype, it.url, it.filename) }
         }
 
     val hasFileAttachments: Boolean
@@ -344,11 +348,15 @@ data class MessageEntity(
 
     val allImageAttachments: List<AttachmentInfo>
         get() {
-            val first = if (attachmentUrl.isNotEmpty() && isMediaAttachment(attachmentFiletype, attachmentUrl))
+            val first = if (attachmentUrl.isNotEmpty() &&
+                isMediaAttachment(attachmentFiletype, attachmentUrl, attachmentFilename)
+            )
                 listOf(AttachmentInfo(attachmentUrl, attachmentThumb, attachmentWidth, attachmentHeight,
                     attachmentFilename, attachmentFiletype, attachmentSize, attachmentDuration))
             else emptyList()
-            return first + extraAttachments.filter { isMediaAttachment(it.filetype, it.url) }
+            return first + extraAttachments.filter {
+                isMediaAttachment(it.filetype, it.url, it.filename)
+            }
         }
 
     fun isLocalAttachmentUrl(url: String): Boolean {
@@ -725,22 +733,46 @@ private fun mergeReferencesIntoContent(content: String, referencesBytes: com.goo
     }
 }
 
-internal fun isMediaAttachment(filetype: String, url: String): Boolean =
-    filetype.startsWith("image/", true) || filetype.startsWith("video/", true) ||
-        filetype.contains("gif", true) || filetype.equals("sticker", true) ||
-        url.contains("tenor.com", true) || url.contains("/stickers/", true)
+private fun normalizedAttachmentType(filetype: String): String =
+    filetype.substringBefore(';').trim().lowercase()
+
+internal fun isImageAttachmentType(filetype: String): Boolean {
+    val type = normalizedAttachmentType(filetype)
+    return type == "image" || type.startsWith("image/")
+}
+
+internal fun isVideoAttachmentType(filetype: String): Boolean {
+    val type = normalizedAttachmentType(filetype)
+    return type == "video" || type.startsWith("video/")
+}
+
+internal fun isAudioAttachmentType(filetype: String): Boolean {
+    val type = normalizedAttachmentType(filetype)
+    return type == "audio" || type.startsWith("audio/")
+}
+
+private fun hasGifExtension(value: String): Boolean =
+    value.substringBefore('?').substringBefore('#').endsWith(".gif", ignoreCase = true)
+
+internal fun isGifAttachment(filetype: String, filename: String = "", url: String = ""): Boolean =
+    normalizedAttachmentType(filetype).contains("gif") ||
+        hasGifExtension(filename) || hasGifExtension(url) ||
+        url.contains("tenor.com", ignoreCase = true)
+
+internal fun isMediaAttachment(filetype: String, url: String, filename: String = ""): Boolean =
+    isImageAttachmentType(filetype) || isVideoAttachmentType(filetype) ||
+        isGifAttachment(filetype, filename, url) || filetype.equals("sticker", true) ||
+        url.contains("/stickers/", true)
 
 private fun resolveMessageType(attachment: ParsedAttachment?): Int {
     if (attachment == null || attachment.url.isEmpty()) return MessageEntity.TYPE_TEXT
-    val ft = attachment.filetype.lowercase()
     val url = attachment.url.lowercase()
     return when {
-        ft.startsWith("image/gif") -> MessageEntity.TYPE_GIF
-        ft == "sticker" -> MessageEntity.TYPE_GIF
-        url.contains("tenor.com") -> MessageEntity.TYPE_GIF
+        isGifAttachment(attachment.filetype, attachment.filename, attachment.url) -> MessageEntity.TYPE_GIF
+        attachment.filetype.equals("sticker", ignoreCase = true) -> MessageEntity.TYPE_GIF
         url.contains("/stickers/") -> MessageEntity.TYPE_GIF
-        ft.startsWith("image/") -> MessageEntity.TYPE_PHOTO
-        ft.startsWith("video/") -> MessageEntity.TYPE_VIDEO
+        isImageAttachmentType(attachment.filetype) -> MessageEntity.TYPE_PHOTO
+        isVideoAttachmentType(attachment.filetype) -> MessageEntity.TYPE_VIDEO
         else -> MessageEntity.TYPE_FILE
     }
 }

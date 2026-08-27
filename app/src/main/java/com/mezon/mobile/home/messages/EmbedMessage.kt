@@ -207,12 +207,23 @@ class EmbedMessageRenderer(
     private var animationRuntimeGrid: List<List<EmbedAnimationRuntime>> = emptyList()
     private var deferredRebuildTextWidth = 0
     private var deferredRebuildPending = false
+    private var sourceRevision = 0L
+    private var laidOutSourceRevision = -1L
+    private var embedSourceContent = ""
 
     fun isEmbedAnimationRunning(): Boolean =
         animationRuntimeGrid.any { row -> row.any { it.isAnimating() } }
 
     fun scheduleRebuildLayoutsAfterAnimation(textWidth: Int, context: Context) {
         deferredRebuildTextWidth = textWidth
+        val sourceChanged = sourceRevision != laidOutSourceRevision
+        val hasNonTerminatingRuntime = animationRuntimeGrid.any { row ->
+            row.any { it.isAnimating() && it.isNonTerminating() }
+        }
+        if (sourceChanged || hasNonTerminatingRuntime) {
+            rebuildLayouts(textWidth, context)
+            return
+        }
         if (deferredRebuildPending) return
         if (!isEmbedAnimationRunning()) {
             rebuildLayouts(textWidth, context)
@@ -290,8 +301,12 @@ class EmbedMessageRenderer(
             clear()
             return false
         }
-        embedSourceList = payload.embeds
-        actionRows = payload.actionRows
+        if (embedSourceContent != content) {
+            sourceRevision++
+            embedSourceContent = content
+            embedSourceList = payload.embeds
+            actionRows = payload.actionRows
+        }
         return true
     }
 
@@ -320,6 +335,9 @@ class EmbedMessageRenderer(
         embedSourceList = emptyList()
         laidOutCards = emptyList()
         actionRows = emptyList()
+        sourceRevision = 0L
+        laidOutSourceRevision = -1L
+        embedSourceContent = ""
         clearDeferredRebuild()
         disposeAnimationGrid()
         radioOptionHeightCache.clear()
@@ -336,11 +354,16 @@ class EmbedMessageRenderer(
 
     fun onAttachedToWindow() {
         for (b in cardImageBundles) b.onAttachedToWindow()
+        for (row in animationRuntimeGrid) {
+            for (runtime in row) runtime.onAttachedToWindow()
+        }
     }
 
     fun onDetachedFromWindow() {
         for (b in cardImageBundles) b.onDetachedFromWindow()
-        disposeAnimationGrid()
+        for (row in animationRuntimeGrid) {
+            for (runtime in row) runtime.onDetachedFromWindow()
+        }
     }
 
     private fun disposeAnimationGrid() {
@@ -512,10 +535,9 @@ class EmbedMessageRenderer(
             }
         } else null
 
-        val titlePaint = if (d.url.isNotEmpty()) TITLE_LINK_PAINT else TITLE_PAINT
         val titleLayout = if (d.title.isNotEmpty()) {
             val rich = formatEmbedRichText(d.title, th)
-            CodeFenceSpan.buildRichStaticLayout(rich, titlePaint, leftColumnW) {
+            CodeFenceSpan.buildRichStaticLayout(rich, TITLE_PAINT, leftColumnW) {
                 setMaxLines(12)
                 setEllipsize(TextUtils.TruncateAt.END)
                 setLineSpacing(LayoutHelper.dpf(2f), 1f)
@@ -659,7 +681,6 @@ class EmbedMessageRenderer(
     private fun applyPaints() {
         val t = theme()
         TITLE_PAINT.color = t.onSurface
-        TITLE_LINK_PAINT.color = t.textLink
         DESC_PAINT.color = t.onSurfaceVariant
         FIELD_NAME_PAINT.color = t.onSurface
         FIELD_VALUE_PAINT.color = t.onSurfaceVariant
@@ -686,13 +707,19 @@ class EmbedMessageRenderer(
         BUTTON_LABEL_PAINT.textSize = LayoutHelper.dpf(14f)
         BUTTON_LABEL_PAINT.color = 0xFFFFFFFF.toInt()
         rebuildButtonLayouts(textWidth)
+        laidOutSourceRevision = sourceRevision
         onLayoutsRebuilt?.invoke()
     }
 
     private fun rebuildAnimationGrid(context: Context) {
         animationRuntimeGrid = laidOutCards.map { card ->
             card.animationSpecsInOrder.map { spec ->
-                EmbedAnimationRuntime(parent, spec, httpClient).also { it.startLoading(context) }
+                EmbedAnimationRuntime(parent, spec, httpClient).also { runtime ->
+                    runtime.onLayoutMetricsChanged = {
+                        onLayoutsRebuilt?.invoke()
+                    }
+                    runtime.startLoading(context)
+                }
             }
         }
     }
@@ -847,7 +874,7 @@ class EmbedMessageRenderer(
 
         nextCardHitRect().set(left, cardTop, left + cardW, cardTop + embedH)
 
-        BG_PAINT.color = theme().surfaceVariant
+        BG_PAINT.color = theme().secondaryLight
         tmpRect.set(left, cardTop, left + cardW, cardTop + embedH)
         canvas.drawRoundRect(tmpRect, RADIUS, RADIUS, BG_PAINT)
 
@@ -1080,28 +1107,25 @@ class EmbedMessageRenderer(
         val cacheKey = radioOptionCacheKey(o, colW)
         radioOptionHeightCache[cacheKey]?.let { return it }
         val th = theme()
-        var h = RADIO_ROW_PAD_TOP
-        if (o.label.isNotEmpty()) {
-            val raw = if (o.description.isNotEmpty()) "${o.label}\n${o.description}" else o.label.ifEmpty { o.value }
+        val textWidth = (colW - RADIO_CONTROL_W).coerceAtLeast(1)
+        val primaryText = o.label.ifEmpty { o.value }
+        val raw = buildString {
+            append(primaryText)
+            if (o.description.isNotEmpty()) {
+                if (isNotEmpty()) append('\n')
+                append(o.description)
+            }
+        }
+        val textHeight = if (raw.isNotEmpty()) {
             val rich = formatEmbedRichText(raw, th)
-            val lay = CodeFenceSpan.buildRichStaticLayout(rich, FIELD_NAME_PAINT, colW) {
+            val lay = CodeFenceSpan.buildRichStaticLayout(rich, FIELD_NAME_PAINT, textWidth) {
                 setMaxLines(12)
                 setEllipsize(TextUtils.TruncateAt.END)
                 setLineSpacing(LayoutHelper.dpf(2f), 1f)
             }
-            h += lay.height
-        }
-        if (o.description.isNotEmpty() && o.label.isEmpty()) {
-            val rich = formatEmbedRichText(o.description, th)
-            val lay = CodeFenceSpan.buildRichStaticLayout(rich, FIELD_VALUE_PAINT, colW) {
-                setMaxLines(12)
-                setEllipsize(TextUtils.TruncateAt.END)
-                setLineSpacing(LayoutHelper.dpf(2f), 1f)
-            }
-            h += lay.height
-        }
-        h += RADIO_CONTROL_ROW_H
-        h += RADIO_ROW_PAD_BOTTOM
+            lay.height
+        } else 0
+        val h = max(textHeight, RADIO_CONTROL_H)
         radioOptionHeightCache[cacheKey] = h
         return h
     }
@@ -1131,9 +1155,8 @@ class EmbedMessageRenderer(
         private val INPUT_MIN_H = LayoutHelper.dp(40)
         private val INPUT_TEXTAREA_MIN_H = LayoutHelper.dp(80)
         private val SELECT_ROW_H = INPUT_MIN_H
-        private val RADIO_ROW_PAD_TOP = LayoutHelper.dp(4)
-        private val RADIO_CONTROL_ROW_H = LayoutHelper.dp(36)
-        private val RADIO_ROW_PAD_BOTTOM = LayoutHelper.dp(6)
+        private val RADIO_CONTROL_W = LayoutHelper.dp(48)
+        private val RADIO_CONTROL_H = LayoutHelper.dp(48)
 
         private val ACTION_PANEL_TOP_GAP = LayoutHelper.dp(8)
         private val INTER_EMBED_CARD_GAP = LayoutHelper.dp(8)
@@ -1169,12 +1192,6 @@ class EmbedMessageRenderer(
         private val TITLE_PAINT = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             textSize = LayoutHelper.dpf(14f)
             typeface = android.graphics.Typeface.DEFAULT_BOLD
-        }
-
-        private val TITLE_LINK_PAINT = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = LayoutHelper.dpf(14f)
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-            isUnderlineText = true
         }
 
         private val DESC_PAINT = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {

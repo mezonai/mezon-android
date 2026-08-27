@@ -7,8 +7,12 @@ import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.network.NetworkMonitor
 import com.mezon.mobile.network.UnauthorizedException
+import android.os.Handler
+import android.os.Looper
 import android.util.Base64
 import android.util.Log
+import android.webkit.CookieManager
+import android.webkit.WebStorage
 import java.io.IOException
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.MutablePreferences
@@ -37,7 +41,8 @@ data class StoredSession(
     val wsUrl: String,
     val userId: String,
     val idToken: String = "",
-    val isRemember: Boolean = false
+    val isRemember: Boolean = false,
+    val tcpUrl: String = ""
 )
 
 @Singleton
@@ -86,7 +91,8 @@ class SessionManager @Inject constructor(
             wsUrl = prefs[SessionKeys.WS_URL] ?: "",
             userId = prefs[SessionKeys.USER_ID] ?: "",
             idToken = decryptSecret(prefs[SessionKeys.ID_TOKEN] ?: ""),
-            isRemember = prefs[SessionKeys.IS_REMEMBER] ?: false
+            isRemember = prefs[SessionKeys.IS_REMEMBER] ?: false,
+            tcpUrl = prefs[SessionKeys.TCP_URL] ?: ""
         )
     }
 
@@ -141,7 +147,16 @@ class SessionManager @Inject constructor(
             Log.w(TAG, "Token expired but offline — returning cached session")
             return session
         }
-        return refresh()
+        return try {
+            refresh()
+        } catch (e: SessionExpiredException) {
+            throw e
+        } catch (e: kotlin.coroutines.cancellation.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Token expired but refresh failed transiently — returning cached session", e)
+            session
+        }
     }
 
     internal var launchRetryBaseMs: Long = 1000L
@@ -198,6 +213,7 @@ class SessionManager @Inject constructor(
                 userId = current.userId,
                 idToken = protoSession.getIdToken().ifEmpty { current.idToken },
                 isRemember = current.isRemember,
+                tcpUrl = current.tcpUrl,
             )
 
             if (!persistSession(newSession, requiredEpoch = epochAtStart)) {
@@ -274,6 +290,7 @@ class SessionManager @Inject constructor(
                 prefs[SessionKeys.USER_ID] = session.userId
                 prefs[SessionKeys.ID_TOKEN] = encryptedIdToken
                 prefs[SessionKeys.IS_REMEMBER] = session.isRemember
+                prefs[SessionKeys.TCP_URL] = session.tcpUrl
             }
         }
         return true
@@ -312,6 +329,19 @@ class SessionManager @Inject constructor(
             dataStore.edit { prefs -> prefs.removeAllSessionData() }
             secretStorage.deleteKey(SESSION_SECRET_ALIAS)
         }
+        clearWebViewData()
+    }
+
+    private fun clearWebViewData() {
+        Handler(Looper.getMainLooper()).post {
+            runCatching {
+                CookieManager.getInstance().removeAllCookies(null)
+                CookieManager.getInstance().flush()
+                WebStorage.getInstance().deleteAllData()
+            }.onFailure { e ->
+                Log.w(TAG, "Failed to clear WebView data on logout", e)
+            }
+        }
     }
 
     private fun MutablePreferences.removeAllSessionData() {
@@ -322,7 +352,21 @@ class SessionManager @Inject constructor(
         remove(SessionKeys.USER_ID)
         remove(SessionKeys.ID_TOKEN)
         remove(SessionKeys.IS_REMEMBER)
+        remove(SessionKeys.TCP_URL)
         remove(SessionKeys.LAST_CLAN_ID)
+    }
+
+    suspend fun applyRefreshedSession(proto: com.mezon.mezon.api.Session) {
+        val current = sessionFlow.first() ?: return
+        val updated = current.copy(
+            token = proto.token.ifEmpty { current.token },
+            refreshToken = proto.refreshToken.ifEmpty { current.refreshToken }
+        )
+        saveSession(updated)
+    }
+
+    fun signalSessionExpired() {
+        emitSessionExpired()
     }
 }
 

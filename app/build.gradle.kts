@@ -122,6 +122,7 @@ android {
         buildStr("MEZON_ANONYMOUS_USER_ID")
         buildInt("MEZON_MAX_LENGTH_NAME_ALLOWED")
         buildStr("MEZON_MMN_API_URL")
+        buildStr("MEZON_DONG_API_URL")
         buildStr("MEZON_ZK_API_URL")
         
         val mmnUrl = mezonSecrets.getProperty("MEZON_MMN_API_URL", "") ?: ""

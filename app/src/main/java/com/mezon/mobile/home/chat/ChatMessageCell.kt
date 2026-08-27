@@ -12,11 +12,13 @@ import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.text.Spannable
 import android.text.SpannableString
+import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.StaticLayout
 import android.text.TextUtils
 import android.text.style.ClickableSpan
 import android.text.style.ForegroundColorSpan
+import android.text.style.StyleSpan
 import android.view.MotionEvent
 import android.view.View
 import com.mezon.mobile.BuildConfig
@@ -420,6 +422,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         cancelPresignExpireTick()
+        removeCallbacks(sendingDimTickRunnable)
+        sendingDimTickScheduled = false
         attachedToWindow = false
         photoImage.onDetachedFromWindow()
         extraPhotoImages.forEach { it.onDetachedFromWindow() }
@@ -528,6 +532,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         drawEphemeral = false
         drawError = false
         drawSending = false
+        removeCallbacks(sendingDimTickRunnable)
+        sendingDimTickScheduled = false
+        sendingVisualMessageId = 0L
+        sendingVisualStartedAtMs = 0L
         hasPendingMediaUploads = false
         parsedContent = ""
         hasCallLogCard = false
@@ -581,6 +589,13 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var lastBoundId = 0L
     private var lastBoundContentHash = 0
     private var lastBoundCombined = false
+    private var sendingVisualMessageId = 0L
+    private var sendingVisualStartedAtMs = 0L
+    private var sendingDimTickScheduled = false
+    private val sendingDimTickRunnable = Runnable {
+        sendingDimTickScheduled = false
+        if (hasPendingSendVisual()) invalidate()
+    }
 
     fun resetForRebind() {
         lastBoundId = 0L
@@ -635,6 +650,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 hasPendingMediaUploads = false
                 hasPendingFileUploads = false
             }
+            syncSendingVisualTimer(msg)
             updateColors(msg)
             if (drawPhotoImage) computePhotoSize(msg)
             buildLayouts(msg)
@@ -682,6 +698,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             drawError = msg.isError && !msg.hasPartialAttachmentUploadFailure
             val snapshot = msg.displayAttachmentSnapshot()
             applyDisplaySnapshot(msg, snapshot)
+            syncSendingVisualTimer(msg)
             if (BuildConfig.DEBUG) {
                 Log.d(
                     TAG,
@@ -745,6 +762,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 applyDisplaySnapshot(m, snapshot)
                 loadPhotoImage(m)
             }
+            if (m != null) syncSendingVisualTimer(m)
             needInvalidate = true
         }
 
@@ -753,6 +771,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             if (newMsg != null) messageEntity = newMsg
             val snapshot = m.displayAttachmentSnapshot()
             applyDisplaySnapshot(m, snapshot)
+            syncSendingVisualTimer(m)
             if (drawPhotoImage) computePhotoSize(m) else clearPhotoReceivers()
             buildLayouts(m)
             if (drawPhotoImage) loadPhotoImage(m) else clearPhotoReceivers()
@@ -793,6 +812,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             drawEphemeral = m.isEphemeral
             drawError = m.isError && !m.hasPartialAttachmentUploadFailure
             drawSending = m.isSending
+            syncSendingVisualTimer(m)
             updateColors(m)
             buildLayouts(m)
             if (!drawPhotoImage) clearPhotoReceivers()
@@ -999,13 +1019,12 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             receiver.setCenterCrop(true)
             val isStickerAttachment = att.filetype.equals("sticker", ignoreCase = true) ||
                 att.url.contains("/stickers/", ignoreCase = true)
-            val isAnimated = att.filetype.contains("gif", true) ||
-                att.url.contains("tenor.com", true) ||
+            val isAnimated = isGifAttachment(att.filetype, att.filename, att.url) ||
                 isStickerAttachment
             applyMediaCornerRadius(receiver)
             receiver.setRequestedSize(pw, ph)
             val isLocalUri = att.url.startsWith("content://") || att.url.startsWith("file://")
-            val isVideo = att.filetype.startsWith("video/", true)
+            val isVideo = isVideoAttachmentType(att.filetype)
             slotIsVideo[i] = isVideo
             slotPresignPending[i] = msg.isPresignAttachmentPending(att.url, filter, snapshot.allPresignFinished)
             slotUploadPending[i] = !slotPresignPending[i] && msg.isAttachmentUploadPending(att.url, filter)
@@ -1021,7 +1040,12 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             } else if (isLocalUri) {
                 receiver.setLocalUri(android.net.Uri.parse(att.url), context)
             } else if (isAnimated || isStickerAttachment) {
-                receiver.setImage(att.url, att.thumb.ifEmpty { null }, context, forceAnimated = isAnimated)
+                val mainUrl = if (isStickerAttachment) {
+                    createImgproxyUrl(att.url, pw, ph, "fit")
+                } else {
+                    att.url
+                }
+                receiver.setImage(mainUrl, att.thumb.ifEmpty { null }, context, forceAnimated = isAnimated)
             } else if (isVideo) {
                 val thumb = att.thumb.ifEmpty { null }
                 if (thumb != null) {
@@ -3069,7 +3093,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
         val alpha = when {
             drawError -> 0.6f
-            drawSending || hasPendingMediaUploads || hasPendingFileUploads -> 0.7f
+            drawSending -> if (hasSendingGraceElapsed()) 0.7f else 1f
             else -> 1f
         }
         if (alpha < 1f) {
@@ -3090,6 +3114,44 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         if (drawError) {
             drawErrorText(canvas, msg)
         }
+    }
+
+    private fun syncSendingVisualTimer(msg: MessageEntity) {
+        if (!hasPendingSendVisual()) {
+            removeCallbacks(sendingDimTickRunnable)
+            sendingDimTickScheduled = false
+            sendingVisualMessageId = 0L
+            sendingVisualStartedAtMs = 0L
+            return
+        }
+        if (sendingVisualMessageId != msg.id) {
+            removeCallbacks(sendingDimTickRunnable)
+            sendingDimTickScheduled = false
+            sendingVisualMessageId = msg.id
+            sendingVisualStartedAtMs = android.os.SystemClock.elapsedRealtime()
+        }
+    }
+
+    private fun hasPendingSendVisual(): Boolean =
+        drawSending || hasPendingMediaUploads || hasPendingFileUploads
+
+    private fun hasSendingGraceElapsed(): Boolean {
+        var startedAt = sendingVisualStartedAtMs
+        if (startedAt == 0L) {
+            startedAt = android.os.SystemClock.elapsedRealtime()
+            sendingVisualMessageId = messageEntity?.id ?: 0L
+            sendingVisualStartedAtMs = startedAt
+        }
+        val elapsedMs = android.os.SystemClock.elapsedRealtime() - startedAt
+        val remainingMs = SENDING_BRIGHT_GRACE_MS - elapsedMs
+        if (remainingMs > 0L) {
+            if (visibleOnScreen && !sendingDimTickScheduled) {
+                sendingDimTickScheduled = true
+                postDelayed(sendingDimTickRunnable, remainingMs)
+            }
+            return false
+        }
+        return true
     }
 
     private fun drawSendingIndicator(canvas: Canvas) {
@@ -4439,15 +4501,27 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val container = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
         }
-        private var boundKey = ""
+        private var boundMessageId = Long.MIN_VALUE
+        private var boundComponentId = ""
+        private var boundSpec: EmbedRadioSpec? = null
         private var suppressRadioCb = false
 
         fun bind(messageId: Long, componentId: String, spec: EmbedRadioSpec) {
-            val key = "$messageId|$componentId|${spec.options.joinToString { it.value }}"
-            val identityChanged = boundKey != key
-            boundKey = key
+            val identityChanged =
+                boundMessageId != messageId ||
+                    boundComponentId != componentId ||
+                    boundSpec != spec
+            boundMessageId = messageId
+            boundComponentId = componentId
+            boundSpec = spec
 
             if (identityChanged) {
+                EmbedFormUtil.reconcileComponentValues(
+                    messageId = messageId,
+                    componentId = componentId,
+                    allowedValues = spec.options.map { it.value },
+                    multiple = spec.multi,
+                )
                 container.removeAllViews()
                 if (!spec.multi) {
                     val rg = RadioGroup(context)
@@ -4574,15 +4648,25 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         private fun radioOptionPrimaryText(opt: EmbedRadioOptionSpec): String =
             opt.label.ifEmpty { opt.value }
 
-        private fun radioOptionDisplayCharSeq(opt: EmbedRadioOptionSpec): CharSequence =
-            formatEmbedRichText(
-                if (opt.description.isNotEmpty() && opt.label.isNotEmpty()) {
-                    "${opt.label}\n${opt.description}"
-                } else {
-                    radioOptionPrimaryText(opt)
-                },
-                theme,
-            )
+        private fun radioOptionDisplayCharSeq(opt: EmbedRadioOptionSpec): CharSequence {
+            val label = radioOptionPrimaryText(opt)
+            val out = SpannableStringBuilder(formatEmbedRichText(label, theme))
+            if (out.isNotEmpty()) {
+                out.setSpan(StyleSpan(Typeface.BOLD), 0, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+            if (opt.description.isNotEmpty()) {
+                if (out.isNotEmpty()) out.append('\n')
+                val descStart = out.length
+                out.append(formatEmbedRichText(opt.description, theme))
+                out.setSpan(
+                    ForegroundColorSpan(theme.onSurfaceVariant),
+                    descStart,
+                    out.length,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
+            }
+            return out
+        }
     }
 
     private inner class EmbedInputSlot {
@@ -4797,6 +4881,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         const val COMBINE_TIME_THRESHOLD = 2 * 60L
         private const val TAG = "ChatMessageCell"
         private const val EMBED_INPUT_TAG = "EmbedFormInput"
+        private const val SENDING_BRIGHT_GRACE_MS = 2_000L
         private val ANONYMOUS_USER_ID = BuildConfig.MEZON_ANONYMOUS_USER_ID.toLongOrNull() ?: 0L
         private val anonymousAvatarBitmaps = HashMap<Int, Bitmap>(2)
 
@@ -5122,12 +5207,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         private val EMBED_TITLE_PAINT = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             textSize = LayoutHelper.dpf(14f)
             typeface = android.graphics.Typeface.DEFAULT_BOLD
-        }
-
-        private val EMBED_TITLE_LINK_PAINT = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = LayoutHelper.dpf(14f)
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-            isUnderlineText = true
         }
 
         private val EMBED_DESC_PAINT = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {

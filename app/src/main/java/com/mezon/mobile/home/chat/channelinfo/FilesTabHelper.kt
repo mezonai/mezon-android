@@ -3,8 +3,10 @@ package com.mezon.mobile.home.chat.channelinfo
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Handler
@@ -27,6 +29,7 @@ import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.ChannelFilesController
+import com.mezon.mobile.home.ChannelFilesType
 import com.mezon.mobile.home.MemberResolver
 import com.mezon.mobile.ui.cells.MezonIcon
 import java.text.SimpleDateFormat
@@ -50,6 +53,9 @@ class FilesTabHelper(
     private var recyclerView: RecyclerListView? = null
     private var emptyView: View? = null
     private var loadingView: ProgressBar? = null
+    private var docsTab: TextView? = null
+    private var audiosTab: TextView? = null
+    private var selectedFilesType = ChannelFilesType.DOC
     private var searchText: String = ""
     private val debounce = Handler(Looper.getMainLooper())
     private var debounceRun: Runnable? = null
@@ -81,7 +87,20 @@ class FilesTabHelper(
     }
 
     override fun buildView(context: Context): View {
-        val root = FrameLayout(context)
+        val root = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        root.addView(
+            buildFilesTypeTabs(context),
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LayoutHelper.dp(42f)).apply {
+                val margin = LayoutHelper.dp(8f)
+                setMargins(margin, margin, margin, margin)
+            }
+        )
+
+        val content = FrameLayout(context)
+        root.addView(content, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
 
         val searchRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -112,7 +131,7 @@ class FilesTabHelper(
                 override fun afterTextChanged(s: Editable?) {
                     val txt = s?.toString().orEmpty()
                     debounceRun?.let { debounce.removeCallbacks(it) }
-                    val r = Runnable { applySearchAndDocs(txt) }
+                    val r = Runnable { applySearch(txt) }
                     debounceRun = r
                     debounce.postDelayed(r, 500)
                 }
@@ -120,7 +139,7 @@ class FilesTabHelper(
             searchRow.addView(this, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL, 8f, 0f, 2f, 0f))
         }
 
-        root.addView(searchRow, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 40, Gravity.TOP, 10f, 8f, 10f, 0f))
+        content.addView(searchRow, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 40, Gravity.TOP, 10f, 8f, 10f, 0f))
 
         adapter = ChannelFilesAdapter(themeColors, rowResolver)
         val ad = adapter!!
@@ -130,20 +149,76 @@ class FilesTabHelper(
             clipToPadding = false
             setPadding(LayoutHelper.dp(10f), 0, LayoutHelper.dp(10f), LayoutHelper.dp(6f))
         }
-        root.addView(recyclerView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.TOP, 0f, 56f, 0f, 0f))
+        content.addView(recyclerView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.TOP, 0f, 56f, 0f, 0f))
 
         emptyView = buildEmptyView(context)
-        root.addView(emptyView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.TOP, 0f, 56f, 0f, 0f))
+        content.addView(emptyView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.TOP, 0f, 56f, 0f, 0f))
 
         loadingView = ProgressBar(context).apply { visibility = View.VISIBLE }
-        root.addView(loadingView, LayoutHelper.createFrame(48, 48, Gravity.CENTER))
+        content.addView(loadingView, LayoutHelper.createFrame(48, 48, Gravity.CENTER))
 
-        channelFilesController.loadChannelFiles(channelId, clanId)
+        channelFilesController.loadChannelFiles(channelId, clanId, filesType = selectedFilesType)
         refreshListUi()
         return root
     }
 
-    private fun applySearchAndDocs(query: String) {
+    private fun buildFilesTypeTabs(context: Context): View {
+        val tabs = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(LayoutHelper.dp(4f), LayoutHelper.dp(4f), LayoutHelper.dp(4f), LayoutHelper.dp(4f))
+            background = roundedBackground(themeColors.surfaceVariant, 12f)
+        }
+        docsTab = buildFilesTypeTab(context, getString(R.string.channel_files_docs), ChannelFilesType.DOC)
+        audiosTab = buildFilesTypeTab(context, getString(R.string.channel_files_audios), ChannelFilesType.AUDIO)
+        tabs.addView(docsTab, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f))
+        tabs.addView(audiosTab, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f))
+        updateFilesTypeTabs()
+        return tabs
+    }
+
+    private fun buildFilesTypeTab(
+        context: Context,
+        label: String,
+        filesType: ChannelFilesType
+    ): TextView = TextView(context).apply {
+        text = label
+        gravity = Gravity.CENTER
+        setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14f)
+        typeface = Typeface.DEFAULT_BOLD
+        setOnClickListener { selectFilesType(filesType) }
+    }
+
+    private fun selectFilesType(filesType: ChannelFilesType) {
+        if (selectedFilesType == filesType) return
+        selectedFilesType = filesType
+        updateFilesTypeTabs()
+        recyclerView?.scrollToPosition(0)
+        channelFilesController.loadChannelFiles(channelId, clanId, filesType = selectedFilesType)
+        refreshListUi()
+    }
+
+    private fun updateFilesTypeTabs() {
+        listOf(
+            docsTab to ChannelFilesType.DOC,
+            audiosTab to ChannelFilesType.AUDIO
+        ).forEach { (tab, filesType) ->
+            val selected = selectedFilesType == filesType
+            tab?.setTextColor(if (selected) Color.WHITE else themeColors.onSurfaceVariant)
+            tab?.background = roundedBackground(
+                if (selected) themeColors.blurple else Color.TRANSPARENT,
+                9f
+            )
+        }
+    }
+
+    private fun roundedBackground(color: Int, radiusDp: Float): GradientDrawable =
+        GradientDrawable().apply {
+            setColor(color)
+            cornerRadius = LayoutHelper.dpf(radiusDp)
+        }
+
+    private fun applySearch(query: String) {
         searchText = query
         refreshListUi()
     }
@@ -153,10 +228,10 @@ class FilesTabHelper(
     }
 
     private fun refreshListUi() {
-        val docs = channelFilesController.getDocuments(channelId)
-        val rows = buildChannelFileRows(docs, searchText, isVietnameseLocale)
+        val files = channelFilesController.getDocuments(channelId, selectedFilesType)
+        val rows = buildChannelFileRows(files, searchText, isVietnameseLocale)
         adapter?.setRows(rows)
-        val fetching = channelFilesController.isFetching(channelId)
+        val fetching = channelFilesController.isFetching(channelId, selectedFilesType)
         loadingView?.visibility = if (fetching) View.VISIBLE else View.GONE
         if (rows.isNotEmpty()) {
             emptyView?.visibility = View.GONE
@@ -189,8 +264,8 @@ class FilesTabHelper(
         return container
     }
 
-    fun onRemoteChannelFiles(forChannelId: Long) {
-        if (forChannelId != channelId) return
+    fun onRemoteChannelFiles(forChannelId: Long, filesType: ChannelFilesType) {
+        if (forChannelId != channelId || filesType != selectedFilesType) return
         refreshListUi()
     }
 }

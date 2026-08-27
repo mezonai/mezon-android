@@ -49,7 +49,9 @@ import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.messages.MessageActivitiesController
 import com.mezon.mobile.home.MainTabsActivity
 import com.mezon.mobile.home.chat.ChatFragment
+import com.mezon.mobile.home.chat.PendingCameraCapture
 import com.mezon.mobile.home.chat.PhotoViewer
+import com.mezon.mobile.home.chat.VideoPlayerDialog
 import com.mezon.mobile.home.call.CallController
 import com.mezon.mobile.home.call.CallFragment
 import com.mezon.mobile.home.call.CallManager
@@ -63,6 +65,8 @@ import com.mezon.mobile.home.clans.ClanChannelEntity
 import com.mezon.mobile.home.friends.AddFriendFragment
 import com.mezon.mobile.home.friends.FriendController
 import com.mezon.mobile.home.sharing.SharingFragment
+import com.mezon.mobile.home.sharing.ExistingVideoShareStore
+import com.mezon.mobile.home.sharing.VideoShareRefinementContract
 import com.mezon.mobile.home.stream.StreamingRoomFragment
 import com.mezon.mobile.home.voice.VoiceOverlayManager
 import com.mezon.mobile.home.voice.VoiceRoomFragment
@@ -242,6 +246,7 @@ class MainActivity : BasePermissionsActivity(),
                 } else {
                     showHome()
                     setupSplashDismiss()
+                    if (savedInstanceState != null) restoreChatForPendingCameraCapture()
                 }
             } else {
                 showLogin()
@@ -267,6 +272,9 @@ class MainActivity : BasePermissionsActivity(),
             AndroidUtilities.runOnUIThread(run, 2000L)
         }
         requestNotificationPermission()
+        lifecycleScope.launch(Dispatchers.IO) {
+            PendingCameraCapture.sweepOrphans(this@MainActivity)
+        }
 
         NotificationCenter.getGlobalInstance().addObserver(this, NotificationCenter.themeChanged)
         NotificationCenter.getGlobalInstance().addObserver(this, NotificationCenter.languageChanged)
@@ -861,6 +869,18 @@ class MainActivity : BasePermissionsActivity(),
         rewireTopFragmentCallbacks()
     }
 
+    private fun restoreChatForPendingCameraCapture() {
+        val pending = PendingCameraCapture.peek(this) ?: return
+        if (pending.channelId == 0L) return
+        openChat(
+            channelId = pending.channelId,
+            channelName = pending.channelName,
+            clanId = pending.clanId,
+            channelType = pending.channelType,
+            noAnimation = true
+        )
+    }
+
     private fun showHome() {
         val mainTabsActivity = MainTabsActivity().apply {
             onLogout = { switchToLogin() }
@@ -1410,6 +1430,27 @@ class MainActivity : BasePermissionsActivity(),
         if (action != Intent.ACTION_SEND && action != Intent.ACTION_SEND_MULTIPLE) return false
         if (!StartupCache.hasSession) return false
 
+        if (action == Intent.ACTION_SEND) {
+            val internalShareToken = intent.getStringExtra(
+                VideoShareRefinementContract.EXTRA_INTERNAL_SHARE_TOKEN
+            )
+            val existingAttachment = ExistingVideoShareStore.consume(internalShareToken)
+            if (internalShareToken != null) {
+                intent.removeExtra(VideoShareRefinementContract.EXTRA_INTERNAL_SHARE_TOKEN)
+            }
+            if (existingAttachment != null) {
+                intent.action = null
+                PhotoViewer.dismissActiveIfShowing()
+                VideoPlayerDialog.dismissActiveIfShowing()
+
+                val params = INavigationLayout.NavigationParams(
+                    SharingFragment.fromExistingAttachment(existingAttachment)
+                )
+                actionBarLayout.presentFragment(params)
+                return true
+            }
+        }
+
         val uris = ArrayList<Uri>()
         val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)
         val mimeType = intent.type
@@ -1442,6 +1483,7 @@ class MainActivity : BasePermissionsActivity(),
         intent.removeExtra(Intent.EXTRA_TEXT)
 
         PhotoViewer.dismissActiveIfShowing()
+        VideoPlayerDialog.dismissActiveIfShowing()
 
         val fragment = SharingFragment.fromDevice(
             uris = uris,

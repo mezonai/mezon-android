@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.chat
 
+import android.util.LongSparseArray
 import android.view.ViewGroup
 import android.widget.ProgressBar
 import androidx.recyclerview.widget.RecyclerView
@@ -15,6 +16,8 @@ class ChatAdapter(
     var currentUserId: String = "",
     var cellDelegate: ChatMessageCell.ChatMessageCellDelegate? = null
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+
+    private val resolvedStableIds = LongSparseArray<Long>()
 
     var currentUserRoleIds: List<Long> = emptyList()
         set(value) {
@@ -45,6 +48,8 @@ class ChatAdapter(
         private const val TYPE_WELCOME = 5
         private const val TYPE_SEND_TOKEN = 6
         private const val TYPE_TOPIC_ROOT = 7
+
+        private fun optimisticStableId(messageId: Long): Long = messageId xor Long.MIN_VALUE
     }
 
     var showTopicRootHeader = false
@@ -80,6 +85,7 @@ class ChatAdapter(
     var showLoadingDown = false
 
     fun updateRowsInternal() {
+        pruneResolvedStableIds()
         combinedCache.clear()
         mentionCache.clear()
         rowCount = 0
@@ -228,6 +234,24 @@ class ChatAdapter(
         return if (idx in messages.indices) messages[idx] else null
     }
 
+    /** Keeps RecyclerView identity stable while an optimistic temp ID is replaced by the server ID. */
+    fun preserveOptimisticStableId(tempId: Long, resolvedId: Long) {
+        if (tempId == 0L || resolvedId == 0L) return
+        resolvedStableIds.put(resolvedId, optimisticStableId(tempId))
+        if (resolvedId != tempId) resolvedStableIds.remove(tempId)
+    }
+
+    private fun pruneResolvedStableIds() {
+        if (resolvedStableIds.size() == 0) return
+        val activeIds = HashSet<Long>(messages.size)
+        messages.forEach { activeIds.add(it.id) }
+        for (i in resolvedStableIds.size() - 1 downTo 0) {
+            if (!activeIds.contains(resolvedStableIds.keyAt(i))) {
+                resolvedStableIds.removeAt(i)
+            }
+        }
+    }
+
     override fun getItemCount(): Int = rowCount
 
     override fun getItemId(position: Int): Long = when (position) {
@@ -236,7 +260,19 @@ class ChatAdapter(
         topicRootHeaderRow -> Long.MIN_VALUE + 2
         else -> {
             val idx = position - messagesStartRow
-            if (idx in messages.indices) messages[idx].id else RecyclerView.NO_ID
+            if (idx !in messages.indices) {
+                RecyclerView.NO_ID
+            } else {
+                val msg = messages[idx]
+                resolvedStableIds.get(msg.id)
+                    ?: if (msg.isMe &&
+                        (msg.isSending || msg.sendState == MessageEntity.SEND_STATE_ERROR)
+                    ) {
+                        optimisticStableId(msg.id)
+                    } else {
+                        msg.id
+                    }
+            }
         }
     }
 
@@ -380,8 +416,9 @@ class ChatAdapter(
     }
 
     override fun onViewRecycled(holder: RecyclerView.ViewHolder) {
-        if (holder is MessageViewHolder) {
-            holder.cell.clearState()
+        when (holder) {
+            is MessageViewHolder -> holder.cell.clearState()
+            is SystemViewHolder -> holder.cell.recycle()
         }
     }
 

@@ -24,8 +24,11 @@ class NetworkMonitor @Inject constructor(
     private val connectivityManager =
         context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
-    private val _isOnline = MutableStateFlow(readValidatedInternet())
+    private val _isOnline = MutableStateFlow(currentValidatedNetwork() != null)
     val isOnline: StateFlow<Boolean> = _isOnline.asStateFlow()
+
+    private val _activeNetwork = MutableStateFlow(currentValidatedNetwork())
+    val activeNetwork: StateFlow<Network?> = _activeNetwork.asStateFlow()
 
     private val connectivityCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
@@ -51,17 +54,21 @@ class NetworkMonitor @Inject constructor(
     }
 
     private fun publishFromActiveNetwork(force: Boolean = false) {
-        val nextOnline = readValidatedInternet()
+        val nextNetwork = currentValidatedNetwork()
+        val nextOnline = nextNetwork != null
         if (force || _isOnline.value != nextOnline) {
             Log.d(TAG, "isOnline=$nextOnline")
             _isOnline.value = nextOnline
         }
+        if (force || _activeNetwork.value != nextNetwork) {
+            _activeNetwork.value = nextNetwork
+        }
     }
 
-    private fun readValidatedInternet(): Boolean {
-        val network = connectivityManager.activeNetwork ?: return false
-        val caps = connectivityManager.getNetworkCapabilities(network) ?: return false
-        return caps.hasValidatedInternet()
+    private fun currentValidatedNetwork(): Network? {
+        val network = connectivityManager.activeNetwork ?: return null
+        val caps = connectivityManager.getNetworkCapabilities(network) ?: return null
+        return if (caps.hasValidatedInternet()) network else null
     }
 
     private fun NetworkCapabilities.hasValidatedInternet(): Boolean {

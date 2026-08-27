@@ -61,10 +61,16 @@
     <string name="qr_my_code">My QR Code</string>
     <string name="qr_profile">My QR Profile</string>
     <string name="qr_transfer">Transfer QR</string>
-    <string name="qr_share_with_others">Share with others</string>
     <string name="qr_transfer_hint">Scan this QR code to transfer funds</string>
-    <string name="qr_profile_hint">Scan this QR to chat with me or view my profile</string>
     <string name="qr_brand_title">Mezon</string>
+    <string name="qr_profile_badge" translatable="false">PROFILE QR</string>
+    <string name="qr_transfer_badge" translatable="false">TRANSFER QR</string>
+    <string name="qr_verified_by">Verified by Mezon</string>
+    <string name="qr_center_image_title">QR center image</string>
+    <string name="qr_center_image_device">Choose from device</string>
+    <string name="qr_center_image_avatar">Use profile avatar</string>
+    <string name="qr_center_image_mezon">Use Mezon logo</string>
+    <string name="qr_center_image_load_failed">Could not load the selected image</string>
     <string name="qr_token_balance">Balance: %1$s</string>
     <string name="qr_download_success">QR saved to gallery</string>
     <string name="qr_download_failed">Failed to save QR</string>
@@ -90,6 +96,18 @@
     <string name="qr_download_btn">Download</string>
     <string name="qr_profile_section_title">USER PROFILE</string>
     <string name="qr_dismiss_btn">No, thank you</string>
+    <string name="lucky_money_title">Lucky money</string>
+    <string name="lucky_money_processing">Processing</string>
+    <string name="lucky_money_please_wait">Please wait a moment…</string>
+    <string name="lucky_money_congratulations">You received lucky money!</string>
+    <string name="lucky_money_claim_to_wallet">Claim to wallet</string>
+    <string name="lucky_money_claiming">Claiming…</string>
+    <string name="lucky_money_claim_success">Claimed successfully</string>
+    <string name="lucky_money_done">Done</string>
+    <string name="lucky_money_claim_failed">Could not claim. Please try again.</string>
+    <string name="lucky_money_wallet_not_ready">Wallet is not ready. Please try again later.</string>
+    <string name="lucky_money_service_not_configured">Claim service is not configured.</string>
+    <string name="lucky_money_invalid_payload">This QR code is not valid lucky money.</string>
 
     <!-- qr profile sheet -->
     <string name="qr_profile_sheet_title">USER PROFILE</string>
@@ -363,10 +381,14 @@
     <string name="unpin_message_confirm_title">Unpin Message</string>
     <string name="unpin_message_confirm_description">Please confirm if you would like to remove this pinned message?</string>
     <string name="pin_message_empty">This channel doesn\'t have any pinned messages\u2026 yet.</string>
+    <string name="channel_gallery_images">Images</string>
+    <string name="channel_gallery_videos">Videos</string>
     <string name="channel_gallery_empty">No shared photos or videos yet.</string>
     <string name="channel_gallery_load_error">Couldn\'t load media. Try again.</string>
 
     <string name="channel_files_search_placeholder">Search Files</string>
+    <string name="channel_files_docs">Docs</string>
+    <string name="channel_files_audios">Audios</string>
     <string name="channel_canvas_search_placeholder">Search Canvas</string>
     <string name="channel_canvas_untitled">Untitled</string>
     <string name="channel_canvas_link_copied">Canvas link copied!</string>
@@ -381,6 +403,14 @@
     <string name="action_copy_link">Copy Media Link</string>
     <string name="action_copy_image">Copy Image</string>
     <string name="action_share_image">Share Image</string>
+    <string name="action_save_video">Save Video</string>
+    <string name="action_share_video">Share Video</string>
+    <string name="action_share_video_to_mezon">Share to Mezon</string>
+    <string name="action_share_video_to_other_apps">Share to other apps</string>
+    <string name="video_share_preparing">Preparing video…</string>
+    <string name="video_share_preparing_progress">Preparing video… %1$d%%</string>
+    <string name="video_save_downloading">Downloading video…</string>
+    <string name="video_save_downloading_progress">Downloading video… %1$d%%</string>
     <string name="message_slide_to_cancel">Slide to cancel</string>
     <string name="message_voice_record_failed">Could not start voice recording.</string>
     <string name="message_voice_record_too_short">Recording is too short.</string>
@@ -1773,4 +1803,5 @@
 
     <string name="message_toast_save_success">Save successfully</string>
     <string name="message_toast_save_failed">Save failed</string>
+    <string name="message_toast_share_failed">Share failed</string>
 </resources>

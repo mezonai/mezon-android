@@ -59,6 +59,27 @@ object EmbedFormUtil {
     fun getValuesForComponent(messageId: Long, componentId: String): List<String> =
         messageForm[messageId]?.get(componentId)?.values?.toList() ?: emptyList()
 
+    fun reconcileComponentValues(
+        messageId: Long,
+        componentId: String,
+        allowedValues: Collection<String>,
+        multiple: Boolean,
+    ) {
+        if (componentId.isEmpty()) return
+        val row = messageForm[messageId] ?: return
+        val allowed = allowedValues.toHashSet()
+        row.compute(componentId) { _, current ->
+            if (current == null) return@compute null
+            val retained = current.values.filter { it in allowed }.distinct()
+            when {
+                retained.isEmpty() -> null
+                multiple -> FormEntry(true, retained.toMutableList())
+                else -> FormEntry(false, mutableListOf(retained.first()))
+            }
+        }
+        if (row.isEmpty()) messageForm.remove(messageId, row)
+    }
+
     fun buildExtraDataJson(messageId: Long): String {
         val row = messageForm[messageId] ?: return ""
         if (row.isEmpty()) return ""
