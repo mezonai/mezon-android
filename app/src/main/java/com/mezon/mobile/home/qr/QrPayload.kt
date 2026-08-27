@@ -61,7 +61,7 @@ object QrPayloadParser {
 
         val json = runCatching { JSONObject(trimmed) }.getOrNull()
         if (json != null) {
-            if (json.has("lucky_money_id")) return QrAction.LuckyMoney(json.optString("lucky_money_id"))
+            parseLuckyMoneyId(json)?.let { return QrAction.LuckyMoney(it) }
             if (json.has("receiver_id") || json.has("wallet_address")) return QrAction.Transfer(trimmed)
         }
 
@@ -69,6 +69,15 @@ object QrPayloadParser {
         if (loginId != null) return QrAction.Login(loginId)
 
         return QrAction.Invalid
+    }
+
+    private fun parseLuckyMoneyId(json: JSONObject): String? {
+        if (!json.has("lucky_money_id") || json.isNull("lucky_money_id")) return null
+        return when (val value = json.get("lucky_money_id")) {
+            is String -> value.trim().ifBlank { null }
+            is Number -> value.toLong().toString()
+            else -> null
+        }
     }
 
     fun parseOpenableLink(value: String): String? {

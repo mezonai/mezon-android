@@ -22,6 +22,16 @@ import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.session.StoredSession
 import io.ktor.client.HttpClient
+import io.ktor.client.request.header
+import io.ktor.client.request.parameter
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
+import io.ktor.http.contentType
+import io.ktor.http.isSuccess
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,11 +41,48 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
+import org.json.JSONObject
 import java.math.BigInteger
 import javax.inject.Inject
 import javax.inject.Singleton
 
 private const val TAG = "WalletController"
+
+data class LuckyMoneyClaimAmount(
+    val splitMoneyId: Long,
+    val amount: Long,
+    val description: String?
+)
+
+class LuckyMoneyException(
+    val reason: Reason,
+    message: String? = null
+) : Exception(message) {
+    enum class Reason {
+        SERVICE_NOT_CONFIGURED,
+        WALLET_NOT_READY,
+        INVALID_PAYLOAD,
+        HTTP
+    }
+}
+
+@Serializable
+private data class LuckyMoneyClaimAmountRequest(
+    val user_id: String,
+    val proof_b64: String,
+    val public_b64: String,
+    val publickey: String
+)
+
+@Serializable
+private data class LuckyMoneyClaimRequest(
+    val split_money_id: Long,
+    val user_id: String,
+    val proof_b64: String,
+    val public_b64: String,
+    val publickey: String
+)
 
 @Singleton
 class WalletController @Inject constructor(
@@ -222,6 +269,131 @@ class WalletController @Inject constructor(
             }.onFailure { e ->
                 Log.w(TAG, "fetchWalletDetail failed", e)
             }
+        }
+    }
+
+    suspend fun fetchLuckyMoneyClaimAmount(
+        luckyMoneyId: String
+    ): Result<LuckyMoneyClaimAmount> = withContext(ioDispatcher) {
+        luckyMoneyResult {
+            val (session, walletSigning) = requireLuckyMoneyContext()
+            val baseUrl = luckyMoneyServiceBaseUrl()
+            val response = httpClient.post("$baseUrl/api/v1/red-envelopes/qr/claim-amount") {
+                parameter("id", luckyMoneyId)
+                header(HttpHeaders.Accept, ContentType.Application.Json.toString())
+                contentType(ContentType.Application.Json)
+                setBody(
+                    LuckyMoneyClaimAmountRequest(
+                        user_id = session.userId,
+                        proof_b64 = walletSigning.zk.proof,
+                        public_b64 = walletSigning.zk.publicInput,
+                        publickey = walletSigning.ephemeral.publicKey
+                    )
+                )
+            }
+            val rawBody = response.bodyAsText()
+            if (!response.status.isSuccess()) {
+                throw LuckyMoneyException(
+                    LuckyMoneyException.Reason.HTTP,
+                    luckyMoneyErrorMessage(rawBody, "HTTP ${response.status.value}")
+                )
+            }
+            parseLuckyMoneyClaimAmount(rawBody)
+        }
+    }
+
+    suspend fun claimLuckyMoney(
+        luckyMoneyId: String,
+        splitMoneyId: Long
+    ): Result<Unit> = withContext(ioDispatcher) {
+        luckyMoneyResult {
+            val (session, walletSigning) = requireLuckyMoneyContext()
+            val baseUrl = luckyMoneyServiceBaseUrl()
+            val response = httpClient.post("$baseUrl/api/v1/red-envelopes/qr/$luckyMoneyId/claim") {
+                header(HttpHeaders.Accept, ContentType.Application.Json.toString())
+                contentType(ContentType.Application.Json)
+                setBody(
+                    LuckyMoneyClaimRequest(
+                        split_money_id = splitMoneyId,
+                        user_id = session.userId,
+                        proof_b64 = walletSigning.zk.proof,
+                        public_b64 = walletSigning.zk.publicInput,
+                        publickey = walletSigning.ephemeral.publicKey
+                    )
+                )
+            }
+            val rawBody = response.bodyAsText()
+            if (!response.status.isSuccess()) {
+                throw LuckyMoneyException(
+                    LuckyMoneyException.Reason.HTTP,
+                    luckyMoneyErrorMessage(rawBody, "HTTP ${response.status.value}")
+                )
+            }
+            fetchWalletDetail()
+        }
+    }
+
+    private suspend fun requireLuckyMoneyContext(): Pair<StoredSession, Signing> {
+        val session = sessionManager.sessionFlow.firstOrNull()
+        val walletSigning = signing
+        if (session == null || session.userId.isBlank() || walletSigning == null || !_isWalletReady.value) {
+            throw LuckyMoneyException(LuckyMoneyException.Reason.WALLET_NOT_READY)
+        }
+        return session to walletSigning
+    }
+
+    private fun luckyMoneyServiceBaseUrl(): String {
+        val baseUrl = BuildConfig.MEZON_DONG_API_URL.trim().trimEnd('/')
+        if (baseUrl.isBlank()) {
+            throw LuckyMoneyException(LuckyMoneyException.Reason.SERVICE_NOT_CONFIGURED)
+        }
+        return baseUrl
+    }
+
+    private fun parseLuckyMoneyClaimAmount(rawBody: String): LuckyMoneyClaimAmount {
+        val root = runCatching { JSONObject(rawBody) }.getOrNull()
+            ?: throw LuckyMoneyException(LuckyMoneyException.Reason.INVALID_PAYLOAD)
+        val data = root.optJSONObject("data") ?: root
+        val splitMoneyId = readLong(data, "split_money_id")
+            ?: throw LuckyMoneyException(LuckyMoneyException.Reason.INVALID_PAYLOAD)
+        val amount = readLong(data, "amount")
+            ?: throw LuckyMoneyException(LuckyMoneyException.Reason.INVALID_PAYLOAD)
+        val description = if (data.isNull("description")) {
+            null
+        } else {
+            data.optString("description", "").trim().ifBlank { null }
+        }
+        return LuckyMoneyClaimAmount(splitMoneyId, amount, description)
+    }
+
+    private fun readLong(json: JSONObject, key: String): Long? {
+        if (!json.has(key) || json.isNull(key)) return null
+        return when (val value = json.get(key)) {
+            is Number -> value.toLong()
+            is String -> value.trim().toLongOrNull()
+            else -> null
+        }
+    }
+
+    private fun luckyMoneyErrorMessage(rawBody: String, fallback: String): String {
+        val trimmed = rawBody.trim()
+        if (trimmed.isEmpty()) return fallback
+        val json = runCatching { JSONObject(trimmed) }.getOrNull() ?: return trimmed
+        val direct = json.optString("message", "").trim()
+        if (direct.isNotEmpty()) return direct
+        val nested = json.optJSONObject("data")?.optString("message", "")?.trim().orEmpty()
+        return nested.ifEmpty { fallback }
+    }
+
+    private suspend inline fun <T> luckyMoneyResult(
+        crossinline block: suspend () -> T
+    ): Result<T> {
+        return try {
+            Result.success(block())
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            Result.failure(error)
         }
     }
 
