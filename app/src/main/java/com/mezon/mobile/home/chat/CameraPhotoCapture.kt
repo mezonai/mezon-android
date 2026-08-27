@@ -12,9 +12,14 @@ import java.util.UUID
 
 data class CameraPhotoCapture(
     val file: File,
-    val uri: Uri,
-    val intent: Intent
+    val uri: Uri
 ) {
+    fun captureIntent(): Intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
+        putExtra(MediaStore.EXTRA_OUTPUT, uri)
+        clipData = ClipData.newRawUri("camera-photo", uri)
+        addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+
     fun toAttachment(): AttachmentPickerItem? {
         if (!file.isFile || file.length() <= 0L) return null
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -39,21 +44,25 @@ data class CameraPhotoCapture(
     }
 
     companion object {
+        const val CACHE_DIRECTORY = "camera"
+
         fun create(context: Context): CameraPhotoCapture? {
-            val directory = File(context.cacheDir, "camera").apply { mkdirs() }
+            val directory = File(context.cacheDir, CACHE_DIRECTORY).apply { mkdirs() }
             val file = File(directory, "camera-${UUID.randomUUID()}.jpg")
             if (!file.createNewFile()) return null
-            val uri = FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.fileprovider",
-                file
-            )
-            val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
-                putExtra(MediaStore.EXTRA_OUTPUT, uri)
-                clipData = ClipData.newRawUri("camera-photo", uri)
-                addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            return CameraPhotoCapture(file, uri, intent)
+            return CameraPhotoCapture(file, uriFor(context, file))
         }
+
+        fun restore(context: Context, path: String): CameraPhotoCapture? {
+            val file = File(path)
+            if (!file.isFile) return null
+            return CameraPhotoCapture(file, uriFor(context, file))
+        }
+
+        private fun uriFor(context: Context, file: File): Uri = FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            file
+        )
     }
 }
