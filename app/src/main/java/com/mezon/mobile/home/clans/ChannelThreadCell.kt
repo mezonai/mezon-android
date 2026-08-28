@@ -11,7 +11,6 @@ import com.mezon.mobile.core.BaseCell
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
-import com.mezon.mobile.ui.cells.MezonIcon
 
 class ChannelThreadCell(
     context: Context,
@@ -44,8 +43,6 @@ class ChannelThreadCell(
         private val ACTIVE_PAD_RIGHT = LayoutHelper.dp(8).toFloat()
         private val BADGE_GAP = LayoutHelper.dp(4)
         private val BADGE_TEXT_PAD = LayoutHelper.dp(8).toFloat()
-        private val EVENT_ICON_UPCOMING_STATE = intArrayOf(android.R.attr.state_selected)
-        private val EVENT_ICON_ONGOING_STATE = intArrayOf(android.R.attr.state_activated)
         private const val MUTED_CONTENT_ALPHA = 0.6f
     }
 
@@ -54,10 +51,9 @@ class ChannelThreadCell(
     private var isFirst = false
     private var isLast = false
     private var isActive = false
-    private var eventStatus = ClanEventStatus.CREATED
     private var truncatedName: String = ""
     private var truncatedNameWidth = -1
-    private val eventIconDrawable by lazy { MezonIcon.calendarIcon.getDrawable(context) }
+    private val eventIcon = ChannelEventIcon(context)
 
     private val cellHeightPx = LayoutHelper.dp(37)
     private val connectorLineX = LayoutHelper.dp(26).toFloat()
@@ -81,15 +77,13 @@ class ChannelThreadCell(
         this.isFirst = isFirst
         this.isLast = isLast
         this.isActive = isActive
-        this.eventStatus = normalizeEventStatus(eventStatus)
+        eventIcon.setStatus(eventStatus)
         truncatedName = ""
         invalidate()
     }
 
     fun setEventStatus(eventStatus: Int?) {
-        val normalized = normalizeEventStatus(eventStatus)
-        if (this.eventStatus == normalized) return
-        this.eventStatus = normalized
+        if (!eventIcon.setStatus(eventStatus)) return
         truncatedName = ""
         invalidate()
     }
@@ -175,21 +169,14 @@ class ChannelThreadCell(
         namePaint.color = textColor
         namePaint.typeface = if (showUnreadHighlight) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
 
-        val hasChannelEvent = eventStatus == ClanEventStatus.UPCOMING || eventStatus == ClanEventStatus.ONGOING
-        val textX = if (hasChannelEvent) {
-            eventIconDrawable.state = if (eventStatus == ClanEventStatus.ONGOING) {
-                EVENT_ICON_ONGOING_STATE
-            } else {
-                EVENT_ICON_UPCOMING_STATE
-            }
-            eventIconDrawable.alpha = if (isMutedVisual) (255 * MUTED_CONTENT_ALPHA).toInt() else 255
-            eventIconDrawable.setBounds(
-                textStartX,
-                ((height - eventIconSizePx) / 2f).toInt(),
-                textStartX + eventIconSizePx,
-                ((height + eventIconSizePx) / 2f).toInt(),
-            )
-            eventIconDrawable.draw(canvas)
+        val eventIconDrawn = eventIcon.drawIfVisible(
+            canvas = canvas,
+            left = textStartX,
+            top = (height - eventIconSizePx) / 2,
+            size = eventIconSizePx,
+            muted = isMutedVisual,
+        )
+        val textX = if (eventIconDrawn) {
             textStartX + eventIconSizePx + eventIconTrailingMarginPx
         } else {
             textStartX
@@ -224,8 +211,4 @@ class ChannelThreadCell(
         return color and 0x00FFFFFF or (alpha shl 24)
     }
 
-    private fun normalizeEventStatus(status: Int?): Int = when (status) {
-        ClanEventStatus.UPCOMING, ClanEventStatus.ONGOING -> status
-        else -> ClanEventStatus.CREATED
-    }
 }

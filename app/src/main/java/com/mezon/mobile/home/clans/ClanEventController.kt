@@ -179,32 +179,42 @@ class ClanEventController @Inject constructor(
 
     private suspend fun performLoadEvents(clanId: Long, cacheKey: String, socketVersionAtStart: Long) {
         val currentJob = currentCoroutineContext().job
+        var expectedSocketVersion = socketVersionAtStart
         notificationCenter.postNotificationOnMainThread(
             NotificationCenter.clanEventsDidLoad,
             clanId,
         )
         try {
-            val list = sessionManager.withAutoRefresh { session ->
-                api.listEvents(session.apiUrl, session.token, clanId)
-            }
-            val mapped = ArrayList(list.map { it.toClanEventEntity() })
-            val applied = synchronized(loadJobsLock) {
-                if (loadJobsByClan[clanId] !== currentJob) {
-                    false
-                } else {
-                    synchronized(cacheLock) {
-                        if ((socketVersionsByClan[clanId] ?: 0L) != socketVersionAtStart) {
-                            false
-                        } else {
-                            eventsByClan[clanId] = mapped
-                            true
+            while (true) {
+                val list = sessionManager.withAutoRefresh { session ->
+                    api.listEvents(session.apiUrl, session.token, clanId)
+                }
+                val mapped = ArrayList(list.map { it.toClanEventEntity() })
+                var retryForSocketUpdate = false
+                val applied = synchronized(loadJobsLock) {
+                    if (loadJobsByClan[clanId] !== currentJob) {
+                        false
+                    } else {
+                        synchronized(cacheLock) {
+                            val currentSocketVersion = socketVersionsByClan[clanId] ?: 0L
+                            if (currentSocketVersion != expectedSocketVersion) {
+                                expectedSocketVersion = currentSocketVersion
+                                retryForSocketUpdate = true
+                                false
+                            } else {
+                                eventsByClan[clanId] = mapped
+                                true
+                            }
                         }
                     }
                 }
-            }
-            if (applied) {
-                loadErrorsByClan.remove(clanId)
-                apiCacheTracker.markCalled(cacheKey)
+                if (applied) {
+                    loadErrorsByClan.remove(clanId)
+                    apiCacheTracker.markCalled(cacheKey)
+                }
+                if (!retryForSocketUpdate) {
+                    break
+                }
             }
         } catch (e: CancellationException) {
             throw e

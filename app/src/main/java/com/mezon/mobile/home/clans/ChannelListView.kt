@@ -29,6 +29,7 @@ private const val ROW_VOICE_MEMBER = 3
 private const val ROW_VOICE_COLLAPSED = 4
 private const val ROW_CHANNEL_APPS = 5
 private const val DIFF_BG_THRESHOLD = 50
+private val EVENT_STATUS_PAYLOAD = Any()
 
 class ChannelListView(
     context: Context,
@@ -242,24 +243,7 @@ class ChannelListView(
         changedChannelIds.addAll(statuses.keys)
         changedChannelIds.removeAll { previous[it] == statuses[it] }
         eventStatusesByChannel = HashMap(statuses)
-
-        val count = recyclerView.childCount
-        for (i in 0 until count) {
-            when (val child = recyclerView.getChildAt(i)) {
-                is ChannelItemCell -> {
-                    val channelId = child.channel?.channelId ?: continue
-                    if (channelId in changedChannelIds) {
-                        child.setEventStatus(eventStatusesByChannel[channelId])
-                    }
-                }
-                is ChannelThreadCell -> {
-                    val channelId = child.thread?.channelId ?: continue
-                    if (channelId in changedChannelIds) {
-                        child.setEventStatus(eventStatusesByChannel[channelId])
-                    }
-                }
-            }
-        }
+        adapter.notifyEventStatusesChanged(changedChannelIds)
     }
 
     fun updateVisibleRows(mask: Int, freshChannels: Map<Long, ClanChannelEntity>? = null) {
@@ -496,6 +480,19 @@ class ChannelListView(
             }
         }
 
+        fun notifyEventStatusesChanged(changedChannelIds: Set<Long>) {
+            for (i in rows.indices) {
+                val channelId = when (val row = rows[i]) {
+                    is ChannelRow.Channel -> row.channel.channelId
+                    is ChannelRow.Thread -> row.thread.channelId
+                    else -> continue
+                }
+                if (channelId in changedChannelIds) {
+                    notifyItemChanged(i, EVENT_STATUS_PAYLOAD)
+                }
+            }
+        }
+
         fun rowsEqual(newRows: List<ChannelRow>): Boolean = rows == newRows
 
         fun swapRows(newRows: List<ChannelRow>) {
@@ -618,6 +615,30 @@ class ChannelListView(
                     (holder as VoiceCollapsedVH).cell.setMembers(row.members)
                 }
             }
+        }
+
+        override fun onBindViewHolder(
+            holder: RecyclerView.ViewHolder,
+            pos: Int,
+            payloads: MutableList<Any>,
+        ) {
+            if (payloads.isNotEmpty() && payloads.all { it === EVENT_STATUS_PAYLOAD }) {
+                when (val row = rows[pos]) {
+                    is ChannelRow.Channel -> {
+                        (holder as ChannelVH).cell.setEventStatus(
+                            eventStatusesByChannel[row.channel.channelId],
+                        )
+                    }
+                    is ChannelRow.Thread -> {
+                        (holder as ThreadVH).cell.setEventStatus(
+                            eventStatusesByChannel[row.thread.channelId],
+                        )
+                    }
+                    else -> onBindViewHolder(holder, pos)
+                }
+                return
+            }
+            onBindViewHolder(holder, pos)
         }
 
         inner class ChannelAppsVH(val cell: ChannelAppsStripView) : RecyclerView.ViewHolder(cell)
