@@ -23,7 +23,6 @@ fragmentKtx = "1.6.2"
 swiperefreshlayout = "1.1.0"
 firebaseBom = "33.1.0"
 googleServices = "4.4.2"
-livekit = "2.24.0"
 cameraX = "1.4.1"
 zxing = "3.5.3"
 bouncyCastle = "1.78.1"
@@ -31,6 +30,7 @@ photoView = "2.3.0"
 appcompat = "1.7.0"
 webrtc = "144.7559.01"
 sentry = "8.41.0"
+audioswitch = "1.2.0"
 
 [libraries]
 google-webrtc = { module = "io.github.webrtc-sdk:android", version.ref = "webrtc" }
@@ -64,7 +64,7 @@ firebase-messaging = { group = "com.google.firebase", name = "firebase-messaging
 androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
 androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
-livekit-android = { group = "io.livekit", name = "livekit-android", version.ref = "livekit" }
+twilio-audioswitch = { group = "com.twilio", name = "audioswitch", version.ref = "audioswitch" }
 androidx-camera-core = { group = "androidx.camera", name = "camera-core", version.ref = "cameraX" }
 androidx-camera-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "cameraX" }
 androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "cameraX" }

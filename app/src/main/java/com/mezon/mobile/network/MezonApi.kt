@@ -2609,6 +2609,10 @@ class MezonApi @Inject constructor(
             this.roomName = roomName
         }
         val bytes = rpc(apiUrl, token, "GenerateMeetToken", request.toByteArray())
+        val text = bytes.toString(Charsets.UTF_8).trim().trim('"')
+        if (text.startsWith("eyJ") && text.count { it == '.' } == 2) {
+            return GenerateMeetTokenResponse.newBuilder().setToken(text).build()
+        }
         return GenerateMeetTokenResponse.parseFrom(bytes)
     }
 
@@ -2646,14 +2650,12 @@ class MezonApi @Inject constructor(
         token: String,
         clanId: Long,
         channelId: Long,
-        roomName: String,
-        username: String
+        userId: Long
     ): ByteArray {
         val request = meetParticipantRequest {
             this.clanId = clanId
             this.channelId = channelId
-            this.roomName = roomName
-            this.username = username
+            this.userId = userId
         }
         return rpc(apiUrl, token, "RemoveParticipantMezonMeet", request.toByteArray())
     }
@@ -2663,14 +2665,12 @@ class MezonApi @Inject constructor(
         token: String,
         clanId: Long,
         channelId: Long,
-        roomName: String,
-        username: String
+        userId: Long
     ): ByteArray {
         val request = meetParticipantRequest {
             this.clanId = clanId
             this.channelId = channelId
-            this.roomName = roomName
-            this.username = username
+            this.userId = userId
         }
         return rpc(apiUrl, token, "MuteParticipantMezonMeet", request.toByteArray())
     }

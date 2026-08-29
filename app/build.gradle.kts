@@ -39,8 +39,8 @@ android {
         applicationId = "com.mezon.mobile"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1121
-        versionName = "1.1.200"
+        versionCode = 1135
+        versionName = "1.1.202"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -75,11 +75,27 @@ android {
         fun buildInt(name: String) {
             buildConfigField("int", name, req(name))
         }
+        fun buildIntOpt(name: String, fallback: Int) {
+            val v = mezonSecrets.getProperty(name)?.trim()?.toIntOrNull()
+            buildConfigField("int", name, (v ?: fallback).toString())
+        }
+        fun buildBoolOpt(name: String, fallback: Boolean) {
+            val v = mezonSecrets.getProperty(name)?.trim()?.lowercase()
+            val lit = when (v) {
+                "true", "1", "yes" -> "true"
+                "false", "0", "no" -> "false"
+                null, "" -> fallback.toString()
+                else -> error("Invalid boolean for $name: $v (use true/false in mezon.secrets.properties)")
+            }
+            buildConfigField("Boolean", name, lit)
+        }
 
         buildStr("MEZON_GATEWAY_URL")
         buildStr("MEZON_API_HOST")
         buildStr("MEZON_API_PORT")
         buildBool("MEZON_API_SECURE")
+        buildIntOpt("MEZON_TCP_PORT", 443)
+        buildBoolOpt("MEZON_ABRIDGED_FALLBACK", true)
         buildStr("MEZON_API_KEY")
         buildStr("MEZON_API_CLIENT_KEY_CUSTOM")
         buildStr("MEZON_DOMAIN_URL")
@@ -103,6 +119,7 @@ android {
         buildStr("MEZON_FCM_MEASUREMENT_ID")
         buildStr("MEZON_FCM_VAPID_KEY")
         buildStr("MEZON_MEET_WS_URL")
+        buildStr("MEZON_SFU_WS_URL")
         buildStr("MEZON_WEBRTC_ICESERVERS_URL")
         buildStr("MEZON_WEBRTC_ICESERVERS_USERNAME")
         buildStr("MEZON_WEBRTC_ICESERVERS_CREDENTIAL")
@@ -143,6 +160,9 @@ android {
                 storePassword = signingProp("MYAPP_RELEASE_STORE_PASSWORD")
                 keyAlias = signingProp("MYAPP_RELEASE_KEY_ALIAS")
                 keyPassword = signingProp("MYAPP_RELEASE_KEY_PASSWORD")
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
             }
         }
     }
@@ -253,8 +273,8 @@ dependencies {
     // Lottie for animated stickers (TGS)
     implementation("com.airbnb.android:lottie:6.4.0")
 
-    // LiveKit (voice/video channels)
-    implementation(libs.livekit.android)
+    // AudioSwitch (audio device routing)
+    implementation(libs.twilio.audioswitch)
     implementation(libs.photoview)
     implementation(libs.androidx.appcompat)
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")

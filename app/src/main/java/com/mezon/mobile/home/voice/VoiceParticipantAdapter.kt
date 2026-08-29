@@ -4,8 +4,8 @@ import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
-import io.livekit.android.room.Room
-import io.livekit.android.room.track.VideoTrack
+import com.mezon.mobile.home.voice.sfu.SfuRole
+import org.webrtc.VideoTrack
 
 data class ParticipantInfo(
     val identity: String,
@@ -19,13 +19,13 @@ data class ParticipantInfo(
     val isScreenShare: Boolean = false,
     val mirrorVideo: Boolean = false,
     val contentAspectRatio: Float = 16f / 9f,
+    val role: SfuRole? = null,
     val reactionBadge: ParticipantCell.ReactionBadgeType = ParticipantCell.ReactionBadgeType.NONE
 )
 
 class VoiceParticipantAdapter(
     private val themeColors: ThemeColors,
     private val getParticipants: () -> List<ParticipantInfo>,
-    private val getRoom: () -> Room?,
     private val onScreenShareClick: (ParticipantInfo) -> Unit,
     private val onParticipantLongPress: (ParticipantInfo) -> Unit,
     private val itemKeyProvider: (ParticipantInfo) -> String,
@@ -91,13 +91,13 @@ class VoiceParticipantAdapter(
             participant.isMuted,
             participant.isSpeaking,
             participant.hasVideo,
-            participant.isScreenShare
+            participant.isScreenShare,
+            participant.role == SfuRole.AUDIENCE
         )
         holder.cell.setReactionBadge(participant.reactionBadge)
 
-        val room = getRoom()
-        if (participant.videoTrack != null && room != null) {
-            holder.cell.attachVideoTrack(room, participant.videoTrack, participant.mirrorVideo)
+        if (participant.videoTrack != null) {
+            holder.cell.attachVideoTrack(participant.videoTrack, participant.mirrorVideo)
         } else {
             holder.cell.detachVideoTrack()
         }

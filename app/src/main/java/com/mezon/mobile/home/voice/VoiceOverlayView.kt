@@ -22,9 +22,9 @@ import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.util.absoluteResourceUrl
 import com.mezon.mobile.util.avatarImgproxyUrl
 import com.mezon.mobile.util.createImgproxyUrl
-import io.livekit.android.renderer.SurfaceViewRenderer
-import io.livekit.android.room.Room
-import io.livekit.android.room.track.VideoTrack
+import com.mezon.mobile.home.call.EglBaseProvider
+import org.webrtc.SurfaceViewRenderer
+import org.webrtc.VideoTrack
 
 class VoiceOverlayView(
     context: Context,
@@ -127,7 +127,6 @@ class VoiceOverlayView(
     }
 
     fun setContent(
-        room: Room?,
         videoTrack: VideoTrack?,
         name: String,
         username: String,
@@ -137,8 +136,8 @@ class VoiceOverlayView(
     ) {
         backgroundImageView.visibility = GONE
         backgroundImageView.setImageDrawable(null)
-        if (videoTrack != null && room != null) {
-            showVideoContent(room, videoTrack)
+        if (videoTrack != null) {
+            showVideoContent(videoTrack)
             avatarView.visibility = GONE
         } else {
             detachVideo()
@@ -203,7 +202,7 @@ class VoiceOverlayView(
         )
     }
 
-    private fun showVideoContent(room: Room, videoTrack: VideoTrack) {
+    private fun showVideoContent(videoTrack: VideoTrack) {
         if (currentVideoTrack == videoTrack && surfaceRenderer != null) return
         detachVideo()
 
@@ -215,17 +214,24 @@ class VoiceOverlayView(
         }
 
         if (!rendererInitialized) {
-            room.initVideoRenderer(renderer)
+            renderer.init(EglBaseProvider.acquire(), null)
             rendererInitialized = true
         }
 
-        videoTrack.addRenderer(renderer)
+        try {
+            videoTrack.addSink(renderer)
+        } catch (e: IllegalStateException) {
+            currentVideoTrack = null
+            renderer.visibility = GONE
+            return
+        }
         currentVideoTrack = videoTrack
         renderer.visibility = VISIBLE
     }
 
     private fun detachVideo() {
-        currentVideoTrack?.removeRenderer(surfaceRenderer ?: return)
+        val renderer = surfaceRenderer ?: return
+        currentVideoTrack?.let { runCatching { it.removeSink(renderer) } }
         currentVideoTrack = null
         surfaceRenderer?.visibility = GONE
     }

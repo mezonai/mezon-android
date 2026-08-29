@@ -1078,7 +1078,7 @@ class GlobalSearchFragment : BaseFragment() {
             activity, themeColors, channel.channelLabel, channel.channelId, targetClanId, displays, channel.unreadCount,
             JoinMediaSheetKind.STREAMING
         )
-        sheet.onJoinVoice = {
+        sheet.onJoinVoice = { _ ->
             (activity as? MainActivity)?.showStreamingRoom(channel.channelId, targetClanId, channel.channelLabel)
         }
         sheet.onOpenChat = {
@@ -1095,8 +1095,8 @@ class GlobalSearchFragment : BaseFragment() {
         val sheet = JoinVoiceBottomSheet(
             activity, themeColors, channel.channelLabel, channel.channelId, targetClanId, displays, channel.unreadCount
         )
-        sheet.onJoinVoice = {
-            (activity as? MainActivity)?.showVoiceRoom(channel.channelId, targetClanId, channel.channelLabel)
+        sheet.onJoinVoice = { role ->
+            (activity as? MainActivity)?.showVoiceRoom(channel.channelId, targetClanId, channel.channelLabel, role)
         }
         sheet.onOpenChat = {
             onOpenChat?.invoke(channel.channelId, channel.channelLabel, targetClanId, channel.type)

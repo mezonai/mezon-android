@@ -13,6 +13,7 @@ import android.view.View
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.PopupWindow
 import android.widget.TextView
 import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.BottomSheet
@@ -21,6 +22,7 @@ import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.home.clans.VoiceMemberDisplay
 import com.mezon.mobile.home.stream.JoinMediaSheetKind
+import com.mezon.mobile.home.voice.sfu.SfuRole
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.util.avatarImgproxyUrl
 
@@ -35,10 +37,12 @@ class JoinVoiceBottomSheet(
     private val kind: JoinMediaSheetKind = JoinMediaSheetKind.VOICE,
 ) : BottomSheet(context) {
 
-    var onJoinVoice: (() -> Unit)? = null
+    var onJoinVoice: ((role: SfuRole) -> Unit)? = null
     var onOpenChat: (() -> Unit)? = null
     var onInvite: (() -> Unit)? = null
     private val avatarHolders = ArrayList<AvatarHolder>()
+    private var selectedRole = SfuRole.SPEAKER
+    private var joinButtonView: TextView? = null
 
     private class AvatarHolder(
         val avatarDrawable: AvatarDrawable,
@@ -90,7 +94,7 @@ class JoinVoiceBottomSheet(
             marginStart = LayoutHelper.dp(10)
             marginEnd = LayoutHelper.dp(10)
         })
-        headerRow.addView(View(context), LinearLayout.LayoutParams(LayoutHelper.dp(44), LayoutHelper.dp(44)))
+        headerRow.addView(buildChatButton(context), LinearLayout.LayoutParams(LayoutHelper.dp(44), LayoutHelper.dp(44)))
         root.addView(headerRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         val avatarContainer = FrameLayout(context).apply {
@@ -206,36 +210,44 @@ class JoinVoiceBottomSheet(
             gravity = Gravity.CENTER
         }
 
-        val joinButton = TextView(context).apply {
-            text = if (kind == JoinMediaSheetKind.STREAMING) "Join Stream" else "Join Voice"
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(0xFFFFFFFF.toInt())
-            gravity = Gravity.CENTER
-            val bgDrawable = GradientDrawable().apply {
-                cornerRadius = LayoutHelper.dp(40).toFloat()
-                setColor(0xFF43B581.toInt())
+        val joinControl: View = if (kind == JoinMediaSheetKind.STREAMING) {
+            TextView(context).apply {
+                text = "Join Stream"
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(0xFFFFFFFF.toInt())
+                gravity = Gravity.CENTER
+                background = GradientDrawable().apply {
+                    cornerRadius = LayoutHelper.dp(40).toFloat()
+                    setColor(0xFF43B581.toInt())
+                }
+                setPadding(LayoutHelper.dp(32), LayoutHelper.dp(12), LayoutHelper.dp(32), LayoutHelper.dp(12))
+                isClickable = true
+                isFocusable = true
+                applyVoiceButtonPressFeedback()
+                setOnClickListener {
+                    onJoinVoice?.invoke(selectedRole)
+                    dismissWithoutAnimation()
+                }
             }
-            background = bgDrawable
-            setPadding(LayoutHelper.dp(32), LayoutHelper.dp(12), LayoutHelper.dp(32), LayoutHelper.dp(12))
-            isClickable = true
-            isFocusable = true
-            applyVoiceButtonPressFeedback()
-            setOnClickListener {
-                onJoinVoice?.invoke()
-                dismissWithoutAnimation()
-            }
+        } else {
+            buildSplitJoinButton(context)
         }
-        buttonRow.addView(joinButton, LinearLayout.LayoutParams(
-            LayoutHelper.dp(200), LayoutHelper.dp(50)
+        buttonRow.addView(joinControl, LinearLayout.LayoutParams(
+            LayoutHelper.dp(220), LayoutHelper.dp(50)
         ))
 
+        root.addView(buttonRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+
+        return root
+    }
+
+    private fun buildChatButton(context: Context): View {
         val chatButton = FrameLayout(context).apply {
-            val bgDrawable = GradientDrawable().apply {
+            background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor(themeColors.surfaceVariant)
             }
-            background = bgDrawable
             isClickable = true
             isFocusable = true
             applyVoiceButtonPressFeedback()
@@ -244,46 +256,131 @@ class JoinVoiceBottomSheet(
                 dismiss()
             }
         }
-        val chatIcon = ImageView(context).apply {
+        chatButton.addView(ImageView(context).apply {
             setImageDrawable(MezonIcon.chatIcon.getDrawable(context).apply {
                 colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
             })
             scaleType = ImageView.ScaleType.CENTER_INSIDE
-        }
-        chatButton.addView(chatIcon, FrameLayout.LayoutParams(
-            LayoutHelper.dp(24), LayoutHelper.dp(24), Gravity.CENTER
-        ))
+        }, FrameLayout.LayoutParams(LayoutHelper.dp(22), LayoutHelper.dp(22), Gravity.CENTER))
         if (unreadCount > 0) {
-            val badge = TextView(context).apply {
+            chatButton.addView(TextView(context).apply {
                 text = if (unreadCount > 99) "99+" else unreadCount.toString()
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
                 typeface = Typeface.DEFAULT_BOLD
                 setTextColor(0xFFFFFFFF.toInt())
                 gravity = Gravity.CENTER
-                minWidth = LayoutHelper.dp(20)
-                minHeight = LayoutHelper.dp(20)
-                setPadding(LayoutHelper.dp(5), 0, LayoutHelper.dp(5), 0)
+                minWidth = LayoutHelper.dp(18)
+                minHeight = LayoutHelper.dp(18)
+                setPadding(LayoutHelper.dp(4), 0, LayoutHelper.dp(4), 0)
                 background = GradientDrawable().apply {
-                    cornerRadius = LayoutHelper.dp(10).toFloat()
+                    cornerRadius = LayoutHelper.dp(9).toFloat()
                     setColor(themeColors.badgeRed)
                 }
-            }
-            chatButton.addView(badge, FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                LayoutHelper.dp(20),
+            }, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT, LayoutHelper.dp(18),
                 Gravity.TOP or Gravity.END
             ).apply {
-                topMargin = -LayoutHelper.dp(4)
-                marginEnd = -LayoutHelper.dp(4)
+                topMargin = -LayoutHelper.dp(2)
+                marginEnd = -LayoutHelper.dp(2)
             })
         }
-        buttonRow.addView(chatButton, LinearLayout.LayoutParams(
-            LayoutHelper.dp(50), LayoutHelper.dp(50)
-        ).apply { marginStart = LayoutHelper.dp(20) })
+        return chatButton
+    }
 
-        root.addView(buttonRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+    private fun buildSplitJoinButton(context: Context): View {
+        val container = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            background = GradientDrawable().apply {
+                cornerRadius = LayoutHelper.dp(40).toFloat()
+                setColor(0xFF43B581.toInt())
+            }
+        }
+        val primary = TextView(context).apply {
+            text = "Join as Speaker"
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(0xFFFFFFFF.toInt())
+            gravity = Gravity.CENTER
+            isClickable = true
+            isFocusable = true
+            applyVoiceButtonPressFeedback()
+            setOnClickListener {
+                onJoinVoice?.invoke(selectedRole)
+                dismissWithoutAnimation()
+            }
+        }
+        joinButtonView = primary
+        val divider = View(context).apply { setBackgroundColor(0x33000000) }
+        val dropdown = FrameLayout(context).apply {
+            isClickable = true
+            isFocusable = true
+            applyVoiceButtonPressFeedback()
+            addView(ImageView(context).apply {
+                setImageDrawable(MezonIcon.chevronDownSmallIcon.getDrawable(context).apply {
+                    colorFilter = PorterDuffColorFilter(0xFFFFFFFF.toInt(), PorterDuff.Mode.SRC_IN)
+                })
+                scaleType = ImageView.ScaleType.CENTER_INSIDE
+            }, FrameLayout.LayoutParams(LayoutHelper.dp(18), LayoutHelper.dp(18), Gravity.CENTER))
+            setOnClickListener { showRoleDropdown(this) }
+        }
+        container.addView(primary, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f))
+        container.addView(divider, LinearLayout.LayoutParams(LayoutHelper.dp(1), LinearLayout.LayoutParams.MATCH_PARENT).apply {
+            topMargin = LayoutHelper.dp(10)
+            bottomMargin = LayoutHelper.dp(10)
+        })
+        container.addView(dropdown, LinearLayout.LayoutParams(LayoutHelper.dp(46), LinearLayout.LayoutParams.MATCH_PARENT))
+        return container
+    }
 
-        return root
+    private fun showRoleDropdown(anchor: View) {
+        val ctx = anchor.context
+        val menu = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                cornerRadius = LayoutHelper.dp(12).toFloat()
+                setColor(0xFF20202D.toInt())
+                setStroke(LayoutHelper.dp(1), 0xFF3A3A48.toInt())
+            }
+            setPadding(0, LayoutHelper.dp(6), 0, LayoutHelper.dp(6))
+        }
+        val popup = PopupWindow(menu, LayoutHelper.dp(220), LinearLayout.LayoutParams.WRAP_CONTENT, true).apply {
+            elevation = LayoutHelper.dp(8).toFloat()
+            inputMethodMode = PopupWindow.INPUT_METHOD_NOT_NEEDED
+            isOutsideTouchable = true
+            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(0))
+        }
+        fun addRow(label: String, role: SfuRole) {
+            val selected = role == selectedRole
+            menu.addView(TextView(ctx).apply {
+                text = label
+                setTextColor(if (selected) 0xFF43B581.toInt() else 0xFFFFFFFF.toInt())
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+                typeface = if (selected) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+                setPadding(LayoutHelper.dp(16), LayoutHelper.dp(12), LayoutHelper.dp(16), LayoutHelper.dp(12))
+                isClickable = true
+                isFocusable = true
+                applyVoiceButtonPressFeedback()
+                setOnClickListener {
+                    selectedRole = role
+                    updateRoleUi()
+                    popup.dismiss()
+                }
+            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        }
+        addRow("Join as speaker", SfuRole.SPEAKER)
+        addRow("Join as audience", SfuRole.AUDIENCE)
+        menu.measure(
+            View.MeasureSpec.makeMeasureSpec(LayoutHelper.dp(220), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        )
+        popup.showAsDropDown(anchor, 0, -(anchor.height + menu.measuredHeight + LayoutHelper.dp(4)))
+        menu.alpha = 0f
+        menu.translationY = LayoutHelper.dp(8).toFloat()
+        menu.animate().alpha(1f).translationY(0f).setDuration(140).start()
+    }
+
+    private fun updateRoleUi() {
+        joinButtonView?.text = if (selectedRole == SfuRole.SPEAKER) "Join as Speaker" else "Join as Audience"
     }
 
     private fun loadAvatar(holder: AvatarHolder, url: String?, avatarSizePx: Int) {

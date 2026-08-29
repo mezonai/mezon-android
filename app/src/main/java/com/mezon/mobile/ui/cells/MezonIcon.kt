@@ -198,6 +198,7 @@ enum class MezonIcon(@DrawableRes val resId: Int) {
     emptySearchIcon(R.drawable.ic_empty_search),
     filterHorizontalIcon(R.drawable.ic_filter_horizontal),
     callCancelIcon(R.drawable.ic_call_cancel),
+    callEndMeetIcon(R.drawable.ic_call_end_meet),
     callOutGoingIcon(R.drawable.ic_call_out_going),
     callInComingIcon(R.drawable.ic_call_in_coming),
     callMissIcon(R.drawable.ic_call_miss),

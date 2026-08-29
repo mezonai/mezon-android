@@ -1619,7 +1619,7 @@ class ClansFragment : BaseFragment() {
             activity, themeColors, channel.channelLabel, channel.channelId, clanId, displays, channel.unreadCount,
             JoinMediaSheetKind.STREAMING
         )
-        sheet.onJoinVoice = {
+        sheet.onJoinVoice = { _ ->
             (getParentActivity() as? MainActivity)?.showStreamingRoom(
                 channel.channelId, clanId, channel.channelLabel
             )
@@ -1648,9 +1648,9 @@ class ClansFragment : BaseFragment() {
         val sheet = JoinVoiceBottomSheet(
             activity, themeColors, channel.channelLabel, channel.channelId, clanId, displays, channel.unreadCount
         )
-        sheet.onJoinVoice = {
+        sheet.onJoinVoice = { role ->
             (getParentActivity() as? MainActivity)?.showVoiceRoom(
-                channel.channelId, clanId, channel.channelLabel
+                channel.channelId, clanId, channel.channelLabel, role
             )
         }
         sheet.onOpenChat = {

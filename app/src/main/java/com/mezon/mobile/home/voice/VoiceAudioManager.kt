@@ -4,17 +4,16 @@ import android.content.Context
 import android.media.AudioManager
 import android.util.Log
 import com.mezon.mobile.core.AndroidUtilities
+import com.mezon.mobile.home.call.MezonAudioSwitch
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.twilio.audioswitch.AudioDevice
 import com.twilio.audioswitch.AudioDeviceChangeListener
-import io.livekit.android.audio.AudioHandler
-import io.livekit.android.audio.AudioSwitchHandler
 
 class VoiceAudioManager(context: Context) {
 
     private val appContext = context.applicationContext
 
-    val audioSwitchHandler: AudioSwitchHandler = AudioSwitchHandler(appContext).apply {
+    private val audioSwitch: MezonAudioSwitch = MezonAudioSwitch(appContext).apply {
         preferredDeviceList = PREFERRED_DEVICE_LIST
         forceHandleAudioRouting = true
         focusMode = AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
@@ -34,16 +33,19 @@ class VoiceAudioManager(context: Context) {
     private var defaultRoutingApplied = false
 
     init {
-        audioSwitchHandler.registerAudioDeviceChangeListener(deviceChangeListener)
+        audioSwitch.registerAudioDeviceChangeListener(deviceChangeListener)
+    }
+
+    fun start() {
+        audioSwitch.start()
     }
 
     fun release() {
         AndroidUtilities.cancelRunOnUIThread(outputChangedRunnable)
-        audioSwitchHandler.unregisterAudioDeviceChangeListener(deviceChangeListener)
+        audioSwitch.unregisterAudioDeviceChangeListener(deviceChangeListener)
+        audioSwitch.stop()
         onOutputChanged = null
     }
-
-    fun asLiveKitAudioHandler(): AudioHandler = audioSwitchHandler
 
     fun resetDefaultRouting() {
         defaultRoutingApplied = false
@@ -51,7 +53,7 @@ class VoiceAudioManager(context: Context) {
 
     fun applyDefaultRouting() {
         if (userHasChosenOutput) return
-        val handler = audioSwitchHandler
+        val handler = audioSwitch
         val available = handler.availableAudioDevices
         val headset = available.firstOrNull { it is AudioDevice.BluetoothHeadset }
             ?: available.firstOrNull { it is AudioDevice.WiredHeadset }
@@ -80,7 +82,7 @@ class VoiceAudioManager(context: Context) {
 
     fun cycleOutput() {
         userHasChosenOutput = true
-        val handler = audioSwitchHandler
+        val handler = audioSwitch
         val selected = handler.selectedAudioDevice
         val available = handler.availableAudioDevices
         when (selected) {
@@ -102,7 +104,7 @@ class VoiceAudioManager(context: Context) {
     }
 
     fun currentOutputIcon(): MezonIcon {
-        return when (audioSwitchHandler.selectedAudioDevice) {
+        return when (audioSwitch.selectedAudioDevice) {
             is AudioDevice.Speakerphone -> MezonIcon.voiceWaveDoubleIcon
             is AudioDevice.BluetoothHeadset -> MezonIcon.bluetoothIcon
             else -> MezonIcon.voiceWaveIcon

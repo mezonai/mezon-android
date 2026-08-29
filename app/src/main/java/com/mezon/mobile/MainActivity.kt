@@ -66,6 +66,7 @@ import com.mezon.mobile.home.sharing.SharingFragment
 import com.mezon.mobile.home.stream.StreamingRoomFragment
 import com.mezon.mobile.home.voice.VoiceOverlayManager
 import com.mezon.mobile.home.voice.VoiceRoomFragment
+import com.mezon.mobile.home.voice.sfu.SfuRole
 import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
@@ -282,6 +283,22 @@ class MainActivity : BasePermissionsActivity(),
         notificationCenter.addObserver(this, NotificationCenter.needUsernameSetup)
     }
 
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+        when (event.keyCode) {
+            android.view.KeyEvent.KEYCODE_VOLUME_UP,
+            android.view.KeyEvent.KEYCODE_VOLUME_DOWN -> {
+                val key = if (event.keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP) "VOL_UP" else "VOL_DOWN"
+                val act = when (event.action) {
+                    android.view.KeyEvent.ACTION_DOWN -> "DOWN"
+                    android.view.KeyEvent.ACTION_UP -> "UP"
+                    else -> "action=${event.action}"
+                }
+                Log.d("VolumeKey", "$key $act repeat=${event.repeatCount}")
+            }
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
     override fun onResume() {
         super.onResume()
         isResumed = true
@@ -387,7 +404,7 @@ class MainActivity : BasePermissionsActivity(),
     private fun tryEnterPiP(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
         val fragment = voiceRoomFragment ?: return false
-        if (fragment.getRoom() == null) return false
+        if (!fragment.hasActiveSession()) return false
         val manager = voiceOverlayManager ?: return false
         if (!manager.isVisible()) return false
         if (manager.isMinimized()) {
@@ -996,7 +1013,7 @@ class MainActivity : BasePermissionsActivity(),
         showHome()
     }
 
-    fun showVoiceRoom(channelId: Long, clanId: Long, channelLabel: String) {
+    fun showVoiceRoom(channelId: Long, clanId: Long, channelLabel: String, role: SfuRole = SfuRole.SPEAKER) {
         if (isStreamingOverlayVisible()) dismissStreamingRoom()
         val manager = voiceOverlayManager ?: return
         val existing = voiceRoomFragment
@@ -1008,7 +1025,7 @@ class MainActivity : BasePermissionsActivity(),
             }
             dismissVoiceRoom()
         }
-        val fragment = VoiceRoomFragment.create(channelId, clanId, channelLabel)
+        val fragment = VoiceRoomFragment.create(channelId, clanId, channelLabel, role = role)
         fragment.themeColors = themeColors
         fragment.notificationCenter = notificationCenter
         fragment.parentLayout = actionBarLayout
@@ -1028,11 +1045,11 @@ class MainActivity : BasePermissionsActivity(),
         val focused = fragment.getFocusedContent()
         if (focused != null) {
             manager.minimize(
-                fragment.getRoom(), focused.videoTrack,
+                focused.videoTrack,
                 focused.name, focused.username, focused.avatarUrl, focused.isMuted, focused.userId
             )
         } else {
-            manager.minimize(null, null, fragment.getChannelLabel(), "", null, false, 0L)
+            manager.minimize(null, fragment.getChannelLabel(), "", null, false, 0L)
         }
     }
 
