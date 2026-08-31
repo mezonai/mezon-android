@@ -221,7 +221,9 @@ object MezonApiNameRegistry {
         "ListRolePermissions",
         "IsFollower",
         "DeletePinMessage",
-        "MarkAsRead"
+        "MarkAsRead",
+        "UploadBatchAttachmentFile",
+        "SearchCtrlK"
     )
 
     private val nameToIndex: Map<String, Int> = orderedNames

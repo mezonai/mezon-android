@@ -1,5 +1,6 @@
 package com.mezon.mobile.search
 
+import android.util.TypedValue
 import android.view.ViewGroup
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
@@ -101,18 +102,28 @@ class GlobalSearchAdapter(
             is MessageSearchCell -> if (item is SearchMessageDocument) {
                 view.update(0, item, resolveMessageSenderName(item))
             }
-            is HeaderCell -> if (item is SectionHeader) view.setText(item.title)
+            is HeaderCell -> if (item is SectionHeader) {
+                view.setText(item.title)
+                if (item.muted) {
+                    view.textView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                    view.textView.letterSpacing = 0.06f
+                } else {
+                    view.textView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+                    view.textView.letterSpacing = 0f
+                }
+            }
         }
     }
 
-    fun setMembers(members: List<SearchMember>) {
+    fun setMembers(members: List<SearchMember>, header: String? = null) {
         val newItems = ArrayList<Any>()
         if (members.isEmpty()) {
             newItems.add(EmptyItem)
         } else {
+            if (header != null) newItems.add(SectionHeader(header, MEMBERS_HEADER_STABLE_ID, muted = true))
             newItems.addAll(members)
         }
-        submitList(newItems)
+        submitList(newItems, forceSync = true)
     }
 
     fun setChannelSearchItems(
@@ -140,7 +151,7 @@ class GlobalSearchAdapter(
                 newItems.add(d)
             }
         }
-        submitList(newItems)
+        submitList(newItems, forceSync = true)
     }
 
     fun setMessages(messages: List<SearchMessageDocument>) {
@@ -159,9 +170,9 @@ class GlobalSearchAdapter(
         }
     }
 
-    private fun submitList(newItems: List<Any>) {
+    private fun submitList(newItems: List<Any>, forceSync: Boolean = false) {
         diffJob?.cancel()
-        if (newItems.size < DIFF_THRESHOLD && items.size < DIFF_THRESHOLD) {
+        if (forceSync || (newItems.size < DIFF_THRESHOLD && items.size < DIFF_THRESHOLD)) {
             applyDiff(newItems, DiffUtil.calculateDiff(SearchDiffCallback(items, newItems)))
         } else {
             val oldList = ArrayList(items)
@@ -189,7 +200,7 @@ class GlobalSearchAdapter(
         if (position in items.indices) items[position] else null
 }
 
-data class SectionHeader(val title: String, val stableId: Long)
+data class SectionHeader(val title: String, val stableId: Long, val muted: Boolean = false)
 
 object EmptyItem
 
@@ -200,6 +211,8 @@ private fun channelSectionIndex(type: Int): Int = when (type) {
 }
 
 private fun sectionStableId(sec: Int): Long = -(2000L + sec)
+
+private const val MEMBERS_HEADER_STABLE_ID = -3000L
 
 private class SearchDiffCallback(
     private val oldList: List<Any>,

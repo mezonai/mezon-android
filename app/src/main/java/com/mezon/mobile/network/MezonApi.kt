@@ -42,6 +42,7 @@ import com.mezon.mezon.api.ChannelUserList
 import com.mezon.mezon.api.ClanUserList
 import com.mezon.mezon.api.FriendList
 import com.mezon.mezon.api.NotificationList
+import com.mezon.mezon.api.SearchCtrlKResponse
 import com.mezon.mezon.api.SearchMessageResponse
 import com.mezon.mezon.api.ChannelAttachmentList
 import com.mezon.mezon.api.ChannelCanvasDetailResponse
@@ -131,6 +132,7 @@ import com.mezon.mezon.api.listChannelMessagesRequest
 import com.mezon.mezon.api.votePollRequest
 import com.mezon.mezon.api.listFriendsRequest
 import com.mezon.mezon.api.listNotificationsRequest
+import com.mezon.mezon.api.searchCtrlKRequest
 import com.mezon.mezon.api.searchMessageRequest
 import com.mezon.mezon.api.sessionRefreshRequest
 import com.mezon.mezon.api.Session
@@ -406,6 +408,7 @@ class MezonApi @Inject constructor(
             "ListThreadDescs",
             "ListUserClansByUserId",
             "ListWebhookByChannelId",
+            "SearchCtrlK",
             "SearchMessage"
         )
         private val READ_RETRYABLE_API_NAMES = SOCKET_RPC_API_NAMES + "GenerateHashChannelApps"
@@ -2472,6 +2475,20 @@ class MezonApi @Inject constructor(
         }
         val bytes = rpc(apiUrl, token, "SearchMessage", request.toByteArray())
         return SearchMessageResponse.parseFrom(bytes)
+    }
+
+    suspend fun searchCtrlK(
+        apiUrl: String,
+        token: String,
+        text: String,
+        type: Int
+    ): SearchCtrlKResponse {
+        val request = searchCtrlKRequest {
+            this.text = text
+            this.type = type
+        }
+        val bytes = rpc(apiUrl, token, "SearchCtrlK", request.toByteArray())
+        return SearchCtrlKResponse.parseFrom(bytes)
     }
 
     suspend fun listEmojisByUserId(
