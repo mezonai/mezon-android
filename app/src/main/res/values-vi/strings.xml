@@ -1118,6 +1118,8 @@
     <string name="search_message_attachment">[Tệp đính kèm]</string>
     <string name="search_user_fallback">Người dùng</string>
     <string name="search_type_to_search_messages">Nhập để tìm kiếm tin nhắn</string>
+    <string name="search_type_to_search">Nhập để tìm kiếm thành viên và kênh</string>
+    <string name="search_section_recent">Gần đây</string>
     <string name="search_no_messages_found">Không tìm thấy tin nhắn</string>
 
     <string name="voice_room_agent_request_failed">Không cập nhật được trợ lý thoại.</string>
