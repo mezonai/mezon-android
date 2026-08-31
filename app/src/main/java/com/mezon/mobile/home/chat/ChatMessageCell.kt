@@ -274,6 +274,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var audioIsLoading = false
     private var audioPositionMs: Long = 0
     private var audioDurationMs: Long = 0
+    private var audioPlaybackDurationMs: Long = 0
+    private var audioLockedDisplaySeconds: Int = 0
+    private var audioDurationProbeJob: Job? = null
+    private var audioDurationProbeUrl = ""
     private var audioWaveTimeMs: Long = 0
     private var audioLastFrameTimeMs: Long = 0
     private val audioWavePath = Path()
@@ -417,6 +421,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             pendingMessage = null
             update(0, msg)
         }
+        messageEntity?.let { resolveAudioDurationIfNeeded(it) }
     }
 
     override fun onDetachedFromWindow() {
@@ -443,6 +448,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         avatarCancellable?.cancel()
         avatarCancellable = null
         senderRoleIconCancellable?.cancel()
+        cancelAudioDurationProbe()
         senderRoleIconCancellable = null
         reactionEmojiCancellables.forEach { it?.cancel() }
         cancelEmojiLoads()
@@ -633,6 +639,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             audioIsLoading = false
             audioPositionMs = 0L
             audioDurationMs = (msg.attachmentDuration * 1000L).coerceAtLeast(0L)
+            audioPlaybackDurationMs = 0L
+            audioLockedDisplaySeconds = msg.attachmentDuration.coerceAtLeast(0)
             audioWaveTimeMs = 0L
             audioLastFrameTimeMs = 0L
             drawForwardHeader = msg.isForwarded
@@ -2035,6 +2043,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private fun buildAudioLayouts(msg: MessageEntity) {
         if (!drawAudioAttachment) {
+            cancelAudioDurationProbe()
             audioTimeLayout = null
             audioDurationSec = 0
             audioPillWidth = 0
@@ -2051,18 +2060,61 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             AUDIO_WAVE_WIDTH +
             AUDIO_TIME_GAP +
             LayoutHelper.dp(38)
+        resolveAudioDurationIfNeeded(msg)
+    }
+
+    private fun resolveAudioDurationIfNeeded(msg: MessageEntity) {
+        if (!attachedToWindow || !drawAudioAttachment || msg.attachmentDuration > 0) {
+            cancelAudioDurationProbe()
+            return
+        }
+        val url = msg.attachmentUrl.trim()
+        if (url.isEmpty() || audioDurationMs > 0L) return
+        if (audioDurationProbeUrl == url && audioDurationProbeJob?.isActive == true) return
+
+        cancelAudioDurationProbe()
+        audioDurationProbeUrl = url
+        audioDurationProbeJob = AUDIO_DURATION_UI_SCOPE.launch {
+            val durationMs = AudioDurationResolver.resolve(url)
+            if (durationMs <= 0L || messageEntity?.attachmentUrl?.trim() != url || !drawAudioAttachment) {
+                return@launch
+            }
+            audioDurationMs = durationMs
+            rebuildAudioTimeLayout()
+            invalidate()
+        }
+    }
+
+    private fun cancelAudioDurationProbe() {
+        audioDurationProbeJob?.cancel()
+        audioDurationProbeJob = null
+        audioDurationProbeUrl = ""
     }
 
     private fun audioDisplayTime(): String {
-        val remainingMs = when {
-            audioIsPlaying && audioDurationMs > 0 -> (audioDurationMs - audioPositionMs).coerceAtLeast(0L)
-            audioPositionMs in 1 until audioDurationMs -> (audioDurationMs - audioPositionMs).coerceAtLeast(0L)
-            audioDurationMs > 0 -> audioDurationMs
-            audioDurationSec > 0 -> audioDurationSec * 1000L
-            else -> 0L
+        val rawTotalDurationMs = maxOf(audioDurationMs, audioDurationSec * 1000L)
+        if (rawTotalDurationMs > 0L) {
+            val roundedSeconds = ((rawTotalDurationMs + 999L) / 1000L).toInt()
+            audioLockedDisplaySeconds = maxOf(audioLockedDisplaySeconds, roundedSeconds)
         }
-        if (remainingMs <= 0L && audioDurationSec <= 0) return "--:--"
-        val totalSeconds = (remainingMs / 1000).toInt()
+        val totalDurationMs = maxOf(
+            rawTotalDurationMs,
+            audioLockedDisplaySeconds * 1000L
+        )
+        val progress = if (audioPlaybackDurationMs > 0L) {
+            (audioPositionMs.toDouble() / audioPlaybackDurationMs.toDouble())
+                .coerceIn(0.0, 1.0)
+        } else {
+            0.0
+        }
+        val remainingMs = when {
+            totalDurationMs <= 0L -> 0.0
+            audioIsPlaying || progress > 0.001 ->
+                (totalDurationMs.toDouble() * (1.0 - progress)).coerceAtLeast(0.0)
+            else -> totalDurationMs.toDouble()
+        }
+        if (totalDurationMs <= 0L) return "--:--"
+        val totalSeconds = ceil(remainingMs / 1000.0).toInt()
         val minutes = totalSeconds / 60
         val seconds = totalSeconds % 60
         val sb = StringBuilder(6).append(minutes).append(':')
@@ -2080,7 +2132,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     ) {
         val msg = messageEntity ?: return
         if (msg.id != messageId) {
-            if (audioIsPlaying || audioIsLoading) {
+            if (audioIsPlaying || audioIsLoading || audioPositionMs > 0L) {
                 audioIsPlaying = false
                 audioIsLoading = false
                 audioPositionMs = 0L
@@ -2092,7 +2144,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         audioIsPlaying = isPlaying
         audioIsLoading = isLoading
         audioPositionMs = positionMs
-        if (durationMs > 0) audioDurationMs = durationMs
+        if (durationMs > 0) {
+            audioPlaybackDurationMs = durationMs
+            audioDurationMs = maxOf(audioDurationMs, durationMs, audioDurationSec * 1000L)
+        }
         rebuildAudioTimeLayout()
         invalidate()
     }
@@ -4887,6 +4942,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
         private const val VIDEO_THUMB_TIMEOUT_MS = 8_000L
         private val VIDEO_THUMB_SCOPE = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        private val AUDIO_DURATION_UI_SCOPE = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         private val EMBED_INPUT_HEIGHT = LayoutHelper.dp(40)
         private val EMBED_TEXTAREA_HEIGHT = LayoutHelper.dp(80)
         private val BUBBLE_RIGHT_INSET = LayoutHelper.dp(28)

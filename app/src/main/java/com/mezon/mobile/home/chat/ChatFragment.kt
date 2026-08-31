@@ -1277,12 +1277,14 @@ open class ChatFragment : BaseFragment() {
         }
 
         observe(NotificationCenter.audioPlaybackStateChanged) { _, _, args ->
-            if (fragmentView == null || isPaused) return@observe
+            if (fragmentView == null) return@observe
             val messageId = args.getOrNull(0) as? Long ?: return@observe
             val isPlaying = args.getOrNull(1) as? Boolean ?: false
             val isLoading = args.getOrNull(2) as? Boolean ?: false
             val positionMs = args.getOrNull(3) as? Long ?: 0L
             val durationMs = args.getOrNull(4) as? Long ?: 0L
+            val isStopped = !isPlaying && !isLoading && positionMs == 0L && durationMs == 0L
+            if (isPaused && !isStopped) return@observe
             for (i in 0 until recyclerView.childCount) {
                 val child = recyclerView.getChildAt(i) as? ChatMessageCell ?: continue
                 child.applyAudioPlayback(messageId, isPlaying, isLoading, positionMs, durationMs)

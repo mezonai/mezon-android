@@ -184,6 +184,7 @@ enum class MezonIcon(@DrawableRes val resId: Int) {
     cameraIcon(R.drawable.ic_camera),
     playIcon(R.drawable.ic_play),
     pauseIcon(R.drawable.ic_pause),
+    musicNoteIcon(R.drawable.ic_music_note),
     fileIcon(R.drawable.ic_file),
     paperPlaneIcon(R.drawable.ic_paper_plane),
     heartIcon(R.drawable.ic_heart),
