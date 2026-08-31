@@ -2166,7 +2166,16 @@ open class ChatFragment : BaseFragment() {
                         val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
                         dm.enqueue(request)
                         MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.INFO, "Downloading $filename")
-                    } catch (_: Exception) {}
+                    } catch (_: Exception) {
+                        runCatching {
+                            context.startActivity(
+                                android.content.Intent(
+                                    android.content.Intent.ACTION_VIEW,
+                                    android.net.Uri.parse(url)
+                                )
+                            )
+                        }
+                    }
                 }
             }
             override fun didLongPress(cell: ChatMessageCell, msg: MessageEntity) {
