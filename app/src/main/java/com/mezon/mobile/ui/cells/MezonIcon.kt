@@ -23,6 +23,7 @@ enum class MezonIcon(@DrawableRes val resId: Int) {
     channelStream(R.drawable.ic_channel_stream),
     channelApp(R.drawable.ic_channel_app),
     calendarIcon(R.drawable.ic_calendar),
+    channelEventCalendarIcon(R.drawable.ic_channel_event_calendar),
     eventTimeIcon(R.drawable.ic_event_time),
     chevronDownSmallIcon(R.drawable.ic_chevrondown),
     magnifyingIcon(R.drawable.ic_magnifying),

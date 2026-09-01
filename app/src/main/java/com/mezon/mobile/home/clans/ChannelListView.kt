@@ -29,6 +29,7 @@ private const val ROW_VOICE_MEMBER = 3
 private const val ROW_VOICE_COLLAPSED = 4
 private const val ROW_CHANNEL_APPS = 5
 private const val DIFF_BG_THRESHOLD = 50
+private val EVENT_STATUS_PAYLOAD = Any()
 
 class ChannelListView(
     context: Context,
@@ -49,6 +50,7 @@ class ChannelListView(
     private var boundClanId: Long = 0L
     private var currentSections: List<ChannelSection> = emptyList()
     private var currentChannelApps: List<ChannelAppUiModel> = emptyList()
+    private var eventStatusesByChannel: Map<Long, Int> = emptyMap()
     private var onChannelAppClick: ((ChannelAppUiModel) -> Unit)? = null
     private var onChannelAppViewAllClick: (() -> Unit)? = null
 
@@ -158,10 +160,14 @@ class ChannelListView(
         submitRowsGated(newRows)
     }
 
-    fun bind(clanId: Long, sections: List<ChannelSection>) {
-        if (clanId != boundClanId) {
+    fun bind(clanId: Long, sections: List<ChannelSection>, eventStatuses: Map<Long, Int>) {
+        val clanChanged = clanId != boundClanId
+        if (clanChanged) {
             boundClanId = clanId
             applyExpandState(expandStore.load(clanId))
+            eventStatusesByChannel = HashMap(eventStatuses)
+        } else {
+            updateChannelEventStatuses(eventStatuses)
         }
         val prevCategoryIds = currentSections.mapNotNull { if (it.categoryId != FAVORITE_CATEGORY_ID) it.categoryId else null }.toSet()
         val newCategoryIds = sections.mapNotNull { if (it.categoryId != FAVORITE_CATEGORY_ID) it.categoryId else null }.toSet()
@@ -182,6 +188,7 @@ class ChannelListView(
     fun clear() {
         currentSections = emptyList()
         currentChannelApps = emptyList()
+        eventStatusesByChannel = emptyMap()
         boundClanId = 0L
         allExpanded = true
         expandedCategories.clear()
@@ -226,6 +233,17 @@ class ChannelListView(
 
     fun invalidateTheme() {
         adapter.notifyDataSetChanged()
+    }
+
+    fun updateChannelEventStatuses(statuses: Map<Long, Int>) {
+        if (eventStatusesByChannel == statuses) return
+        val previous = eventStatusesByChannel
+        val changedChannelIds = HashSet<Long>()
+        changedChannelIds.addAll(previous.keys)
+        changedChannelIds.addAll(statuses.keys)
+        changedChannelIds.removeAll { previous[it] == statuses[it] }
+        eventStatusesByChannel = HashMap(statuses)
+        adapter.notifyEventStatusesChanged(changedChannelIds)
     }
 
     fun updateVisibleRows(mask: Int, freshChannels: Map<Long, ClanChannelEntity>? = null) {
@@ -462,6 +480,19 @@ class ChannelListView(
             }
         }
 
+        fun notifyEventStatusesChanged(changedChannelIds: Set<Long>) {
+            for (i in rows.indices) {
+                val channelId = when (val row = rows[i]) {
+                    is ChannelRow.Channel -> row.channel.channelId
+                    is ChannelRow.Thread -> row.thread.channelId
+                    else -> continue
+                }
+                if (channelId in changedChannelIds) {
+                    notifyItemChanged(i, EVENT_STATUS_PAYLOAD)
+                }
+            }
+        }
+
         fun rowsEqual(newRows: List<ChannelRow>): Boolean = rows == newRows
 
         fun swapRows(newRows: List<ChannelRow>) {
@@ -556,10 +587,21 @@ class ChannelListView(
                     (holder as SectionVH).cell.bind(row.categoryName, row.isExpanded, row.isFavorite)
                 }
                 is ChannelRow.Channel -> {
-                    (holder as ChannelVH).cell.bind(row.channel, row.isActive, row.voiceActive)
+                    (holder as ChannelVH).cell.bind(
+                        row.channel,
+                        row.isActive,
+                        row.voiceActive,
+                        eventStatusesByChannel[row.channel.channelId],
+                    )
                 }
                 is ChannelRow.Thread -> {
-                    (holder as ThreadVH).cell.bind(row.thread, row.isFirst, row.isLast, row.isActive)
+                    (holder as ThreadVH).cell.bind(
+                        row.thread,
+                        row.isFirst,
+                        row.isLast,
+                        row.isActive,
+                        eventStatusesByChannel[row.thread.channelId],
+                    )
                 }
                 is ChannelRow.VoiceMember -> {
                     (holder as VoiceMemberVH).cell.setUser(
@@ -573,6 +615,30 @@ class ChannelListView(
                     (holder as VoiceCollapsedVH).cell.setMembers(row.members)
                 }
             }
+        }
+
+        override fun onBindViewHolder(
+            holder: RecyclerView.ViewHolder,
+            pos: Int,
+            payloads: MutableList<Any>,
+        ) {
+            if (payloads.isNotEmpty() && payloads.all { it === EVENT_STATUS_PAYLOAD }) {
+                when (val row = rows[pos]) {
+                    is ChannelRow.Channel -> {
+                        (holder as ChannelVH).cell.setEventStatus(
+                            eventStatusesByChannel[row.channel.channelId],
+                        )
+                    }
+                    is ChannelRow.Thread -> {
+                        (holder as ThreadVH).cell.setEventStatus(
+                            eventStatusesByChannel[row.thread.channelId],
+                        )
+                    }
+                    else -> onBindViewHolder(holder, pos)
+                }
+                return
+            }
+            onBindViewHolder(holder, pos)
         }
 
         inner class ChannelAppsVH(val cell: ChannelAppsStripView) : RecyclerView.ViewHolder(cell)

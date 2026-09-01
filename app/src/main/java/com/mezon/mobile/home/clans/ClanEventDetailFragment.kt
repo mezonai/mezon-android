@@ -182,12 +182,12 @@ class ClanEventDetailFragment : BaseFragment() {
         }
         root.addView(scroll, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
 
-        bindContent()
+        bindContent(context)
         return root
     }
 
-    private fun bindContent() {
-        val ctx = fragmentView?.context ?: return
+    private fun bindContent(context: Context? = fragmentView?.context) {
+        val ctx = context ?: return
         contentHost.removeAllViews()
         val event = clanEventController.getEvent(clanId, eventId)
         if (event != null) {
