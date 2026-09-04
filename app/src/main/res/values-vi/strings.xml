@@ -1674,6 +1674,7 @@
     <string name="action_save_media">Lưu ảnh</string>
     <string name="action_copy_image">Sao chép ảnh</string>
     <string name="action_share_image">Chia sẻ ảnh</string>
+    <string name="action_share_text">Chia sẻ văn bản</string>
     <string name="action_save_video">Lưu video</string>
     <string name="action_share_video">Chia sẻ video</string>
     <string name="action_share_video_to_mezon">Chia sẻ đến Mezon</string>
