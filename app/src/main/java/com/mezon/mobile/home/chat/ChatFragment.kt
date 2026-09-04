@@ -6996,6 +6996,9 @@ open class ChatFragment : BaseFragment() {
                 clipboard.setPrimaryClip(android.content.ClipData.newPlainText("message", plainText))
                 MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.message_toast_copy_text))
             }
+            MessageActionBottomSheet.ActionType.ShareText -> {
+                shareMessageText(msg)
+            }
             MessageActionBottomSheet.ActionType.ForwardMessage -> {
                 openForwardScreen(msg)
             }
@@ -7113,6 +7116,17 @@ open class ChatFragment : BaseFragment() {
                 handleGiveCoffee(msg)
             }
         }
+    }
+
+    private fun shareMessageText(msg: MessageEntity) {
+        val activity = getParentActivity() ?: return
+        val plainText = parseContentText(msg.content)
+        if (plainText.isBlank()) return
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, plainText)
+        }
+        activity.startActivity(Intent.createChooser(intent, getString(R.string.action_share_text)))
     }
 
     private fun showReportMessageSheet(msg: MessageEntity) {

@@ -20,6 +20,8 @@ import com.mezon.mobile.core.BottomSheet
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.util.messageHasExplicitTextBody
+import com.mezon.mobile.util.parseContentText
 
 
 class MessageActionBottomSheet(
@@ -48,6 +50,7 @@ class MessageActionBottomSheet(
         ForwardAllNearby,
         EditMessage,
         CopyText,
+        ShareText,
         TopicDiscussion,
         PinMessage,
         UnPinMessage,
@@ -355,6 +358,14 @@ class MessageActionBottomSheet(
             context.getString(R.string.action_copy_text),
             R.drawable.ic_copy_icon
         ))
+
+        if (messageHasExplicitTextBody(message.content) && parseContentText(message.content).isNotBlank()) {
+            actions.add(ActionItem(
+                ActionType.ShareText,
+                context.getString(R.string.action_share_text),
+                R.drawable.ic_share_box
+            ))
+        }
 
         if (showPinActions) {
             if (isPinned) {
