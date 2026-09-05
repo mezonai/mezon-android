@@ -7081,7 +7081,12 @@ open class ChatFragment : BaseFragment() {
                     val ctx = getContext() ?: return
                     val clipboard = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                     clipboard.setPrimaryClip(android.content.ClipData.newPlainText("media_url", url))
-                    MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.action_copy_link))
+                    val messageRes = if (isVideoAttachmentType(msg.attachmentFiletype)) {
+                        R.string.action_copy_video_link
+                    } else {
+                        R.string.action_copy_image_link
+                    }
+                    MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(messageRes))
                 }
             }
             MessageActionBottomSheet.ActionType.CopyImage -> {

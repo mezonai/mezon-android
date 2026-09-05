@@ -400,7 +400,9 @@
     <string name="action_delete">Delete Message</string>
     <string name="action_report">Report</string>
     <string name="action_save_media">Save Media</string>
-    <string name="action_copy_link">Copy Media Link</string>
+    <string name="action_save_image">Save Image</string>
+    <string name="action_copy_image_link">Copy Image Link</string>
+    <string name="action_copy_video_link">Copy Video Link</string>
     <string name="action_copy_image">Copy Image</string>
     <string name="action_share_image">Share Image</string>
     <string name="action_save_video">Save Video</string>
