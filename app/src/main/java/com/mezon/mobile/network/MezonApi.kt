@@ -374,6 +374,9 @@ class MezonApi @Inject constructor(
             "RegistFCMDeviceToken",
             "SendChannelMessage"
         )
+        private val SOCKET_MUTATION_API_NAMES = setOf(
+            "ReactChannelMessage"
+        )
         private val SOCKET_RPC_API_NAMES = setOf(
             "GetAccount",
             "GetListEmojisByUserId",
@@ -410,8 +413,9 @@ class MezonApi @Inject constructor(
             "ListWebhookByChannelId",
             "SearchCtrlK",
             "SearchMessage"
-        )
-        private val READ_RETRYABLE_API_NAMES = SOCKET_RPC_API_NAMES + "GenerateHashChannelApps"
+        ) + SOCKET_MUTATION_API_NAMES
+        private val READ_RETRYABLE_API_NAMES =
+            (SOCKET_RPC_API_NAMES - SOCKET_MUTATION_API_NAMES) + "GenerateHashChannelApps"
     }
 
     private val linkInvitePreviewCache = android.util.LruCache<Long, LinkInvitePreview>(256)
@@ -588,10 +592,11 @@ class MezonApi @Inject constructor(
         } catch (e: SocketRpcServerException) {
             throw e
         } catch (e: SocketRpcTransportException) {
-            if (!retryableRead || !e.retryOverHttp) throw e
+            val canFallbackToHttp = retryableRead || method in SOCKET_MUTATION_API_NAMES
+            if (!canFallbackToHttp || !e.retryOverHttp) throw e
             Log.w("MezonApi", "SOCKET unavailable method=$method, falling back to HTTP: ${e.message}")
             sentryReporter.logRpcWarning(method, "socket", "fallback to HTTP: ${e.message}")
-            rpcOverHttpWithRetry(apiUrl, token, method, body, true)
+            rpcOverHttpWithRetry(apiUrl, token, method, body, retryableRead)
         } catch (e: IllegalArgumentException) {
             throw e
         }
