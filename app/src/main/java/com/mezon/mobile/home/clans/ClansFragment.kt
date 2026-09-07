@@ -103,6 +103,8 @@ class ClansFragment : BaseFragment() {
     private lateinit var clanEventController: ClanEventController
     private var clanMenuSheet: ClanMenuBottomSheet? = null
     private var clanEventSheet: ClanEventBottomSheet? = null
+    private var clanEventEditorDialog: ClanEventEditorDialog? = null
+    private var restoreClanEventSheetOnVisible = false
     private var channelMenuSheet: ChannelMenuBottomSheet? = null
     private var channelMenuClanId = 0L
     private var channelMenuChannelId = 0L
@@ -280,6 +282,9 @@ class ClansFragment : BaseFragment() {
     }
 
     override fun onFragmentDestroy() {
+        clanEventEditorDialog?.setOnDismissListener(null)
+        clanEventEditorDialog?.dismiss()
+        clanEventEditorDialog = null
         clanMenuSheet?.dismiss()
         clanMenuSheet = null
         clanEventSheet?.dismiss()
@@ -807,6 +812,10 @@ class ClansFragment : BaseFragment() {
             discoverListSection.onEmbeddedVisibilityChanged(true)
         }
         ensureVoiceMembersLoaded()
+        if (restoreClanEventSheetOnVisible) {
+            restoreClanEventSheetOnVisible = false
+            clanEventSheet?.restoreAfterNavigation()
+        }
         if (viewJustCreated) {
             viewJustCreated = false
             return
@@ -1040,11 +1049,19 @@ class ClansFragment : BaseFragment() {
             notificationCenter,
             clanEventController,
             userClanController,
-            accountController,
             clanId,
             onCreateEvent = Runnable { openCreateClanEvent() },
             onOpenEventDetail = { event -> openClanEventDetail(event) },
             onOpenChannel = { channel -> onChannelSelected(channel) },
+            onEditEvent = { event ->
+                openClanEventEditor(clanId, event.id)
+            },
+            onInviteExternalEvent = { url ->
+                val clan = clansController.clans.value.firstOrNull { it.clanId == clanId }
+                if (clan != null) {
+                    openInvitePeopleSheet(clanId, clan.clanName, clan.logo, url)
+                }
+            },
         ).apply {
             setDrawNavigationBar(true)
         }
@@ -1056,9 +1073,9 @@ class ClansFragment : BaseFragment() {
         val clanId = clansController.selectedClanId.value
         if (clanId == 0L) return
         val clan = clansController.clans.value.firstOrNull { it.clanId == clanId }
-        clanEventSheet?.dismiss()
-        clanEventSheet = null
-        presentFragment(
+        val sheet = clanEventSheet
+        sheet?.hideForNavigation()
+        val opened = presentFragment(
             ClanEventDetailFragment.newInstance(
                 clanId,
                 event.id,
@@ -1068,13 +1085,27 @@ class ClansFragment : BaseFragment() {
                 fragment.onOpenChannel = { channel -> onChannelSelected(channel) }
             },
         )
+        restoreClanEventSheetOnVisible = opened && sheet != null
+        if (!opened) sheet?.restoreAfterNavigation()
     }
 
     private fun openCreateClanEvent() {
         val clanId = clansController.selectedClanId.value
         if (clanId == 0L) return
-        dismissClanEventSheet()
-        presentFragment(ClanEventCreateFragment.newInstance(clanId))
+        openClanEventEditor(clanId)
+    }
+
+    private fun openClanEventEditor(clanId: Long, eventId: Long = 0L) {
+        clanEventEditorDialog?.dismiss()
+        val dialog = ClanEventEditorDialog.show(
+            host = this,
+            clanId = clanId,
+            eventId = eventId,
+        )
+        clanEventEditorDialog = dialog
+        dialog?.setOnDismissListener {
+            if (clanEventEditorDialog === dialog) clanEventEditorDialog = null
+        }
     }
 
     private fun dismissClanEventSheet() {
@@ -1082,7 +1113,12 @@ class ClansFragment : BaseFragment() {
         clanEventSheet = null
     }
 
-    private fun openInvitePeopleSheet(clanId: Long, clanName: String, clanLogo: String) {
+    private fun openInvitePeopleSheet(
+        clanId: Long,
+        clanName: String,
+        clanLogo: String,
+        externalEventUrl: String? = null,
+    ) {
         val ctx = fragmentView?.context ?: return
         InvitePeopleBottomSheet(
             ctx,
@@ -1090,6 +1126,7 @@ class ClansFragment : BaseFragment() {
             clanId,
             clanName,
             clanLogo,
+            externalEventUrl,
         ).apply {
             setDrawNavigationBar(true)
             show()

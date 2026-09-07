@@ -34,6 +34,8 @@ enum class MezonIcon(@DrawableRes val resId: Int) {
     bellSlashIcon(R.drawable.ic_bell_slash_icon),
     muteBellIcon(R.drawable.ic_mute_bell_icon),
     unmuteBellIcon(R.drawable.ic_unmute_bell_icon),
+    eventBellIcon(R.drawable.ic_event_bell),
+    eventBellSlashIcon(R.drawable.ic_event_bell_slash),
     threadIcon(R.drawable.ic_thread_bubble_icon),
     threadCreateIcon(R.drawable.ic_thread_new_icon),
     threadLockIcon(R.drawable.ic_threadlockicon),

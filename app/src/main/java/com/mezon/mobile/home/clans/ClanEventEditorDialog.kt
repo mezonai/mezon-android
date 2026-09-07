@@ -1,61 +1,128 @@
 package com.mezon.mobile.home.clans
 
-import android.app.Activity
+import android.app.Dialog
 import android.content.Context
-import android.content.Intent
+import android.graphics.BitmapFactory
+import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
+import android.net.Uri
 import android.os.Bundle
 import android.text.format.DateFormat
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.Window
+import android.view.WindowManager
+import android.view.inputmethod.InputMethodManager
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.activity.ComponentActivity
+import androidx.activity.ComponentDialog
+import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.graphics.ColorUtils
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.R
 import com.mezon.mobile.core.BaseFragment
+import com.mezon.mobile.core.BottomSheet
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.FragmentEntryPoint
-import com.mezon.mobile.home.profile.AccountController
+import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.ui.MezonToast
-import com.mezon.mobile.ui.cells.ActionBarView
+import com.mezon.mobile.ui.cells.ActionButton
 import com.mezon.mobile.ui.cells.InputCell
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.RadioCell
 import com.mezon.mobile.ui.cells.SelectPopup
 import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.util.DateTimeUtil
+import dagger.hilt.android.EntryPointAccessors
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 import java.util.Calendar
 import java.util.Locale
+import java.util.UUID
 
-class ClanEventCreateFragment : BaseFragment() {
+class ClanEventEditorDialog private constructor(
+    private val host: BaseFragment,
+    private val clanId: Long,
+    private val editingEventId: Long,
+) : ComponentDialog(requireNotNull(host.getParentActivity())) {
 
     companion object {
         private enum class Step { TYPE, DETAILS, PREVIEW }
 
-        fun newInstance(clanId: Long): ClanEventCreateFragment = newInstance(clanId, eventId = 0L)
+        fun show(
+            host: BaseFragment,
+            clanId: Long,
+            eventId: Long = 0L,
+        ): ClanEventEditorDialog? {
+            val activity = host.getParentActivity() as? ComponentActivity ?: return null
+            if (host.isFinished || activity.isFinishing || activity.isDestroyed) return null
+            return ClanEventEditorDialog(
+                host,
+                clanId,
+                eventId,
+            ).also { it.show() }
+        }
+    }
 
-        fun newInstance(clanId: Long, eventId: Long): ClanEventCreateFragment = ClanEventCreateFragment().apply {
-            arguments = Bundle().apply {
-                putLong(ClanEventCreateArgs.ARG_CLAN_ID, clanId)
-                if (eventId != 0L) putLong(ClanEventCreateArgs.ARG_EVENT_ID, eventId)
+    private val themeColors = host.themeColors
+    private val entryPoint = EntryPointAccessors.fromApplication(context.applicationContext, FragmentEntryPoint::class.java)
+    private val clanEventController = entryPoint.clanEventController()
+    private val ioDispatcher = entryPoint.ioDispatcher()
+    private val mainDispatcher = entryPoint.mainDispatcher()
+    private val notificationCenter = host.notificationCenter
+    private val activity = host.getParentActivity() as ComponentActivity
+    private var dismissed = false
+    private var childDialog: Dialog? = null
+    private var repeatPopup: SelectPopup? = null
+    private var coverUploadJob: Job? = null
+    private var previewLoad: MezonImageLoader.Cancellable? = null
+    private lateinit var modalRoot: FrameLayout
+    private lateinit var stepCount: TextView
+    private lateinit var backAction: ActionButton
+    private lateinit var closeAction: ImageView
+    private val progressBars = ArrayList<View>()
+    private val progressLabels = ArrayList<TextView>()
+    private val lifecycleObserver = object : DefaultLifecycleObserver {
+        override fun onDestroy(owner: LifecycleOwner) { dismiss() }
+    }
+    private val imagePicker = activity.activityResultRegistry.register(
+        "event-cover-${UUID.randomUUID()}", ActivityResultContracts.GetContent(),
+    ) { uri ->
+        if (uri != null && !dismissed && !host.isFinished) uploadCover(uri)
+    }
+    private val eventObserver = object : NotificationCenter.NotificationCenterDelegate {
+        override fun didReceivedNotification(id: Int, account: Int, vararg args: Any?) {
+            if (dismissed) return
+            if (args.firstOrNull() == clanId && originalEvent == null) {
+                if (applyLoadedEventIfNeeded()) {
+                    goToStep(Step.TYPE)
+                } else if (!clanEventController.isLoading(clanId)) {
+                    MezonToast.show(host, ToastOverlay.ToastType.ERROR,
+                        clanEventController.getLoadError(clanId) ?: getString(R.string.event_creator_update_failed))
+                    dismiss()
+                }
             }
         }
     }
 
-    private lateinit var clanEventController: ClanEventController
-    private lateinit var accountController: AccountController
-
-    private var clanId = 0L
-    private var editingEventId = 0L
-    private var editingChannelIdOld = 0L
+    private var originalEvent: ClanEventEntity? = null
+    private val typeOptionRows = mutableMapOf<Int, View>()
     private var currentStep = Step.TYPE
 
     private var selectedOption = 0
@@ -64,14 +131,12 @@ class ClanEventCreateFragment : BaseFragment() {
     private var channelId = 0L
     private var isPrivate = false
 
-    private var startDate: Calendar = ClanEventCreateUi.nearTime(120)
-    private var startTime: Calendar = ClanEventCreateUi.nearTime(120)
-    private var endDate: Calendar = ClanEventCreateUi.nearTime(240)
-    private var endTime: Calendar = ClanEventCreateUi.nearTime(240)
+    private val startDate: Calendar = ClanEventCreateUi.defaultStartTime()
+    private val startTime: Calendar = startDate.clone() as Calendar
+    private val endDate: Calendar = (startDate.clone() as Calendar).apply { add(Calendar.HOUR_OF_DAY, 1) }
+    private val endTime: Calendar = endDate.clone() as Calendar
     private var repeatType = ClanEventRepeatType.DOES_NOT_REPEAT
     private var logoUrl = ""
-    private var originalLogoUrl = ""
-    private var isUploadingLogo = false
     private var submitting = false
 
     private val optionValues = intArrayOf(
@@ -81,7 +146,7 @@ class ClanEventCreateFragment : BaseFragment() {
     )
     private val radioCells = ArrayList<RadioCell>(3)
 
-    private lateinit var primaryActionText: TextView
+    private lateinit var primaryActionText: ActionButton
     private lateinit var stepTypePanel: LinearLayout
     private lateinit var stepDetailsPanel: LinearLayout
     private lateinit var stepPreviewPanel: LinearLayout
@@ -100,97 +165,99 @@ class ClanEventCreateFragment : BaseFragment() {
     private lateinit var startTimePicker: ClanEventOptionPicker
     private lateinit var endDatePicker: ClanEventOptionPicker
     private lateinit var endTimePicker: ClanEventOptionPicker
-    private lateinit var endSection: LinearLayout
     private lateinit var repeatPicker: ClanEventOptionPicker
-    private lateinit var startDateError: TextView
     private lateinit var startTimeError: TextView
-    private lateinit var endDateError: TextView
     private lateinit var endTimeError: TextView
     private lateinit var coverBannerPicker: EventCoverBannerPicker
     private lateinit var previewHost: LinearLayout
 
-    override fun onInject(entryPoint: FragmentEntryPoint) {
-        clanEventController = entryPoint.clanEventController()
-        accountController = entryPoint.accountController()
-    }
+    private fun getString(id: Int, vararg args: Any): String = context.getString(id, *args)
 
-    override fun onFragmentCreate(): Boolean {
-        clanId = arguments?.getLong(ClanEventCreateArgs.ARG_CLAN_ID, 0L) ?: 0L
-        editingEventId = ClanEventCreateArgs.eventId(arguments)
-        if (isEditMode && clanId != 0L) {
-            clanEventController.loadEvents(clanId, force = false)
-            observe(NotificationCenter.clanEventsDidLoad) { _, _, args ->
-                if (isPaused) return@observe
-                val id = args.firstOrNull() as? Long ?: return@observe
-                if (id == clanId) applyLoadedEventIfNeeded()
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        requestWindowFeature(Window.FEATURE_NO_TITLE)
+        setOwnerActivity(activity)
+        activity.lifecycle.addObserver(lifecycleObserver)
+        if (isEditMode) notificationCenter.addObserver(eventObserver, NotificationCenter.clanEventsDidLoad)
+        setContentView(createContent(context))
+        window?.apply {
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            setGravity(Gravity.CENTER)
+            addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+            attributes = attributes.apply { dimAmount = 0.52f }
+            setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        }
+        setCanceledOnTouchOutside(false)
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (!submitting) onToolbarBack()
             }
-        }
-        observe(NotificationCenter.eventCoverCropped) { _, _, args ->
-            if (isPaused) return@observe
-            val url = args.firstOrNull() as? String ?: return@observe
-            onCoverUploaded(url)
-        }
-        return super.onFragmentCreate()
+        })
     }
 
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        if (requestCode != ClanEventCreateUi.REQUEST_PICK_LOGO || resultCode != Activity.RESULT_OK) return
-        val uri = data?.clipData?.getItemAt(0)?.uri ?: data?.data ?: return
-        presentFragment(ClanEventCoverTransformFragment.newInstance(uri.toString()))
+    override fun show() {
+        if (dismissed) return
+        if (activity.isFinishing || activity.isDestroyed || host.isFinished) {
+            dismiss()
+            return
+        }
+        super.show()
+        window?.setLayout(
+            (context.resources.displayMetrics.widthPixels - LayoutHelper.dp(32)).coerceAtMost(LayoutHelper.dp(560)),
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+        )
     }
 
-    override fun createView(context: Context): View {
-        val screenPadH = LayoutHelper.dp(16)
+    override fun dismiss() {
+        if (dismissed) return
+        dismissed = true
+        coverUploadJob?.cancel()
+        coverUploadJob = null
+        childDialog?.let { dialog ->
+            if (dialog is BottomSheet) {
+                dialog.dismissWithoutAnimation()
+            } else dialog.dismiss()
+        }
+        childDialog = null
+        repeatPopup?.dismiss()
+        repeatPopup = null
+        previewLoad?.cancel()
+        previewLoad = null
+        imagePicker.unregister()
+        activity.lifecycle.removeObserver(lifecycleObserver)
+        notificationCenter.removeObserver(eventObserver, NotificationCenter.clanEventsDidLoad)
+        if (::coverBannerPicker.isInitialized) coverBannerPicker.release()
+        super.dismiss()
+    }
+
+    private fun showChildDialog(dialog: Dialog) {
+        if (dismissed || activity.isFinishing || activity.isDestroyed) return
+        childDialog?.dismiss()
+        childDialog = dialog
+        dialog.setOnDismissListener { if (childDialog === dialog) childDialog = null }
+        dialog.show()
+    }
+
+    private fun showError(type: ToastOverlay.ToastType, message: String) {
+        ToastOverlay(context, themeColors).show(modalRoot, type, message)
+    }
+
+    private fun createContent(context: Context): View {
+        val screenPadH = LayoutHelper.dp(20)
         val sectionGap = LayoutHelper.dp(8)
-        val majorGap = LayoutHelper.dp(24)
-        val cardRadius = LayoutHelper.dpf(12f)
-        val cardInnerPad = LayoutHelper.dp(16)
-
+        val majorGap = LayoutHelper.dp(20)
+        val cardInnerPad = LayoutHelper.dp(14)
         val voiceChannels = clanEventController.voiceChannels(clanId)
 
-        primaryActionText = TextView(context).apply {
-            text = getString(R.string.event_creator_action_next)
-            setTextColor(themeColors.primary)
-            textSize = 16f
-            typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(LayoutHelper.dp(16), 0, LayoutHelper.dp(16), 0)
+        primaryActionText = ActionButton(context, themeColors).apply {
+            setText(getString(R.string.event_creator_action_next))
             setOnClickListener { onPrimaryAction() }
         }
-
-        actionBar = ActionBarView(context, themeColors).apply {
-            occupyStatusBar = false
-            setBackButtonImage(MezonIcon.closeLargeIcon.resId)
-            setTitle(getString(R.string.event_creator_screen_title))
-            setTitleColor(themeColors.textStrong)
-            setCenterTitle(true)
-            createMenu().addItem(1, "").also { cell ->
-                cell.addView(
-                    primaryActionText,
-                    LayoutHelper.createFrame(
-                        LayoutHelper.WRAP_CONTENT,
-                        LayoutHelper.MATCH_PARENT,
-                        Gravity.CENTER_VERTICAL,
-                        0f, 3f, 0f, 0f,
-                    ),
-                )
-            }
-            setMenuOnItemClick(object : ActionBarView.ActionBarMenuOnItemClick() {
-                override fun onItemClick(id: Int) {
-                    when (id) {
-                        -1 -> onToolbarBack()
-                        1 -> onPrimaryAction()
-                    }
-                }
-            })
-            getBackButtonView()?.apply {
-                val px = LayoutHelper.dp(16)
-                setPadding(px, px, px, px)
-                scaleType = ImageView.ScaleType.CENTER_INSIDE
-            }
+        backAction = ActionButton(context, themeColors).apply {
+            isOutlined = true
+            setOnClickListener { if (!submitting) onToolbarBack() }
         }
-
-        stepTypePanel = buildTypeStep(context, screenPadH, sectionGap, majorGap, cardRadius, cardInnerPad, voiceChannels)
+        stepTypePanel = buildTypeStep(context, screenPadH, majorGap, cardInnerPad, voiceChannels)
         stepDetailsPanel = buildDetailsStep(context, screenPadH, sectionGap, majorGap)
         stepPreviewPanel = buildPreviewStep(context, screenPadH)
 
@@ -213,11 +280,8 @@ class ClanEventCreateFragment : BaseFragment() {
             )
         }
 
-        val scroll = formScroll
-
         loadingOverlay = FrameLayout(context).apply {
             visibility = View.GONE
-            setBackgroundColor(0x40000000)
             isClickable = true
             addView(
                 ProgressBar(context).apply { isIndeterminate = true },
@@ -226,46 +290,126 @@ class ClanEventCreateFragment : BaseFragment() {
         }
 
         val bodyRoot = FrameLayout(context).apply {
-            setBackgroundColor(themeColors.background)
-            addView(scroll, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
+            addView(formScroll, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
             addView(loadingOverlay, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
         }
-
-        val root = LinearLayout(context).apply {
+        val card = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            addView(actionBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+            background = roundedBackground(themeColors.surface, 20f)
+            clipToOutline = true
+            addView(buildHeader(context), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
             addView(bodyRoot, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
+            addView(View(context).apply { setBackgroundColor(themeColors.outlineVariant) },
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 1))
+            addView(LinearLayout(context).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(screenPadH, LayoutHelper.dp(16), screenPadH, LayoutHelper.dp(16))
+                addView(backAction, LinearLayout.LayoutParams(0, LayoutHelper.dp(50), 1f).apply {
+                    marginEnd = LayoutHelper.dp(12)
+                })
+                addView(primaryActionText, LayoutHelper.createLinear(0, 50, 1f))
+            }, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
         }
-
-        fragmentView = root
-        refreshTypeConditionalSections()
-        if (isEditMode) {
-            if (applyLoadedEventIfNeeded()) {
-                goToStep(Step.TYPE)
-            } else {
-                loadingOverlay.visibility = View.VISIBLE
-                clanEventController.loadEvents(clanId, force = true)
+        modalRoot = object : FrameLayout(context) {
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                val available = MeasureSpec.getSize(heightMeasureSpec)
+                val desired = (resources.displayMetrics.heightPixels * 0.86f).toInt().coerceAtMost(LayoutHelper.dp(780))
+                val maxHeight = minOf(available, desired)
+                super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(maxHeight, MeasureSpec.EXACTLY))
+                val panel = when (currentStep) {
+                    Step.TYPE -> stepTypePanel
+                    Step.DETAILS -> stepDetailsPanel
+                    Step.PREVIEW -> stepPreviewPanel
+                }
+                val contentHeight = panel.measuredHeight + card.getChildAt(0).measuredHeight +
+                    card.getChildAt(2).measuredHeight + card.getChildAt(3).measuredHeight
+                card.measure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(minOf(contentHeight, maxHeight), MeasureSpec.EXACTLY))
             }
-        } else {
-            goToStep(Step.TYPE)
+        }.apply {
+            addView(card, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.CENTER))
         }
-        return root
+        goToStep(Step.TYPE)
+        refreshTypeConditionalSections()
+        if (isEditMode && !applyLoadedEventIfNeeded()) {
+            loadingOverlay.visibility = View.VISIBLE
+            clanEventController.loadEvents(clanId, force = true)
+        }
+        return modalRoot
+    }
+
+    private fun roundedBackground(color: Int, radius: Float = 12f, stroke: Int? = null) = GradientDrawable().apply {
+        setColor(color)
+        cornerRadius = LayoutHelper.dpf(radius)
+        if (stroke != null) setStroke(LayoutHelper.dp(1), stroke)
+    }
+
+    private fun buildHeader(context: Context): View = LinearLayout(context).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(LayoutHelper.dp(20), LayoutHelper.dp(16), LayoutHelper.dp(20), LayoutHelper.dp(16))
+        addView(LinearLayout(context).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(TextView(context).apply {
+                    text = getString(if (isEditMode) R.string.event_creator_edit_screen_title else R.string.event_creator_screen_title)
+                    textSize = 18f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(themeColors.onSurface)
+                })
+                stepCount = TextView(context).apply {
+                    textSize = 12f
+                    setTextColor(themeColors.onSurfaceVariant)
+                    setPadding(0, LayoutHelper.dp(4), 0, 0)
+                    accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+                }
+                addView(stepCount)
+            }, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f))
+            closeAction = ImageView(context).apply {
+                setImageDrawable(MezonIcon.closeLargeIcon.getDrawable(context, themeColors.onSurfaceVariant))
+                scaleType = ImageView.ScaleType.CENTER_INSIDE
+                setPadding(LayoutHelper.dp(12), LayoutHelper.dp(12), LayoutHelper.dp(12), LayoutHelper.dp(12))
+                contentDescription = getString(R.string.common_cancel)
+                setOnClickListener { if (!submitting) dismiss() }
+            }
+            addView(closeAction, LayoutHelper.createLinear(44, 44))
+        })
+        addView(LinearLayout(context).apply {
+            val labels = intArrayOf(R.string.event_creator_step_location, R.string.event_creator_step_details, R.string.event_creator_preview_header)
+            labels.forEachIndexed { index, label ->
+                addView(LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    val bar = View(context)
+                    progressBars.add(bar)
+                    addView(bar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 4))
+                    val text = TextView(context).apply {
+                        text = getString(label)
+                        textSize = 12f
+                        setPadding(0, LayoutHelper.dp(8), 0, 0)
+                    }
+                    progressLabels.add(text)
+                    addView(text)
+                }, LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f).apply {
+                    if (index < 2) marginEnd = LayoutHelper.dp(8)
+                })
+            }
+        }, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply { topMargin = LayoutHelper.dp(18) })
     }
 
     private val isEditMode: Boolean get() = editingEventId != 0L
 
     private fun applyLoadedEventIfNeeded(): Boolean {
         if (!isEditMode) return false
+        if (originalEvent != null) return true
         val event = clanEventController.getEvent(clanId, editingEventId) ?: return false
+        originalEvent = event
         applyEventToState(event)
-        if (::titleCell.isInitialized) applyEventToViews(event)
-        if (::loadingOverlay.isInitialized) loadingOverlay.visibility = View.GONE
+        applyEventToViews(event)
+        loadingOverlay.visibility = View.GONE
         refreshPrimaryAction()
         return true
     }
 
     private fun applyEventToState(event: ClanEventEntity) {
-        editingChannelIdOld = event.channelId
         selectedOption = ClanEventCreateUi.optionFromEvent(event)
         isPrivate = event.isPrivate
         channelVoiceId = event.channelVoiceId
@@ -273,7 +417,6 @@ class ClanEventCreateFragment : BaseFragment() {
         channelId = event.channelId
         repeatType = event.repeatType
         logoUrl = event.logo
-        originalLogoUrl = event.logo
         ClanEventCreateUi.applyEpochSeconds(startDate, event.startTimeSeconds)
         ClanEventCreateUi.applyEpochSeconds(startTime, event.startTimeSeconds)
         ClanEventCreateUi.applyEpochSeconds(endDate, event.endTimeSeconds)
@@ -285,6 +428,9 @@ class ClanEventCreateFragment : BaseFragment() {
         descriptionCell.setText(event.description)
         addressCell.setText(event.address)
         refreshTypeRadios()
+        typeOptionRows.forEach { (option, row) ->
+            row.visibility = if ((option == ClanEventOption.PRIVATE) == event.isPrivate) View.VISIBLE else View.GONE
+        }
         refreshTypeConditionalSections()
         refreshVoicePickerRow()
         refreshChannelPickerRow()
@@ -299,28 +445,22 @@ class ClanEventCreateFragment : BaseFragment() {
     private fun buildTypeStep(
         context: Context,
         screenPadH: Int,
-        sectionGap: Int,
         majorGap: Int,
-        cardRadius: Float,
         cardInnerPad: Int,
         voiceChannels: List<ClanChannelEntity>,
     ): LinearLayout {
         val typeBox = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            background = GradientDrawable().apply {
-                setColor(themeColors.surfaceVariant)
-                cornerRadius = cardRadius
-            }
         }
         addTypeOptionInCard(context, typeBox, ClanEventOption.SPEAKER, MezonIcon.channelVoice,
             R.string.event_creator_type_voice_title, R.string.event_creator_type_voice_desc,
-            voiceChannels.isNotEmpty(), showTopDivider = false, rowPad = cardInnerPad)
+            voiceChannels.isNotEmpty(), rowPad = cardInnerPad)
         addTypeOptionInCard(context, typeBox, ClanEventOption.LOCATION, MezonIcon.locationIcon,
             R.string.event_creator_type_location_title, R.string.event_creator_type_location_desc,
-            true, showTopDivider = true, rowPad = cardInnerPad)
+            true, rowPad = cardInnerPad)
         addTypeOptionInCard(context, typeBox, ClanEventOption.PRIVATE, MezonIcon.lockIcon,
             R.string.event_creator_type_private_title, R.string.event_creator_type_private_desc,
-            true, showTopDivider = true, rowPad = cardInnerPad)
+            true, rowPad = cardInnerPad)
         refreshTypeRadios()
 
         voicePickerRow = ClanEventOptionPicker(
@@ -344,9 +484,20 @@ class ClanEventCreateFragment : BaseFragment() {
         }
 
         addressCell = InputCell(context, themeColors).apply {
-            setLabel(null, false, false)
+            setCellBackgroundColor(themeColors.secondaryLight)
+            setLabel(getString(R.string.event_creator_address_label), required = true)
             setHint(getString(R.string.event_creator_address_placeholder))
-            onTextChanged = { address = it; refreshPrimaryAction() }
+            onTextChanged = {
+                address = it
+                setError(
+                    if (it.length > ClanEventCreateUi.MAX_LOCATION_LENGTH) {
+                        getString(R.string.event_creator_location_too_long)
+                    } else {
+                        null
+                    },
+                )
+                refreshPrimaryAction()
+            }
         }
 
         val textChannels = clanEventController.textChannels(clanId)
@@ -369,22 +520,16 @@ class ClanEventCreateFragment : BaseFragment() {
 
         return LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(screenPadH, LayoutHelper.dp(16), screenPadH, LayoutHelper.dp(28))
+            setPadding(screenPadH, LayoutHelper.dp(4), screenPadH, LayoutHelper.dp(20))
             addView(
-                ClanEventCreateUi.sectionCaption(context, themeColors, R.string.event_creator_type_title),
+                sectionTitle(R.string.event_creator_type_title),
                 LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT),
             )
             addView(
                 ClanEventCreateUi.sectionDescription(context, themeColors, R.string.event_creator_type_subtitle),
                 LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
-                    bottomMargin = sectionGap
-                },
-            )
-            addView(
-                ClanEventCreateUi.sectionCaption(context, themeColors, R.string.event_creator_type_header),
-                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
-                    topMargin = LayoutHelper.dp(12)
-                    bottomMargin = sectionGap
+                    topMargin = LayoutHelper.dp(6)
+                    bottomMargin = LayoutHelper.dp(16)
                 },
             )
             addView(typeBox, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
@@ -395,14 +540,9 @@ class ClanEventCreateFragment : BaseFragment() {
                 LinearLayout(context).apply {
                     orientation = LinearLayout.VERTICAL
                     visibility = View.GONE
-                    addView(
-                        ClanEventCreateUi.sectionCaption(context, themeColors, R.string.event_creator_address_label),
-                        LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
-                            topMargin = majorGap
-                            bottomMargin = sectionGap
-                        },
-                    )
-                    addView(addressCell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+                    addView(addressCell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
+                        topMargin = majorGap
+                    })
                 }.also { addressSection = it },
                 LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT),
             )
@@ -421,10 +561,14 @@ class ClanEventCreateFragment : BaseFragment() {
         majorGap: Int,
     ): LinearLayout {
         titleCell = InputCell(context, themeColors).apply {
+            setCellBackgroundColor(themeColors.secondaryLight)
             setLabel(null, false, false)
-            setMaxCharacter(255)
+            setMaxCharacter(BuildConfig.MEZON_MAX_LENGTH_NAME_ALLOWED * 2)
             setHint(getString(R.string.event_creator_name_placeholder))
-            onTextChanged = { setError(null); refreshPrimaryAction() }
+            onTextChanged = {
+                setError(if (ClanEventCreateUi.hasInvalidTopic(it)) getString(R.string.event_creator_invalid_topic) else null)
+                refreshPrimaryAction()
+            }
         }
 
         startDatePicker = ClanEventCreateUi.createOptionPicker(
@@ -433,10 +577,13 @@ class ClanEventCreateFragment : BaseFragment() {
             R.string.event_creator_start_date_label,
             MezonIcon.calendarIcon,
         ) {
-            ClanEventCreateUi.showDatePicker(context, startDate, minToday = true) {
+            showChildDialog(ClanEventCreateUi.datePicker(context, startDate, minDate = Calendar.getInstance()) {
+                if (ClanEventCreateUi.startOfDay(startDate).after(ClanEventCreateUi.startOfDay(endDate))) {
+                    endDate.timeInMillis = startDate.timeInMillis
+                }
                 refreshDateTimeLabels()
                 validateAndRefresh()
-            }
+            })
         }
         startTimePicker = ClanEventCreateUi.createOptionPicker(
             context,
@@ -444,10 +591,10 @@ class ClanEventCreateFragment : BaseFragment() {
             R.string.event_creator_start_time_label,
             MezonIcon.eventTimeIcon,
         ) {
-            ClanEventCreateUi.showTimePicker(context, startTime) {
+            showChildDialog(ClanEventCreateUi.timePicker(context, startTime) {
                 refreshDateTimeLabels()
                 validateAndRefresh()
-            }
+            })
         }
         endDatePicker = ClanEventCreateUi.createOptionPicker(
             context,
@@ -455,10 +602,10 @@ class ClanEventCreateFragment : BaseFragment() {
             R.string.event_creator_end_date_label,
             MezonIcon.calendarIcon,
         ) {
-            ClanEventCreateUi.showDatePicker(context, endDate, minToday = false) {
+            showChildDialog(ClanEventCreateUi.datePicker(context, endDate, minDate = startDate) {
                 refreshDateTimeLabels()
                 validateAndRefresh()
-            }
+            })
         }
         endTimePicker = ClanEventCreateUi.createOptionPicker(
             context,
@@ -466,25 +613,22 @@ class ClanEventCreateFragment : BaseFragment() {
             R.string.event_creator_end_time_label,
             MezonIcon.eventTimeIcon,
         ) {
-            ClanEventCreateUi.showTimePicker(context, endTime) {
+            showChildDialog(ClanEventCreateUi.timePicker(context, endTime) {
                 refreshDateTimeLabels()
                 validateAndRefresh()
-            }
+            })
         }
-        startDateError = errorText(context)
         startTimeError = errorText(context)
-        endDateError = errorText(context)
         endTimeError = errorText(context)
 
-        endSection = LinearLayout(context).apply {
+        val endSection = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            addView(endDatePicker, ClanEventCreateUi.pickerLayoutParams(sectionGap))
-            addView(endTimePicker, ClanEventCreateUi.pickerLayoutParams())
-            addView(endDateError)
+            addView(dateTimeRow(endDatePicker, endTimePicker))
             addView(endTimeError)
         }
 
         descriptionCell = InputCell(context, themeColors).apply {
+            setCellBackgroundColor(themeColors.secondaryLight)
             setLabel(null, false, false)
             setHint(getString(R.string.event_creator_description_placeholder))
             setTextarea(true, 255)
@@ -507,7 +651,7 @@ class ClanEventCreateFragment : BaseFragment() {
         coverBannerPicker = ClanEventCreateUi.buildCoverBannerSection(
             context,
             themeColors,
-            onPick = { if (!isUploadingLogo) openCoverPicker() },
+            onPick = { openCoverPicker() },
             onClear = {
                 logoUrl = ""
                 coverBannerPicker.clearImage()
@@ -517,48 +661,46 @@ class ClanEventCreateFragment : BaseFragment() {
 
         return LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(screenPadH, LayoutHelper.dp(16), screenPadH, LayoutHelper.dp(28))
-            addView(
-                ClanEventCreateUi.sectionCaption(context, themeColors, R.string.event_creator_details_title),
-                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT),
-            )
-            addView(
-                ClanEventCreateUi.sectionDescription(context, themeColors, R.string.event_creator_details_subtitle),
+            setPadding(screenPadH, LayoutHelper.dp(4), screenPadH, LayoutHelper.dp(20))
+            addView(sectionTitle(R.string.event_creator_details_title))
+            addView(ClanEventCreateUi.sectionDescription(context, themeColors, R.string.event_creator_details_subtitle),
                 LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
-                    bottomMargin = sectionGap
-                },
-            )
-            addView(
-                coverBannerPicker.section,
-                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
-                    topMargin = LayoutHelper.dp(12)
+                    topMargin = LayoutHelper.dp(6)
                     bottomMargin = majorGap
-                },
-            )
-            addView(
-                ClanEventCreateUi.sectionCaption(context, themeColors, R.string.event_creator_name_label),
-                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
-                    bottomMargin = sectionGap
-                },
-            )
-            addView(titleCell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
-            addView(startDatePicker, ClanEventCreateUi.pickerLayoutParams(sectionGap).apply { topMargin = majorGap })
-            addView(startTimePicker, ClanEventCreateUi.pickerLayoutParams())
-            addView(startDateError)
+                })
+            titleCell.setLabel(getString(R.string.event_creator_name_label), required = true)
+            addView(titleCell)
+            addView(dateTimeRow(startDatePicker, startTimePicker),
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply { topMargin = majorGap })
             addView(startTimeError)
             addView(endSection, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
                 topMargin = sectionGap
             })
-            addView(
-                ClanEventCreateUi.sectionCaption(context, themeColors, R.string.event_creator_description_label),
+            addView(repeatPicker, ClanEventCreateUi.pickerLayoutParams().apply { topMargin = majorGap })
+            descriptionCell.setLabel(getString(R.string.event_creator_description_label))
+            addView(descriptionCell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply { topMargin = majorGap })
+            addView(ClanEventCreateUi.sectionCaption(context, themeColors, R.string.event_creator_cover_label),
                 LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
                     topMargin = majorGap
                     bottomMargin = sectionGap
-                },
-            )
-            addView(descriptionCell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
-            addView(repeatPicker, ClanEventCreateUi.pickerLayoutParams().apply { topMargin = majorGap })
+                })
+            addView(coverBannerPicker.section)
         }
+    }
+
+    private fun sectionTitle(resId: Int) = TextView(context).apply {
+        text = getString(resId)
+        textSize = 16f
+        typeface = Typeface.DEFAULT_BOLD
+        setTextColor(themeColors.onSurface)
+    }
+
+    private fun dateTimeRow(date: View, time: View): View = LinearLayout(context).apply {
+        orientation = LinearLayout.HORIZONTAL
+        addView(date, LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1.15f).apply {
+            marginEnd = LayoutHelper.dp(8)
+        })
+        addView(time, LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f))
     }
 
     private fun buildPreviewStep(context: Context, screenPadH: Int): LinearLayout {
@@ -567,10 +709,10 @@ class ClanEventCreateFragment : BaseFragment() {
         }
         return LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(screenPadH, LayoutHelper.dp(16), screenPadH, LayoutHelper.dp(28))
+            setPadding(screenPadH, LayoutHelper.dp(4), screenPadH, LayoutHelper.dp(20))
             addView(previewHost, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
             addView(
-                ClanEventCreateUi.sectionCaption(context, themeColors, R.string.event_creator_preview_title),
+                sectionTitle(R.string.event_creator_preview_title),
                 LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
                     topMargin = LayoutHelper.dp(20)
                 },
@@ -603,21 +745,15 @@ class ClanEventCreateFragment : BaseFragment() {
         titleRes: Int,
         descRes: Int,
         enabled: Boolean,
-        showTopDivider: Boolean,
         rowPad: Int,
     ) {
-        if (showTopDivider) {
-            parent.addView(
-                View(context).apply { setBackgroundColor(themeColors.outlineVariant) },
-                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 1),
-            )
-        }
         val radio = RadioCell(context, themeColors).apply { drawSelectionAsCheckmark = false }
         radioCells.add(radio)
 
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.TOP
+            gravity = Gravity.CENTER_VERTICAL
+            background = roundedBackground(themeColors.secondaryLight, stroke = themeColors.outlineVariant)
             isClickable = enabled
             isFocusable = enabled
             alpha = if (enabled) 1f else 0.45f
@@ -631,7 +767,7 @@ class ClanEventCreateFragment : BaseFragment() {
                 setImageDrawable(icon.getDrawable(context, themeColors.textStrong))
                 scaleType = ImageView.ScaleType.FIT_CENTER
             },
-            LayoutHelper.createLinear(24, LayoutHelper.MATCH_PARENT, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, 12f, 0f),
+            LayoutHelper.createLinear(24, 24, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, 12f, 0f),
         )
         val texts = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -639,7 +775,7 @@ class ClanEventCreateFragment : BaseFragment() {
             addView(TextView(context).apply {
                 text = getString(titleRes)
                 setTextColor(themeColors.textStrong)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
                 typeface = Typeface.DEFAULT_BOLD
             })
             addView(TextView(context).apply {
@@ -651,7 +787,10 @@ class ClanEventCreateFragment : BaseFragment() {
         }
         row.addView(texts)
         row.addView(radio, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.CENTER_VERTICAL))
-        parent.addView(row, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+        typeOptionRows[typeConst] = row
+        parent.addView(row, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
+            bottomMargin = LayoutHelper.dp(8)
+        })
     }
 
     private fun selectOption(option: Int) {
@@ -665,7 +804,15 @@ class ClanEventCreateFragment : BaseFragment() {
     private fun refreshTypeRadios() {
         radioCells.forEachIndexed { index, cell ->
             val opt = optionValues.getOrNull(index) ?: return@forEachIndexed
-            cell.setChecked(opt == selectedOption, animated = true)
+            val selected = opt == selectedOption
+            cell.setChecked(selected, animated = true)
+            typeOptionRows[opt]?.apply {
+                isSelected = selected
+                background = roundedBackground(
+                    if (selected) ColorUtils.blendARGB(themeColors.surface, themeColors.primary, 0.08f) else themeColors.secondaryLight,
+                    stroke = if (selected) themeColors.primary else themeColors.outlineVariant,
+                )
+            }
         }
     }
 
@@ -680,136 +827,89 @@ class ClanEventCreateFragment : BaseFragment() {
         }
         channelSection.visibility =
             if (selectedOption != ClanEventOption.PRIVATE) View.VISIBLE else View.GONE
-        if (::endSection.isInitialized) {
-            endSection.visibility =
-                if (selectedOption == ClanEventOption.LOCATION) View.GONE else View.VISIBLE
-        }
     }
 
     private fun goToStep(step: Step) {
+        (context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
+            .hideSoftInputFromWindow(modalRoot.windowToken, 0)
+        modalRoot.clearFocus()
         currentStep = step
         stepTypePanel.visibility = if (step == Step.TYPE) View.VISIBLE else View.GONE
         stepDetailsPanel.visibility = if (step == Step.DETAILS) View.VISIBLE else View.GONE
         stepPreviewPanel.visibility = if (step == Step.PREVIEW) View.VISIBLE else View.GONE
-        if (::formScroll.isInitialized) formScroll.scrollTo(0, 0)
+        formScroll.scrollTo(0, 0)
         updateToolbarForStep(step)
         if (step == Step.PREVIEW) bindPreview()
         refreshPrimaryAction()
     }
 
     private fun updateToolbarForStep(step: Step) {
-        val bar = actionBar ?: return
-        when (step) {
-            Step.TYPE -> {
-                bar.setBackButtonImage(MezonIcon.closeLargeIcon.resId)
-                bar.setTitle(
-                    getString(
-                        if (isEditMode) R.string.event_creator_edit_screen_title
-                        else R.string.event_creator_screen_title,
-                    ),
-                )
-                primaryActionText.text = getString(R.string.event_creator_action_next)
-            }
-            Step.DETAILS -> {
-                bar.setBackButtonImage(MezonIcon.arrowLargeLeftIcon.resId)
-                bar.setTitle(
-                    getString(
-                        if (isEditMode) R.string.event_creator_edit_screen_title
-                        else R.string.event_creator_details_header,
-                    ),
-                )
-                primaryActionText.text = getString(R.string.event_creator_action_next)
-                refreshDateTimeLabels()
-                validateAndRefresh()
-            }
-            Step.PREVIEW -> {
-                bar.setBackButtonImage(MezonIcon.arrowLargeLeftIcon.resId)
-                bar.setTitle(getString(R.string.event_creator_preview_header))
-                primaryActionText.text = getString(
-                    if (isEditMode) R.string.event_creator_action_save else R.string.event_creator_action_create,
-                )
-            }
+        stepCount.text = getString(R.string.event_creator_step_count, step.ordinal + 1, 3)
+        backAction.setText(getString(if (step == Step.TYPE) R.string.common_cancel else R.string.event_creator_action_back))
+        primaryActionText.setText(getString(
+            if (step != Step.PREVIEW) R.string.event_creator_action_next
+            else if (isEditMode) R.string.event_creator_action_save else R.string.event_creator_action_create,
+        ))
+        progressBars.forEachIndexed { index, bar ->
+            bar.background = roundedBackground(if (index <= step.ordinal) themeColors.primary else themeColors.outlineVariant, 3f)
+            progressLabels[index].setTextColor(if (index == step.ordinal) themeColors.primary else themeColors.onSurfaceVariant)
+            progressLabels[index].typeface = if (index == step.ordinal) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+            progressLabels[index].isSelected = index == step.ordinal
+        }
+        if (step == Step.DETAILS) {
+            refreshDateTimeLabels()
+            validateAndRefresh()
         }
     }
 
     private fun onToolbarBack() {
         when (currentStep) {
-            Step.TYPE -> finishFragment()
+            Step.TYPE -> dismiss()
             Step.DETAILS -> goToStep(Step.TYPE)
             Step.PREVIEW -> goToStep(Step.DETAILS)
         }
     }
 
     private fun onPrimaryAction() {
+        if (!primaryActionText.isEnabled || submitting) return
         when (currentStep) {
-            Step.TYPE -> proceedFromType()
-            Step.DETAILS -> proceedFromDetails()
-            Step.PREVIEW -> submitCreate()
+            Step.TYPE -> goToStep(Step.DETAILS)
+            Step.DETAILS -> goToStep(Step.PREVIEW)
+            Step.PREVIEW -> submitEvent()
         }
-    }
-
-    private fun proceedFromType() {
-        if (!canProceedType()) {
-            val msg = when {
-                selectedOption == 0 -> getString(R.string.event_creator_error_type)
-                selectedOption == ClanEventOption.LOCATION && address.trim().isEmpty() ->
-                    getString(R.string.event_creator_error_location)
-                else -> getString(R.string.event_creator_error_type)
-            }
-            MezonToast.show(this@ClanEventCreateFragment, ToastOverlay.ToastType.ERROR, msg)
-            return
-        }
-        goToStep(Step.DETAILS)
-    }
-
-    private fun proceedFromDetails() {
-        if (titleCell.getText().trim().isEmpty()) {
-            titleCell.setError(getString(R.string.event_creator_name_error))
-            return
-        }
-        if (!ClanEventCreateUi.validateDetails(
-                fragmentView?.context ?: return,
-                titleCell.getText(),
-                selectedOption,
-                combinedStart(),
-                combinedEnd(),
-                allowPastStart = isEditMode,
-            )
-        ) {
-            validateAndRefresh()
-            return
-        }
-        goToStep(Step.PREVIEW)
     }
 
     private fun canProceedType(): Boolean {
         if (selectedOption == 0) return false
-        if (selectedOption == ClanEventOption.LOCATION && address.trim().isEmpty()) return false
+        if (selectedOption == ClanEventOption.LOCATION && address.isEmpty()) return false
+        if (selectedOption == ClanEventOption.LOCATION && address.length > ClanEventCreateUi.MAX_LOCATION_LENGTH) return false
         if (selectedOption == ClanEventOption.SPEAKER && channelVoiceId == 0L) return false
         return true
     }
 
     private fun refreshPrimaryAction() {
-        if (!::primaryActionText.isInitialized) return
+        if (!::closeAction.isInitialized) return
         val enabled = when (currentStep) {
             Step.TYPE -> canProceedType()
-            Step.DETAILS -> ClanEventCreateUi.validateDetails(
-                fragmentView?.context ?: return,
-                titleCell.getText(),
-                selectedOption,
-                combinedStart(),
-                combinedEnd(),
-                allowPastStart = isEditMode,
-            ) && !isUploadingLogo
-            Step.PREVIEW -> !submitting
+            Step.DETAILS -> hasValidDetails()
+            Step.PREVIEW -> canProceedType() && !ClanEventCreateUi.hasInvalidTopic(titleCell.getText()) &&
+                (!isEditMode || originalEvent?.let { buildDraft().hasChangesFrom(it) } == true)
         }
-        primaryActionText.alpha = if (enabled) 1f else 0.45f
+        primaryActionText.isEnabled = enabled && !submitting && coverUploadJob == null &&
+            (!isEditMode || originalEvent != null)
+        backAction.isEnabled = !submitting
+        closeAction.isEnabled = !submitting
+        setCancelable(!submitting)
     }
 
     private fun refreshVoicePickerRow() {
         if (!::voicePickerRow.isInitialized) return
         voicePickerRow.bind(channelVoiceId, clanEventController.voiceChannels(clanId))
     }
+
+    private fun hasValidDetails(): Boolean = ClanEventCreateUi.validateDetails(
+        titleCell.getText(), combinedStart(), combinedEnd(), allowPastStart = allowsPastStart(),
+    )
 
     private fun refreshChannelPickerRow() {
         if (!::channelPickerRow.isInitialized) return
@@ -818,38 +918,39 @@ class ClanEventCreateFragment : BaseFragment() {
 
     private fun showVoiceChannelPicker(context: Context, channels: List<ClanChannelEntity>) {
         if (channels.isEmpty()) return
-        ChannelPickerSheet(
+        showChildDialog(ChannelPickerSheet(
             context,
             themeColors,
-            channels.sortedBy { it.channelLabel.lowercase(Locale.getDefault()) },
+            channels,
             getString(R.string.event_creator_voice_channel_label),
+            selectedChannelId = channelVoiceId,
         ) { picked ->
             channelVoiceId = picked.channelId
             refreshVoicePickerRow()
             refreshPrimaryAction()
-        }.show()
+        })
     }
 
     private fun showTextChannelPicker(context: Context) {
         val channels = clanEventController.textChannels(clanId)
-            .sortedBy { it.channelLabel.lowercase(Locale.getDefault()) }
         if (channels.isEmpty()) {
-            MezonToast.show(this@ClanEventCreateFragment, ToastOverlay.ToastType.INFO, getString(R.string.clan_invite_need_channel))
+            showError(ToastOverlay.ToastType.INFO, getString(R.string.clan_invite_need_channel))
             return
         }
-        ChannelPickerSheet(
+        showChildDialog(ChannelPickerSheet(
             context,
             themeColors,
             channels,
             getString(R.string.event_creator_channel_picker_title),
+            selectedChannelId = channelId,
         ) { picked ->
             channelId = picked.channelId
             refreshChannelPickerRow()
-        }.show()
+        })
     }
 
     private fun refreshDateTimeLabels() {
-        val ctx = fragmentView?.context ?: return
+        val ctx = context
         startDatePicker.bindValue(ClanEventCreateUi.formatDate(ctx, startDate))
         startTimePicker.bindValue(ClanEventCreateUi.formatTime(ctx, startTime))
         endDatePicker.bindValue(ClanEventCreateUi.formatDate(ctx, endDate))
@@ -867,58 +968,125 @@ class ClanEventCreateFragment : BaseFragment() {
         val combined = ClanEventCreateUi.combineDateAndTime(startDate, startTime)
         val labels = ClanEventCreateUi.repeatTypeLabels(context, combined)
         val popup = SelectPopup(context, themeColors)
+        repeatPopup?.dismiss()
+        repeatPopup = popup
         popup.setItems(labels.map { SelectPopup.SelectItem(it.first.toString(), it.second) }, repeatType.toString())
         popup.onItemSelected = { item ->
             repeatType = item.id.toIntOrNull() ?: ClanEventRepeatType.DOES_NOT_REPEAT
             repeatPicker.bindValue(item.label)
+            validateAndRefresh()
         }
         popup.show(repeatPicker, matchAnchorWidth = true)
     }
 
     private fun combinedStart(): Calendar = ClanEventCreateUi.combineDateAndTime(startDate, startTime)
+
     private fun combinedEnd(): Calendar = ClanEventCreateUi.combineDateAndTime(endDate, endTime)
+
+    private fun allowsPastStart(): Boolean = repeatType != ClanEventRepeatType.DOES_NOT_REPEAT
 
     private fun validateAndRefresh() {
         val now = Calendar.getInstance()
         val start = combinedStart()
         val end = combinedEnd()
 
-        val startDateErr = !isEditMode && ClanEventCreateUi.startOfDay(start).before(ClanEventCreateUi.startOfDay(now))
-        val startTimeErr = !isEditMode && ClanEventCreateUi.isSameDay(start, now) && start.timeInMillis <= now.timeInMillis
-        startDateError.visibility = if (startDateErr) View.VISIBLE else View.GONE
-        startDateError.text = getString(R.string.event_creator_start_date_error)
+        val startTimeErr = !allowsPastStart() && ClanEventCreateUi.isSameDay(start, now) && start.timeInMillis <= now.timeInMillis
         startTimeError.visibility = if (startTimeErr) View.VISIBLE else View.GONE
         startTimeError.text = getString(R.string.event_creator_start_time_error)
 
-        if (selectedOption != ClanEventOption.LOCATION) {
-            val endDateErr = ClanEventCreateUi.startOfDay(end).before(ClanEventCreateUi.startOfDay(start))
-            val endTimeErr = ClanEventCreateUi.isSameDay(start, end) && !end.after(start)
-            endDateError.visibility = if (endDateErr) View.VISIBLE else View.GONE
-            endDateError.text = getString(R.string.event_creator_end_date_error)
-            endTimeError.visibility = if (endTimeErr) View.VISIBLE else View.GONE
-            endTimeError.text = getString(R.string.event_creator_end_time_error)
-        }
+        val endTimeErr = ClanEventCreateUi.isSameDay(start, end) && !end.after(start)
+        endTimeError.visibility = if (endTimeErr) View.VISIBLE else View.GONE
+        endTimeError.text = getString(R.string.event_creator_end_time_error)
 
         refreshPrimaryAction()
     }
 
     private fun openCoverPicker() {
-        val pick = Intent(Intent.ACTION_PICK).apply { type = "image/*" }
-        val getContent = Intent(Intent.ACTION_GET_CONTENT).apply {
-            type = "image/*"
-            addCategory(Intent.CATEGORY_OPENABLE)
-        }
-        val chooser = Intent.createChooser(getContent, getString(R.string.event_creator_cover_label)).apply {
-            putExtra(Intent.EXTRA_INITIAL_INTENTS, arrayOf(pick))
-        }
-        startActivityForResult(chooser, ClanEventCreateUi.REQUEST_PICK_LOGO)
+        if (dismissed || coverUploadJob != null) return
+        (context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
+            .hideSoftInputFromWindow(modalRoot.windowToken, 0)
+        modalRoot.clearFocus()
+        imagePicker.launch("image/*")
     }
 
+    private fun uploadCover(uri: Uri) {
+        coverBannerPicker.setUploading(true)
+        coverUploadJob = host.fragmentScope.launch(mainDispatcher) {
+            try {
+                val image = withContext(ioDispatcher) { readCoverImage(uri) }
+                val url = clanEventController.uploadEventCover(
+                    image.bytes,
+                    image.mimeType,
+                    image.width,
+                    image.height,
+                )
+                onCoverUploaded(url)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: CoverTooLargeException) {
+                if (!dismissed) {
+                    showError(
+                        ToastOverlay.ToastType.ERROR,
+                        getString(R.string.clan_image_too_large, 1),
+                    )
+                }
+            } catch (_: Exception) {
+                if (!dismissed) {
+                    showError(
+                        ToastOverlay.ToastType.ERROR,
+                        getString(R.string.event_creator_cover_upload_failed),
+                    )
+                }
+            } finally {
+                coverUploadJob = null
+                if (!dismissed) {
+                    coverBannerPicker.setUploading(false)
+                    refreshPrimaryAction()
+                }
+            }
+        }
+        refreshPrimaryAction()
+    }
+
+    private fun readCoverImage(uri: Uri): CoverImage {
+        val resolver = context.contentResolver
+        val declaredMimeType = resolver.getType(uri)?.substringBefore(';')?.lowercase()
+        val output = ByteArrayOutputStream()
+        resolver.openInputStream(uri)?.use { input ->
+            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            var total = 0
+            while (true) {
+                val count = input.read(buffer)
+                if (count <= 0) break
+                total += count
+                if (total > ClanEventCreateUi.MAX_LOGO_SIZE_BYTES) throw CoverTooLargeException()
+                output.write(buffer, 0, count)
+            }
+        } ?: throw IllegalArgumentException("Cannot read cover image")
+        val bytes = output.toByteArray()
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+            throw IllegalArgumentException("Invalid cover image")
+        }
+        val mimeType = declaredMimeType?.takeIf { it.startsWith("image/") }
+            ?: bounds.outMimeType?.lowercase()?.takeIf { it.startsWith("image/") }
+            ?: throw IllegalArgumentException("Unsupported cover image")
+        return CoverImage(bytes, mimeType, bounds.outWidth, bounds.outHeight)
+    }
+
+    private data class CoverImage(
+        val bytes: ByteArray,
+        val mimeType: String,
+        val width: Int,
+        val height: Int,
+    )
+
+    private class CoverTooLargeException : Exception()
+
     private fun onCoverUploaded(url: String) {
-        if (!::coverBannerPicker.isInitialized) return
+        if (dismissed || !::coverBannerPicker.isInitialized) return
         logoUrl = url
-        isUploadingLogo = false
-        coverBannerPicker.setUploading(false)
         coverBannerPicker.loadPreview(url)
         refreshPrimaryAction()
     }
@@ -929,23 +1097,21 @@ class ClanEventCreateFragment : BaseFragment() {
         return CreateEventDraft(
             option = selectedOption,
             channelVoiceId = if (selectedOption == ClanEventOption.SPEAKER) channelVoiceId else 0L,
-            address = if (selectedOption == ClanEventOption.LOCATION) address.trim() else "",
-            channelId = if (selectedOption == ClanEventOption.PRIVATE) 0L else channelId,
+            address = if (selectedOption == ClanEventOption.LOCATION) address else "",
+            channelId = this.channelId,
             isPrivate = isPrivate,
-            title = titleCell.getText().trim(),
-            description = descriptionCell.getText().trim(),
+            title = titleCell.getText(),
+            description = descriptionCell.getText(),
             startTimeSeconds = startSec,
             endTimeSeconds = endSec,
             repeatType = repeatType,
             logoUrl = logoUrl,
-            originalLogoUrl = if (isEditMode) originalLogoUrl else null,
             editingEventId = editingEventId,
-            editingChannelIdOld = editingChannelIdOld,
         )
     }
 
     private fun bindPreview() {
-        val context = fragmentView?.context ?: return
+        val context = context
         val draft = buildDraft()
         val subtitleRes = when {
             isEditMode -> R.string.event_creator_preview_subtitle_edit
@@ -953,6 +1119,8 @@ class ClanEventCreateFragment : BaseFragment() {
             else -> R.string.event_creator_preview_subtitle_voice
         }
         (stepPreviewPanel.findViewWithTag<TextView>("preview_subtitle"))?.text = getString(subtitleRes)
+        previewLoad?.cancel()
+        previewLoad = null
         previewHost.removeAllViews()
         previewHost.addView(buildPreviewCard(context, draft))
     }
@@ -963,7 +1131,7 @@ class ClanEventCreateFragment : BaseFragment() {
             orientation = LinearLayout.VERTICAL
             setPadding(pad, pad, pad, pad)
             background = GradientDrawable().apply {
-                setColor(themeColors.surfaceVariant)
+                setColor(themeColors.secondaryLight)
                 cornerRadius = LayoutHelper.dpf(12f)
             }
         }
@@ -978,8 +1146,8 @@ class ClanEventCreateFragment : BaseFragment() {
                 }, LayoutHelper.createLinear(18, 18))
                 addView(TextView(context).apply {
                     text = timeLabel
-                    textSize = 12f
-                    setTextColor(themeColors.textStrong)
+                    textSize = 13f
+                    setTextColor(themeColors.onSurfaceVariant)
                     typeface = Typeface.DEFAULT_BOLD
                     setPadding(LayoutHelper.dp(6), 0, 0, 0)
                 })
@@ -1006,12 +1174,16 @@ class ClanEventCreateFragment : BaseFragment() {
             setPadding(ph, pv, ph, pv)
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(6f).toFloat()
-                setColor(if (draft.isPrivate) themeColors.onSurfaceVariant else themeColors.blurple)
+                setColor(when {
+                    draft.isPrivate -> 0xFFEF4444.toInt()
+                    draft.channelId != 0L -> 0xFFF97316.toInt()
+                    else -> 0xFF3B82F6.toInt()
+                })
             }
         }, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.START, 0f, 0f, 0f, 6f))
         textCol.addView(TextView(context).apply {
             text = draft.title
-            textSize = 15f
+            textSize = 18f
             setTextColor(themeColors.textStrong)
             typeface = Typeface.DEFAULT_BOLD
         })
@@ -1050,48 +1222,61 @@ class ClanEventCreateFragment : BaseFragment() {
         mainRow.addView(textCol)
         if (draft.logoUrl.isNotBlank()) {
             mainRow.addView(
-                ClanEventCreateUi.buildEventLogoThumbnail(context, themeColors, draft.logoUrl),
+                ClanEventCreateUi.buildEventLogoThumbnail(context, themeColors, draft.logoUrl) { previewLoad = it },
                 LinearLayout.LayoutParams(LayoutHelper.dp(ClanEventCreateUi.EVENT_THUMB_SIZE_DP), LayoutHelper.dp(ClanEventCreateUi.EVENT_THUMB_SIZE_DP)).apply {
                     leftMargin = LayoutHelper.dp(10)
                 },
             )
         }
         root.addView(mainRow)
+        if (draft.channelId != 0L) {
+            clanEventController.getChannel(clanId, draft.channelId)?.let { channel ->
+                root.addView(TextView(context).apply {
+                    text = getString(R.string.clan_event_channel_in, channel.channelLabel)
+                    textSize = 12f
+                    setTextColor(themeColors.onSurfaceVariant)
+                    setPadding(0, LayoutHelper.dp(12), 0, 0)
+                })
+            }
+        }
         return root
     }
 
-    private fun submitCreate() {
+    private fun submitEvent() {
         if (submitting) return
+        val original = originalEvent
+        if (isEditMode && original == null) return
         submitting = true
         loadingOverlay.visibility = View.VISIBLE
         refreshPrimaryAction()
-        val creatorId = accountController.accountInfo.value.userId
         val draft = buildDraft()
-        val onDone: (Boolean, String?) -> Unit = { success, error ->
-            submitting = false
-            loadingOverlay.visibility = View.GONE
-            if (success) {
-                val message = if (isEditMode) {
-                    getString(R.string.event_creator_update_success)
-                } else {
-                    getString(R.string.event_creator_create_success)
-                }
-                MezonToast.show(this@ClanEventCreateFragment, ToastOverlay.ToastType.SUCCESS, message)
-                finishFragment()
-            } else {
-                refreshPrimaryAction()
-                val fallback = if (isEditMode) {
-                    getString(R.string.event_creator_update_failed)
-                } else {
-                    getString(R.string.event_creator_create_failed)
-                }
-                MezonToast.show(this@ClanEventCreateFragment, ToastOverlay.ToastType.ERROR, error ?: fallback)
-            }
-        }
-        if (isEditMode) {
-            clanEventController.updateEvent(draft, clanId, creatorId, onDone)
+        if (original != null) {
+            clanEventController.updateEvent(draft, clanId, original, ::onSubmitDone)
         } else {
-            clanEventController.createEvent(draft, clanId, creatorId, onDone)
+            clanEventController.createEvent(draft, clanId, ::onSubmitDone)
+        }
+    }
+
+    private fun onSubmitDone(success: Boolean, error: String?) {
+        if (dismissed) return
+        submitting = false
+        loadingOverlay.visibility = View.GONE
+        if (success) {
+            val message = if (isEditMode) {
+                getString(R.string.event_creator_update_success)
+            } else {
+                getString(R.string.event_creator_create_success)
+            }
+            MezonToast.show(host, ToastOverlay.ToastType.SUCCESS, message)
+            dismiss()
+        } else {
+            refreshPrimaryAction()
+            val fallback = if (isEditMode) {
+                getString(R.string.event_creator_update_failed)
+            } else {
+                getString(R.string.event_creator_create_failed)
+            }
+            showError(ToastOverlay.ToastType.ERROR, error ?: fallback)
         }
     }
 }

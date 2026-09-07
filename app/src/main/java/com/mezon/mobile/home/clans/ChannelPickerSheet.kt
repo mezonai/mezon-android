@@ -6,7 +6,10 @@ import android.graphics.PorterDuffColorFilter
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.text.Editable
+import android.text.TextUtils
 import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
@@ -15,10 +18,10 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.graphics.ColorUtils
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.mezon.mobile.R
-import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BottomSheet
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.RecyclerListView
@@ -27,11 +30,14 @@ import com.mezon.mobile.ui.cells.EditTextBoldCursor
 import com.mezon.mobile.ui.cells.MezonIcon
 import java.util.Locale
 
+private const val CHANNEL_SEARCH_DEBOUNCE_MS = 300L
+
 class ChannelPickerSheet(
     context: Context,
     private val themeColors: ThemeColors,
     channels: List<ClanChannelEntity>,
-    title: CharSequence,
+    private val title: CharSequence,
+    private val selectedChannelId: Long = 0L,
     private val onChannelPicked: (ClanChannelEntity) -> Unit,
 ) : BottomSheet(context, needFocusable = true) {
 
@@ -40,15 +46,14 @@ class ChannelPickerSheet(
 
     private lateinit var adapter: ChannelRowsAdapter
     private var emptyViewRef: TextView? = null
-    private var searchField: EditTextBoldCursor? = null
-
-    init {
-        setTitle(title)
-    }
+    private val searchHandler = Handler(Looper.getMainLooper())
+    private var pendingSearch: Runnable? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        val screenH = AndroidUtilities.displaySize.y
-        val panelHeight = (screenH * 0.52f).toInt().coerceAtLeast(LayoutHelper.dp(340f))
+        setCanDismissWithSwipe(false)
+        setAllowNestedScroll(false)
+        val panelHeight = LayoutHelper.dp(132 + allSorted.size.coerceIn(1, 6) * 60)
+            .coerceAtMost((context.resources.displayMetrics.heightPixels * 0.60f).toInt())
 
         adapter = ChannelRowsAdapter()
 
@@ -63,7 +68,7 @@ class ChannelPickerSheet(
                     dismiss()
                 }
             }
-            setPadding(LayoutHelper.dp(12f), 0, LayoutHelper.dp(12f), LayoutHelper.dp(8f))
+            setPadding(0, 0, 0, LayoutHelper.dp(4))
             clipToPadding = false
         }
 
@@ -73,7 +78,7 @@ class ChannelPickerSheet(
             text = context.getString(R.string.webhook_pick_channel_no_match)
             textSize = 14f
             setTextColor(CreateClanRnUiTokens.textDisabled(themeColors))
-            setPadding(LayoutHelper.dp(24f), LayoutHelper.dp(32f), LayoutHelper.dp(24f), LayoutHelper.dp(32f))
+            setPadding(LayoutHelper.dp(24), LayoutHelper.dp(12), LayoutHelper.dp(24), LayoutHelper.dp(12))
         }
         emptyViewRef = emptyView
 
@@ -83,30 +88,36 @@ class ChannelPickerSheet(
         }
 
         val searchBar = FrameLayout(context).apply {
-            setPadding(LayoutHelper.dp(16f), LayoutHelper.dp(4f), LayoutHelper.dp(16f), LayoutHelper.dp(12f))
+            background = GradientDrawable().apply {
+                setColor(themeColors.secondaryLight)
+                cornerRadius = LayoutHelper.dpf(12f)
+                setStroke(LayoutHelper.dp(1), themeColors.outlineVariant)
+            }
         }
         val searchInput = EditTextBoldCursor(context).apply {
             hint = context.getString(R.string.common_search_placeholder)
-            setHintTextColor(themeColors.textDisabled)
+            setHintTextColor(themeColors.onSurfaceVariant)
             setTextColor(themeColors.onSurface)
             textSize = 14f
             maxLines = 1
             isSingleLine = true
             typeface = Typeface.DEFAULT
-            setPadding(LayoutHelper.dp(38f), LayoutHelper.dp(10f), LayoutHelper.dp(12f), LayoutHelper.dp(10f))
-            background = GradientDrawable().apply {
-                setColor(themeColors.surfaceVariant)
-                cornerRadius = LayoutHelper.dp(10f).toFloat()
-            }
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(LayoutHelper.dp(44), 0, LayoutHelper.dp(12), 0)
+            background = null
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
                 override fun afterTextChanged(s: Editable?) {
-                    applyFilter(s?.toString().orEmpty())
+                    pendingSearch?.let(searchHandler::removeCallbacks)
+                    val query = s?.toString().orEmpty()
+                    pendingSearch = Runnable {
+                        pendingSearch = null
+                        applyFilter(query)
+                    }.also { searchHandler.postDelayed(it, CHANNEL_SEARCH_DEBOUNCE_MS) }
                 }
             })
         }
-        searchField = searchInput
         val searchIcon = ImageView(context).apply {
             val d = MezonIcon.magnifyingIcon.getDrawable(context).mutate()
             d.colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
@@ -115,31 +126,61 @@ class ChannelPickerSheet(
         }
         searchBar.addView(
             searchInput,
-            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, LayoutHelper.dp(42f)),
+            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT),
         )
         searchBar.addView(
             searchIcon,
-            FrameLayout.LayoutParams(LayoutHelper.dp(18f), LayoutHelper.dp(18f)).apply {
+            FrameLayout.LayoutParams(LayoutHelper.dp(20), LayoutHelper.dp(20)).apply {
                 gravity = Gravity.START or Gravity.CENTER_VERTICAL
-                leftMargin = LayoutHelper.dp(12f)
+                marginStart = LayoutHelper.dp(14)
             },
         )
 
         val container = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(themeColors.background)
-            addView(searchBar, LinearLayout.LayoutParams(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
+            setPadding(LayoutHelper.dp(20), 0, LayoutHelper.dp(20), LayoutHelper.dp(12))
+            addView(LinearLayout(context).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                addView(TextView(context).apply {
+                    text = title
+                    textSize = 18f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(themeColors.onSurface)
+                    maxLines = 2
+                    ellipsize = TextUtils.TruncateAt.END
+                }, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL))
+                addView(ImageView(context).apply {
+                    setImageDrawable(MezonIcon.closeLargeIcon.getDrawable(context, themeColors.onSurfaceVariant))
+                    scaleType = ImageView.ScaleType.CENTER_INSIDE
+                    val pad = LayoutHelper.dp(12)
+                    setPadding(pad, pad, pad, pad)
+                    contentDescription = context.getString(R.string.common_cancel)
+                    setOnClickListener { dismiss() }
+                }, LayoutHelper.createLinear(44, 44, 0f, Gravity.CENTER_VERTICAL))
+            }, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
+                bottomMargin = LayoutHelper.dp(12)
+            })
+            addView(searchBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 48).apply {
+                bottomMargin = LayoutHelper.dp(12)
+            })
             addView(listFrame, LinearLayout.LayoutParams(LayoutHelper.MATCH_PARENT, 0, 1f))
+            isFocusableInTouchMode = true
         }
 
-        val panelContainer = FrameLayout(context).apply {
-            addView(container, FrameLayout.LayoutParams(LayoutHelper.MATCH_PARENT, panelHeight))
+        val panelContainer = object : FrameLayout(context) {
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                val height = minOf(panelHeight, MeasureSpec.getSize(heightMeasureSpec))
+                super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY))
+            }
+        }.apply {
+            addView(container, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
         }
 
         applyFilter("")
 
         setCustomView(panelContainer)
         super.onCreate(savedInstanceState)
+        setBackgroundColor(themeColors.surface)
     }
 
     private fun applyFilter(query: String) {
@@ -154,8 +195,9 @@ class ChannelPickerSheet(
     }
 
     override fun dismiss() {
+        pendingSearch?.let(searchHandler::removeCallbacks)
+        pendingSearch = null
         emptyViewRef = null
-        searchField = null
         super.dismiss()
     }
 
@@ -167,11 +209,8 @@ class ChannelPickerSheet(
             val row = LinearLayout(ctx).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                background = GradientDrawable().apply {
-                    cornerRadius = CreateClanRnUiTokens.clanSettingsMenuCornerPx()
-                    setColor(themeColors.surfaceVariant)
-                }
-                setPadding(LayoutHelper.dp(14f), LayoutHelper.dp(10f), LayoutHelper.dp(14f), LayoutHelper.dp(10f))
+                minimumHeight = LayoutHelper.dp(52)
+                setPadding(LayoutHelper.dp(14), LayoutHelper.dp(12), LayoutHelper.dp(14), LayoutHelper.dp(12))
                 layoutParams = RecyclerView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                     bottomMargin = LayoutHelper.dp(8f)
                 }
@@ -184,16 +223,22 @@ class ChannelPickerSheet(
                     d.colorFilter = PorterDuffColorFilter(CreateClanRnUiTokens.menuText(themeColors), PorterDuff.Mode.SRC_IN)
                     setImageDrawable(d)
                 },
-                LayoutHelper.createLinear(14, 14, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, 8f, 0f),
+                LayoutHelper.createLinear(20, 20, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, 12f, 0f),
             )
 
             val label = TextView(ctx).apply {
                 textSize = 15f
-                typeface = Typeface.DEFAULT_BOLD
-                setTextColor(CreateClanRnUiTokens.menuText(themeColors))
+                typeface = Typeface.DEFAULT
+                setTextColor(themeColors.onSurface)
                 maxLines = 2
+                ellipsize = TextUtils.TruncateAt.END
             }
             row.addView(label, LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f))
+            row.addView(ImageView(ctx).apply {
+                setImageDrawable(MezonIcon.checkmarkSmallIcon.getDrawable(ctx, themeColors.primary))
+                scaleType = ImageView.ScaleType.CENTER_INSIDE
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }, LayoutHelper.createLinear(20, 20, 0f, Gravity.CENTER_VERTICAL, 12f, 0f, 0f, 0f))
 
             return object : RecyclerView.ViewHolder(row) {}
         }
@@ -208,6 +253,15 @@ class ChannelPickerSheet(
             iconView.setImageDrawable(d)
             val label = row.getChildAt(1) as TextView
             label.text = ch.channelLabel
+            val selected = ch.channelId == selectedChannelId && selectedChannelId != 0L
+            row.isSelected = selected
+            row.background = GradientDrawable().apply {
+                cornerRadius = LayoutHelper.dpf(12f)
+                setColor(if (selected) ColorUtils.blendARGB(themeColors.surface, themeColors.primary, 0.10f) else themeColors.secondaryLight)
+                if (selected) setStroke(LayoutHelper.dp(1), themeColors.primary)
+            }
+            label.setTextColor(if (selected) themeColors.primary else themeColors.onSurface)
+            row.getChildAt(2).visibility = if (selected) View.VISIBLE else View.INVISIBLE
         }
     }
 }

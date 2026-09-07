@@ -78,6 +78,7 @@ class ClanEventOptionPicker(
     fun bindValue(value: CharSequence, icon: MezonIcon = defaultIcon) {
         selectedChannelId = 0L
         bindLeadingIcon(icon, selected = true)
+        leadingIcon.visibility = if (clearable) View.VISIBLE else View.GONE
         showSelectedState(value)
     }
 
@@ -102,14 +103,15 @@ class ClanEventOptionPicker(
     }
 
     private fun cardBackground() = GradientDrawable().apply {
-        cornerRadius = CreateClanRnUiTokens.clanSettingsMenuCornerPx()
-        setColor(theme.channelPanelBg)
+        cornerRadius = LayoutHelper.dpf(12f)
+        setColor(theme.secondaryLight)
+        setStroke(LayoutHelper.dp(1), theme.outlineVariant)
     }
 
     private fun createHeadingView(heading: CharSequence) = TextView(context).apply {
         text = heading
         textSize = HEADING_TEXT_SIZE_SP
-        setTextColor(CreateClanRnUiTokens.textDisabled(theme))
+        setTextColor(theme.onSurfaceVariant)
     }
 
     private fun createLeadingIcon() = ImageView(context).apply {
@@ -127,6 +129,7 @@ class ClanEventOptionPicker(
     }
 
     private fun createTrailingClear() = ImageView(context).apply {
+        contentDescription = context.getString(R.string.event_creator_clear_selection)
         scaleType = ImageView.ScaleType.CENTER_INSIDE
         setImageDrawable(tintedIcon(MezonIcon.closeSmallBold, CreateClanRnUiTokens.textDisabled(theme)))
         val pad = LayoutHelper.dp(4f)
@@ -148,14 +151,14 @@ class ClanEventOptionPicker(
     private fun showEmptyState() {
         valueLabel.text = emptyLabel
         valueLabel.typeface = Typeface.DEFAULT
-        valueLabel.setTextColor(CreateClanRnUiTokens.textDisabled(theme))
+        valueLabel.setTextColor(theme.onSurfaceVariant)
         trailingChevron.visibility = View.VISIBLE
         trailingClear.visibility = View.GONE
     }
 
     private fun showSelectedState(value: CharSequence) {
         valueLabel.text = value
-        valueLabel.typeface = Typeface.DEFAULT_BOLD
+        valueLabel.typeface = Typeface.DEFAULT
         valueLabel.setTextColor(CreateClanRnUiTokens.menuText(theme))
         if (clearable) {
             trailingChevron.visibility = View.GONE
@@ -173,9 +176,9 @@ class ClanEventOptionPicker(
 
     companion object {
         private const val HEADING_TEXT_SIZE_SP = 12f
-        private const val VALUE_TEXT_SIZE_SP = 15f
+        private const val VALUE_TEXT_SIZE_SP = 14f
         private const val ICON_SIZE = 14
-        private val PADDING_H = LayoutHelper.dp(14f)
+        private val PADDING_H = LayoutHelper.dp(12f)
         private val PADDING_V = LayoutHelper.dp(12f)
         private val VALUE_ROW_TOP_PAD = LayoutHelper.dp(6f)
 

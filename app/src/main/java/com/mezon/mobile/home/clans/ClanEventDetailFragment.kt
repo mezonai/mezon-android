@@ -25,8 +25,6 @@ import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.chat.MezonImageLoader
-import com.mezon.mobile.home.profile.AccountController
-import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.ui.cells.ActionBarMenu
 import com.mezon.mobile.ui.cells.ActionBarMenuItem
 import com.mezon.mobile.ui.cells.ActionBarView
@@ -75,19 +73,16 @@ class ClanEventDetailFragment : BaseFragment() {
 
     private lateinit var clanEventController: ClanEventController
     private lateinit var userClanController: UserClanController
-    private lateinit var accountController: AccountController
-    private lateinit var userController: UserController
     private lateinit var contentHost: LinearLayout
     private var actionBarMenu: ActionBarMenu? = null
     private var moreMenuItem: ActionBarMenuItem? = null
     private var eventMenuPopup: PopupMenu? = null
+    private var eventEditorDialog: ClanEventEditorDialog? = null
     private var deleting = false
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
         clanEventController = entryPoint.clanEventController()
         userClanController = entryPoint.userClanController()
-        accountController = entryPoint.accountController()
-        userController = entryPoint.userController()
     }
 
     override fun onFragmentCreate(): Boolean {
@@ -111,6 +106,12 @@ class ClanEventDetailFragment : BaseFragment() {
             val id = args.firstOrNull() as? Long ?: return@observe
             if (id == clanId) bindContent()
         }
+        observe(NotificationCenter.clanRolesDidLoad) { _, _, args ->
+            if (isPaused || fragmentView == null) return@observe
+            if (args.firstOrNull() == clanId) {
+                clanEventController.getEvent(clanId, eventId)?.let { updateActionBarMenu(it) }
+            }
+        }
         return true
     }
 
@@ -125,6 +126,9 @@ class ClanEventDetailFragment : BaseFragment() {
     }
 
     override fun onFragmentDestroy() {
+        eventEditorDialog?.setOnDismissListener(null)
+        eventEditorDialog?.dismiss()
+        eventEditorDialog = null
         dismissEventMenu()
         actionBarMenu = null
         moreMenuItem = null
@@ -298,18 +302,9 @@ class ClanEventDetailFragment : BaseFragment() {
         }
     }
 
-    private fun currentUserId(): Long {
-        val accountId = accountController.accountInfo.value.userId
-        return accountId.takeIf { it != 0L } ?: userController.userId
-    }
+    private fun currentUserId(): Long = clanEventController.currentUserId()
 
-    private fun canModifyEvent(event: ClanEventEntity): Boolean {
-        if (event.creatorId == 0L) return false
-        val userId = currentUserId()
-        if (userId != 0L && userId == event.creatorId) return true
-        val profileId = userController.userIdStr
-        return profileId.isNotEmpty() && profileId == event.creatorId.toString()
-    }
+    private fun canModifyEvent(event: ClanEventEntity): Boolean = clanEventController.canModifyEvent(event)
 
     private fun updateActionBarMenu(event: ClanEventEntity) {
         if (isPaused || fragmentView == null) {
@@ -376,7 +371,16 @@ class ClanEventDetailFragment : BaseFragment() {
             when (index) {
                 0 -> {
                     dismissEventMenu()
-                    presentFragment(ClanEventCreateFragment.newInstance(clanId, eventId))
+                    eventEditorDialog?.dismiss()
+                    val dialog = ClanEventEditorDialog.show(
+                        host = this@ClanEventDetailFragment,
+                        clanId = clanId,
+                        eventId = eventId,
+                    )
+                    eventEditorDialog = dialog
+                    dialog?.setOnDismissListener {
+                        if (eventEditorDialog === dialog) eventEditorDialog = null
+                    }
                 }
                 1 -> {
                     dismissEventMenu()
@@ -409,11 +413,10 @@ class ClanEventDetailFragment : BaseFragment() {
     private fun runDeleteEvent(event: ClanEventEntity) {
         if (deleting) return
         deleting = true
-        val creatorId = accountController.accountInfo.value.userId
         clanEventController.deleteEvent(
             clanId = clanId,
             eventId = event.id,
-            creatorId = creatorId,
+            creatorId = event.creatorId,
             title = event.title,
             channelId = event.channelId,
         ) { success, error ->
@@ -808,12 +811,10 @@ class ClanEventDetailFragment : BaseFragment() {
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.START, 0f, 0f, 0f, 8f),
         )
     
-        if (eventBadgeLabel(context, event) != null) {
-            content.addView(
-                buildEventBadge(context, theme, event),
-                LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.START, 0f, 0f, 0f, 8f),
-            )
-        }
+        content.addView(
+            buildEventBadge(context, event),
+            LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.START, 0f, 0f, 0f, 8f),
+        )
     
         content.addView(
             TextView(context).apply {
@@ -851,7 +852,7 @@ class ClanEventDetailFragment : BaseFragment() {
             buildInlineInfoRow(
                 context,
                 theme,
-                MezonIcon.bellIcon,
+                MezonIcon.eventBellIcon,
                 interestedSummary(context, event.interestedCount),
                 iconColor = theme.colorText,
                 topMarginDp = 10f,
@@ -913,7 +914,7 @@ class ClanEventDetailFragment : BaseFragment() {
             buildEventActionChip(
                 context,
                 theme,
-                if (interested) MezonIcon.bellSlashIcon else MezonIcon.bellIcon,
+                if (interested) MezonIcon.eventBellSlashIcon else MezonIcon.eventBellIcon,
                 if (interested) context.getString(R.string.clan_event_uninterested) else context.getString(R.string.clan_event_interested),
                 onToggleInterest,
             ),
@@ -932,21 +933,21 @@ class ClanEventDetailFragment : BaseFragment() {
         return root
     }
 
-    private fun eventBadgeLabel(context: Context, event: ClanEventEntity): String? = when {
+    private fun eventBadgeLabel(context: Context, event: ClanEventEntity): String = when {
         event.isPrivate -> context.getString(R.string.clan_event_badge_private)
         event.channelId != 0L -> context.getString(R.string.clan_event_badge_channel)
         else -> context.getString(R.string.clan_event_badge_clan)
     }
 
-    private fun eventBadgeColor(theme: ThemeColors, event: ClanEventEntity): Int = when {
-        event.isPrivate -> theme.onSurfaceVariant
+    private fun eventBadgeColor(event: ClanEventEntity): Int = when {
+        event.isPrivate -> 0xFFEF4444.toInt()
         event.channelId != 0L -> 0xFFF97316.toInt()
-        else -> theme.blurple
+        else -> 0xFF3B82F6.toInt()
     }
 
-    private fun buildEventBadge(context: Context, theme: ThemeColors, event: ClanEventEntity): TextView {
+    private fun buildEventBadge(context: Context, event: ClanEventEntity): TextView {
         return TextView(context).apply {
-            text = eventBadgeLabel(context, event).orEmpty()
+            text = eventBadgeLabel(context, event)
             textSize = 11f
             setTextColor(0xFFFFFFFF.toInt())
             typeface = Typeface.DEFAULT_BOLD
@@ -955,7 +956,7 @@ class ClanEventDetailFragment : BaseFragment() {
             setPadding(padH, padV, padH, padV)
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(6f).toFloat()
-                setColor(eventBadgeColor(theme, event))
+                setColor(eventBadgeColor(event))
             }
         }
     }
