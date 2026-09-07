@@ -43,7 +43,6 @@ class ChannelItemCell(
         private val ACTIVE_INSET = LayoutHelper.dp(2).toFloat()
         private val BADGE_GAP = LayoutHelper.dp(4)
         private val BADGE_TEXT_PAD = LayoutHelper.dp(8).toFloat()
-
         fun resolveChannelIcon(
             type: Int,
             isPrivate: Boolean,
@@ -75,6 +74,7 @@ class ChannelItemCell(
     private var currentIconAgeRestricted: Boolean = false
     private var cachedIconColorFilter: PorterDuffColorFilter? = null
     private var cachedIconColor: Int = 0
+    private val eventIcon = ChannelEventIcon(context)
     private val voiceActiveColorFilter = PorterDuffColorFilter(VOICE_ACTIVE_GREEN, PorterDuff.Mode.SRC_IN)
     private val badgeRectF = RectF()
 
@@ -82,15 +82,30 @@ class ChannelItemCell(
     private val paddingHPx = LayoutHelper.dp(16)
     private val iconSizePx = LayoutHelper.dp(12)
     private val iconMarginPx = LayoutHelper.dp(8)
+    private val eventIconSizePx = LayoutHelper.dp(16)
+    private val eventIconLeadingMarginPx = LayoutHelper.dp(6)
+    private val eventIconTrailingMarginPx = LayoutHelper.dp(8)
     private val badgeSizePx = LayoutHelper.dp(20)
     private val unreadDotRadius = LayoutHelper.dp(3f).toFloat()
 
 
 
-    fun bind(channel: ClanChannelEntity, active: Boolean, voiceActive: Boolean = false) {
+    fun bind(
+        channel: ClanChannelEntity,
+        active: Boolean,
+        voiceActive: Boolean = false,
+        eventStatus: Int? = null,
+    ) {
         this.channel = channel
         this.isActive = active
         this.voiceActive = voiceActive
+        eventIcon.setStatus(eventStatus)
+        truncatedName = ""
+        invalidate()
+    }
+
+    fun setEventStatus(eventStatus: Int?) {
+        if (!eventIcon.setStatus(eventStatus)) return
         truncatedName = ""
         invalidate()
     }
@@ -192,7 +207,19 @@ class ChannelItemCell(
         icon.setBounds(iconLeft, iconTop, iconLeft + iconSizePx, iconTop + iconSizePx)
         icon.draw(canvas)
 
-        val textX = paddingHPx + iconSizePx + iconMarginPx
+        val eventIconLeft = paddingHPx + iconSizePx + eventIconLeadingMarginPx
+        val eventIconDrawn = eventIcon.drawIfVisible(
+            canvas = canvas,
+            left = eventIconLeft,
+            top = (height - eventIconSizePx) / 2,
+            size = eventIconSizePx,
+            muted = isMutedVisual,
+        )
+        val textX = if (eventIconDrawn) {
+            eventIconLeft + eventIconSizePx + eventIconTrailingMarginPx
+        } else {
+            paddingHPx + iconSizePx + iconMarginPx
+        }
         val badgeWidth = if (showMentionBadge) badgeSizePx + BADGE_GAP else 0
         val availW = width - textX - paddingHPx - badgeWidth
 

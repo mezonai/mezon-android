@@ -10,6 +10,7 @@ object ClanEventStatus {
     const val CREATED = 0
     const val UPCOMING = 1
     const val ONGOING = 2
+    const val COMPLETED = 3
 }
 
 object ClanEventRepeatType {
