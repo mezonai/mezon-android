@@ -9,6 +9,7 @@ import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
+import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
 import com.mezon.mobile.util.buildTextContent
 import dagger.hilt.android.EntryPointAccessors
@@ -125,22 +126,26 @@ class NotificationReplyReceiver : BroadcastReceiver() {
     ): ReplyTarget {
         val meta = entryPoint.channelController().findChannelById(channelId)
         if (meta != null && meta.type != 0) {
+            val resolvedType = if (meta.isThread) CHANNEL_TYPE_THREAD else meta.type
             return ReplyTarget(
                 channelId = channelId,
                 clanId = if (meta.clanId != 0L) meta.clanId else clanId,
-                channelType = if (meta.isThread) CHANNEL_TYPE_THREAD else meta.type,
-                isPrivate = meta.isPrivate
+                channelType = resolvedType,
+                isPrivate = meta.isPrivate || isDirectConversation(resolvedType)
             )
         }
         val dialog = entryPoint.dialogsController().getDialog(channelId)
         if (dialog != null && dialog.type != 0) {
-            return ReplyTarget(channelId, 0L, dialog.type, false)
+            return ReplyTarget(channelId, 0L, dialog.type, isDirectConversation(dialog.type))
         }
         val fallbackType = when {
             channelType != 0 -> channelType
             clanId == 0L -> CHANNEL_TYPE_DM
             else -> CHANNEL_TYPE_CHANNEL
         }
-        return ReplyTarget(channelId, clanId, fallbackType, false)
+        return ReplyTarget(channelId, clanId, fallbackType, isDirectConversation(fallbackType))
     }
+
+    private fun isDirectConversation(channelType: Int): Boolean =
+        channelType == CHANNEL_TYPE_DM || channelType == CHANNEL_TYPE_GROUP
 }
