@@ -3,8 +3,6 @@ package com.mezon.mobile.home.chat.channelinfo
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
@@ -64,7 +62,7 @@ class InviteMembersBottomSheet(
         )
 
         actionsRow.addView(
-            createActionButton(context, MezonIcon.copyIcon, "Copy Link") {
+            createActionButton(context, MezonIcon.linkIcon, "Copy Link") {
                 copyToClipboard(context, inviteLink)
             }
         )
@@ -117,9 +115,7 @@ class InviteMembersBottomSheet(
             }
         }
         val iconView = ImageView(context).apply {
-            val d = icon.getDrawable(context)
-            d.colorFilter = PorterDuffColorFilter(theme.onSurface, PorterDuff.Mode.SRC_IN)
-            setImageDrawable(d)
+            setImageDrawable(icon.getDrawable(context, theme.getColor(ThemeColors.key_dialogIcon)))
         }
         circle.addView(iconView, LayoutHelper.createFrame(22, 22, Gravity.CENTER))
         column.addView(circle, LayoutHelper.createLinear(52, 52, 0f, Gravity.CENTER_HORIZONTAL))
