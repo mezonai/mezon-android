@@ -158,6 +158,7 @@ class MezonFirebaseService : FirebaseMessagingService() {
             return
         }
         val canReply = !data["e2ee"].equals("true", ignoreCase = true)
+        val avatarUrl = data["image"].orEmpty()
         val link = data["link"] ?: ""
         val channel = data["channel"] ?: ""
        
@@ -184,7 +185,8 @@ class MezonFirebaseService : FirebaseMessagingService() {
                         body,
                         channelId = channelId,
                         clanId = clanId,
-                        canReply = canReply
+                        canReply = canReply,
+                        avatarUrl = avatarUrl
                     )
                 }
             } else {
@@ -206,7 +208,8 @@ class MezonFirebaseService : FirebaseMessagingService() {
                             title,
                             body,
                             dmChannelId = dmId,
-                            canReply = canReply
+                            canReply = canReply,
+                            avatarUrl = avatarUrl
                         )
                     }
                 }

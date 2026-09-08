@@ -894,6 +894,8 @@
     <string name="notification_action_reply">Trả lời</string>
     <string name="notification_reply_hint">Tin nhắn</string>
     <string name="notification_reply_failed">Không gửi được trả lời. Chạm để mở cuộc trò chuyện.</string>
+    <string name="notification_self">Bạn</string>
+    <string name="notification_group_summary">%1$d tin nhắn mới</string>
 
     <!-- channelList -->
     <string name="channel_list_favorite">Kênh yêu thích</string>

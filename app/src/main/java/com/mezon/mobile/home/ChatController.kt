@@ -1287,7 +1287,13 @@ class ChatController @Inject constructor(
                 )
                 ack.messageId
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e(
+                TAG,
+                "sendRawChannelMessage failed channelId=$channelId clanId=$clanId mode=$mode isPublic=$isPublic",
+                e
+            )
+            sentryReporter.logChatFailure("sendRawChannelMessage", channelId, clanId, e)
             notificationCenter.postNotificationOnMainThread(
                 NotificationCenter.pendingMessageError, channelId, tempId
             )
