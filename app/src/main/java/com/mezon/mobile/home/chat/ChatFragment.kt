@@ -1376,7 +1376,7 @@ open class ChatFragment : BaseFragment() {
             if (isPaused) return@observe
             Log.d(TAG, "appDidReconnect: reloading messages for channel $channelId")
             rejoinChannelOnSocket()
-            chatController.loadMessages(channelId, clanId, forceRefresh = true, preferHttp = false, topicId = topicId)
+            chatController.loadMessages(channelId, clanId, forceRefresh = true, refreshWhenBackOnline = false, topicId = topicId)
         }
 
         observe(NotificationCenter.scrollToBottomChat) { _, _, args ->
@@ -1493,7 +1493,7 @@ open class ChatFragment : BaseFragment() {
                 clanId = clanId,
                 anchorMessageId = startLoadFromMessageId,
                 requireExactAnchor = true,
-                preferHttp = true,
+                refreshWhenBackOnline = true,
                 topicId = topicId
             )
         } else {
@@ -1501,7 +1501,7 @@ open class ChatFragment : BaseFragment() {
                 channelId,
                 clanId,
                 forceRefresh = true,
-                preferHttp = openedFromNotification,
+                refreshWhenBackOnline = openedFromNotification,
                 topicId = topicId
             )
         }
@@ -2594,7 +2594,7 @@ open class ChatFragment : BaseFragment() {
         if (pausedFromAppBackground) {
             pausedFromAppBackground = false
             rejoinChannelOnSocket()
-            chatController.loadMessages(channelId, clanId, forceRefresh = true, preferHttp = true, topicId = topicId)
+            chatController.loadMessages(channelId, clanId, forceRefresh = true, refreshWhenBackOnline = true, topicId = topicId)
         }
     }
 
@@ -2681,7 +2681,7 @@ open class ChatFragment : BaseFragment() {
         } else if (!isLoading) {
             isLoading = true
             showLoading()
-            chatController.loadMessages(channelId, clanId, forceRefresh = true, preferHttp = openedFromNotification, topicId = topicId)
+            chatController.loadMessages(channelId, clanId, forceRefresh = true, refreshWhenBackOnline = openedFromNotification, topicId = topicId)
         }
         mainHandler.post { refreshPollSnapshotsForStoredVotes() }
         startVisiblePollTallyRefreshLoop()
@@ -3433,7 +3433,7 @@ open class ChatFragment : BaseFragment() {
             jumpingToPresent = true
             firstLoad = true
             Log.d(TAG, "jumpToPresent: keeping current list until reload completes, loadMessages forceRefresh=true")
-            chatController.loadMessages(channelId, clanId, forceRefresh = true, preferHttp = false, topicId = topicId)
+            chatController.loadMessages(channelId, clanId, forceRefresh = true, refreshWhenBackOnline = false, topicId = topicId)
         }
     }
 
@@ -7616,7 +7616,7 @@ open class ChatFragment : BaseFragment() {
                 clanId,
                 messageId,
                 requireExactAnchor = true,
-                preferHttp = openedFromNotification,
+                refreshWhenBackOnline = openedFromNotification,
                 topicId = topicId
             )
         }

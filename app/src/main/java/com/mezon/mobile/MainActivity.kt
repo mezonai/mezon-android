@@ -1567,12 +1567,14 @@ class MainActivity : BasePermissionsActivity(),
             if (StartupCache.hasSession) {
                 openChat(channelId, channelName, clanId, channelType, noAnimation = isFromNotification, fromNotification = true)
             }
+            notificationHelper.cancelNotification(channelId.toInt())
             intent.removeExtra(NotificationHelper.EXTRA_CHANNEL_ID)
         } else if (dmId != 0L) {
             val dmType = extras.getInt(NotificationHelper.EXTRA_CHANNEL_TYPE, CHANNEL_TYPE_DM)
             if (StartupCache.hasSession) {
                 openChat(dmId, channelName, 0L, dmType, noAnimation = isFromNotification, fromNotification = isFromNotification)
             }
+            notificationHelper.cancelNotification(dmId.toInt())
             intent.removeExtra(NotificationHelper.EXTRA_DM_ID)
         }
     }

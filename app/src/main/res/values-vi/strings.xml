@@ -890,6 +890,10 @@
     <string name="notification_channel_dm_desc">Thông báo tin nhắn trực tiếp</string>
     <string name="notification_channel_system">Hệ thống</string>
     <string name="notification_channel_system_desc">Thông báo hệ thống</string>
+    <string name="notification_action_view">Xem</string>
+    <string name="notification_action_reply">Trả lời</string>
+    <string name="notification_reply_hint">Tin nhắn</string>
+    <string name="notification_reply_failed">Không gửi được trả lời. Chạm để mở cuộc trò chuyện.</string>
 
     <!-- channelList -->
     <string name="channel_list_favorite">Kênh yêu thích</string>
