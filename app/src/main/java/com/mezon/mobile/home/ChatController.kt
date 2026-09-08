@@ -564,7 +564,7 @@ class ChatController @Inject constructor(
         channelId: Long,
         clanId: Long,
         forceRefresh: Boolean = false,
-        preferHttp: Boolean = false,
+        refreshWhenBackOnline: Boolean = false,
         topicId: Long = 0L
     ) {
         val cacheKey = messageCacheKey(channelId, topicId)
@@ -594,7 +594,7 @@ class ChatController @Inject constructor(
                             NotificationCenter.messagesDidLoad, cacheKey, ArrayList<MessageEntity>(), false, false, true
                         )
                     }
-                    if (preferHttp) {
+                    if (refreshWhenBackOnline) {
                         scheduleMessageRefreshWhenOnline(onlineRefresh)
                     }
                     return@launch
@@ -610,8 +610,7 @@ class ChatController @Inject constructor(
                         messageId = 0L,
                         direction = 0,
                         limit = PAGE_SIZE,
-                        topicId = topicId,
-                        preferHttp = preferHttp
+                        topicId = topicId
                     )
                     val allMessages = response.messagesList.map { it.toMessageEntity(currentUserId) }
                     if (topicId == 0L) {
@@ -656,7 +655,7 @@ class ChatController @Inject constructor(
                         NotificationCenter.messagesLoadError, cacheKey, e.message ?: "Failed to load"
                     )
                 }
-                if (preferHttp && !networkMonitor.isOnline.value) {
+                if (refreshWhenBackOnline && !networkMonitor.isOnline.value) {
                     scheduleMessageRefreshWhenOnline(onlineRefresh)
                 }
             }
@@ -680,7 +679,7 @@ class ChatController @Inject constructor(
                         refresh.channelId,
                         refresh.clanId,
                         forceRefresh = true,
-                        preferHttp = true,
+                        refreshWhenBackOnline = true,
                         topicId = refresh.topicId
                     )
                 } else {
@@ -689,7 +688,7 @@ class ChatController @Inject constructor(
                         refresh.clanId,
                         refresh.anchorMessageId,
                         requireExactAnchor = refresh.requireExactAnchor,
-                        preferHttp = true,
+                        refreshWhenBackOnline = true,
                         topicId = refresh.topicId
                     )
                 }
@@ -710,7 +709,7 @@ class ChatController @Inject constructor(
         clanId: Long,
         anchorMessageId: Long,
         requireExactAnchor: Boolean = false,
-        preferHttp: Boolean = false,
+        refreshWhenBackOnline: Boolean = false,
         topicId: Long = 0L
     ) {
         val cacheKey = messageCacheKey(channelId, topicId)
@@ -763,7 +762,7 @@ class ChatController @Inject constructor(
                     } else if (fromDb.isEmpty()) {
                         Log.d(TAG, "Offline — no cached messages for channel $cacheKey (around)")
                     }
-                    if (preferHttp) {
+                    if (refreshWhenBackOnline) {
                         scheduleMessageRefreshWhenOnline(onlineRefresh)
                     }
                     return@launch
@@ -779,8 +778,7 @@ class ChatController @Inject constructor(
                         anchorMessageId,
                         DIRECTION_AROUND,
                         PAGE_SIZE,
-                        topicId = topicId,
-                        preferHttp = preferHttp
+                        topicId = topicId
                     )
                     val allMsgs = response.messagesList.map { it.toMessageEntity(currentUserId) }
                     val hasMoreTop = computeHasMoreTop(
@@ -817,7 +815,7 @@ class ChatController @Inject constructor(
                 notificationCenter.postNotificationOnMainThread(
                     NotificationCenter.messagesLoadError, cacheKey, e.message ?: "Failed to load"
                 )
-                if (preferHttp && !networkMonitor.isOnline.value) {
+                if (refreshWhenBackOnline && !networkMonitor.isOnline.value) {
                     scheduleMessageRefreshWhenOnline(onlineRefresh)
                 }
             }

@@ -52,6 +52,7 @@ import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.deeplink.DeepLinkRouter
 import com.mezon.mobile.network.NetworkMonitor
 import com.mezon.mobile.notification.FcmRepository
+import com.mezon.mobile.notification.NotificationHelper
 import com.mezon.mobile.search.SearchController
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.util.SentryReporter
@@ -123,6 +124,8 @@ interface FragmentEntryPoint {
     fun webRtcInfra(): WebRtcInfra
     fun okHttpClient(): OkHttpClient
     fun sentryReporter(): SentryReporter
+
+    fun notificationHelper(): NotificationHelper
 
     @IoDispatcher
     fun ioDispatcher(): CoroutineDispatcher

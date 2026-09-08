@@ -1005,6 +1005,10 @@
     <string name="notification_channel_dm_desc">Notifications for direct messages</string>
     <string name="notification_channel_system">System</string>
     <string name="notification_channel_system_desc">System notifications</string>
+    <string name="notification_action_view">View</string>
+    <string name="notification_action_reply">Reply</string>
+    <string name="notification_reply_hint">Message</string>
+    <string name="notification_reply_failed">Your reply could not be sent. Tap to open the conversation.</string>
 
     <!-- channelList -->
     <string name="channel_list_favorite">Favorite Channel</string>

@@ -9,6 +9,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import androidx.core.app.NotificationCompat
+import androidx.core.app.RemoteInput
 import androidx.core.content.ContextCompat
 import com.mezon.mobile.MainActivity
 import com.mezon.mobile.R
@@ -60,6 +61,8 @@ class NotificationHelper @Inject constructor(
         const val EXTRA_DM_ID = "notification_dm_id"
         const val EXTRA_FRIEND_REQUEST = "notification_friend_request"
         const val EXTRA_FRIEND_REQUEST_CONSUMED = "notification_friend_request_consumed"
+        const val EXTRA_NOTIFICATION_ID = "notification_id"
+        const val EXTRA_NOTIFICATION_TITLE = "notification_title"
 
         fun isFriendRequestNotification(title: String?, body: String?, data: Map<String, String> = emptyMap()): Boolean {
             val values = ArrayList<String>()
@@ -194,13 +197,135 @@ class NotificationHelper @Inject constructor(
          )
     }
 
+    private fun replyPendingIntentFlags(): Int {
+        val mutability = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            PendingIntent.FLAG_MUTABLE
+        } else {
+            0
+        }
+        return mutability or PendingIntent.FLAG_UPDATE_CURRENT
+    }
+
+    private fun addMessageActions(
+        builder: NotificationCompat.Builder,
+        notificationId: Int,
+        title: String,
+        openChatIntent: Intent,
+        channelId: Long,
+        clanId: Long,
+        channelName: String,
+        channelType: Int
+    ) {
+        if (channelId == 0L) return
+
+        val viewPendingIntent = PendingIntent.getActivity(
+            context,
+            notificationId,
+            openChatIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        builder.addAction(
+            NotificationCompat.Action.Builder(
+                R.drawable.ic_notification,
+                context.getString(R.string.notification_action_view),
+                viewPendingIntent
+            ).build()
+        )
+
+        val replyIntent = Intent(context, NotificationReplyReceiver::class.java).apply {
+            action = NotificationReplyReceiver.ACTION_REPLY
+            putExtra(EXTRA_CHANNEL_ID, channelId)
+            putExtra(EXTRA_CLAN_ID, clanId)
+            putExtra(EXTRA_CHANNEL_TYPE, channelType)
+            putExtra(EXTRA_CHANNEL_NAME, channelName)
+            putExtra(EXTRA_NOTIFICATION_ID, notificationId)
+            putExtra(EXTRA_NOTIFICATION_TITLE, title)
+        }
+        val replyPendingIntent = PendingIntent.getBroadcast(
+            context,
+            notificationId,
+            replyIntent,
+            replyPendingIntentFlags()
+        )
+        val remoteInput = RemoteInput.Builder(NotificationReplyReceiver.KEY_REPLY_TEXT)
+            .setLabel(context.getString(R.string.notification_reply_hint))
+            .build()
+        builder.addAction(
+            NotificationCompat.Action.Builder(
+                R.drawable.ic_notification,
+                context.getString(R.string.notification_action_reply),
+                replyPendingIntent
+            )
+                .addRemoteInput(remoteInput)
+                .setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_REPLY)
+                .setShowsUserInterface(false)
+                .setAllowGeneratedReplies(true)
+                .build()
+        )
+    }
+
+    fun showReplyFailedNotification(
+        notificationId: Int,
+        title: String,
+        channelId: Long,
+        clanId: Long,
+        channelName: String,
+        channelType: Int
+    ) {
+        val failureText = context.getString(R.string.notification_reply_failed)
+        val intent = Intent(context, MainActivity::class.java).apply {
+            action = ACTION_OPEN_CHAT
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                Intent.FLAG_ACTIVITY_SINGLE_TOP
+            if (clanId != 0L) {
+                putExtra(EXTRA_CHANNEL_ID, channelId)
+                putExtra(EXTRA_CLAN_ID, clanId)
+            } else {
+                putExtra(EXTRA_DM_ID, channelId)
+            }
+            if (channelName.isNotEmpty()) putExtra(EXTRA_CHANNEL_NAME, channelName)
+            if (channelType != 0) putExtra(EXTRA_CHANNEL_TYPE, channelType)
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            notificationId,
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val notifChannel = if (clanId == 0L) CHANNEL_DM else CHANNEL_MESSAGES
+        val builder = NotificationCompat.Builder(context, notifChannel)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setColor(ContextCompat.getColor(context, R.color.notification_color))
+            .setContentTitle(title.ifEmpty { context.getString(R.string.app_name) })
+            .setContentText(failureText)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(failureText))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .setGroup(GROUP_MESSAGES)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+        addMessageActions(
+            builder = builder,
+            notificationId = notificationId,
+            title = title,
+            openChatIntent = intent,
+            channelId = channelId,
+            clanId = clanId,
+            channelName = channelName,
+            channelType = channelType
+        )
+        notificationManager.notify(notificationId, builder.build())
+    }
+
     fun showMessageNotification(
         title: String,
         body: String,
         channelId: Long? = null,
         clanId: Long? = null,
         channelName: String = "",
-        channelType: Int? = null
+        channelType: Int? = null,
+        canReply: Boolean = true
     ) {
         val body = truncateBody(body)
         appScope.launch {
@@ -229,7 +354,7 @@ class NotificationHelper @Inject constructor(
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
             val notifChannel = if (clanId == 0L) CHANNEL_DM else CHANNEL_MESSAGES
-            val notification = NotificationCompat.Builder(context, notifChannel)
+            val builder = NotificationCompat.Builder(context, notifChannel)
                 .setSmallIcon(R.drawable.ic_notification)
                 .setColor(ContextCompat.getColor(context, R.color.notification_color))
                 .setContentTitle(title)
@@ -240,15 +365,27 @@ class NotificationHelper @Inject constructor(
                 .setGroup(GROUP_MESSAGES)
                 .setCategory(NotificationCompat.CATEGORY_MESSAGE)
                 .setVibrate(longArrayOf(300, 500, 300, 500))
-                .build()
-            notificationManager.notify(notificationId, notification)
+            if (canReply && channelId != null) {
+                addMessageActions(
+                    builder = builder,
+                    notificationId = notificationId,
+                    title = title,
+                    openChatIntent = intent,
+                    channelId = channelId,
+                    clanId = clanId ?: 0L,
+                    channelName = computedChannelName,
+                    channelType = channelType ?: CHANNEL_TYPE_CHANNEL
+                )
+            }
+            notificationManager.notify(notificationId, builder.build())
         }
     }
 
     fun showDmNotification(
         title: String,
         body: String,
-        dmChannelId: Long
+        dmChannelId: Long,
+        canReply: Boolean = true
     ) {
         val body = truncateBody(body)
         appScope.launch {
@@ -272,7 +409,7 @@ class NotificationHelper @Inject constructor(
                 intent,
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
-            val notification = NotificationCompat.Builder(context, CHANNEL_DM)
+            val builder = NotificationCompat.Builder(context, CHANNEL_DM)
                 .setSmallIcon(R.drawable.ic_notification)
                 .setColor(ContextCompat.getColor(context, R.color.notification_color))
                 .setContentTitle(title)
@@ -283,8 +420,19 @@ class NotificationHelper @Inject constructor(
                 .setGroup(GROUP_MESSAGES)
                 .setCategory(NotificationCompat.CATEGORY_MESSAGE)
                 .setVibrate(longArrayOf(300, 500, 300, 500))
-                .build()
-            notificationManager.notify(dmChannelId.toInt(), notification)
+            if (canReply) {
+                addMessageActions(
+                    builder = builder,
+                    notificationId = dmChannelId.toInt(),
+                    title = title,
+                    openChatIntent = intent,
+                    channelId = dmChannelId,
+                    clanId = 0L,
+                    channelName = dmName,
+                    channelType = dmType
+                )
+            }
+            notificationManager.notify(dmChannelId.toInt(), builder.build())
         }
     }
 

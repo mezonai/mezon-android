@@ -182,6 +182,10 @@
             android:name=".home.call.CallActionReceiver"
             android:exported="false" />
 
+        <receiver
+            android:name=".notification.NotificationReplyReceiver"
+            android:exported="false" />
+
         <activity
             android:name=".home.call.IncomingCallActivity"
             android:showOnLockScreen="true"

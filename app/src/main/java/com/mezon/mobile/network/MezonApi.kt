@@ -217,6 +217,7 @@ import java.io.IOException
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 class UnauthorizedException(message: String) : RuntimeException(message)
@@ -366,18 +367,15 @@ class MezonApi @Inject constructor(
         private val SERVER_KEY = BuildConfig.MEZON_API_KEY
         private const val DISCOVER_ITEMS_PER_PAGE = 6
         private const val SOCKET_WAIT_MS = 5_000L
+        private const val SOCKET_DEGRADED_COOLDOWN_MS = 12_000L
         private const val MAX_CONSECUTIVE_SOCKET_TIMEOUTS = 3
         private const val READ_SINGLE_FLIGHT_MAX_AGE_MS = 3_000L
         private val HTTP_RETRY_DELAYS_MS = longArrayOf(300L, 900L)
         private val HTTP_ONLY_API_NAMES = setOf(
             "SessionRefresh",
-            "RegistFCMDeviceToken",
             "SendChannelMessage"
         )
-        private val SOCKET_MUTATION_API_NAMES = setOf(
-            "ReactChannelMessage"
-        )
-        private val SOCKET_RPC_API_NAMES = setOf(
+        private val READ_RETRYABLE_API_NAMES = setOf(
             "GetAccount",
             "GetListEmojisByUserId",
             "GetListFavoriteChannel",
@@ -412,16 +410,32 @@ class MezonApi @Inject constructor(
             "ListUserClansByUserId",
             "ListWebhookByChannelId",
             "SearchCtrlK",
-            "SearchMessage"
-        ) + SOCKET_MUTATION_API_NAMES
-        private val READ_RETRYABLE_API_NAMES =
-            (SOCKET_RPC_API_NAMES - SOCKET_MUTATION_API_NAMES) + "GenerateHashChannelApps"
+            "SearchMessage",
+            "GenerateHashChannelApps"
+        )
     }
 
     private val linkInvitePreviewCache = android.util.LruCache<Long, LinkInvitePreview>(256)
     private val inFlightReadRpcs = ConcurrentHashMap<String, InFlightReadRpc>()
 
     private val consecutiveSocketTimeouts = AtomicInteger(0)
+    private val socketDegradedUntilMs = AtomicLong(0L)
+
+    private fun isSocketDegraded(): Boolean {
+        val until = socketDegradedUntilMs.get()
+        if (until == 0L) return false
+        if (System.currentTimeMillis() < until) return true
+        socketDegradedUntilMs.compareAndSet(until, 0L)
+        return false
+    }
+
+    private fun markSocketDegraded() {
+        socketDegradedUntilMs.set(System.currentTimeMillis() + SOCKET_DEGRADED_COOLDOWN_MS)
+    }
+
+    private fun markSocketHealthy() {
+        socketDegradedUntilMs.set(0L)
+    }
 
     private fun logRpcRequest(method: String, url: String) {
         if (!BuildConfig.DEBUG) return
@@ -552,16 +566,15 @@ class MezonApi @Inject constructor(
         apiUrl: String,
         token: String,
         method: String,
-        body: ByteArray,
-        preferHttp: Boolean = false
+        body: ByteArray
     ): ByteArray {
         val retryableRead = method in READ_RETRYABLE_API_NAMES
         if (retryableRead) {
-            val key = readRpcKey(apiUrl, token, method, body, preferHttp)
+            val key = readRpcKey(apiUrl, token, method, body)
             val flight = startOrJoinReadRpc(key)
             if (!flight.owner) return flight.entry.deferred.await()
             try {
-                val bytes = executeRpc(apiUrl, token, method, body, preferHttp, retryableRead)
+                val bytes = executeRpc(apiUrl, token, method, body, retryableRead)
                 flight.entry.deferred.complete(bytes)
                 return bytes
             } catch (e: Throwable) {
@@ -571,7 +584,7 @@ class MezonApi @Inject constructor(
                 inFlightReadRpcs.remove(key, flight.entry)
             }
         }
-        return executeRpc(apiUrl, token, method, body, preferHttp, retryableRead)
+        return executeRpc(apiUrl, token, method, body, retryableRead)
     }
 
     private suspend fun executeRpc(
@@ -579,10 +592,9 @@ class MezonApi @Inject constructor(
         token: String,
         method: String,
         body: ByteArray,
-        preferHttp: Boolean,
         retryableRead: Boolean
     ): ByteArray {
-        if (preferHttp || method in HTTP_ONLY_API_NAMES || method !in SOCKET_RPC_API_NAMES) {
+        if (method in HTTP_ONLY_API_NAMES || isSocketDegraded()) {
             return rpcOverHttpWithRetry(apiUrl, token, method, body, retryableRead)
         }
         return try {
@@ -592,13 +604,14 @@ class MezonApi @Inject constructor(
         } catch (e: SocketRpcServerException) {
             throw e
         } catch (e: SocketRpcTransportException) {
-            val canFallbackToHttp = retryableRead || method in SOCKET_MUTATION_API_NAMES
-            if (!canFallbackToHttp || !e.retryOverHttp) throw e
+            if (!e.retryOverHttp) throw e
             Log.w("MezonApi", "SOCKET unavailable method=$method, falling back to HTTP: ${e.message}")
             sentryReporter.logRpcWarning(method, "socket", "fallback to HTTP: ${e.message}")
-            rpcOverHttpWithRetry(apiUrl, token, method, body, retryableRead)
+            rpcOverHttpWithRetry(apiUrl, token, method, body, retryable = false)
         } catch (e: IllegalArgumentException) {
-            throw e
+            Log.w("MezonApi", "SOCKET rejected method=$method, falling back to HTTP: ${e.message}")
+            sentryReporter.logRpcWarning(method, "socket", "fallback to HTTP: ${e.message}")
+            rpcOverHttpWithRetry(apiUrl, token, method, body, retryable = false)
         }
     }
 
@@ -619,13 +632,12 @@ class MezonApi @Inject constructor(
         apiUrl: String,
         token: String,
         method: String,
-        body: ByteArray,
-        preferHttp: Boolean
+        body: ByteArray
     ): String {
         val base = apiUrl.trimEnd('/')
         val tokenHash = sha256Base64(token.toByteArray(Charsets.UTF_8))
         val bodyHash = sha256Base64(body)
-        return "$base|$method|$preferHttp|$tokenHash|$bodyHash"
+        return "$base|$method|$tokenHash|$bodyHash"
     }
 
     private fun sha256Base64(bytes: ByteArray): String {
@@ -660,6 +672,7 @@ class MezonApi @Inject constructor(
                 )
             }
             consecutiveSocketTimeouts.set(0)
+            markSocketHealthy()
             return resp
         } catch (e: Exception) {
             Log.w(
@@ -679,6 +692,7 @@ class MezonApi @Inject constructor(
                 throw e
             }
             if (isSocketTransportFailure(e)) {
+                markSocketDegraded()
                 val streak = consecutiveSocketTimeouts.incrementAndGet()
                 if (streak >= MAX_CONSECUTIVE_SOCKET_TIMEOUTS) {
                     consecutiveSocketTimeouts.set(0)
@@ -789,7 +803,7 @@ class MezonApi @Inject constructor(
     private fun isHttpRetryableFailure(e: Throwable): Boolean {
         if (e is UnauthorizedException) return false
         if (e is HttpRpcStatusException) {
-            return e.code == 408 || e.code == 429 || e.code in 500..599
+            return e.code == 408 || e.code in 500..599
         }
         return hasCause<IOException>(e)
     }
@@ -1875,8 +1889,7 @@ class MezonApi @Inject constructor(
         messageId: Long = 0L,
         direction: Int = 0,
         limit: Int = 50,
-        topicId: Long = 0L,
-        preferHttp: Boolean = false
+        topicId: Long = 0L
     ): ChannelMessageList {
         val request = listChannelMessagesRequest {
             this.channelId = channelId
@@ -1890,8 +1903,7 @@ class MezonApi @Inject constructor(
             apiUrl,
             token,
             "ListChannelMessages",
-            request.toByteArray(),
-            preferHttp = preferHttp
+            request.toByteArray()
         )
         val result = ChannelMessageList.parseFrom(bytes)
         return result

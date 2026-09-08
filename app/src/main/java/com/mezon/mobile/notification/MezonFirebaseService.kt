@@ -157,6 +157,7 @@ class MezonFirebaseService : FirebaseMessagingService() {
             }
             return
         }
+        val canReply = !data["e2ee"].equals("true", ignoreCase = true)
         val link = data["link"] ?: ""
         val channel = data["channel"] ?: ""
        
@@ -178,7 +179,13 @@ class MezonFirebaseService : FirebaseMessagingService() {
                         clanId = clanId
                     )
                 } else {
-                    notificationHelper.showMessageNotification(title, body, channelId = channelId, clanId = clanId)
+                    notificationHelper.showMessageNotification(
+                        title,
+                        body,
+                        channelId = channelId,
+                        clanId = clanId,
+                        canReply = canReply
+                    )
                 }
             } else {
                 val linkDirectMessageMatch = DM_LINK_REGEX.find(link)
@@ -195,7 +202,12 @@ class MezonFirebaseService : FirebaseMessagingService() {
                             dmId = dmId
                         )
                     } else {
-                        notificationHelper.showDmNotification(title, body, dmChannelId = dmId)
+                        notificationHelper.showDmNotification(
+                            title,
+                            body,
+                            dmChannelId = dmId,
+                            canReply = canReply
+                        )
                     }
                 }
             }
