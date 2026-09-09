@@ -38,6 +38,7 @@ class ClanEventController @Inject constructor(
     private val eventsByClan = ConcurrentHashMap<Long, ArrayList<ClanEventEntity>>()
     private val loadErrorsByClan = ConcurrentHashMap<Long, String>()
     private val loadingClanIds = ConcurrentHashMap.newKeySet<Long>()
+    private val pendingForceEventReload = HashSet<Long>()
     private val cacheLock = Any()
 
     init {
@@ -81,6 +82,10 @@ class ClanEventController @Inject constructor(
         )
     }
 
+    fun canEndEvent(event: ClanEventEntity): Boolean =
+        event.displayStatus() == ClanEventStatus.ONGOING &&
+            permissionPolicy.checkPermission(PermissionPolicy.CLAN_OWNER, clanId = event.clanId)
+
     fun visibleEvents(clanId: Long, currentUserId: Long): List<ClanEventEntity> {
         val textChannelIds = textChannels(clanId).mapTo(HashSet()) { it.channelId }
         return getEvents(clanId).filter { event ->
@@ -103,7 +108,12 @@ class ClanEventController @Inject constructor(
                     return@launch
                 }
             }
-            loadingClanIds.add(clanId)
+            synchronized(cacheLock) {
+                if (!loadingClanIds.add(clanId)) {
+                    if (force) pendingForceEventReload.add(clanId)
+                    return@launch
+                }
+            }
             notificationCenter.postNotificationOnMainThread(
                 NotificationCenter.clanEventsDidLoad,
                 clanId,
@@ -123,11 +133,15 @@ class ClanEventController @Inject constructor(
                 loadErrorsByClan[clanId] = e.message?.takeIf { it.isNotBlank() }
                     ?: "Failed to load events"
             } finally {
-                loadingClanIds.remove(clanId)
+                val reload = synchronized(cacheLock) {
+                    loadingClanIds.remove(clanId)
+                    pendingForceEventReload.remove(clanId)
+                }
                 notificationCenter.postNotificationOnMainThread(
                     NotificationCenter.clanEventsDidLoad,
                     clanId,
                 )
+                if (reload) loadEvents(clanId, force = true)
             }
         }
     }
