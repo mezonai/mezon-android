@@ -22,6 +22,7 @@ data class ClanEventEntity(
     val eventStatus: Int,
     val repeatType: Int,
     val isPrivate: Boolean,
+    val externalLink: String,
 ) {
     val interestedCount: Int get() = userIds.count { it != 0L }
 
@@ -74,4 +75,5 @@ fun EventManagement.toClanEventEntity(): ClanEventEntity = ClanEventEntity(
     eventStatus = eventStatus,
     repeatType = repeatType,
     isPrivate = isPrivate,
+    externalLink = meetRoom.externalLink,
 )

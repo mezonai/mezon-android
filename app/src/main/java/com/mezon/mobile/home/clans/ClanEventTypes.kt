@@ -33,7 +33,11 @@ data class CreateEventDraft(
     val endTimeSeconds: Int = 0,
     val repeatType: Int = ClanEventRepeatType.DOES_NOT_REPEAT,
     val logoUrl: String = "",
-    val originalLogoUrl: String? = null,
     val editingEventId: Long = 0L,
-    val editingChannelIdOld: Long = 0L,
-)
+) {
+    fun hasChangesFrom(event: ClanEventEntity): Boolean =
+        title != event.title || description != event.description || logoUrl != event.logo ||
+            channelVoiceId != event.channelVoiceId || address != event.address ||
+            channelId != event.channelId || repeatType != event.repeatType ||
+            startTimeSeconds != event.startTimeSeconds || endTimeSeconds != event.endTimeSeconds
+}
