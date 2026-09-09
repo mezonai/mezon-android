@@ -85,8 +85,8 @@ class NotificationReplyReceiver : BroadcastReceiver() {
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             var sent = false
             try {
-                val target = resolveTarget(entryPoint, channelId, clanId, channelType)
                 val messageId = withTimeoutOrNull(SEND_TIMEOUT_MS) {
+                    val target = resolveTarget(entryPoint, channelId, clanId, channelType)
                     entryPoint.chatController().sendRawChannelMessage(
                         channelId = target.channelId,
                         clanId = target.clanId,
@@ -118,20 +118,25 @@ class NotificationReplyReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun resolveTarget(
+    private suspend fun resolveTarget(
         entryPoint: FragmentEntryPoint,
         channelId: Long,
         clanId: Long,
         channelType: Int
     ): ReplyTarget {
-        val meta = entryPoint.channelController().findChannelById(channelId)
+        val channelController = entryPoint.channelController()
+        val meta = channelController.findChannelById(channelId) ?: run {
+            channelController.findOrFetchChannelLabel(channelId, clanId)
+            channelController.findChannelById(channelId)
+        }
         if (meta != null && meta.type != 0) {
             val resolvedType = if (meta.isThread) CHANNEL_TYPE_THREAD else meta.type
+            val threadLike = resolvedType == CHANNEL_TYPE_THREAD || meta.parentId != 0L
             return ReplyTarget(
                 channelId = channelId,
                 clanId = if (meta.clanId != 0L) meta.clanId else clanId,
                 channelType = resolvedType,
-                isPrivate = meta.isPrivate || isDirectConversation(resolvedType)
+                isPrivate = meta.isPrivate || threadLike || isDirectConversation(resolvedType)
             )
         }
         val dialog = entryPoint.dialogsController().getDialog(channelId)
