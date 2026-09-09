@@ -8004,9 +8004,9 @@ open class ChatFragment : BaseFragment() {
             displays,
             channel.unreadCount
         )
-        sheet.onJoinVoice = {
+        sheet.onJoinVoice = { role ->
             (activity as? MainActivity)?.showVoiceRoom(
-                channel.channelId, targetClanId, channel.channelLabel
+                channel.channelId, targetClanId, channel.channelLabel, role
             )
         }
         sheet.onOpenChat = {
@@ -8043,7 +8043,7 @@ open class ChatFragment : BaseFragment() {
             channel.unreadCount,
             JoinMediaSheetKind.STREAMING
         )
-        sheet.onJoinVoice = {
+        sheet.onJoinVoice = { _ ->
             (activity as? MainActivity)?.showStreamingRoom(
                 channel.channelId, targetClanId, channel.channelLabel
             )

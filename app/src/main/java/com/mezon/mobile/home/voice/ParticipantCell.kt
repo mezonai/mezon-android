@@ -23,10 +23,10 @@ import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.util.avatarImgproxyUrl
-import io.livekit.android.renderer.SurfaceViewRenderer
-import io.livekit.android.room.Room
-import io.livekit.android.room.track.VideoTrack
-import livekit.org.webrtc.RendererCommon
+import com.mezon.mobile.home.call.EglBaseProvider
+import org.webrtc.RendererCommon
+import org.webrtc.SurfaceViewRenderer
+import org.webrtc.VideoTrack
 
 class ParticipantCell(
     context: Context,
@@ -83,6 +83,7 @@ class ParticipantCell(
     private val nameOverlayText: TextView
     private val reactionBadge: FrameLayout
     private val reactionBadgeIcon: ImageView
+    private val audienceTag: TextView
     private var currentBadgeType = ReactionBadgeType.NONE
 
     private val namePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -157,6 +158,24 @@ class ParticipantCell(
             topMargin = BADGE_MARGIN
             marginEnd = BADGE_MARGIN
         })
+
+        audienceTag = TextView(context).apply {
+            text = "Audience"
+            setTextColor(0xFFFFFFFF.toInt())
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setPadding(LayoutHelper.dp(8), LayoutHelper.dp(2), LayoutHelper.dp(8), LayoutHelper.dp(2))
+            background = GradientDrawable().apply {
+                cornerRadius = LayoutHelper.dp(10).toFloat()
+                setColor(0x99000000.toInt())
+            }
+            visibility = GONE
+        }
+        addView(audienceTag, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.START).apply {
+            topMargin = BADGE_MARGIN
+            marginStart = BADGE_MARGIN
+        })
     }
 
     fun setParticipant(
@@ -167,7 +186,8 @@ class ParticipantCell(
         muted: Boolean,
         speaking: Boolean,
         hasVideo: Boolean,
-        screenShare: Boolean = false
+        screenShare: Boolean = false,
+        isAudience: Boolean = false
     ) {
         val userChanged = this.userId != userId
         this.userId = userId
@@ -176,6 +196,7 @@ class ParticipantCell(
         this.isSpeaking = speaking
         this.videoEnabled = hasVideo
         this.isScreenShare = screenShare
+        audienceTag.visibility = if (isAudience && !screenShare) VISIBLE else GONE
 
         if (userChanged) {
             avatarDrawable.setInfo(userId, username)
@@ -259,7 +280,7 @@ class ParticipantCell(
         avatarDisposable = null
     }
 
-    fun attachVideoTrack(room: Room, videoTrack: VideoTrack, mirror: Boolean) {
+    fun attachVideoTrack(videoTrack: VideoTrack, mirror: Boolean) {
         if (currentVideoTrack == videoTrack && surfaceRenderer != null) {
             updateVideoMirror(mirror)
             return
@@ -274,11 +295,19 @@ class ParticipantCell(
         }
 
         if (!rendererInitialized) {
-            room.initVideoRenderer(renderer)
+            renderer.init(EglBaseProvider.acquire(), null)
             rendererInitialized = true
         }
 
-        videoTrack.addRenderer(renderer)
+        try {
+            videoTrack.addSink(renderer)
+        } catch (e: IllegalStateException) {
+            currentVideoTrack = null
+            renderer.visibility = GONE
+            nameOverlay.visibility = GONE
+            avatarView.visibility = VISIBLE
+            return
+        }
         currentVideoTrack = videoTrack
         if (isScreenShare) {
             renderer.setScalingType(
@@ -303,7 +332,11 @@ class ParticipantCell(
     }
 
     fun detachVideoTrack() {
-        currentVideoTrack?.removeRenderer(surfaceRenderer ?: return)
+        val renderer = surfaceRenderer
+        val track = currentVideoTrack
+        if (track != null && renderer != null) {
+            runCatching { track.removeSink(renderer) }
+        }
         currentVideoTrack = null
         mirrorVideo = false
         surfaceRenderer?.visibility = GONE
@@ -324,6 +357,7 @@ class ParticipantCell(
             removeView(it)
             it.release()
         }
+        if (rendererInitialized) EglBaseProvider.release()
         surfaceRenderer = null
         rendererInitialized = false
     }

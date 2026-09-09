@@ -21,9 +21,17 @@ import com.mezon.mobile.ui.cells.MezonIcon
 class VoiceMorePopup(private val themeColors: ThemeColors) {
     private var popupWindow: PopupWindow? = null
 
+    companion object {
+        private const val RAISE_HAND_ACTIVE = 0xFFEFBC39.toInt()
+    }
+
     fun show(
         anchor: View,
         parentActivity: Activity,
+        showAudienceActions: Boolean,
+        raiseHandActive: Boolean,
+        onRaiseHandClick: () -> Unit,
+        onMessageClick: () -> Unit,
         onEmojiClick: () -> Unit,
         onSoundClick: () -> Unit
     ) {
@@ -44,10 +52,28 @@ class VoiceMorePopup(private val themeColors: ThemeColors) {
             onSoundClick()
         }
 
-        container.addView(emojiButton, LinearLayout.LayoutParams(LayoutHelper.dp(40), LayoutHelper.dp(40)))
-        container.addView(soundButton, LinearLayout.LayoutParams(LayoutHelper.dp(40), LayoutHelper.dp(40)).apply {
-            topMargin = LayoutHelper.dp(8)
-        })
+        val buttons = if (showAudienceActions) {
+            val raiseHandButton = createMoreActionIconButton(
+                anchor.context,
+                MezonIcon.raiseHandIcon,
+                if (raiseHandActive) RAISE_HAND_ACTIVE else null
+            ) {
+                dismiss()
+                onRaiseHandClick()
+            }
+            val messageButton = createMoreActionIconButton(anchor.context, MezonIcon.notificationTabMessages, applyTint = false) {
+                dismiss()
+                onMessageClick()
+            }
+            listOf(raiseHandButton, messageButton, emojiButton, soundButton)
+        } else {
+            listOf(emojiButton, soundButton)
+        }
+        buttons.forEachIndexed { i, button ->
+            container.addView(button, LinearLayout.LayoutParams(LayoutHelper.dp(40), LayoutHelper.dp(40)).apply {
+                if (i > 0) topMargin = LayoutHelper.dp(8)
+            })
+        }
 
         val decor = parentActivity.window.decorView
         popupWindow = PopupWindow(
@@ -104,7 +130,13 @@ class VoiceMorePopup(private val themeColors: ThemeColors) {
         popupWindow = null
     }
 
-    private fun createMoreActionIconButton(context: android.content.Context, icon: MezonIcon, onClick: () -> Unit): FrameLayout {
+    private fun createMoreActionIconButton(
+        context: android.content.Context,
+        icon: MezonIcon,
+        tint: Int? = null,
+        applyTint: Boolean = true,
+        onClick: () -> Unit
+    ): FrameLayout {
         return FrameLayout(context).apply {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
@@ -116,7 +148,9 @@ class VoiceMorePopup(private val themeColors: ThemeColors) {
             setOnClickListener { onClick() }
             addView(ImageView(context).apply {
                 setImageDrawable(icon.getDrawable(context).apply {
-                    colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
+                    if (applyTint) {
+                        colorFilter = PorterDuffColorFilter(tint ?: themeColors.onSurface, PorterDuff.Mode.SRC_IN)
+                    }
                 })
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
             }, FrameLayout.LayoutParams(LayoutHelper.dp(20), LayoutHelper.dp(20), Gravity.CENTER))
