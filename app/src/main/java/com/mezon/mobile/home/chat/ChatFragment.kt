@@ -8142,29 +8142,16 @@ open class ChatFragment : BaseFragment() {
             chatController.reloadChannelMessageIfMissing(channelId, clanId, rootMessageId)
             var root = chatController.getMessageById(channelId, rootMessageId)
             if (root == null) {
-                val detail = topicController.fetchTopicDetail(topicId)
-                if (detail != null) {
-                    root = MessageEntity(
-                        id = detail.messageId,
-                        channelId = channelId,
-                        senderId = detail.creatorId,
-                        senderName = "",
-                        senderUsername = "",
-                        senderAvatar = "",
-                        content = detail.content,
-                        timestampSeconds = detail.createTimeSeconds,
-                        code = MessageEntity.CODE_TOPIC,
-                        topicId = topicId,
-                        topicCreatorId = detail.creatorId
-                    )
+                val authoritativeRootId = topicController.fetchTopicDetail(topicId)?.messageId ?: 0L
+                if (authoritativeRootId != 0L && authoritativeRootId != rootMessageId) {
+                    chatController.reloadChannelMessageIfMissing(channelId, clanId, authoritativeRootId)
+                    root = chatController.getMessageById(channelId, authoritativeRootId)
                 }
             }
             val base = root ?: return@launch
-            val creatorId = base.topicCreatorId.takeIf { it != 0L } ?: base.senderId
-            val member = memberResolver.resolveMember(creatorId, clanId, channelId, channelType)
+            val member = memberResolver.resolveMember(base.senderId, clanId, channelId, channelType)
             val resolved = if (member != null) {
                 base.copy(
-                    senderId = creatorId,
                     senderName = member.clanNick.ifBlank { member.displayName.ifBlank { member.username } },
                     senderUsername = member.username,
                     senderAvatar = member.clanAvatar.ifBlank { member.avatarUrl }
