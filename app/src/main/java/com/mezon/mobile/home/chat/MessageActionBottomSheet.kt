@@ -201,7 +201,7 @@ class MessageActionBottomSheet(
         val fallbacks = listOf(
             QuickEmoji(7227274405304181951L, ":100:"),
             QuickEmoji(7227274405302432668L, ":joy:"),
-            QuickEmoji(7227274405303613492L, ":like:"),
+            QuickEmoji(LIKE_EMOJI_ID, LIKE_EMOJI_SHORTNAME),
             QuickEmoji(7227274405305046042L, ":laughing:"),
             QuickEmoji(7227274405301971870L, ":innocent:")
         )

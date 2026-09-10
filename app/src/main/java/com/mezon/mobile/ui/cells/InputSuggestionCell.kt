@@ -11,6 +11,7 @@ import android.graphics.drawable.Drawable
 import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.TextUtils
+import com.mezon.mobile.R
 import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.BaseCell
 import com.mezon.mobile.core.LayoutHelper
@@ -19,6 +20,7 @@ import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.chat.EmojiItem
 import com.mezon.mobile.home.chat.MezonImageLoader
 import com.mezon.mobile.home.chat.input.InputSuggestionItem
+import com.mezon.mobile.home.chat.input.InputSuggestionsController
 import com.mezon.mobile.home.clans.ChannelItemCell
 import com.mezon.mobile.home.clans.ClanChannelEntity
 import com.mezon.mobile.home.clans.ClanRole
@@ -52,6 +54,9 @@ class InputSuggestionCell(
     private val subPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = LayoutHelper.sp(12f)
     }
+    private val loadingPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = LayoutHelper.sp(14f)
+    }
 
     private var nameLayout: StaticLayout? = null
     private var subLayout: StaticLayout? = null
@@ -60,6 +65,7 @@ class InputSuggestionCell(
         item = newItem
         when (newItem) {
             is InputSuggestionItem.Here -> configureHere()
+            is InputSuggestionItem.Loading -> configureLoading()
             is InputSuggestionItem.Member -> configureMember(newItem.member)
             is InputSuggestionItem.Role -> configureRole(newItem.role)
             is InputSuggestionItem.Channel -> configureChannel(newItem.entity)
@@ -188,6 +194,7 @@ class InputSuggestionCell(
         }
         val nameText = nameTextFor(it)
         val subText = subTextFor(it)
+        val textPaint = if (it is InputSuggestionItem.Loading) loadingPaint else namePaint
 
         val leftPad = textStartX()
         val rightPad = PAD_H
@@ -198,7 +205,7 @@ class InputSuggestionCell(
 
         val nameMax = (width - leftPad - rightPad - (if (subW > 0) subW + MIN_GAP else 0)).coerceAtLeast(0)
         nameLayout = if (nameMax > 0 && nameText.isNotEmpty()) {
-            StaticLayout.Builder.obtain(nameText, 0, nameText.length, namePaint, nameMax)
+            StaticLayout.Builder.obtain(nameText, 0, nameText.length, textPaint, nameMax)
                 .setMaxLines(1)
                 .setEllipsize(TextUtils.TruncateAt.END)
                 .build()
@@ -214,9 +221,8 @@ class InputSuggestionCell(
 
     private fun nameTextFor(it: InputSuggestionItem): String = when (it) {
         is InputSuggestionItem.Here -> "@here"
-        is InputSuggestionItem.Member -> it.member.clanNick.ifBlank {
-            it.member.displayName.ifBlank { it.member.username }
-        }
+        is InputSuggestionItem.Loading -> context.getString(R.string.mention_suggestions_loading)
+        is InputSuggestionItem.Member -> InputSuggestionsController.mentionDisplayName(it.member)
         is InputSuggestionItem.Role -> it.role.title
         is InputSuggestionItem.Channel -> it.entity.channelLabel
         is InputSuggestionItem.Emoji -> ":${it.item.shortname.replace(":", "")}:"
@@ -224,6 +230,7 @@ class InputSuggestionCell(
 
     private fun subTextFor(it: InputSuggestionItem): String = when (it) {
         is InputSuggestionItem.Here -> "Notify everyone online"
+        is InputSuggestionItem.Loading -> ""
         is InputSuggestionItem.Member ->
             if (it.member.username.isNotBlank()) "@${it.member.username}" else ""
         is InputSuggestionItem.Role -> ""
@@ -240,15 +247,21 @@ class InputSuggestionCell(
         subPaint.color = theme.textDisabled
     }
 
+    private fun configureLoading() {
+        cancelImage()
+        leadingMode = LEADING_NONE
+        leadingDrawable = null
+        showLeadingSlot = false
+        loadingPaint.color = theme.textDisabled
+    }
+
     private fun configureMember(member: ClanMember) {
         cancelImage()
         showLeadingSlot = true
         leadingMode = LEADING_AVATAR
         leadingDrawable = null
-        val displayName = member.clanNick.ifBlank {
-            member.displayName.ifBlank { member.username }
-        }
-        avatarDrawable.setInfo(member.userId, member.username)
+        val displayName = InputSuggestionsController.mentionDisplayName(member)
+        avatarDrawable.setInfo(member.userId, displayName)
         avatarDrawable.setPhoto(null)
         namePaint.color = theme.onSurface
         subPaint.color = theme.textDisabled
@@ -309,6 +322,7 @@ class InputSuggestionCell(
 
     private fun refreshTextColors() {
         val it = item ?: return
+        loadingPaint.color = theme.textDisabled
         namePaint.color = when (it) {
             is InputSuggestionItem.Role ->
                 if (it.role.color != 0) it.role.color else theme.textRoleLink

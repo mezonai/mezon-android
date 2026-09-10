@@ -21,6 +21,7 @@
     <string name="common_go_back">Go Back</string>
     <string name="common_settings">Settings</string>
     <string name="common_loading_data">Loading data, please wait a moment!</string>
+    <string name="mention_suggestions_loading">Loading members…</string>
     <string name="common_failed_to_load">Failed to load</string>
     <string name="common_no_results_found">No results found</string>
     <string name="common_something_went_wrong">Something went wrong</string>
@@ -1007,8 +1008,11 @@
     <string name="notification_channel_system_desc">System notifications</string>
     <string name="notification_action_view">View</string>
     <string name="notification_action_reply">Reply</string>
+    <string name="notification_action_like">Like</string>
+    <string name="notification_like_reacted">reacted 👍</string>
     <string name="notification_reply_hint">Message</string>
     <string name="notification_reply_failed">Your reply could not be sent. Tap to open the conversation.</string>
+    <string name="notification_like_failed">Your like could not be sent. Tap to open the conversation.</string>
     <string name="notification_self">You</string>
     <string name="notification_group_summary">%1$d new messages</string>
 

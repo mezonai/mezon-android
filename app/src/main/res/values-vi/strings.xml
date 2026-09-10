@@ -20,6 +20,7 @@
     <string name="common_go_back">Quay lại</string>
     <string name="common_settings">Cài đặt</string>
     <string name="common_loading_data">Đang tải dữ liệu, vui lòng chờ trong giây lát.</string>
+    <string name="mention_suggestions_loading">Đang tải thành viên…</string>
     <string name="common_failed_to_load">Không thể tải dữ liệu</string>
     <string name="common_no_results_found">Không tìm thấy kết quả</string>
     <string name="common_something_went_wrong">Đã xảy ra lỗi</string>
@@ -892,8 +893,11 @@
     <string name="notification_channel_system_desc">Thông báo hệ thống</string>
     <string name="notification_action_view">Xem</string>
     <string name="notification_action_reply">Trả lời</string>
+    <string name="notification_action_like">Thích</string>
+    <string name="notification_like_reacted">đã thả 👍</string>
     <string name="notification_reply_hint">Tin nhắn</string>
     <string name="notification_reply_failed">Không gửi được trả lời. Chạm để mở cuộc trò chuyện.</string>
+    <string name="notification_like_failed">Không gửi được biểu cảm. Chạm để mở cuộc trò chuyện.</string>
     <string name="notification_self">Bạn</string>
     <string name="notification_group_summary">%1$d tin nhắn mới</string>
 

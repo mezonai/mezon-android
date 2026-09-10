@@ -27,7 +27,9 @@ import com.mezon.mobile.R
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.chat.MezonImageLoader
+import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.home.clans.ChannelController
+import com.mezon.mobile.home.clans.ClanEntity
 import com.mezon.mobile.home.clans.ClansController
 import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
@@ -88,6 +90,9 @@ class NotificationHelper @Inject constructor(
         const val EXTRA_FRIEND_REQUEST = "notification_friend_request"
         const val EXTRA_FRIEND_REQUEST_CONSUMED = "notification_friend_request_consumed"
         const val EXTRA_NOTIFICATION_ID = "notification_id"
+        const val EXTRA_MESSAGE_ID = "notification_message_id"
+        const val EXTRA_MESSAGE_SENDER_ID = "notification_message_sender_id"
+        const val EXTRA_TOPIC_ID = "notification_topic_id"
         const val EXTRA_NOTIFICATION_TITLE = "notification_title"
 
         fun isFriendRequestNotification(title: String?, body: String?, data: Map<String, String> = emptyMap()): Boolean {
@@ -227,7 +232,8 @@ class NotificationHelper @Inject constructor(
         val sender: String,
         val text: String,
         val timestamp: Long,
-        val avatarUrl: String
+        val avatarUrl: String,
+        val fromSelf: Boolean = false
     )
 
     private val avatarBitmaps = LruCache<String, Bitmap>(MAX_CACHED_AVATARS)
@@ -242,13 +248,20 @@ class NotificationHelper @Inject constructor(
         avatarBitmaps.put(url, cropped)
     }
 
-    private fun resolveClanLogo(clanId: Long?): String {
-        if (clanId == null || clanId == 0L) return ""
-        return clansController.get().clans.value
-            .firstOrNull { it.clanId == clanId }
-            ?.logo
-            .orEmpty()
+    private fun resolveClan(clanId: Long?): ClanEntity? {
+        if (clanId == null || clanId == 0L) return null
+        return clansController.get().clans.value.firstOrNull { it.clanId == clanId }
     }
+
+    private fun clanLetterAvatar(clanId: Long, clanName: String): Bitmap? = runCatching {
+        val bitmap = Bitmap.createBitmap(AVATAR_ICON_SIZE, AVATAR_ICON_SIZE, Bitmap.Config.ARGB_8888)
+        AvatarDrawable().apply {
+            setInfo(clanId, clanName)
+            setBounds(0, 0, AVATAR_ICON_SIZE, AVATAR_ICON_SIZE)
+            draw(Canvas(bitmap))
+        }
+        bitmap
+    }.getOrNull()
 
     private fun pushConversationShortcut(
         shortcutId: String,
@@ -390,6 +403,10 @@ class NotificationHelper @Inject constructor(
             style.setConversationTitle(conversationTitle)
         }
         for (message in history) {
+            if (message.fromSelf) {
+                style.addMessage(message.text, message.timestamp, null as Person?)
+                continue
+            }
             val person = Person.Builder()
                 .setName(message.sender)
                 .setKey(message.sender)
@@ -474,7 +491,10 @@ class NotificationHelper @Inject constructor(
         channelId: Long,
         clanId: Long,
         channelName: String,
-        channelType: Int
+        channelType: Int,
+        messageId: Long,
+        messageSenderId: Long,
+        topicId: Long
     ) {
         if (channelId == 0L) return
 
@@ -522,6 +542,126 @@ class NotificationHelper @Inject constructor(
                 .setAllowGeneratedReplies(false)
                 .build()
         )
+
+        val likeIntent = Intent(context, NotificationReplyReceiver::class.java).apply {
+            action = NotificationReplyReceiver.ACTION_LIKE
+            putExtra(EXTRA_CHANNEL_ID, channelId)
+            putExtra(EXTRA_CLAN_ID, clanId)
+            putExtra(EXTRA_CHANNEL_TYPE, channelType)
+            putExtra(EXTRA_CHANNEL_NAME, channelName)
+            putExtra(EXTRA_NOTIFICATION_ID, notificationId)
+            putExtra(EXTRA_NOTIFICATION_TITLE, title)
+            putExtra(EXTRA_MESSAGE_ID, messageId)
+            putExtra(EXTRA_MESSAGE_SENDER_ID, messageSenderId)
+            putExtra(EXTRA_TOPIC_ID, topicId)
+        }
+        val likePendingIntent = PendingIntent.getBroadcast(
+            context,
+            notificationId,
+            likeIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        builder.addAction(
+            NotificationCompat.Action.Builder(
+                R.drawable.ic_notification,
+                context.getString(R.string.notification_action_like),
+                likePendingIntent
+            )
+                .setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_THUMBS_UP)
+                .setShowsUserInterface(false)
+                .build()
+        )
+    }
+
+    private fun buildOpenChatIntent(
+        channelId: Long,
+        clanId: Long,
+        channelName: String,
+        channelType: Int
+    ): Intent = Intent(context, MainActivity::class.java).apply {
+        action = ACTION_OPEN_CHAT
+        flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+            Intent.FLAG_ACTIVITY_CLEAR_TOP or
+            Intent.FLAG_ACTIVITY_SINGLE_TOP
+        if (clanId != 0L) {
+            putExtra(EXTRA_CHANNEL_ID, channelId)
+            putExtra(EXTRA_CLAN_ID, clanId)
+        } else {
+            putExtra(EXTRA_DM_ID, channelId)
+        }
+        if (channelName.isNotEmpty()) putExtra(EXTRA_CHANNEL_NAME, channelName)
+        if (channelType != 0) putExtra(EXTRA_CHANNEL_TYPE, channelType)
+    }
+
+    fun showSentMessageNotification(
+        notificationId: Int,
+        title: String,
+        channelId: Long,
+        clanId: Long,
+        channelName: String,
+        channelType: Int,
+        sentText: String,
+        messageId: Long = 0L,
+        messageSenderId: Long = 0L,
+        topicId: Long = 0L
+    ) {
+        val conversationTitle = channelName.ifEmpty { title }
+        val history = recordConversationMessage(
+            notificationId = notificationId,
+            conversationTitle = conversationTitle,
+            message = ConversationMessage(
+                sender = context.getString(R.string.notification_self),
+                text = sentText,
+                timestamp = System.currentTimeMillis(),
+                avatarUrl = "",
+                fromSelf = true
+            )
+        )
+        val intent = buildOpenChatIntent(channelId, clanId, channelName, channelType)
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            notificationId,
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val notifChannel = if (clanId == 0L) CHANNEL_DM else CHANNEL_MESSAGES
+        val builder = NotificationCompat.Builder(context, notifChannel)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setColor(ContextCompat.getColor(context, R.color.notification_color))
+            .setContentTitle(title.ifEmpty { context.getString(R.string.app_name) })
+            .setContentText(sentText)
+            .setStyle(
+                buildMessagingStyle(
+                    conversationTitle,
+                    clanId != 0L || channelType == CHANNEL_TYPE_GROUP,
+                    history
+                )
+            )
+            .setWhen(System.currentTimeMillis())
+            .setShowWhen(true)
+            .setNumber(history.size)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setOnlyAlertOnce(true)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .setGroup(GROUP_MESSAGES)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+        applyConversationIdentity(builder, "chat_$channelId", null)
+        addMessageActions(
+            builder = builder,
+            notificationId = notificationId,
+            title = title,
+            openChatIntent = intent,
+            channelId = channelId,
+            clanId = clanId,
+            channelName = channelName,
+            channelType = channelType,
+            messageId = messageId,
+            messageSenderId = messageSenderId,
+            topicId = topicId
+        )
+        notificationManager.notify(notificationId, builder.build())
+        refreshGroupSummary(addedId = notificationId)
     }
 
     fun showReplyFailedNotification(
@@ -530,23 +670,14 @@ class NotificationHelper @Inject constructor(
         channelId: Long,
         clanId: Long,
         channelName: String,
-        channelType: Int
+        channelType: Int,
+        failureTextRes: Int = R.string.notification_reply_failed,
+        messageId: Long = 0L,
+        messageSenderId: Long = 0L,
+        topicId: Long = 0L
     ) {
-        val failureText = context.getString(R.string.notification_reply_failed)
-        val intent = Intent(context, MainActivity::class.java).apply {
-            action = ACTION_OPEN_CHAT
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                Intent.FLAG_ACTIVITY_SINGLE_TOP
-            if (clanId != 0L) {
-                putExtra(EXTRA_CHANNEL_ID, channelId)
-                putExtra(EXTRA_CLAN_ID, clanId)
-            } else {
-                putExtra(EXTRA_DM_ID, channelId)
-            }
-            if (channelName.isNotEmpty()) putExtra(EXTRA_CHANNEL_NAME, channelName)
-            if (channelType != 0) putExtra(EXTRA_CHANNEL_TYPE, channelType)
-        }
+        val failureText = context.getString(failureTextRes)
+        val intent = buildOpenChatIntent(channelId, clanId, channelName, channelType)
         val pendingIntent = PendingIntent.getActivity(
             context,
             notificationId,
@@ -573,7 +704,10 @@ class NotificationHelper @Inject constructor(
             channelId = channelId,
             clanId = clanId,
             channelName = channelName,
-            channelType = channelType
+            channelType = channelType,
+            messageId = messageId,
+            messageSenderId = messageSenderId,
+            topicId = topicId
         )
         notificationManager.notify(notificationId, builder.build())
         refreshGroupSummary(addedId = notificationId)
@@ -589,11 +723,17 @@ class NotificationHelper @Inject constructor(
         canReply: Boolean = true,
         senderName: String = "",
         avatarUrl: String = "",
-        timestamp: Long = System.currentTimeMillis()
+        timestamp: Long = System.currentTimeMillis(),
+        messageId: Long = 0L,
+        messageSenderId: Long = 0L,
+        topicId: Long = 0L
     ) {
         val body = truncateBody(body)
         appScope.launch {
-            val conversationAvatarUrl = resolveClanLogo(clanId).ifEmpty { avatarUrl }
+            val conversationClanId = clanId ?: 0L
+            val clan = resolveClan(clanId)
+            val conversationAvatarUrl =
+                if (conversationClanId != 0L) clan?.logo.orEmpty() else avatarUrl
             val senderReady = async { cacheAvatarBitmap(avatarUrl) }
             val conversationReady = async { cacheAvatarBitmap(conversationAvatarUrl) }
             val computedChannelName = channelName.ifEmpty {
@@ -625,6 +765,14 @@ class NotificationHelper @Inject constructor(
             senderReady.await()
             conversationReady.await()
             val conversationIcon = cachedAvatar(conversationAvatarUrl)
+                ?: if (conversationClanId != 0L) {
+                    clanLetterAvatar(
+                        conversationClanId,
+                        clan?.clanName.orEmpty().ifEmpty { conversationTitle }
+                    )
+                } else {
+                    null
+                }
             val shortcutId = channelId?.let {
                 pushConversationShortcut(
                     shortcutId = "chat_$it",
@@ -669,7 +817,10 @@ class NotificationHelper @Inject constructor(
                     channelId = channelId,
                     clanId = clanId ?: 0L,
                     channelName = computedChannelName,
-                    channelType = channelType ?: CHANNEL_TYPE_CHANNEL
+                    channelType = channelType ?: CHANNEL_TYPE_CHANNEL,
+                    messageId = messageId,
+                    messageSenderId = messageSenderId,
+                    topicId = topicId
                 )
             }
             notificationManager.notify(notificationId, builder.build())
@@ -684,7 +835,10 @@ class NotificationHelper @Inject constructor(
         canReply: Boolean = true,
         senderName: String = "",
         avatarUrl: String = "",
-        timestamp: Long = System.currentTimeMillis()
+        timestamp: Long = System.currentTimeMillis(),
+        messageId: Long = 0L,
+        messageSenderId: Long = 0L,
+        topicId: Long = 0L
     ) {
         val body = truncateBody(body)
         appScope.launch {
@@ -768,7 +922,10 @@ class NotificationHelper @Inject constructor(
                     channelId = dmChannelId,
                     clanId = 0L,
                     channelName = dmName,
-                    channelType = dmType
+                    channelType = dmType,
+                    messageId = messageId,
+                    messageSenderId = messageSenderId,
+                    topicId = topicId
                 )
             }
             notificationManager.notify(dmChannelId.toInt(), builder.build())

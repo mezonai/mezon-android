@@ -1713,7 +1713,8 @@ class CreateThreadFragment : BaseFragment() {
             members = members,
             roles = roles,
             includeHere = includeHere,
-            includeRoles = isChannelOrThread
+            includeRoles = isChannelOrThread,
+            membersPending = memberResolver.mentionMembersPending(clanId, members)
         )
         return InputSuggestionsController.buildMentionItems(keyword, ctx)
     }
@@ -1765,11 +1766,12 @@ class CreateThreadFragment : BaseFragment() {
         val triggerPos = trigger.triggerPos
         val replaceEnd = minOf(triggerPos + trigger.queryLen, editable.length)
         when (item) {
+            is InputSuggestionItem.Loading -> return
             is InputSuggestionItem.Here ->
                 insertMentionToken(editable, triggerPos, replaceEnd, "@here", ChatController.ID_MENTION_HERE, "", themeColors.textLink)
             is InputSuggestionItem.Member -> {
                 val member = item.member
-                val displayName = member.clanNick.ifBlank { member.displayName.ifBlank { member.username } }
+                val displayName = InputSuggestionsController.mentionDisplayName(member)
                 insertMentionToken(
                     editable, triggerPos, replaceEnd, "@$displayName",
                     member.userId.toString(), "", themeColors.textLink
