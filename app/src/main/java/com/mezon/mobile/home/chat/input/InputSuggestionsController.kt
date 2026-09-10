@@ -76,8 +76,15 @@ object InputSuggestionsController {
         val members: List<ClanMember>,
         val roles: List<ClanRole>,
         val includeHere: Boolean,
-        val includeRoles: Boolean
+        val includeRoles: Boolean,
+        val membersPending: Boolean = false
     )
+
+    fun mentionDisplayName(member: ClanMember): String =
+        member.clanNick.ifBlank { member.displayName.ifBlank { member.username } }
+
+    fun hasUnresolvedMembers(members: List<ClanMember>): Boolean =
+        members.any { mentionDisplayName(it).isBlank() }
 
     fun buildMentionItems(keyword: String, ctx: MentionContext): List<InputSuggestionItem> {
         val search = keyword.trim()
@@ -96,7 +103,8 @@ object InputSuggestionsController {
         }
 
         for (member in ctx.members) {
-            val display = member.clanNick.ifBlank { member.displayName.ifBlank { member.username } }
+            val display = mentionDisplayName(member)
+            if (display.isBlank()) continue
             val score = if (search.isEmpty()) 1000
             else scoreText(display, member.username, sLower, sNorm)
             if (score > 0) {
@@ -106,6 +114,7 @@ object InputSuggestionsController {
 
         if (ctx.includeRoles) {
             for (role in ctx.roles) {
+                if (role.title.isBlank()) continue
                 val score = if (search.isEmpty()) 1000
                 else scoreText(role.title, "", sLower, sNorm)
                 if (score > 0) {
@@ -115,7 +124,9 @@ object InputSuggestionsController {
         }
 
         results.sortWith(compareByDescending<Scored> { it.score }.thenBy { it.length }.thenBy { it.label })
-        return results.map { it.item }
+        val items = results.map { it.item }
+        if (!ctx.membersPending) return items
+        return items + InputSuggestionItem.Loading
     }
 
     fun buildChannelItems(
@@ -123,10 +134,11 @@ object InputSuggestionsController {
         channels: List<ClanChannelEntity>
     ): List<InputSuggestionItem> {
         val sLower = keyword.trim().lowercase()
+        val named = channels.filter { it.channelLabel.isNotBlank() }
         val filtered = if (sLower.isEmpty()) {
-            channels
+            named
         } else {
-            channels.filter { it.channelLabel.lowercase().contains(sLower) }
+            named.filter { it.channelLabel.lowercase().contains(sLower) }
         }
         return filtered.map {
             InputSuggestionItem.Channel(

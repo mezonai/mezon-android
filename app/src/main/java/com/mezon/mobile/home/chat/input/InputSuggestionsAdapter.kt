@@ -45,7 +45,10 @@ class InputSuggestionsAdapter(
         val holder = ViewHolder(cell)
         cell.setOnClickListener {
             val pos = holder.bindingAdapterPosition
-            if (pos in items.indices) onSelect(items[pos])
+            if (pos !in items.indices) return@setOnClickListener
+            val item = items[pos]
+            if (item is InputSuggestionItem.Loading) return@setOnClickListener
+            onSelect(item)
         }
         return holder
     }
@@ -77,6 +80,7 @@ class InputSuggestionsAdapter(
 
 private fun suggestionStableId(item: InputSuggestionItem): Long = when (item) {
     is InputSuggestionItem.Here -> Long.MIN_VALUE + 1
+    is InputSuggestionItem.Loading -> Long.MIN_VALUE + 2
     is InputSuggestionItem.Member -> item.member.userId
     is InputSuggestionItem.Role -> item.role.roleId or (1L shl 61)
     is InputSuggestionItem.Channel -> item.entity.channelId or (1L shl 60)

@@ -533,23 +533,10 @@ open class ChatFragment : BaseFragment() {
         hasUnread = !isSeenUpToDate && lastSeenMessageId != 0L
 
         if (clanId != 0L) {
-            userClanController.loadClanMembers(clanId)
+            loadMentionMemberSources()
             roleController.loadRolesForClan(clanId)
             appScope.launch(ioDispatcher) {
                 roleController.hydrateLocalPermissionSnapshotForClan(clanId)
-            }
-            val ch = channelController.findChannelById(channelId)
-            val effectiveParentId = ch?.parentId ?: routeParentId
-            val effectivePrivate = ch?.isPrivate ?: routeChannelPrivate
-            val shouldLoadScopedMembers =
-                channelType == CHANNEL_TYPE_THREAD || effectivePrivate || effectiveParentId != 0L
-            if (shouldLoadScopedMembers) {
-                if (effectiveParentId != 0L) {
-                    userClanController.loadChannelMembers(clanId, effectiveParentId, CHANNEL_TYPE_CHANNEL)
-                    Log.d(TAG, "onFragmentCreate loadChannelMembers parent clanId=$clanId parentId=$effectiveParentId")
-                }
-                userClanController.loadChannelMembers(clanId, channelId, CHANNEL_TYPE_CHANNEL)
-                Log.d(TAG, "onFragmentCreate loadChannelMembers channel clanId=$clanId channelId=$channelId")
             }
         } else if (channelType == CHANNEL_TYPE_GROUP) {
             dialogsController.loadDmParticipants(channelId)
@@ -7676,6 +7663,8 @@ open class ChatFragment : BaseFragment() {
 
     private fun buildMentionSuggestions(keyword: String): List<InputSuggestionItem> {
         val members = resolveMentionMembers()
+        val membersPending = memberResolver.mentionMembersPending(clanId, members)
+        if (membersPending) loadMentionMemberSources()
         val isChannelOrThread = channelType != CHANNEL_TYPE_DM && channelType != CHANNEL_TYPE_GROUP
         val roles = if (isChannelOrThread && clanId != 0L) {
             roleController.getRoles(clanId).also {
@@ -7687,9 +7676,25 @@ open class ChatFragment : BaseFragment() {
             members = members,
             roles = roles,
             includeHere = includeHere,
-            includeRoles = isChannelOrThread
+            includeRoles = isChannelOrThread,
+            membersPending = membersPending
         )
         return InputSuggestionsController.buildMentionItems(keyword, ctx)
+    }
+
+    private fun loadMentionMemberSources() {
+        if (clanId == 0L) return
+        userClanController.loadClanMembers(clanId)
+        val ch = channelController.findChannelById(channelId)
+        val effectiveParentId = ch?.parentId ?: routeParentId
+        val effectivePrivate = ch?.isPrivate ?: routeChannelPrivate
+        val shouldLoadScopedMembers =
+            channelType == CHANNEL_TYPE_THREAD || effectivePrivate || effectiveParentId != 0L
+        if (!shouldLoadScopedMembers) return
+        if (effectiveParentId != 0L) {
+            userClanController.loadChannelMembers(clanId, effectiveParentId, CHANNEL_TYPE_CHANNEL)
+        }
+        userClanController.loadChannelMembers(clanId, channelId, CHANNEL_TYPE_CHANNEL)
     }
 
     private fun buildHashtagSuggestions(keyword: String): List<InputSuggestionItem> {
@@ -7740,12 +7745,13 @@ open class ChatFragment : BaseFragment() {
         val replaceEnd = minOf(triggerPos + trigger.queryLen, editable.length)
 
         when (item) {
+            is InputSuggestionItem.Loading -> return
             is InputSuggestionItem.Here -> {
                 insertMentionToken(editable, triggerPos, replaceEnd, "@here", ChatController.ID_MENTION_HERE, "", themeColors.textLink)
             }
             is InputSuggestionItem.Member -> {
                 val member = item.member
-                val displayName = member.clanNick.ifBlank { member.displayName.ifBlank { member.username } }
+                val displayName = InputSuggestionsController.mentionDisplayName(member)
                 insertMentionToken(editable, triggerPos, replaceEnd, "@$displayName", member.userId.toString(), "", themeColors.textLink)
             }
             is InputSuggestionItem.Role -> {

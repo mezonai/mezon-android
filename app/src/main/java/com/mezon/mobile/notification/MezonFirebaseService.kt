@@ -10,6 +10,7 @@ import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.home.call.IncomingCallFcmHandler
 import com.mezon.mobile.home.friends.FriendController
 import dagger.hilt.android.AndroidEntryPoint
+import org.json.JSONObject
 
 import javax.inject.Inject
 
@@ -158,6 +159,9 @@ class MezonFirebaseService : FirebaseMessagingService() {
             return
         }
         val canReply = !data["e2ee"].equals("true", ignoreCase = true)
+        val messageId = parsePushMessageId(data["message"])
+        val messageSenderId = data["sender"]?.toLongOrNull() ?: 0L
+        val topicId = data["topic"]?.toLongOrNull() ?: 0L
         val avatarUrl = data["image"].orEmpty()
         val link = data["link"] ?: ""
         val channel = data["channel"] ?: ""
@@ -186,7 +190,10 @@ class MezonFirebaseService : FirebaseMessagingService() {
                         channelId = channelId,
                         clanId = clanId,
                         canReply = canReply,
-                        avatarUrl = avatarUrl
+                        avatarUrl = avatarUrl,
+                        messageId = messageId,
+                        messageSenderId = messageSenderId,
+                        topicId = topicId
                     )
                 }
             } else {
@@ -209,12 +216,20 @@ class MezonFirebaseService : FirebaseMessagingService() {
                             body,
                             dmChannelId = dmId,
                             canReply = canReply,
-                            avatarUrl = avatarUrl
+                            avatarUrl = avatarUrl,
+                            messageId = messageId,
+                            messageSenderId = messageSenderId,
+                            topicId = topicId
                         )
                     }
                 }
             }
         }
+    }
+
+    private fun parsePushMessageId(raw: String?): Long {
+        if (raw.isNullOrBlank()) return 0L
+        return runCatching { JSONObject(raw).optString("id").toLongOrNull() }.getOrNull() ?: 0L
     }
 
     private fun isCallCompanionSystemMessageBody(body: String): Boolean {
