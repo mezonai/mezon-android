@@ -7,6 +7,7 @@ import com.mezon.mobile.home.clans.ClanRole
 
 sealed class InputSuggestionItem {
     data object Here : InputSuggestionItem()
+    data object Loading : InputSuggestionItem()
     data class Member(val member: ClanMember) : InputSuggestionItem()
     data class Role(val role: ClanRole) : InputSuggestionItem()
     data class Channel(val entity: ClanChannelEntity, val subText: String) : InputSuggestionItem()

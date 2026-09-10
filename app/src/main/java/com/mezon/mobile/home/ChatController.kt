@@ -3710,6 +3710,36 @@ class ChatController @Inject constructor(
         messageSenderId: Long,
         topicId: Long = 0L
     ) {
+        appScope.launch {
+            sendReactionAwait(
+                channelId = channelId,
+                clanId = clanId,
+                channelType = channelType,
+                isChannelPrivate = isChannelPrivate,
+                messageId = messageId,
+                emojiId = emojiId,
+                emoji = emoji,
+                count = count,
+                actionDelete = actionDelete,
+                messageSenderId = messageSenderId,
+                topicId = topicId
+            )
+        }
+    }
+
+    suspend fun sendReactionAwait(
+        channelId: Long,
+        clanId: Long,
+        channelType: Int,
+        isChannelPrivate: Boolean,
+        messageId: Long,
+        emojiId: Long,
+        emoji: String,
+        count: Int,
+        actionDelete: Boolean,
+        messageSenderId: Long,
+        topicId: Long = 0L
+    ): Boolean {
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
         val cacheKey = if (topicId != 0L) topicId else channelId
@@ -3721,47 +3751,47 @@ class ChatController @Inject constructor(
         pendingKey?.let { registerPendingApiReaction(it) }
         val anon = isAnonymousSend(clanId)
         val (reactionSenderName, _) = optimisticSenderPresentation(uc, clanId, channelType, anon)
-        appScope.launch {
-            try {
-                sessionManager.withAutoRefresh { session ->
-                    api.channelMessageReact(
-                        session.apiUrl,
-                        session.token,
-                        clanId = clanId,
-                        channelId = channelId,
-                        mode = mode,
-                        isPublic = isPublic,
-                        messageId = messageId,
-                        emojiId = emojiId,
-                        emoji = emoji,
-                        count = count,
-                        messageSenderId = messageSenderId,
-                        actionDelete = actionDelete,
-                        topicId = topicId,
-                        emojiRecentId = 0L,
-                        senderName = reactionSenderName
+        return try {
+            sessionManager.withAutoRefresh { session ->
+                api.channelMessageReact(
+                    session.apiUrl,
+                    session.token,
+                    clanId = clanId,
+                    channelId = channelId,
+                    mode = mode,
+                    isPublic = isPublic,
+                    messageId = messageId,
+                    emojiId = emojiId,
+                    emoji = emoji,
+                    count = count,
+                    messageSenderId = messageSenderId,
+                    actionDelete = actionDelete,
+                    topicId = topicId,
+                    emojiRecentId = 0L,
+                    senderName = reactionSenderName
+                )
+                val selfId = session.userId.toLongOrNull() ?: 0L
+                if (selfId != 0L) {
+                    publishReactionUiAndPersist(
+                        cacheKey,
+                        messageId,
+                        emojiId,
+                        emoji,
+                        selfId,
+                        count,
+                        actionDelete,
+                        source = "api"
                     )
-                    val selfId = session.userId.toLongOrNull() ?: 0L
-                    if (selfId != 0L) {
-                        publishReactionUiAndPersist(
-                            cacheKey,
-                            messageId,
-                            emojiId,
-                            emoji,
-                            selfId,
-                            count,
-                            actionDelete,
-                            source = "api"
-                        )
-                        pendingKey?.let { resolvePendingApiReaction(it) }
-                    }
+                    pendingKey?.let { resolvePendingApiReaction(it) }
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to send reaction", e)
-            } finally {
-                pendingKey?.let { key ->
-                    if (pendingApiReactions[key] == REACTION_IN_FLIGHT) clearPendingApiReaction(key)
-                }
+            }
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to send reaction", e)
+            false
+        } finally {
+            pendingKey?.let { key ->
+                if (pendingApiReactions[key] == REACTION_IN_FLIGHT) clearPendingApiReaction(key)
             }
         }
     }

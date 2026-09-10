@@ -5,13 +5,19 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import androidx.core.app.RemoteInput
+import com.mezon.mobile.R
 import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.di.FragmentEntryPoint
+import com.mezon.mobile.home.chat.LIKE_EMOJI_DISPLAY
+import com.mezon.mobile.home.chat.LIKE_EMOJI_ID
+import com.mezon.mobile.home.chat.LIKE_EMOJI_SHORTNAME
 import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
+import com.mezon.mobile.util.EmojiMarker
 import com.mezon.mobile.util.buildTextContent
+import com.mezon.mobile.util.buildTextContentWithEmojis
 import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -26,6 +32,7 @@ class NotificationReplyReceiver : BroadcastReceiver() {
 
     companion object {
         const val ACTION_REPLY = "com.mezon.mobile.notification.REPLY"
+        const val ACTION_LIKE = "com.mezon.mobile.notification.LIKE"
         const val KEY_REPLY_TEXT = "mezon_notification_reply_text"
     }
 
@@ -37,7 +44,8 @@ class NotificationReplyReceiver : BroadcastReceiver() {
     )
 
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != ACTION_REPLY) return
+        val isLike = intent.action == ACTION_LIKE
+        if (intent.action != ACTION_REPLY && !isLike) return
 
         val channelId = intent.getLongExtra(NotificationHelper.EXTRA_CHANNEL_ID, 0L)
         if (channelId == 0L) return
@@ -48,6 +56,9 @@ class NotificationReplyReceiver : BroadcastReceiver() {
             intent.getStringExtra(NotificationHelper.EXTRA_NOTIFICATION_TITLE).orEmpty()
         val notificationId =
             intent.getIntExtra(NotificationHelper.EXTRA_NOTIFICATION_ID, channelId.toInt())
+        val messageId = intent.getLongExtra(NotificationHelper.EXTRA_MESSAGE_ID, 0L)
+        val messageSenderId = intent.getLongExtra(NotificationHelper.EXTRA_MESSAGE_SENDER_ID, 0L)
+        val topicId = intent.getLongExtra(NotificationHelper.EXTRA_TOPIC_ID, 0L)
 
         val entryPoint = try {
             EntryPointAccessors.fromApplication(
@@ -60,14 +71,40 @@ class NotificationReplyReceiver : BroadcastReceiver() {
         }
         val notificationHelper = entryPoint.notificationHelper()
 
-        val text = RemoteInput.getResultsFromIntent(intent)
-            ?.getCharSequence(KEY_REPLY_TEXT)
-            ?.toString()
-            ?.trim()
-            .orEmpty()
-        if (text.isEmpty()) {
-            notificationHelper.cancelNotification(notificationId)
-            return
+        val contentJson: String?
+        val sentText: String
+        if (isLike) {
+            contentJson = if (messageId != 0L) {
+                null
+            } else {
+                buildTextContentWithEmojis(
+                    LIKE_EMOJI_SHORTNAME,
+                    null,
+                    listOf(EmojiMarker(LIKE_EMOJI_ID.toString(), 0, LIKE_EMOJI_SHORTNAME.length))
+                )
+            }
+            sentText = if (contentJson == null) {
+                context.getString(R.string.notification_like_reacted)
+            } else {
+                LIKE_EMOJI_DISPLAY
+            }
+        } else {
+            val text = RemoteInput.getResultsFromIntent(intent)
+                ?.getCharSequence(KEY_REPLY_TEXT)
+                ?.toString()
+                ?.trim()
+                .orEmpty()
+            if (text.isEmpty()) {
+                notificationHelper.cancelNotification(notificationId)
+                return
+            }
+            contentJson = buildTextContent(text)
+            sentText = text
+        }
+        val failureTextRes = if (isLike) {
+            R.string.notification_like_failed
+        } else {
+            R.string.notification_reply_failed
         }
         if (!StartupCache.hasSession) {
             notificationHelper.showReplyFailedNotification(
@@ -76,7 +113,11 @@ class NotificationReplyReceiver : BroadcastReceiver() {
                 channelId = channelId,
                 clanId = clanId,
                 channelName = channelName,
-                channelType = channelType
+                channelType = channelType,
+                failureTextRes = failureTextRes,
+                messageId = messageId,
+                messageSenderId = messageSenderId,
+                topicId = topicId
             )
             return
         }
@@ -85,24 +126,55 @@ class NotificationReplyReceiver : BroadcastReceiver() {
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             var sent = false
             try {
-                val messageId = withTimeoutOrNull(SEND_TIMEOUT_MS) {
+                sent = withTimeoutOrNull(SEND_TIMEOUT_MS) {
                     val target = resolveTarget(entryPoint, channelId, clanId, channelType)
-                    entryPoint.chatController().sendRawChannelMessage(
-                        channelId = target.channelId,
-                        clanId = target.clanId,
-                        channelType = target.channelType,
-                        isChannelPrivate = target.isPrivate,
-                        contentJson = buildTextContent(text)
-                    )
-                } ?: 0L
-                sent = messageId != 0L
+                    if (contentJson != null) {
+                        entryPoint.chatController().sendRawChannelMessage(
+                            channelId = target.channelId,
+                            clanId = target.clanId,
+                            channelType = target.channelType,
+                            isChannelPrivate = target.isPrivate,
+                            contentJson = contentJson
+                        ) != 0L
+                    } else {
+                        entryPoint.chatController().sendReactionAwait(
+                            channelId = target.channelId,
+                            clanId = target.clanId,
+                            channelType = target.channelType,
+                            isChannelPrivate = target.isPrivate,
+                            messageId = messageId,
+                            emojiId = LIKE_EMOJI_ID,
+                            emoji = LIKE_EMOJI_SHORTNAME,
+                            count = 1,
+                            actionDelete = false,
+                            messageSenderId = messageSenderId,
+                            topicId = topicId
+                        )
+                    }
+                } ?: false
             } catch (e: Exception) {
-                Log.e(TAG, "Reply send failed channelId=$channelId clanId=$clanId", e)
+                Log.e(TAG, "Send failed isLike=$isLike channelId=$channelId clanId=$clanId", e)
                 entryPoint.sentryReporter()
-                    .logChatFailure("notificationReply", channelId, clanId, e)
+                    .logChatFailure(
+                        if (isLike) "notificationLike" else "notificationReply",
+                        channelId,
+                        clanId,
+                        e
+                    )
             } finally {
                 if (sent) {
-                    notificationHelper.cancelNotification(notificationId)
+                    notificationHelper.showSentMessageNotification(
+                        notificationId = notificationId,
+                        title = notificationTitle,
+                        channelId = channelId,
+                        clanId = clanId,
+                        channelName = channelName,
+                        channelType = channelType,
+                        sentText = sentText,
+                        messageId = messageId,
+                        messageSenderId = messageSenderId,
+                        topicId = topicId
+                    )
                 } else {
                     notificationHelper.showReplyFailedNotification(
                         notificationId = notificationId,
@@ -110,7 +182,11 @@ class NotificationReplyReceiver : BroadcastReceiver() {
                         channelId = channelId,
                         clanId = clanId,
                         channelName = channelName,
-                        channelType = channelType
+                        channelType = channelType,
+                        failureTextRes = failureTextRes,
+                        messageId = messageId,
+                        messageSenderId = messageSenderId,
+                        topicId = topicId
                     )
                 }
                 pendingResult.finish()

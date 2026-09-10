@@ -20,6 +20,10 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
 
+const val LIKE_EMOJI_ID = 7227274405303613492L
+const val LIKE_EMOJI_SHORTNAME = ":like:"
+const val LIKE_EMOJI_DISPLAY = "👍"
+
 data class EmojiItem(
     val id: String,
     val shortname: String,

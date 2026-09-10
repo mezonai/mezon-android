@@ -3346,6 +3346,19 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 canvas, imgX, yOff, photoWidth.toFloat(), photoHeight.toFloat(), MEDIA_RADIUS,
             )
         }
+
+        yOff += photoHeight + GAP_V_INNER
+
+        if (reactionGroups.isNotEmpty()) {
+            yOff += REACTION_TOP_PAD
+            drawReactionRow(canvas, contentLeft.toFloat(), yOff)
+            yOff += reactionRowHeight
+        }
+
+        if (topicButtonLayout.visible) {
+            topicButtonLayout.layout(contentLeft.toFloat(), yOff, width)
+            topicButtonLayout.draw(canvas)
+        }
     }
 
     private fun drawMessageBubble(canvas: Canvas, msg: MessageEntity) {
