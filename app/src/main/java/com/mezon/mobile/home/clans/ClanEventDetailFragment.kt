@@ -909,17 +909,27 @@ class ClanEventDetailFragment : BaseFragment() {
             content.addView(it, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.START, 0f, 8f, 0f, 0f))
         }
     
-        val interested = event.isInterested(currentUserId)
-        content.addView(
-            buildEventActionChip(
-                context,
-                theme,
-                if (interested) MezonIcon.eventBellSlashIcon else MezonIcon.eventBellIcon,
-                if (interested) context.getString(R.string.clan_event_uninterested) else context.getString(R.string.clan_event_interested),
-                onToggleInterest,
-            ),
-            LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 12f, 0f, 0f),
-        )
+        if (status != ClanEventStatus.ONGOING) {
+            val interested = event.isInterested(currentUserId)
+            content.addView(
+                buildEventActionChip(
+                    context,
+                    theme,
+                    if (interested) MezonIcon.eventBellSlashIcon else MezonIcon.eventBellIcon,
+                    if (interested) context.getString(R.string.clan_event_uninterested) else context.getString(R.string.clan_event_interested),
+                    onToggleInterest,
+                ),
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 12f, 0f, 0f),
+            )
+        } else if (clanEventController.canEndEvent(event)) {
+            content.addView(
+                buildEventActionChip(context, theme, MezonIcon.closeIcon, context.getString(R.string.clan_event_end)) {
+                    val latest = clanEventController.getEvent(clanId, event.id)
+                    if (latest != null && clanEventController.canEndEvent(latest)) confirmDeleteEvent(latest)
+                },
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 12f, 0f, 0f),
+            )
+        }
 
         content.addView(
             View(context).apply { setBackgroundColor(theme.outlineVariant) },

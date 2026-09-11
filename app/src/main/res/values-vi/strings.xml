@@ -916,6 +916,7 @@
     <string name="clan_event_badge_clan">Sự kiện clan</string>
     <string name="clan_event_status_upcoming">Bắt đầu sau %1$d phút</string>
     <string name="clan_event_status_ongoing">Sự kiện đang diễn ra</string>
+    <string name="clan_event_end">Kết thúc sự kiện</string>
     <string name="clan_event_interested">Quan tâm</string>
     <string name="clan_event_uninterested">Bỏ quan tâm</string>
     <string name="clan_event_private_room">Phòng họp bên ngoài</string>
@@ -949,6 +950,7 @@
     <string name="event_creator_address_placeholder">Nhập địa điểm sự kiện</string>
     <string name="event_creator_linked_channel_label">Kênh thông báo (tùy chọn)</string>
     <string name="event_creator_channel_picker_title">Chọn kênh</string>
+    <string name="event_creator_no_channels">Không có kênh phù hợp</string>
     <string name="event_creator_details_title">Thông tin sự kiện</string>
     <string name="event_creator_details_subtitle">Thêm tên, lịch và ảnh bìa (tùy chọn).</string>
     <string name="event_creator_name_label">Tên sự kiện</string>

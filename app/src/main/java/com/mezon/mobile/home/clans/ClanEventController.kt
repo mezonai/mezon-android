@@ -1,6 +1,7 @@
 package com.mezon.mobile.home.clans
 
 import android.util.Log
+import com.mezon.mezon.api.CreateEventRequest
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
@@ -38,6 +39,8 @@ class ClanEventController @Inject constructor(
     private val eventsByClan = ConcurrentHashMap<Long, ArrayList<ClanEventEntity>>()
     private val loadErrorsByClan = ConcurrentHashMap<Long, String>()
     private val loadingClanIds = ConcurrentHashMap.newKeySet<Long>()
+    private val pendingForceEventReload = HashSet<Long>()
+    private val pendingSocketEventsByClan = HashMap<Long, MutableList<CreateEventRequest>>()
     private val cacheLock = Any()
 
     init {
@@ -45,13 +48,122 @@ class ClanEventController @Inject constructor(
     }
 
     private suspend fun observeClanEventCreated() {
-        socketEventDispatcher.clanEventCreated.collect {
-            val clanId = it.clanId
-            if (clanId != 0L) {
-                loadEvents(clanId, force = true)
-            }
+        socketEventDispatcher.clanEventCreated.collect { event ->
+            applyClanEventFromSocket(event)
         }
     }
+
+    private fun applyClanEventFromSocket(event: CreateEventRequest) {
+        val clanId = event.clanId
+        if (clanId == 0L || event.eventId == 0L) return
+        val changed = synchronized(cacheLock) {
+            if (loadingClanIds.contains(clanId)) {
+                pendingSocketEventsByClan.getOrPut(clanId) { ArrayList() }.add(event)
+            }
+            val events = eventsByClan[clanId]
+                ?: if (event.action == ClanEventAction.CREATED || event.action == ClanEventAction.UPDATE) {
+                    ArrayList<ClanEventEntity>().also { eventsByClan[clanId] = it }
+                } else {
+                    return@synchronized false
+                }
+            applySocketEvent(events, event)
+        }
+        if (changed) {
+            notificationCenter.postNotificationOnMainThread(
+                NotificationCenter.clanEventsDidLoad,
+                clanId,
+            )
+        }
+    }
+
+    private fun applySocketEvent(
+        events: ArrayList<ClanEventEntity>,
+        update: CreateEventRequest,
+    ): Boolean {
+        val index = events.indexOfFirst { it.id == update.eventId }
+        val existing = events.getOrNull(index)
+
+        if (update.action == ClanEventAction.CREATED) {
+            if (existing != null) return false
+            events.add(update.toClanEventEntity())
+            return true
+        }
+
+        if (update.eventStatus == ClanEventStatus.UPCOMING || update.eventStatus == ClanEventStatus.ONGOING) {
+            if (existing == null) return false
+            events[index] = existing.copy(eventStatus = update.eventStatus)
+            return true
+        }
+
+        if (update.eventStatus == ClanEventStatus.COMPLETED &&
+            update.repeatType != ClanEventRepeatType.DOES_NOT_REPEAT
+        ) {
+            if (existing == null) return false
+            events[index] = existing.copy(
+                eventStatus = update.eventStatus,
+                startTimeSeconds = update.startTimeSeconds,
+            )
+            return true
+        }
+
+        if (update.action == ClanEventAction.UPDATE) {
+            val updated = update.toClanEventEntity(existing)
+            if (existing == null) {
+                events.add(updated)
+            } else {
+                events[index] = updated
+            }
+            return true
+        }
+
+        if ((update.eventStatus == ClanEventStatus.COMPLETED &&
+                update.repeatType == ClanEventRepeatType.DOES_NOT_REPEAT) ||
+            update.action == ClanEventAction.DELETE
+        ) {
+            if (existing == null) return false
+            events.removeAt(index)
+            return true
+        }
+
+        if (update.action == ClanEventAction.INTERESTED ||
+            update.action == ClanEventAction.UNINTERESTED
+        ) {
+            if (existing == null || update.userId == 0L) return false
+            val userIds = existing.userIds.filter { it != 0L }.toMutableList()
+            if (update.action == ClanEventAction.INTERESTED) {
+                if (update.userId in userIds) return false
+                userIds.add(update.userId)
+            } else if (!userIds.remove(update.userId)) {
+                return false
+            }
+            events[index] = existing.copy(userIds = userIds)
+            return true
+        }
+
+        return false
+    }
+
+    private fun CreateEventRequest.toClanEventEntity(
+        existing: ClanEventEntity? = null,
+    ): ClanEventEntity = ClanEventEntity(
+        id = eventId,
+        title = title,
+        logo = logo,
+        description = description,
+        clanId = clanId,
+        channelVoiceId = channelVoiceId,
+        channelId = channelId,
+        address = address,
+        startTimeSeconds = startTimeSeconds,
+        endTimeSeconds = endTimeSeconds,
+        creatorId = creatorId.takeIf { it != 0L } ?: existing?.creatorId ?: 0L,
+        userIds = existing?.userIds ?: listOfNotNull(creatorId.takeIf { it != 0L }),
+        maxPermission = existing?.maxPermission ?: 0,
+        eventStatus = existing?.eventStatus ?: eventStatus,
+        repeatType = repeatType,
+        isPrivate = isPrivate,
+        externalLink = meetRoom.externalLink.ifBlank { existing?.externalLink.orEmpty() },
+    )
 
     fun getEvents(clanId: Long): List<ClanEventEntity> = synchronized(cacheLock) {
         eventsByClan[clanId]?.toList().orEmpty()
@@ -81,6 +193,10 @@ class ClanEventController @Inject constructor(
         )
     }
 
+    fun canEndEvent(event: ClanEventEntity): Boolean =
+        event.displayStatus() == ClanEventStatus.ONGOING &&
+            permissionPolicy.checkPermission(PermissionPolicy.CLAN_OWNER, clanId = event.clanId)
+
     fun visibleEvents(clanId: Long, currentUserId: Long): List<ClanEventEntity> {
         val textChannelIds = textChannels(clanId).mapTo(HashSet()) { it.channelId }
         return getEvents(clanId).filter { event ->
@@ -103,7 +219,12 @@ class ClanEventController @Inject constructor(
                     return@launch
                 }
             }
-            loadingClanIds.add(clanId)
+            synchronized(cacheLock) {
+                if (!loadingClanIds.add(clanId)) {
+                    if (force) pendingForceEventReload.add(clanId)
+                    return@launch
+                }
+            }
             notificationCenter.postNotificationOnMainThread(
                 NotificationCenter.clanEventsDidLoad,
                 clanId,
@@ -114,6 +235,9 @@ class ClanEventController @Inject constructor(
                 }
                 val mapped = ArrayList(list.map { it.toClanEventEntity() })
                 synchronized(cacheLock) {
+                    pendingSocketEventsByClan.remove(clanId)?.forEach { event ->
+                        applySocketEvent(mapped, event)
+                    }
                     eventsByClan[clanId] = mapped
                 }
                 loadErrorsByClan.remove(clanId)
@@ -123,11 +247,16 @@ class ClanEventController @Inject constructor(
                 loadErrorsByClan[clanId] = e.message?.takeIf { it.isNotBlank() }
                     ?: "Failed to load events"
             } finally {
-                loadingClanIds.remove(clanId)
+                val reload = synchronized(cacheLock) {
+                    loadingClanIds.remove(clanId)
+                    pendingSocketEventsByClan.remove(clanId)
+                    pendingForceEventReload.remove(clanId)
+                }
                 notificationCenter.postNotificationOnMainThread(
                     NotificationCenter.clanEventsDidLoad,
                     clanId,
                 )
+                if (reload) loadEvents(clanId, force = true)
             }
         }
     }
