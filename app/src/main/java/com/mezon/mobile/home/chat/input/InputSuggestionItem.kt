@@ -12,4 +12,5 @@ sealed class InputSuggestionItem {
     data class Role(val role: ClanRole) : InputSuggestionItem()
     data class Channel(val entity: ClanChannelEntity, val subText: String) : InputSuggestionItem()
     data class Emoji(val item: EmojiItem) : InputSuggestionItem()
+    data class SlashCommand(val command: com.mezon.mobile.home.chat.input.SlashCommand) : InputSuggestionItem()
 }

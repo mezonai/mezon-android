@@ -1767,6 +1767,7 @@ class CreateThreadFragment : BaseFragment() {
         val replaceEnd = minOf(triggerPos + trigger.queryLen, editable.length)
         when (item) {
             is InputSuggestionItem.Loading -> return
+            is InputSuggestionItem.SlashCommand -> return
             is InputSuggestionItem.Here ->
                 insertMentionToken(editable, triggerPos, replaceEnd, "@here", ChatController.ID_MENTION_HERE, "", themeColors.textLink)
             is InputSuggestionItem.Member -> {

@@ -85,4 +85,6 @@ private fun suggestionStableId(item: InputSuggestionItem): Long = when (item) {
     is InputSuggestionItem.Role -> item.role.roleId or (1L shl 61)
     is InputSuggestionItem.Channel -> item.entity.channelId or (1L shl 60)
     is InputSuggestionItem.Emoji -> item.item.id.hashCode().toLong() or (1L shl 62)
+    is InputSuggestionItem.SlashCommand ->
+        (item.command.id.takeIf { it != 0L } ?: item.command.name.hashCode().toLong()) or (1L shl 59)
 }
