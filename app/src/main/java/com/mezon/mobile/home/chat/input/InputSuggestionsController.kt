@@ -8,7 +8,7 @@ import java.text.Normalizer
 
 object InputSuggestionsController {
 
-    enum class Mode { NONE, MENTION, HASHTAG, EMOJI }
+    enum class Mode { NONE, MENTION, HASHTAG, EMOJI, SLASH }
 
     data class TriggerState(
         val mode: Mode,
@@ -23,7 +23,12 @@ object InputSuggestionsController {
 
     fun detect(text: CharSequence, cursor: Int): TriggerState {
         if (cursor <= 0 || cursor > text.length) return TriggerState.NONE
+        val inline = detectInline(text, cursor)
+        if (inline.mode != Mode.NONE) return inline
+        return detectSlashCommand(text, cursor)
+    }
 
+    private fun detectInline(text: CharSequence, cursor: Int): TriggerState {
         for (a in (cursor - 1) downTo 0) {
             val ch = text[a]
             when (ch) {
@@ -56,6 +61,15 @@ object InputSuggestionsController {
             }
         }
         return TriggerState.NONE
+    }
+
+    private fun detectSlashCommand(text: CharSequence, cursor: Int): TriggerState {
+        var slashPos = 0
+        while (slashPos < text.length && isTriggerBoundary(text[slashPos])) slashPos++
+        if (slashPos >= text.length || text[slashPos] != '/' || cursor <= slashPos) return TriggerState.NONE
+        val keyword = text.substring(slashPos + 1, cursor)
+        if (keyword.any { isTriggerBoundary(it) }) return TriggerState.NONE
+        return TriggerState(Mode.SLASH, slashPos, keyword.length + 1, keyword)
     }
 
     private fun isTriggerBoundary(ch: Char): Boolean =
@@ -146,6 +160,17 @@ object InputSuggestionsController {
                 subText = it.categoryName
             )
         }
+    }
+
+    fun buildSlashCommandItems(keyword: String, commands: List<SlashCommand>): List<InputSuggestionItem> {
+        val sLower = keyword.trim().lowercase()
+        val named = commands.filter { it.name.isNotBlank() }
+        val filtered = if (sLower.isEmpty()) {
+            named
+        } else {
+            named.filter { it.name.lowercase().contains(sLower) }
+        }
+        return filtered.take(20).map { InputSuggestionItem.SlashCommand(it) }
     }
 
     fun buildEmojiItems(keyword: String, emojis: List<EmojiItem>): List<InputSuggestionItem> {
