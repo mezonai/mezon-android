@@ -1074,6 +1074,23 @@ fun parseEmbedDataList(content: String): List<EmbedData> =
 
 fun parseEmbedData(content: String): EmbedData? = parseEmbedDataList(content).firstOrNull()
 
+private fun JSONObject.optEmbedImageDimension(key: String): Int {
+    val dimension = when (val value = opt(key)) {
+        is Number -> value.toInt()
+        is String -> {
+            val text = value.trim()
+            val numeric = if (text.endsWith("px", ignoreCase = true)) {
+                text.dropLast(2).trim()
+            } else {
+                text
+            }
+            numeric.toDoubleOrNull()?.toInt()
+        }
+        else -> null
+    }
+    return dimension?.coerceAtLeast(0) ?: 0
+}
+
 private fun parseEmbedImages(embed: JSONObject): List<EmbedImageRef> {
     if (!embed.has("image") || embed.isNull("image")) return emptyList()
     return try {
@@ -1084,7 +1101,11 @@ private fun parseEmbedImages(embed: JSONObject): List<EmbedImageRef> {
             is JSONObject -> {
                 val u = raw.optString("url", "").trim()
                 if (u.isEmpty()) emptyList()
-                else listOf(EmbedImageRef(u, raw.optInt("width", 0), raw.optInt("height", 0)))
+                else listOf(EmbedImageRef(
+                    u,
+                    raw.optEmbedImageDimension("width"),
+                    raw.optEmbedImageDimension("height"),
+                ))
             }
             is JSONArray -> {
                 val list = mutableListOf<EmbedImageRef>()
@@ -1092,7 +1113,13 @@ private fun parseEmbedImages(embed: JSONObject): List<EmbedImageRef> {
                     when (val item = raw.opt(i)) {
                         is JSONObject ->
                             item.optString("url", "").trim().takeIf { it.isNotEmpty() }
-                                ?.let { list.add(EmbedImageRef(it, item.optInt("width", 0), item.optInt("height", 0))) }
+                                ?.let {
+                                    list.add(EmbedImageRef(
+                                        it,
+                                        item.optEmbedImageDimension("width"),
+                                        item.optEmbedImageDimension("height"),
+                                    ))
+                                }
                         is String ->
                             item.trim().takeIf { it.isNotEmpty() }?.let { list.add(EmbedImageRef(it, 0, 0)) }
                         else -> {

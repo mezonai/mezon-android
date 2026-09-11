@@ -626,6 +626,7 @@ class EmbedMessageRenderer(
                 val rh = embedImageCells[gi].second
                 val ir = imgs.embedGalleryReceiver(gi)
                 ir.setRoundRadius(IMG_RADIUS.toInt())
+                ir.setCenterCrop(false)
                 ir.setImage(
                     createImgproxyUrl(imgRef.url, cw, rh, "fit"),
                     null,
