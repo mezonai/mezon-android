@@ -402,6 +402,7 @@ class MezonApi @Inject constructor(
             "ListClanDescs",
             "ListClanUsers",
             "ListClanWebhook",
+            "ListEvents",
             "ListFriends",
             "ListLogedDevice",
             "ListNotifications",

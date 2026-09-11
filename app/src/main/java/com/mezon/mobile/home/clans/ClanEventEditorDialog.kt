@@ -933,16 +933,13 @@ class ClanEventEditorDialog private constructor(
 
     private fun showTextChannelPicker(context: Context) {
         val channels = clanEventController.textChannels(clanId)
-        if (channels.isEmpty()) {
-            showError(ToastOverlay.ToastType.INFO, getString(R.string.clan_invite_need_channel))
-            return
-        }
         showChildDialog(ChannelPickerSheet(
             context,
             themeColors,
             channels,
             getString(R.string.event_creator_channel_picker_title),
             selectedChannelId = channelId,
+            emptyText = getString(R.string.event_creator_no_channels),
         ) { picked ->
             channelId = picked.channelId
             refreshChannelPickerRow()

@@ -1031,6 +1031,7 @@
     <string name="clan_event_badge_clan">Clan Event</string>
     <string name="clan_event_status_upcoming">Starts in %1$d min</string>
     <string name="clan_event_status_ongoing">Event is happening now</string>
+    <string name="clan_event_end">End Event</string>
     <string name="clan_event_interested">Interested</string>
     <string name="clan_event_uninterested">Not interested</string>
     <string name="clan_event_private_room">External Meeting Room</string>
@@ -1064,6 +1065,7 @@
     <string name="event_creator_address_placeholder">Enter event location</string>
     <string name="event_creator_linked_channel_label">Announcement channel (optional)</string>
     <string name="event_creator_channel_picker_title">Select channel</string>
+    <string name="event_creator_no_channels">No channels available</string>
     <string name="event_creator_details_title">Tell us about your event</string>
     <string name="event_creator_details_subtitle">Add a name, schedule, and optional cover image.</string>
     <string name="event_creator_name_label">Event name</string>

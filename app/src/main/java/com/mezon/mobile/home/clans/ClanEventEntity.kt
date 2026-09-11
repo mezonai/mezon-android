@@ -26,12 +26,12 @@ data class ClanEventEntity(
 ) {
     val interestedCount: Int get() = userIds.count { it != 0L }
 
-    fun displayStatus(): Int {
-        if (eventStatus != 0) return eventStatus
-        val nowSec = System.currentTimeMillis() / 1000
-        val delta = startTimeSeconds - nowSec
-        if (delta <= 0) return ClanEventStatus.ONGOING
-        if (delta <= TimeUnit.MINUTES.toSeconds(10)) return ClanEventStatus.UPCOMING
+    fun displayStatus(nowMillis: Long = System.currentTimeMillis()): Int {
+        if (startTimeSeconds == 0) return eventStatus
+        val start = startTimeSeconds.toLong() * 1000
+        val end = if (endTimeSeconds != 0) endTimeSeconds.toLong() * 1000 else start + TimeUnit.HOURS.toMillis(2)
+        if (nowMillis in start..end) return ClanEventStatus.ONGOING
+        if (start > nowMillis && start - nowMillis <= TimeUnit.MINUTES.toMillis(10)) return ClanEventStatus.UPCOMING
         return ClanEventStatus.CREATED
     }
 

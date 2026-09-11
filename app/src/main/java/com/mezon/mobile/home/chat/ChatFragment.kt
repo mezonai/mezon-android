@@ -83,6 +83,8 @@ import com.mezon.mobile.home.clans.UserDisplayRole
 import com.mezon.mobile.home.clans.isEveryoneRole
 import com.mezon.mobile.home.chat.input.InputSuggestionItem
 import com.mezon.mobile.home.chat.input.InputSuggestionsAdapter
+import com.mezon.mobile.home.chat.input.SlashCommand
+import com.mezon.mobile.home.chat.input.SlashCommandCatalog
 import com.mezon.mobile.home.chat.input.InputSuggestionsController
 import com.mezon.mobile.home.chat.input.InputSuggestionsPopup
 import com.mezon.mobile.home.chat.input.VoiceRecorder
@@ -218,6 +220,7 @@ open class ChatFragment : BaseFragment() {
         private val INPUT_OGP_BAR_CORNER = LayoutHelper.dp(12f).toFloat()
         private val INPUT_OGP_URL_REGEX = Regex("""https?://[^\s]+""", RegexOption.IGNORE_CASE)
         private const val INPUT_OGP_DEBOUNCE_MS = 80L
+        private const val SLASH_COMMAND_DEBOUNCE_MS = 300L
         private const val INPUT_OGP_CACHE_MAX = 32
         private const val INPUT_OGP_SEND_WAIT_MS = 400L
         private const val MAX_MESSAGE_CONTENT_BYTES = 3700
@@ -434,6 +437,8 @@ open class ChatFragment : BaseFragment() {
     private var suppressInputTrackerMutation = false
     private var systemMessageMemberIds: Set<String> = emptySet()
     private var currentTrigger: InputSuggestionsController.TriggerState = InputSuggestionsController.TriggerState.NONE
+    private var slashCommandDebounceJob: Job? = null
+    private var slashCommandLoadJob: Job? = null
 
     private var slidingView: ChatMessageCell? = null
     private var maybeStartTrackingSlidingView = false
@@ -3129,6 +3134,10 @@ open class ChatFragment : BaseFragment() {
         failedInputOgpUrl = null
         suggestionsPopup = null
         suggestionsAdapter = null
+        slashCommandDebounceJob?.cancel()
+        slashCommandDebounceJob = null
+        slashCommandLoadJob?.cancel()
+        slashCommandLoadJob = null
         EmbedFormUtil.clearAll()
         pendingHighlightMessageId = 0L
         chatAdjustPanHelper?.onDetach()
@@ -7637,6 +7646,12 @@ open class ChatFragment : BaseFragment() {
             hideSuggestionsPopup()
             return
         }
+        if (trigger.mode == InputSuggestionsController.Mode.SLASH) {
+            scheduleSlashCommandSuggestions()
+            return
+        }
+        slashCommandDebounceJob?.cancel()
+        slashCommandDebounceJob = null
 
         val items: List<InputSuggestionItem> = when (trigger.mode) {
             InputSuggestionsController.Mode.MENTION -> buildMentionSuggestions(trigger.keyword)
@@ -7656,9 +7671,72 @@ open class ChatFragment : BaseFragment() {
     }
 
     private fun hideSuggestionsPopup() {
+        slashCommandDebounceJob?.cancel()
+        slashCommandDebounceJob = null
         suggestionsPopup?.updateVisibility(false)
         suggestionsAdapter?.clear()
         currentTrigger = InputSuggestionsController.TriggerState.NONE
+    }
+
+    private fun scheduleSlashCommandSuggestions() {
+        if (currentTrigger.mode != InputSuggestionsController.Mode.SLASH) hideSuggestionsPopup()
+        ensureSlashCommandsLoaded()
+        slashCommandDebounceJob?.cancel()
+        slashCommandDebounceJob = fragmentScope.launch(mainDispatcher) {
+            delay(SLASH_COMMAND_DEBOUNCE_MS)
+            slashCommandDebounceJob = null
+            presentSlashCommandSuggestions()
+        }
+    }
+
+    private fun presentSlashCommandSuggestions() {
+        if (isPaused || fragmentView == null) return
+        val text = inputField.text?.toString() ?: ""
+        val cursor = inputField.selectionStart
+        val trigger = InputSuggestionsController.detect(text, cursor)
+        if (trigger.mode != InputSuggestionsController.Mode.SLASH) return
+        val items = InputSuggestionsController.buildSlashCommandItems(
+            trigger.keyword,
+            SlashCommandCatalog.cached(channelId)
+        )
+        if (items.isEmpty()) {
+            hideSuggestionsPopup()
+            return
+        }
+        currentTrigger = trigger
+        suggestionsAdapter?.submit(items)
+        suggestionsPopup?.updateVisibility(true)
+    }
+
+    private fun ensureSlashCommandsLoaded() {
+        val targetChannelId = channelId
+        if (targetChannelId == 0L) return
+        if (SlashCommandCatalog.isFresh(targetChannelId)) return
+        if (slashCommandLoadJob?.isActive == true) return
+        slashCommandLoadJob = fragmentScope.launch(mainDispatcher) {
+            SlashCommandCatalog.load(targetChannelId, mezonApi, sessionManager, ioDispatcher)
+            if (channelId != targetChannelId) return@launch
+            slashCommandDebounceJob?.cancel()
+            slashCommandDebounceJob = null
+            presentSlashCommandSuggestions()
+        }
+    }
+
+    private fun applySlashCommand(command: SlashCommand) {
+        val message = command.actionMsg.trim()
+        if (message.isEmpty()) return
+        mentionTrackers.clear()
+        hashtagTrackers.clear()
+        emojiObjPicked.clear()
+        suppressInputTrackerMutation = true
+        try {
+            inputField.setText(message)
+        } finally {
+            suppressInputTrackerMutation = false
+        }
+        inputField.setSelection(message.length)
+        updateSendButtonState()
+        updateInputOgpPreview(message)
     }
 
     private fun buildMentionSuggestions(keyword: String): List<InputSuggestionItem> {
@@ -7764,6 +7842,9 @@ open class ChatFragment : BaseFragment() {
             }
             is InputSuggestionItem.Emoji -> {
                 insertEmojiToken(editable, triggerPos, replaceEnd, item.item)
+            }
+            is InputSuggestionItem.SlashCommand -> {
+                applySlashCommand(item.command)
             }
         }
         hideSuggestionsPopup()
@@ -8142,29 +8223,16 @@ open class ChatFragment : BaseFragment() {
             chatController.reloadChannelMessageIfMissing(channelId, clanId, rootMessageId)
             var root = chatController.getMessageById(channelId, rootMessageId)
             if (root == null) {
-                val detail = topicController.fetchTopicDetail(topicId)
-                if (detail != null) {
-                    root = MessageEntity(
-                        id = detail.messageId,
-                        channelId = channelId,
-                        senderId = detail.creatorId,
-                        senderName = "",
-                        senderUsername = "",
-                        senderAvatar = "",
-                        content = detail.content,
-                        timestampSeconds = detail.createTimeSeconds,
-                        code = MessageEntity.CODE_TOPIC,
-                        topicId = topicId,
-                        topicCreatorId = detail.creatorId
-                    )
+                val authoritativeRootId = topicController.fetchTopicDetail(topicId)?.messageId ?: 0L
+                if (authoritativeRootId != 0L && authoritativeRootId != rootMessageId) {
+                    chatController.reloadChannelMessageIfMissing(channelId, clanId, authoritativeRootId)
+                    root = chatController.getMessageById(channelId, authoritativeRootId)
                 }
             }
             val base = root ?: return@launch
-            val creatorId = base.topicCreatorId.takeIf { it != 0L } ?: base.senderId
-            val member = memberResolver.resolveMember(creatorId, clanId, channelId, channelType)
+            val member = memberResolver.resolveMember(base.senderId, clanId, channelId, channelType)
             val resolved = if (member != null) {
                 base.copy(
-                    senderId = creatorId,
                     senderName = member.clanNick.ifBlank { member.displayName.ifBlank { member.username } },
                     senderUsername = member.username,
                     senderAvatar = member.clanAvatar.ifBlank { member.avatarUrl }

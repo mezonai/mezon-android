@@ -35,6 +35,7 @@ class InputSuggestionCell(
 
     private var item: InputSuggestionItem? = null
     private var needsDivider = true
+    private var stacked = false
 
     private val avatarDrawable = AvatarDrawable()
     private var leadingDrawable: Drawable? = null
@@ -63,6 +64,7 @@ class InputSuggestionCell(
 
     fun bind(newItem: InputSuggestionItem) {
         item = newItem
+        stacked = newItem is InputSuggestionItem.SlashCommand
         when (newItem) {
             is InputSuggestionItem.Here -> configureHere()
             is InputSuggestionItem.Loading -> configureLoading()
@@ -70,6 +72,7 @@ class InputSuggestionCell(
             is InputSuggestionItem.Role -> configureRole(newItem.role)
             is InputSuggestionItem.Channel -> configureChannel(newItem.entity)
             is InputSuggestionItem.Emoji -> configureEmoji(newItem.item)
+            is InputSuggestionItem.SlashCommand -> configureSlashCommand()
         }
         requestLayout()
         invalidate()
@@ -100,7 +103,7 @@ class InputSuggestionCell(
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val w = MeasureSpec.getSize(widthMeasureSpec)
         buildLayouts(w)
-        setMeasuredDimension(w, ROW_HEIGHT)
+        setMeasuredDimension(w, rowHeight())
     }
 
     override fun onDetachedFromWindow() {
@@ -110,27 +113,31 @@ class InputSuggestionCell(
 
     override fun onDraw(canvas: Canvas) {
         val w = width
-        val h = ROW_HEIGHT
+        val h = rowHeight()
 
         drawLeading(canvas, h)
 
         val textLeft = textStartX().toFloat()
-        nameLayout?.let { layout ->
-            val nameTop = (h - layout.height) / 2f
-            canvas.save()
-            canvas.translate(textLeft, nameTop)
-            layout.draw(canvas)
-            canvas.restore()
-        }
+        if (stacked) {
+            drawStackedText(canvas, textLeft)
+        } else {
+            nameLayout?.let { layout ->
+                val nameTop = (h - layout.height) / 2f
+                canvas.save()
+                canvas.translate(textLeft, nameTop)
+                layout.draw(canvas)
+                canvas.restore()
+            }
 
-        subLayout?.let { layout ->
-            val subW = layout.getLineWidth(0).toInt()
-            val subLeft = (w - PAD_H - subW).toFloat()
-            val subTop = (h - layout.height) / 2f
-            canvas.save()
-            canvas.translate(subLeft, subTop)
-            layout.draw(canvas)
-            canvas.restore()
+            subLayout?.let { layout ->
+                val subW = layout.getLineWidth(0).toInt()
+                val subLeft = (w - PAD_H - subW).toFloat()
+                val subTop = (h - layout.height) / 2f
+                canvas.save()
+                canvas.translate(subLeft, subTop)
+                layout.draw(canvas)
+                canvas.restore()
+            }
         }
 
         if (needsDivider) {
@@ -199,6 +206,23 @@ class InputSuggestionCell(
         val leftPad = textStartX()
         val rightPad = PAD_H
 
+        if (stacked) {
+            val stackedMax = (width - leftPad - rightPad).coerceAtLeast(0)
+            nameLayout = if (stackedMax > 0 && nameText.isNotEmpty()) {
+                StaticLayout.Builder.obtain(nameText, 0, nameText.length, textPaint, stackedMax)
+                    .setMaxLines(1)
+                    .setEllipsize(TextUtils.TruncateAt.END)
+                    .build()
+            } else null
+            subLayout = if (stackedMax > 0 && subText.isNotEmpty()) {
+                StaticLayout.Builder.obtain(subText, 0, subText.length, subPaint, stackedMax)
+                    .setMaxLines(1)
+                    .setEllipsize(TextUtils.TruncateAt.END)
+                    .build()
+            } else null
+            return
+        }
+
         val subMax = if (subText.isEmpty()) 0 else minOf(LayoutHelper.dp(160f), width / 2)
         val subMeasured = if (subText.isEmpty()) 0 else subPaint.measureText(subText).toInt()
         val subW = minOf(subMeasured, subMax)
@@ -226,6 +250,7 @@ class InputSuggestionCell(
         is InputSuggestionItem.Role -> it.role.title
         is InputSuggestionItem.Channel -> it.entity.channelLabel
         is InputSuggestionItem.Emoji -> ":${it.item.shortname.replace(":", "")}:"
+        is InputSuggestionItem.SlashCommand -> "/${it.command.name}"
     }
 
     private fun subTextFor(it: InputSuggestionItem): String = when (it) {
@@ -236,6 +261,7 @@ class InputSuggestionCell(
         is InputSuggestionItem.Role -> ""
         is InputSuggestionItem.Channel -> it.subText.uppercase()
         is InputSuggestionItem.Emoji -> ""
+        is InputSuggestionItem.SlashCommand -> it.command.actionMsg.lineSequence().joinToString(" ").trim()
     }
 
     private fun configureHere() {
@@ -246,6 +272,34 @@ class InputSuggestionCell(
         namePaint.color = theme.onSurface
         subPaint.color = theme.textDisabled
     }
+
+    private fun configureSlashCommand() {
+        cancelImage()
+        leadingMode = LEADING_NONE
+        leadingDrawable = null
+        showLeadingSlot = false
+        namePaint.color = theme.onSurface
+        subPaint.color = theme.textDisabled
+    }
+
+    private fun drawStackedText(canvas: Canvas, textLeft: Float) {
+        var top = PAD_V.toFloat()
+        nameLayout?.let { layout ->
+            canvas.save()
+            canvas.translate(textLeft, top)
+            layout.draw(canvas)
+            canvas.restore()
+            top += layout.height + STACK_GAP
+        }
+        subLayout?.let { layout ->
+            canvas.save()
+            canvas.translate(textLeft, top)
+            layout.draw(canvas)
+            canvas.restore()
+        }
+    }
+
+    private fun rowHeight(): Int = if (stacked) STACKED_ROW_HEIGHT else ROW_HEIGHT
 
     private fun configureLoading() {
         cancelImage()
@@ -407,6 +461,9 @@ class InputSuggestionCell(
         private const val LEADING_BITMAP = 3
 
         private val ROW_HEIGHT = LayoutHelper.dp(50f)
+        private val STACKED_ROW_HEIGHT = LayoutHelper.dp(60f)
+        private val PAD_V = LayoutHelper.dp(10f)
+        private val STACK_GAP = LayoutHelper.dp(4f)
         private val SLOT = LayoutHelper.dp(30f)
         private val PAD_H = LayoutHelper.dp(12f)
         private val TEXT_GAP = LayoutHelper.dp(10f)

@@ -38,6 +38,7 @@ class ChannelPickerSheet(
     channels: List<ClanChannelEntity>,
     private val title: CharSequence,
     private val selectedChannelId: Long = 0L,
+    private val emptyText: CharSequence = context.getString(R.string.webhook_pick_channel_no_match),
     private val onChannelPicked: (ClanChannelEntity) -> Unit,
 ) : BottomSheet(context, needFocusable = true) {
 
@@ -75,7 +76,7 @@ class ChannelPickerSheet(
         val emptyView = TextView(context).apply {
             visibility = View.GONE
             gravity = Gravity.CENTER
-            text = context.getString(R.string.webhook_pick_channel_no_match)
+            text = emptyText
             textSize = 14f
             setTextColor(CreateClanRnUiTokens.textDisabled(themeColors))
             setPadding(LayoutHelper.dp(24), LayoutHelper.dp(12), LayoutHelper.dp(24), LayoutHelper.dp(12))
@@ -206,7 +207,14 @@ class ChannelPickerSheet(
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
             val ctx = parent.context
-            val row = LinearLayout(ctx).apply {
+            val row = object : LinearLayout(ctx) {
+                override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                    super.onMeasure(
+                        MeasureSpec.makeMeasureSpec(MeasureSpec.getSize(widthMeasureSpec), MeasureSpec.EXACTLY),
+                        heightMeasureSpec,
+                    )
+                }
+            }.apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
                 minimumHeight = LayoutHelper.dp(52)
@@ -230,7 +238,7 @@ class ChannelPickerSheet(
                 textSize = 15f
                 typeface = Typeface.DEFAULT
                 setTextColor(themeColors.onSurface)
-                maxLines = 2
+                maxLines = 1
                 ellipsize = TextUtils.TruncateAt.END
             }
             row.addView(label, LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f))

@@ -23,6 +23,7 @@ import androidx.core.widget.NestedScrollView
 import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AndroidUtilities
+import com.mezon.mobile.core.AlertsCreator
 import com.mezon.mobile.core.BottomSheet
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
@@ -93,6 +94,7 @@ class ClanEventBottomSheet(
     private var eventScrollView: NestedScrollView
     private var swipeDismissFromHeader = false
     private var hiddenForNavigation = false
+    private var endingEvent = false
 
     init {
         containerHeight = (AndroidUtilities.displaySize.y * 0.8f).toInt()
@@ -179,6 +181,9 @@ class ClanEventBottomSheet(
                         val interested = !event.isInterested(userId)
                         clanEventController.setInterested(clanId, event.id, interested) { _, _ -> }
                     },
+                    onEndEvent = if (clanEventController.canEndEvent(event)) {
+                        { confirmEndEvent(event) }
+                    } else null,
                     onEdit = if (clanEventController.canModifyEvent(event)) {
                         {
                             val latest = clanEventController.getEvent(clanId, event.id)
@@ -202,6 +207,28 @@ class ClanEventBottomSheet(
                 ),
             )
         }
+    }
+
+    private fun confirmEndEvent(event: ClanEventEntity) {
+        val latest = clanEventController.getEvent(clanId, event.id) ?: return
+        if (endingEvent || !clanEventController.canEndEvent(latest)) return
+        AlertsCreator.createConfirmDialog(
+            context = context,
+            title = context.getString(R.string.clan_event_delete_confirm_title),
+            message = context.getString(R.string.clan_event_delete_confirm_message),
+            confirmText = context.getString(R.string.clan_event_menu_cancel),
+            cancelText = context.getString(R.string.common_cancel),
+            destructive = true,
+            onConfirm = {
+                endingEvent = true
+                clanEventController.deleteEvent(clanId, latest.id, latest.creatorId, latest.title, latest.channelId) { success, error ->
+                    endingEvent = false
+                    val message = if (success) context.getString(R.string.clan_event_delete_success)
+                        else error ?: context.getString(R.string.clan_event_delete_failed)
+                    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                }
+            },
+        ).show()
     }
 
     fun hideForNavigation() {
@@ -649,6 +676,7 @@ class ClanEventBottomSheet(
         onOpen: () -> Unit,
         onOpenChannel: (ClanChannelEntity) -> Unit,
         onToggleInterest: () -> Unit,
+        onEndEvent: (() -> Unit)?,
         onEdit: (() -> Unit)?,
         onInviteExternalEvent: (String) -> Unit,
         onLogoLoadToken: (MezonImageLoader.Cancellable) -> Unit,
@@ -896,16 +924,24 @@ class ClanEventBottomSheet(
                 },
             )
         }
-        actions.addView(
-            buildEventActionChip(
-                context,
-                theme,
-                if (interested) MezonIcon.eventBellSlashIcon else MezonIcon.eventBellIcon,
-                if (interested) context.getString(R.string.clan_event_uninterested) else context.getString(R.string.clan_event_interested),
-                onToggleInterest,
-            ),
-            LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f),
-        )
+        if (status != ClanEventStatus.ONGOING) {
+            actions.addView(
+                buildEventActionChip(
+                    context,
+                    theme,
+                    if (interested) MezonIcon.eventBellSlashIcon else MezonIcon.eventBellIcon,
+                    if (interested) context.getString(R.string.clan_event_uninterested) else context.getString(R.string.clan_event_interested),
+                    onToggleInterest,
+                ),
+                LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f),
+            )
+        } else if (onEndEvent != null) {
+            actions.addView(
+                buildEventActionChip(context, theme, MezonIcon.closeIcon, context.getString(R.string.clan_event_end), onEndEvent),
+                LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f),
+            )
+        }
+        actions.visibility = if (actions.childCount == 0) View.GONE else View.VISIBLE
         content.addView(
             actions,
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 12f, 0f, 8f),
