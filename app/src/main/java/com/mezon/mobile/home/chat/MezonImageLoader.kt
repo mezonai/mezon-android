@@ -10,6 +10,7 @@ import android.graphics.drawable.Drawable
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.util.Base64
 import android.util.LruCache
 import okhttp3.Call
 import okhttp3.Callback
@@ -231,8 +232,13 @@ class MezonImageLoader private constructor(context: Context) {
         onError: ((Exception) -> Unit)?,
         cacheAnimated: Boolean = false
     ): Cancellable {
-        if (url.isEmpty() || !isValidHttpUrl(url)) {
+        val isDataImage = isBase64ImageDataUri(url)
+        if (url.isEmpty() || (!isDataImage && !isValidHttpUrl(url))) {
             onError?.invoke(IllegalArgumentException("Invalid URL: $url"))
+            return Cancellable.EMPTY
+        }
+        if (isDataImage && url.length > MAX_DATA_IMAGE_URI_CHARS) {
+            onError?.invoke(IllegalArgumentException("Data image exceeds the allowed size"))
             return Cancellable.EMPTY
         }
 
@@ -261,6 +267,22 @@ class MezonImageLoader private constructor(context: Context) {
         val cb = LoadCallback(onSuccess, onError)
 
         if (addCallback(memKey, cb)) {
+            return Cancellable {
+                cb.cancel()
+                removePendingCallback(logicalUrl, memKey, cb)
+            }
+        }
+
+        if (isDataImage) {
+            decodeBase64ImageDataUriInBackground(
+                dataUri = url,
+                cacheKey = memKey,
+                reqWidth = reqWidth,
+                reqHeight = reqHeight,
+                animated = animated,
+                cacheEntry = cacheAnimated,
+                ephemeral = noCache,
+            )
             return Cancellable {
                 cb.cancel()
                 removePendingCallback(logicalUrl, memKey, cb)
@@ -430,6 +452,79 @@ class MezonImageLoader private constructor(context: Context) {
         runOnMain {
             for (cb in copy) {
                 if (!cb.isCancelled()) cb.onError?.invoke(error)
+            }
+        }
+    }
+
+    private fun decodeBase64ImageDataUriInBackground(
+        dataUri: String,
+        cacheKey: String,
+        reqWidth: Int,
+        reqHeight: Int,
+        animated: Boolean,
+        cacheEntry: Boolean,
+        ephemeral: Boolean,
+    ) {
+        DECODE_EXECUTOR.execute {
+            try {
+                val separator = dataUri.indexOf(',')
+                if (separator <= 0) throw IOException("Malformed data image URI")
+
+                val metadata = dataUri.substring(0, separator).lowercase(Locale.US)
+                if (!metadata.startsWith("data:image/") || !metadata.endsWith(";base64")) {
+                    throw IOException("Unsupported data image URI")
+                }
+
+                val encoded = dataUri.substring(separator + 1)
+                if (encoded.isEmpty() || encoded.length > MAX_DATA_IMAGE_BASE64_CHARS) {
+                    throw IOException("Data image exceeds the allowed size")
+                }
+
+                val bytes = try {
+                    Base64.decode(encoded, Base64.DEFAULT)
+                } catch (e: IllegalArgumentException) {
+                    throw IOException("Invalid Base64 image data", e)
+                }
+                if (bytes.isEmpty() || bytes.size > MAX_DATA_IMAGE_BYTES) {
+                    throw IOException("Data image exceeds the allowed size")
+                }
+
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+                if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+                    throw IOException("Unsupported data image content")
+                }
+
+                val intrinsicMode = reqWidth <= 0 && reqHeight <= 0
+                val options = BitmapFactory.Options().apply {
+                    inSampleSize = if (intrinsicMode) {
+                        calculateInSampleSizeToMaxEdge(bounds, animatedMaxEdge)
+                    } else {
+                        calculateInSampleSize(bounds, reqWidth, reqHeight)
+                    }
+                    val isSmallThumb = reqWidth <= SMALL_IMAGE_THRESHOLD && reqHeight <= SMALL_IMAGE_THRESHOLD
+                    inPreferredConfig = if (isSmallThumb) Bitmap.Config.RGB_565 else Bitmap.Config.ARGB_8888
+                }
+                var bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+                    ?: throw IOException("Data image decode failed")
+                bitmap = if (intrinsicMode) {
+                    clampBitmapToMaxEdge(bitmap, animatedMaxEdge)
+                } else {
+                    clampBitmap(bitmap, reqWidth, reqHeight)
+                }
+
+                if (animated) {
+                    val drawable = android.graphics.drawable.BitmapDrawable(appContext.resources, bitmap)
+                    if (cacheEntry && !ephemeral) animatedCache.put(cacheKey, drawable)
+                    dispatchSuccess(cacheKey, drawable)
+                } else {
+                    if (!ephemeral) putToMemory(cacheKey, bitmap, reqWidth, reqHeight)
+                    dispatchSuccess(cacheKey, bitmap)
+                }
+            } catch (e: OutOfMemoryError) {
+                dispatchError(cacheKey, IOException("Data image is too large to decode", e))
+            } catch (e: Exception) {
+                dispatchError(cacheKey, e)
             }
         }
     }
@@ -766,6 +861,9 @@ class MezonImageLoader private constructor(context: Context) {
         private const val MAX_DECODE_QUEUE = 64
         private const val ANIMATED_CACHE_MAX_KB = 48 * 1024
         private const val MAX_LOCAL_COPY_BYTES = 64L * 1024 * 1024
+        private const val MAX_DATA_IMAGE_BYTES = 4 * 1024 * 1024
+        private const val MAX_DATA_IMAGE_BASE64_CHARS = (MAX_DATA_IMAGE_BYTES * 4 / 3) + 4
+        private const val MAX_DATA_IMAGE_URI_CHARS = MAX_DATA_IMAGE_BASE64_CHARS + 256
         private const val STREAM_COPY_CHUNK_BYTES = 64 * 1024
         private const val LARGE_FILE_TRIM_PRIORITY_BYTES = 384_000
         private const val TRIM_DEBOUNCE_MS = 60_000L
@@ -813,6 +911,10 @@ class MezonImageLoader private constructor(context: Context) {
 
         private fun isValidHttpUrl(url: String): Boolean {
             return url.startsWith("http://") || url.startsWith("https://")
+        }
+
+        private fun isBase64ImageDataUri(url: String): Boolean {
+            return url.startsWith("data:image/", ignoreCase = true)
         }
 
         private fun applyExifRotation(file: File, bmp: Bitmap, mimeType: String = ""): Bitmap {
