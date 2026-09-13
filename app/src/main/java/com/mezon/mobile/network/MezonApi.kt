@@ -216,7 +216,6 @@ import kotlinx.coroutines.CompletableDeferred
 import java.io.IOException
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -368,7 +367,6 @@ class MezonApi @Inject constructor(
         private const val DISCOVER_ITEMS_PER_PAGE = 6
         private const val SOCKET_WAIT_MS = 5_000L
         private const val SOCKET_DEGRADED_COOLDOWN_MS = 12_000L
-        private const val MAX_CONSECUTIVE_SOCKET_TIMEOUTS = 3
         private const val READ_SINGLE_FLIGHT_MAX_AGE_MS = 3_000L
         private val HTTP_RETRY_DELAYS_MS = longArrayOf(300L, 900L)
         private val HTTP_ONLY_API_NAMES = setOf(
@@ -419,7 +417,6 @@ class MezonApi @Inject constructor(
     private val linkInvitePreviewCache = android.util.LruCache<Long, LinkInvitePreview>(256)
     private val inFlightReadRpcs = ConcurrentHashMap<String, InFlightReadRpc>()
 
-    private val consecutiveSocketTimeouts = AtomicInteger(0)
     private val socketDegradedUntilMs = AtomicLong(0L)
 
     private fun isSocketDegraded(): Boolean {
@@ -610,11 +607,11 @@ class MezonApi @Inject constructor(
             if (!e.retryOverHttp) throw e
             Log.w("MezonApi", "SOCKET unavailable method=$method, falling back to HTTP: ${e.message}")
             sentryReporter.logRpcWarning(method, "socket", "fallback to HTTP: ${e.message}")
-            rpcOverHttpWithRetry(apiUrl, token, method, body, retryable = false)
+            rpcOverHttpWithRetry(apiUrl, token, method, body, retryable = retryableRead)
         } catch (e: IllegalArgumentException) {
             Log.w("MezonApi", "SOCKET rejected method=$method, falling back to HTTP: ${e.message}")
             sentryReporter.logRpcWarning(method, "socket", "fallback to HTTP: ${e.message}")
-            rpcOverHttpWithRetry(apiUrl, token, method, body, retryable = false)
+            rpcOverHttpWithRetry(apiUrl, token, method, body, retryable = retryableRead)
         }
     }
 
@@ -651,6 +648,7 @@ class MezonApi @Inject constructor(
     private suspend fun rpcOverSocket(method: String, body: ByteArray, token: String): ByteArray {
         val socket = mezonSocketLazy.get()
         if (!socket.awaitConnected(SOCKET_WAIT_MS)) {
+            markSocketDegraded()
             throw SocketRpcTransportException(
                 "WebSocket unavailable for '$method'",
                 retryOverHttp = true
@@ -674,7 +672,6 @@ class MezonApi @Inject constructor(
                     "SOCKET ok method=$method respBytes=${resp.size} elapsedMs=${System.currentTimeMillis() - started}"
                 )
             }
-            consecutiveSocketTimeouts.set(0)
             markSocketHealthy()
             return resp
         } catch (e: Exception) {
@@ -686,23 +683,15 @@ class MezonApi @Inject constructor(
                 sentryReporter.logRpcFailure(method, "socket", e)
             }
             if (e is UnauthorizedException) {
-                consecutiveSocketTimeouts.set(0)
                 socket.forceReconnectForAuthFailure("Socket RPC unauthorized for '$method'")
                 throw e
             }
             if (e is SocketRpcServerException || e is IllegalArgumentException) {
-                consecutiveSocketTimeouts.set(0)
                 throw e
             }
             if (isSocketTransportFailure(e)) {
                 markSocketDegraded()
-                val streak = consecutiveSocketTimeouts.incrementAndGet()
-                if (streak >= MAX_CONSECUTIVE_SOCKET_TIMEOUTS) {
-                    consecutiveSocketTimeouts.set(0)
-                    socket.forceReconnect(
-                        "consecutive socket RPC transport failures=$streak (last method='$method')"
-                    )
-                }
+                socket.probeLiveness("rpc transport failure method=$method")
                 throw SocketRpcTransportException(
                     "WebSocket transport failed for '$method': ${e.message}",
                     retryOverHttp = true,
@@ -788,6 +777,7 @@ class MezonApi @Inject constructor(
 
     private fun isSocketTransportFailure(e: Throwable): Boolean {
         if (e is SocketRpcTransportException) return true
+        if (hasCause<SocketConnectionLostException>(e)) return true
         if (e is SocketRpcServerException || e is UnauthorizedException || e is IllegalArgumentException) return false
         val message = e.message.orEmpty()
         if (message.startsWith("Server error")) return false

@@ -37,7 +37,6 @@ import android.widget.HorizontalScrollView
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.PopupWindow
 import android.widget.Toast
@@ -212,6 +211,8 @@ open class ChatFragment : BaseFragment() {
         private const val GIVE_COFFEE_EMOJI_ID = 7280417126303261185L
         private const val GIVE_COFFEE_EMOJI = ":coffee:"
         private const val LOADING_INDICATOR_DELAY_MS = 300L
+        private const val LOAD_WATCHDOG_MS = 30_000L
+        private const val LIST_REVEAL_FALLBACK_MS = 2_000L
         private val ANONYMOUS_USER_ID = BuildConfig.MEZON_ANONYMOUS_USER_ID.toLongOrNull() ?: 0L
         private const val REQUEST_CALL_PERMISSIONS = 9002
         private const val MENU_DM_VOICE_CALL = 8801
@@ -270,8 +271,9 @@ open class ChatFragment : BaseFragment() {
     private lateinit var friendController: FriendController
 
     private lateinit var recyclerView: RecyclerListView
-    private lateinit var loadingView: ProgressBar
+    private lateinit var loadingView: ChatSkeletonView
     private lateinit var errorView: TextView
+    private lateinit var emptyView: TextView
     private lateinit var inputField: EditText
     private lateinit var sendButton: ImageButton
     private lateinit var micButton: ImageButton
@@ -351,7 +353,6 @@ open class ChatFragment : BaseFragment() {
     private var routeChannelAgeRestricted = false
     private var routeParentId = 0L
     private var forceLatest = false
-    private var openedFromNotification = false
     private var startLoadFromMessageId = 0L
     private var startLoadFromMessageOffset = Int.MAX_VALUE
     private var pausedOnLastMessage = false
@@ -359,6 +360,7 @@ open class ChatFragment : BaseFragment() {
     private var needScrollRestore = false
     private var isLoading = false
     private var isLoadingMore = false
+    private var initialLoadFailed = false
     private var hasMoreTop = false
     private var hasMoreBottom = false
     private var isViewingOlder = false
@@ -464,6 +466,21 @@ open class ChatFragment : BaseFragment() {
             loadingView.visibility = View.VISIBLE
         }
     }
+    private val loadWatchdogRunnable = Runnable {
+        if (!isLoading || messages.isNotEmpty() || fragmentView == null) return@Runnable
+        Log.w(TAG, "initial load watchdog fired channel=$channelId topic=$topicId")
+        isLoading = false
+        initialLoadFailed = true
+        showLoadError()
+    }
+    private val revealListRunnable = Runnable {
+        if (fragmentView == null || messages.isEmpty()) return@Runnable
+        if (recyclerView.visibility != View.VISIBLE) {
+            Log.w(TAG, "list reveal fallback fired channel=$channelId topic=$topicId")
+            needScrollRestore = false
+            recyclerView.visibility = View.VISIBLE
+        }
+    }
     private var pendingSeenMessageId = 0L
     private var pendingSeenTimestamp = 0
     private var pendingBadgeCount = 0
@@ -498,7 +515,6 @@ open class ChatFragment : BaseFragment() {
         routeChannelAgeRestricted = arguments?.getBoolean(ARG_CHANNEL_AGE_RESTRICTED) ?: false
         routeParentId = arguments?.getLong(ARG_PARENT_ID) ?: 0L
         forceLatest = arguments?.getBoolean(ARG_FORCE_LATEST) ?: false
-        openedFromNotification = arguments?.getBoolean(ARG_OPENED_FROM_NOTIFICATION) ?: false
         if (clanId != 0L) {
             val cachedEntity = channelController.findChannelById(channelId, clanId)
                 ?: channelController.findChannelById(channelId)
@@ -689,6 +705,7 @@ open class ChatFragment : BaseFragment() {
             }
 
             isLoading = false
+            initialLoadFailed = false
 
             if (jumpingToPresent && isCache) {
                 Log.d(TAG, "jumpToPresent: skip cache response (waiting for API), loaded=${loadedMessages.size}")
@@ -897,6 +914,12 @@ open class ChatFragment : BaseFragment() {
                             recyclerView.post { scrollToAndHighlight(hIdx) }
                         } else if (!isCache) {
                             scrollToReplyMessage(highlightId)
+                        } else {
+                            pendingHighlightMessageId = highlightId
+                            if (needScrollRestore) {
+                                needScrollRestore = false
+                                recyclerView.visibility = View.VISIBLE
+                            }
                         }
                     } else if (forceLatest && wasFirstLoad) {
                         forceScrollToBottom()
@@ -1216,11 +1239,24 @@ open class ChatFragment : BaseFragment() {
 
         observe(NotificationCenter.messagesLoadError) { _, _, args ->
             if (args.isNotEmpty() && args[0] == messageListKey) {
-                isLoading = false
                 isLoadingMore = false
-                if (fragmentView != null && messages.isEmpty()) {
-                    showEmpty()
+                if (messages.isEmpty() && startLoadFromMessageId != 0L) {
+                    Log.w(TAG, "anchored initial load failed, falling back to latest channel=$channelId")
+                    startLoadFromMessageId = 0L
+                    pendingHighlightMessageId = 0L
+                    needScrollRestore = false
+                    isLoading = true
+                    if (fragmentView != null) showLoading()
+                    loadInitialMessages()
+                    return@observe
+                }
+                isLoading = false
+                if (messages.isEmpty()) {
+                    initialLoadFailed = true
+                    if (fragmentView != null) showLoadError()
                 } else if (fragmentView != null) {
+                    pendingHighlightMessageId = 0L
+                    needScrollRestore = false
                     refreshUI()
                 }
             }
@@ -1368,7 +1404,7 @@ open class ChatFragment : BaseFragment() {
             if (isPaused) return@observe
             Log.d(TAG, "appDidReconnect: reloading messages for channel $channelId")
             rejoinChannelOnSocket()
-            chatController.loadMessages(channelId, clanId, forceRefresh = true, refreshWhenBackOnline = false, topicId = topicId)
+            chatController.loadMessages(channelId, clanId, forceRefresh = true, refreshWhenBackOnline = true, topicId = topicId)
         }
 
         observe(NotificationCenter.scrollToBottomChat) { _, _, args ->
@@ -1466,15 +1502,7 @@ open class ChatFragment : BaseFragment() {
         notificationCenter.addPostponeNotificationsCallback(postponeNewMessagesCallback)
 
         isLoading = true
-        if (openedFromNotification) {
-            fragmentScope.launch(ioDispatcher) {
-                if (sessionManager.ensureFreshSession() != null) {
-                    loadInitialMessages()
-                }
-            }
-        } else {
-            loadInitialMessages()
-        }
+        loadInitialMessages()
         return true
     }
 
@@ -1493,7 +1521,7 @@ open class ChatFragment : BaseFragment() {
                 channelId,
                 clanId,
                 forceRefresh = true,
-                refreshWhenBackOnline = openedFromNotification,
+                refreshWhenBackOnline = true,
                 topicId = topicId
             )
         }
@@ -1634,16 +1662,26 @@ open class ChatFragment : BaseFragment() {
         recyclerView.addItemDecoration(unreadDecoration)
         contentFrame.addView(recyclerView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
-        loadingView = ProgressBar(context).apply { visibility = View.GONE }
-        contentFrame.addView(loadingView, LayoutHelper.createFrame(48, 48, Gravity.CENTER))
+        loadingView = ChatSkeletonView(context, themeColors).apply { visibility = View.GONE }
+        contentFrame.addView(loadingView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
         errorView = TextView(context).apply {
             setTextColor(themeColors.error)
             textSize = 14f
             gravity = Gravity.CENTER
             visibility = View.GONE
+            setOnClickListener { retryInitialLoad() }
         }
         contentFrame.addView(errorView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
+
+        emptyView = TextView(context).apply {
+            setTextColor(themeColors.onSurfaceVariant)
+            textSize = 14f
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+            text = getString(R.string.dm_no_messages)
+        }
+        contentFrame.addView(emptyView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
         pageDownButton = PageDownButton(context, themeColors).apply {
             setOnClickListener { onPageDownClicked() }
@@ -2673,8 +2711,9 @@ open class ChatFragment : BaseFragment() {
             }
         } else if (!isLoading) {
             isLoading = true
+            initialLoadFailed = false
             showLoading()
-            chatController.loadMessages(channelId, clanId, forceRefresh = true, refreshWhenBackOnline = openedFromNotification, topicId = topicId)
+            chatController.loadMessages(channelId, clanId, forceRefresh = true, refreshWhenBackOnline = true, topicId = topicId)
         }
         mainHandler.post { refreshPollSnapshotsForStoredVotes() }
         startVisiblePollTallyRefreshLoop()
@@ -3298,11 +3337,15 @@ open class ChatFragment : BaseFragment() {
     private fun refreshUI() {
         if (messages.isNotEmpty()) showMessages()
         else if (isLoading) showLoading()
+        else if (initialLoadFailed) showLoadError()
         else showEmpty()
     }
 
     private fun showLoading() {
         errorView.visibility = View.GONE
+        emptyView.visibility = View.GONE
+        mainHandler.removeCallbacks(loadWatchdogRunnable)
+        mainHandler.postDelayed(loadWatchdogRunnable, LOAD_WATCHDOG_MS)
         if (!showLoadingPending) {
             showLoadingPending = true
             mainHandler.postDelayed(showLoadingRunnable, LOADING_INDICATOR_DELAY_MS)
@@ -3313,8 +3356,10 @@ open class ChatFragment : BaseFragment() {
         cancelPendingLoading()
         loadingView.visibility = View.GONE
         errorView.visibility = View.GONE
+        emptyView.visibility = View.GONE
         val vis = if (needScrollRestore) View.INVISIBLE else View.VISIBLE
         recyclerView.visibility = vis
+        if (needScrollRestore) mainHandler.postDelayed(revealListRunnable, LIST_REVEAL_FALLBACK_MS)
         adapter.showLoadingUp = hasMoreTop
         adapter.showLoadingDown = hasMoreBottom
         adapter.notifyMessagesUpdated()
@@ -3326,11 +3371,31 @@ open class ChatFragment : BaseFragment() {
         loadingView.visibility = View.GONE
         recyclerView.visibility = View.VISIBLE
         errorView.visibility = View.GONE
+        emptyView.visibility = if (messages.isEmpty()) View.VISIBLE else View.GONE
         adapter.notifyMessagesUpdated()
+    }
+
+    private fun showLoadError() {
+        cancelPendingLoading()
+        loadingView.visibility = View.GONE
+        emptyView.visibility = View.GONE
+        recyclerView.visibility = View.INVISIBLE
+        errorView.text = getString(R.string.common_failed_to_load) + "\n" + getString(R.string.common_retry)
+        errorView.visibility = View.VISIBLE
+    }
+
+    private fun retryInitialLoad() {
+        if (isLoading) return
+        isLoading = true
+        initialLoadFailed = false
+        showLoading()
+        loadInitialMessages()
     }
 
     private fun cancelPendingLoading() {
         mainHandler.removeCallbacks(showLoadingRunnable)
+        mainHandler.removeCallbacks(loadWatchdogRunnable)
+        mainHandler.removeCallbacks(revealListRunnable)
         showLoadingPending = false
     }
 
@@ -3430,7 +3495,7 @@ open class ChatFragment : BaseFragment() {
             jumpingToPresent = true
             firstLoad = true
             Log.d(TAG, "jumpToPresent: keeping current list until reload completes, loadMessages forceRefresh=true")
-            chatController.loadMessages(channelId, clanId, forceRefresh = true, refreshWhenBackOnline = false, topicId = topicId)
+            chatController.loadMessages(channelId, clanId, forceRefresh = true, refreshWhenBackOnline = true, topicId = topicId)
         }
     }
 
@@ -7613,7 +7678,7 @@ open class ChatFragment : BaseFragment() {
                 clanId,
                 messageId,
                 requireExactAnchor = true,
-                refreshWhenBackOnline = openedFromNotification,
+                refreshWhenBackOnline = true,
                 topicId = topicId
             )
         }
