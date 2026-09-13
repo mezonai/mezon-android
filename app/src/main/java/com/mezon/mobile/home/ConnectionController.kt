@@ -96,6 +96,7 @@ class ConnectionController @Inject constructor(
             val stateBefore = mezonSocket.connectionState.value
             mezonSocket.reconnectNow("app foreground")
             if (stateBefore == ConnectionState.CONNECTED) {
+                mezonSocket.probeLiveness("app foreground")
                 dialogsController.refreshDmBadgesOnForegroundThrottled()
             }
         }

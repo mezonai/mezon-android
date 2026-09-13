@@ -960,7 +960,7 @@ class ClansFragment : BaseFragment() {
         if (clanChanged) {
             renderedSubtitleKey = null
             memberCountText.animate().cancel()
-            if (userClanController.hasClanMembersCache(clan.clanId)) {
+            if (userClanController.hasClanMemberCount(clan.clanId)) {
                 memberCountText.alpha = 1f
                 memberCountText.visibility = View.VISIBLE
             } else {
@@ -973,8 +973,7 @@ class ClansFragment : BaseFragment() {
 
     private fun updateMemberCount() {
         val clanId = clansController.selectedClanId.value
-        val hasCache = userClanController.hasClanMembersCache(clanId)
-        if (!hasCache) {
+        if (!userClanController.hasClanMemberCount(clanId)) {
             memberCountText.visibility = View.INVISIBLE
             return
         }
@@ -1158,7 +1157,6 @@ class ClansFragment : BaseFragment() {
         roleController.loadPermissionCatalogIfNeeded()
         roleController.loadUserMaxPermissionForClan(clanId)
         roleController.loadRolesForClanThen(clanId, force = true, Runnable {
-            val members = userClanController.getClanMembers(clanId)
             val permissionState = permissionPolicy.clanSettingsPermissionState(clanId)
             val showEmptyCategories = showEmptyCategoryStore.isEnabled(clanId)
             dismissClanMenuSheet()
@@ -1169,7 +1167,7 @@ class ClansFragment : BaseFragment() {
                 clan.clanName,
                 clan.logo.ifBlank { null },
                 clan.isCommunity,
-                members.size,
+                userClanController.getClanMemberCount(clanId),
                 permissionState,
                 showEmptyCategories,
                 { enabled ->

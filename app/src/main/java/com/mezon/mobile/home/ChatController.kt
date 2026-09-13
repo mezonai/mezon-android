@@ -591,7 +591,7 @@ class ChatController @Inject constructor(
                         )
                     } else {
                         notificationCenter.postNotificationOnMainThread(
-                            NotificationCenter.messagesDidLoad, cacheKey, ArrayList<MessageEntity>(), false, false, true
+                            NotificationCenter.messagesLoadError, cacheKey, "Offline"
                         )
                     }
                     if (refreshWhenBackOnline) {
@@ -761,6 +761,9 @@ class ChatController @Inject constructor(
                         }
                     } else if (fromDb.isEmpty()) {
                         Log.d(TAG, "Offline — no cached messages for channel $cacheKey (around)")
+                        notificationCenter.postNotificationOnMainThread(
+                            NotificationCenter.messagesLoadError, cacheKey, "Offline"
+                        )
                     }
                     if (refreshWhenBackOnline) {
                         scheduleMessageRefreshWhenOnline(onlineRefresh)
@@ -805,6 +808,11 @@ class ChatController @Inject constructor(
                         val serverLastSeenId = if (response.hasLastSeenMessage()) response.lastSeenMessage.id else 0L
                         notificationCenter.postNotificationOnMainThread(
                             NotificationCenter.messagesDidLoad, cacheKey, ArrayList(msgs), hasMoreTop, true, false, serverLastSeenId
+                        )
+                    } else {
+                        Log.w(TAG, "loadMessagesAround: anchor=$anchorMessageId returned no messages for channel $cacheKey")
+                        notificationCenter.postNotificationOnMainThread(
+                            NotificationCenter.messagesLoadError, cacheKey, "Anchor not found"
                         )
                     }
                     cacheTracker.markCalled(cacheTrackerKey)

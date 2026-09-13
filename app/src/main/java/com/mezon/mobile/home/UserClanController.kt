@@ -8,6 +8,7 @@ import com.mezon.mezon.api.User
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
+import com.mezon.mobile.home.clans.ClanMemberCountStore
 import com.mezon.mobile.network.ApiCacheTracker
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.network.SocketEventDispatcher
@@ -51,6 +52,7 @@ class UserClanController @Inject constructor(
     private val notificationCenter: NotificationCenter,
     private val cacheTracker: ApiCacheTracker,
     private val socketEventDispatcher: SocketEventDispatcher,
+    private val clanMemberCountStore: ClanMemberCountStore,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     @ApplicationScope private val appScope: CoroutineScope
 ) {
@@ -149,11 +151,21 @@ class UserClanController @Inject constructor(
     }
 
     fun getClanMemberCount(clanId: Long): Int {
-        synchronized(this) { return membersByClan[clanId]?.size ?: 0 }
+        val loadedCount = synchronized(this) { membersByClan[clanId]?.size }
+        return loadedCount ?: clanMemberCountStore.get(clanId)
     }
 
     fun hasClanMembersCache(clanId: Long): Boolean {
         synchronized(this) { return membersByClan.indexOfKey(clanId) >= 0 }
+    }
+
+    fun hasClanMemberCount(clanId: Long): Boolean {
+        return hasClanMembersCache(clanId) || clanMemberCountStore.get(clanId) > 0
+    }
+
+    private fun rememberClanMemberCount(clanId: Long) {
+        val count = synchronized(this) { membersByClan[clanId]?.size } ?: return
+        clanMemberCountStore.save(clanId, count)
     }
 
     fun clearClanMembersCache(clanId: Long) {
@@ -181,6 +193,7 @@ class UserClanController @Inject constructor(
             }
         }
         if (changed) {
+            rememberClanMemberCount(clanId)
             notificationCenter.postNotificationOnMainThread(NotificationCenter.clanMembersDidLoad, clanId)
         }
     }
@@ -200,6 +213,7 @@ class UserClanController @Inject constructor(
                 }
             }
             if (changed) {
+                rememberClanMemberCount(clanId)
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.clanMembersDidLoad, clanId)
             }
         }
@@ -313,6 +327,7 @@ class UserClanController @Inject constructor(
                         synchronized(this@UserClanController) {
                             membersByClan.put(clanId, members)
                         }
+                        clanMemberCountStore.save(clanId, members.size)
 
                         cacheTracker.markCalled(cacheKey)
                         notificationCenter.postNotificationOnMainThread(
@@ -511,6 +526,7 @@ class UserClanController @Inject constructor(
             notificationCenter.postNotificationOnMainThread(NotificationCenter.channelMembersDidLoad, channelId)
         }
         if (clanMembersChanged) {
+            rememberClanMemberCount(clanId)
             notificationCenter.postNotificationOnMainThread(NotificationCenter.clanMembersDidLoad, clanId)
         }
     }
@@ -543,6 +559,7 @@ class UserClanController @Inject constructor(
             membersByChannel.clear()
             directMembersByChannel.clear()
         }
+        clanMemberCountStore.clear()
     }
 
     private fun AllUsersAddChannelResponse.toDirectChannelMembers(clanId: Long): List<ClanMember> {

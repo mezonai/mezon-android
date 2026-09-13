@@ -54,6 +54,8 @@ import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
 
+class SocketConnectionLostException(message: String, cause: Throwable? = null) : IllegalStateException(message, cause)
+
 @Singleton
 class MezonSocket @Inject constructor(
     private val sessionManager: SessionManager,
@@ -72,6 +74,7 @@ class MezonSocket @Inject constructor(
         private const val SEND_TIMEOUT_MS = 10_000L
         private const val STABLE_CONNECTION_RESET_MS = 10_000L
         private const val CONNECT_ACK_GRACE_MS = 1_000L
+        private const val LIVENESS_PROBE_TIMEOUT_MS = 5_000L
 
         const val TYPE_CHECK_CLAN = 0
         const val TYPE_CHECK_CATEGORY = 1
@@ -94,6 +97,7 @@ class MezonSocket @Inject constructor(
     private var reconnectJob: Job? = null
     private var reconnectHealthResetJob: Job? = null
     private var connectReadyTimeoutJob: Job? = null
+    private var livenessProbeJob: Job? = null
     private var currentWsUrl: String? = null
     private var currentToken: String? = null
     private var currentTcpUrl: String? = null
@@ -164,12 +168,24 @@ class MezonSocket @Inject constructor(
         connectReadyTimeoutJob = null
     }
 
+    private fun cancelLivenessProbe() {
+        livenessProbeJob?.cancel()
+        livenessProbeJob = null
+    }
+
     fun connect(wsUrl: String, token: String, tcpUrl: String? = null) {
         synchronized(connectLock) {
             if (_connectionState.value == ConnectionState.CONNECTED ||
                 _connectionState.value == ConnectionState.CONNECTING
             ) {
                 Log.d(TAG, "Already connected or connecting, skipping")
+                return
+            }
+            if (isReconnecting) {
+                currentWsUrl = wsUrl
+                currentToken = token
+                currentTcpUrl = tcpUrl
+                Log.d(TAG, "Reconnect already scheduled, keeping its backoff and using the updated session")
                 return
             }
 
@@ -244,6 +260,7 @@ class MezonSocket @Inject constructor(
             reconnectJob?.cancel()
             cancelReconnectHealthReset()
             cancelConnectReadyTimeout()
+            cancelLivenessProbe()
             transportReadyPending = false
             isReconnecting = false
             reconnectFailCount = 0
@@ -299,7 +316,7 @@ class MezonSocket @Inject constructor(
         }
 
         val t = transport
-            ?: throw IllegalStateException("Socket not connected")
+            ?: throw SocketConnectionLostException("Socket not connected")
 
         val deferred = CompletableDeferred<Envelope>()
         pendingRequests[cid] = deferred
@@ -308,7 +325,7 @@ class MezonSocket @Inject constructor(
         t.send(bytes) { error ->
             if (error != null) {
                 pendingRequests.remove(cid)?.completeExceptionally(
-                    IllegalStateException("Failed to send envelope: ${error.message}")
+                    SocketConnectionLostException("Failed to send envelope: ${error.message}", error)
                 )
                 sentryReporter.logSocketFailure("send_enqueue", error, "case=${env.messageCase}")
             }
@@ -337,6 +354,29 @@ class MezonSocket @Inject constructor(
         })
     }
 
+    fun probeLiveness(reason: String) {
+        synchronized(connectLock) {
+            if (_connectionState.value != ConnectionState.CONNECTED) return
+            if (livenessProbeJob?.isActive == true) return
+            val t = transport ?: return
+            val probedGen = connectGen
+            val startedAtMs = System.currentTimeMillis()
+            lastPingSentAtMs = startedAtMs
+            t.sendPing(nextCid())
+            Log.d(TAG, "[ABRIDGED] liveness probe ($reason) gen=$probedGen")
+            livenessProbeJob = scope.launch {
+                delay(LIVENESS_PROBE_TIMEOUT_MS)
+                val silent = synchronized(connectLock) {
+                    connectGen == probedGen && transport === t && lastConfirmedInboundAtMs < startedAtMs
+                }
+                if (!silent) return@launch
+                Log.w(TAG, "[ABRIDGED] liveness probe timed out ($reason): no inbound frame in ${LIVENESS_PROBE_TIMEOUT_MS}ms, forcing reconnect")
+                sentryReporter.logSocketWarning("liveness_probe_timeout", "reason=$reason gen=$probedGen")
+                handleDeadConnection("liveness probe timeout")
+            }
+        }
+    }
+
     suspend fun awaitConnected(timeoutMs: Long = 15_000L): Boolean {
         if (_connectionState.value == ConnectionState.CONNECTED) return true
         return try {
@@ -357,7 +397,7 @@ class MezonSocket @Inject constructor(
         timeoutMs: Long = SEND_TIMEOUT_MS
     ): ByteArray {
         val t = transport
-            ?: throw IllegalStateException("Socket not connected")
+            ?: throw SocketConnectionLostException("Socket not connected")
 
         val cid = nextCid()
         val env = envelope {
@@ -375,7 +415,7 @@ class MezonSocket @Inject constructor(
         t.send(env.toByteArray()) { error ->
             if (error != null) {
                 pendingApiRequests.remove(cid)?.completeExceptionally(
-                    IllegalStateException("Failed to send api_request_event '$apiName': ${error.message}")
+                    SocketConnectionLostException("Failed to send api_request_event '$apiName': ${error.message}", error)
                 )
                 sentryReporter.logSocketFailure("api_request_enqueue", error, "api=$apiName")
             }
@@ -712,6 +752,7 @@ class MezonSocket @Inject constructor(
         synchronized(connectLock) {
             cancelReconnectHealthReset()
             cancelConnectReadyTimeout()
+            cancelLivenessProbe()
             transportReadyPending = false
             confirmedInboundGen = 0
             lastConfirmedInboundAtMs = 0L
@@ -1099,11 +1140,11 @@ class MezonSocket @Inject constructor(
 
     private fun cancelAllPending(reason: String) {
         pendingRequests.forEach { (_, deferred) ->
-            deferred.completeExceptionally(RuntimeException(reason))
+            deferred.completeExceptionally(SocketConnectionLostException(reason))
         }
         pendingRequests.clear()
         pendingApiRequests.forEach { (_, deferred) ->
-            deferred.completeExceptionally(RuntimeException(reason))
+            deferred.completeExceptionally(SocketConnectionLostException(reason))
         }
         pendingApiRequests.clear()
     }
