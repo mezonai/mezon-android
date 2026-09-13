@@ -1,5 +1,6 @@
 package com.mezon.mobile.notification
 
+import com.mezon.mobile.MainActivity
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -18,5 +19,6 @@ class ActiveChannelTracker @Inject constructor() {
         activeChannelId = null
     }
 
-    fun isViewing(channelId: Long): Boolean = activeChannelId == channelId
+    fun isViewing(channelId: Long): Boolean =
+        activeChannelId == channelId && !MainActivity.applicationPaused
 }

@@ -938,27 +938,30 @@ class ChatController @Inject constructor(
     private suspend fun channelSend(
         apiUrl: String,
         token: String,
-        request: ChannelMessageSend
+        request: ChannelMessageSend,
+        httpOnly: Boolean = false
     ): com.mezon.mezon.rtapi.ChannelMessageAck {
         val req = correctSendClanIdentity(request)
-        if (mezonSocket.canSendChannelMessageRealtime(req.clanId, req.channelId)) {
-            try {
-                return sendChannelMessageViaSocket(req)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.w(TAG, "Channel message send via socket failed, using HTTP", e)
-                sentryReporter.logSocketWarning(
-                    "channelMessageSend",
-                    "fallback HTTP channelId=${req.channelId} clanId=${req.clanId} err=${e.message}"
+        if (!httpOnly) {
+            if (mezonSocket.canSendChannelMessageRealtime(req.clanId, req.channelId)) {
+                try {
+                    return sendChannelMessageViaSocket(req)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w(TAG, "Channel message send via socket failed, using HTTP", e)
+                    sentryReporter.logSocketWarning(
+                        "channelMessageSend",
+                        "fallback HTTP channelId=${req.channelId} clanId=${req.clanId} err=${e.message}"
+                    )
+                }
+            } else if (mezonSocket.connectionState.value == ConnectionState.CONNECTED) {
+                Log.d(
+                    TAG,
+                    "Channel message using HTTP until realtime is fresh and joined " +
+                        "channelId=${req.channelId} clanId=${req.clanId} gen=${mezonSocket.connectGen}"
                 )
             }
-        } else if (mezonSocket.connectionState.value == ConnectionState.CONNECTED) {
-            Log.d(
-                TAG,
-                "Channel message using HTTP until realtime is fresh and joined " +
-                    "channelId=${req.channelId} clanId=${req.clanId} gen=${mezonSocket.connectGen}"
-            )
         }
         return withContext(ioDispatcher) {
             api.sendChannelMessage(apiUrl, token, req)
@@ -1245,7 +1248,9 @@ class ChatController @Inject constructor(
         clanId: Long,
         channelType: Int,
         isChannelPrivate: Boolean,
-        contentJson: String
+        contentJson: String,
+        httpOnly: Boolean = false,
+        retryDelaysMs: LongArray = longArrayOf()
     ): Long {
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
@@ -1280,7 +1285,9 @@ class ChatController @Inject constructor(
                     this.content = contentJson
                     if (anon) this.anonymousMessage = true
                 }
-                val ack = channelSend(session.apiUrl, session.token, request)
+                val ack = retryOnTransientSendFailure(retryDelaysMs) {
+                    channelSend(session.apiUrl, session.token, request, httpOnly)
+                }
                 markForwardTargetUsed(channelId, channelType)
                 notificationCenter.postNotificationOnMainThread(
                     NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
@@ -3738,7 +3745,9 @@ class ChatController @Inject constructor(
         count: Int,
         actionDelete: Boolean,
         messageSenderId: Long,
-        topicId: Long = 0L
+        topicId: Long = 0L,
+        httpOnly: Boolean = false,
+        retryDelaysMs: LongArray = longArrayOf()
     ): Boolean {
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
@@ -3753,23 +3762,26 @@ class ChatController @Inject constructor(
         val (reactionSenderName, _) = optimisticSenderPresentation(uc, clanId, channelType, anon)
         return try {
             sessionManager.withAutoRefresh { session ->
-                api.channelMessageReact(
-                    session.apiUrl,
-                    session.token,
-                    clanId = clanId,
-                    channelId = channelId,
-                    mode = mode,
-                    isPublic = isPublic,
-                    messageId = messageId,
-                    emojiId = emojiId,
-                    emoji = emoji,
-                    count = count,
-                    messageSenderId = messageSenderId,
-                    actionDelete = actionDelete,
-                    topicId = topicId,
-                    emojiRecentId = 0L,
-                    senderName = reactionSenderName
-                )
+                retryOnTransientSendFailure(retryDelaysMs) {
+                    api.channelMessageReact(
+                        session.apiUrl,
+                        session.token,
+                        clanId = clanId,
+                        channelId = channelId,
+                        mode = mode,
+                        isPublic = isPublic,
+                        messageId = messageId,
+                        emojiId = emojiId,
+                        emoji = emoji,
+                        count = count,
+                        messageSenderId = messageSenderId,
+                        actionDelete = actionDelete,
+                        topicId = topicId,
+                        emojiRecentId = 0L,
+                        senderName = reactionSenderName,
+                        httpOnly = httpOnly
+                    )
+                }
                 val selfId = session.userId.toLongOrNull() ?: 0L
                 if (selfId != 0L) {
                     publishReactionUiAndPersist(
@@ -3794,6 +3806,21 @@ class ChatController @Inject constructor(
                 if (pendingApiReactions[key] == REACTION_IN_FLIGHT) clearPendingApiReaction(key)
             }
         }
+    }
+
+    private suspend fun <T> retryOnTransientSendFailure(delaysMs: LongArray, block: suspend () -> T): T {
+        for (delayMs in delaysMs) {
+            try {
+                return block()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (!isTransientSendFailure(e)) throw e
+                Log.w(TAG, "Transient send failure, retrying in ${delayMs}ms", e)
+                delay(delayMs)
+            }
+        }
+        return block()
     }
 
     suspend fun sendThreadSeedMessage(

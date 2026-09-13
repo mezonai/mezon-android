@@ -212,7 +212,6 @@ class GlobalSearchFragment : BaseFragment() {
         }
         observe(NotificationCenter.clansDidLoad) { _, _, _ ->
             if (fragmentView == null || isPaused) return@observe
-            searchController.invalidateFilterCache()
             if (currentTab == TAB_CHANNELS) {
                 updateChannelsList()
             }
@@ -1164,7 +1163,6 @@ class GlobalSearchFragment : BaseFragment() {
         pickerFilterRunnable?.let { handler.removeCallbacks(it) }
         AndroidUtilities.hideKeyboard(searchCell.editText)
         searchCell.editText.clearFocus()
-        searchController.invalidateFilterCache()
         super.onFragmentDestroy()
     }
 }

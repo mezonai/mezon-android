@@ -2585,6 +2585,7 @@ open class ChatFragment : BaseFragment() {
         }
         if (pausedFromAppBackground) {
             pausedFromAppBackground = false
+            dialogsController.setCurrentChannel(channelId)
             rejoinChannelOnSocket()
             chatController.loadMessages(channelId, clanId, forceRefresh = true, refreshWhenBackOnline = true, topicId = topicId)
         }

@@ -149,6 +149,12 @@ class ClansController @Inject constructor(
 
     fun getClanCount(): Int = _clans.value.size
 
+    suspend fun findClanById(clanId: Long): ClanEntity? {
+        if (clanId == 0L) return null
+        return _clans.value.firstOrNull { it.clanId == clanId }
+            ?: withContext(ioDispatcher) { clanDao.getById(clanId) }
+    }
+
     suspend fun isDuplicateClanName(clanName: String): Boolean {
         return runCatching {
             sessionManager.withAutoRefresh { session ->

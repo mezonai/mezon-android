@@ -409,7 +409,12 @@ class MezonSfuSession @Inject constructor(
 
     private fun createLocalAudioTrack() {
         if (localAudioTrack != null) return
-        val source = webRtcInfra.factory.createAudioSource(MediaConstraints())
+        val constraints = MediaConstraints().apply {
+            mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl", "true"))
+        }
+        val source = webRtcInfra.factory.createAudioSource(constraints)
         audioSource = source
         val track = webRtcInfra.factory.createAudioTrack("sfu_audio", source)
         track.setEnabled(false)
