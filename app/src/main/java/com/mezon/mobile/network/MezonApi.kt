@@ -567,7 +567,8 @@ class MezonApi @Inject constructor(
         apiUrl: String,
         token: String,
         method: String,
-        body: ByteArray
+        body: ByteArray,
+        httpOnly: Boolean = false
     ): ByteArray {
         val retryableRead = method in READ_RETRYABLE_API_NAMES
         if (retryableRead) {
@@ -575,7 +576,7 @@ class MezonApi @Inject constructor(
             val flight = startOrJoinReadRpc(key)
             if (!flight.owner) return flight.entry.deferred.await()
             try {
-                val bytes = executeRpc(apiUrl, token, method, body, retryableRead)
+                val bytes = executeRpc(apiUrl, token, method, body, retryableRead, httpOnly)
                 flight.entry.deferred.complete(bytes)
                 return bytes
             } catch (e: Throwable) {
@@ -585,7 +586,7 @@ class MezonApi @Inject constructor(
                 inFlightReadRpcs.remove(key, flight.entry)
             }
         }
-        return executeRpc(apiUrl, token, method, body, retryableRead)
+        return executeRpc(apiUrl, token, method, body, retryableRead, httpOnly)
     }
 
     private suspend fun executeRpc(
@@ -593,9 +594,10 @@ class MezonApi @Inject constructor(
         token: String,
         method: String,
         body: ByteArray,
-        retryableRead: Boolean
+        retryableRead: Boolean,
+        httpOnly: Boolean
     ): ByteArray {
-        if (method in HTTP_ONLY_API_NAMES || isSocketDegraded()) {
+        if (httpOnly || method in HTTP_ONLY_API_NAMES || isSocketDegraded()) {
             return rpcOverHttpWithRetry(apiUrl, token, method, body, retryableRead)
         }
         return try {
@@ -1769,7 +1771,8 @@ class MezonApi @Inject constructor(
         actionDelete: Boolean,
         topicId: Long = 0L,
         emojiRecentId: Long = 0L,
-        senderName: String = ""
+        senderName: String = "",
+        httpOnly: Boolean = false
     ): ChannelMessageSend {
         val request = messageReaction {
             this.clanId = clanId
@@ -1786,7 +1789,7 @@ class MezonApi @Inject constructor(
             this.emojiRecentId = emojiRecentId
             this.senderName = senderName
         }
-        val bytes = rpc(apiUrl, token, "ReactChannelMessage", request.toByteArray())
+        val bytes = rpc(apiUrl, token, "ReactChannelMessage", request.toByteArray(), httpOnly)
         return if (bytes.isEmpty()) ChannelMessageSend.getDefaultInstance()
         else ChannelMessageSend.parseFrom(bytes)
     }
@@ -2644,6 +2647,10 @@ class MezonApi @Inject constructor(
             this.roomName = roomName
         }
         val bytes = rpc(apiUrl, token, "GenerateMeetToken", request.toByteArray())
+        val text = bytes.toString(Charsets.UTF_8).trim().trim('"')
+        if (text.startsWith("eyJ") && text.count { it == '.' } == 2) {
+            return GenerateMeetTokenResponse.newBuilder().setToken(text).build()
+        }
         return GenerateMeetTokenResponse.parseFrom(bytes)
     }
 
@@ -2681,14 +2688,12 @@ class MezonApi @Inject constructor(
         token: String,
         clanId: Long,
         channelId: Long,
-        roomName: String,
-        username: String
+        userId: Long
     ): ByteArray {
         val request = meetParticipantRequest {
             this.clanId = clanId
             this.channelId = channelId
-            this.roomName = roomName
-            this.username = username
+            this.userId = userId
         }
         return rpc(apiUrl, token, "RemoveParticipantMezonMeet", request.toByteArray())
     }
@@ -2698,14 +2703,12 @@ class MezonApi @Inject constructor(
         token: String,
         clanId: Long,
         channelId: Long,
-        roomName: String,
-        username: String
+        userId: Long
     ): ByteArray {
         val request = meetParticipantRequest {
             this.clanId = clanId
             this.channelId = channelId
-            this.roomName = roomName
-            this.username = username
+            this.userId = userId
         }
         return rpc(apiUrl, token, "MuteParticipantMezonMeet", request.toByteArray())
     }

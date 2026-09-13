@@ -23,10 +23,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withTimeout
 
 private const val TAG = "NotificationReply"
 private const val SEND_TIMEOUT_MS = 8_000L
+private val SEND_RETRY_DELAYS_MS = longArrayOf(500L, 1_500L, 3_000L)
 
 class NotificationReplyReceiver : BroadcastReceiver() {
 
@@ -126,7 +127,7 @@ class NotificationReplyReceiver : BroadcastReceiver() {
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             var sent = false
             try {
-                sent = withTimeoutOrNull(SEND_TIMEOUT_MS) {
+                sent = withTimeout(SEND_TIMEOUT_MS) {
                     val target = resolveTarget(entryPoint, channelId, clanId, channelType)
                     if (contentJson != null) {
                         entryPoint.chatController().sendRawChannelMessage(
@@ -134,7 +135,9 @@ class NotificationReplyReceiver : BroadcastReceiver() {
                             clanId = target.clanId,
                             channelType = target.channelType,
                             isChannelPrivate = target.isPrivate,
-                            contentJson = contentJson
+                            contentJson = contentJson,
+                            httpOnly = true,
+                            retryDelaysMs = SEND_RETRY_DELAYS_MS
                         ) != 0L
                     } else {
                         entryPoint.chatController().sendReactionAwait(
@@ -148,10 +151,12 @@ class NotificationReplyReceiver : BroadcastReceiver() {
                             count = 1,
                             actionDelete = false,
                             messageSenderId = messageSenderId,
-                            topicId = topicId
+                            topicId = topicId,
+                            httpOnly = true,
+                            retryDelaysMs = SEND_RETRY_DELAYS_MS
                         )
                     }
-                } ?: false
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Send failed isLike=$isLike channelId=$channelId clanId=$clanId", e)
                 entryPoint.sentryReporter()

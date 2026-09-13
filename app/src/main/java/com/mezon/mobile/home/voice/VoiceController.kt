@@ -186,6 +186,25 @@ class VoiceController @Inject constructor(
         }
     }
 
+    suspend fun refreshMeetToken(channelId: Long): String? {
+        return try {
+            sessionManager.withAutoRefresh { session ->
+                val roomName = channelId.toString()
+                val response = withContext(ioDispatcher) {
+                    api.generateMeetToken(session.apiUrl, session.token, channelId, roomName)
+                }
+                val token = response.token
+                if (!token.isNullOrEmpty()) {
+                    synchronized(this) { meetToken = token }
+                }
+                token
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "refreshMeetToken failed", e)
+            null
+        }
+    }
+
     fun onRoomConnected(channelId: Long) {
         synchronized(this) {
             if (currentVoiceInfo?.channelId != channelId) return
@@ -216,7 +235,7 @@ class VoiceController @Inject constructor(
         )
     }
 
-    suspend fun kickParticipant(clanId: Long, channelId: Long, roomName: String, username: String) {
+    suspend fun kickParticipant(clanId: Long, channelId: Long, userId: Long) {
         withContext(ioDispatcher) {
             sessionManager.withAutoRefresh { session ->
                 api.removeMeetParticipant(
@@ -224,14 +243,13 @@ class VoiceController @Inject constructor(
                     session.token,
                     clanId,
                     channelId,
-                    roomName,
-                    username
+                    userId
                 )
             }
         }
     }
 
-    suspend fun muteParticipant(clanId: Long, channelId: Long, roomName: String, username: String) {
+    suspend fun muteParticipant(clanId: Long, channelId: Long, userId: Long) {
         withContext(ioDispatcher) {
             sessionManager.withAutoRefresh { session ->
                 api.muteMeetParticipant(
@@ -239,8 +257,7 @@ class VoiceController @Inject constructor(
                     session.token,
                     clanId,
                     channelId,
-                    roomName,
-                    username
+                    userId
                 )
             }
         }

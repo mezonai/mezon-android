@@ -35,6 +35,7 @@ import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.ui.cells.ToastOverlay
+import com.mezon.mobile.util.avatarImgproxyUrl
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -238,19 +239,23 @@ class NotificationHelper @Inject constructor(
 
     private val avatarBitmaps = LruCache<String, Bitmap>(MAX_CACHED_AVATARS)
 
+    private fun avatarRequestUrl(url: String): String = avatarImgproxyUrl(url, AVATAR_ICON_SIZE)
+
     private fun cachedAvatar(url: String): Bitmap? =
-        if (url.isEmpty()) null else avatarBitmaps.get(url)
+        if (url.isEmpty()) null else avatarBitmaps.get(avatarRequestUrl(url))
 
     private suspend fun cacheAvatarBitmap(url: String) {
-        if (url.isEmpty() || avatarBitmaps.get(url) != null) return
-        val bitmap = withTimeoutOrNull(MAX_AVATAR_DELAY) { loadAvatarBitmap(url) } ?: return
+        if (url.isEmpty()) return
+        val requestUrl = avatarRequestUrl(url)
+        if (avatarBitmaps.get(requestUrl) != null) return
+        val bitmap = withTimeoutOrNull(MAX_AVATAR_DELAY) { loadAvatarBitmap(requestUrl) } ?: return
         val cropped = runCatching { circleCrop(bitmap) }.getOrNull() ?: return
-        avatarBitmaps.put(url, cropped)
+        avatarBitmaps.put(requestUrl, cropped)
     }
 
-    private fun resolveClan(clanId: Long?): ClanEntity? {
+    private suspend fun resolveClan(clanId: Long?): ClanEntity? {
         if (clanId == null || clanId == 0L) return null
-        return clansController.get().clans.value.firstOrNull { it.clanId == clanId }
+        return clansController.get().findClanById(clanId)
     }
 
     private fun clanLetterAvatar(clanId: Long, clanName: String): Bitmap? = runCatching {

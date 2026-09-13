@@ -12,6 +12,10 @@ import org.webrtc.DefaultVideoDecoderFactory
 import org.webrtc.DefaultVideoEncoderFactory
 import org.webrtc.EglBase
 import org.webrtc.PeerConnectionFactory
+import org.webrtc.SoftwareVideoDecoderFactory
+import org.webrtc.VideoCodecInfo
+import org.webrtc.VideoDecoder
+import org.webrtc.VideoDecoderFactory
 import org.webrtc.audio.JavaAudioDeviceModule
 
 private const val TAG = "WebRtcInfra"
@@ -97,8 +101,22 @@ class WebRtcInfra @Inject constructor(
 
         _factory = PeerConnectionFactory.builder()
             .setVideoEncoderFactory(DefaultVideoEncoderFactory(sharedEglContext, true, true))
-            .setVideoDecoderFactory(DefaultVideoDecoderFactory(sharedEglContext))
+            .setVideoDecoderFactory(SfuVideoDecoderFactory(sharedEglContext))
             .setAudioDeviceModule(audioDeviceModule)
             .createPeerConnectionFactory()
     }
+}
+
+private class SfuVideoDecoderFactory(eglContext: EglBase.Context?) : VideoDecoderFactory {
+    private val hardware = DefaultVideoDecoderFactory(eglContext)
+    private val software = SoftwareVideoDecoderFactory()
+
+    override fun createDecoder(codecInfo: VideoCodecInfo): VideoDecoder? {
+        if (codecInfo.name.equals("VP8", ignoreCase = true)) {
+            return software.createDecoder(codecInfo) ?: hardware.createDecoder(codecInfo)
+        }
+        return hardware.createDecoder(codecInfo)
+    }
+
+    override fun getSupportedCodecs(): Array<VideoCodecInfo> = hardware.supportedCodecs
 }

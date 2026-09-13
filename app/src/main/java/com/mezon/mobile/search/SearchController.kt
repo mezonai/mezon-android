@@ -117,7 +117,6 @@ class SearchController @Inject constructor(
 
         if (channelsChanged) {
             cacheTracker.invalidate(apiCacheKey("searchChannels"))
-            invalidateFilterCache()
             notificationCenter.postNotificationOnMainThread(NotificationCenter.searchChannelsDidLoad)
         }
     }
@@ -133,7 +132,6 @@ class SearchController @Inject constructor(
         }
         if (changed) {
             cacheTracker.invalidate(apiCacheKey("searchChannels"))
-            invalidateFilterCache()
             notificationCenter.postNotificationOnMainThread(NotificationCenter.searchChannelsDidLoad)
         }
     }
@@ -158,14 +156,14 @@ class SearchController @Inject constructor(
         }
     }
 
-    fun fetchCtrlKResults(rawQuery: String) {
+    fun fetchCtrlKResults(rawQuery: String): Boolean {
         val type = when {
             rawQuery.startsWith("@") -> 1
             rawQuery.startsWith("#") -> 2
             else -> 0
         }
         val text = if (type == 0) rawQuery else rawQuery.drop(1).trim()
-        if (text.isEmpty() || text.toByteArray(Charsets.UTF_8).size > 255) return
+        if (text.isEmpty() || text.toByteArray(Charsets.UTF_8).size > 255) return false
         val generation = synchronized(this) { ++ctrlKGeneration }
         appScope.launch(ioDispatcher) {
             try {
@@ -231,6 +229,7 @@ class SearchController @Inject constructor(
                 Log.e(TAG, "searchCtrlK failed", e)
             }
         }
+        return true
     }
 
     @Synchronized
@@ -283,8 +282,6 @@ class SearchController @Inject constructor(
                         channelById.clear()
                         for (c in channels) channelById[c.channelId] = c
                         channelsLoaded = true
-                        cachedChannelsQuery = null
-                        cachedChannelsResult.clear()
                     }
 
                     cacheTracker.markCalled(cacheKey)
@@ -373,71 +370,8 @@ class SearchController @Inject constructor(
         )
     }
 
-    private var cachedChannelsQuery: String? = null
-    private var cachedChannelsResult = ArrayList<ClanChannelEntity>()
-
-    fun filterChannelDisplays(
-        query: String,
-        limit: Int = LOCAL_PAGE_SIZE,
-        hideClanName: Boolean = false
-    ): List<ChannelSearchDisplay> {
-        val filtered = getFilteredChannelsCached(query)
-        val enriched = enrichChannelDisplays(filtered, hideClanName)
-        return orderTextVoiceStreaming(enriched).take(limit)
-    }
-
     fun channelDisplaysForPicker(entities: List<ClanChannelEntity>): List<ChannelSearchDisplay> =
         enrichChannelDisplays(entities, hideClanName = true)
-
-    fun filterChannelsCount(query: String): Int = getFilteredChannelsCached(query).size
-
-    fun totalChannelsForQuery(query: String): Int = getFilteredChannelsCached(query).size
-
-    @Synchronized
-    private fun getFilteredChannelsCached(query: String): List<ClanChannelEntity> {
-        if (query == cachedChannelsQuery && cachedChannelsResult.isNotEmpty()) {
-            return cachedChannelsResult
-        }
-        val channels = ArrayList(allChannels)
-        val result = if (query.isBlank()) {
-            channels
-        } else {
-            val searchNorm = normalizeSearchString(query)
-            val pairs = ArrayList<Pair<ClanChannelEntity, String>>(channels.size)
-            for (ch in channels) {
-                val norm = normalizeSearchString(ch.channelLabel)
-                if (norm.contains(searchNorm)) pairs.add(ch to norm)
-            }
-            pairs.sortWith(Comparator { a, b -> compareNormalized(a.second, b.second, searchNorm) })
-            ArrayList<ClanChannelEntity>(pairs.size).also { out ->
-                for (p in pairs) out.add(p.first)
-            }
-        }
-        cachedChannelsQuery = query
-        cachedChannelsResult = result
-        return result
-    }
-
-    private fun compareNormalized(aNorm: String, bNorm: String, search: String): Int {
-        val aExact = aNorm == search
-        val bExact = bNorm == search
-        if (aExact && !bExact) return -1
-        if (!aExact && bExact) return 1
-        val aIndex = aNorm.indexOf(search)
-        val bIndex = bNorm.indexOf(search)
-        if (aIndex == -1 && bIndex == -1) return 0
-        if (aIndex == -1) return 1
-        if (bIndex == -1) return -1
-        if (aIndex != bIndex) return aIndex - bIndex
-        return aNorm.compareTo(bNorm)
-    }
-
-    fun invalidateFilterCache() {
-        synchronized(this) {
-            cachedChannelsQuery = null
-            cachedChannelsResult.clear()
-        }
-    }
 
     fun clearSearchMessages() {
         synchronized(this) {
@@ -493,40 +427,12 @@ class SearchController @Inject constructor(
         return out
     }
 
-    private fun compareByLabel(a: ClanChannelEntity, b: ClanChannelEntity, search: String): Int {
-        val aNorm = normalizeSearchString(a.channelLabel)
-        val bNorm = normalizeSearchString(b.channelLabel)
-
-        val aExact = aNorm == search
-        val bExact = bNorm == search
-        if (aExact && !bExact) return -1
-        if (!aExact && bExact) return 1
-
-        val aIndex = aNorm.indexOf(search)
-        val bIndex = bNorm.indexOf(search)
-
-        if (aIndex == -1 && bIndex == -1) return 0
-        if (aIndex == -1) return 1
-        if (bIndex == -1) return -1
-        if (aIndex != bIndex) return aIndex - bIndex
-        return aNorm.compareTo(bNorm)
-    }
-
     companion object {
         private val DIACRITICS_REGEX = Regex("[\\u0300-\\u036f]")
 
         fun removeDiacritics(input: String): String {
             return Normalizer.normalize(input, Normalizer.Form.NFD)
                 .replace(DIACRITICS_REGEX, "")
-        }
-
-        fun normalizeSearchString(str: String): String {
-            if (str.isEmpty()) return ""
-            return removeDiacritics(str)
-                .replace("-", " ")
-                .replace("_", " ")
-                .replace("+", " ")
-                .uppercase()
         }
     }
 }
