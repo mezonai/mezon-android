@@ -77,6 +77,7 @@ private const val RAISE_UP_PREFIX = "raising-up:"
 private const val RAISE_DOWN_PREFIX = "raising-down:"
 private const val SENDER_NAME_PREFIX = "sender-name:"
 private const val SENDER_AVATAR_PREFIX = "sender-avatar:"
+private const val LOCAL_DEVICE_ID = "local"
 private val VOICE_AGENT_DEFAULT_AVATAR = createImgproxyUrl(
     "https://cdn.mezon.vn/0/0/1779484387973271600/1737423959329_undefined173740153013517374015248704886401586613166392.png",
     100,
@@ -152,7 +153,7 @@ class VoiceRoomFragment : BaseFragment() {
     private var isReconnecting = false
     private var isRaiseHandActive = false
     private var lastSwitchCameraElapsedMs = 0L
-    private var focusedShareIdentity: String? = null
+    private var focusedShareKey: String? = null
     private var wasMicPermissionRequestedBefore = false
     private var wasCameraPermissionRequestedBefore = false
 
@@ -583,9 +584,7 @@ class VoiceRoomFragment : BaseFragment() {
                 if (enabled) {
                     requestMicToggle()
                 } else {
-                    sfuSession.setMicEnabled(false)
-                    localMicOn = false
-                    doUpdateParticipantList()
+                    disableMicrophone()
                 }
             }
             onMicPressStart = { sfuSession.pttPress() }
@@ -837,6 +836,28 @@ class VoiceRoomFragment : BaseFragment() {
         doUpdateParticipantList()
     }
 
+    private fun disableMicrophone() {
+        sfuSession.setMicEnabled(false)
+        localMicOn = false
+        doUpdateParticipantList()
+    }
+
+    private fun onMutedByModerator() {
+        if (!localMicOn) return
+        if (::controlBar.isInitialized) controlBar.setMicEnabled(false)
+        disableMicrophone()
+        val activity = getParentActivity() ?: return
+        Toast.makeText(activity, getString(R.string.voice_room_muted_by_moderator), Toast.LENGTH_SHORT).show()
+    }
+
+    private fun onKickedFromRoom(reason: String) {
+        getParentActivity()?.let { activity ->
+            Toast.makeText(activity, reason.ifBlank { getString(R.string.voice_room_kicked) }, Toast.LENGTH_SHORT).show()
+        }
+        disconnectAndLeave()
+        dismissOverlay()
+    }
+
     private fun enableCamera() {
         sfuSession.setCameraEnabled(true)
         localCameraOn = true
@@ -897,6 +918,8 @@ class VoiceRoomFragment : BaseFragment() {
                 doUpdateParticipantList()
             }
             sfuSession.tokenProvider = { voiceController.refreshMeetToken(channelId) }
+            sfuSession.onMutedByModerator = { onMutedByModerator() }
+            sfuSession.onKicked = { reason -> onKickedFromRoom(reason) }
 
             sfuSession.join(channelId, clanId, userController.userId.toString(), token, joinRole)
             voiceController.onRoomConnected(channelId)
@@ -962,13 +985,19 @@ class VoiceRoomFragment : BaseFragment() {
         return ResolvedMember(fallbackName, fallbackName, null)
     }
 
+    private fun memberFallbackName(identity: String): String {
+        if (identity != userController.userId.toString()) return identity
+        return userController.displayName.ifBlank { userController.username }.ifBlank { "You" }
+    }
+
     private fun addLocalEntries(target: MutableList<ParticipantInfo>) {
         val identity = userController.userId.toString()
-        val resolved = resolveMember(identity, userController.displayName.ifBlank { userController.username }.ifBlank { "You" })
+        val resolved = resolveMember(identity, memberFallbackName(identity))
         val badge = reactionStates[identity] ?: ParticipantCell.ReactionBadgeType.NONE
         if (localScreenOn && localScreenTrack != null) {
             target.add(ParticipantInfo(
                 identity = identity,
+                deviceId = LOCAL_DEVICE_ID,
                 name = "${resolved.displayName} Share Screen",
                 username = resolved.username,
                 avatarUrl = resolved.avatarUrl,
@@ -984,6 +1013,7 @@ class VoiceRoomFragment : BaseFragment() {
         val cameraTrack = if (localCameraOn) localCameraTrack else null
         target.add(ParticipantInfo(
             identity = identity,
+            deviceId = LOCAL_DEVICE_ID,
             name = resolved.displayName,
             username = resolved.username,
             avatarUrl = resolved.avatarUrl,
@@ -999,12 +1029,14 @@ class VoiceRoomFragment : BaseFragment() {
     }
 
     private fun addRemoteEntries(target: MutableList<ParticipantInfo>, participant: SfuParticipant) {
-        val identity = participant.userId ?: participant.id
-        val resolved = resolveMember(identity, identity)
+        val identity = participant.userId ?: return
+        val deviceId = participant.peerId ?: participant.id
+        val resolved = resolveMember(identity, memberFallbackName(identity))
         val badge = reactionStates[identity] ?: ParticipantCell.ReactionBadgeType.NONE
         if (participant.screen != null && participant.screenActive) {
             target.add(ParticipantInfo(
                 identity = identity,
+                deviceId = deviceId,
                 name = "${resolved.displayName} Share Screen",
                 username = resolved.username,
                 avatarUrl = resolved.avatarUrl,
@@ -1020,6 +1052,7 @@ class VoiceRoomFragment : BaseFragment() {
         val remoteCamera = if (participant.cameraActive) participant.video else null
         target.add(ParticipantInfo(
             identity = identity,
+            deviceId = deviceId,
             name = resolved.displayName,
             username = resolved.username,
             avatarUrl = resolved.avatarUrl,
@@ -1042,7 +1075,7 @@ class VoiceRoomFragment : BaseFragment() {
     }
 
     private fun participantKey(item: ParticipantInfo): String {
-        return "${item.identity}_${item.isScreenShare}"
+        return "${item.identity}_${item.deviceId}_${item.isScreenShare}"
     }
 
     private fun getGridParticipants(): List<ParticipantInfo> {
@@ -1103,8 +1136,16 @@ class VoiceRoomFragment : BaseFragment() {
         }
         val nextParticipants = ArrayList<ParticipantInfo>()
         addLocalEntries(nextParticipants)
+        val devicesByUser = LinkedHashMap<String, MutableList<SfuParticipant>>()
+        devicesByUser[userController.userId.toString()] = ArrayList()
         for (p in sfuRemote) {
-            addRemoteEntries(nextParticipants, p)
+            val identity = p.userId ?: continue
+            devicesByUser.getOrPut(identity) { ArrayList() }.add(p)
+        }
+        for (devices in devicesByUser.values) {
+            for (p in devices.sortedBy { it.peerId?.toLongOrNull() ?: Long.MAX_VALUE }) {
+                addRemoteEntries(nextParticipants, p)
+            }
         }
 
         val prioritized = ArrayList<ParticipantInfo>(nextParticipants.size)
@@ -1125,9 +1166,9 @@ class VoiceRoomFragment : BaseFragment() {
         if (isInPipMode) return
         if (!::focusedShareView.isInitialized) return
         if (focusedShareView.visibility != View.VISIBLE) return
-        val focusedId = focusedShareIdentity ?: return
+        val focusedKey = focusedShareKey ?: return
         val participant = participants.firstOrNull {
-            it.identity == focusedId && it.isScreenShare && it.videoTrack != null
+            participantKey(it) == focusedKey && it.isScreenShare && it.videoTrack != null
         } ?: return
         focusedShareView.refreshTrack(participant)
     }
@@ -1186,7 +1227,7 @@ class VoiceRoomFragment : BaseFragment() {
     private fun showFocusedShare(participant: ParticipantInfo) {
         val shown = focusedShareView.showShare(participant)
         if (!shown) return
-        focusedShareIdentity = participant.identity
+        focusedShareKey = participantKey(participant)
         participantGrid.visibility = View.GONE
         headerView.visibility = View.GONE
         if (::controlBar.isInitialized) controlBar.setPttCompact(true)
@@ -1198,7 +1239,7 @@ class VoiceRoomFragment : BaseFragment() {
             return
         }
         focusedShareView.clear()
-        focusedShareIdentity = null
+        focusedShareKey = null
         participantGrid.visibility = View.VISIBLE
         headerView.visibility = if (isInPipMode) View.GONE else View.VISIBLE
         if (::controlBar.isInitialized) controlBar.setPttCompact(false)
@@ -1209,10 +1250,10 @@ class VoiceRoomFragment : BaseFragment() {
         if (isInPipMode) return
         if (!::focusedShareView.isInitialized) return
         if (focusedShareView.visibility != View.VISIBLE) return
-        val focusedId = focusedShareIdentity ?: return
-        val stillSharing = participants.any { it.identity == focusedId && it.isScreenShare && it.videoTrack != null }
+        val focusedKey = focusedShareKey ?: return
+        val stillSharing = participants.any { participantKey(it) == focusedKey && it.isScreenShare && it.videoTrack != null }
         if (!stillSharing) {
-            Log.d(TAG, "dismissFocusedShareIfStale: identity=$focusedId no longer sharing, clearing focus")
+            Log.d(TAG, "dismissFocusedShareIfStale: key=$focusedKey no longer sharing, clearing focus")
             clearFocusedShare()
         }
     }
@@ -1237,8 +1278,7 @@ class VoiceRoomFragment : BaseFragment() {
     private fun resolvePipShareParticipant(): ParticipantInfo? {
         val availableShares = participants.filter { it.isScreenShare && it.videoTrack != null }
         if (availableShares.isEmpty()) return null
-        val localIdentity = userController.userId.toString()
-        return availableShares.firstOrNull { it.identity != localIdentity } ?: availableShares.first()
+        return availableShares.firstOrNull { it.deviceId != LOCAL_DEVICE_ID } ?: availableShares.first()
     }
 
     private fun openParticipantModerationSheet(participant: ParticipantInfo) {
@@ -1434,21 +1474,38 @@ class VoiceRoomFragment : BaseFragment() {
                 } else {
                     voiceController.kickParticipant(clanId, channelId, targetUserId)
                 }
-            }.onSuccess {
-                Log.d(TAG, "voice moderation ok action=$action targetUserId=$targetUserId")
+            }.onSuccess { actionToken ->
+                withContext(Dispatchers.Main) {
+                    val relayed = sfuSession.sendParticipantAction(actionToken) { completed, detail ->
+                        if (completed) {
+                            Log.d(TAG, "voice moderation ok action=$action targetUserId=$targetUserId")
+                        } else {
+                            Log.e(TAG, "voice moderation rejected by sfu action=$action targetUserId=$targetUserId detail=$detail")
+                            showModerationFailure(action)
+                        }
+                    }
+                    if (!relayed) {
+                        Log.e(TAG, "voice moderation not relayed; sfu socket is not admitted action=$action targetUserId=$targetUserId")
+                        showModerationFailure(action)
+                    }
+                }
             }.onFailure { e ->
                 Log.e(TAG, "voice moderation failed action=$action targetUserId=$targetUserId", e)
-                val activity = getParentActivity() ?: return@onFailure
-                val message = if (action == VoiceModerationAction.MUTE) {
-                    getString(R.string.voice_room_moderation_mute_failed)
-                } else {
-                    getString(R.string.voice_room_moderation_kick_failed)
-                }
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(activity, message, Toast.LENGTH_SHORT).show()
+                    showModerationFailure(action)
                 }
             }
         }
+    }
+
+    private fun showModerationFailure(action: VoiceModerationAction) {
+        val activity = getParentActivity() ?: return
+        val message = if (action == VoiceModerationAction.MUTE) {
+            getString(R.string.voice_room_moderation_mute_failed)
+        } else {
+            getString(R.string.voice_room_moderation_kick_failed)
+        }
+        Toast.makeText(activity, message, Toast.LENGTH_SHORT).show()
     }
 
     private enum class VoiceModerationAction { MUTE, KICK }
@@ -1472,6 +1529,8 @@ class VoiceRoomFragment : BaseFragment() {
             sfuSession.onError = null
             sfuSession.onLocalVideoTrack = null
             sfuSession.onLocalScreenTrack = null
+            sfuSession.onMutedByModerator = null
+            sfuSession.onKicked = null
             sfuSession.leave()
         }
         sfuConnected = false

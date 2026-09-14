@@ -1379,6 +1379,8 @@
     <string name="voice_room_kick_modal_action">Kick</string>
     <string name="voice_room_moderation_mute_failed">Could not mute this member.</string>
     <string name="voice_room_moderation_kick_failed">Could not kick this member.</string>
+    <string name="voice_room_muted_by_moderator">You have been muted by a channel moderator.</string>
+    <string name="voice_room_kicked">You have been kicked from the channel.</string>
     <string name="voice_room_mic_permission_title">Microphone permission required</string>
     <string name="voice_room_mic_permission_message">Mezon needs microphone access to let you speak in this voice channel. Please enable it in Settings.</string>
     <string name="voice_room_camera_permission_title">Camera permission required</string>

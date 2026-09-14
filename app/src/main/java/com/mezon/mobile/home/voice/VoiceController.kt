@@ -235,8 +235,8 @@ class VoiceController @Inject constructor(
         )
     }
 
-    suspend fun kickParticipant(clanId: Long, channelId: Long, userId: Long) {
-        withContext(ioDispatcher) {
+    suspend fun kickParticipant(clanId: Long, channelId: Long, userId: Long): String {
+        return withContext(ioDispatcher) {
             sessionManager.withAutoRefresh { session ->
                 api.removeMeetParticipant(
                     session.apiUrl,
@@ -249,8 +249,8 @@ class VoiceController @Inject constructor(
         }
     }
 
-    suspend fun muteParticipant(clanId: Long, channelId: Long, userId: Long) {
-        withContext(ioDispatcher) {
+    suspend fun muteParticipant(clanId: Long, channelId: Long, userId: Long): String {
+        return withContext(ioDispatcher) {
             sessionManager.withAutoRefresh { session ->
                 api.muteMeetParticipant(
                     session.apiUrl,
