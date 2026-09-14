@@ -9,6 +9,7 @@ import org.webrtc.VideoTrack
 
 data class ParticipantInfo(
     val identity: String,
+    val deviceId: String,
     val name: String,
     val username: String = "",
     val avatarUrl: String? = null,

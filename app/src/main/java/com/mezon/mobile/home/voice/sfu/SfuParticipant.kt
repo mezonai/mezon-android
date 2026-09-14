@@ -6,6 +6,7 @@ import org.webrtc.VideoTrack
 data class SfuParticipant(
     val id: String,
     val userId: String?,
+    val peerId: String?,
     val role: SfuRole?,
     val muted: Boolean,
     val audio: AudioTrack?,

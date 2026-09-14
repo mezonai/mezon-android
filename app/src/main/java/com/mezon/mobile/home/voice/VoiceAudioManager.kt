@@ -23,7 +23,8 @@ class VoiceAudioManager(context: Context) {
         onOutputChanged?.invoke()
     }
 
-    private val deviceChangeListener: AudioDeviceChangeListener = { _, _ ->
+    private val deviceChangeListener: AudioDeviceChangeListener = { devices, selected ->
+        Log.i(AUDIO_TAG, "route selected=${selected?.name} available=${devices.joinToString(",") { it.name }}")
         AndroidUtilities.runOnUIThread(outputChangedRunnable)
     }
 
@@ -85,6 +86,7 @@ class VoiceAudioManager(context: Context) {
         val handler = audioSwitch
         val selected = handler.selectedAudioDevice
         val available = handler.availableAudioDevices
+        Log.i(AUDIO_TAG, "toggle output from=${selected?.name} available=${available.joinToString(",") { it.name }}")
         when (selected) {
             is AudioDevice.Speakerphone -> {
                 val bluetooth = available.filterIsInstance<AudioDevice.BluetoothHeadset>().firstOrNull()
@@ -112,6 +114,7 @@ class VoiceAudioManager(context: Context) {
     }
 
     companion object {
+        private const val AUDIO_TAG = "sfu-audio"
         private val PREFERRED_DEVICE_LIST = listOf(
             AudioDevice.BluetoothHeadset::class.java,
             AudioDevice.WiredHeadset::class.java,

@@ -2679,13 +2679,14 @@ class MezonApi @Inject constructor(
         clanId: Long,
         channelId: Long,
         userId: Long
-    ): ByteArray {
+    ): String {
         val request = meetParticipantRequest {
             this.clanId = clanId
             this.channelId = channelId
             this.userId = userId
         }
-        return rpc(apiUrl, token, "RemoveParticipantMezonMeet", request.toByteArray())
+        val bytes = rpc(apiUrl, token, "RemoveParticipantMezonMeet", request.toByteArray())
+        return participantActionToken("RemoveParticipantMezonMeet", bytes)
     }
 
     suspend fun muteMeetParticipant(
@@ -2694,13 +2695,20 @@ class MezonApi @Inject constructor(
         clanId: Long,
         channelId: Long,
         userId: Long
-    ): ByteArray {
+    ): String {
         val request = meetParticipantRequest {
             this.clanId = clanId
             this.channelId = channelId
             this.userId = userId
         }
-        return rpc(apiUrl, token, "MuteParticipantMezonMeet", request.toByteArray())
+        val bytes = rpc(apiUrl, token, "MuteParticipantMezonMeet", request.toByteArray())
+        return participantActionToken("MuteParticipantMezonMeet", bytes)
+    }
+
+    private fun participantActionToken(method: String, bytes: ByteArray): String {
+        val text = bytes.toString(Charsets.UTF_8).trim().trim('"')
+        if (text.startsWith("eyJ") && text.count { it == '.' } == 2) return text
+        throw IllegalStateException("$method returned no participant action token")
     }
 
     suspend fun addAgentToChannel(
