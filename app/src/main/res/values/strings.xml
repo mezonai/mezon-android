@@ -1070,9 +1070,8 @@
     <string name="event_creator_details_subtitle">Add a name, schedule, and optional cover image.</string>
     <string name="event_creator_name_label">Event name</string>
     <string name="event_creator_name_placeholder">Enter event name</string>
-    <string name="event_creator_start_date_label">Start date</string>
+    <string name="event_creator_date_label">Date</string>
     <string name="event_creator_start_time_label">Start time</string>
-    <string name="event_creator_end_date_label">End date</string>
     <string name="event_creator_end_time_label">End time</string>
     <string name="event_creator_start_time_error">Start time must be in the future</string>
     <string name="event_creator_end_time_error">End time must be after start time</string>
