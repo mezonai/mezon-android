@@ -120,6 +120,20 @@ data class ContentElement(
     val parentId: String? = null
 )
 
+internal fun filterOverlappingContentElements(elements: List<ContentElement>): List<ContentElement> {
+    if (elements.size < 2) return elements
+    val sorted = elements.sortedBy { it.s }
+    val accepted = ArrayList<ContentElement>(sorted.size)
+    var acceptedEnd: Int? = null
+    for (element in sorted) {
+        val previousEnd = acceptedEnd
+        if (previousEnd != null && element.s < previousEnd) continue
+        accepted.add(element)
+        acceptedEnd = element.e
+    }
+    return accepted
+}
+
 private val HEADING_REGEX = Regex("^(#{1,6})\\s+(.+)$")
 private val HEADING_LINE_ANYWHERE = Regex("(?m)^#{1,6}\\s+\\S")
 
@@ -351,14 +365,14 @@ fun parseContentToSpannable(
         mergeSyntheticAtHereForSystemPlain(text, elements)
     }
 
-    elements.sortBy { it.s }
+    val renderElements = filterOverlappingContentElements(elements)
     
     val UNICODE_EMOJI_REGEX = Regex("^(?:[\\p{So}\\p{Sk}\\u200D\\uFE0F\\s]|\\d\\uFE0F\\u20E3|[#*]\\uFE0F\\u20E3)+$")
     val isOnlyEmoji = run {
         var hasElementEmoji = false
         var allElementsAreEmoji = true
         var textIndex = 0
-        for (el in elements) {
+        for (el in renderElements) {
             if (el.kind != "e") {
                 allElementsAreEmoji = false
                 break
@@ -380,7 +394,7 @@ fun parseContentToSpannable(
     val viewRef = view?.let { java.lang.ref.WeakReference(it) }
     val richPlainMarkdown = isEmbedOrComponentsPayload(content)
 
-    for (el in elements) {
+    for (el in renderElements) {
         var nextLast = el.e
         val clampedS = el.s.coerceIn(0, text.length)
         val clampedE = el.e.coerceIn(clampedS, text.length)
@@ -538,7 +552,7 @@ fun parseContentToSpannable(
             }
             else -> sb.append(segText)
         }
-        last = nextLast
+        last = maxOf(last, nextLast)
     }
     if (last < text.length) {
         val tail = text.substring(last)
@@ -753,6 +767,8 @@ private fun appendHashtagPill(
 ) {
     val ctx = view?.context
     val entity = preResolvedEntity ?: ctx?.let { resolveChannelEntity(it, channelId, clanId) }
+    val resolvedLabel = labelOverride?.takeIf { it.isNotBlank() }
+        ?: entity?.channelLabel?.takeIf { it.isNotBlank() }
     
     var isAccessible = false
     if (entity != null) {
@@ -782,7 +798,7 @@ private fun appendHashtagPill(
         val labelText = if (!isAccessible) {
             ctx?.getString(R.string.channel_permission_private_channel) ?: "Private Channel"
         } else {
-            labelOverride ?: if (segText.startsWith("#")) segText.substring(1) else segText
+            resolvedLabel ?: if (segText.startsWith("#")) segText.substring(1) else segText
         }
         sb.append("\u200B")
         val iconSpanEnd = sb.length
@@ -797,7 +813,7 @@ private fun appendHashtagPill(
         if (!isAccessible) {
             sb.append(ctx?.getString(R.string.channel_permission_private_channel) ?: "Private Channel")
         } else {
-            sb.append(labelOverride?.let { "#$it" } ?: segText)
+            sb.append(resolvedLabel?.let { "#$it" } ?: segText)
         }
     }
     sb.setExclusiveSpan(HashtagSpan(channelId, fgColor), spanStart, sb.length)

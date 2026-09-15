@@ -44,6 +44,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
+import java.text.Collator
+import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -54,6 +56,34 @@ private const val NOTIFICATION_CODE_USER_REPLIED = -11
 private const val MAX_BADGE_CACHE = 500
 private const val CHANNEL_NOTIFICATION_STATE_CACHE_TTL_MS = 30_000L
 private const val CHANNEL_DESCS_GATE_TIMEOUT_MS = 5_000L
+
+private val VIETNAMESE_LOCALE: Locale = Locale.forLanguageTag("vi-VN")
+
+private fun compareCaseVariantsLowercaseFirst(left: String, right: String): Int {
+    val commonLength = minOf(left.length, right.length)
+    for (index in 0 until commonLength) {
+        val leftChar = left[index]
+        val rightChar = right[index]
+        if (leftChar == rightChar || leftChar.lowercaseChar() != rightChar.lowercaseChar()) continue
+
+        val leftIsLowercase = leftChar.isLowerCase()
+        val rightIsLowercase = rightChar.isLowerCase()
+        if (leftIsLowercase != rightIsLowercase) return if (leftIsLowercase) -1 else 1
+    }
+    return 0
+}
+
+internal fun vietnameseThreadNameComparator(): Comparator<ClanChannelEntity> {
+    val collator = Collator.getInstance(VIETNAMESE_LOCALE).apply {
+        strength = Collator.SECONDARY
+        decomposition = Collator.CANONICAL_DECOMPOSITION
+    }
+    return Comparator { left, right ->
+        collator.compare(left.channelLabel, right.channelLabel)
+            .takeIf { it != 0 }
+            ?: compareCaseVariantsLowercaseFirst(left.channelLabel, right.channelLabel)
+    }
+}
 
 const val FAVORITE_CATEGORY_ID = -1L
 const val FAVORITE_CATEGORY_NAME = "Favorites"
@@ -1022,7 +1052,8 @@ class ChannelController @Inject constructor(
             }
         }
         nonThreads.sortBy { it.channelId }
-        for ((_, list) in threadsByParent) list.sortBy { it.channelId }
+        val threadNameComparator = vietnameseThreadNameComparator()
+        for ((_, list) in threadsByParent) list.sortWith(threadNameComparator)
 
         val grouped = LinkedHashMap<Long, MutableList<ClanChannelEntity>>()
         for (ch in nonThreads) {
