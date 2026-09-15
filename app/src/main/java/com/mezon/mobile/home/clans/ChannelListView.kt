@@ -566,7 +566,8 @@ class ChannelListView(
                         row.member.userId,
                         row.member.displayName,
                         row.member.username,
-                        row.member.avatarUrl
+                        row.member.avatarUrl,
+                        row.member.isSharingScreen
                     )
                 }
                 is ChannelRow.VoiceCollapsedMembers -> {
@@ -611,7 +612,8 @@ data class VoiceMemberDisplay(
     val userId: Long,
     val displayName: String,
     val username: String = "",
-    val avatarUrl: String?
+    val avatarUrl: String?,
+    val isSharingScreen: Boolean = false
 )
 
 sealed class ChannelRow {

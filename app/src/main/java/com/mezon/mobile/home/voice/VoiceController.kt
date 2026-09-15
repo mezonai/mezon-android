@@ -6,6 +6,7 @@ import com.mezon.mezon.rtapi.VoiceJoinedEvent
 import com.mezon.mezon.rtapi.VoiceLeavedEvent
 import com.mezon.mezon.rtapi.VoiceReactionSend
 import com.mezon.mezon.rtapi.AIAgentEnabledEvent
+import com.mezon.mezon.rtapi.ScreenShareEvent
 import com.mezon.mezon.rtapi.VoiceStartedEvent
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.ApplicationScope
@@ -39,6 +40,7 @@ class VoiceController @Inject constructor(
 ) {
     val voiceMembersByClan = HashMap<Long, HashMap<Long, ArrayList<Long>>>()
     val inVoiceStatus = HashMap<Long, VoiceStatus>()
+    private val screenSharingByClan = HashMap<Long, HashMap<Long, HashSet<Long>>>()
 
     var currentVoiceInfo: VoiceInfo? = null
         private set
@@ -57,6 +59,7 @@ class VoiceController @Inject constructor(
     init {
         appScope.launch { dispatcher.voiceJoinedEvents.collect { onVoiceJoined(it) } }
         appScope.launch { dispatcher.voiceLeavedEvents.collect { onVoiceLeaved(it) } }
+        appScope.launch { dispatcher.screenShareEvents.collect { onScreenShare(it) } }
         appScope.launch { dispatcher.voiceEndedEvents.collect { onVoiceEnded(it) } }
         appScope.launch { dispatcher.voiceStartedEvents.collect { onVoiceStarted(it) } }
         appScope.launch { dispatcher.voiceReactionEvents.collect { onVoiceReaction(it) } }
@@ -70,6 +73,7 @@ class VoiceController @Inject constructor(
         synchronized(this) {
             voiceMembersByClan.clear()
             inVoiceStatus.clear()
+            screenSharingByClan.clear()
             currentVoiceInfo = null
             isJoined = false
             isConnecting = false
@@ -88,6 +92,11 @@ class VoiceController @Inject constructor(
     @Synchronized
     fun getVoiceMemberCount(channelId: Long, clanId: Long): Int {
         return voiceMembersByClan[clanId]?.get(channelId)?.size ?: 0
+    }
+
+    @Synchronized
+    fun getScreenSharingUsersForChannel(channelId: Long, clanId: Long): Set<Long> {
+        return screenSharingByClan[clanId]?.get(channelId)?.let { HashSet(it) } ?: emptySet()
     }
 
     @Synchronized
@@ -115,8 +124,18 @@ class VoiceController @Inject constructor(
                 synchronized(this@VoiceController) {
                     val clanMap = voiceMembersByClan.getOrPut(clanId) { HashMap() }
                     clanMap.clear()
+                    inVoiceStatus.entries.removeAll { it.value.clanId == clanId }
+                    val sharingMap = screenSharingByClan.getOrPut(clanId) { HashMap() }
+                    sharingMap.clear()
                     for (voiceChannelUser in response.voiceChannelUsersList) {
                         val channelId = voiceChannelUser.channelId
+                        val sharingIds = HashSet<Long>()
+                        for (sid in voiceChannelUser.shareScreenIdsList) {
+                            sid.toLongOrNull()?.let { sharingIds.add(it) }
+                        }
+                        if (sharingIds.isNotEmpty()) {
+                            sharingMap[channelId] = sharingIds
+                        }
                         val userIds = ArrayList<Long>()
                         for (uid in voiceChannelUser.userIdsList) {
                             val parsed = uid.toLongOrNull() ?: continue
@@ -284,6 +303,7 @@ class VoiceController @Inject constructor(
             val members = clanMap.getOrPut(channelId) { ArrayList() }
             if (!members.contains(userId)) {
                 members.add(userId)
+                screenSharingByClan[clanId]?.get(channelId)?.remove(userId)
             }
             inVoiceStatus[userId] = VoiceStatus(clanId, channelId)
         }
@@ -300,6 +320,7 @@ class VoiceController @Inject constructor(
 
         synchronized(this) {
             voiceMembersByClan[clanId]?.get(channelId)?.remove(userId)
+            screenSharingByClan[clanId]?.get(channelId)?.remove(userId)
             val status = inVoiceStatus[userId]
             if (status != null && status.channelId == channelId) {
                 inVoiceStatus.remove(userId)
@@ -318,6 +339,7 @@ class VoiceController @Inject constructor(
 
         val shouldDisconnect = synchronized(this) {
             val removed = voiceMembersByClan[clanId]?.remove(channelId)
+            screenSharingByClan[clanId]?.remove(channelId)
             removed?.forEach { uid ->
                 val status = inVoiceStatus[uid]
                 if (status != null && status.channelId == channelId) {
@@ -334,6 +356,28 @@ class VoiceController @Inject constructor(
         notificationCenter.postNotificationOnMainThread(
             NotificationCenter.voiceChannelMembersChanged, clanId, channelId
         )
+    }
+
+    private fun onScreenShare(event: ScreenShareEvent) {
+        val clanId = event.clanId
+        val channelId = event.voiceChannelId
+        val userId = event.userId
+        if (clanId == 0L || channelId == 0L || userId == 0L) return
+
+        val changed = synchronized(this) {
+            val isMember = voiceMembersByClan[clanId]?.get(channelId)?.contains(userId) == true
+            if (!isMember) {
+                false
+            } else {
+                val sharing = screenSharingByClan.getOrPut(clanId) { HashMap() }.getOrPut(channelId) { HashSet() }
+                if (event.isSharing) sharing.add(userId) else sharing.remove(userId)
+            }
+        }
+        if (changed) {
+            notificationCenter.postNotificationOnMainThread(
+                NotificationCenter.voiceChannelMembersChanged, clanId, channelId
+            )
+        }
     }
 
     @Suppress("UNUSED_PARAMETER")

@@ -3,7 +3,10 @@ package com.mezon.mobile.home.voice
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffColorFilter
 import android.graphics.RectF
+import android.graphics.drawable.Drawable
 import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.TextUtils
@@ -12,6 +15,7 @@ import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.chat.MezonImageLoader
+import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.util.avatarImgproxyUrl
 
 class VoiceUserAvatarCell(
@@ -24,6 +28,9 @@ class VoiceUserAvatarCell(
         private val CELL_HEIGHT = LayoutHelper.dp(26)
         private val PADDING_LEFT = LayoutHelper.dp(40)
         private val AVATAR_TEXT_GAP = LayoutHelper.dp(10)
+        private val PADDING_RIGHT = LayoutHelper.dp(16)
+        private val SHARE_ICON_SIZE = LayoutHelper.dp(16)
+        private val SHARE_ICON_GAP = LayoutHelper.dp(8)
         private val nameTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             textSize = LayoutHelper.sp(13f)
         }
@@ -48,11 +55,14 @@ class VoiceUserAvatarCell(
     private var overflowCount: Int = 0
     private var overflowText: String = ""
     private var isOverflowItem = false
+    private var isSharingScreen = false
+    private var shareScreenDrawable: Drawable? = null
 
-    fun setUser(userId: Long, name: String, username: String, avatarUrl: String?) {
+    fun setUser(userId: Long, name: String, username: String, avatarUrl: String?, isSharingScreen: Boolean = false) {
         this.userId = userId
         this.displayName = name
         this.avatarUrl = avatarUrl
+        this.isSharingScreen = isSharingScreen
         this.isOverflowItem = false
         this.overflowCount = 0
         avatarDrawable.setInfo(userId, username)
@@ -63,6 +73,7 @@ class VoiceUserAvatarCell(
 
     fun setOverflow(count: Int) {
         this.isOverflowItem = true
+        this.isSharingScreen = false
         this.overflowCount = count
         this.overflowText = "+$count"
         this.nameLayout = null
@@ -109,7 +120,8 @@ class VoiceUserAvatarCell(
             nameLayout = null
             return
         }
-        val availWidth = measuredWidth - PADDING_LEFT - AVATAR_SIZE - AVATAR_TEXT_GAP - LayoutHelper.dp(16)
+        val shareWidth = if (isSharingScreen) SHARE_ICON_SIZE + SHARE_ICON_GAP else 0
+        val availWidth = measuredWidth - PADDING_LEFT - AVATAR_SIZE - AVATAR_TEXT_GAP - PADDING_RIGHT - shareWidth
         if (availWidth <= 0) {
             nameLayout = null
             return
@@ -156,6 +168,17 @@ class VoiceUserAvatarCell(
             canvas.translate(textX, textY)
             it.draw(canvas)
             canvas.restore()
+        }
+
+        if (isSharingScreen) {
+            val drawable = shareScreenDrawable
+                ?: MezonIcon.voiceScreenShareIcon.getDrawable(context).mutate().apply {
+                    colorFilter = PorterDuffColorFilter(themeColors.onlineGreen, PorterDuff.Mode.SRC_IN)
+                }.also { shareScreenDrawable = it }
+            val iconRight = width - PADDING_RIGHT
+            val iconTop = (cy - SHARE_ICON_SIZE / 2f).toInt()
+            drawable.setBounds(iconRight - SHARE_ICON_SIZE, iconTop, iconRight, iconTop + SHARE_ICON_SIZE)
+            drawable.draw(canvas)
         }
     }
 }

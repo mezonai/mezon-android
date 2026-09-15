@@ -48,7 +48,6 @@ import com.mezon.mobile.home.profile.UserController
 import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.ui.cells.MezonIcon
-import com.mezon.mobile.util.createImgproxyUrl
 import com.mezon.mobile.home.voice.sfu.MezonSfuSession
 import com.mezon.mobile.home.voice.sfu.SfuConnectionState
 import com.mezon.mobile.home.voice.sfu.SfuParticipant
@@ -78,11 +77,10 @@ private const val RAISE_DOWN_PREFIX = "raising-down:"
 private const val SENDER_NAME_PREFIX = "sender-name:"
 private const val SENDER_AVATAR_PREFIX = "sender-avatar:"
 private const val LOCAL_DEVICE_ID = "local"
-private val VOICE_AGENT_DEFAULT_AVATAR = createImgproxyUrl(
-    "https://cdn.mezon.vn/0/0/1779484387973271600/1737423959329_undefined173740153013517374015248704886401586613166392.png",
-    100,
-    100
-)
+private const val VOICE_AGENT_USER_ID = "2090694093138038784"
+private const val VOICE_AGENT_DISPLAY_NAME = "KOMU Agent"
+private const val VOICE_AGENT_AVATAR_URL =
+    "https://cdn.mezon.vn/0/0/1779484387973271600/1737423959329_undefined173740153013517374015248704886401586613166392.png"
 
 class VoiceRoomFragment : BaseFragment() {
 
@@ -231,10 +229,15 @@ class VoiceRoomFragment : BaseFragment() {
     private fun getMainActivity(): MainActivity? = getParentActivity() as? MainActivity
 
 
+    private var agentParticipantInRoom = false
+
+    private fun isVoiceAgentActive(): Boolean =
+        agentParticipantInRoom || voiceController.isAiAgentEnabled(clanId, channelId)
+
     private fun applyAgentHeaderUi() {
         if (!::headerView.isInitialized) return
         headerView.setAgentVisible(canManageVoiceChannel())
-        headerView.setAgentActive(voiceController.isAiAgentEnabled(clanId, channelId))
+        headerView.setAgentActive(isVoiceAgentActive())
     }
 
     private fun getAgentToggleFallbackRoomNames(): List<String> {
@@ -431,7 +434,7 @@ class VoiceRoomFragment : BaseFragment() {
                 val info = voiceController.currentVoiceInfo
                 if (info == null || info.channelId != channelId) return@agentClick
                 scope.launch {
-                    val before = voiceController.isAiAgentEnabled(clanId, channelId)
+                    val before = isVoiceAgentActive()
                     val roomCandidates = getAgentToggleFallbackRoomNames()
                     Log.d(TAG, "agentToggle start enabledBefore=$before clan=$clanId ch=$channelId room=${info.roomName} candidates=$roomCandidates")
                     headerView.setAgentLoading(true)
@@ -959,6 +962,9 @@ class VoiceRoomFragment : BaseFragment() {
     )
 
     private fun resolveMember(identity: String, fallbackName: String): ResolvedMember {
+        if (identity == VOICE_AGENT_USER_ID) {
+            return ResolvedMember(VOICE_AGENT_DISPLAY_NAME, VOICE_AGENT_DISPLAY_NAME, VOICE_AGENT_AVATAR_URL)
+        }
         memberResolveCache[identity]?.let { return it }
         val userId = identity.toLongOrNull()
         if (userId != null) {
@@ -1130,6 +1136,11 @@ class VoiceRoomFragment : BaseFragment() {
 
     private fun doUpdateParticipantList() {
         if (fragmentView == null) return
+        val agentPresent = sfuRemote.any { it.userId == VOICE_AGENT_USER_ID }
+        if (agentPresent != agentParticipantInRoom) {
+            agentParticipantInRoom = agentPresent
+            applyAgentHeaderUi()
+        }
         if (isGridScrolling && !isInPipMode) {
             pendingGridUpdate = true
             return

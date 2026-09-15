@@ -246,6 +246,7 @@
     <string name="dm_unmute_failed">Failed to unmute!</string>
     <string name="dm_wave_welcome">Wave to say hi!</string>
     <string name="dm_no_messages">No messages yet</string>
+    <string name="chat_load_messages_failed">Couldn\'t load messages</string>
     <string name="dm_no_friends">No friends found</string>
     <string name="dm_new_message_to">To:</string>
     <string name="dm_new_group">New Group</string>

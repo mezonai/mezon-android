@@ -47,6 +47,7 @@ import com.mezon.mezon.rtapi.StreamingJoinedEvent
 import com.mezon.mezon.rtapi.StreamingLeavedEvent
 import com.mezon.mezon.rtapi.StreamingStartedEvent
 import com.mezon.mezon.rtapi.TransferOwnershipEvent
+import com.mezon.mezon.rtapi.ScreenShareEvent
 import com.mezon.mezon.rtapi.UnmuteEvent
 import com.mezon.mezon.rtapi.UnpinMessageEvent
 import com.mezon.mezon.rtapi.UserChannelAdded
@@ -177,6 +178,9 @@ class SocketEventDispatcher @Inject constructor(
 
     private val _voiceLeavedEvents = MutableSharedFlow<VoiceLeavedEvent>(extraBufferCapacity = 8)
     val voiceLeavedEvents: SharedFlow<VoiceLeavedEvent> = _voiceLeavedEvents.asSharedFlow()
+
+    private val _screenShareEvents = MutableSharedFlow<ScreenShareEvent>(extraBufferCapacity = 8)
+    val screenShareEvents: SharedFlow<ScreenShareEvent> = _screenShareEvents.asSharedFlow()
 
     private val _voiceReactionEvents = MutableSharedFlow<VoiceReactionSend>(extraBufferCapacity = 8)
     val voiceReactionEvents: SharedFlow<VoiceReactionSend> = _voiceReactionEvents.asSharedFlow()
@@ -336,6 +340,8 @@ class SocketEventDispatcher @Inject constructor(
                 _voiceJoinedEvents.emit(envelope.voiceJoinedEvent)
             Envelope.MessageCase.VOICE_LEAVED_EVENT ->
                 _voiceLeavedEvents.emit(envelope.voiceLeavedEvent)
+            Envelope.MessageCase.SCREEN_SHARE_EVENT ->
+                _screenShareEvents.emit(envelope.screenShareEvent)
             Envelope.MessageCase.VOICE_REACTION_SEND ->
                 _voiceReactionEvents.emit(envelope.voiceReactionSend)
             Envelope.MessageCase.WEBRTC_SIGNALING_FWD ->

@@ -1309,6 +1309,10 @@ class ClansFragment : BaseFragment() {
                 else -> voiceController.getVoiceMembersForChannel(vc.channelId, clanId)
             }
             if (userIds.isEmpty()) continue
+            val sharingIds: Set<Long> = when (vc.type) {
+                CHANNEL_TYPE_STREAMING -> emptySet()
+                else -> voiceController.getScreenSharingUsersForChannel(vc.channelId, clanId)
+            }
             val displays = userIds.map { uid ->
                 val member = memberMap[uid]
                 val name = member?.clanNick?.ifEmpty { null }
@@ -1317,7 +1321,7 @@ class ClansFragment : BaseFragment() {
                     ?: "User"
                 val username = member?.username.orEmpty()
                 val avatar = member?.clanAvatar?.ifEmpty { null } ?: member?.avatarUrl
-                VoiceMemberDisplay(uid, name, username, avatar)
+                VoiceMemberDisplay(uid, name, username, avatar, uid in sharingIds)
             }
             if (displays.isNotEmpty()) result[vc.channelId] = displays
         }

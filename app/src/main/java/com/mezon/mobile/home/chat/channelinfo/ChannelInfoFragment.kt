@@ -48,6 +48,7 @@ import com.mezon.mobile.home.clans.PermissionPolicy
 import com.mezon.mobile.home.clans.CHANNEL_TYPE_APP
 import com.mezon.mobile.home.clans.CHANNEL_TYPE_STREAMING
 import com.mezon.mobile.home.profile.UserController
+import com.mezon.mobile.home.voice.VoiceController
 import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
@@ -129,6 +130,7 @@ class ChannelInfoFragment : BaseFragment() {
     private lateinit var channelController: ChannelController
     private lateinit var channelPermissionController: ChannelPermissionController
     private lateinit var clansController: ClansController
+    private lateinit var voiceController: VoiceController
     private lateinit var permissionPolicy: PermissionPolicy
     private var settingsActionGap: View? = null
     private var settingsActionView: View? = null
@@ -178,6 +180,10 @@ class ChannelInfoFragment : BaseFragment() {
         observe(NotificationCenter.channelMembersDidLoad) { _, _, args ->
             if (isPaused) return@observe
             reloadMembers()
+        }
+
+        observe(NotificationCenter.voiceChannelMembersChanged) { _, _, _ ->
+            memberListAdapter?.refreshVoicePresence()
         }
 
         observe(NotificationCenter.channelsDidLoad) { _, _, args ->
@@ -304,6 +310,7 @@ class ChannelInfoFragment : BaseFragment() {
         channelController = entryPoint.channelController()
         channelPermissionController = entryPoint.channelPermissionController()
         clansController = entryPoint.clansController()
+        voiceController = entryPoint.voiceController()
         permissionPolicy = entryPoint.permissionPolicy()
         channelFilesController = entryPoint.channelFilesController()
         channelGalleryController = entryPoint.channelGalleryController()
@@ -710,7 +717,9 @@ class ChannelInfoFragment : BaseFragment() {
             ))
         }
 
-        memberListAdapter = MemberListAdapter(themeColors, isDm, resolveMemberListOwnerId())
+        memberListAdapter = MemberListAdapter(themeColors, isDm, resolveMemberListOwnerId()) { userId ->
+            !isDm && voiceController.isUserInVoice(userId)
+        }
 
         membersRecyclerView = RecyclerListView(context).apply {
             layoutManager = LinearLayoutManager(context)
