@@ -668,10 +668,10 @@ class DialogsController @Inject constructor(
                     )
 
                     putDialogs(merged)
-                    dmBadgesServerSynced = true
                     cacheTracker.markCalled(cacheKey)
                     syncDmMutedStateFromLocalCache()
                     syncDmBadgesWithApi(session)
+                    dmBadgesServerSynced = true
                 }
 
                 dialogsLoaded = true
@@ -1580,8 +1580,9 @@ class DialogsController @Inject constructor(
         return runCatching {
             lastDmBadgesSyncElapsedMs = SystemClock.elapsedRealtime()
             val badge = api.listChannelBadgeCount(session.apiUrl, session.token, 0L)
+            val patched = applyDmReadStatePatchFromSocket(badge.channeldescList, currentUserId)
             dmBadgesServerSynced = true
-            applyDmReadStatePatchFromSocket(badge.channeldescList, currentUserId)
+            patched
         }.getOrElse { e ->
             Log.e(TAG, "syncDmBadgesWithApi failed", e)
             false

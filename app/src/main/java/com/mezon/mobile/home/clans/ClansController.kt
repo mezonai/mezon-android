@@ -281,7 +281,12 @@ class ClansController @Inject constructor(
                 Log.d(TAG, "loadClans API result (${apiEntities.size} clans): ${apiEntities.map { "${it.clanName}(order=${it.clanOrder})" }}")
 
                 val existingOrder = _clans.value.mapIndexed { i, c -> c.clanId to i }.toMap()
-                val entities = apiEntities
+                val cachedById = _clans.value.associateBy { it.clanId }
+                val descBadges = apiEntities.associate { it.clanId to ClanBadgeState(it.badgeCount, it.hasUnread) }
+                val entities = apiEntities.map { entity ->
+                    val cached = cachedById[entity.clanId] ?: return@map entity
+                    entity.copy(badgeCount = cached.badgeCount, hasUnread = cached.hasUnread)
+                }
                 val sorted = if (existingOrder.isNotEmpty()) {
                     entities.sortedBy { existingOrder[it.clanId] ?: it.clanOrder }
                 } else {
@@ -305,14 +310,19 @@ class ClansController @Inject constructor(
                     roleController.loadRolesForClan(sel)
                 }
 
-                fetchClanBadgeCountsIfNeeded(force)
+                fetchClanBadgeCountsIfNeeded(force, descBadges)
             } catch (e: Exception) {
                 Log.e(TAG, "loadClans failed", e)
             }
         }
     }
 
-    private suspend fun fetchClanBadgeCountsIfNeeded(force: Boolean) {
+    private data class ClanBadgeState(val badgeCount: Int, val hasUnread: Boolean)
+
+    private suspend fun fetchClanBadgeCountsIfNeeded(
+        force: Boolean,
+        listFallback: Map<Long, ClanBadgeState>? = null
+    ) {
         val badgeKey = apiCacheKey("listClanBadgeCount")
         if (!force && cacheTracker.shouldCall(badgeKey) == ApiCacheTracker.ShouldCall.SKIP) {
             return
@@ -322,36 +332,34 @@ class ClansController @Inject constructor(
                 api.listClanBadgeCount(session.apiUrl, session.token)
             }
             cacheTracker.markCalled(badgeKey)
-            val list = badgeResponse.listBadgeList
-            applyClanBadgeList(list)
-        }.onFailure { Log.e(TAG, "listClanBadgeCount: request failed", it) }
+            applyClanBadgeList(badgeResponse.listBadgeList, listFallback)
+        }.onFailure {
+            Log.e(TAG, "listClanBadgeCount: request failed", it)
+            if (listFallback != null) applyClanBadgeList(emptyList(), listFallback)
+        }
     }
 
-    private fun applyClanBadgeList(badges: List<ClanBadgeCount>) {
-        if (badges.isEmpty()) {
+    private fun applyClanBadgeList(
+        badges: List<ClanBadgeCount>,
+        listFallback: Map<Long, ClanBadgeState>? = null
+    ) {
+        if (badges.isEmpty() && listFallback == null) {
             return
         }
         val byClanId = badges.associateBy { it.clanId }
-        val list = _clans.value
-        var changed = false
-        var matched = 0
-        val updated = list.map { clan ->
-            val b = byClanId[clan.clanId] ?: return@map clan
-            matched++
-            val newBadge = b.badge.coerceAtLeast(0)
-            val newHasUnread = b.hasUnread || newBadge > 0
-            if (clan.badgeCount == newBadge && clan.hasUnread == newHasUnread) clan
-            else {
-                changed = true
-                clan.copy(badgeCount = newBadge, hasUnread = newHasUnread)
-            }
+        val changedRows = ArrayList<ClanEntity>()
+        val updated = _clans.value.map { clan ->
+            val target = byClanId[clan.clanId]?.let { b ->
+                val badge = b.badge.coerceAtLeast(0)
+                ClanBadgeState(badge, b.hasUnread || badge > 0)
+            } ?: listFallback?.get(clan.clanId) ?: return@map clan
+            if (clan.badgeCount == target.badgeCount && clan.hasUnread == target.hasUnread) return@map clan
+            clan.copy(badgeCount = target.badgeCount, hasUnread = target.hasUnread).also { changedRows.add(it) }
         }
-        if (!changed) return
+        if (changedRows.isEmpty()) return
         _clans.value = updated
         appScope.launch(ioDispatcher) {
-            for (c in updated) {
-                if (byClanId.containsKey(c.clanId)) clanDao.upsert(c)
-            }
+            for (c in changedRows) clanDao.upsert(c)
         }
         notificationCenter.postNotificationOnMainThread(
             NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_BADGE
