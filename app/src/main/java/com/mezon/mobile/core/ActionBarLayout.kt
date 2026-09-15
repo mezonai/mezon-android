@@ -493,7 +493,8 @@ class ActionBarLayout(context: Context, private val activity: Activity) :
         val fragment = fragmentStack.lastOrNull() ?: return
         val view = fragment.fragmentView
             ?: fragment.createView(context).also { fragment.fragmentView = it }
-        if (view.parent == null) {
+        if (view.parent !== containerView) {
+            (view.parent as? ViewGroup)?.removeView(view)
             containerView.addView(view, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         }
         addActionBarToContainer(fragment, containerView)

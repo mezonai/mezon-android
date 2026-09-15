@@ -37,6 +37,7 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
     private var titleStartIconSize = 0
     private var titleStartIconGap = 0
     private var subtitleStartPadding = 0
+    private var subtitleClickListener: OnClickListener? = null
     var menu: ActionBarMenu? = null
         private set
     var actionMode: ActionBarMenu? = null
@@ -187,6 +188,17 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
         requestLayout()
     }
 
+    fun setSubtitleOnClickListener(listener: OnClickListener?) {
+        subtitleClickListener = listener
+        subtitleTextView?.let { applySubtitleClickListener(it) }
+    }
+
+    private fun applySubtitleClickListener(view: TextView) {
+        val listener = subtitleClickListener
+        view.setOnClickListener(listener)
+        view.isClickable = listener != null
+    }
+
     fun setTitleStartIcon(drawable: Drawable?, iconSizePx: Int, gapAfterIconPx: Int) {
         if (drawable == null || iconSizePx <= 0) {
             titleStartIconSize = 0
@@ -223,6 +235,7 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
             gravity = Gravity.CENTER_VERTICAL
             setPaddingRelative(subtitleStartPadding, 0, 0, 0)
         }
+        subtitleTextView?.let { applySubtitleClickListener(it) }
         addView(subtitleTextView)
     }
 

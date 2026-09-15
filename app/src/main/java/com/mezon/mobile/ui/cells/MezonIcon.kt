@@ -178,6 +178,7 @@ enum class MezonIcon(@DrawableRes val resId: Int) {
     recordIcon(R.drawable.ic_record),
     shareScreenIcon(R.drawable.ic_share_screen),
     shareScreenSlashIcon(R.drawable.ic_share_screen_slash),
+    voiceScreenShareIcon(R.drawable.ic_voice_screen_share),
     expandIcon(R.drawable.ic_expand),
     loadingIcon(R.drawable.ic_loading),
     minimizeIcon(R.drawable.ic_minimize),

@@ -2,11 +2,14 @@ package com.mezon.mobile.home.chat.channelinfo
 
 import android.content.Context
 import android.graphics.Canvas
+import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.Drawable
 import android.text.StaticLayout
+import android.text.TextPaint
 import android.text.TextUtils
+import com.mezon.mobile.R
 import com.mezon.mobile.core.AvatarDrawable
 import com.mezon.mobile.core.BaseCell
 import com.mezon.mobile.core.LayoutHelper
@@ -28,6 +31,9 @@ class MemberCell(context: Context, private val theme: ThemeColors) : BaseCell(co
     private var ownerDrawable: Drawable? = null
     private var isOwner = false
     private var creatorId = 0L
+    private var inVoice = false
+    private var inVoiceLayout: StaticLayout? = null
+    private var inVoiceDrawable: Drawable? = null
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val width = MeasureSpec.getSize(widthMeasureSpec)
@@ -41,6 +47,13 @@ class MemberCell(context: Context, private val theme: ThemeColors) : BaseCell(co
 
     fun setIsDm(dm: Boolean) {
         isDm = dm
+    }
+
+    fun setInVoice(value: Boolean) {
+        if (inVoice == value) return
+        inVoice = value
+        buildLayouts()
+        invalidate()
     }
 
     fun setData(newMember: ClanMember) {
@@ -127,6 +140,19 @@ class MemberCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         nameLayout = StaticLayout.Builder.obtain(
             displayName, 0, displayName.length, theme.dialogNamePaint, maxWidth
         ).setMaxLines(1).setEllipsize(TextUtils.TruncateAt.END).build()
+
+        val statusWidth = measuredWidth - NAME_LEFT - PADDING_RIGHT - STATUS_ICON_SIZE - STATUS_ICON_GAP
+        inVoiceLayout = if (inVoice && statusWidth > 0) {
+            val label = context.getString(R.string.voice_profile_in_voice)
+            statusTextPaint.color = (theme.onSurface and 0x00FFFFFF) or STATUS_ALPHA
+            StaticLayout.Builder.obtain(label, 0, label.length, statusTextPaint, statusWidth)
+                .setMaxLines(1)
+                .setEllipsize(TextUtils.TruncateAt.END)
+                .setIncludePad(false)
+                .build()
+        } else {
+            null
+        }
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -141,7 +167,10 @@ class MemberCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         avatarDrawable.draw(canvas)
 
         var textX = NAME_LEFT.toFloat()
-        val textY = ((CELL_HEIGHT - (nameLayout?.height ?: 0)) / 2).toFloat()
+        val nameHeight = nameLayout?.height ?: 0
+        val statusLayout = inVoiceLayout
+        val blockHeight = if (statusLayout != null) nameHeight + STATUS_GAP + statusLayout.height else nameHeight
+        val textY = ((CELL_HEIGHT - blockHeight) / 2).toFloat()
         nameLayout?.let { layout ->
             canvas.save()
             canvas.translate(textX, textY)
@@ -156,12 +185,30 @@ class MemberCell(context: Context, private val theme: ThemeColors) : BaseCell(co
                     colorFilter = PorterDuffColorFilter(0xFFFAA61A.toInt(), PorterDuff.Mode.SRC_IN)
                 }
             }
-            val iconY = (CELL_HEIGHT - OWNER_ICON_SIZE) / 2
+            val iconY = textY.toInt() + (nameHeight - OWNER_ICON_SIZE) / 2
             ownerDrawable!!.setBounds(
                 textX.toInt(), iconY,
                 textX.toInt() + OWNER_ICON_SIZE, iconY + OWNER_ICON_SIZE
             )
             ownerDrawable!!.draw(canvas)
+        }
+
+        if (statusLayout != null) {
+            val statusTop = textY + nameHeight + STATUS_GAP
+            val drawable = inVoiceDrawable
+                ?: MezonIcon.voiceWaveIcon.getDrawable(context).mutate().apply {
+                    colorFilter = PorterDuffColorFilter(
+                        (theme.onlineGreen and 0x00FFFFFF) or STATUS_ALPHA,
+                        PorterDuff.Mode.SRC_IN
+                    )
+                }.also { inVoiceDrawable = it }
+            val iconTop = (statusTop + (statusLayout.height - STATUS_ICON_SIZE) / 2f).toInt()
+            drawable.setBounds(NAME_LEFT, iconTop, NAME_LEFT + STATUS_ICON_SIZE, iconTop + STATUS_ICON_SIZE)
+            drawable.draw(canvas)
+            canvas.save()
+            canvas.translate((NAME_LEFT + STATUS_ICON_SIZE + STATUS_ICON_GAP).toFloat(), statusTop)
+            statusLayout.draw(canvas)
+            canvas.restore()
         }
 
         val dividerStart = NAME_LEFT.toFloat()
@@ -183,6 +230,13 @@ class MemberCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         private val NAME_LEFT = PADDING_LEFT + AVATAR_SIZE + LayoutHelper.dp(12f)
         private val OWNER_ICON_SIZE = LayoutHelper.dp(16f)
         private val NAME_OWNER_GAP = LayoutHelper.dp(4)
+        private val STATUS_ICON_SIZE = LayoutHelper.dp(14f)
+        private val STATUS_ICON_GAP = LayoutHelper.dp(4)
+        private val STATUS_GAP = LayoutHelper.dp(2)
+        private const val STATUS_ALPHA = 0x99 shl 24
+        private val statusTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = LayoutHelper.sp(12f)
+        }
 
         const val UPDATE_MASK_NAME = 1
         const val UPDATE_MASK_AVATAR = 2

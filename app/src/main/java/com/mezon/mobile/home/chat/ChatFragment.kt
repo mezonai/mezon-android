@@ -11,6 +11,8 @@ import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.Rect
 import android.graphics.drawable.ColorDrawable
+import android.graphics.Canvas
+import android.graphics.Paint
 import android.graphics.drawable.Drawable
 import android.os.Build
 import android.os.Bundle
@@ -20,6 +22,8 @@ import android.text.Editable
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.TextWatcher
+import android.text.style.ImageSpan
+import com.mezon.mobile.network.NetworkMonitor
 import android.view.TouchDelegate
 import android.util.Log
 import android.util.LongSparseArray
@@ -212,6 +216,7 @@ open class ChatFragment : BaseFragment() {
         private const val GIVE_COFFEE_EMOJI = ":coffee:"
         private const val LOADING_INDICATOR_DELAY_MS = 300L
         private const val LOAD_WATCHDOG_MS = 30_000L
+        private val INITIAL_LOAD_RETRY_DELAYS_MS = longArrayOf(600L, 1_200L, 2_400L)
         private const val LIST_REVEAL_FALLBACK_MS = 2_000L
         private val ANONYMOUS_USER_ID = BuildConfig.MEZON_ANONYMOUS_USER_ID.toLongOrNull() ?: 0L
         private const val REQUEST_CALL_PERMISSIONS = 9002
@@ -272,7 +277,7 @@ open class ChatFragment : BaseFragment() {
 
     private lateinit var recyclerView: RecyclerListView
     private lateinit var loadingView: ChatSkeletonView
-    private lateinit var errorView: TextView
+    private lateinit var errorView: LinearLayout
     private lateinit var emptyView: TextView
     private lateinit var inputField: EditText
     private lateinit var sendButton: ImageButton
@@ -361,6 +366,7 @@ open class ChatFragment : BaseFragment() {
     private var isLoading = false
     private var isLoadingMore = false
     private var initialLoadFailed = false
+    private var initialLoadRetryAttempt = 0
     private var hasMoreTop = false
     private var hasMoreBottom = false
     private var isViewingOlder = false
@@ -422,6 +428,7 @@ open class ChatFragment : BaseFragment() {
     private lateinit var roleController: RoleController
     private lateinit var searchController: com.mezon.mobile.search.SearchController
     private lateinit var voiceController: VoiceController
+    private lateinit var networkMonitor: NetworkMonitor
     private lateinit var streamingController: StreamingController
     private lateinit var channelAppController: ChannelAppController
     private lateinit var clansController: ClansController
@@ -466,8 +473,16 @@ open class ChatFragment : BaseFragment() {
             loadingView.visibility = View.VISIBLE
         }
     }
+    private val initialLoadRetryRunnable = Runnable {
+        if (!isLoading || messages.isNotEmpty() || fragmentView == null) return@Runnable
+        loadInitialMessages()
+    }
     private val loadWatchdogRunnable = Runnable {
         if (!isLoading || messages.isNotEmpty() || fragmentView == null) return@Runnable
+        if (!networkMonitor.isOnline.value) {
+            rearmLoadWatchdog()
+            return@Runnable
+        }
         Log.w(TAG, "initial load watchdog fired channel=$channelId topic=$topicId")
         isLoading = false
         initialLoadFailed = true
@@ -706,6 +721,7 @@ open class ChatFragment : BaseFragment() {
 
             isLoading = false
             initialLoadFailed = false
+            initialLoadRetryAttempt = 0
 
             if (jumpingToPresent && isCache) {
                 Log.d(TAG, "jumpToPresent: skip cache response (waiting for API), loaded=${loadedMessages.size}")
@@ -1250,6 +1266,7 @@ open class ChatFragment : BaseFragment() {
                     loadInitialMessages()
                     return@observe
                 }
+                if (messages.isEmpty() && holdInitialLoadForRetry()) return@observe
                 isLoading = false
                 if (messages.isEmpty()) {
                     initialLoadFailed = true
@@ -1467,6 +1484,10 @@ open class ChatFragment : BaseFragment() {
             }
         }
 
+        observe(NotificationCenter.voiceChannelMembersChanged) { _, _, _ ->
+            actionBar?.let { applyDmVoicePresenceSubtitle(it) }
+        }
+
         observe(NotificationCenter.dialogsNeedReload) { _, _, _ ->
             Log.d("DmCallMenu", "dialogsNeedReload fired isPaused=$isPaused clanId=$clanId channelType=$channelType actionBar=${actionBar != null}")
             if (isPaused) return@observe
@@ -1475,6 +1496,7 @@ open class ChatFragment : BaseFragment() {
             }
             if (clanId == 0L && (channelType == CHANNEL_TYPE_DM || channelType == CHANNEL_TYPE_GROUP)) {
                 refreshDmHeaderTitleFromDialog()
+                actionBar?.let { applyDmVoicePresenceSubtitle(it) }
                 refreshWelcomeFromDialog()
             }
             if (clanId != 0L || channelType != CHANNEL_TYPE_DM) return@observe
@@ -1549,6 +1571,7 @@ open class ChatFragment : BaseFragment() {
         topicController = entryPoint.topicController()
         topicBadgeTracker = entryPoint.topicBadgeTracker()
         voiceController = entryPoint.voiceController()
+        networkMonitor = entryPoint.networkMonitor()
         streamingController = entryPoint.streamingController()
         channelAppController = entryPoint.channelAppController()
         clansController = entryPoint.clansController()
@@ -1633,6 +1656,7 @@ open class ChatFragment : BaseFragment() {
                 val rect = Rect(backWidth, 0, width, height)
                 touchDelegate = TouchDelegate(rect, tv)
             }
+            applyDmVoicePresenceSubtitle(this)
             setupDmHeaderCallMenu(this)
             if (isTopicMode) {
                 setTitle(getString(R.string.topic_discussion))
@@ -1665,12 +1689,40 @@ open class ChatFragment : BaseFragment() {
         loadingView = ChatSkeletonView(context, themeColors).apply { visibility = View.GONE }
         contentFrame.addView(loadingView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
-        errorView = TextView(context).apply {
-            setTextColor(themeColors.error)
-            textSize = 14f
+        errorView = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             visibility = View.GONE
-            setOnClickListener { retryInitialLoad() }
+            addView(
+                TextView(context).apply {
+                    setTextColor(themeColors.onSurfaceVariant)
+                    textSize = 14f
+                    gravity = Gravity.CENTER
+                    text = getString(R.string.chat_load_messages_failed)
+                },
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+            addView(
+                TextView(context).apply {
+                    setTextColor(themeColors.onSurface)
+                    textSize = 14f
+                    gravity = Gravity.CENTER
+                    text = getString(R.string.common_retry)
+                    setPadding(LayoutHelper.dp(20f), LayoutHelper.dp(8f), LayoutHelper.dp(20f), LayoutHelper.dp(8f))
+                    background = android.graphics.drawable.GradientDrawable().apply {
+                        cornerRadius = LayoutHelper.dp(18f).toFloat()
+                        setStroke(LayoutHelper.dp(1f), themeColors.outline)
+                    }
+                    setOnClickListener { retryInitialLoad() }
+                },
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = LayoutHelper.dp(12f) }
+            )
         }
         contentFrame.addView(errorView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
@@ -2712,6 +2764,7 @@ open class ChatFragment : BaseFragment() {
         } else if (!isLoading) {
             isLoading = true
             initialLoadFailed = false
+            initialLoadRetryAttempt = 0
             showLoading()
             chatController.loadMessages(channelId, clanId, forceRefresh = true, refreshWhenBackOnline = true, topicId = topicId)
         }
@@ -3344,8 +3397,7 @@ open class ChatFragment : BaseFragment() {
     private fun showLoading() {
         errorView.visibility = View.GONE
         emptyView.visibility = View.GONE
-        mainHandler.removeCallbacks(loadWatchdogRunnable)
-        mainHandler.postDelayed(loadWatchdogRunnable, LOAD_WATCHDOG_MS)
+        rearmLoadWatchdog()
         if (!showLoadingPending) {
             showLoadingPending = true
             mainHandler.postDelayed(showLoadingRunnable, LOADING_INDICATOR_DELAY_MS)
@@ -3380,7 +3432,6 @@ open class ChatFragment : BaseFragment() {
         loadingView.visibility = View.GONE
         emptyView.visibility = View.GONE
         recyclerView.visibility = View.INVISIBLE
-        errorView.text = getString(R.string.common_failed_to_load) + "\n" + getString(R.string.common_retry)
         errorView.visibility = View.VISIBLE
     }
 
@@ -3388,14 +3439,31 @@ open class ChatFragment : BaseFragment() {
         if (isLoading) return
         isLoading = true
         initialLoadFailed = false
+        initialLoadRetryAttempt = 0
         showLoading()
         loadInitialMessages()
+    }
+
+    private fun holdInitialLoadForRetry(): Boolean {
+        if (!networkMonitor.isOnline.value) return true
+        if (initialLoadRetryAttempt >= INITIAL_LOAD_RETRY_DELAYS_MS.size) return false
+        val delayMs = INITIAL_LOAD_RETRY_DELAYS_MS[initialLoadRetryAttempt]
+        initialLoadRetryAttempt++
+        mainHandler.removeCallbacks(initialLoadRetryRunnable)
+        mainHandler.postDelayed(initialLoadRetryRunnable, delayMs)
+        return true
+    }
+
+    private fun rearmLoadWatchdog() {
+        mainHandler.removeCallbacks(loadWatchdogRunnable)
+        mainHandler.postDelayed(loadWatchdogRunnable, LOAD_WATCHDOG_MS)
     }
 
     private fun cancelPendingLoading() {
         mainHandler.removeCallbacks(showLoadingRunnable)
         mainHandler.removeCallbacks(loadWatchdogRunnable)
         mainHandler.removeCallbacks(revealListRunnable)
+        mainHandler.removeCallbacks(initialLoadRetryRunnable)
         showLoadingPending = false
     }
 
@@ -4465,6 +4533,51 @@ open class ChatFragment : BaseFragment() {
         val dm = dialogsController.getDialog(channelId) ?: return false
         if (dm.otherUserId == 0L) return false
         return dm.otherUserId == myId
+    }
+
+    private fun applyDmVoicePresenceSubtitle(bar: ActionBarView) {
+        if (clanId != 0L || channelType != CHANNEL_TYPE_DM || isTopicMode) return
+        val peerId = dialogsController.getDialog(channelId)?.otherUserId ?: 0L
+        val inVoice = peerId != 0L && peerId != userController.userId && voiceController.isUserInVoice(peerId)
+        if (!inVoice) {
+            bar.setSubtitleOnClickListener(null)
+            bar.setSubtitle(null)
+            return
+        }
+        val dimAlpha = 0x99 shl 24
+        bar.setSubtitleStartPadding(0)
+        bar.setSubtitleOnClickListener { showJoinVoiceSheetForDmPeer() }
+        bar.setSubtitleColor((themeColors.onSurface and 0x00FFFFFF) or dimAlpha)
+        val iconSize = LayoutHelper.dp(12)
+        val icon = MezonIcon.voiceWaveIcon.getDrawable(bar.context).mutate().apply {
+            colorFilter = PorterDuffColorFilter((themeColors.onlineGreen and 0x00FFFFFF) or dimAlpha, PorterDuff.Mode.SRC_IN)
+            setBounds(0, 0, iconSize, iconSize)
+        }
+        val text = SpannableString("  " + getString(R.string.voice_profile_in_voice))
+        text.setSpan(CenteredImageSpan(icon), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        bar.setSubtitle(text)
+    }
+
+    private class CenteredImageSpan(drawable: Drawable) : ImageSpan(drawable) {
+        override fun draw(
+            canvas: Canvas,
+            text: CharSequence?,
+            start: Int,
+            end: Int,
+            x: Float,
+            top: Int,
+            y: Int,
+            bottom: Int,
+            paint: Paint
+        ) {
+            val iconDrawable = drawable
+            val metrics = paint.fontMetricsInt
+            val iconTop = y + (metrics.ascent + metrics.descent) / 2 - iconDrawable.bounds.height() / 2
+            canvas.save()
+            canvas.translate(x, iconTop.toFloat())
+            iconDrawable.draw(canvas)
+            canvas.restore()
+        }
     }
 
     private fun refreshDmHeaderTitleFromDialog() {
@@ -8133,6 +8246,29 @@ open class ChatFragment : BaseFragment() {
                 )
             }
         }
+    }
+
+    private fun showJoinVoiceSheetForDmPeer() {
+        if (clanId != 0L || channelType != CHANNEL_TYPE_DM) return
+        val peerId = dialogsController.getDialog(channelId)?.otherUserId ?: return
+        if (peerId == 0L) return
+        val status = voiceController.getUserVoiceStatus(peerId) ?: return
+        val entity = channelController.findChannelById(status.channelId, status.clanId)
+            ?: channelController.findChannelById(status.channelId)
+            ?: ClanChannelEntity(
+                clanId = status.clanId,
+                channelId = status.channelId,
+                parentId = 0L,
+                categoryId = 0L,
+                categoryName = "",
+                channelLabel = getString(R.string.channel_creator_type_voice_title),
+                type = CHANNEL_TYPE_VOICE,
+                isPrivate = false,
+                topic = "",
+                unreadCount = 0,
+                isMuted = false
+            )
+        showJoinVoiceBottomSheet(entity, status.clanId)
     }
 
     private fun showJoinVoiceBottomSheet(channel: ClanChannelEntity, targetClanId: Long) {

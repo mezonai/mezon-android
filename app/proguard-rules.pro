@@ -24,23 +24,6 @@
 }
 -dontwarn org.jni_zero.**
 
--keep class io.livekit.** { *; }
--keep interface io.livekit.** { *; }
--keepclassmembers class io.livekit.** { *; }
--dontwarn io.livekit.**
-
--keep class livekit.** { *; }
--keep interface livekit.** { *; }
--keepclassmembers class livekit.** { *; }
--keepclassmembers,includedescriptorclasses class livekit.org.jni_zero.JniInit {
-    private static java.lang.Object[] init();
-    private static void crashIfMultiplexingMisaligned(long, long);
-}
--dontwarn livekit.**
-
 -keepclasseswithmembernames class * {
     native <methods>;
 }
--keep class org.jni_zero.** { *; }
--keep class livekit.org.webrtc.** { *; }
--keep class livekit.org.jni_zero.** { *; }

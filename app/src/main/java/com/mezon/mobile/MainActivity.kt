@@ -1198,7 +1198,7 @@ class MainActivity : BasePermissionsActivity(),
         ) {
             preloadChatContext(channelId, resolvedChannelName, clanId, routeMeta)
             if (fromNotification) {
-                clearStackAboveTabs()
+                clearStackAboveTabs(keep = lastFragment)
                 switchToTabForClan(clanId)
             }
             if (messageId != 0L) {
@@ -1407,12 +1407,12 @@ class MainActivity : BasePermissionsActivity(),
         )
     }
 
-    private fun clearStackAboveTabs() {
+    private fun clearStackAboveTabs(keep: BaseFragment? = null) {
         val stack = actionBarLayout.getFragmentStack()
         val toRemove = ArrayList<BaseFragment>(stack.size)
         for (i in 1 until stack.size) {
             val f = stack[i]
-            if (f !is MainTabsActivity) {
+            if (f !is MainTabsActivity && f !== keep) {
                 toRemove.add(f)
             }
         }

@@ -2,8 +2,13 @@ package com.mezon.mobile.home.messages
 
 import android.content.Context
 import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffColorFilter
 import android.graphics.RectF
+import android.graphics.drawable.Drawable
 import android.text.StaticLayout
+import android.text.TextPaint
 import android.text.TextUtils
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AvatarDrawable
@@ -11,6 +16,7 @@ import com.mezon.mobile.core.BaseCell
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.util.formatRelativeTime
 
 class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(context) {
@@ -18,6 +24,7 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
     var directMessage: DirectMessage? = null
         private set
     var hasBuzz = false
+    var isInVoice = false
 
     private val avatarDrawable = AvatarDrawable().also { it.attachToView(this) }
     private val avatarLoadState = ChannelAvatarLoadState()
@@ -32,6 +39,8 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
     private var timeColor: Int = 0
     private var badgeLayout: StaticLayout? = null
     private var buzzLayout: StaticLayout? = null
+    private var previewShowsInVoice = false
+    private var inVoiceDrawable: Drawable? = null
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
@@ -81,6 +90,13 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
     fun setData(dm: DirectMessage) {
         directMessage = dm
         update(0)
+    }
+
+    fun applyInVoice(value: Boolean) {
+        if (isInVoice == value) return
+        isInVoice = value
+        buildLayouts()
+        invalidate()
     }
 
     fun update(mask: Int, newDm: DirectMessage? = null): Boolean {
@@ -198,6 +214,17 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         } else 0
         val badgeSpace = if (badgeLayout != null) BADGE_MIN_W + BADGE_GAP else 0
         val previewWidth = contentWidth - badgeSpace - buzzSpace
+        previewShowsInVoice = isInVoice
+        if (previewShowsInVoice) {
+            val label = context.getString(R.string.voice_profile_in_voice)
+            inVoiceTextPaint.color = (theme.onSurface and 0x00FFFFFF) or IN_VOICE_ALPHA
+            val labelWidth = previewWidth - IN_VOICE_ICON_SIZE - IN_VOICE_ICON_GAP
+            previewLayout = StaticLayout.Builder.obtain(label, 0, label.length, inVoiceTextPaint, labelWidth.coerceAtLeast(0))
+                .setMaxLines(1)
+                .setEllipsize(TextUtils.TruncateAt.END)
+                .build()
+            return
+        }
         val previewText = when {
             dm.lastMessageContent.isNotEmpty() -> dm.lastMessageContent
             dm.lastSentMessageId > 0L || dm.lastSentMessageTs > 0L -> ""
@@ -258,8 +285,23 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         textTop += (nameLayout?.height ?: 0) + GAP_V
 
         previewLayout?.let {
+            var previewLeft = textLeft
+            if (previewShowsInVoice) {
+                val drawable = inVoiceDrawable
+                    ?: MezonIcon.voiceWaveIcon.getDrawable(context).mutate().apply {
+                        colorFilter = PorterDuffColorFilter(
+                            (theme.onlineGreen and 0x00FFFFFF) or IN_VOICE_ALPHA,
+                            PorterDuff.Mode.SRC_IN
+                        )
+                    }.also { inVoiceDrawable = it }
+                val iconLeft = textLeft.toInt()
+                val iconTop = (textTop + (it.height - IN_VOICE_ICON_SIZE) / 2f).toInt()
+                drawable.setBounds(iconLeft, iconTop, iconLeft + IN_VOICE_ICON_SIZE, iconTop + IN_VOICE_ICON_SIZE)
+                drawable.draw(canvas)
+                previewLeft += IN_VOICE_ICON_SIZE + IN_VOICE_ICON_GAP
+            }
             canvas.save()
-            canvas.translate(textLeft, textTop)
+            canvas.translate(previewLeft, textTop)
             it.draw(canvas)
             canvas.restore()
         }
@@ -314,5 +356,11 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         private val BUZZ_H_PAD = LayoutHelper.dp(4).toFloat()
         private val BUZZ_BADGE_H = LayoutHelper.dp(20)
         private val BUZZ_RADIUS = LayoutHelper.dpf(4f)
+        private val IN_VOICE_ICON_SIZE = LayoutHelper.dp(14)
+        private val IN_VOICE_ICON_GAP = LayoutHelper.dp(4)
+        private const val IN_VOICE_ALPHA = 0x99 shl 24
+        private val inVoiceTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = LayoutHelper.sp(13f)
+        }
     }
 }

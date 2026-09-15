@@ -255,6 +255,7 @@
     <string name="dm_unmute_failed">Không thể bật thông báo!</string>
     <string name="dm_wave_welcome">Vẫy tay để chào!</string>
     <string name="dm_no_messages">Chưa có tin nhắn</string>
+    <string name="chat_load_messages_failed">Không tải được tin nhắn</string>
     <string name="dm_no_friends">Không tìm thấy bạn bè</string>
     <string name="dm_new_message_to">Đến:</string>
     <string name="dm_new_group">Nhóm mới</string>
