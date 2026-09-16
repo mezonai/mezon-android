@@ -131,10 +131,15 @@ class ClanEventEditorDialog private constructor(
     private var channelId = 0L
     private var isPrivate = false
 
-    private val startDate: Calendar = ClanEventCreateUi.defaultStartTime()
-    private val startTime: Calendar = startDate.clone() as Calendar
-    private val endDate: Calendar = (startDate.clone() as Calendar).apply { add(Calendar.HOUR_OF_DAY, 1) }
-    private val endTime: Calendar = endDate.clone() as Calendar
+    private val eventDate: Calendar = ClanEventCreateUi.defaultStartTime()
+    private val startTime: Calendar = eventDate.clone() as Calendar
+    private val endTime: Calendar = (eventDate.clone() as Calendar).apply {
+        if (get(Calendar.HOUR_OF_DAY) < 23) {
+            add(Calendar.HOUR_OF_DAY, 1)
+        } else {
+            set(Calendar.MINUTE, 59)
+        }
+    }
     private var repeatType = ClanEventRepeatType.DOES_NOT_REPEAT
     private var logoUrl = ""
     private var submitting = false
@@ -161,9 +166,8 @@ class ClanEventEditorDialog private constructor(
 
     private lateinit var titleCell: InputCell
     private lateinit var descriptionCell: InputCell
-    private lateinit var startDatePicker: ClanEventOptionPicker
+    private lateinit var datePicker: ClanEventOptionPicker
     private lateinit var startTimePicker: ClanEventOptionPicker
-    private lateinit var endDatePicker: ClanEventOptionPicker
     private lateinit var endTimePicker: ClanEventOptionPicker
     private lateinit var repeatPicker: ClanEventOptionPicker
     private lateinit var startTimeError: TextView
@@ -417,9 +421,8 @@ class ClanEventEditorDialog private constructor(
         channelId = event.channelId
         repeatType = event.repeatType
         logoUrl = event.logo
-        ClanEventCreateUi.applyEpochSeconds(startDate, event.startTimeSeconds)
+        ClanEventCreateUi.applyEpochSeconds(eventDate, event.startTimeSeconds)
         ClanEventCreateUi.applyEpochSeconds(startTime, event.startTimeSeconds)
-        ClanEventCreateUi.applyEpochSeconds(endDate, event.endTimeSeconds)
         ClanEventCreateUi.applyEpochSeconds(endTime, event.endTimeSeconds)
     }
 
@@ -571,16 +574,13 @@ class ClanEventEditorDialog private constructor(
             }
         }
 
-        startDatePicker = ClanEventCreateUi.createOptionPicker(
+        datePicker = ClanEventCreateUi.createOptionPicker(
             context,
             themeColors,
-            R.string.event_creator_start_date_label,
+            R.string.event_creator_date_label,
             MezonIcon.calendarIcon,
         ) {
-            showChildDialog(ClanEventCreateUi.datePicker(context, startDate, minDate = Calendar.getInstance()) {
-                if (ClanEventCreateUi.startOfDay(startDate).after(ClanEventCreateUi.startOfDay(endDate))) {
-                    endDate.timeInMillis = startDate.timeInMillis
-                }
+            showChildDialog(ClanEventCreateUi.datePicker(context, eventDate, minDate = Calendar.getInstance()) {
                 refreshDateTimeLabels()
                 validateAndRefresh()
             })
@@ -592,17 +592,6 @@ class ClanEventEditorDialog private constructor(
             MezonIcon.eventTimeIcon,
         ) {
             showChildDialog(ClanEventCreateUi.timePicker(context, startTime) {
-                refreshDateTimeLabels()
-                validateAndRefresh()
-            })
-        }
-        endDatePicker = ClanEventCreateUi.createOptionPicker(
-            context,
-            themeColors,
-            R.string.event_creator_end_date_label,
-            MezonIcon.calendarIcon,
-        ) {
-            showChildDialog(ClanEventCreateUi.datePicker(context, endDate, minDate = startDate) {
                 refreshDateTimeLabels()
                 validateAndRefresh()
             })
@@ -621,12 +610,6 @@ class ClanEventEditorDialog private constructor(
         startTimeError = errorText(context)
         endTimeError = errorText(context)
 
-        val endSection = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            addView(dateTimeRow(endDatePicker, endTimePicker))
-            addView(endTimeError)
-        }
-
         descriptionCell = InputCell(context, themeColors).apply {
             setCellBackgroundColor(themeColors.secondaryLight)
             setLabel(null, false, false)
@@ -642,9 +625,8 @@ class ClanEventEditorDialog private constructor(
         ) {
             showRepeatPicker(context)
         }
-        startDatePicker.bindValue(ClanEventCreateUi.formatDate(context, startDate))
+        datePicker.bindValue(ClanEventCreateUi.formatDate(context, eventDate))
         startTimePicker.bindValue(ClanEventCreateUi.formatTime(context, startTime))
-        endDatePicker.bindValue(ClanEventCreateUi.formatDate(context, endDate))
         endTimePicker.bindValue(ClanEventCreateUi.formatTime(context, endTime))
         repeatPicker.bindValue(repeatLabel(context))
 
@@ -670,12 +652,12 @@ class ClanEventEditorDialog private constructor(
                 })
             titleCell.setLabel(getString(R.string.event_creator_name_label), required = true)
             addView(titleCell)
-            addView(dateTimeRow(startDatePicker, startTimePicker),
+            addView(datePicker,
                 LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply { topMargin = majorGap })
+            addView(timeRow(startTimePicker, endTimePicker),
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply { topMargin = sectionGap })
             addView(startTimeError)
-            addView(endSection, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
-                topMargin = sectionGap
-            })
+            addView(endTimeError)
             addView(repeatPicker, ClanEventCreateUi.pickerLayoutParams().apply { topMargin = majorGap })
             descriptionCell.setLabel(getString(R.string.event_creator_description_label))
             addView(descriptionCell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply { topMargin = majorGap })
@@ -695,12 +677,12 @@ class ClanEventEditorDialog private constructor(
         setTextColor(themeColors.onSurface)
     }
 
-    private fun dateTimeRow(date: View, time: View): View = LinearLayout(context).apply {
+    private fun timeRow(start: View, end: View): View = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
-        addView(date, LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1.15f).apply {
+        addView(start, LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f).apply {
             marginEnd = LayoutHelper.dp(8)
         })
-        addView(time, LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f))
+        addView(end, LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f))
     }
 
     private fun buildPreviewStep(context: Context, screenPadH: Int): LinearLayout {
@@ -948,21 +930,20 @@ class ClanEventEditorDialog private constructor(
 
     private fun refreshDateTimeLabels() {
         val ctx = context
-        startDatePicker.bindValue(ClanEventCreateUi.formatDate(ctx, startDate))
+        datePicker.bindValue(ClanEventCreateUi.formatDate(ctx, eventDate))
         startTimePicker.bindValue(ClanEventCreateUi.formatTime(ctx, startTime))
-        endDatePicker.bindValue(ClanEventCreateUi.formatDate(ctx, endDate))
         endTimePicker.bindValue(ClanEventCreateUi.formatTime(ctx, endTime))
         repeatPicker.bindValue(repeatLabel(ctx))
     }
 
     private fun repeatLabel(context: Context): String {
-        val combined = ClanEventCreateUi.combineDateAndTime(startDate, startTime)
+        val combined = ClanEventCreateUi.combineDateAndTime(eventDate, startTime)
         return ClanEventCreateUi.repeatTypeLabels(context, combined)
             .firstOrNull { it.first == repeatType }?.second.orEmpty()
     }
 
     private fun showRepeatPicker(context: Context) {
-        val combined = ClanEventCreateUi.combineDateAndTime(startDate, startTime)
+        val combined = ClanEventCreateUi.combineDateAndTime(eventDate, startTime)
         val labels = ClanEventCreateUi.repeatTypeLabels(context, combined)
         val popup = SelectPopup(context, themeColors)
         repeatPopup?.dismiss()
@@ -976,9 +957,9 @@ class ClanEventEditorDialog private constructor(
         popup.show(repeatPicker, matchAnchorWidth = true)
     }
 
-    private fun combinedStart(): Calendar = ClanEventCreateUi.combineDateAndTime(startDate, startTime)
+    private fun combinedStart(): Calendar = ClanEventCreateUi.combineDateAndTime(eventDate, startTime)
 
-    private fun combinedEnd(): Calendar = ClanEventCreateUi.combineDateAndTime(endDate, endTime)
+    private fun combinedEnd(): Calendar = ClanEventCreateUi.combineDateAndTime(eventDate, endTime)
 
     private fun allowsPastStart(): Boolean = repeatType != ClanEventRepeatType.DOES_NOT_REPEAT
 

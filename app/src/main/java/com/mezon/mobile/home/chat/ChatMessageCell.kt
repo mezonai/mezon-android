@@ -881,7 +881,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             (msg.attachmentFiletype.equals("sticker", true) || msg.attachmentUrl.contains("/stickers/"))
         val bubbleCap = maxBubbleWidth(width)
         var maxW = when {
-            isStickerMsg -> LayoutHelper.dp(160)
+            isStickerMsg -> STICKER_MEDIA_SIZE.coerceAtMost(bubbleCap)
             isInPinMode -> albumMaxWidthPx(width).coerceAtMost(bubbleCap)
             else -> albumMaxWidthPx(width)
         }
@@ -1825,7 +1825,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         var yOff = yOffsetTopOfMainContent(msg)
         yOff += mainContentStackHeight().toFloat()
         if (reactionGroups.isNotEmpty()) {
-            yOff += REACTION_TOP_PAD + reactionRowHeight
+            yOff += reactionTopSpacing() + reactionRowHeight
         }
         return yOff
     }
@@ -1922,7 +1922,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
         if (drawPhotoImage) {
             val imgH = if (mediaGridCount > 1) mediaGridTotalH else photoHeight
-            h += imgH + GAP_V_INNER
+            h += imgH + mediaBottomSpacing()
         }
         if (drawFileAttachment) {
             fun fileCardH(nameL: StaticLayout?, sizeL: StaticLayout?): Int {
@@ -1967,7 +1967,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         h += mainContentStackHeight()
 
         if (reactionGroups.isNotEmpty()) {
-            h += REACTION_TOP_PAD + reactionRowHeight
+            h += reactionTopSpacing() + reactionRowHeight
         }
 
         if (topicButtonLayout.visible) {
@@ -2584,6 +2584,12 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                  msg.attachmentUrl.contains("/stickers/"))
         }
 
+    private fun mediaBottomSpacing(): Int =
+        if (isSticker && reactionGroups.isNotEmpty()) 0 else GAP_V_INNER
+
+    private fun reactionTopSpacing(): Int =
+        if (isSticker) STICKER_REACTION_TOP_PAD else REACTION_TOP_PAD
+
     private var startX = 0f
     private var startY = 0f
     private var longPressScheduled = false
@@ -2787,7 +2793,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     }
                     if (drawPhotoImage) {
                         val imgH = if (mediaGridCount > 1) mediaGridTotalH else photoHeight
-                        reacBaseY += imgH + GAP_V_INNER
+                        reacBaseY += imgH + mediaBottomSpacing()
                     }
                     if (drawFileAttachment) {
                         fun fileCardH2(nl: StaticLayout?, sl: StaticLayout?): Int {
@@ -2801,7 +2807,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     if (drawAudioAttachment) reacBaseY += AUDIO_PILL_HEIGHT + GAP_V_INNER
                     if (hasEmbedContent) reacBaseY += embedMessage.computeHeight()
                     if (drawEphemeral) ephemeralLayout?.let { reacBaseY += it.height + GAP_V_INNER }
-                    reacBaseY += REACTION_TOP_PAD
+                    reacBaseY += reactionTopSpacing()
 
                     if (reactionAddBounds.width() > 0) {
                         val ax = contentLeft + reactionAddBounds.left
@@ -3347,10 +3353,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             )
         }
 
-        yOff += photoHeight + GAP_V_INNER
+        yOff += photoHeight + mediaBottomSpacing()
 
         if (reactionGroups.isNotEmpty()) {
-            yOff += REACTION_TOP_PAD
+            yOff += reactionTopSpacing()
             drawReactionRow(canvas, contentLeft.toFloat(), yOff)
             yOff += reactionRowHeight
         }
@@ -3462,7 +3468,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 photoImage.setImageCoords(imgX, yOff, photoWidth.toFloat(), photoHeight.toFloat())
                 photoImage.draw(canvas)
                 drawMediaOverlays(canvas, msg, imgX, yOff)
-                yOff += photoHeight + GAP_V_INNER
+                yOff += photoHeight + mediaBottomSpacing()
             } else {
                 yOff = drawMediaGrid(canvas, msg, imgX, yOff)
                 yOff += GAP_V_INNER
@@ -3486,7 +3492,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
 
         if (reactionGroups.isNotEmpty()) {
-            yOff += REACTION_TOP_PAD
+            yOff += reactionTopSpacing()
             drawReactionRow(canvas, contentLeft.toFloat(), yOff)
             yOff += reactionRowHeight
         }
@@ -4997,6 +5003,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         private val LINK_INVITE_V_MARGIN = LayoutHelper.dp(12) 
         private val MEDIA_RADIUS = 0f
         private val GIF_MAX_WIDTH = LayoutHelper.dp(200)
+        private val STICKER_MEDIA_SIZE = LayoutHelper.dp(120)
         private val OGP_CARD_RADIUS = LayoutHelper.dp(4).toFloat()
         private val OGP_PADDING = LayoutHelper.dp(10)
         private val OGP_ACCENT_W = LayoutHelper.dp(4)
@@ -5240,6 +5247,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         private val REACTION_EMOJI_MR = LayoutHelper.dp(2)
         private val REACTION_ADD_SIZE = LayoutHelper.dp(20)
         private val REACTION_TOP_PAD = LayoutHelper.dp(6)
+        private val STICKER_REACTION_TOP_PAD = LayoutHelper.dp(4)
 
         private val REACTION_COUNT_PAINT = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             textSize = LayoutHelper.dpf(12f)

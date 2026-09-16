@@ -956,9 +956,8 @@
     <string name="event_creator_details_subtitle">Thêm tên, lịch và ảnh bìa (tùy chọn).</string>
     <string name="event_creator_name_label">Tên sự kiện</string>
     <string name="event_creator_name_placeholder">Nhập tên sự kiện</string>
-    <string name="event_creator_start_date_label">Ngày bắt đầu</string>
+    <string name="event_creator_date_label">Ngày</string>
     <string name="event_creator_start_time_label">Giờ bắt đầu</string>
-    <string name="event_creator_end_date_label">Ngày kết thúc</string>
     <string name="event_creator_end_time_label">Giờ kết thúc</string>
     <string name="event_creator_start_time_error">Giờ bắt đầu phải ở tương lai</string>
     <string name="event_creator_end_time_error">Giờ kết thúc phải sau giờ bắt đầu</string>
