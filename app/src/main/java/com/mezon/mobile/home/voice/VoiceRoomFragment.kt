@@ -51,6 +51,7 @@ import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.home.voice.sfu.MezonSfuSession
 import com.mezon.mobile.home.voice.sfu.SfuConnectionState
 import com.mezon.mobile.home.voice.sfu.SfuParticipant
+import com.mezon.mobile.home.voice.sfu.SfuRemovalCause
 import com.mezon.mobile.home.voice.sfu.SfuRole
 import org.webrtc.VideoTrack
 import kotlinx.coroutines.CoroutineScope
@@ -853,9 +854,13 @@ class VoiceRoomFragment : BaseFragment() {
         Toast.makeText(activity, getString(R.string.voice_room_muted_by_moderator), Toast.LENGTH_SHORT).show()
     }
 
-    private fun onKickedFromRoom(reason: String) {
+    private fun onRemovedFromRoom(cause: SfuRemovalCause, reason: String) {
         getParentActivity()?.let { activity ->
-            Toast.makeText(activity, reason.ifBlank { getString(R.string.voice_room_kicked) }, Toast.LENGTH_SHORT).show()
+            val text = when (cause) {
+                SfuRemovalCause.KICKED -> reason.ifBlank { getString(R.string.voice_room_kicked) }
+                SfuRemovalCause.ALONE_TIMEOUT -> getString(R.string.voice_room_alone_timeout)
+            }
+            Toast.makeText(activity, text, Toast.LENGTH_SHORT).show()
         }
         disconnectAndLeave()
         dismissOverlay()
@@ -922,7 +927,7 @@ class VoiceRoomFragment : BaseFragment() {
             }
             sfuSession.tokenProvider = { voiceController.refreshMeetToken(channelId) }
             sfuSession.onMutedByModerator = { onMutedByModerator() }
-            sfuSession.onKicked = { reason -> onKickedFromRoom(reason) }
+            sfuSession.onRemoved = { cause, reason -> onRemovedFromRoom(cause, reason) }
 
             sfuSession.join(channelId, clanId, userController.userId.toString(), token, joinRole)
             voiceController.onRoomConnected(channelId)
@@ -1541,7 +1546,7 @@ class VoiceRoomFragment : BaseFragment() {
             sfuSession.onLocalVideoTrack = null
             sfuSession.onLocalScreenTrack = null
             sfuSession.onMutedByModerator = null
-            sfuSession.onKicked = null
+            sfuSession.onRemoved = null
             sfuSession.leave()
         }
         sfuConnected = false

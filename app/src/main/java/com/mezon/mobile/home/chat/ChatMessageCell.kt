@@ -1048,7 +1048,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             } else if (isLocalUri) {
                 receiver.setLocalUri(android.net.Uri.parse(att.url), context)
             } else if (isAnimated || isStickerAttachment) {
-                val mainUrl = if (isStickerAttachment) {
+                val mainUrl = if (isStickerAttachment || android.os.Build.VERSION.SDK_INT >= 28) {
                     createImgproxyUrl(att.url, pw, ph, "fit")
                 } else {
                     att.url

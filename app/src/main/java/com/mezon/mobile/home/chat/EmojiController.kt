@@ -1,8 +1,12 @@
 package com.mezon.mobile.home.chat
 
+import android.content.Context
 import android.util.Log
+import com.mezon.mezon.api.EmojiListedResponse
+import com.mezon.mezon.api.StickerListedResponse
 import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.core.NotificationCenter
+import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
 import com.mezon.mobile.network.ApiCacheTracker
@@ -12,13 +16,18 @@ import com.mezon.mobile.network.KlipyApi
 import com.mezon.mobile.network.KlipyCategory
 import com.mezon.mobile.network.KlipyGif
 import com.mezon.mobile.session.SessionManager
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
+
+private const val STARTUP_REFRESH_DELAY_MS = 6_000L
 
 const val LIKE_EMOJI_ID = 7227274405303613492L
 const val LIKE_EMOJI_SHORTNAME = ":like:"
@@ -72,6 +81,7 @@ val PREDEFINED_CATEGORIES = listOf(
 
 @Singleton
 class EmojiController @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val api: MezonApi,
     private val klipyApi: KlipyApi,
     private val dispatcher: SocketEventDispatcher,
@@ -176,72 +186,129 @@ class EmojiController @Inject constructor(
         val serial = synchronized(this) { ++emojiLoadSerial }
         emojiLoadJob?.cancel()
         emojiLoadJob = appScope.launch(ioDispatcher) {
+            if (publishEmojisFromDisk(serial)) delay(STARTUP_REFRESH_DELAY_MS)
             try {
                 val response = sessionManager.withAutoRefresh { session ->
                     api.listEmojisByUserId(session.apiUrl, session.token)
                 }
-                val items = response.emojiListList.map { proto ->
-                    EmojiItem(
-                        id = proto.id.toString(),
-                        shortname = proto.shortname,
-                        src = proto.src,
-                        category = proto.category,
-                        clanId = proto.clanId.toString(),
-                        clanName = proto.clanName,
-                        clanLogo = proto.logo,
-                        isForSale = proto.isForSale,
-                        creatorId = proto.creatorId.toString()
-                    )
+                if (applyEmojis(response, serial, "network")) {
+                    cacheTracker.markCalled("emojis_by_user")
+                    writeDiskCache(emojiCacheFile(), response.toByteArray())
                 }
-                synchronized(this@EmojiController) {
-                    if (serial != emojiLoadSerial) return@synchronized
-                    emojis.clear()
-                    emojisDict.clear()
-                    emojis.addAll(items)
-                    for (item in items) emojisDict[item.id] = item
-                    emojisLoaded = true
-                }
-                if (serial != emojiLoadSerial) return@launch
-                cacheTracker.markCalled("emojis_by_user")
-                Log.d(TAG, "Loaded ${items.size} emojis")
-                notificationCenter.postNotificationOnMainThread(NotificationCenter.emojisNeedReload)
             } catch (e: Exception) {
                 Log.e(TAG, "loadEmojis failed", e)
             }
         }
     }
 
+    private fun emojiCacheFile(): File = File(context.cacheDir, "emoji_list_${StartupCache.userId}.pb")
+
+    private fun stickerCacheFile(): File = File(context.cacheDir, "sticker_list_${StartupCache.userId}.pb")
+
+    private fun publishEmojisFromDisk(serial: Int): Boolean {
+        if (emojisLoaded) return false
+        val bytes = readDiskCache(emojiCacheFile()) ?: return false
+        return try {
+            applyEmojis(EmojiListedResponse.parseFrom(bytes), serial, "disk cache")
+        } catch (e: Exception) {
+            Log.w(TAG, "emoji disk cache unusable", e)
+            emojiCacheFile().delete()
+            false
+        }
+    }
+
+    private fun publishStickersFromDisk(): Boolean {
+        if (stickersLoaded) return false
+        val bytes = readDiskCache(stickerCacheFile()) ?: return false
+        return try {
+            applyStickers(StickerListedResponse.parseFrom(bytes), "disk cache")
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "sticker disk cache unusable", e)
+            stickerCacheFile().delete()
+            false
+        }
+    }
+
+    private fun applyEmojis(response: EmojiListedResponse, serial: Int, source: String): Boolean {
+        val items = response.emojiListList.map { proto ->
+            EmojiItem(
+                id = proto.id.toString(),
+                shortname = proto.shortname,
+                src = proto.src,
+                category = proto.category,
+                clanId = proto.clanId.toString(),
+                clanName = proto.clanName,
+                clanLogo = proto.logo,
+                isForSale = proto.isForSale,
+                creatorId = proto.creatorId.toString()
+            )
+        }
+        synchronized(this) {
+            if (serial != emojiLoadSerial) return false
+            emojis.clear()
+            emojisDict.clear()
+            emojis.addAll(items)
+            for (item in items) emojisDict[item.id] = item
+            emojisLoaded = true
+        }
+        Log.d(TAG, "Loaded ${items.size} emojis ($source)")
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.emojisNeedReload)
+        return true
+    }
+
+    private fun applyStickers(response: StickerListedResponse, source: String) {
+        val items = response.stickersList.map { proto ->
+            StickerItem(
+                id = proto.id.toString(),
+                shortname = proto.shortname,
+                src = proto.source,
+                category = proto.category,
+                clanId = proto.clanId.toString(),
+                clanName = proto.clanName,
+                clanLogo = proto.logo,
+                isForSale = proto.isForSale,
+                creatorId = proto.creatorId.toString(),
+                mediaType = proto.mediaType
+            )
+        }
+        synchronized(this) {
+            stickers.clear()
+            stickersDict.clear()
+            stickers.addAll(items)
+            for (item in items) stickersDict[item.id] = item
+            stickersLoaded = true
+        }
+        Log.d(TAG, "Loaded ${items.size} stickers ($source)")
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.stickersNeedReload)
+    }
+
+    private fun readDiskCache(file: File): ByteArray? = try {
+        if (file.exists() && file.length() > 0L) file.readBytes() else null
+    } catch (e: Exception) {
+        Log.w(TAG, "read ${file.name} failed", e)
+        null
+    }
+
+    private fun writeDiskCache(file: File, bytes: ByteArray) {
+        try {
+            file.writeBytes(bytes)
+        } catch (e: Exception) {
+            Log.w(TAG, "write ${file.name} failed", e)
+        }
+    }
+
     fun loadStickers() {
         if (stickersLoaded && cacheTracker.shouldCall("stickers_by_user") == ApiCacheTracker.ShouldCall.SKIP) return
         appScope.launch(ioDispatcher) {
+            if (publishStickersFromDisk()) delay(STARTUP_REFRESH_DELAY_MS)
             try {
                 val response = sessionManager.withAutoRefresh { session ->
                     api.listStickersByUserId(session.apiUrl, session.token)
                 }
-                val items = response.stickersList.map { proto ->
-                    StickerItem(
-                        id = proto.id.toString(),
-                        shortname = proto.shortname,
-                        src = proto.source,
-                        category = proto.category,
-                        clanId = proto.clanId.toString(),
-                        clanName = proto.clanName,
-                        clanLogo = proto.logo,
-                        isForSale = proto.isForSale,
-                        creatorId = proto.creatorId.toString(),
-                        mediaType = proto.mediaType
-                    )
-                }
-                synchronized(this@EmojiController) {
-                    stickers.clear()
-                    stickersDict.clear()
-                    stickers.addAll(items)
-                    for (item in items) stickersDict[item.id] = item
-                    stickersLoaded = true
-                }
+                applyStickers(response, "network")
                 cacheTracker.markCalled("stickers_by_user")
-                Log.d(TAG, "Loaded ${items.size} stickers")
-                notificationCenter.postNotificationOnMainThread(NotificationCenter.stickersNeedReload)
+                writeDiskCache(stickerCacheFile(), response.toByteArray())
             } catch (e: Exception) {
                 Log.e(TAG, "loadStickers failed", e)
             }

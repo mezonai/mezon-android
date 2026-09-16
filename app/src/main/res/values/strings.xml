@@ -1382,6 +1382,7 @@
     <string name="voice_room_moderation_kick_failed">Could not kick this member.</string>
     <string name="voice_room_muted_by_moderator">You have been muted by a channel moderator.</string>
     <string name="voice_room_kicked">You have been kicked from the channel.</string>
+    <string name="voice_room_alone_timeout">You were disconnected from the voice channel because you were alone in it for too long.</string>
     <string name="voice_room_mic_permission_title">Microphone permission required</string>
     <string name="voice_room_mic_permission_message">Mezon needs microphone access to let you speak in this voice channel. Please enable it in Settings.</string>
     <string name="voice_room_camera_permission_title">Camera permission required</string>
@@ -1821,4 +1822,9 @@
     <string name="message_toast_save_success">Save successfully</string>
     <string name="message_toast_save_failed">Save failed</string>
     <string name="message_toast_share_failed">Share failed</string>
+    <string name="voice_channel_ongoing_channel_name">Ongoing Voice</string>
+    <string name="voice_channel_ongoing_channel_desc">Active voice channel indicator</string>
+    <string name="voice_channel_ongoing_title">Voice channel</string>
+    <string name="voice_channel_ongoing_text">Connected to %1$s</string>
+    <string name="voice_channel_ongoing_text_generic">Connected to a voice channel</string>
 </resources>

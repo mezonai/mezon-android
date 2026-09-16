@@ -39,8 +39,8 @@ android {
         applicationId = "com.mezon.mobile"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1135
-        versionName = "1.1.202"
+        versionCode = 1171
+        versionName = "1.2.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

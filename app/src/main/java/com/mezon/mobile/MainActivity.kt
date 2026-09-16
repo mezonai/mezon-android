@@ -288,7 +288,6 @@ class MainActivity : BasePermissionsActivity(),
         notificationCenter.addObserver(this, NotificationCenter.incomingCall)
         notificationCenter.addObserver(this, NotificationCenter.callEnded)
         notificationCenter.addObserver(this, NotificationCenter.callStateChanged)
-        notificationCenter.addObserver(this, NotificationCenter.needUsernameSetup)
     }
 
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
@@ -384,7 +383,6 @@ class MainActivity : BasePermissionsActivity(),
         notificationCenter.removeObserver(this, NotificationCenter.incomingCall)
         notificationCenter.removeObserver(this, NotificationCenter.callEnded)
         notificationCenter.removeObserver(this, NotificationCenter.callStateChanged)
-        notificationCenter.removeObserver(this, NotificationCenter.needUsernameSetup)
 
         dismissIncomingCallOverlay(removeView = true)
         dismissOngoingCallBanner(removeView = true)
@@ -502,8 +500,6 @@ class MainActivity : BasePermissionsActivity(),
         actionBarLayout.onRequestPermissionsResult(requestCode, permissions, grantResults)
     }
 
-    // ── NotificationCenterDelegate ──────────────────────────────────────────
-
     override fun didReceivedNotification(id: Int, account: Int, vararg args: Any?) {
         when (id) {
             NotificationCenter.themeChanged -> {
@@ -531,9 +527,7 @@ class MainActivity : BasePermissionsActivity(),
             NotificationCenter.needCheckSystemBarColors -> {
                 checkSystemBarColors()
             }
-            NotificationCenter.connectionStateChanged -> {
-                // handled by ConnectionController UI updates
-            }
+            NotificationCenter.connectionStateChanged -> {}
             NotificationCenter.sessionExpired -> {
                 dismissIncomingCallOverlay(removeView = false)
                 promptSessionExpired()
@@ -555,17 +549,6 @@ class MainActivity : BasePermissionsActivity(),
             NotificationCenter.callStateChanged -> {
                 refreshOngoingCallBanner()
             }
-            NotificationCenter.needUsernameSetup -> {
-                maybeShowUsernameGate()
-            }
-        }
-    }
-
-    private fun maybeShowUsernameGate() {
-        if (!StartupCache.hasSession || !StartupCache.needsUsernameSetup) return
-        when (actionBarLayout.getLastFragment()) {
-            is UpdateUsernameFragment, is LoginFragment, is OTPVerificationFragment -> return
-            else -> showUpdateUsernameGate()
         }
     }
 

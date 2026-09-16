@@ -23,6 +23,7 @@ object HappyEyeballsConnector {
     private const val TAG = "HappyEyeballs"
     private const val CONNECTION_ATTEMPT_DELAY_MS = 250L
     private const val TCP_FASTOPEN_CONNECT = 30
+    private const val DEFERRED_CONNECT_MS = 5L
 
     private val raceCounter = AtomicInteger()
 
@@ -146,7 +147,8 @@ object HappyEyeballsConnector {
                 socket.tcpNoDelay = true
                 val fastOpen = enableFastOpen(socket)
                 socket.connect(InetSocketAddress(address, port), timeoutMs)
-                Log.d(TAG, "$label connect() returned in ${SystemClock.elapsedRealtime() - startedAt}ms (fastOpen=$fastOpen), starting TLS")
+                val connectMs = SystemClock.elapsedRealtime() - startedAt
+                Log.d(TAG, "$label connect() returned in ${connectMs}ms, TFO=${fastOpenState(fastOpen, connectMs)}, starting TLS")
                 val tls = handshakeTls(socket, host, port, timeoutMs)
                 AttemptOutcome.Ready(attempt, socket, SystemClock.elapsedRealtime() - startedAt, tls)
             } catch (t: Throwable) {
@@ -168,6 +170,12 @@ object HappyEyeballsConnector {
         } catch (e: Exception) {
             "off, ${e.javaClass.simpleName}: ${e.message}"
         }
+    }
+
+    private fun fastOpenState(fastOpen: String, connectMs: Long): String = when {
+        fastOpen != "on" -> fastOpen
+        connectMs <= DEFERRED_CONNECT_MS -> "cookie-used (server gave a cookie earlier, SYN carries the ClientHello)"
+        else -> "cookie-pending (plain handshake, server cookie expected in the SYN-ACK)"
     }
 
     private fun handshakeTls(socket: Socket, host: String, port: Int, timeoutMs: Int): SSLSocket {

@@ -1162,6 +1162,7 @@
     <string name="voice_room_moderation_kick_failed">Không thể đuổi thành viên này.</string>
     <string name="voice_room_muted_by_moderator">Bạn đã bị quản trị viên kênh tắt tiếng.</string>
     <string name="voice_room_kicked">Bạn đã bị đuổi khỏi kênh.</string>
+    <string name="voice_room_alone_timeout">Bạn đã bị ngắt khỏi kênh thoại vì ở một mình quá lâu.</string>
     <string name="voice_room_mic_permission_title">Cần quyền micro</string>
     <string name="voice_room_mic_permission_message">Mezon cần quyền truy cập micro để bạn có thể nói trong kênh thoại. Vui lòng bật quyền này trong Cài đặt.</string>
     <string name="voice_room_camera_permission_title">Cần quyền camera</string>
@@ -1712,4 +1713,9 @@
     <string name="message_toast_save_success">Lưu thành công</string>
     <string name="message_toast_save_failed">Lưu thất bại</string>
     <string name="message_toast_share_failed">Chia sẻ thất bại</string>
+    <string name="voice_channel_ongoing_channel_name">Kênh thoại đang hoạt động</string>
+    <string name="voice_channel_ongoing_channel_desc">Chỉ báo kênh thoại đang hoạt động</string>
+    <string name="voice_channel_ongoing_title">Kênh thoại</string>
+    <string name="voice_channel_ongoing_text">Đang kết nối tới %1$s</string>
+    <string name="voice_channel_ongoing_text_generic">Đang kết nối tới một kênh thoại</string>
 </resources>

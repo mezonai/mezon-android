@@ -279,7 +279,7 @@ class OTPVerificationFragment : BaseFragment() {
 
         fragmentScope.launch(Dispatchers.Main) {
             val result = withContext(entryPoint().ioDispatcher()) {
-                authRepository.confirmOTP(reqId, code)
+                authRepository.confirmOTP(reqId, code, isSms)
             }
             result
                 .onSuccess {

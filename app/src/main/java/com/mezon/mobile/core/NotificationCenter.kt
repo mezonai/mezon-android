@@ -81,7 +81,6 @@ class NotificationCenter(val currentAccount: Int) {
         val clanInfoUpdated = nextId()
         val clanBannerCropped = nextId()
         val accountInfoLoaded = nextId()
-        val needUsernameSetup = nextId()
         val blockedUsersLoaded = nextId()
         val friendsLoaded = nextId()
         val notificationsDidLoad = nextId()

@@ -127,6 +127,11 @@ class MezonSocket @Inject constructor(
     @Volatile var socketTokenFingerprint: String? = null
         private set
 
+    fun isSocketTokenStale(token: String): Boolean {
+        val current = socketTokenFingerprint ?: return false
+        return current != tokenFp(token)
+    }
+
     private fun tokenFp(token: String?): String =
         if (token.isNullOrEmpty()) "?" else token.takeLast(6)
 
@@ -220,7 +225,7 @@ class MezonSocket @Inject constructor(
             cancelReconnectHealthReset()
             reconnectFailCount = 0
             reconnectDelayMs = RECONNECT_MIN_MS
-            scheduleReconnect()
+            scheduleReconnect(immediate = true)
         }
     }
 
@@ -869,6 +874,7 @@ class MezonSocket @Inject constructor(
         }
         if (firstConfirmation) {
             Log.d(TAG, "[ABRIDGED] realtime readiness confirmed by inbound frame gen=$generation")
+            markTransportReady(t)
         }
     }
 
@@ -1052,7 +1058,7 @@ class MezonSocket @Inject constructor(
         }
     }
 
-    private fun scheduleReconnect() {
+    private fun scheduleReconnect(immediate: Boolean = false) {
         synchronized(connectLock) {
             if (currentWsUrl == null || currentToken == null) return
             if (isReconnecting) return
@@ -1085,7 +1091,7 @@ class MezonSocket @Inject constructor(
 
                 val jitter = Random.nextLong(JITTER_RANGE_MS)
                 val baseMs = synchronized(connectLock) { reconnectDelayMs }
-                val delayMs = baseMs + jitter
+                val delayMs = if (immediate) 0L else baseMs + jitter
                 val totalAttempts = totalReconnectAttempts.incrementAndGet()
                 Log.d(TAG, "Reconnecting in ${delayMs}ms (attempt $reconnectFailCount/$MAX_RECONNECT_FAILS, totalSinceProcessStart=$totalAttempts)")
                 delay(delayMs)
