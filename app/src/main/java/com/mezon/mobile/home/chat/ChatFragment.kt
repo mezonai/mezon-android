@@ -2365,6 +2365,9 @@ open class ChatFragment : BaseFragment() {
             override fun didClickEmbedComponentButton(cell: ChatMessageCell, msg: MessageEntity, buttonId: String) {
                 submitEmbedComponentButton(msg, buttonId)
             }
+            override fun didChangeEmbedSelect(cell: ChatMessageCell, msg: MessageEntity, componentId: String, value: String) {
+                submitEmbedSelectChange(msg, componentId, value)
+            }
             override fun didTapShareContactProfile(cell: ChatMessageCell, msg: MessageEntity, data: ShareContactData) {
                 showShareContactProfile(data)
             }
@@ -3965,6 +3968,29 @@ open class ChatFragment : BaseFragment() {
                         getString(R.string.embed_form_submit_failed),
                     )
                 }
+            }
+        }
+    }
+
+    private fun submitEmbedSelectChange(msg: MessageEntity, componentId: String, value: String) {
+        if (msg.isSending) return
+        val uid = currentUserIdLong()
+        appScope.launch(Dispatchers.IO) {
+            try {
+                sessionManager.withAutoRefresh { session ->
+                    mezonApi.messageButtonClick(
+                        session.apiUrl,
+                        session.token,
+                        msg.id,
+                        msg.channelId,
+                        componentId,
+                        msg.senderId,
+                        uid,
+                        value,
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "embed select notify failed", e)
             }
         }
     }

@@ -954,8 +954,7 @@ data class EmbedData(
 )
 
 private const val MESSAGE_COMPONENT_TYPE_ACTION_ROW = 1
-private const val MESSAGE_COMPONENT_TYPE_BUTTON_LEGACY = 1
-private const val MESSAGE_COMPONENT_TYPE_BUTTON_V2 = 2
+private const val MESSAGE_COMPONENT_TYPE_BUTTON = 1
 
 enum class EmbedButtonStyle(val value: Int) {
     PRIMARY(1),
@@ -977,7 +976,17 @@ data class EmbedComponentButton(
     val disabled: Boolean,
 )
 
-data class EmbedActionRow(val buttons: List<EmbedComponentButton>)
+sealed class EmbedRowComponent {
+    data class Button(val button: EmbedComponentButton) : EmbedRowComponent()
+
+    data class Select(
+        val componentId: String,
+        val placeholder: String,
+        val spec: EmbedSelectSpec,
+    ) : EmbedRowComponent()
+}
+
+data class EmbedActionRow(val components: List<EmbedRowComponent>)
 
 data class EmbedPayload(
     val embeds: List<EmbedData>,
@@ -1007,47 +1016,109 @@ private fun parseEmbedActionRowsFromObject(obj: JSONObject): List<EmbedActionRow
         val rowType = rowObj.optInt("type", -1)
         if (rowType > 0 && rowType != MESSAGE_COMPONENT_TYPE_ACTION_ROW) continue
         val comps = rowObj.optJSONArray("components") ?: continue
-        val buttons = ArrayList<EmbedComponentButton>(comps.length())
+        val components = ArrayList<EmbedRowComponent>(comps.length())
         for (c in 0 until comps.length()) {
             val comp = comps.optJSONObject(c) ?: continue
-            val compType = comp.optInt("type", -1)
-            val isButton = compType == MESSAGE_COMPONENT_TYPE_BUTTON_LEGACY ||
-                compType == MESSAGE_COMPONENT_TYPE_BUTTON_V2
-            if (!isButton) continue
-            val inner = comp.optJSONObject("component")
-            val id = comp.optString("id", "")
-                .ifEmpty { comp.optString("custom_id", "") }
-                .ifEmpty { comp.optString("component_id", "") }
-                .ifEmpty {
-                    inner?.optString("id", "")
-                        ?.ifEmpty { inner.optString("custom_id", "") }
-                        ?.ifEmpty { inner.optString("component_id", "") }
-                        .orEmpty()
-                }
-            if (id.isEmpty()) continue
-            val label = inner?.optString("label", "")?.ifEmpty { comp.optString("label", "") }
-                ?: comp.optString("label", "")
-            if (label.isEmpty()) continue
-            val url = inner?.optString("url", "")?.takeIf { it.isNotEmpty() }
-                ?: comp.optString("url", "").takeIf { it.isNotEmpty() }
-            val style = EmbedButtonStyle.fromInt(
-                if (inner != null && inner.has("style")) {
-                    inner.optInt("style", EmbedButtonStyle.PRIMARY.value)
-                } else {
-                    comp.optInt("style", EmbedButtonStyle.PRIMARY.value)
-                }
-            )
-            val disabled = comp.optBoolean("disable", false) ||
-                comp.optBoolean("disabled", false) ||
-                comp.optBoolean("isDisabled", false) ||
-                inner?.optBoolean("disable", false) == true ||
-                inner?.optBoolean("disabled", false) == true ||
-                inner?.optBoolean("isDisabled", false) == true
-            buttons.add(EmbedComponentButton(id, label, url, style, disabled))
+            val parsed = when (comp.optInt("type", -1)) {
+                MESSAGE_COMPONENT_TYPE_BUTTON -> parseRowButton(comp)?.let { EmbedRowComponent.Button(it) }
+                MESSAGE_COMPONENT_TYPE_SELECT -> parseRowSelect(comp)
+                else -> null
+            } ?: continue
+            components.add(parsed)
         }
-        if (buttons.isNotEmpty()) out.add(EmbedActionRow(buttons))
+        if (components.isNotEmpty()) out.add(EmbedActionRow(components))
     }
     return out
+}
+
+private fun rowComponentId(comp: JSONObject, inner: JSONObject?): String =
+    comp.optString("id", "")
+        .ifEmpty { comp.optString("custom_id", "") }
+        .ifEmpty { comp.optString("component_id", "") }
+        .ifEmpty {
+            inner?.optString("id", "")
+                ?.ifEmpty { inner.optString("custom_id", "") }
+                ?.ifEmpty { inner.optString("component_id", "") }
+                .orEmpty()
+        }
+
+private fun parseRowButton(comp: JSONObject): EmbedComponentButton? {
+    val inner = comp.optJSONObject("component")
+    val id = rowComponentId(comp, inner)
+    if (id.isEmpty()) return null
+    val label = inner?.optString("label", "")?.ifEmpty { comp.optString("label", "") }
+        ?: comp.optString("label", "")
+    if (label.isEmpty()) return null
+    val url = inner?.optString("url", "")?.takeIf { it.isNotEmpty() }
+        ?: comp.optString("url", "").takeIf { it.isNotEmpty() }
+    val style = EmbedButtonStyle.fromInt(
+        if (inner != null && inner.has("style")) {
+            inner.optInt("style", EmbedButtonStyle.PRIMARY.value)
+        } else {
+            comp.optInt("style", EmbedButtonStyle.PRIMARY.value)
+        }
+    )
+    val disabled = comp.optBoolean("disable", false) ||
+        comp.optBoolean("disabled", false) ||
+        comp.optBoolean("isDisabled", false) ||
+        inner?.optBoolean("disable", false) == true ||
+        inner?.optBoolean("disabled", false) == true ||
+        inner?.optBoolean("isDisabled", false) == true
+    return EmbedComponentButton(id, label, url, style, disabled)
+}
+
+private fun parseRowSelect(comp: JSONObject): EmbedRowComponent.Select? {
+    val inner = comp.optJSONObject("component")
+    val id = rowComponentId(comp, inner)
+    if (id.isEmpty()) return null
+    val placeholder = inner?.optString("placeholder", "")?.ifEmpty { comp.optString("placeholder", "") }
+        ?: comp.optString("placeholder", "")
+    return EmbedRowComponent.Select(id, placeholder, parseEmbedSelectSpec(inner ?: JSONObject(), comp))
+}
+
+private fun parseEmbedSelectSpec(comp: JSONObject, wrapper: JSONObject): EmbedSelectSpec {
+    val opts = mutableListOf<EmbedSelectOptionSpec>()
+    val optionsArr = comp.optJSONArray("options")
+    if (optionsArr != null) {
+        for (oi in 0 until optionsArr.length()) {
+            val o = optionsArr.optJSONObject(oi)
+            if (o != null) {
+                opts.add(
+                    EmbedSelectOptionSpec(
+                        label = o.optString("label", ""),
+                        value = o.optString("value", ""),
+                        defaultSelected = o.optBoolean("default", false),
+                    ),
+                )
+                continue
+            }
+            val scalar = optionsArr.opt(oi)
+            if (scalar == null || scalar == JSONObject.NULL) continue
+            val text = scalar.toString()
+            if (text.isNotEmpty()) opts.add(EmbedSelectOptionSpec(label = text, value = text, defaultSelected = false))
+        }
+    }
+    val minO = comp.optInt("min_options", 0)
+    val maxSource = if (wrapper.has("max_options") && !wrapper.isNull("max_options")) wrapper else comp
+    val hasMaxKey = maxSource.has("max_options") && !maxSource.isNull("max_options")
+    val maxO = if (hasMaxKey) maxSource.optInt("max_options", 1).coerceAtLeast(1) else 1
+    val isMulti = (minO > 1) || (hasMaxKey && maxO >= 2)
+    val initial = mutableListOf<String>()
+    for (o in opts) {
+        if (o.defaultSelected && o.value.isNotEmpty()) initial.add(o.value)
+    }
+    for (vv in extractSelectValueSelectedStrings(comp)) {
+        if (vv.isNotEmpty() && vv !in initial) initial.add(vv)
+    }
+    val disabled = comp.optBoolean("disabled", false) || comp.optBoolean("disable", false)
+    return EmbedSelectSpec(
+        options = opts,
+        isMulti = isMulti,
+        minPick = minO,
+        maxPick = maxO,
+        disabled = disabled,
+        initialSelection = initial.distinct(),
+    )
 }
 
 fun parseEmbedActionRows(content: String): List<EmbedActionRow> =
@@ -1182,43 +1253,9 @@ private fun parseEmbedJsonObject(embed: JSONObject): EmbedData? {
                     when (type) {
                         MESSAGE_COMPONENT_TYPE_SELECT -> {
                             val comp = inputsObj.optJSONObject("component") ?: JSONObject()
-                            val opts = mutableListOf<EmbedSelectOptionSpec>()
-                            val optionsArr = comp.optJSONArray("options")
-                            if (optionsArr != null) {
-                                for (oi in 0 until optionsArr.length()) {
-                                    val o = optionsArr.optJSONObject(oi) ?: continue
-                                    opts.add(
-                                        EmbedSelectOptionSpec(
-                                            label = o.optString("label", ""),
-                                            value = o.optString("value", ""),
-                                            defaultSelected = o.optBoolean("default", false),
-                                        ),
-                                    )
-                                }
-                            }
-                            val minO = comp.optInt("min_options", 0)
-                            val hasMaxKey = comp.has("max_options") && !comp.isNull("max_options")
-                            val maxO = if (hasMaxKey) comp.optInt("max_options", 1).coerceAtLeast(1) else 1
-                            val isMulti = (minO > 1) || (hasMaxKey && maxO >= 2)
-                            val initial = mutableListOf<String>()
-                            for (o in opts) {
-                                if (o.defaultSelected && o.value.isNotEmpty()) initial.add(o.value)
-                            }
-                            for (vv in extractSelectValueSelectedStrings(comp)) {
-                                if (vv.isNotEmpty() && vv !in initial) initial.add(vv)
-                            }
-                            val disabled = comp.optBoolean("disabled", false) ||
-                                comp.optBoolean("disable", false)
                             EmbedFieldInteractive.Select(
                                 componentId = idResolved,
-                                input = EmbedSelectSpec(
-                                    options = opts,
-                                    isMulti = isMulti,
-                                    minPick = minO,
-                                    maxPick = maxO,
-                                    disabled = disabled,
-                                    initialSelection = initial.distinct(),
-                                ),
+                                input = parseEmbedSelectSpec(comp, inputsObj),
                             )
                         }
                         MESSAGE_COMPONENT_TYPE_INPUT -> {
