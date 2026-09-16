@@ -255,7 +255,6 @@ class AccountController @Inject constructor(
                     )
 
                     _accountInfo.value = info
-                    syncUsernameGate(info)
                     cacheTracker.markCalled(cacheKey)
                     userController.updateFromAccount(info)
                     persistAccountScratch(info)
@@ -270,23 +269,6 @@ class AccountController @Inject constructor(
 
     fun loadAccount(noCache: Boolean = false) {
         appScope.launch { loadAccountInternal(noCache) }
-    }
-
-    private fun syncUsernameGate(info: AccountInfo) {
-        val phone = info.phoneNumber.trim()
-        if (phone.isEmpty()) return
-        val needsSetup = usernameMatchesPhone(info.username, phone)
-        val previouslyNeeded = StartupCache.needsUsernameSetup
-        StartupCache.needsUsernameSetup = needsSetup
-        if (needsSetup && !previouslyNeeded) {
-            notificationCenter.postNotificationOnMainThread(NotificationCenter.needUsernameSetup)
-        }
-    }
-
-    private fun usernameMatchesPhone(username: String, phone: String): Boolean {
-        val u = username.trim().removePrefix("+")
-        if (u.isEmpty()) return false
-        return u == phone.removePrefix("+")
     }
 
     fun reduceBalanceLocally(deltaRaw: BigInteger) {

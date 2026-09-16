@@ -27,6 +27,7 @@ import com.mezon.mobile.util.EmbedFieldInteractive
 import com.mezon.mobile.util.EmbedInputComponentSpec
 import com.mezon.mobile.util.EmbedRadioOptionSpec
 import com.mezon.mobile.util.EmbedRadioSpec
+import com.mezon.mobile.util.EmbedRowComponent
 import com.mezon.mobile.util.EmbedSelectSpec
 import com.mezon.mobile.util.createImgproxyUrl
 import com.mezon.mobile.util.formatEmbedRichText
@@ -75,12 +76,26 @@ sealed class EmbedInteractiveGeometry {
         override var componentId: String = ""
         lateinit var input: EmbedSelectSpec
         var fieldName: String = ""
+        var placeholder: String = ""
+        var standalone: Boolean = false
 
-        fun set(left: Float, top: Float, right: Float, bottom: Float, id: String, spec: EmbedSelectSpec, name: String) {
+        fun set(
+            left: Float,
+            top: Float,
+            right: Float,
+            bottom: Float,
+            id: String,
+            spec: EmbedSelectSpec,
+            name: String,
+            placeholderText: String,
+            isStandalone: Boolean,
+        ) {
             rect.set(left, top, right, bottom)
             componentId = id
             input = spec
             fieldName = name
+            placeholder = placeholderText
+            standalone = isStandalone
         }
     }
 
@@ -187,10 +202,21 @@ class EmbedMessageRenderer(
         val style: EmbedButtonStyle,
     )
 
+    private data class LaidOutRowSelect(
+        val relX: Float,
+        val relY: Float,
+        val width: Float,
+        val height: Int,
+        val componentId: String,
+        val placeholder: String,
+        val spec: EmbedSelectSpec,
+    )
+
     private val buttonHits = mutableListOf<EmbedButtonHit>()
     private var buttonHitCount = 0
     private var laidOutButtons = emptyList<LaidOutButton>()
-    private var buttonsBlockHeight = 0
+    private var laidOutRowSelects = emptyList<LaidOutRowSelect>()
+    private var actionRowsBlockHeight = 0
     private var pressedButtonKey = ""
 
     fun setPressedButton(key: String?) {
@@ -343,7 +369,8 @@ class EmbedMessageRenderer(
         radioOptionHeightCache.clear()
         syncCardImageBundles(0)
         laidOutButtons = emptyList()
-        buttonsBlockHeight = 0
+        laidOutRowSelects = emptyList()
+        actionRowsBlockHeight = 0
         buttonHitCount = 0
         buttonHits.clear()
         embedInteractiveGeometryCount = 0
@@ -443,6 +470,8 @@ class EmbedMessageRenderer(
         componentId: String,
         input: EmbedSelectSpec,
         fieldName: String,
+        placeholder: String = "",
+        standalone: Boolean = false,
     ) {
         val index = embedInteractiveGeometryCount++
         val geom = embedInteractiveGeometries.getOrNull(index) as? EmbedInteractiveGeometry.SelectField
@@ -453,7 +482,7 @@ class EmbedMessageRenderer(
                     embedInteractiveGeometries.add(it)
                 }
             }
-        geom.set(left, top, right, bottom, componentId, input, fieldName)
+        geom.set(left, top, right, bottom, componentId, input, fieldName, placeholder, standalone)
     }
 
     private fun putRadioGeometry(
@@ -707,7 +736,7 @@ class EmbedMessageRenderer(
         }
         BUTTON_LABEL_PAINT.textSize = LayoutHelper.dpf(14f)
         BUTTON_LABEL_PAINT.color = 0xFFFFFFFF.toInt()
-        rebuildButtonLayouts(textWidth)
+        rebuildActionRowLayouts(textWidth)
         laidOutSourceRevision = sourceRevision
         onLayoutsRebuilt?.invoke()
     }
@@ -725,61 +754,90 @@ class EmbedMessageRenderer(
         }
     }
 
-    private fun rebuildButtonLayouts(textWidth: Int) {
+    private fun rebuildActionRowLayouts(textWidth: Int) {
         laidOutButtons = emptyList()
-        buttonsBlockHeight = 0
+        laidOutRowSelects = emptyList()
+        actionRowsBlockHeight = 0
         if (actionRows.isEmpty()) return
         val maxW = textWidth.toFloat().coerceAtLeast(1f)
         val gap = BUTTON_ROW_GAP.toFloat()
         val panelGap = ACTION_ROW_PANEL_GAP.toFloat()
-        val placed = mutableListOf<LaidOutButton>()
+        val placedButtons = mutableListOf<LaidOutButton>()
+        val placedSelects = mutableListOf<LaidOutRowSelect>()
         var globalY = 0f
         for ((rowIdx, row) in actionRows.withIndex()) {
             if (rowIdx > 0) globalY += panelGap
             var x = 0f
             var lineTop = globalY
             var lineMaxH = 0
-            for (btn in row.buttons) {
-                val innerW = (maxW - BUTTON_PAD_H * 2).toInt().coerceAtLeast(1)
-                val rich = formatEmbedRichText(btn.label, theme())
-                val labelLayout = CodeFenceSpan.buildRichStaticLayout(rich, BUTTON_LABEL_PAINT, innerW) {
-                    setMaxLines(2)
-                    setEllipsize(TextUtils.TruncateAt.END)
-                    setLineSpacing(LayoutHelper.dpf(1f), 1f)
-                    setIncludePad(false)
-                }
-                var textW = 0f
-                for (li in 0 until labelLayout.lineCount) {
-                    textW = max(textW, labelLayout.getLineWidth(li))
-                }
-                var bw = (BUTTON_PAD_H * 2 + textW).coerceAtLeast(BUTTON_MIN_W.toFloat()).coerceAtMost(maxW)
-                if (x > 0f && x + bw > maxW + 0.5f) {
+            fun place(itemW: Float, itemH: Int): Pair<Float, Float> {
+                if (x > 0f && x + itemW > maxW + 0.5f) {
                     globalY += lineMaxH + gap
                     x = 0f
                     lineTop = globalY
                     lineMaxH = 0
                 }
-                val btnH = max(BUTTON_H, labelLayout.height + LayoutHelper.dp(12))
-                placed.add(
-                    LaidOutButton(
-                        relX = x,
-                        relY = lineTop,
-                        width = bw,
-                        height = btnH,
-                        buttonId = btn.componentId,
-                        url = btn.url,
-                        disabled = btn.disabled,
-                        labelLayout = labelLayout,
-                        style = btn.style,
-                    )
-                )
-                lineMaxH = max(lineMaxH, btnH)
-                x += bw + gap
+                val placedX = x
+                val placedY = lineTop
+                lineMaxH = max(lineMaxH, itemH)
+                x += itemW + gap
+                return placedX to placedY
+            }
+            for (component in row.components) {
+                when (component) {
+                    is EmbedRowComponent.Button -> {
+                        val btn = component.button
+                        val innerW = (maxW - BUTTON_PAD_H * 2).toInt().coerceAtLeast(1)
+                        val rich = formatEmbedRichText(btn.label, theme())
+                        val labelLayout = CodeFenceSpan.buildRichStaticLayout(rich, BUTTON_LABEL_PAINT, innerW) {
+                            setMaxLines(2)
+                            setEllipsize(TextUtils.TruncateAt.END)
+                            setLineSpacing(LayoutHelper.dpf(1f), 1f)
+                            setIncludePad(false)
+                        }
+                        var textW = 0f
+                        for (li in 0 until labelLayout.lineCount) {
+                            textW = max(textW, labelLayout.getLineWidth(li))
+                        }
+                        val bw = (BUTTON_PAD_H * 2 + textW).coerceAtLeast(BUTTON_MIN_W.toFloat()).coerceAtMost(maxW)
+                        val btnH = max(BUTTON_H, labelLayout.height + LayoutHelper.dp(12))
+                        val (px, py) = place(bw, btnH)
+                        placedButtons.add(
+                            LaidOutButton(
+                                relX = px,
+                                relY = py,
+                                width = bw,
+                                height = btnH,
+                                buttonId = btn.componentId,
+                                url = btn.url,
+                                disabled = btn.disabled,
+                                labelLayout = labelLayout,
+                                style = btn.style,
+                            )
+                        )
+                    }
+                    is EmbedRowComponent.Select -> {
+                        val sw = min(maxW, ACTION_SELECT_MAX_W.toFloat())
+                        val (px, py) = place(sw, ACTION_SELECT_H)
+                        placedSelects.add(
+                            LaidOutRowSelect(
+                                relX = px,
+                                relY = py,
+                                width = sw,
+                                height = ACTION_SELECT_H,
+                                componentId = component.componentId,
+                                placeholder = component.placeholder,
+                                spec = component.spec,
+                            )
+                        )
+                    }
+                }
             }
             globalY = lineTop + lineMaxH
         }
-        laidOutButtons = placed
-        buttonsBlockHeight = globalY.toInt()
+        laidOutButtons = placedButtons
+        laidOutRowSelects = placedSelects
+        actionRowsBlockHeight = globalY.toInt()
     }
 
     private fun computeCardHeight(cardIdx: Int, card: LaidOutEmbedCard): Int {
@@ -835,7 +893,7 @@ class EmbedMessageRenderer(
         }
         if (actionRows.isNotEmpty()) {
             if (laidOutCards.isNotEmpty()) h += ACTION_PANEL_TOP_GAP
-            h += buttonsBlockHeight
+            h += actionRowsBlockHeight
         }
         return h
     }
@@ -850,7 +908,7 @@ class EmbedMessageRenderer(
         }
         if (actionRows.isNotEmpty()) {
             if (laidOutCards.isNotEmpty()) bottom += ACTION_PANEL_TOP_GAP
-            bottom = drawButtons(canvas, left, bottom)
+            bottom = drawActionRows(canvas, left, bottom)
         }
         trimInteractiveGeometries()
         onAfterDraw?.invoke()
@@ -1052,7 +1110,7 @@ class EmbedMessageRenderer(
         return cardTop + embedH
     }
 
-    private fun drawButtons(canvas: Canvas, left: Float, top: Float): Float {
+    private fun drawActionRows(canvas: Canvas, left: Float, top: Float): Float {
         val t = theme()
         for (b in laidOutButtons) {
             val bg = buttonBackgroundColor(t, b.style)
@@ -1091,7 +1149,22 @@ class EmbedMessageRenderer(
         BUTTON_BG_PAINT.alpha = 255
         BUTTON_LABEL_PAINT.alpha = 255
         BUTTON_LABEL_PAINT.isUnderlineText = false
-        return top + buttonsBlockHeight
+        for (s in laidOutRowSelects) {
+            val l = left + s.relX
+            val tt = top + s.relY
+            putSelectGeometry(
+                left = l,
+                top = tt,
+                right = l + s.width,
+                bottom = tt + s.height,
+                componentId = s.componentId,
+                input = s.spec,
+                fieldName = "",
+                placeholder = s.placeholder,
+                standalone = true,
+            )
+        }
+        return top + actionRowsBlockHeight
     }
 
     private fun embedInputHeight(spec: EmbedInputComponentSpec): Int =
@@ -1167,6 +1240,8 @@ class EmbedMessageRenderer(
         private val BUTTON_MIN_W = LayoutHelper.dp(60)
         private val BUTTON_RADIUS = LayoutHelper.dpf(4f)
         private val BUTTON_ROW_GAP = LayoutHelper.dp(8)
+        private val ACTION_SELECT_H = LayoutHelper.dp(62)
+        private val ACTION_SELECT_MAX_W = LayoutHelper.dp(400)
 
         private val tmpRect = RectF()
 

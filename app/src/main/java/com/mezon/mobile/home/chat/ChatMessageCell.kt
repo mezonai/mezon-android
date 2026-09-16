@@ -1049,7 +1049,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             } else if (isLocalUri) {
                 receiver.setLocalUri(android.net.Uri.parse(att.url), context)
             } else if (isAnimated || isStickerAttachment) {
-                val mainUrl = if (isStickerAttachment) {
+                val mainUrl = if (isStickerAttachment || android.os.Build.VERSION.SDK_INT >= 28) {
                     createImgproxyUrl(att.url, pw, ph, "fit")
                 } else {
                     att.url
@@ -4330,13 +4330,22 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
     }
 
-    private fun showEmbedSelectDialog(messageId: Long, componentId: String, spec: EmbedSelectSpec, fieldName: String) {
+    private fun formatStandaloneSelectLabel(
+        spec: EmbedSelectSpec,
+        messageId: Long,
+        componentId: String,
+        placeholder: String,
+    ): CharSequence {
+        val vals = EmbedFormUtil.getValuesForComponent(messageId, componentId)
+        if (vals.isEmpty()) return placeholder.ifEmpty { embedSelectPlaceholder(spec, "") }
+        return vals.joinToString(", ") { valItem ->
+            spec.options.find { it.value == valItem }?.let { embedSelectOptionDisplayLabel(it) } ?: valItem
+        }
+    }
+
+    private fun showEmbedSelectDialog(messageId: Long, componentId: String, spec: EmbedSelectSpec, title: CharSequence) {
         val act = AndroidUtilities.findActivity(context) ?: return
         val msg = messageEntity
-        val title = run {
-            val ph = embedSelectPlaceholder(spec, fieldName)
-            if (spec.minPick > 0) embedRequiredSuffixStar(ph) else ph
-        }
         EmbedSelectOptionSheet.show(
             context = act,
             theme = theme,
@@ -4449,6 +4458,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     h = h * 31 + 2
                     h = h * 31 + g.input.hashCode()
                     h = h * 31 + g.fieldName.hashCode()
+                    h = h * 31 + g.placeholder.hashCode()
+                    h = h * 31 + if (g.standalone) 1 else 0
                 }
                 is EmbedInteractiveGeometry.RadioField -> {
                     h = h * 31 + 3
@@ -4487,7 +4498,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     while (embedSelectSlots.size <= selectIdx) embedSelectSlots.add(EmbedSelectSlot())
                     val slot = embedSelectSlots[selectIdx++]
                     if (slot.row.parent == null) addView(slot.row)
-                    slot.bind(msg.id, g.componentId, g.input, g.fieldName)
+                    slot.bind(msg.id, g.componentId, g.input, g.fieldName, g.placeholder, g.standalone)
                     slot.row.visibility = View.VISIBLE
                     layoutEmbeddedChild(slot.row, g.rect)
                 }
@@ -4514,20 +4525,39 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             isFocusable = true
         }
         val label: TextView = TextView(context).apply {
-            setPadding(LayoutHelper.dp(10), LayoutHelper.dp(9), LayoutHelper.dp(10), LayoutHelper.dp(9))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-            maxLines = 2
             ellipsize = TextUtils.TruncateAt.END
             gravity = Gravity.CENTER_VERTICAL or Gravity.START
             isClickable = false
             isFocusable = false
         }
+        private val note: TextView = TextView(context).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTypeface(Typeface.DEFAULT, Typeface.ITALIC)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            isClickable = false
+            isFocusable = false
+            visibility = View.GONE
+        }
+        private val column: LinearLayout = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
         private var boundKey = ""
         private var rippleInstalled = false
 
         init {
-            row.addView(
+            column.addView(
                 label,
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT),
+            )
+            column.addView(
+                note,
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT),
+            )
+            row.addView(
+                column,
                 FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT,
@@ -4535,10 +4565,17 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             )
         }
 
-        fun bind(messageId: Long, componentId: String, spec: EmbedSelectSpec, fieldName: String) {
+        fun bind(
+            messageId: Long,
+            componentId: String,
+            spec: EmbedSelectSpec,
+            fieldName: String,
+            placeholder: String,
+            standalone: Boolean,
+        ) {
             val key = "$messageId|$componentId|${spec.options.size}|${spec.isMulti}|${
                 spec.initialSelection.joinToString()
-            }|$fieldName"
+            }|$fieldName|$placeholder|$standalone"
             val identityChanged = boundKey != key
             boundKey = key
 
@@ -4554,6 +4591,19 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             label.setCompoundDrawablesRelative(null, null, embedSelectChevronDrawable, null)
             label.compoundDrawablePadding = LayoutHelper.dp(6)
 
+            if (standalone) {
+                label.setPadding(LayoutHelper.dp(12), LayoutHelper.dp(12), LayoutHelper.dp(12), 0)
+                label.maxLines = 1
+                note.setPadding(LayoutHelper.dp(12), LayoutHelper.dp(2), LayoutHelper.dp(12), LayoutHelper.dp(12))
+                note.text = embedSelectPlaceholder(spec, "")
+                note.setTextColor(theme.onSurfaceVariant)
+                note.visibility = View.VISIBLE
+            } else {
+                label.setPadding(LayoutHelper.dp(10), LayoutHelper.dp(9), LayoutHelper.dp(10), LayoutHelper.dp(9))
+                label.maxLines = 2
+                note.visibility = View.GONE
+            }
+
             if (identityChanged && spec.initialSelection.isNotEmpty() &&
                 EmbedFormUtil.isComponentEmpty(messageId, componentId)
             ) {
@@ -4564,17 +4614,26 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 }
             }
 
-            label.text = formatEmbedSelectLabel(spec, messageId, componentId, fieldName)
+            label.text = if (standalone) {
+                formatStandaloneSelectLabel(spec, messageId, componentId, placeholder)
+            } else {
+                formatEmbedSelectLabel(spec, messageId, componentId, fieldName)
+            }
             val hasValue = !EmbedFormUtil.isComponentEmpty(messageId, componentId)
             label.setTextColor(if (hasValue) theme.onSurface else theme.onSurfaceVariant)
 
+            val sheetTitle: CharSequence = if (standalone) {
+                placeholder.ifEmpty { embedSelectPlaceholder(spec, "") }
+            } else {
+                val ph = embedSelectPlaceholder(spec, fieldName)
+                if (spec.minPick > 0) embedRequiredSuffixStar(ph) else ph
+            }
             val mid = messageId
             val cid = componentId
             val sp = spec
-            val fname = fieldName
             row.setOnClickListener {
                 if (sp.disabled) return@setOnClickListener
-                showEmbedSelectDialog(mid, cid, sp, fname)
+                showEmbedSelectDialog(mid, cid, sp, sheetTitle)
             }
         }
     }

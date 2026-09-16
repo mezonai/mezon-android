@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.voice
 
+import android.content.Context
 import android.util.Log
 import com.mezon.mezon.rtapi.VoiceEndedEvent
 import com.mezon.mezon.rtapi.VoiceJoinedEvent
@@ -17,6 +18,7 @@ import com.mezon.mobile.network.MezonSocket
 import com.mezon.mobile.network.SocketEventDispatcher
 import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.session.SessionManager
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -35,6 +37,7 @@ class VoiceController @Inject constructor(
     private val sessionManager: SessionManager,
     private val notificationCenter: NotificationCenter,
     private val cacheTracker: ApiCacheTracker,
+    @ApplicationContext private val appContext: Context,
     @ApplicationScope private val appScope: CoroutineScope,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) {
@@ -81,6 +84,7 @@ class VoiceController @Inject constructor(
             meetToken = null
             aiAgentEnabled.clear()
         }
+        VoiceChannelForegroundService.stop(appContext)
         voiceMemberListFetchInflight.clear()
     }
 
@@ -225,11 +229,14 @@ class VoiceController @Inject constructor(
     }
 
     fun onRoomConnected(channelId: Long) {
+        val label: String
         synchronized(this) {
             if (currentVoiceInfo?.channelId != channelId) return
             isJoined = true
             isConnecting = false
+            label = currentVoiceInfo?.channelLabel.orEmpty()
         }
+        VoiceChannelForegroundService.start(appContext, label)
     }
 
     fun leaveVoiceChannel() {
@@ -239,6 +246,7 @@ class VoiceController @Inject constructor(
             isJoined = false
             isConnecting = false
         }
+        VoiceChannelForegroundService.stop(appContext)
         notificationCenter.postNotificationOnMainThread(NotificationCenter.voiceLeftRoom)
     }
 
@@ -249,6 +257,7 @@ class VoiceController @Inject constructor(
             isJoined = false
             isConnecting = false
         }
+        VoiceChannelForegroundService.stop(appContext)
         notificationCenter.postNotificationOnMainThread(
             NotificationCenter.voiceRoomDisconnected, reason
         )

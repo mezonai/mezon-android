@@ -83,6 +83,7 @@ private const val SPEAKING_THRESHOLD = 0.02
 private const val ICE_RECOVERY_GRACE_MS = 4000L
 private const val MODERATOR_MUTE_WINDOW_MS = 300L
 private const val SFU_CLOSE_KICKED = 4006
+private const val SFU_CLOSE_ALONE_TIMEOUT = 4011
 private val PARTICIPANT_ACTION_ERRORS = setOf(
     "invalid_token",
     "token_room_mismatch",
@@ -91,6 +92,14 @@ private val PARTICIPANT_ACTION_ERRORS = setOf(
     "unsupported_participant_action",
     "auth_not_configured",
 )
+
+enum class SfuRemovalCause { KICKED, ALONE_TIMEOUT }
+
+private fun removalCause(code: Int): SfuRemovalCause? = when (code) {
+    SFU_CLOSE_KICKED -> SfuRemovalCause.KICKED
+    SFU_CLOSE_ALONE_TIMEOUT -> SfuRemovalCause.ALONE_TIMEOUT
+    else -> null
+}
 
 private class SfuAudioHealth {
     var sourceLevel = 0.0
@@ -167,7 +176,7 @@ class MezonSfuSession @Inject constructor(
     var onSpeaking: ((Set<String>) -> Unit)? = null
     var tokenProvider: (suspend () -> String?)? = null
     var onMutedByModerator: (() -> Unit)? = null
-    var onKicked: ((String) -> Unit)? = null
+    var onRemoved: ((SfuRemovalCause, String) -> Unit)? = null
 
     @Volatile var role: SfuRole = SfuRole.SPEAKER
         private set
@@ -310,9 +319,9 @@ class MezonSfuSession @Inject constructor(
                     }
                     reconnectAttempts++
                     if (tokenNeedsRefresh() && tokenRefreshes < MAX_TOKEN_REFRESHES) {
-                        tokenRefreshes++
                         val fresh = runCatching { tokenProvider?.invoke() }.getOrNull()
                         if (!fresh.isNullOrEmpty()) {
+                            tokenRefreshes++
                             this@MezonSfuSession.token = fresh
                             tokenRejected = false
                         }
@@ -664,8 +673,9 @@ class MezonSfuSession @Inject constructor(
 
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
             Log.d(TAG, "ws onClosing code=$code reason='$reason'")
-            if (code == SFU_CLOSE_KICKED) {
-                appScope.launch(mainDispatcher) { handleKicked(gen, reason) }
+            val cause = removalCause(code)
+            if (cause != null) {
+                appScope.launch(mainDispatcher) { handleRemoved(gen, cause, reason) }
             }
             runCatching { webSocket.close(code, null) }
         }
@@ -687,18 +697,19 @@ class MezonSfuSession @Inject constructor(
                 socketOpen = false
                 connecting = false
                 Log.d(TAG, "ws onClosed code=$code reason='$reason'")
-                if (code == SFU_CLOSE_KICKED) handleKicked(gen, reason)
+                val cause = removalCause(code)
+                if (cause != null) handleRemoved(gen, cause, reason)
                 else if (active && joined) emitState(SfuConnectionState.DISCONNECTED)
                 else if (active) emitState(SfuConnectionState.FAILED)
             }
         }
     }
 
-    private fun handleKicked(gen: Int, reason: String) {
+    private fun handleRemoved(gen: Int, cause: SfuRemovalCause, reason: String) {
         if (gen != connectionGen || !active) return
-        Log.w(TAG, "sfu kicked this peer from the room reason='$reason'")
+        Log.w(TAG, "sfu removed this peer from the room cause=$cause reason='$reason'")
         active = false
-        onKicked?.invoke(reason)
+        onRemoved?.invoke(cause, reason)
     }
 
     private fun handleMessage(text: String) {
@@ -785,8 +796,12 @@ class MezonSfuSession @Inject constructor(
                         onPushToTalkActive?.invoke(false)
                     }
                     detail == "stale_offer_generation" || detail == "future_offer_generation" -> {
-                        Log.w(TAG, "sfu rejected the answer generation ($detail); waiting for the reissued offer")
-                        armOfferReissueDeadline()
+                        if (negotiating || pendingOffer != null) {
+                            Log.d(TAG, "sfu rejected an older answer ($detail); answering the newer offer")
+                        } else {
+                            Log.w(TAG, "sfu rejected the answer generation ($detail); waiting for the reissued offer")
+                            armOfferReissueDeadline()
+                        }
                     }
                     admitted && detail in PARTICIPANT_ACTION_ERRORS -> {
                         Log.w(TAG, "sfu rejected the participant action ($detail)")

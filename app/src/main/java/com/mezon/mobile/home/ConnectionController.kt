@@ -147,6 +147,8 @@ class ConnectionController @Inject constructor(
         topicBadgeTracker.get().onReconnect()
         cacheTracker.invalidateAll()
 
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.appDidReconnect)
+
         dialogsController.loadDialogs()
 
         messageActivitiesController.loadListActivities()
@@ -163,8 +165,6 @@ class ConnectionController @Inject constructor(
                 catch (e: Exception) { Log.e(TAG, "joinClanChat($selectedClanId) failed", e) }
             }
         }
-
-        notificationCenter.postNotificationOnMainThread(NotificationCenter.appDidReconnect)
     }
 
     private suspend fun observeConnectionState() {
@@ -177,8 +177,16 @@ class ConnectionController @Inject constructor(
     private suspend fun connectSocket() {
         sessionManager.sessionFlow.collect { session ->
             if (session != null) {
+                if (StartupCache.needsUsernameSetup) {
+                    Log.d(TAG, "Username setup pending, deferring socket connect")
+                    return@collect
+                }
                 val s = sessionManager.ensureFreshSession() ?: return@collect
                 Log.d(TAG, "Ensuring WebSocket connection... wsUrl=${s.wsUrl}")
+                if (mezonSocket.isSocketTokenStale(s.token)) {
+                    Log.d(TAG, "Session token changed, reconnecting socket with the new token")
+                    mezonSocket.forceReconnect("session token changed")
+                }
                 mezonSocket.connect(s.wsUrl, s.token, s.tcpUrl)
             } else {
                 mezonSocket.disconnect()
