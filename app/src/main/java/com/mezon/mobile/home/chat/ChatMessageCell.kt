@@ -2228,7 +2228,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 ?.replace("\\n", " ")
                 ?.replace("\\\"", "\"")
                 ?: ""
-            replyContent = replyMessagePreview(rawRefContent)
+            replyContent = replyMessagePreview(rawRefContent).take(80)
 
             val senderIdMatch = REFERENCE_SENDER_ID_REGEX.find(content)
             replySenderId = senderIdMatch?.groupValues?.getOrNull(1)?.toLongOrNull() ?: 0L
