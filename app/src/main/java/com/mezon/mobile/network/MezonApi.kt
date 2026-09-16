@@ -1575,6 +1575,21 @@ class MezonApi @Inject constructor(
         return rpc(apiUrl, token, "UpdateUserStatus", request.toByteArray())
     }
 
+    suspend fun updateUserCustomStatus(
+        apiUrl: String,
+        token: String,
+        status: String,
+        minutes: Int,
+        untilTurnOn: Boolean
+    ): ByteArray {
+        val request = com.mezon.mezon.api.UserStatusUpdate.newBuilder()
+            .setStatus(status)
+            .setMinutes(minutes)
+            .setUntilTurnOn(untilTurnOn)
+            .build()
+        return rpc(apiUrl, token, "UpdateUserCustomStatus", request.toByteArray())
+    }
+
     suspend fun getUserStatus(
         apiUrl: String,
         token: String

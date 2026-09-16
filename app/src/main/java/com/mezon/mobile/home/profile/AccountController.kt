@@ -47,6 +47,8 @@ data class AccountInfo(
     val passwordSetted: Boolean = false,
     val createTimeSeconds: Long = 0L,
     val userStatus: String = "",
+    val customStatusTimeReset: Int? = null,
+    val customStatusNoClear: Boolean? = null,
     val onlineStatus: UserOnlineStatus = UserOnlineStatus.ONLINE,
     val balance: String = "0",
     val address: String = ""
@@ -67,7 +69,6 @@ class AccountController @Inject constructor(
     private val dispatcher: SocketEventDispatcher,
     private val notificationCenter: NotificationCenter,
     private val cacheTracker: ApiCacheTracker,
-    private val mezonSocket: com.mezon.mobile.network.MezonSocket,
     @ApplicationScope private val appScope: CoroutineScope,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) {
@@ -142,7 +143,12 @@ class AccountController @Inject constructor(
         dispatcher.customStatusEvents.collect { event ->
             val current = _accountInfo.value
             if (current.userId == 0L || event.userId != current.userId) return@collect
-            val updated = current.copy(userStatus = event.status)
+            val status = event.status.trim()
+            val updated = current.copy(
+                userStatus = status,
+                customStatusTimeReset = event.timeReset.takeIf { status.isNotEmpty() },
+                customStatusNoClear = event.noClear.takeIf { status.isNotEmpty() }
+            )
             _accountInfo.value = updated
             userController.updateFromAccount(updated)
             notificationCenter.postNotificationOnMainThread(NotificationCenter.accountInfoLoaded)
@@ -236,6 +242,9 @@ class AccountController @Inject constructor(
                     val walletData = walletDeferred.await()
                     Log.d(ACCOUNT_LOG, "loadAccountInternal API done getAccount userId=${account.user.id} walletBalance=${walletData?.balance ?: "null"}")
                     val user = account.user
+                    val current = _accountInfo.value
+                    val canKeepCustomStatusDuration =
+                        current.userId == user.id && current.userStatus == user.userStatus
 
                     val info = AccountInfo(
                         userId = user.id,
@@ -249,6 +258,8 @@ class AccountController @Inject constructor(
                         passwordSetted = account.passwordSetted,
                         createTimeSeconds = user.createTimeSeconds.toLong(),
                         userStatus = user.userStatus,
+                        customStatusTimeReset = current.customStatusTimeReset.takeIf { canKeepCustomStatusDuration },
+                        customStatusNoClear = current.customStatusNoClear.takeIf { canKeepCustomStatusDuration },
                         onlineStatus = UserOnlineStatus.fromString(user.status),
                         balance = walletData?.balance ?: "0",
                         address = walletData?.address ?: ""
@@ -555,18 +566,34 @@ class AccountController @Inject constructor(
         }
     }
 
-    fun updateCustomStatus(clanId: Long, status: String, timeReset: Int, noClear: Boolean, onResult: (success: Boolean) -> Unit) {
+    fun updateCustomStatus(status: String, timeReset: Int, noClear: Boolean, onResult: (success: Boolean) -> Unit) {
         appScope.launch {
             _isLoading.value = true
             try {
-                mezonSocket.writeCustomStatus(clanId, status, timeReset, noClear)
+                val trimmedStatus = status.trim()
+                sessionManager.withAutoRefresh { session ->
+                    withContext(ioDispatcher) {
+                        api.updateUserCustomStatus(
+                            session.apiUrl,
+                            session.token,
+                            trimmedStatus,
+                            timeReset,
+                            noClear
+                        )
+                    }
+                }
                 val current = _accountInfo.value
-                val updated = current.copy(userStatus = status.trim())
+                val updated = current.copy(
+                    userStatus = trimmedStatus,
+                    customStatusTimeReset = timeReset.takeIf { trimmedStatus.isNotEmpty() },
+                    customStatusNoClear = noClear.takeIf { trimmedStatus.isNotEmpty() }
+                )
                 _accountInfo.value = updated
                 userController.updateFromAccount(updated)
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.accountInfoLoaded)
                 withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(true) }
             } catch (e: Exception) {
+                Log.e(ACCOUNT_LOG, "updateCustomStatus failed", e)
                 withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(false) }
             } finally {
                 _isLoading.value = false
