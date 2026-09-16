@@ -56,6 +56,7 @@ import com.mezon.mobile.home.chat.poll.ChatPollBridge
 import com.mezon.mobile.home.chat.poll.ParsedPoll
 import com.mezon.mobile.home.chat.poll.PollLocalState
 import com.mezon.mobile.home.chat.poll.PollMessageLayout
+import com.mezon.mobile.home.chat.poll.isPollContentJson
 import com.mezon.mobile.home.chat.poll.parsePollContent
 import com.mezon.mobile.home.call.CallLogMessageType
 import com.mezon.mobile.home.call.ParsedCallLogMessage
@@ -2227,7 +2228,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 ?.replace("\\n", " ")
                 ?.replace("\\\"", "\"")
                 ?: ""
-            replyContent = parseContentPreview(rawRefContent).take(80)
+            replyContent = replyMessagePreview(rawRefContent).take(80)
 
             val senderIdMatch = REFERENCE_SENDER_ID_REGEX.find(content)
             replySenderId = senderIdMatch?.groupValues?.getOrNull(1)?.toLongOrNull() ?: 0L
@@ -2257,6 +2258,13 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         } catch (_: Exception) {
             false
         }
+    }
+
+    private fun replyMessagePreview(content: String): String {
+        if (isPollContentJson(content)) {
+            return "[${context.getString(R.string.message_attachment_poll)}]"
+        }
+        return parseContentPreview(content)
     }
 
     private var replySenderName = ""
