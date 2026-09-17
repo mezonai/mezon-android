@@ -58,6 +58,7 @@ import com.mezon.mobile.home.voice.VoiceController
 import com.mezon.mobile.home.stream.JoinMediaSheetKind
 import com.mezon.mobile.home.stream.StreamingController
 import com.mezon.mobile.home.voice.VoiceRoomFragment
+import com.mezon.mobile.home.voice.resolveVoiceMemberIdentity
 import com.mezon.mobile.home.clans.discover.DiscoverClansListSection
 import com.mezon.mobile.home.clans.discover.buildDiscoverCommunitySearchToolbar
 import com.mezon.mobile.home.clans.discover.DiscoverRailCell
@@ -1314,14 +1315,12 @@ class ClansFragment : BaseFragment() {
                 else -> voiceController.getScreenSharingUsersForChannel(vc.channelId, clanId)
             }
             val displays = userIds.map { uid ->
-                val member = memberMap[uid]
-                val name = member?.clanNick?.ifEmpty { null }
-                    ?: member?.displayName?.ifEmpty { null }
-                    ?: member?.username
-                    ?: "User"
-                val username = member?.username.orEmpty()
-                val avatar = member?.clanAvatar?.ifEmpty { null } ?: member?.avatarUrl
-                VoiceMemberDisplay(uid, name, username, avatar, uid in sharingIds)
+                val identity = resolveVoiceMemberIdentity(
+                    uid, memberMap[uid], userClanController.getUserById(uid), "User"
+                )
+                VoiceMemberDisplay(
+                    uid, identity.displayName, identity.username, identity.avatarUrl, uid in sharingIds
+                )
             }
             if (displays.isNotEmpty()) result[vc.channelId] = displays
         }
@@ -1675,11 +1674,10 @@ class ClansFragment : BaseFragment() {
         for (m in clanMembers) memberMap[m.userId] = m
 
         val displays = members.map { uid ->
-            val m = memberMap[uid]
-            val name = m?.clanNick?.ifEmpty { null } ?: m?.displayName?.ifEmpty { null } ?: m?.username ?: "User"
-            val username = m?.username.orEmpty()
-            val avatar = m?.clanAvatar?.ifEmpty { null } ?: m?.avatarUrl
-            VoiceMemberDisplay(uid, name, username, avatar)
+            val identity = resolveVoiceMemberIdentity(
+                uid, memberMap[uid], userClanController.getUserById(uid), "User"
+            )
+            VoiceMemberDisplay(uid, identity.displayName, identity.username, identity.avatarUrl)
         }
 
         val sheet = JoinVoiceBottomSheet(
@@ -1705,11 +1703,10 @@ class ClansFragment : BaseFragment() {
         for (m in clanMembers) memberMap[m.userId] = m
 
         val displays = members.map { uid ->
-            val m = memberMap[uid]
-            val name = m?.clanNick?.ifEmpty { null } ?: m?.displayName?.ifEmpty { null } ?: m?.username ?: "User"
-            val username = m?.username.orEmpty()
-            val avatar = m?.clanAvatar?.ifEmpty { null } ?: m?.avatarUrl
-            VoiceMemberDisplay(uid, name, username, avatar)
+            val identity = resolveVoiceMemberIdentity(
+                uid, memberMap[uid], userClanController.getUserById(uid), "User"
+            )
+            VoiceMemberDisplay(uid, identity.displayName, identity.username, identity.avatarUrl)
         }
 
         val sheet = JoinVoiceBottomSheet(

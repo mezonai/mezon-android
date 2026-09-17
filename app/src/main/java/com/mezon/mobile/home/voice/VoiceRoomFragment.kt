@@ -78,10 +78,6 @@ private const val RAISE_DOWN_PREFIX = "raising-down:"
 private const val SENDER_NAME_PREFIX = "sender-name:"
 private const val SENDER_AVATAR_PREFIX = "sender-avatar:"
 private const val LOCAL_DEVICE_ID = "local"
-private const val VOICE_AGENT_USER_ID = "2090694093138038784"
-private const val VOICE_AGENT_DISPLAY_NAME = "KOMU Agent"
-private const val VOICE_AGENT_AVATAR_URL =
-    "https://cdn.mezon.vn/0/0/1779484387973271600/1737423959329_undefined173740153013517374015248704886401586613166392.png"
 
 class VoiceRoomFragment : BaseFragment() {
 
@@ -118,7 +114,7 @@ class VoiceRoomFragment : BaseFragment() {
     private var roomScope: CoroutineScope? = null
     private var joinRole: SfuRole = SfuRole.SPEAKER
     private var sfuRemote: List<SfuParticipant> = emptyList()
-    private val memberResolveCache = HashMap<String, ResolvedMember>()
+    private val memberResolveCache = HashMap<String, VoiceMemberIdentity>()
     private var isGridScrolling = false
     private var pendingGridUpdate = false
     private var localMicOn = false
@@ -960,40 +956,17 @@ class VoiceRoomFragment : BaseFragment() {
         }
     }
 
-    private data class ResolvedMember(
-        val displayName: String,
-        val username: String,
-        val avatarUrl: String?
-    )
-
-    private fun resolveMember(identity: String, fallbackName: String): ResolvedMember {
-        if (identity == VOICE_AGENT_USER_ID) {
-            return ResolvedMember(VOICE_AGENT_DISPLAY_NAME, VOICE_AGENT_DISPLAY_NAME, VOICE_AGENT_AVATAR_URL)
-        }
+    private fun resolveMember(identity: String, fallbackName: String): VoiceMemberIdentity {
         memberResolveCache[identity]?.let { return it }
         val userId = identity.toLongOrNull()
-        if (userId != null) {
-            val members = userClanController.getClanMembers(clanId)
-            val member = members.firstOrNull { it.userId == userId }
-            if (member != null) {
-                val name = member.clanNick.ifBlank {
-                    member.displayName.ifBlank { member.username.ifBlank { fallbackName } }
-                }
-                val avatar = member.clanAvatar.ifEmpty {
-                    member.avatarUrl.ifEmpty { null }
-                }
-                return ResolvedMember(name, member.username, avatar).also { memberResolveCache[identity] = it }
-            }
-
-            val user = userClanController.getUserById(userId)
-            if (user != null) {
-                val name = user.displayName.ifBlank { user.username.ifBlank { fallbackName } }
-                val avatar = user.avatarUrl.ifEmpty { null }
-                return ResolvedMember(name, user.username, avatar).also { memberResolveCache[identity] = it }
-            }
+            ?: return VoiceMemberIdentity(fallbackName, fallbackName, null)
+        val member = userClanController.getClanMembers(clanId).firstOrNull { it.userId == userId }
+        val user = userClanController.getUserById(userId)
+        val resolved = resolveVoiceMemberIdentity(userId, member, user, fallbackName)
+        if (member != null || user != null || VoiceAgent.isAgent(userId)) {
+            memberResolveCache[identity] = resolved
         }
-
-        return ResolvedMember(fallbackName, fallbackName, null)
+        return resolved
     }
 
     private fun memberFallbackName(identity: String): String {
@@ -1141,7 +1114,7 @@ class VoiceRoomFragment : BaseFragment() {
 
     private fun doUpdateParticipantList() {
         if (fragmentView == null) return
-        val agentPresent = sfuRemote.any { it.userId == VOICE_AGENT_USER_ID }
+        val agentPresent = sfuRemote.any { VoiceAgent.isAgent(it.userId.orEmpty()) }
         if (agentPresent != agentParticipantInRoom) {
             agentParticipantInRoom = agentPresent
             applyAgentHeaderUi()

@@ -54,7 +54,11 @@ import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
 
-class SocketConnectionLostException(message: String, cause: Throwable? = null) : IllegalStateException(message, cause)
+open class SocketConnectionLostException(message: String, cause: Throwable? = null) : IllegalStateException(message, cause)
+
+class SocketRequestNotSentException(message: String, cause: Throwable? = null) : SocketConnectionLostException(message, cause)
+
+class SocketRequestTimeoutException(message: String, cause: Throwable? = null) : RuntimeException(message, cause)
 
 @Singleton
 class MezonSocket @Inject constructor(
@@ -313,7 +317,7 @@ class MezonSocket @Inject constructor(
         }
     }
 
-    suspend fun send(block: EnvelopeKt.Dsl.() -> Unit): Envelope {
+    suspend fun send(timeoutMs: Long = SEND_TIMEOUT_MS, block: EnvelopeKt.Dsl.() -> Unit): Envelope {
         val cid = nextCid()
         val env = envelope {
             this.cid = cid
@@ -321,7 +325,7 @@ class MezonSocket @Inject constructor(
         }
 
         val t = transport
-            ?: throw SocketConnectionLostException("Socket not connected")
+            ?: throw SocketRequestNotSentException("Socket not connected")
 
         val deferred = CompletableDeferred<Envelope>()
         pendingRequests[cid] = deferred
@@ -330,17 +334,17 @@ class MezonSocket @Inject constructor(
         t.send(bytes) { error ->
             if (error != null) {
                 pendingRequests.remove(cid)?.completeExceptionally(
-                    SocketConnectionLostException("Failed to send envelope: ${error.message}", error)
+                    SocketRequestNotSentException("Failed to send envelope: ${error.message}", error)
                 )
                 sentryReporter.logSocketFailure("send_enqueue", error, "case=${env.messageCase}")
             }
         }
 
         return try {
-            withTimeout(SEND_TIMEOUT_MS) { deferred.await() }
+            withTimeout(timeoutMs) { deferred.await() }
         } catch (e: TimeoutCancellationException) {
             pendingRequests.remove(cid)
-            val err = RuntimeException("Request timed out: cid=$cid case=${env.messageCase}", e)
+            val err = SocketRequestTimeoutException("Request timed out: cid=$cid case=${env.messageCase}", e)
             sentryReporter.logSocketFailure("send_timeout", err)
             throw err
         }
@@ -957,7 +961,7 @@ class MezonSocket @Inject constructor(
             if (deferred != null) {
                 if (case == Envelope.MessageCase.ERROR) {
                     deferred.completeExceptionally(
-                        RuntimeException("Server error: ${envelope.error.message}")
+                        SocketRpcServerException("Server error: ${envelope.error.message}", envelope.error.code)
                     )
                 } else {
                     deferred.complete(envelope)
