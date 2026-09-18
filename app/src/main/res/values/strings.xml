@@ -440,6 +440,7 @@
     <string name="topic_replies">Replies</string>
     <string name="notif_tab_for_you">For You</string>
     <string name="notif_empty">No notifications</string>
+    <string name="notif_remove_notification">Remove notification</string>
     <string name="notification_tab_for_you">For you</string>
     <string name="notification_tab_mention">Mention</string>
     <string name="notification_tab_messages">Messages</string>

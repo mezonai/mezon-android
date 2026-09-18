@@ -47,6 +47,7 @@ class NotificationStore @Inject constructor(
 
     private val _emptyCategory = MutableStateFlow<List<NotificationEntity>>(emptyList())
 
+    @Volatile
     private var currentClanId: Long = 0L
 
     private var hasMoreMentions = false
@@ -162,11 +163,15 @@ class NotificationStore @Inject constructor(
     }
 
     fun deleteNotification(id: Long, category: Int) {
+        val deletionClanId = currentClanId
         val list = getForCategory(category).value
         val removedIndex = list.indexOfFirst { it.id == id }
         if (removedIndex < 0) return
         val removed = list[removedIndex]
         getMutableForCategory(category)?.update { old -> old.filter { it.id != id } }
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.notificationsDidLoad, category
+        )
         appScope.launch {
             try {
                 sessionManager.withAutoRefresh { session ->
@@ -179,18 +184,20 @@ class NotificationStore @Inject constructor(
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "deleteNotification failed", e)
-                getMutableForCategory(category)?.update { old ->
-                    if (old.any { it.id == id }) {
-                        old
-                    } else {
-                        val restored = old.toMutableList()
-                        restored.add(removedIndex.coerceIn(0, restored.size), removed)
-                        restored
+                if (currentClanId == deletionClanId) {
+                    getMutableForCategory(category)?.update { old ->
+                        if (old.any { it.id == id }) {
+                            old
+                        } else {
+                            val restored = old.toMutableList()
+                            restored.add(removedIndex.coerceIn(0, restored.size), removed)
+                            restored
+                        }
                     }
+                    notificationCenter.postNotificationOnMainThread(
+                        NotificationCenter.notificationsDidLoad, category
+                    )
                 }
-                notificationCenter.postNotificationOnMainThread(
-                    NotificationCenter.notificationsDidLoad, category
-                )
             }
         }
     }
