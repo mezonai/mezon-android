@@ -285,7 +285,7 @@ class ClansFragment : BaseFragment() {
         fragmentScope.launch(Dispatchers.Main.immediate) {
             channelController.notificationSettingTypes.collect { settings ->
                 val sheet = channelNotificationSettingsSheet ?: return@collect
-                settings[sheet.channelId]?.let(sheet::updateSelection)
+                sheet.channelId?.let(settings::get)?.let(sheet::updateSelection)
             }
         }
         return true
@@ -1190,6 +1190,11 @@ class ClansFragment : BaseFragment() {
                 },
                 Runnable {
                     dismissClanMenuThen(Runnable {
+                        openClanNotificationSettings(clanId)
+                    })
+                },
+                Runnable {
+                    dismissClanMenuThen(Runnable {
                         presentFragment(AuditLogSettingFragment.newInstance(clanId))
                     })
                 },
@@ -1569,6 +1574,54 @@ class ClansFragment : BaseFragment() {
             val clanDefaultType = clanDefaultTypeDeferred.await()
             if (channelNotificationSettingsSheet === sheet && sheet.isShowing) {
                 sheet.completeInitialLoad(notificationType, clanDefaultType)
+            }
+        }
+    }
+
+    private fun openClanNotificationSettings(clanId: Long) {
+        val ctx = fragmentView?.context ?: return
+        val sheet = ChannelNotificationSettingsBottomSheet(
+            context = ctx,
+            initialType = CHANNEL_NOTIFICATION_ALL_MESSAGES,
+            includeUseDefault = false,
+        ) { notificationType, complete ->
+            fragmentScope.launch(Dispatchers.Main.immediate) {
+                val result = channelController.setClanDefaultNotificationType(
+                    clanId = clanId,
+                    notificationType = notificationType,
+                )
+                complete(result.isSuccess)
+                if (result.isFailure) {
+                    MezonToast.show(
+                        this@ClansFragment,
+                        ToastOverlay.ToastType.ERROR,
+                        getString(R.string.clan_overview_notif_update_failed),
+                    )
+                }
+            }
+        }
+        channelNotificationSettingsSheet?.dismiss()
+        channelNotificationSettingsSheet = sheet
+        sheet.setOnDismissListener {
+            if (channelNotificationSettingsSheet === sheet) {
+                channelNotificationSettingsSheet = null
+            }
+        }
+        sheet.show()
+
+        fragmentScope.launch(Dispatchers.Main.immediate) {
+            val result = channelController.getClanDefaultNotificationType(clanId)
+            if (channelNotificationSettingsSheet === sheet && sheet.isShowing) {
+                result.onSuccess { notificationType ->
+                    sheet.completeInitialLoad(notificationType, clanDefaultType = null)
+                }.onFailure {
+                    sheet.dismiss()
+                    MezonToast.show(
+                        this@ClansFragment,
+                        ToastOverlay.ToastType.ERROR,
+                        getString(R.string.clan_overview_load_failed),
+                    )
+                }
             }
         }
     }

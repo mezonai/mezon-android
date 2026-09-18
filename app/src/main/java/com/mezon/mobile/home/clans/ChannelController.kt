@@ -133,6 +133,9 @@ fun normalizeChannelNotificationType(type: Int): Int =
 fun channelTypeForClanNotificationDefault(type: Int): Int? =
     type.takeIf { it in CHANNEL_NOTIFICATION_ALL_MESSAGES..CHANNEL_NOTIFICATION_NOTHING }
 
+fun normalizeClanNotificationType(type: Int): Int =
+    channelTypeForClanNotificationDefault(type) ?: CHANNEL_NOTIFICATION_ALL_MESSAGES
+
 fun normalizeDmMuteExpirySeconds(raw: Int): Int {
     if (raw == CHANNEL_MUTE_ACTIVE_INFINITY) return raw
     if (raw <= 0) return 0
@@ -907,7 +910,32 @@ class ChannelController @Inject constructor(
     suspend fun getClanDefaultNotificationType(clanId: Long): Result<Int> = runCatching {
         sessionManager.withAutoRefresh { session ->
             withContext(ioDispatcher) {
-                api.getClanDefaultNotification(session.apiUrl, session.token, clanId).notificationSettingType
+                normalizeClanNotificationType(
+                    api.getClanDefaultNotification(
+                        session.apiUrl,
+                        session.token,
+                        clanId,
+                    ).notificationSettingType,
+                )
+            }
+        }
+    }
+
+    suspend fun setClanDefaultNotificationType(
+        clanId: Long,
+        notificationType: Int,
+    ): Result<Unit> {
+        val normalizedType = normalizeClanNotificationType(notificationType)
+        return runCatching {
+            sessionManager.withAutoRefresh { session ->
+                withContext(ioDispatcher) {
+                    api.setClanDefaultNotification(
+                        session.apiUrl,
+                        session.token,
+                        clanId,
+                        normalizedType,
+                    )
+                }
             }
         }
     }

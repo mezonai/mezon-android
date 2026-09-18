@@ -22,6 +22,9 @@ import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.chat.MezonImageLoader
+import com.mezon.mobile.home.clans.CHANNEL_NOTIFICATION_ALL_MESSAGES
+import com.mezon.mobile.home.clans.CHANNEL_NOTIFICATION_MENTIONS_ONLY
+import com.mezon.mobile.home.clans.CHANNEL_NOTIFICATION_NOTHING
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.ClanEntity
 import com.mezon.mobile.home.clans.ClansController
@@ -45,12 +48,6 @@ import com.mezon.mezon.api.systemMessageRequest
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-
-private object ClanOverviewNotif {
-    const val ALL = 0
-    const val MENTION = 1
-    const val NOTHING = 2
-}
 
 class ClanOverviewSettingFragment : BaseFragment() {
 
@@ -107,8 +104,8 @@ class ClanOverviewSettingFragment : BaseFragment() {
     private var draftWelcomeSticker = false
     private var draftHideAuditLog = false
 
-    private var sourceNotif = ClanOverviewNotif.MENTION
-    private var draftNotif = ClanOverviewNotif.MENTION
+    private var sourceNotif = CHANNEL_NOTIFICATION_MENTIONS_ONLY
+    private var draftNotif = CHANNEL_NOTIFICATION_MENTIONS_ONLY
     private var bannerLoaderToken: MezonImageLoader.Cancellable? = null
     private var bannerRenderSeq = 0
     private var bannerPickTarget: View? = null
@@ -646,11 +643,8 @@ class ClanOverviewSettingFragment : BaseFragment() {
         }
     }
 
-    private suspend fun asyncFetchDefaultNotification(): Int = withContext(ioDispatcher) {
-        sessionManager.withAutoRefresh { session ->
-            api.getClanDefaultNotification(session.apiUrl, session.token, clanId).notificationSettingType
-        }
-    }
+    private suspend fun asyncFetchDefaultNotification(): Int =
+        channelController.getClanDefaultNotificationType(clanId).getOrThrow()
 
     private suspend fun asyncFetchSystemMessage(): SystemMessage = withContext(ioDispatcher) {
         sessionManager.withAutoRefresh { session ->
@@ -695,7 +689,11 @@ class ClanOverviewSettingFragment : BaseFragment() {
             getString(R.string.clan_overview_notif_mentions),
             getString(R.string.clan_overview_notif_nothing),
         )
-        val values = intArrayOf(ClanOverviewNotif.ALL, ClanOverviewNotif.MENTION, ClanOverviewNotif.NOTHING)
+        val values = intArrayOf(
+            CHANNEL_NOTIFICATION_ALL_MESSAGES,
+            CHANNEL_NOTIFICATION_MENTIONS_ONLY,
+            CHANNEL_NOTIFICATION_NOTHING,
+        )
         AlertDialog.Builder(ctx)
             .setTitle(getString(R.string.clan_overview_notif_pick))
             .setItems(opts) { _, which ->
@@ -704,15 +702,9 @@ class ClanOverviewSettingFragment : BaseFragment() {
                     val prev = draftNotif
                     draftNotif = next
                     notifValue.text = notificationTitle(ctx, draftNotif)
-                    runCatching {
-                        sessionManager.withAutoRefresh { session ->
-                            withContext(ioDispatcher) {
-                                api.setClanDefaultNotification(session.apiUrl, session.token, clanId, next)
-                            }
-                        }
+                    channelController.setClanDefaultNotificationType(clanId, next).onSuccess {
                         sourceNotif = next
                         updateSaveUi()
-                    }.onSuccess {
                         MezonToast.show(
                             this@ClanOverviewSettingFragment,
                             ToastOverlay.ToastType.SUCCESS,
@@ -721,7 +713,11 @@ class ClanOverviewSettingFragment : BaseFragment() {
                     }.onFailure {
                         draftNotif = prev
                         notifValue.text = notificationTitle(ctx, draftNotif)
-                        MezonToast.show(this@ClanOverviewSettingFragment, ToastOverlay.ToastType.ERROR, getString(R.string.clan_overview_notif_update_failed))
+                        MezonToast.show(
+                            this@ClanOverviewSettingFragment,
+                            ToastOverlay.ToastType.ERROR,
+                            getString(R.string.clan_overview_notif_update_failed),
+                        )
                     }
                 }
             }
@@ -729,8 +725,8 @@ class ClanOverviewSettingFragment : BaseFragment() {
     }
 
     private fun notificationTitle(context: Context, type: Int): String = when (type) {
-        ClanOverviewNotif.ALL -> context.getString(R.string.clan_overview_notif_all)
-        ClanOverviewNotif.NOTHING -> context.getString(R.string.clan_overview_notif_nothing)
+        CHANNEL_NOTIFICATION_ALL_MESSAGES -> context.getString(R.string.clan_overview_notif_all)
+        CHANNEL_NOTIFICATION_NOTHING -> context.getString(R.string.clan_overview_notif_nothing)
         else -> context.getString(R.string.clan_overview_notif_mentions)
     }
 
