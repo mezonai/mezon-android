@@ -31,6 +31,7 @@ class ClanMenuBottomSheet(
     showEmptyCategories: Boolean,
     private val onShowEmptyCategoriesChanged: (Boolean) -> Unit,
     private val onOpenClanSettings: Runnable,
+    private val onOpenNotifications: Runnable,
     private val onOpenAuditLog: Runnable,
     private val onOpenInvite: Runnable,
     private val onMarkAsRead: Runnable,
@@ -159,7 +160,7 @@ class ClanMenuBottomSheet(
             theme,
             MezonIcon.unmuteBellIcon,
             context.getString(R.string.clan_menu_action_notifications),
-            Runnable { showComingSoon() },
+            onOpenNotifications,
             iconSizeDp = 9,
         )
         val settingsBtn = ClanSettingsUiHelpers.buildHorizontalActionButton(
