@@ -13,7 +13,9 @@ import android.widget.TextView
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.mezon.mobile.MainActivity
 import com.mezon.mobile.R
+import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BaseFragment
+import com.mezon.mobile.core.BottomSheet
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.RecyclerListView
@@ -251,7 +253,7 @@ class NotificationsFragment : BaseFragment() {
             if (currentCategory == NOTIF_TAB_TOPICS_UI) return@OnItemLongClickListener false
             if (view is NotificationCell) {
                 val entity = view.entity ?: return@OnItemLongClickListener false
-                store.deleteNotification(entity.id, currentCategory)
+                showNotificationActions(entity)
                 true
             } else false
         })
@@ -284,6 +286,46 @@ class NotificationsFragment : BaseFragment() {
         fragmentView = root
         root.post { bootstrapContent() }
         return root
+    }
+
+    private fun showNotificationActions(entity: NotificationEntity) {
+        val context = getParentActivity() ?: return
+        val sheet = BottomSheet.Builder(context)
+            .setItems(
+                arrayOf(getString(R.string.notif_remove_notification)),
+                intArrayOf(MezonIcon.trashIcon.resId)
+            ) { _, index ->
+                if (index == 0) {
+                    store.deleteNotification(entity.id, entity.category)
+                }
+            }
+            .create()
+
+        if (showDialog(sheet) != null) {
+            sheet.setItemColor(0, themeColors.redStrong, themeColors.redStrong)
+            sheet.getItemViews().firstOrNull()?.let { item ->
+                item.imageView.scaleType = ImageView.ScaleType.FIT_CENTER
+                item.imageView.layoutParams = (item.imageView.layoutParams as FrameLayout.LayoutParams).apply {
+                    width = LayoutHelper.dp(18)
+                    height = LayoutHelper.dp(18)
+                    gravity = Gravity.START or Gravity.CENTER_VERTICAL
+                }
+                item.textView.layoutParams = (item.textView.layoutParams as FrameLayout.LayoutParams).apply {
+                    leftMargin = LayoutHelper.dp(52)
+                }
+            }
+            sheet.sheetContainer?.let { container ->
+                val contentBottomPadding = container.paddingBottom
+                container.post {
+                    container.setPadding(
+                        container.paddingLeft,
+                        container.paddingTop,
+                        container.paddingRight,
+                        contentBottomPadding + AndroidUtilities.getViewInset(container)
+                    )
+                }
+            }
+        }
     }
 
     override fun onBecomeFullyVisible() {
