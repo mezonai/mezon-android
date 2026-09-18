@@ -206,7 +206,7 @@ class ProfileFragment : BaseFragment() {
                 { newStatus -> accountController.updateOnlineStatus(newStatus) },
                 { presentFragment(EditStatusFragment()) },
                 {
-                    accountController.updateCustomStatus(0L, "", 0, false) { success ->
+                    accountController.updateCustomStatus("", 0, true) { success ->
                         if (success) {
                             return@updateCustomStatus
                         }
