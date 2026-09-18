@@ -193,7 +193,9 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import org.json.JSONObject
@@ -220,6 +222,11 @@ import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 class UnauthorizedException(message: String) : RuntimeException(message)
+
+class ThrottledException(val code: Int, message: String) : RuntimeException(message)
+
+class HealthyEndpointStatusException(val code: Int) :
+    RuntimeException("HTTP $code fetching healthy endpoint")
 
 class SocketRpcTransportException(
     message: String,
@@ -366,6 +373,7 @@ class MezonApi @Inject constructor(
         private val SERVER_KEY = BuildConfig.MEZON_API_KEY
         private const val DISCOVER_ITEMS_PER_PAGE = 6
         private const val SOCKET_WAIT_MS = 5_000L
+        private const val HEALTHY_ENDPOINT_TIMEOUT_MS = 5_000L
         private const val SOCKET_DEGRADED_COOLDOWN_MS = 12_000L
         private const val READ_SINGLE_FLIGHT_MAX_AGE_MS = 3_000L
         private val HTTP_RETRY_DELAYS_MS = longArrayOf(300L, 900L)
@@ -892,11 +900,48 @@ class MezonApi @Inject constructor(
             if (code == 401 || code == 403) {
                 throw UnauthorizedException("SessionRefresh: $code Unauthorized")
             }
+            if (code == 429 || code == 503) {
+                throw ThrottledException(code, "SessionRefresh throttled ($code): $errorBody")
+            }
             throw RuntimeException("SessionRefresh failed ($code): $errorBody")
         }
 
         val session = Session.parseFrom(response.readBytes())
         return session
+    }
+
+    suspend fun getHealthyEndpoint(
+        token: String,
+        currentEndpointId: Int,
+        reasonCode: Int
+    ): HealthyEndpoint {
+        val gatewayUrl = BuildConfig.MEZON_GATEWAY_URL.trimEnd('/')
+        val url = "$gatewayUrl/v2/healthy/endpoint" +
+            "?currentEndpointId=$currentEndpointId&reasonCode=$reasonCode&geoIp="
+        val body = try {
+            withTimeout(HEALTHY_ENDPOINT_TIMEOUT_MS) {
+                val response = httpClient.get(url) {
+                    header(HttpHeaders.Authorization, "Bearer $token")
+                    header(HttpHeaders.Accept, ContentType.Application.Json.toString())
+                }
+                if (!response.status.isSuccess()) {
+                    throw HealthyEndpointStatusException(response.status.value)
+                }
+                response.bodyAsText()
+            }
+        } catch (e: TimeoutCancellationException) {
+            throw IOException("Healthy endpoint request timed out after ${HEALTHY_ENDPOINT_TIMEOUT_MS}ms", e)
+        }
+        val json = JSONObject(body)
+        val endpoint = HealthyEndpoint(
+            apiUrl = json.optString("api_url", "").ifEmpty { json.optString("apiUrl", "") },
+            wsUrl = json.optString("ws_url", "").ifEmpty { json.optString("wsUrl", "") },
+            tcpUrl = json.optString("tcp_url", "").ifEmpty { json.optString("tcpUrl", "") }
+        )
+        if (endpoint.wsUrl.isBlank() && endpoint.tcpUrl.isBlank()) {
+            throw IOException("Healthy endpoint response carries no realtime URL")
+        }
+        return endpoint
     }
 
     suspend fun listChannelDescs(

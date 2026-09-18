@@ -64,6 +64,7 @@ import com.mezon.mezon.rtapi.UserChannelRemoved
 import com.mezon.mezon.rtapi.UserProfileRedis
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -78,6 +79,8 @@ private const val TAG = "DialogsController"
 private const val MUTE_LOG_TAG = "DialogsController:Mute"
 private const val MAX_TRANSCODE_SOURCE_BYTES = 32 * 1024 * 1024
 private const val DM_BADGES_SYNC_THROTTLE_MS = 10_000L
+private const val MAX_COUNTED_DM_MESSAGE_IDS = 512
+private const val UNKNOWN_DM_PUSH_REFRESH_MS = 5_000L
 
 private fun logMute(message: String) {
     if (BuildConfig.DEBUG) Log.d(MUTE_LOG_TAG, message)
@@ -116,8 +119,7 @@ class DialogsController @Inject constructor(
         private set
 
     @Volatile
-    var dmBadgesServerSynced = false
-        private set
+    private var dmBadgesServerSynced = false
 
     @Volatile
     private var currentChannelId: Long? = null
@@ -133,6 +135,14 @@ class DialogsController @Inject constructor(
     private val dmBadgesSyncThrottleLock = Any()
     @Volatile
     private var lastDmBadgesSyncElapsedMs = 0L
+
+    private val countedDmMessageIds = LinkedHashSet<Long>()
+
+    private val dmListingRevision = MutableStateFlow(0L)
+
+    suspend fun awaitDmListingServed() {
+        dmListingRevision.first { it > 0L }
+    }
 
     fun resolveDmIsMuted(channelId: Long, apiIsMute: Boolean, existingIsMute: Boolean = false): Boolean {
         mutedDmChannelIds?.let { if (channelId in it) return true }
@@ -193,6 +203,8 @@ class DialogsController @Inject constructor(
             buzzStates.clear()
             dialogsLoaded = false
             dmBadgesServerSynced = false
+            dmListingRevision.value = 0L
+            countedDmMessageIds.clear()
             currentChannelId = null
             mutedDmChannelIds = null
             dmNotificationSettings.clear()
@@ -637,6 +649,19 @@ class DialogsController @Inject constructor(
                         limit,
                     )
                     val rawList = response.channeldescList
+                    dmListingRevision.value = dmListingRevision.value + 1
+
+                    val badgeDescs = runCatching {
+                        lastDmBadgesSyncElapsedMs = SystemClock.elapsedRealtime()
+                        api.listChannelBadgeCount(session.apiUrl, session.token, 0L).channeldescList
+                    }.getOrElse { e ->
+                        Log.e(TAG, "loadDialogs badge counts failed", e)
+                        emptyList()
+                    }
+                    val badgeUnreadById = HashMap<Long, Int>(badgeDescs.size)
+                    for (p in badgeDescs) {
+                        if (p.countMessUnread > 0) badgeUnreadById[p.channelId] = p.countMessUnread
+                    }
 
                     val activeDescs = rawList.filter { it.active == 1 }
                     synchronized(this@DialogsController) {
@@ -648,11 +673,21 @@ class DialogsController @Inject constructor(
                         }
                     }
 
-                    val merged = activeDescs
+                    val descIds = HashSet<Long>(activeDescs.size)
+                    for (desc in activeDescs) descIds.add(desc.channelId)
+                    val badgeOnlyDescs = badgeDescs.filter {
+                        it.active == 1 && it.channelId !in descIds
+                    }
+
+                    val merged = (activeDescs + badgeOnlyDescs)
                         .map { desc ->
                             val dm = desc.toDirectMessage(currentUserId, appContext)
                             val existing = getDialog(dm.channelId)
                             dm.copy(
+                                unreadCount = maxOf(
+                                    dm.unreadCount,
+                                    badgeUnreadById[dm.channelId] ?: 0,
+                                ),
                                 isMute = resolveDmIsMuted(
                                     dm.channelId,
                                     dm.isMute || dm.channelId in mutedIds,
@@ -666,11 +701,12 @@ class DialogsController @Inject constructor(
                         "loadDialogs full fetch mutedIds=${mutedIds.size} " +
                             "mergedMuted=${merged.count { it.isMute }}",
                     )
-
                     putDialogs(merged)
                     cacheTracker.markCalled(cacheKey)
                     syncDmMutedStateFromLocalCache()
-                    syncDmBadgesWithApi(session)
+                    if (badgeDescs.isNotEmpty()) {
+                        applyDmReadStatePatchFromSocket(badgeDescs, currentUserId)
+                    }
                     dmBadgesServerSynced = true
                 }
 
@@ -1147,6 +1183,7 @@ class DialogsController @Inject constructor(
                     isEphemeralControl -> baseDm.unreadCount
                     isCurrentlyOpen -> 0
                     isFromMe -> baseDm.unreadCount
+                    !markDmMessageCounted(msg.messageId) -> baseDm.unreadCount
                     else -> baseDm.unreadCount + 1
                 }
                 val newPreview = if (!isContentMutation ||
@@ -1190,6 +1227,52 @@ class DialogsController @Inject constructor(
                     NotificationCenter.UPDATE_MASK_MESSAGE_TEXT or NotificationCenter.UPDATE_MASK_BADGE
                 )
             }
+        }
+    }
+
+    private fun markDmMessageCounted(messageId: Long): Boolean {
+        if (messageId == 0L) return true
+        synchronized(countedDmMessageIds) {
+            if (!countedDmMessageIds.add(messageId)) return false
+            if (countedDmMessageIds.size > MAX_COUNTED_DM_MESSAGE_IDS) {
+                val oldest = countedDmMessageIds.iterator()
+                oldest.next()
+                oldest.remove()
+            }
+            return true
+        }
+    }
+
+    fun applyPushedDmMessage(channelId: Long, messageId: Long, preview: String) {
+        if (channelId == 0L) return
+        if (currentChannelId == channelId) return
+        if (!markDmMessageCounted(messageId)) return
+        var updated: DirectMessage? = null
+        var dialogUnknown = false
+        synchronized(this) {
+            val dm = dialogsDict[channelId]
+            if (dm == null) {
+                dialogUnknown = true
+            } else if (messageId == 0L || messageId > dm.lastSentMessageId) {
+                val nowSeconds = System.currentTimeMillis() / 1000L
+                val next = dm.copy(
+                    unreadCount = dm.unreadCount + 1,
+                    lastMessageContent = preview.ifBlank { dm.lastMessageContent },
+                    lastSentMessageId = if (messageId != 0L) messageId else dm.lastSentMessageId,
+                    lastSentMessageTs = maxOf(dm.lastSentMessageTs, nowSeconds)
+                )
+                dialogsDict.put(channelId, next)
+                reorderDialogInPlace(channelId, next, false)
+                updated = next
+            }
+        }
+        if (dialogUnknown) {
+            refreshDmBadgesOnForegroundThrottled(UNKNOWN_DM_PUSH_REFRESH_MS)
+            return
+        }
+        updated?.let { dm ->
+            appScope.launch(ioDispatcher) { directMessageDao.upsert(dm) }
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
         }
     }
 
@@ -1281,6 +1364,9 @@ class DialogsController @Inject constructor(
         }
         appScope.launch(ioDispatcher) {
             directMessageDao.upsertAll(snapshot)
+            if (snapshot.isNotEmpty()) {
+                directMessageDao.deleteMissing(snapshot.map { it.channelId })
+            }
         }
     }
 

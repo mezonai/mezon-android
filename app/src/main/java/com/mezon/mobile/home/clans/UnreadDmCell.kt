@@ -58,14 +58,22 @@ class UnreadDmCell(
     }
 
     fun setData(dm: DirectMessage) {
+        val previous = directMessage
         directMessage = dm
-        avatar.setInfo(dm.channelId, dm.avatarPlaceholderKey())
         badgeText = when {
             dm.unreadCount <= 0 -> ""
             dm.unreadCount > 99 -> "99+"
             else -> dm.unreadCount.toString()
         }
-        loadAvatar(dm)
+        val sameAvatar = previous != null &&
+            previous.channelId == dm.channelId &&
+            previous.type == dm.type &&
+            previous.avatarUrl == dm.avatarUrl &&
+            previous.avatarPlaceholderKey() == dm.avatarPlaceholderKey()
+        if (!sameAvatar) {
+            avatar.setInfo(dm.channelId, dm.avatarPlaceholderKey())
+            loadAvatar(dm)
+        }
         invalidate()
     }
 
