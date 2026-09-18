@@ -1,5 +1,6 @@
 package com.mezon.mobile.home
 
+import android.os.SystemClock
 import android.util.LongSparseArray
 import android.util.Log
 import com.google.protobuf.ByteString
@@ -22,6 +23,10 @@ import com.mezon.mobile.network.ApiCacheTracker
 import com.mezon.mobile.network.CODE_CHAT_REMOVE
 import com.mezon.mobile.network.CODE_CHAT_UPDATE
 import com.mezon.mobile.network.HttpRpcStatusException
+import com.mezon.mobile.network.SocketRequestNotSentException
+import com.mezon.mobile.network.SocketRequestTimeoutException
+import com.mezon.mobile.network.SocketRpcServerException
+import com.mezon.mobile.network.UnauthorizedException
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.network.MezonSocket
 import com.mezon.mobile.network.NetworkMonitor
@@ -69,6 +74,7 @@ import com.mezon.mezon.api.CreatePollResponse
 import com.mezon.mobile.home.chat.poll.buildPollMessageContent
 import com.mezon.mezon.api.ChannelMessageHeader
 import com.mezon.mezon.api.MessageAttachment
+import com.mezon.mezon.api.MessageAttachmentList
 import com.mezon.mezon.api.MessageMentionList
 import com.mezon.mezon.api.MessageMention
 import com.mezon.mezon.api.messageAttachment
@@ -123,6 +129,8 @@ private const val DIRECTION_BEFORE = 3
 private const val POLL_MESSAGE_WAIT_MS = 8_000L
 private val FILENAME_SANITIZE_REGEX = Regex("[^a-zA-Z0-9._-]")
 
+class ChannelMessageDeliveryUnknownException(message: String, cause: Throwable? = null) : RuntimeException(message, cause)
+
 private fun computeHasMoreTop(
     topicId: Long,
     apiBatchSize: Int,
@@ -169,6 +177,11 @@ class ChatController @Inject constructor(
     private val attachmentJobsByTempId = LongSparseArray<IncrementalAttachmentJob>()
     private val attachmentJobsByRealId = LongSparseArray<IncrementalAttachmentJob>()
     private val pendingAttachmentEntityByTempId = LongSparseArray<MessageEntity>()
+    private val acknowledgedMessageIds = object : LinkedHashMap<Long, Boolean>() {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, Boolean>?): Boolean =
+            size > ACKNOWLEDGED_MESSAGE_ID_HISTORY
+    }
+    private data class DeliveryLookup(val floorMessageId: Long, val sentAtSeconds: Long, val initialDelayMs: Long)
     private data class OnlineMessageRefresh(
         val channelId: Long,
         val clanId: Long,
@@ -950,18 +963,26 @@ class ChatController @Inject constructor(
         httpOnly: Boolean = false
     ): com.mezon.mezon.rtapi.ChannelMessageAck {
         val req = correctSendClanIdentity(request)
+        var reconcileLookup: DeliveryLookup? = null
         if (!httpOnly) {
             if (mezonSocket.canSendChannelMessageRealtime(req.clanId, req.channelId)) {
+                val lookup = DeliveryLookup(
+                    floorMessageId = getLastMessageId(messageCacheKey(req.channelId, req.topicId)),
+                    sentAtSeconds = System.currentTimeMillis() / 1000,
+                    initialDelayMs = DELIVERY_LOOKUP_INITIAL_DELAY_MS
+                )
                 try {
-                    return sendChannelMessageViaSocket(req)
+                    return rememberAcknowledged(sendChannelMessageViaSocket(req))
                 } catch (e: CancellationException) {
                     throw e
+                } catch (e: SocketRequestNotSentException) {
+                    logSocketSendFallback(req, "not sent", e)
+                } catch (e: SocketRpcServerException) {
+                    logSocketSendFallback(req, "rejected", e)
                 } catch (e: Exception) {
-                    Log.w(TAG, "Channel message send via socket failed, using HTTP", e)
-                    sentryReporter.logSocketWarning(
-                        "channelMessageSend",
-                        "fallback HTTP channelId=${req.channelId} clanId=${req.clanId} err=${e.message}"
-                    )
+                    logSocketSendFallback(req, "unacknowledged", e)
+                    findDeliveredChannelMessage(apiUrl, token, req, lookup)?.let { return it }
+                    reconcileLookup = lookup
                 }
             } else if (mezonSocket.connectionState.value == ConnectionState.CONNECTED) {
                 Log.d(
@@ -971,12 +992,232 @@ class ChatController @Inject constructor(
                 )
             }
         }
-        return withContext(ioDispatcher) {
-            api.sendChannelMessage(apiUrl, token, req)
+        val ack = rememberAcknowledged(
+            withContext(ioDispatcher) {
+                api.sendChannelMessage(apiUrl, token, req)
+            }
+        )
+        reconcileLookup?.let { scheduleDuplicateReconciliation(apiUrl, token, req, ack.messageId, it) }
+        return ack
+    }
+
+    private fun logSocketSendFallback(req: ChannelMessageSend, outcome: String, e: Exception) {
+        Log.w(TAG, "Channel message send via socket $outcome channelId=${req.channelId} clanId=${req.clanId}", e)
+        sentryReporter.logSocketWarning(
+            "channelMessageSend",
+            "$outcome channelId=${req.channelId} clanId=${req.clanId} err=${e.message}"
+        )
+    }
+
+    private fun rememberAcknowledged(
+        ack: com.mezon.mezon.rtapi.ChannelMessageAck
+    ): com.mezon.mezon.rtapi.ChannelMessageAck {
+        if (ack.messageId != 0L) {
+            synchronized(acknowledgedMessageIds) { acknowledgedMessageIds[ack.messageId] = true }
+        }
+        return ack
+    }
+
+    private suspend fun findDeliveredChannelMessage(
+        apiUrl: String,
+        token: String,
+        request: ChannelMessageSend,
+        lookup: DeliveryLookup
+    ): com.mezon.mezon.rtapi.ChannelMessageAck? {
+        val selfId = getCurrentUserId()
+        val deadlineMs = SystemClock.elapsedRealtime() + DELIVERY_LOOKUP_WINDOW_MS
+        var delayMs = lookup.initialDelayMs
+        while (true) {
+            delay(delayMs)
+            try {
+                val page = withContext(ioDispatcher) {
+                    api.listChannelMessages(
+                        apiUrl,
+                        token,
+                        request.channelId,
+                        request.clanId,
+                        limit = DELIVERY_LOOKUP_LIMIT,
+                        topicId = request.topicId
+                    )
+                }.messagesList
+                val newestServerId = page.maxOfOrNull { it.messageId } ?: 0L
+                val floorMessageId = if (lookup.floorMessageId > newestServerId) 0L else lookup.floorMessageId
+                val delivered = page
+                    .filter { isDeliveredCopyOf(it, request, floorMessageId, lookup.sentAtSeconds, selfId) }
+                    .minByOrNull { it.messageId }
+                    ?: return null
+                Log.w(
+                    TAG,
+                    "Channel message already delivered as messageId=${delivered.messageId} " +
+                        "channelId=${request.channelId}, skipping resend"
+                )
+                sentryReporter.logSocketWarning(
+                    "channelMessageSend",
+                    "recovered delivered messageId=${delivered.messageId} channelId=${request.channelId}"
+                )
+                return rememberAcknowledged(
+                    com.mezon.mezon.rtapi.ChannelMessageAck.newBuilder()
+                        .setChannelId(delivered.channelId)
+                        .setMessageId(delivered.messageId)
+                        .setCode(delivered.code)
+                        .setUsername(delivered.username)
+                        .setCreateTimeSeconds(delivered.createTimeSeconds)
+                        .setUpdateTimeSeconds(delivered.updateTimeSeconds)
+                        .build()
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (e is UnauthorizedException || SystemClock.elapsedRealtime() >= deadlineMs) {
+                    throw ChannelMessageDeliveryUnknownException(
+                        "Could not verify channel message delivery channelId=${request.channelId}",
+                        e
+                    )
+                }
+                Log.w(TAG, "Channel message delivery lookup failed, retrying channelId=${request.channelId}", e)
+                delayMs = DELIVERY_LOOKUP_RETRY_DELAY_MS
+            }
         }
     }
 
+    private fun isDeliveredCopyOf(
+        candidate: ChannelMessage,
+        request: ChannelMessageSend,
+        floorMessageId: Long,
+        sentAtSeconds: Long,
+        selfId: Long
+    ): Boolean {
+        if (candidate.messageId <= floorMessageId) return false
+        if (candidate.createTimeSeconds.toLong() + DELIVERY_LOOKUP_CLOCK_SKEW_SECONDS < sentAtSeconds) return false
+        val senderMatches = (selfId != 0L && candidate.senderId == selfId) ||
+            (request.anonymousMessage && candidate.senderId == ANONYMOUS_USER_ID)
+        if (!senderMatches) return false
+        if (request.topicId != 0L && candidate.topicId != request.topicId) return false
+        if (storedContent(candidate.content) != storedContent(request.content)) return false
+        if (attachmentUrls(candidate.attachments) != request.attachmentsList.map { it.url }) return false
+        return synchronized(acknowledgedMessageIds) { !acknowledgedMessageIds.containsKey(candidate.messageId) }
+    }
+
+    private fun storedContent(content: String): String = if (content.isEmpty()) "[]" else content
+
+    private fun attachmentUrls(bytes: ByteString): List<String> {
+        if (bytes.isEmpty) return emptyList()
+        return try {
+            MessageAttachmentList.parseFrom(bytes).attachmentsList.map { it.url }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun isReconcilableOrphanTime(candidate: ChannelMessage, keptCreateTimeSeconds: Long): Boolean {
+        if (keptCreateTimeSeconds <= 0L) return false
+        val createdAt = candidate.createTimeSeconds.toLong()
+        if (createdAt <= 0L) return false
+        val orphanOlderBySeconds = keptCreateTimeSeconds - createdAt
+        return orphanOlderBySeconds >= -DUP_RECONCILE_AFTER_BUFFER_SECONDS &&
+            orphanOlderBySeconds <= DUP_RECONCILE_BEFORE_WINDOW_SECONDS
+    }
+
+    private fun scheduleDuplicateReconciliation(
+        apiUrl: String,
+        token: String,
+        request: ChannelMessageSend,
+        keptMessageId: Long,
+        lookup: DeliveryLookup
+    ) {
+        if (keptMessageId == 0L) return
+        appScope.launch(ioDispatcher) {
+            try {
+                reconcileDuplicateChannelMessage(apiUrl, token, request, keptMessageId, lookup)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Duplicate reconciliation failed channelId=${request.channelId} kept=$keptMessageId", e)
+            }
+        }
+    }
+
+    private suspend fun reconcileDuplicateChannelMessage(
+        apiUrl: String,
+        token: String,
+        request: ChannelMessageSend,
+        keptMessageId: Long,
+        lookup: DeliveryLookup
+    ) {
+        if (lookup.floorMessageId <= 0L) return
+        val selfId = getCurrentUserId()
+        if (selfId == 0L && !request.anonymousMessage) return
+        var attempt = 0
+        while (attempt < DUP_RECONCILE_ATTEMPTS) {
+            delay(if (attempt == 0) DUP_RECONCILE_INITIAL_DELAY_MS else DUP_RECONCILE_RETRY_DELAY_MS)
+            attempt++
+            val page = try {
+                withContext(ioDispatcher) {
+                    api.listChannelMessages(
+                        apiUrl,
+                        token,
+                        request.channelId,
+                        request.clanId,
+                        limit = DELIVERY_LOOKUP_LIMIT,
+                        topicId = request.topicId
+                    )
+                }.messagesList
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Duplicate reconciliation lookup failed channelId=${request.channelId}", e)
+                continue
+            }
+            val newestServerId = page.maxOfOrNull { it.messageId } ?: 0L
+            if (lookup.floorMessageId > newestServerId) return
+            val keptCreateTimeSeconds = page.firstOrNull { it.messageId == keptMessageId }
+                ?.createTimeSeconds?.toLong() ?: continue
+            val orphans = page.filter { candidate ->
+                candidate.messageId != keptMessageId &&
+                    isReconcilableOrphanTime(candidate, keptCreateTimeSeconds) &&
+                    isDeliveredCopyOf(candidate, request, lookup.floorMessageId, lookup.sentAtSeconds, selfId)
+            }
+            if (orphans.isEmpty()) continue
+            for (orphan in orphans) {
+                deleteDuplicateChannelMessage(apiUrl, token, request, orphan, keptMessageId)
+            }
+            return
+        }
+    }
+
+    private suspend fun deleteDuplicateChannelMessage(
+        apiUrl: String,
+        token: String,
+        request: ChannelMessageSend,
+        orphan: ChannelMessage,
+        keptMessageId: Long
+    ) {
+        synchronized(acknowledgedMessageIds) { acknowledgedMessageIds[orphan.messageId] = true }
+        val removal = channelMessageRemove {
+            this.clanId = request.clanId
+            this.channelId = request.channelId
+            this.messageId = orphan.messageId
+            this.mode = request.mode
+            this.isPublic = request.isPublic
+            this.hasAttachment = !orphan.attachments.isEmpty
+            if (request.topicId != 0L) this.topicId = request.topicId
+        }
+        withContext(ioDispatcher) {
+            api.deleteChannelMessage(apiUrl, token, removal)
+        }
+        applyLocalDelete(messageCacheKey(request.channelId, request.topicId), orphan.messageId)
+        Log.w(
+            TAG,
+            "Deleted duplicate channel message orphanId=${orphan.messageId} kept=$keptMessageId channelId=${request.channelId}"
+        )
+        sentryReporter.logSocketWarning(
+            "channelMessageSend",
+            "deleted duplicate orphanId=${orphan.messageId} kept=$keptMessageId channelId=${request.channelId}"
+        )
+    }
+
     private fun isTransientSendFailure(e: Exception): Boolean {
+        if (e is ChannelMessageDeliveryUnknownException) return false
         if (e is HttpRpcStatusException) {
             return e.code == 429 || e.code == 502 || e.code == 503
         }
@@ -1015,7 +1256,12 @@ class ChatController @Inject constructor(
     private suspend fun sendChannelMessageViaSocket(
         request: ChannelMessageSend
     ): com.mezon.mezon.rtapi.ChannelMessageAck {
-        val env = mezonSocket.send { channelMessageSend = request }
+        val env = try {
+            mezonSocket.send(timeoutMs = CHANNEL_MESSAGE_ACK_TIMEOUT_MS) { channelMessageSend = request }
+        } catch (e: SocketRequestTimeoutException) {
+            mezonSocket.probeLiveness("channel message ack timeout")
+            throw e
+        }
         if (env.messageCase != Envelope.MessageCase.CHANNEL_MESSAGE_ACK) {
             throw IllegalStateException("unexpected envelope ${env.messageCase}")
         }
@@ -1039,10 +1285,9 @@ class ChatController @Inject constructor(
     ) {
         val attachmentPayload = attachments.takeIf { it.isNotEmpty() }
         val isUpdateMsgTopic = topicId != 0L
-        val targetChannelId = if (isUpdateMsgTopic) topicId else channelId
         val request = channelMessageUpdate {
             this.clanId = clanId
-            this.channelId = targetChannelId
+            this.channelId = channelId
             this.messageId = messageId
             this.content = content
             mentions?.takeIf { it.isNotEmpty() }?.let { this.mentions.addAll(it) }
@@ -1063,13 +1308,13 @@ class ChatController @Inject constructor(
             Log.w(TAG, "Channel message update via REST failed, using socket", e)
             sentryReporter.logSocketWarning(
                 "channelMessageUpdate",
-                "fallback socket channelId=$targetChannelId messageId=$messageId err=${e.message}"
+                "fallback socket channelId=$channelId topicId=$topicId messageId=$messageId err=${e.message}"
             )
             if (mezonSocket.connectionState.value != ConnectionState.CONNECTED) throw e
         }
         withContext(ioDispatcher) {
             mezonSocket.updateChatMessage(
-                clanId, targetChannelId, mode, isPublic, messageId, content,
+                clanId, channelId, mode, isPublic, messageId, content,
                 mentions?.takeIf { it.isNotEmpty() }, attachmentPayload, hideEditted, topicId,
                 isUpdateMsgTopic = isUpdateMsgTopic,
                 createTimeSeconds = createTimeSeconds,
@@ -1235,7 +1480,16 @@ class ChatController @Inject constructor(
                         if (isAnonymousSend(clanId)) this.anonymousMessage = true
                         if (topicId != 0L) this.topicId = topicId
                     }
-                    val ack = channelSend(session.apiUrl, session.token, request)
+                    val ack = findDeliveredChannelMessage(
+                        session.apiUrl,
+                        session.token,
+                        correctSendClanIdentity(request),
+                        DeliveryLookup(
+                            floorMessageId = tempId - 1,
+                            sentAtSeconds = failed.timestampSeconds,
+                            initialDelayMs = 0L
+                        )
+                    ) ?: channelSend(session.apiUrl, session.token, request)
                     markForwardTargetUsed(channelId, channelType)
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.pendingMessageSent, cacheKey, tempId, ack.messageId
@@ -1618,6 +1872,18 @@ class ChatController @Inject constructor(
         private const val LARGE_ATTACHMENT_PARALLELISM = 3
         private const val PENDING_API_REACTION_DEDUP_MS = 5000L
         private const val REACTION_IN_FLIGHT = Long.MAX_VALUE
+        private const val CHANNEL_MESSAGE_ACK_TIMEOUT_MS = 20_000L
+        private const val DELIVERY_LOOKUP_INITIAL_DELAY_MS = 1_500L
+        private const val DELIVERY_LOOKUP_RETRY_DELAY_MS = 2_000L
+        private const val DELIVERY_LOOKUP_WINDOW_MS = 20_000L
+        private const val DELIVERY_LOOKUP_LIMIT = 50
+        private const val DELIVERY_LOOKUP_CLOCK_SKEW_SECONDS = 300L
+        private const val ACKNOWLEDGED_MESSAGE_ID_HISTORY = 256
+        private const val DUP_RECONCILE_ATTEMPTS = 2
+        private const val DUP_RECONCILE_INITIAL_DELAY_MS = 2_000L
+        private const val DUP_RECONCILE_RETRY_DELAY_MS = 3_000L
+        private const val DUP_RECONCILE_BEFORE_WINDOW_SECONDS = 40L
+        private const val DUP_RECONCILE_AFTER_BUFFER_SECONDS = 10L
     }
 
     private fun generateTempId(channelId: Long): Long {

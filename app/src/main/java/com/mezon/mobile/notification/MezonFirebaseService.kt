@@ -8,6 +8,7 @@ import com.google.firebase.messaging.RemoteMessage
 import com.mezon.mobile.MainActivity
 import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.home.call.IncomingCallFcmHandler
+import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.friends.FriendController
 import dagger.hilt.android.AndroidEntryPoint
 import org.json.JSONObject
@@ -25,6 +26,7 @@ class MezonFirebaseService : FirebaseMessagingService() {
     @Inject lateinit var activeChannelTracker: ActiveChannelTracker
     @Inject lateinit var incomingCallFcmHandler: IncomingCallFcmHandler
     @Inject lateinit var friendController: FriendController
+    @Inject lateinit var dialogsController: dagger.Lazy<DialogsController>
 
     companion object {
         private val CHANNEL_LINK_REGEX = Regex("""/chat/clans/(\d+)/channels/(\d+)""")
@@ -167,6 +169,17 @@ class MezonFirebaseService : FirebaseMessagingService() {
         val channel = data["channel"] ?: ""
        
         val isDirectDM = channel.isNotEmpty() && link.contains("direct/friends")
+
+        val pushedDmChannelId = DM_LINK_REGEX.find(link)?.groupValues?.get(1)?.toLongOrNull()
+            ?: channel.toLongOrNull()
+            ?: 0L
+        val isClanPush = CHANNEL_LINK_REGEX.find(link) != null
+        if (pushedDmChannelId != 0L && !isClanPush &&
+            !activeChannelTracker.isViewing(pushedDmChannelId)
+        ) {
+            dialogsController.get().applyPushedDmMessage(pushedDmChannelId, messageId, body)
+        }
+
         if (link.isNotEmpty() && !isDirectDM) {
             val linkChannelMatch = CHANNEL_LINK_REGEX.find(link)
             if (linkChannelMatch != null) {
@@ -203,7 +216,6 @@ class MezonFirebaseService : FirebaseMessagingService() {
                     if (dmId != 0L && activeChannelTracker.isViewing(dmId)) {
                         return
                     }
-
                     if (isAppInForeground()) {
                         notificationHelper.showInAppToast(
                             title,

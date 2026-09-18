@@ -40,6 +40,7 @@ import com.mezon.mobile.home.clans.CHANNEL_TYPE_STREAMING
 import com.mezon.mobile.home.clans.VoiceMemberDisplay
 import com.mezon.mobile.home.voice.JoinVoiceBottomSheet
 import com.mezon.mobile.home.voice.VoiceController
+import com.mezon.mobile.home.voice.resolveVoiceMemberIdentity
 import com.mezon.mobile.home.stream.JoinMediaSheetKind
 import com.mezon.mobile.home.stream.StreamingController
 import com.mezon.mobile.ui.cells.ChannelSearchCell
@@ -1120,14 +1121,13 @@ class GlobalSearchFragment : BaseFragment() {
         val memberMap = HashMap<Long, ClanMember>(clanMembers.size)
         for (m in clanMembers) memberMap[m.userId] = m
         return memberIds.map { uid ->
-            val m = memberMap[uid]
-            val name = m?.clanNick?.ifEmpty { null }
-                ?: m?.displayName?.ifEmpty { null }
-                ?: m?.username
-                ?: getString(R.string.search_user_fallback)
-            val username = m?.username.orEmpty()
-            val avatar = m?.clanAvatar?.ifEmpty { null } ?: m?.avatarUrl
-            VoiceMemberDisplay(uid, name, username, avatar)
+            val identity = resolveVoiceMemberIdentity(
+                uid,
+                memberMap[uid],
+                userClanController.getUserById(uid),
+                getString(R.string.search_user_fallback)
+            )
+            VoiceMemberDisplay(uid, identity.displayName, identity.username, identity.avatarUrl)
         }
     }
 

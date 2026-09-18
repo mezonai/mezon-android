@@ -24,12 +24,14 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
 
 private const val TAG = "ConnectionController"
 private const val JOIN_CLAN_DELAY_MS = 250L
+private const val DM_LISTING_JOIN_TIMEOUT_MS = 10_000L
 
 @Singleton
 class ConnectionController @Inject constructor(
@@ -97,8 +99,8 @@ class ConnectionController @Inject constructor(
             mezonSocket.reconnectNow("app foreground")
             if (stateBefore == ConnectionState.CONNECTED) {
                 mezonSocket.probeLiveness("app foreground")
-                dialogsController.refreshDmBadgesOnForegroundThrottled()
             }
+            dialogsController.refreshDmBadgesOnForegroundThrottled()
         }
     }
 
@@ -202,6 +204,9 @@ class ConnectionController @Inject constructor(
         mezonSocket.connectionState.collect { state ->
             if (state != ConnectionState.CONNECTED) return@collect
             delay(JOIN_CLAN_DELAY_MS)
+            withTimeoutOrNull(DM_LISTING_JOIN_TIMEOUT_MS) {
+                dialogsController.awaitDmListingServed()
+            }
             if (mezonSocket.connectionState.value != ConnectionState.CONNECTED) return@collect
             try { mezonSocket.joinClanChat(0L) }
             catch (e: Exception) { Log.e(TAG, "joinClanChat(0) failed", e) }

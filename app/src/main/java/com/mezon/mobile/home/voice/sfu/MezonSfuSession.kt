@@ -48,7 +48,9 @@ import org.webrtc.MediaStream
 import org.webrtc.PeerConnection
 import org.webrtc.RTCStats
 import org.webrtc.RTCStatsReport
+import org.webrtc.RtpParameters
 import org.webrtc.RtpReceiver
+import org.webrtc.RtpSender
 import org.webrtc.RtpTransceiver
 import org.webrtc.ScreenCapturerAndroid
 import org.webrtc.SdpObserver
@@ -66,6 +68,33 @@ private const val MID_SCREEN = "2"
 private const val CAPTURE_WIDTH = 640
 private const val CAPTURE_HEIGHT = 360
 private const val CAPTURE_FPS = 24
+private const val CAMERA_TIER_DOWNGRADE_MS = 1500L
+private const val CAMERA_TIER_UPGRADE_MS = 6000L
+
+private class CameraTier(
+    val maxCameras: Int,
+    val scaleDown: Double,
+    val maxBitrateBps: Int,
+    val maxFps: Int,
+    val uncapped: Boolean = false
+)
+
+private val CAMERA_TIERS = listOf(
+    CameraTier(2, 1.0, 1_000_000, 30, uncapped = true),
+    CameraTier(4, 1.333, 500_000, 24),
+    CameraTier(8, 2.0, 300_000, 20),
+    CameraTier(Int.MAX_VALUE, 2.0, 200_000, 15)
+)
+
+private fun cameraTierIndexFor(cameras: Int, margin: Int = 0): Int {
+    val index = CAMERA_TIERS.indexOfFirst { cameras <= it.maxCameras - margin }
+    return if (index == -1) CAMERA_TIERS.lastIndex else index
+}
+
+private fun resolveCameraTier(cameras: Int, currentIndex: Int): Int {
+    val target = cameraTierIndexFor(cameras)
+    return if (target >= currentIndex) target else minOf(currentIndex, cameraTierIndexFor(cameras, 1))
+}
 private const val SCREEN_WIDTH = 1280
 private const val SCREEN_HEIGHT = 720
 private const val SCREEN_FPS = 15
@@ -240,6 +269,8 @@ class MezonSfuSession @Inject constructor(
     private val roleByMid = HashMap<String, SfuRole>()
     private val memberByPeerId = HashMap<String, MemberState>()
     private val remote = LinkedHashMap<String, RemoteEntry>()
+    private var cameraTierIndex = 0
+    private var cameraTierJob: Job? = null
 
     private class RemoteEntry(val id: String) {
         var userId: String? = null
@@ -541,6 +572,7 @@ class MezonSfuSession @Inject constructor(
     fun setCameraEnabled(on: Boolean) {
         Log.d(TAG, "setCameraEnabled=$on role=${role.wire}")
         cameraEnabled = on
+        scheduleCameraTier()
         scope?.launch {
             if (on) {
                 if (peerConnection != null) prepareVideoSender()
@@ -1004,7 +1036,39 @@ class MezonSfuSession @Inject constructor(
         val tc = findTransceiver(MID_CAMERA, "video") ?: return
         if (tc.sender.track() !== cameraTrack) {
             tc.sender.setTrack(cameraTrack, false)
+            applyCameraTier(tc.sender, cameraTierIndex)
             tc.direction = RtpTransceiver.RtpTransceiverDirection.SEND_ONLY
+        }
+    }
+
+    private fun applyCameraTier(sender: RtpSender, tierIndex: Int) {
+        try {
+            val tier = CAMERA_TIERS.getOrElse(tierIndex) { CAMERA_TIERS[0] }
+            val params = sender.parameters
+            params.degradationPreference = RtpParameters.DegradationPreference.MAINTAIN_FRAMERATE
+            for (encoding in params.encodings) {
+                encoding.maxBitrateBps = if (tier.uncapped) null else tier.maxBitrateBps
+                encoding.maxFramerate = if (tier.uncapped) null else tier.maxFps
+                encoding.scaleResolutionDownBy = if (tier.uncapped) null else tier.scaleDown
+            }
+            sender.parameters = params
+        } catch (e: Exception) {
+            Log.w(TAG, "camera tier not applied", e)
+        }
+    }
+
+    private fun activeCameraCount(): Int =
+        remote.values.count { it.cameraActive } + if (cameraEnabled) 1 else 0
+
+    private fun scheduleCameraTier() {
+        val next = resolveCameraTier(activeCameraCount(), cameraTierIndex)
+        if (next == cameraTierIndex) return
+        val delayMs = if (next > cameraTierIndex) CAMERA_TIER_DOWNGRADE_MS else CAMERA_TIER_UPGRADE_MS
+        cameraTierJob?.cancel()
+        cameraTierJob = scope?.launch {
+            delay(delayMs)
+            cameraTierIndex = next
+            findTransceiver(MID_CAMERA, "video")?.sender?.let { applyCameraTier(it, next) }
         }
     }
 
@@ -1103,6 +1167,7 @@ class MezonSfuSession @Inject constructor(
             val participantId = existing ?: mids.firstOrNull()?.let { remoteParticipantId(it) } ?: continue
             applyMemberState(remote.getOrPut(participantId) { RemoteEntry(participantId) }, peerId)
         }
+        scheduleCameraTier()
         return ownershipChanged
     }
 
