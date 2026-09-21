@@ -228,6 +228,7 @@ class VoiceFocusedShareView(
             try {
                 track.addSink(renderer)
                 currentVideoTrack = track
+                VideoTrackLastFrameStore.replayLastFrame(track, renderer)
                 resetTransformState(renderer)
             } catch (e: IllegalStateException) {
                 currentVideoTrack = null

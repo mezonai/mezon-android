@@ -485,10 +485,9 @@ class StreamingRoomFragment : BaseFragment() {
     private fun openChatForChannel() {
         val activity = getParentActivity() as? MainActivity ?: return
         activity.openChat(channelId, channelLabel, clanId, CHANNEL_TYPE_STREAMING)
-        minimizeToOverlay()
     }
 
-    private fun minimizeToOverlay() {
+    fun minimizeToOverlay() {
         isMinimizing = true
         streamingSession.onStreamingStateChanged = null
         streamingSession.onRemoteVideoTrackChanged = null

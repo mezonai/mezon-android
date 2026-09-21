@@ -8,6 +8,9 @@
 -keep class com.mezon.mezon.api.** { *; }
 -keep class com.mezon.mezon.rtapi.** { *; }
 -dontwarn com.google.protobuf.**
+-keepclassmembers class * extends com.google.protobuf.GeneratedMessageLite {
+    <fields>;
+}
 
 -keep class org.webrtc.** { *; }
 -keep interface org.webrtc.** { *; }

@@ -9,6 +9,8 @@ import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.text.Editable
 import android.text.InputFilter
 import android.text.InputType
@@ -43,6 +45,7 @@ import com.mezon.mezon.api.Friend
 import com.mezon.mobile.home.profile.AccountController
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.network.STREAM_MODE_DM
+import com.mezon.mobile.search.SearchController
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.ui.cells.AvatarView
@@ -71,6 +74,7 @@ class SendTokenFragment : BaseFragment() {
         private val VI_LOCALE: Locale = Locale("vi", "VN")
         private val CHAIN_UNITS_PER_TOKEN: BigInteger = BigInteger.valueOf(1_000_000L)
         private const val PROFILE_TRANSFER_DEFAULT_AMOUNT = 10000
+        private const val RECIPIENT_SEARCH_DEBOUNCE_MS = 300L
 
         fun newInstance(
             formValue: String? = null
@@ -127,6 +131,7 @@ class SendTokenFragment : BaseFragment() {
     private lateinit var mezonApi: MezonApi
     private lateinit var sessionManager: SessionManager
     private lateinit var walletController: WalletController
+    private lateinit var searchController: SearchController
     private var formValue: String? = null
 
     private var jsonReceiverId: String? = null
@@ -147,7 +152,10 @@ class SendTokenFragment : BaseFragment() {
     private var recipientValueText: TextView? = null
     private var amountFormatSuppress: Boolean = false
 
-    /** True when opened with QR / deep-link form payload (only [QrScanFragment] passes this today). */
+    private val recipientSearchHandler = Handler(Looper.getMainLooper())
+    private var recipientSearchRunnable: Runnable? = null
+    private var recipientPicker: RecipientPicker? = null
+
     private val isQrTransferFlow: Boolean
         get() = !formValue.isNullOrBlank()
 
@@ -161,6 +169,7 @@ class SendTokenFragment : BaseFragment() {
         mezonApi = entryPoint.mezonApi()
         sessionManager = entryPoint.sessionManager()
         walletController = entryPoint.walletController()
+        searchController = entryPoint.searchController()
     }
 
     override fun onFragmentCreate(): Boolean {
@@ -169,6 +178,9 @@ class SendTokenFragment : BaseFragment() {
         parseForm(formValue)
         friendController.loadFriends()
         userClanController.loadUsers()
+        observe(NotificationCenter.searchMembersDidLoad) { _, _, _ ->
+            recipientPicker?.onSearchResultsLoaded()
+        }
         
         walletController.fetchWalletDetail()
         
@@ -181,6 +193,11 @@ class SendTokenFragment : BaseFragment() {
             }
         }
         return true
+    }
+
+    override fun onFragmentDestroy() {
+        super.onFragmentDestroy()
+        closeRecipientSearch()
     }
 
     private fun parseForm(
@@ -965,15 +982,10 @@ class SendTokenFragment : BaseFragment() {
 
     private fun openRecipientPicker() {
         val act = getParentActivity() ?: return
-        val allOptions = buildRecipientOptions()
-        if (allOptions.isEmpty()) {
+        val suggestions = buildRecipientOptions()
+        if (suggestions.isEmpty()) {
             friendController.loadFriends(noCache = true)
             userClanController.loadUsers(noCache = true)
-            showToast(
-                getString(R.string.send_token_no_friends_to_select),
-                ToastOverlay.ToastType.INFO
-            )
-            return
         }
         val sheetHeightPx = (AndroidUtilities.displaySize.y * 0.88f).toInt()
             .coerceAtLeast(LayoutHelper.dp(320f))
@@ -1003,7 +1015,6 @@ class SendTokenFragment : BaseFragment() {
             background = createQrTransferInputBackground()
         }
         val emptyTv = TextView(act).apply {
-            text = getString(R.string.send_token_no_user_match)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
             setTextColor(themeColors.onSurfaceVariant)
             gravity = Gravity.CENTER
@@ -1029,25 +1040,21 @@ class SendTokenFragment : BaseFragment() {
             sheet.dismiss()
         }
         recycler.adapter = adapter
-        adapter.submit(allOptions)
-        fun applyFilter(q: String) {
-            val query = q.trim().lowercase(Locale.getDefault())
-            val filtered = if (query.isBlank()) {
-                allOptions
-            } else {
-                allOptions.filter {
-                    it.displayName.lowercase(Locale.getDefault()).contains(query) ||
-                        it.username.lowercase(Locale.getDefault()).contains(query)
-                }
-            }
-            adapter.submit(filtered)
-            emptyTv.visibility = if (filtered.isEmpty()) View.VISIBLE else View.GONE
-        }
+        closeRecipientSearch()
+        searchController.cancelCtrlKSearch()
+        val picker = RecipientPicker(adapter, emptyTv, suggestions)
+        recipientPicker = picker
+        picker.render()
         searchField.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
             override fun afterTextChanged(s: Editable?) {
-                applyFilter(s?.toString().orEmpty())
+                if (recipientPicker !== picker) return
+                val query = s?.toString().orEmpty()
+                recipientSearchRunnable?.let { recipientSearchHandler.removeCallbacks(it) }
+                val runnable = Runnable { picker.onQueryChanged(query) }
+                recipientSearchRunnable = runnable
+                recipientSearchHandler.postDelayed(runnable, RECIPIENT_SEARCH_DEBOUNCE_MS)
             }
         })
         content.addView(titleTv)
@@ -1080,6 +1087,7 @@ class SendTokenFragment : BaseFragment() {
                 }
             }
         }
+        sheet.setOnHideListener { _ -> closeRecipientSearch() }
         sheet.show()
     }
 
@@ -1115,6 +1123,65 @@ class SendTokenFragment : BaseFragment() {
         return userMap.values
             .sortedBy { it.displayName.lowercase(Locale.getDefault()) }
             .toList()
+    }
+
+    private fun searchedRecipientOptions(): List<RecipientOption> {
+        val currentUserId = accountController.accountInfo.value.userId
+        val out = ArrayList<RecipientOption>()
+        for (member in searchController.ctrlKMembersSnapshot()) {
+            if (member.isDm || member.id == 0L || member.id == currentUserId) continue
+            out.add(
+                RecipientOption(
+                    userId = member.id,
+                    displayName = member.displayName.ifBlank { member.username }.ifBlank { member.id.toString() },
+                    username = member.username,
+                    avatarUrl = member.avatarUrl
+                )
+            )
+        }
+        return out
+    }
+
+    private fun closeRecipientSearch() {
+        recipientSearchRunnable?.let { recipientSearchHandler.removeCallbacks(it) }
+        recipientSearchRunnable = null
+        if (recipientPicker == null) return
+        recipientPicker = null
+        searchController.cancelCtrlKSearch()
+    }
+
+    private inner class RecipientPicker(
+        private val adapter: RecipientPickerAdapter,
+        private val emptyTv: TextView,
+        private val suggestions: List<RecipientOption>
+    ) {
+        private var query = ""
+        private var awaitingResults = false
+
+        fun onQueryChanged(raw: String) {
+            query = raw.trim()
+            awaitingResults = query.isNotEmpty() && searchController.fetchCtrlKUsers(query)
+            if (!awaitingResults) searchController.cancelCtrlKSearch()
+            render()
+        }
+
+        fun onSearchResultsLoaded() {
+            awaitingResults = false
+            render()
+        }
+
+        fun render() {
+            val items = if (query.isEmpty()) suggestions else searchedRecipientOptions()
+            adapter.submit(items)
+            if (items.isNotEmpty() || awaitingResults) {
+                emptyTv.visibility = View.GONE
+                return
+            }
+            emptyTv.text = getString(
+                if (query.isEmpty()) R.string.send_token_type_to_search else R.string.send_token_no_user_match
+            )
+            emptyTv.visibility = View.VISIBLE
+        }
     }
 
     private fun applyRecipientSelection(option: RecipientOption) {

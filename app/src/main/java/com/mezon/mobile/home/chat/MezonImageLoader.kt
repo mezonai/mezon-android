@@ -30,9 +30,13 @@ import java.util.concurrent.TimeUnit
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.util.SentryReporter
 import dagger.hilt.android.EntryPointAccessors
+
+private val IMAGE_USER_AGENT =
+    "Mezon-Android/${BuildConfig.VERSION_NAME} (Android ${Build.VERSION.RELEASE})"
 
 class MezonImageLoader private constructor(context: Context) {
 
@@ -52,17 +56,18 @@ class MezonImageLoader private constructor(context: Context) {
         } catch (_: Throwable) {
             null
         }
-        if (shared != null) {
-            shared.newBuilder()
-                .connectTimeout(10, TimeUnit.SECONDS)
-                .readTimeout(15, TimeUnit.SECONDS)
-                .build()
-        } else {
-            OkHttpClient.Builder()
-                .connectTimeout(10, TimeUnit.SECONDS)
-                .readTimeout(15, TimeUnit.SECONDS)
-                .build()
-        }
+        (shared?.newBuilder() ?: OkHttpClient.Builder())
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .addInterceptor { chain ->
+                val request = chain.request()
+                if (request.header("User-Agent") != null) {
+                    chain.proceed(request)
+                } else {
+                    chain.proceed(request.newBuilder().header("User-Agent", IMAGE_USER_AGENT).build())
+                }
+            }
+            .build()
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
