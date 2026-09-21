@@ -274,7 +274,14 @@ fun formatEmbedRichText(raw: String, theme: ThemeColors): CharSequence {
     val sb = SpannableStringBuilder()
     appendRichMarkdownWithFences(sb, raw, theme)
     applyAutoDetectedHttpLinks(sb, theme.blurple)
+    trimTrailingNewlines(sb)
     return sb
+}
+
+private fun trimTrailingNewlines(sb: SpannableStringBuilder) {
+    var end = sb.length
+    while (end > 0 && sb[end - 1] == '\n') end--
+    if (end < sb.length) sb.delete(end, sb.length)
 }
 
 private fun stripDelimiterAndSpan(
@@ -565,6 +572,7 @@ fun parseContentToSpannable(
     if (richPlainMarkdown) {
         applyAutoDetectedHttpLinks(sb, linkColor)
     }
+    trimTrailingNewlines(sb)
     return sb
 }
 

@@ -226,6 +226,7 @@ class VoiceOverlayView(
             return
         }
         currentVideoTrack = videoTrack
+        VideoTrackLastFrameStore.replayLastFrame(videoTrack, renderer)
         renderer.visibility = VISIBLE
     }
 

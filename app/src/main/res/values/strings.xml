@@ -896,7 +896,7 @@
     <string name="send_token_select_user_placeholder">Tap to select a user</string>
     <string name="send_token_search_user_hint">Search by name or username</string>
     <string name="send_token_no_user_match">No matching users</string>
-    <string name="send_token_no_friends_to_select">No friends available to select yet. Pull friends list and try again.</string>
+    <string name="send_token_type_to_search">Type a name or username to search</string>
     <string name="send_token_error_no_recipient">Please select a recipient</string>
     <string name="send_token_error_amount">Enter an amount greater than zero</string>
     <string name="send_token_error_exceeds_balance">Amount exceeds your balance</string>
@@ -1260,6 +1260,8 @@
     <string name="permission_no_audio">Mezon needs access to your microphone. Please go to Settings and enable the permission.</string>
     <string name="permission_no_camera_mic_video">Mezon needs access to your camera and microphone for video messages. Please go to Settings and enable the permissions.</string>
     <string name="permission_no_location">Mezon needs access to your location. Please go to Settings and enable the permission.</string>
+    <string name="location_services_off_title">Location is turned off</string>
+    <string name="location_services_off_message">Turn on location in Settings to share your position.</string>
 
     <!-- UserProfile BottomSheet -->
     <string name="user_profile_send_message">Message</string>
@@ -1299,6 +1301,10 @@
     <string name="share_location_coordinate">Coordinate (%1$.6f, %2$.6f)</string>
     <string name="share_location_cancel">Cancel</string>
     <string name="share_location_send">Send</string>
+    <string name="share_location_fetching">Getting your location…</string>
+    <string name="share_location_unavailable">Couldn\'t get your location. Please try again.</string>
+    <string name="location_card_your_location">Your location</string>
+    <string name="location_card_location_of">%1$s\'s location</string>
     <string name="feature_coming_soon">Coming soon</string>
     <string name="file_too_large">File exceeds the %s limit</string>
 

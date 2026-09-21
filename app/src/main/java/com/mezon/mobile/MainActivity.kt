@@ -1072,6 +1072,11 @@ class MainActivity : BasePermissionsActivity(),
     fun isVoiceOverlayVisible(): Boolean = voiceOverlayManager?.isVisible() == true
     fun isVoiceOverlayExpanded(): Boolean = voiceOverlayManager?.isExpanded() == true
 
+    private fun collapseRoomOverlaysForNavigation() {
+        if (isVoiceOverlayExpanded()) minimizeVoiceRoom()
+        if (isStreamingOverlayExpanded()) streamingRoomFragment?.minimizeToOverlay()
+    }
+
     fun showStreamingRoom(
         channelId: Long,
         clanId: Long,
@@ -1146,6 +1151,7 @@ class MainActivity : BasePermissionsActivity(),
 
     fun openFriendRequestsFromNotification(noAnimation: Boolean = true) {
         if (!StartupCache.hasSession) return
+        collapseRoomOverlaysForNavigation()
         friendController.loadFriendRelations(noCache = true)
 
         if (actionBarLayout.getLastFragment() is AddFriendFragment) {
@@ -1171,6 +1177,7 @@ class MainActivity : BasePermissionsActivity(),
         forceRejoin: Boolean = false,
         replaceLastFragment: Boolean = false
     ) {
+        collapseRoomOverlaysForNavigation()
         val routeMeta = resolveChatRouteMeta(channelId, clanId, channelType)
         val resolvedChannelName = resolveChatDisplayName(channelId, channelName, clanId, routeMeta.channelType)
         val lastFragment = actionBarLayout.getLastFragment()

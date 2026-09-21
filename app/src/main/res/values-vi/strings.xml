@@ -113,6 +113,18 @@
     <string name="camera_permission_denied_title">Cần quyền truy cập camera</string>
     <string name="camera_permission_denied_message">Vui lòng cho phép truy cập camera trong Cài đặt để chụp và gửi ảnh.</string>
     <string name="qr_camera_denied_message">Vui lòng bật quyền camera trong Cài đặt để quét QR.</string>
+    <string name="location_services_off_title">Vị trí đang tắt</string>
+    <string name="location_services_off_message">Bật vị trí trong Cài đặt để chia sẻ vị trí của bạn.</string>
+    <string name="permission_open_settings">Mở Cài đặt</string>
+    <string name="permission_not_now">Để sau</string>
+    <string name="share_location_title">Gửi vị trí này tới %s</string>
+    <string name="share_location_coordinate">Tọa độ (%1$.6f, %2$.6f)</string>
+    <string name="share_location_cancel">Hủy</string>
+    <string name="share_location_send">Gửi</string>
+    <string name="share_location_fetching">Đang lấy vị trí của bạn…</string>
+    <string name="share_location_unavailable">Không lấy được vị trí của bạn. Vui lòng thử lại.</string>
+    <string name="location_card_your_location">Vị trí của bạn</string>
+    <string name="location_card_location_of">Vị trí của %1$s</string>
     <string name="qr_scan_title_hint">Quét mã QR</string>
     <string name="qr_scan_instructions">Hướng camera vào mã QR. Bạn cũng có thể chọn ảnh từ thư viện.</string>
     <string name="qr_gallery_label">Thư viện</string>
@@ -1267,7 +1279,7 @@
     <string name="send_token_select_user_placeholder">Chạm để chọn người nhận</string>
     <string name="send_token_search_user_hint">Tìm theo tên hoặc username</string>
     <string name="send_token_no_user_match">Không tìm thấy người dùng phù hợp</string>
-    <string name="send_token_no_friends_to_select">Chưa có bạn bè để chọn. Vui lòng tải lại danh sách bạn bè và thử lại.</string>
+    <string name="send_token_type_to_search">Nhập tên hoặc username để tìm kiếm</string>
     <string name="send_token_error_no_recipient">Vui lòng chọn người nhận</string>
     <string name="send_token_error_amount">Nhập số tiền lớn hơn 0</string>
     <string name="send_token_error_exceeds_balance">Số tiền vượt quá số dư</string>

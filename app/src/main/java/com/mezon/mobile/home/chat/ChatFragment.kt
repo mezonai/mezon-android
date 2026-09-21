@@ -74,6 +74,7 @@ import com.mezon.mobile.home.friends.FRIEND_STATE_INVITE_SENT
 import com.mezon.mobile.home.friends.FriendController
 import com.mezon.mobile.home.call.CallFragment
 import com.mezon.mobile.util.ShareContactData
+import com.mezon.mobile.util.LocationMessageData
 import com.mezon.mobile.util.isShareContactMessage
 import com.mezon.mobile.home.clans.CLAN_CREATE_LIMIT
 import com.mezon.mobile.home.clans.ChannelController
@@ -202,6 +203,14 @@ open class ChatFragment : BaseFragment() {
         private const val VIEWPORT_LIMIT = 300
         private const val PAGE_DOWN_SCROLL_THRESHOLD = 2
         private const val REQUEST_CODE_LOCATION_PERMISSION = 1002
+        private const val LOCATION_FIX_TIMEOUT_MS = 10_000L
+        private const val LOCATION_FRESH_MAX_AGE_MS = 2 * 60_000L
+        private val LOCATION_FIX_PROVIDERS = listOf(
+            android.location.LocationManager.GPS_PROVIDER,
+            android.location.LocationManager.NETWORK_PROVIDER
+        )
+        private val LOCATION_LAST_KNOWN_PROVIDERS =
+            LOCATION_FIX_PROVIDERS + android.location.LocationManager.PASSIVE_PROVIDER
         private const val REQUEST_CODE_PICK_FILE = 1005
         private const val REQUEST_CODE_TAKE_PHOTO = 1006
         private const val REQUEST_CODE_CAMERA_PERMISSION = 1007
@@ -320,6 +329,11 @@ open class ChatFragment : BaseFragment() {
     private var activeImageEditor: ChatImageEditorDialog? = null
     private var mediaPermissionDeniedOnce = false
     private var locationPermissionAskedBefore = false
+    private var pendingLocationSettingsReturn: LocationSettingsReturn? = null
+    private var locationFixListener: android.location.LocationListener? = null
+    private var locationFixManager: android.location.LocationManager? = null
+    private var locationFixTimeout: Runnable? = null
+    private var locationFixDialog: com.mezon.mobile.core.AlertDialog? = null
     private val pendingAttachmentThumbTasks = ArrayList<Runnable?>()
     private var attachmentProgressReloadRunnable: Runnable? = null
     private var buzzMediaPlayer: android.media.MediaPlayer? = null
@@ -377,6 +391,7 @@ open class ChatFragment : BaseFragment() {
     private var firstLoad = true
     private var newUnreadCount = 0
     private var lastSeenMessageId = 0L
+    private var lastWrittenSeenMessageId = 0L
     private var dividerSeenMessageId = 0L
     private var lastSentMessageId = 0L
     private var hasUnread = false
@@ -2378,6 +2393,9 @@ open class ChatFragment : BaseFragment() {
             override fun didTapShareContactCall(cell: ChatMessageCell, msg: MessageEntity, data: ShareContactData) {
                 startShareContactCall(data)
             }
+            override fun didTapLocationCard(cell: ChatMessageCell, msg: MessageEntity, data: LocationMessageData) {
+                openLocationInMaps(data)
+            }
         })
 
         adapter.sendTokenDelegate = object : SendTokenMessageCell.Delegate {
@@ -2671,6 +2689,10 @@ open class ChatFragment : BaseFragment() {
     override fun onResume() {
         super.onResume()
         lastResumeTime = android.os.SystemClock.elapsedRealtime()
+        pendingLocationSettingsReturn?.let { origin ->
+            pendingLocationSettingsReturn = null
+            resumeLocationSendAfterSettings(origin)
+        }
         if (clanId == 0L) {
             refreshDmHeaderTitleFromDialog()
             refreshWelcomeFromDialog()
@@ -3173,6 +3195,7 @@ open class ChatFragment : BaseFragment() {
     }
 
     override fun onFragmentDestroy() {
+        cancelLocationFix()
         activeImageEditor?.setOnDismissListener(null)
         activeImageEditor?.dismiss()
         activeImageEditor = null
@@ -3572,23 +3595,51 @@ open class ChatFragment : BaseFragment() {
     }
 
     private fun markAsRead() {
-        val newest = newestReadStateMessage() ?: return
-        if (messagesDict[newest.id] == null) return
         if (clanId != 0L) {
             if (channelController.findChannelById(channelId) == null) return
         } else {
             if (dialogsController.getDialog(channelId) == null) return
         }
-        if (newest.id <= lastSeenMessageId) return
-        lastSeenMessageId = newest.id
+        val newest = newestReadStateMessage()
+        val seenId: Long
+        val seenTs: Int
+        if (newest != null) {
+            if (messagesDict[newest.id] == null) return
+            seenId = newest.id
+            seenTs = newest.timestampSeconds.toInt()
+        } else {
+            if (lastSentMessageId == 0L) return
+            seenId = lastSentMessageId
+            seenTs = channelTailTimestampSeconds()
+        }
+        if (seenId <= lastWrittenSeenMessageId) return
+        if (!canAdvanceSeenPointer(seenId)) return
+        lastWrittenSeenMessageId = seenId
+        lastSeenMessageId = maxOf(lastSeenMessageId, seenId)
         newUnreadCount = 0
         if (::pageDownButton.isInitialized) pageDownButton.setUnreadCount(0)
 
-        pendingSeenMessageId = newest.id
-        pendingSeenTimestamp = newest.timestampSeconds.toInt()
+        pendingSeenMessageId = seenId
+        pendingSeenTimestamp = seenTs
         pendingBadgeCount = 0
         mainHandler.removeCallbacks(markVisibleRunnable)
         mainHandler.postDelayed(markVisibleRunnable, 500)
+    }
+
+    private fun canAdvanceSeenPointer(messageId: Long): Boolean {
+        if (lastSeenMessageId == 0L || messageId >= lastSeenMessageId) return true
+        val tail = maxOf(lastSentMessageId, chatController.getLastMessageId(messageListKey))
+        return tail != 0L && messageId == tail
+    }
+
+    private fun channelTailTimestampSeconds(): Int {
+        val readStateChannelId = if (isTopicMode && topicId != 0L) topicId else channelId
+        val ts = if (clanId != 0L) {
+            channelController.findChannelById(readStateChannelId)?.lastSentMessageTs ?: 0L
+        } else {
+            dialogsController.getDialog(readStateChannelId)?.lastSentMessageTs ?: 0L
+        }
+        return ts.toInt()
     }
 
     private fun markVisibleAsRead() {
@@ -3626,6 +3677,7 @@ open class ChatFragment : BaseFragment() {
         if (visibleMsg.id <= lastSeenMessageId) return
 
         lastSeenMessageId = visibleMsg.id
+        lastWrittenSeenMessageId = maxOf(lastWrittenSeenMessageId, visibleMsg.id)
         val remaining = if (lastSentMessageId != 0L && visibleMsg.id < lastSentMessageId) {
             countNewerReadable(candidateIndex, visibleMsg.id)
         } else {
@@ -4576,8 +4628,8 @@ open class ChatFragment : BaseFragment() {
         bar.setSubtitleOnClickListener { showJoinVoiceSheetForDmPeer() }
         bar.setSubtitleColor((themeColors.onSurface and 0x00FFFFFF) or dimAlpha)
         val iconSize = LayoutHelper.dp(12)
-        val icon = MezonIcon.voiceWaveIcon.getDrawable(bar.context).mutate().apply {
-            colorFilter = PorterDuffColorFilter((themeColors.onlineGreen and 0x00FFFFFF) or dimAlpha, PorterDuff.Mode.SRC_IN)
+        val icon = MezonIcon.channelVoice.getDrawable(bar.context).mutate().apply {
+            colorFilter = PorterDuffColorFilter(themeColors.voiceActiveGreen, PorterDuff.Mode.SRC_IN)
             setBounds(0, 0, iconSize, iconSize)
         }
         val text = SpannableString("  " + getString(R.string.voice_profile_in_voice))
@@ -5825,12 +5877,15 @@ open class ChatFragment : BaseFragment() {
             .setMessage(getString(R.string.permission_no_location))
             .setPositiveButton(getString(R.string.permission_open_settings)) { _, _ ->
                 try {
+                    pendingLocationSettingsReturn = LocationSettingsReturn.APP_PERMISSION
                     val intent = android.content.Intent(
                         android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                         android.net.Uri.fromParts("package", activity.packageName, null)
                     )
                     activity.startActivity(intent)
-                } catch (_: Exception) {}
+                } catch (_: Exception) {
+                    pendingLocationSettingsReturn = null
+                }
             }
             .setNegativeButton(getString(R.string.permission_not_now), null)
             .create()
@@ -5839,38 +5894,177 @@ open class ChatFragment : BaseFragment() {
 
     @android.annotation.SuppressLint("MissingPermission")
     private fun fetchCurrentLocationAndSend() {
-        val ctx = getContext() ?: return
-        val locationManager = ctx.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager ?: return
+        val activity = getParentActivity() ?: return
+        val locationManager = locationManagerOrNull() ?: return
+        cancelLocationFix()
 
-        val lastKnown = locationManager.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
-            ?: locationManager.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
+        val providers = enabledLocationProviders(locationManager)
+        if (providers.isEmpty()) {
+            showEnableLocationServicesDialog()
+            return
+        }
 
-        if (lastKnown != null) {
-            showLocationConfirmDialog(lastKnown.latitude, lastKnown.longitude)
+        val recent = freshestLastKnownLocation(locationManager)
+        if (recent != null && locationAgeMs(recent) <= LOCATION_FRESH_MAX_AGE_MS) {
+            showLocationConfirmDialog(recent.latitude, recent.longitude)
             return
         }
 
         val listener = object : android.location.LocationListener {
             override fun onLocationChanged(location: android.location.Location) {
-                locationManager.removeUpdates(this)
+                if (locationFixListener !== this) return
+                cancelLocationFix()
                 showLocationConfirmDialog(location.latitude, location.longitude)
             }
             @Deprecated("Deprecated in Java")
             override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
             override fun onProviderEnabled(provider: String) {}
-            override fun onProviderDisabled(provider: String) {}
+            override fun onProviderDisabled(provider: String) {
+                if (locationFixListener !== this) return
+                if (enabledLocationProviders(locationManager).isNotEmpty()) return
+                cancelLocationFix()
+                showEnableLocationServicesDialog()
+            }
+        }
+        locationFixListener = listener
+        locationFixManager = locationManager
+        var requested = false
+        for (provider in providers) {
+            try {
+                locationManager.requestLocationUpdates(provider, 0L, 0f, listener, Looper.getMainLooper())
+                requested = true
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to request location updates from $provider", e)
+            }
+        }
+        if (!requested) {
+            finishLocationFixWithLastKnown()
+            return
         }
 
-        try {
-            if (locationManager.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)) {
-                locationManager.requestSingleUpdate(android.location.LocationManager.GPS_PROVIDER, listener, null)
-            } else if (locationManager.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)) {
-                locationManager.requestSingleUpdate(android.location.LocationManager.NETWORK_PROVIDER, listener, null)
-            } else {
-                MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.permission_no_location))
+        val timeout = Runnable { finishLocationFixWithLastKnown() }
+        locationFixTimeout = timeout
+        AndroidUtilities.runOnUIThread(timeout, LOCATION_FIX_TIMEOUT_MS)
+
+        val row = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(
+                android.widget.ProgressBar(activity),
+                LayoutHelper.createLinear(28, 28, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, 16f, 0f)
+            )
+            addView(
+                TextView(activity).apply {
+                    text = getString(R.string.share_location_fetching)
+                    setTextColor(themeColors.onSurface)
+                    setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 16f)
+                },
+                LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL)
+            )
+        }
+        val dialog = com.mezon.mobile.core.AlertDialog.Builder(activity)
+            .setView(row)
+            .setNegativeButton(getString(R.string.share_location_cancel)) { _, _ -> cancelLocationFix() }
+            .setOnCancelListener { cancelLocationFix() }
+            .create()
+        locationFixDialog = dialog
+        dialog.show()
+    }
+
+    private fun finishLocationFixWithLastKnown() {
+        val locationManager = locationFixManager ?: locationManagerOrNull()
+        cancelLocationFix()
+        val fallback = locationManager?.let { freshestLastKnownLocation(it) }
+        if (fallback != null) {
+            showLocationConfirmDialog(fallback.latitude, fallback.longitude)
+        } else {
+            MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.share_location_unavailable))
+        }
+    }
+
+    private fun cancelLocationFix() {
+        locationFixListener?.let { listener -> locationFixManager?.removeUpdates(listener) }
+        locationFixListener = null
+        locationFixManager = null
+        locationFixTimeout?.let { AndroidUtilities.cancelRunOnUIThread(it) }
+        locationFixTimeout = null
+        locationFixDialog?.let { dialog ->
+            dialog.setOnCancelListener(null)
+            if (dialog.isShowing) dialog.dismiss()
+        }
+        locationFixDialog = null
+    }
+
+    private fun locationManagerOrNull(): android.location.LocationManager? =
+        getContext()?.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager
+
+    private fun enabledLocationProviders(locationManager: android.location.LocationManager): List<String> =
+        LOCATION_FIX_PROVIDERS.filter { provider ->
+            try {
+                locationManager.isProviderEnabled(provider)
+            } catch (_: Exception) {
+                false
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to get location", e)
+        }
+
+    @android.annotation.SuppressLint("MissingPermission")
+    private fun freshestLastKnownLocation(locationManager: android.location.LocationManager): android.location.Location? =
+        LOCATION_LAST_KNOWN_PROVIDERS
+            .mapNotNull { provider ->
+                try {
+                    locationManager.getLastKnownLocation(provider)
+                } catch (_: Exception) {
+                    null
+                }
+            }
+            .maxByOrNull { it.elapsedRealtimeNanos }
+
+    private fun locationAgeMs(location: android.location.Location): Long =
+        (android.os.SystemClock.elapsedRealtimeNanos() - location.elapsedRealtimeNanos) / 1_000_000L
+
+    private fun showEnableLocationServicesDialog() {
+        val activity = getParentActivity() ?: return
+        com.mezon.mobile.core.AlertDialog.Builder(activity)
+            .setTitle(getString(R.string.location_services_off_title))
+            .setMessage(getString(R.string.location_services_off_message))
+            .setPositiveButton(getString(R.string.permission_open_settings)) { _, _ ->
+                try {
+                    pendingLocationSettingsReturn = LocationSettingsReturn.LOCATION_SERVICES
+                    activity.startActivity(
+                        android.content.Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS)
+                    )
+                } catch (_: Exception) {
+                    pendingLocationSettingsReturn = null
+                }
+            }
+            .setNegativeButton(getString(R.string.permission_not_now), null)
+            .create()
+            .show()
+    }
+
+    private enum class LocationSettingsReturn { APP_PERMISSION, LOCATION_SERVICES }
+
+    private fun resumeLocationSendAfterSettings(origin: LocationSettingsReturn) {
+        val ctx = getContext() ?: return
+        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return
+        val locationManager = locationManagerOrNull() ?: return
+        val servicesOn = enabledLocationProviders(locationManager).isNotEmpty()
+        if (servicesOn || origin == LocationSettingsReturn.APP_PERMISSION) fetchCurrentLocationAndSend()
+    }
+
+    private fun openLocationInMaps(data: LocationMessageData) {
+        val activity = getParentActivity() ?: return
+        val coordinates = String.format(java.util.Locale.US, "%.6f,%.6f", data.latitude, data.longitude)
+        val targets = listOf(
+            android.net.Uri.parse("geo:$coordinates?q=$coordinates"),
+            android.net.Uri.parse(data.mapsUrl)
+        )
+        for (uri in targets) {
+            try {
+                activity.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, uri))
+                return
+            } catch (_: Exception) {
+            }
         }
     }
 

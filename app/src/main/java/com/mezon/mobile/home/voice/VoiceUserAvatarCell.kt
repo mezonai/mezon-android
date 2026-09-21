@@ -173,7 +173,7 @@ class VoiceUserAvatarCell(
         if (isSharingScreen) {
             val drawable = shareScreenDrawable
                 ?: MezonIcon.voiceScreenShareIcon.getDrawable(context).mutate().apply {
-                    colorFilter = PorterDuffColorFilter(themeColors.onlineGreen, PorterDuff.Mode.SRC_IN)
+                    colorFilter = PorterDuffColorFilter(themeColors.voiceActiveGreen, PorterDuff.Mode.SRC_IN)
                 }.also { shareScreenDrawable = it }
             val iconRight = width - PADDING_RIGHT
             val iconTop = (cy - SHARE_ICON_SIZE / 2f).toInt()

@@ -30,6 +30,9 @@ private const val TAG = "SearchController"
 private const val SIZE_PAGE_SEARCH = 20
 const val LOCAL_PAGE_SIZE = 50
 const val RECENT_INIT_LIMIT = 20
+private const val CTRL_K_TYPE_ALL = 0
+private const val CTRL_K_TYPE_USERS = 1
+private const val CTRL_K_TYPE_CHANNELS = 2
 
 data class SearchMember(
     val id: Long,
@@ -158,11 +161,18 @@ class SearchController @Inject constructor(
 
     fun fetchCtrlKResults(rawQuery: String): Boolean {
         val type = when {
-            rawQuery.startsWith("@") -> 1
-            rawQuery.startsWith("#") -> 2
-            else -> 0
+            rawQuery.startsWith("@") -> CTRL_K_TYPE_USERS
+            rawQuery.startsWith("#") -> CTRL_K_TYPE_CHANNELS
+            else -> CTRL_K_TYPE_ALL
         }
-        val text = if (type == 0) rawQuery else rawQuery.drop(1).trim()
+        val text = if (type == CTRL_K_TYPE_ALL) rawQuery else rawQuery.drop(1).trim()
+        return fetchCtrlK(text, type)
+    }
+
+    fun fetchCtrlKUsers(query: String): Boolean =
+        fetchCtrlK(query.trim().removePrefix("@").trim(), CTRL_K_TYPE_USERS)
+
+    private fun fetchCtrlK(text: String, type: Int): Boolean {
         if (text.isEmpty() || text.toByteArray(Charsets.UTF_8).size > 255) return false
         val generation = synchronized(this) { ++ctrlKGeneration }
         appScope.launch(ioDispatcher) {

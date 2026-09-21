@@ -166,14 +166,9 @@ class VoiceController @Inject constructor(
     }
 
     suspend fun joinVoiceChannel(channelId: Long, clanId: Long, channelLabel: String): String? {
-        Log.d(TAG, "joinVoiceChannel: channelId=$channelId clanId=$clanId label=$channelLabel")
         synchronized(this) {
             if (isJoined && currentVoiceInfo?.channelId == channelId) {
-                Log.d(TAG, "Already joined this channel, returning existing token")
                 return meetToken
-            }
-            if (isJoined || isConnecting) {
-                Log.d(TAG, "Already in another channel or connecting, leaving first")
             }
         }
         if (isJoined || isConnecting) {
@@ -185,12 +180,10 @@ class VoiceController @Inject constructor(
         return try {
             sessionManager.withAutoRefresh { session ->
                 val roomName = channelId.toString()
-                Log.d(TAG, "Calling generateMeetToken: apiUrl=${session.apiUrl} roomName=$roomName")
                 val response = withContext(ioDispatcher) {
                     api.generateMeetToken(session.apiUrl, session.token, channelId, roomName)
                 }
                 val token = response.token
-                Log.d(TAG, "generateMeetToken response: token=${if (token.isNullOrEmpty()) "NULL/EMPTY" else "${token.length} chars"}")
                 if (token.isNullOrEmpty()) {
                     synchronized(this) { isConnecting = false }
                     return@withAutoRefresh null
@@ -391,7 +384,6 @@ class VoiceController @Inject constructor(
 
     @Suppress("UNUSED_PARAMETER")
     private fun onVoiceStarted(event: VoiceStartedEvent) {
-        Log.d(TAG, "Voice started: clan=${event.clanId} channel=${event.voiceChannelId}")
     }
 
     @Synchronized
@@ -405,7 +397,6 @@ class VoiceController @Inject constructor(
         synchronized(this) {
             aiAgentEnabled[aiAgentKey(clanId, channelId)] = enabled
         }
-        Log.d(TAG, "aiAgent enabled=$enabled clanId=$clanId channelId=$channelId $reason")
         notificationCenter.postNotificationOnMainThread(
             NotificationCenter.voiceAiAgentStateChanged,
             clanId, channelId, enabled
@@ -457,10 +448,6 @@ class VoiceController @Inject constructor(
         var lastError: Throwable? = null
         for ((index, candidate) in candidates.withIndex()) {
             try {
-                Log.d(
-                    TAG,
-                    "updateAiAgent try=${index + 1}/${candidates.size} enabled=$targetEnabled clanId=$clanId channelId=$channelId room=$candidate"
-                )
                 sessionManager.withAutoRefresh { session ->
                     withContext(ioDispatcher) {
                         if (targetEnabled) {

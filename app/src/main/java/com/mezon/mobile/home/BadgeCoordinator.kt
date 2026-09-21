@@ -68,6 +68,7 @@ class BadgeCoordinator @Inject constructor(
     private val retryLastSeenByKey = ConcurrentHashMap<String, QueuedLastSeenWrite>()
     private val retryLastSeenJobs = ConcurrentHashMap<String, Job>()
     private val fullReadDedupAt = ConcurrentHashMap<String, Long>()
+    private val fullReadDedupMessageId = ConcurrentHashMap<String, Long>()
     private val reconcileJobs = ConcurrentHashMap<Long, Job>()
 
     private val channelActivityTicks = ConcurrentHashMap<String, ChannelActivityTick>()
@@ -82,6 +83,7 @@ class BadgeCoordinator @Inject constructor(
         retryLastSeenJobs.values.forEach { it.cancel() }
         retryLastSeenJobs.clear()
         fullReadDedupAt.clear()
+        fullReadDedupMessageId.clear()
         reconcileJobs.values.forEach { it.cancel() }
         reconcileJobs.clear()
         channelActivityJob?.cancel()
@@ -175,6 +177,7 @@ class BadgeCoordinator @Inject constructor(
         if (p.applyLocal) {
             if (p.badgeCount == 0) {
                 fullReadDedupAt[key] = SystemClock.elapsedRealtime()
+                fullReadDedupMessageId[key] = p.messageId
             }
             if (p.badgeCount == 0) {
                 if (p.clanId != 0L) {
@@ -276,6 +279,7 @@ class BadgeCoordinator @Inject constructor(
         val now = SystemClock.elapsedRealtime()
         val last = fullReadDedupAt[key] ?: return false
         if (now - last >= DEDUP_FULL_READ_MS) return false
+        if (p.messageId > (fullReadDedupMessageId[key] ?: 0L)) return false
         if (p.clanId != 0L) {
             val ch = channelController.get().findChannelById(p.channelId) ?: return false
             return ch.unreadCount == 0 && !ch.hasUnread

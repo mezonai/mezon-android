@@ -440,6 +440,7 @@ class ThemeColors @Inject constructor() {
 
     val badgeRed: Int get() = 0xFFD30E0E.toInt()
     val onlineGreen: Int get() = 0xFF43B581.toInt()
+    val voiceActiveGreen: Int get() = 0xFF16A34A.toInt()
 
     val reactionBgColor: Int get() = when (resolvedMode) {
         ThemeMode.LIGHT -> 0x99E5E7EB.toInt()

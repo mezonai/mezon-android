@@ -309,6 +309,7 @@ class ParticipantCell(
             return
         }
         currentVideoTrack = videoTrack
+        VideoTrackLastFrameStore.replayLastFrame(videoTrack, renderer)
         if (isScreenShare) {
             renderer.setScalingType(
                 RendererCommon.ScalingType.SCALE_ASPECT_FIT,

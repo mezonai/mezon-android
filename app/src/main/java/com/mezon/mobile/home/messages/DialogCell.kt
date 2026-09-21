@@ -288,11 +288,8 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
             var previewLeft = textLeft
             if (previewShowsInVoice) {
                 val drawable = inVoiceDrawable
-                    ?: MezonIcon.voiceWaveIcon.getDrawable(context).mutate().apply {
-                        colorFilter = PorterDuffColorFilter(
-                            (theme.onlineGreen and 0x00FFFFFF) or IN_VOICE_ALPHA,
-                            PorterDuff.Mode.SRC_IN
-                        )
+                    ?: MezonIcon.channelVoice.getDrawable(context).mutate().apply {
+                        colorFilter = PorterDuffColorFilter(theme.voiceActiveGreen, PorterDuff.Mode.SRC_IN)
                     }.also { inVoiceDrawable = it }
                 val iconLeft = textLeft.toInt()
                 val iconTop = (textTop + (it.height - IN_VOICE_ICON_SIZE) / 2f).toInt()
@@ -356,7 +353,7 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         private val BUZZ_H_PAD = LayoutHelper.dp(4).toFloat()
         private val BUZZ_BADGE_H = LayoutHelper.dp(20)
         private val BUZZ_RADIUS = LayoutHelper.dpf(4f)
-        private val IN_VOICE_ICON_SIZE = LayoutHelper.dp(14)
+        private val IN_VOICE_ICON_SIZE = LayoutHelper.dp(12)
         private val IN_VOICE_ICON_GAP = LayoutHelper.dp(4)
         private const val IN_VOICE_ALPHA = 0x99 shl 24
         private val inVoiceTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {

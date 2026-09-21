@@ -160,7 +160,6 @@ class VoiceRoomFragment : BaseFragment() {
 
     fun enterPipMode() {
         isInPipMode = true
-        Log.d(TAG, "enterPipMode participants=${participants.size}")
         if (::focusedShareView.isInitialized) focusedShareView.setPipMode(true)
         if (::headerView.isInitialized) headerView.visibility = View.GONE
         if (::controlBar.isInitialized) controlBar.visibility = View.GONE
@@ -175,7 +174,6 @@ class VoiceRoomFragment : BaseFragment() {
 
     fun exitPipMode() {
         isInPipMode = false
-        Log.d(TAG, "exitPipMode focusedVisible=${::focusedShareView.isInitialized && focusedShareView.visibility == View.VISIBLE}")
         if (::focusedShareView.isInitialized) focusedShareView.setPipMode(false)
         if (::headerView.isInitialized) {
             val focusedVisible = ::focusedShareView.isInitialized && focusedShareView.visibility == View.VISIBLE
@@ -355,7 +353,6 @@ class VoiceRoomFragment : BaseFragment() {
             }
             if (!::headerView.isInitialized) return@observe
             val evEnabled = args.getOrNull(2) as? Boolean
-            Log.d(TAG, "voiceAiAgentStateChanged applyUi enabled=$evEnabled clan=$evClan ch=$evCh")
             applyAgentHeaderUi()
         }
 
@@ -370,7 +367,6 @@ class VoiceRoomFragment : BaseFragment() {
             if (fragmentView == null) return@observe
             val loadedClanId = args.firstOrNull() as? Long ?: return@observe
             if (loadedClanId == clanId && sfuConnected) {
-                Log.d(TAG, "Clan members loaded for clanId=$clanId, refreshing participant list")
                 memberResolveCache.clear()
                 scheduleUpdateParticipantList()
             }
@@ -379,7 +375,6 @@ class VoiceRoomFragment : BaseFragment() {
         observe(NotificationCenter.userClansDidLoad) { _, _, _ ->
             if (fragmentView == null) return@observe
             if (sfuConnected) {
-                Log.d(TAG, "User clans loaded, refreshing participant list")
                 memberResolveCache.clear()
                 scheduleUpdateParticipantList()
             }
@@ -433,7 +428,6 @@ class VoiceRoomFragment : BaseFragment() {
                 scope.launch {
                     val before = isVoiceAgentActive()
                     val roomCandidates = getAgentToggleFallbackRoomNames()
-                    Log.d(TAG, "agentToggle start enabledBefore=$before clan=$clanId ch=$channelId room=${info.roomName} candidates=$roomCandidates")
                     headerView.setAgentLoading(true)
                     try {
                         if (before) {
@@ -605,7 +599,6 @@ class VoiceRoomFragment : BaseFragment() {
             it.onOutputChanged = { updateAudioOutputIcon() }
             it.start()
         }
-        Log.d(TAG, "createView joinRole=$joinRole argRole=${arguments?.getString(ARG_ROLE)}")
         if (joinRole == SfuRole.AUDIENCE) {
             controlBar.setPushToTalkMode(true)
         }
@@ -876,7 +869,6 @@ class VoiceRoomFragment : BaseFragment() {
         roomScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
         roomScope?.launch {
-            Log.d(TAG, "connectToRoom: channelId=$channelId clanId=$clanId role=$joinRole")
             var token = voiceController.meetToken
             if (token.isNullOrEmpty()) {
                 token = voiceController.joinVoiceChannel(channelId, clanId, channelLabel)
@@ -898,7 +890,6 @@ class VoiceRoomFragment : BaseFragment() {
                 scheduleUpdateParticipantList()
             }
             sfuSession.onRoleChanged = { r ->
-                Log.d(TAG, "onRoleChanged server -> $r")
                 joinRole = r
                 if (::controlBar.isInitialized) controlBar.setPushToTalkMode(r == SfuRole.AUDIENCE)
                 applyVoiceLayoutForMode()
@@ -1242,7 +1233,6 @@ class VoiceRoomFragment : BaseFragment() {
         val focusedKey = focusedShareKey ?: return
         val stillSharing = participants.any { participantKey(it) == focusedKey && it.isScreenShare && it.videoTrack != null }
         if (!stillSharing) {
-            Log.d(TAG, "dismissFocusedShareIfStale: key=$focusedKey no longer sharing, clearing focus")
             clearFocusedShare()
         }
     }
@@ -1253,13 +1243,8 @@ class VoiceRoomFragment : BaseFragment() {
         }
         val shareParticipant = resolvePipShareParticipant()
         if (shareParticipant != null) {
-            Log.d(
-                TAG,
-                "syncFocusedShareForPip focus identity=${shareParticipant.identity} name=${shareParticipant.name}"
-            )
             showFocusedShare(shareParticipant)
         } else {
-            Log.d(TAG, "syncFocusedShareForPip fallback_grid")
             clearFocusedShare()
         }
     }
@@ -1467,7 +1452,6 @@ class VoiceRoomFragment : BaseFragment() {
                 withContext(Dispatchers.Main) {
                     val relayed = sfuSession.sendParticipantAction(actionToken) { completed, detail ->
                         if (completed) {
-                            Log.d(TAG, "voice moderation ok action=$action targetUserId=$targetUserId")
                         } else {
                             Log.e(TAG, "voice moderation rejected by sfu action=$action targetUserId=$targetUserId detail=$detail")
                             showModerationFailure(action)
@@ -1616,7 +1600,6 @@ class VoiceRoomFragment : BaseFragment() {
     private fun openChatHistoryForCurrentChannel() {
         val activity = getMainActivity() ?: return
         activity.openChat(channelId, channelLabel, clanId, CHANNEL_TYPE_VOICE)
-        minimizeToOverlay()
     }
 
     private fun findReactionMeta(list: List<String>, prefix: String): String {

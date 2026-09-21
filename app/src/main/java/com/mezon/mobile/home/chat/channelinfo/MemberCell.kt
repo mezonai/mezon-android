@@ -196,11 +196,8 @@ class MemberCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         if (statusLayout != null) {
             val statusTop = textY + nameHeight + STATUS_GAP
             val drawable = inVoiceDrawable
-                ?: MezonIcon.voiceWaveIcon.getDrawable(context).mutate().apply {
-                    colorFilter = PorterDuffColorFilter(
-                        (theme.onlineGreen and 0x00FFFFFF) or STATUS_ALPHA,
-                        PorterDuff.Mode.SRC_IN
-                    )
+                ?: MezonIcon.channelVoice.getDrawable(context).mutate().apply {
+                    colorFilter = PorterDuffColorFilter(theme.voiceActiveGreen, PorterDuff.Mode.SRC_IN)
                 }.also { inVoiceDrawable = it }
             val iconTop = (statusTop + (statusLayout.height - STATUS_ICON_SIZE) / 2f).toInt()
             drawable.setBounds(NAME_LEFT, iconTop, NAME_LEFT + STATUS_ICON_SIZE, iconTop + STATUS_ICON_SIZE)
@@ -230,7 +227,7 @@ class MemberCell(context: Context, private val theme: ThemeColors) : BaseCell(co
         private val NAME_LEFT = PADDING_LEFT + AVATAR_SIZE + LayoutHelper.dp(12f)
         private val OWNER_ICON_SIZE = LayoutHelper.dp(16f)
         private val NAME_OWNER_GAP = LayoutHelper.dp(4)
-        private val STATUS_ICON_SIZE = LayoutHelper.dp(14f)
+        private val STATUS_ICON_SIZE = LayoutHelper.dp(12f)
         private val STATUS_ICON_GAP = LayoutHelper.dp(4)
         private val STATUS_GAP = LayoutHelper.dp(2)
         private const val STATUS_ALPHA = 0x99 shl 24
