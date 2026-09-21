@@ -1724,7 +1724,7 @@ class ClansFragment : BaseFragment() {
     }
 
     private fun streamingRoomActiveFor(channelId: Long, clanId: Long, activity: MainActivity): Boolean {
-        return activity.isStreamingOverlayVisible()
+        return activity.isStreamingRoomFor(channelId, clanId)
     }
 
     private fun showJoinStreamBottomSheet(channel: ClanChannelEntity, clanId: Long) {
@@ -1743,7 +1743,8 @@ class ClansFragment : BaseFragment() {
 
         val sheet = JoinVoiceBottomSheet(
             activity, themeColors, channel.channelLabel, channel.channelId, clanId, displays, channel.unreadCount,
-            JoinMediaSheetKind.STREAMING
+            JoinMediaSheetKind.STREAMING,
+            canJoin = members.isNotEmpty(),
         )
         sheet.onJoinVoice = { _ ->
             (getParentActivity() as? MainActivity)?.showStreamingRoom(

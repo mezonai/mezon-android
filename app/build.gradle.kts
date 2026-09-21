@@ -123,7 +123,6 @@ android {
         buildStr("MEZON_WEBRTC_ICESERVERS_URL")
         buildStr("MEZON_WEBRTC_ICESERVERS_USERNAME")
         buildStr("MEZON_WEBRTC_ICESERVERS_CREDENTIAL")
-        buildStr("MEZON_STREAM_WS_URL")
         buildStr("MEZON_BASE_IMG_URL")
         buildStr("MEZON_LOGO_URL")
         buildStr("MEZON_IMGPROXY_BASE_URL")

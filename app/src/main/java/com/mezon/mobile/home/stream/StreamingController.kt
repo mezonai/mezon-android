@@ -33,6 +33,8 @@ class StreamingController @Inject constructor(
 ) {
     private val streamMembersByClan = HashMap<Long, HashMap<Long, ArrayList<Long>>>()
     private val streamMemberListFetchInflight = ConcurrentHashMap.newKeySet<Long>()
+    private val streamStateRevisions = HashMap<Long, Long>()
+    private var lifecycleGeneration = 0L
 
     init {
         appScope.launch { dispatcher.streamingJoinedEvents.collect { onStreamingJoined(it) } }
@@ -41,9 +43,12 @@ class StreamingController @Inject constructor(
 
     fun cleanup() {
         synchronized(this) {
+            lifecycleGeneration++
             streamMembersByClan.clear()
+            streamStateRevisions.clear()
         }
         streamMemberListFetchInflight.clear()
+        cacheTracker.invalidateByPrefix("ListStreamingChannelUsers")
     }
 
     @Synchronized
@@ -55,35 +60,50 @@ class StreamingController @Inject constructor(
         if (clanId == 0L) return
         val key = apiCacheKey("ListStreamingChannelUsers", clanId)
         if (cacheTracker.shouldCall(key, noCache = noCache) == ApiCacheTracker.ShouldCall.SKIP) return
-        if (!noCache && !streamMemberListFetchInflight.add(clanId)) return
+        if (!streamMemberListFetchInflight.add(clanId)) return
 
+        val requestState = synchronized(this) {
+            (streamStateRevisions[clanId] ?: 0L) to lifecycleGeneration
+        }
         appScope.launch {
             try {
+                val requestedRevision = requestState.first
+                val requestedLifecycle = requestState.second
                 sessionManager.withAutoRefresh { session ->
                     val response = withContext(ioDispatcher) {
                         api.listStreamingChannelUsers(session.apiUrl, session.token, clanId)
                     }
+                    var changed = false
+                    var applySnapshot = false
                     synchronized(this@StreamingController) {
-                        val clanMap = streamMembersByClan.getOrPut(clanId) { HashMap() }
-                        clanMap.clear()
-                        for (user in response.streamingChannelUsersList) {
-                            val channelId = user.channelId
-                            val userId = user.userId
-                            if (channelId == 0L || userId == 0L) continue
-                            val ids = clanMap.getOrPut(channelId) { ArrayList() }
-                            if (!ids.contains(userId)) ids.add(userId)
+                        val currentRevision = streamStateRevisions[clanId] ?: 0L
+                        if (lifecycleGeneration == requestedLifecycle && currentRevision == requestedRevision) {
+                            applySnapshot = true
+                            val next = HashMap<Long, ArrayList<Long>>()
+                            for (user in response.streamingChannelUsersList) {
+                                val channelId = user.channelId
+                                val userId = user.userId
+                                if (channelId == 0L || userId == 0L) continue
+                                val ids = next.getOrPut(channelId) { ArrayList() }
+                                if (!ids.contains(userId)) ids.add(userId)
+                            }
+                            val previous = streamMembersByClan[clanId]
+                            changed = previous != next
+                            if (changed) streamMembersByClan[clanId] = next
                         }
                     }
-                    cacheTracker.markCalled(key)
-                    notificationCenter.postNotificationOnMainThread(
-                        NotificationCenter.voiceChannelMembersChanged, clanId
-                    )
+                    if (applySnapshot) cacheTracker.markCalled(key)
+                    if (applySnapshot && changed) {
+                        notificationCenter.postNotificationOnMainThread(
+                            NotificationCenter.voiceChannelMembersChanged, clanId
+                        )
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "fetchStreamChannelMembers failed", e)
                 cacheTracker.invalidate(key)
             } finally {
-                if (!noCache) streamMemberListFetchInflight.remove(clanId)
+                streamMemberListFetchInflight.remove(clanId)
             }
         }
     }
@@ -97,8 +117,9 @@ class StreamingController @Inject constructor(
         if (clanId == 0L || channelId == 0L || userId == 0L) return
         val clanMap = streamMembersByClan.getOrPut(clanId) { HashMap() }
         val ids = clanMap.getOrPut(channelId) { ArrayList() }
-        ids.remove(userId)
+        if (ids.contains(userId)) return
         ids.add(userId)
+        streamStateRevisions[clanId] = (streamStateRevisions[clanId] ?: 0L) + 1L
         notificationCenter.postNotificationOnMainThread(
             NotificationCenter.voiceChannelMembersChanged, clanId
         )
@@ -109,8 +130,10 @@ class StreamingController @Inject constructor(
         if (clanId == 0L || channelId == 0L || userId == 0L) return
         val clanMap = streamMembersByClan[clanId] ?: return
         val ids = clanMap[channelId] ?: return
-        ids.remove(userId)
+        if (!ids.remove(userId)) return
         if (ids.isEmpty()) clanMap.remove(channelId)
+        if (clanMap.isEmpty()) streamMembersByClan.remove(clanId)
+        streamStateRevisions[clanId] = (streamStateRevisions[clanId] ?: 0L) + 1L
         notificationCenter.postNotificationOnMainThread(
             NotificationCenter.voiceChannelMembersChanged, clanId
         )
@@ -121,7 +144,8 @@ class StreamingController @Inject constructor(
     }
 
     private fun onStreamingLeaved(event: StreamingLeavedEvent) {
-        if (event.clanId == 0L) return
-        fetchStreamChannelMembers(event.clanId, noCache = true)
+        val channelId = event.streamingChannelId.toLongOrNull() ?: return
+        val userId = event.streamingUserId.toLongOrNull() ?: return
+        applyStreamLeaved(event.clanId, channelId, userId)
     }
 }

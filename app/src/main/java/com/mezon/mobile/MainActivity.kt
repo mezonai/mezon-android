@@ -1134,8 +1134,7 @@ class MainActivity : BasePermissionsActivity(),
     }
 
     fun dismissStreamingRoom(disconnectSession: Boolean = true) {
-        val manager = streamingOverlayManager ?: return
-        manager.dismiss()
+        streamingOverlayManager?.dismiss()
         streamingRoomFragment?.onPause()
         streamingRoomFragment?.onFragmentDestroy()
         streamingRoomFragment = null
@@ -1148,6 +1147,10 @@ class MainActivity : BasePermissionsActivity(),
 
     fun isStreamingOverlayVisible(): Boolean = streamingOverlayManager?.isVisible() == true
     fun isStreamingOverlayExpanded(): Boolean = streamingOverlayManager?.isExpanded() == true
+    fun isStreamingRoomFor(channelId: Long, clanId: Long): Boolean =
+        streamingRoomFragment?.getChannelId() == channelId &&
+            streamingRoomFragment?.getClanId() == clanId &&
+            isStreamingOverlayVisible()
 
     fun openFriendRequestsFromNotification(noAnimation: Boolean = true) {
         if (!StartupCache.hasSession) return

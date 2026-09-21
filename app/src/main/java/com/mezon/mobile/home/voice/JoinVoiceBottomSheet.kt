@@ -35,6 +35,7 @@ class JoinVoiceBottomSheet(
     private val members: List<VoiceMemberDisplay>,
     private val unreadCount: Int = 0,
     private val kind: JoinMediaSheetKind = JoinMediaSheetKind.VOICE,
+    private val canJoin: Boolean = true,
 ) : BottomSheet(context) {
 
     var onJoinVoice: ((role: SfuRole) -> Unit)? = null
@@ -192,10 +193,18 @@ class JoinVoiceBottomSheet(
         })
 
         val statusLabel = TextView(context).apply {
-            text = when {
-                members.size >= 2 -> "Everyone is waiting inside"
-                members.size == 1 -> "1 person is in the voice room"
-                else -> "No one is in the voice room"
+            text = if (kind == JoinMediaSheetKind.STREAMING) {
+                when {
+                    members.size == 1 -> "1 person is in the stream"
+                    members.size > 1 -> "${members.size} people are in the stream"
+                    else -> "No one is currently in the stream"
+                }
+            } else {
+                when {
+                    members.size >= 2 -> "Everyone is waiting inside"
+                    members.size == 1 -> "1 person is in the voice room"
+                    else -> "No one is in the voice room"
+                }
             }
             setTextColor(themeColors.onSurfaceVariant)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
@@ -217,15 +226,17 @@ class JoinVoiceBottomSheet(
                 typeface = Typeface.DEFAULT_BOLD
                 setTextColor(0xFFFFFFFF.toInt())
                 gravity = Gravity.CENTER
+                alpha = if (canJoin) 1f else 0.45f
                 background = GradientDrawable().apply {
                     cornerRadius = LayoutHelper.dp(40).toFloat()
                     setColor(0xFF43B581.toInt())
                 }
                 setPadding(LayoutHelper.dp(32), LayoutHelper.dp(12), LayoutHelper.dp(32), LayoutHelper.dp(12))
-                isClickable = true
-                isFocusable = true
+                isClickable = canJoin
+                isFocusable = canJoin
                 applyVoiceButtonPressFeedback()
                 setOnClickListener {
+                    if (!canJoin) return@setOnClickListener
                     onJoinVoice?.invoke(selectedRole)
                     dismissWithoutAnimation()
                 }
