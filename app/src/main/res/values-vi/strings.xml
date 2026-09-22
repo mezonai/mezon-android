@@ -306,6 +306,9 @@
     <string name="action_pin">Ghim tin nhắn</string>
     <string name="action_unpin">Bỏ ghim tin nhắn</string>
     <string name="action_mark_unread">Đánh dấu chưa đọc</string>
+    <string name="action_add_to_inbox">Thêm vào hộp thư</string>
+    <string name="message_toast_add_to_inbox_success">Đã thêm vào hộp thư</string>
+    <string name="message_toast_add_to_inbox_failed">Không thể thêm tin nhắn vào hộp thư</string>
     <string name="action_delete">Xóa tin nhắn</string>
     <string name="action_report">Báo cáo</string>
     <string name="action_copy_image_link">Sao chép liên kết ảnh</string>

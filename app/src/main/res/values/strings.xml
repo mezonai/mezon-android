@@ -400,6 +400,9 @@
     <string name="channel_files_media_empty_description">We searched far and wide. Unfortunately, no results were found</string>
     <string name="channel_files_shared_by">Shared by %1$s</string>
     <string name="action_mark_unread">Mark Unread</string>
+    <string name="action_add_to_inbox">Add To Inbox</string>
+    <string name="message_toast_add_to_inbox_success">Added to Inbox</string>
+    <string name="message_toast_add_to_inbox_failed">Couldn\'t add message to Inbox</string>
     <string name="action_delete">Delete Message</string>
     <string name="action_report">Report</string>
     <string name="action_save_media">Save Media</string>

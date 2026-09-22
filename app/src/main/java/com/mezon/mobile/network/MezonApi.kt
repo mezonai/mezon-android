@@ -42,6 +42,7 @@ import com.mezon.mezon.api.ChannelUserList
 import com.mezon.mezon.api.ClanUserList
 import com.mezon.mezon.api.FriendList
 import com.mezon.mezon.api.NotificationList
+import com.mezon.mezon.api.Message2InboxRequest
 import com.mezon.mezon.api.SearchCtrlKResponse
 import com.mezon.mezon.api.SearchMessageResponse
 import com.mezon.mezon.api.ChannelAttachmentList
@@ -1993,6 +1994,12 @@ class MezonApi @Inject constructor(
         }
         return rpc(apiUrl, token, "DeleteNotifications", request.toByteArray())
     }
+
+    suspend fun createMessage2Inbox(
+        apiUrl: String,
+        token: String,
+        request: Message2InboxRequest
+    ): ByteArray = rpc(apiUrl, token, "CreateMessage2Inbox", request.toByteArray())
 
     suspend fun listPinMessages(
         apiUrl: String,
