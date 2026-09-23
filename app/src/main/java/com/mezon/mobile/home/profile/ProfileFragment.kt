@@ -105,6 +105,7 @@ class ProfileFragment : BaseFragment() {
     private lateinit var walletSection: LinearLayout
     private lateinit var friendsAvatarsContainer: LinearLayout
     private lateinit var friendsRequestBadgeText: TextView
+    private lateinit var settingGeneralIconView: ImageView
     private lateinit var scrollView: ScrollView
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
@@ -357,21 +358,14 @@ class ProfileFragment : BaseFragment() {
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
         ))
 
-        rightIconsLayout.addView(createCircleIconButton(context, MezonIcon.shopIcon) {
-            val parent = getLayoutContainer() ?: (fragmentView as? ViewGroup) ?: return@createCircleIconButton
-            ToastOverlay(requireContext(), themeColors).show(
-                parent,
-                ToastOverlay.ToastType.INFO,
-                getString(R.string.feature_coming_soon)
-            )
-        })
-        val gapIcon = View(context)
-        rightIconsLayout.addView(gapIcon, LinearLayout.LayoutParams(LayoutHelper.dp(12), 0))
-        rightIconsLayout.addView(createCircleIconButton(context, MezonIcon.settingProfileIcon) {
+        val settingButton = createCircleIconButton(context, MezonIcon.settingGeneralIcon) {
             presentFragment(SettingsFragment().apply {
                 onLogout = this@ProfileFragment.onLogout
             })
-        })
+        }
+        settingGeneralIconView = settingButton.getChildAt(0) as ImageView
+        settingGeneralIconView.colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
+        rightIconsLayout.addView(settingButton)
 
         usernameText = TextView(context).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
@@ -737,6 +731,9 @@ class ProfileFragment : BaseFragment() {
 
     private fun applyTheme() {
         fragmentView?.setBackgroundColor(themeColors.background)
+        if (::settingGeneralIconView.isInitialized) {
+            settingGeneralIconView.colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
+        }
         updateUI()
     }
 

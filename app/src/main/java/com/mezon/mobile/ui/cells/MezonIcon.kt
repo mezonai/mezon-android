@@ -78,6 +78,7 @@ enum class MezonIcon(@DrawableRes val resId: Int) {
     circleXIcon(R.drawable.ic_circle_xicon),
     settingIcon(R.drawable.ic_settings_gear_icon),
     settingClanIcon(R.drawable.ic_setting_clan_icon),
+    settingGeneralIcon(R.drawable.ic_setting_general_icon),
     settingProfileIcon(R.drawable.ic_setting_profile_icon),
     circleIcon(R.drawable.ic_circle_icon),
     verifyIcon(R.drawable.ic_verify_icon),
