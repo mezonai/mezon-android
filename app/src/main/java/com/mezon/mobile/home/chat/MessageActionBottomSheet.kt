@@ -57,6 +57,7 @@ class MessageActionBottomSheet(
         DeleteMessage,
         CreateThread,
         MarkUnRead,
+        AddToInbox,
         SaveMedia,
         CopyMediaLink,
         CopyImage,
@@ -391,6 +392,14 @@ class MessageActionBottomSheet(
             R.drawable.ic_chat_mark_unread_icon,
             applyIconTint = false
         ))
+
+        if (message.id > 0L && message.sendState == MessageEntity.SEND_STATE_SENT) {
+            actions.add(ActionItem(
+                ActionType.AddToInbox,
+                context.getString(R.string.action_add_to_inbox),
+                MezonIcon.inbox.resId
+            ))
+        }
 
         return actions
     }

@@ -44,6 +44,11 @@ import com.mezon.mobile.home.clans.CHANNEL_TYPE_VOICE
 import com.mezon.mobile.home.chat.thread.THREAD_ARCHIVE_DURATION_SECONDS
 import com.mezon.mobile.home.chat.thread.ThreadStatus
 import com.mezon.mobile.home.profile.UserController
+import com.mezon.mobile.home.notifications.NOTIF_CATEGORY_MESSAGES
+import com.mezon.mobile.home.notifications.NOTIF_CODE_MESSAGE_TO_INBOX
+import com.mezon.mobile.home.notifications.NotificationEntity
+import com.mezon.mobile.home.notifications.NotificationStore
+import com.mezon.mobile.home.notifications.pendingNotificationId
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.util.AttachmentUploadProgressStore
@@ -77,6 +82,7 @@ import com.mezon.mezon.api.MessageAttachment
 import com.mezon.mezon.api.MessageAttachmentList
 import com.mezon.mezon.api.MessageMentionList
 import com.mezon.mezon.api.MessageMention
+import com.mezon.mezon.api.Message2InboxRequest
 import com.mezon.mezon.api.messageAttachment
 import com.mezon.mezon.api.messageMention
 import org.json.JSONObject
@@ -163,6 +169,7 @@ class ChatController @Inject constructor(
     private val userController: dagger.Lazy<UserController>,
     private val anonymousController: dagger.Lazy<AnonymousController>,
     private val userClanController: dagger.Lazy<UserClanController>,
+    private val notificationStore: dagger.Lazy<NotificationStore>,
     private val sentryReporter: SentryReporter,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     @ApplicationScope private val appScope: CoroutineScope
@@ -807,6 +814,15 @@ class ChatController @Inject constructor(
                         allMsgs.filter { it.isRenderable }.sortedBy { it.id },
                         cacheKey
                     )
+
+                    if (requireExactAnchor && msgs.none { it.id == anchorMessageId }) {
+                        notificationCenter.postNotificationOnMainThread(
+                            NotificationCenter.messagesLoadError,
+                            cacheKey,
+                            "Anchor not found"
+                        )
+                        return@withAutoRefresh
+                    }
 
                     if (msgs.isNotEmpty()) {
                         messageDao.upsertAll(msgs)
@@ -4347,6 +4363,74 @@ class ChatController @Inject constructor(
             })
         }
         return out
+    }
+
+    suspend fun addMessageToInbox(
+        channelId: Long,
+        clanId: Long,
+        channelType: Int,
+        channelLabel: String,
+        activeTopicId: Long,
+        message: MessageEntity
+    ) {
+        require(message.id > 0L) { "Only sent messages can be added to inbox" }
+
+        val topicId = if (message.code == MessageEntity.CODE_TOPIC) {
+            0L
+        } else {
+            message.effectiveTopicId.takeIf { it != 0L } ?: activeTopicId
+        }
+        val request = Message2InboxRequest.newBuilder()
+            .setMessageId(message.id)
+            .setChannelId(channelId)
+            .setClanId(clanId)
+            .setAvatar(message.senderAvatar)
+            .setContent(message.content)
+            .addAllMentions(mentionsFromForwardContent(message.content))
+            .addAllAttachments(attachmentsFromEntity(message))
+            .setTopicId(topicId)
+            .build()
+
+        sessionManager.withAutoRefresh { session ->
+            try {
+                api.createMessage2Inbox(session.apiUrl, session.token, request)
+            } catch (error: Exception) {
+                val invalidArgument =
+                    error is SocketRpcServerException && error.code == 3 ||
+                        error is HttpRpcStatusException && error.code == 400
+                if (request.avatar.isEmpty() || !invalidArgument) throw error
+
+                api.createMessage2Inbox(
+                    session.apiUrl,
+                    session.token,
+                    request.toBuilder().clearAvatar().build()
+                )
+            }
+        }
+
+        notificationStore.get().prependLocalNotification(
+            NotificationEntity(
+                id = pendingNotificationId(channelId, message.id),
+                subject = "Message To Inbox",
+                code = NOTIF_CODE_MESSAGE_TO_INBOX,
+                senderId = message.senderId,
+                createTimeSeconds = message.timestampSeconds.takeIf { it > 0L }
+                    ?: System.currentTimeMillis() / 1000L,
+                clanId = clanId,
+                channelId = channelId,
+                channelType = channelType,
+                avatarUrl = message.senderAvatar,
+                category = NOTIF_CATEGORY_MESSAGES,
+                topicId = topicId,
+                messageId = message.id,
+                senderName = message.senderName,
+                senderUsername = message.senderUsername,
+                senderAvatar = message.senderAvatar,
+                clanName = "",
+                channelLabel = channelLabel,
+                messageText = parseContentText(message.content)
+            )
+        )
     }
 
     private fun flattenedAttachmentInfos(msg: MessageEntity): List<AttachmentInfo> {

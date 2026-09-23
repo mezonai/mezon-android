@@ -7456,6 +7456,9 @@ open class ChatFragment : BaseFragment() {
                 getContext() ?: return
                 MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.feature_coming_soon))
             }
+            MessageActionBottomSheet.ActionType.AddToInbox -> {
+                addMessageToInbox(msg)
+            }
             MessageActionBottomSheet.ActionType.SaveMedia -> {
                 val ctx = getContext() ?: return
                 val url = msg.allImageAttachments.firstOrNull()?.url?.takeIf { it.isNotBlank() }
@@ -7517,6 +7520,36 @@ open class ChatFragment : BaseFragment() {
             }
             MessageActionBottomSheet.ActionType.GiveACoffee -> {
                 handleGiveCoffee(msg)
+            }
+        }
+    }
+
+    private fun addMessageToInbox(msg: MessageEntity) {
+        fragmentScope.launch {
+            val result = runCatching {
+                withContext(ioDispatcher) {
+                    chatController.addMessageToInbox(
+                        channelId = channelId,
+                        clanId = clanId,
+                        channelType = channelType,
+                        channelLabel = channelName,
+                        activeTopicId = topicId,
+                        message = msg
+                    )
+                }
+            }
+            withContext(mainDispatcher) {
+                val toastType = if (result.isSuccess) {
+                    ToastOverlay.ToastType.SUCCESS
+                } else {
+                    ToastOverlay.ToastType.ERROR
+                }
+                val messageRes = if (result.isSuccess) {
+                    R.string.message_toast_add_to_inbox_success
+                } else {
+                    R.string.message_toast_add_to_inbox_failed
+                }
+                MezonToast.show(this@ChatFragment, toastType, getString(messageRes))
             }
         }
     }

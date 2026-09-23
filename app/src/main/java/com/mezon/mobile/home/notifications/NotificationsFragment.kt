@@ -349,6 +349,12 @@ class NotificationsFragment : BaseFragment() {
         if (pendingListRefresh) {
             pendingListRefresh = false
             refreshList()
+            if (
+                currentCategory != NOTIF_TAB_TOPICS_UI &&
+                needsInitialNotificationLoad(store.getForCategory(currentCategory).value)
+            ) {
+                store.loadCategory(currentCategory)
+            }
             return
         }
         val contentHidden = loadingView.visibility != View.VISIBLE &&
@@ -413,13 +419,22 @@ class NotificationsFragment : BaseFragment() {
     private fun handleNotificationPress(entity: NotificationEntity) {
         if (entity.topicId != 0L && entity.messageId != 0L) {
             val channelType = entity.channelType.takeIf { it != 0 } ?: CHANNEL_TYPE_CHANNEL
-            openTopicDiscussion(
-                topicId = entity.topicId,
-                rootMessageId = entity.messageId,
-                clanId = entity.clanId,
-                parentChannelId = entity.channelId,
-                channelType = channelType
-            )
+            fragmentScope.launch {
+                val topic = topicController.findTopic(entity.topicId)
+                    ?: topicController.fetchTopicDetail(entity.topicId)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    val rootMessageId = topic?.messageId ?: entity.messageId
+                    val parentChannelId = topic?.channelId?.takeIf { it != 0L } ?: entity.channelId
+                    openTopicDiscussion(
+                        topicId = entity.topicId,
+                        rootMessageId = rootMessageId,
+                        targetMessageId = entity.messageId,
+                        clanId = topic?.clanId?.takeIf { it != 0L } ?: entity.clanId,
+                        parentChannelId = parentChannelId,
+                        channelType = channelType
+                    )
+                }
+            }
             return
         }
         val channelId = entity.channelId
@@ -484,6 +499,7 @@ class NotificationsFragment : BaseFragment() {
         openTopicDiscussion(
             topicId = item.id,
             rootMessageId = item.messageId,
+            targetMessageId = 0L,
             clanId = item.clanId,
             parentChannelId = item.channelId,
             channelType = CHANNEL_TYPE_THREAD
@@ -509,6 +525,7 @@ class NotificationsFragment : BaseFragment() {
     private fun openTopicDiscussion(
         topicId: Long,
         rootMessageId: Long,
+        targetMessageId: Long,
         clanId: Long,
         parentChannelId: Long,
         channelType: Int
@@ -532,7 +549,8 @@ class NotificationsFragment : BaseFragment() {
                 parentChannelId = parentChannelId,
                 channelType = channelType,
                 isChannelPrivate = isPrivate,
-                openedFromNotification = true
+                openedFromNotification = true,
+                targetMessageId = targetMessageId
             )
         )
     }
@@ -676,7 +694,7 @@ class NotificationsFragment : BaseFragment() {
             isLoadingMoreMap[category] = true
         }
 
-        if (cached.isEmpty() || forceRefresh) {
+        if (needsInitialNotificationLoad(cached) || forceRefresh) {
             store.loadCategory(category)
         }
     }

@@ -25,6 +25,9 @@ private const val PAGE_SIZE = 50
 private const val DB_CACHE_LIMIT = 200
 private const val VIEWPORT_LIMIT = 300
 
+internal fun needsInitialNotificationLoad(items: List<NotificationEntity>): Boolean =
+    items.none { it.id > 0L }
+
 @Singleton
 class NotificationStore @Inject constructor(
     private val api: MezonApi,
@@ -172,6 +175,9 @@ class NotificationStore @Inject constructor(
         notificationCenter.postNotificationOnMainThread(
             NotificationCenter.notificationsDidLoad, category
         )
+        if (id < 0L) {
+            return
+        }
         appScope.launch {
             try {
                 sessionManager.withAutoRefresh { session ->
@@ -211,6 +217,10 @@ class NotificationStore @Inject constructor(
         return flow
     }
 
+    fun prependLocalNotification(entity: NotificationEntity) {
+        prependToActiveCategory(entity, isLocal = true)
+    }
+
     private fun getMutableForCategory(category: Int) = when (category) {
         NOTIF_CATEGORY_MENTIONS -> _mentions
         NOTIF_CATEGORY_MESSAGES -> _messages
@@ -227,7 +237,48 @@ class NotificationStore @Inject constructor(
         setHasMore(category, hasMore)
         flow.update { old ->
             if (isRefresh) items
-            else (old + items).distinctBy { it.id }.takeLast(VIEWPORT_LIMIT)
+            else {
+                val current = if (category == NOTIF_CATEGORY_MESSAGES) {
+                    old.filterNot { existing ->
+                        existing.id < 0L && items.any { it.hasSameMessageIdentity(existing) }
+                    }
+                } else {
+                    old
+                }
+                (current + items).distinctBy { it.id }.takeLast(VIEWPORT_LIMIT)
+            }
+        }
+    }
+
+    private fun prependToActiveCategory(
+        entity: NotificationEntity,
+        isLocal: Boolean = false
+    ) {
+        val isGlobalMessage = isLocal &&
+            entity.category == NOTIF_CATEGORY_MESSAGES && entity.clanId == 0L
+        if (!isGlobalMessage && (currentClanId == 0L || entity.clanId != currentClanId)) return
+        val flow = getMutableForCategory(entity.category) ?: return
+        var changed = false
+        flow.update { old ->
+            changed = false
+            if (!isLocal && old.any { it.id == entity.id }) return@update old
+            val reconcilesByMessage = entity.category == NOTIF_CATEGORY_MESSAGES
+            val record = if (isLocal && entity.id < 0L && reconcilesByMessage) {
+                old.firstOrNull { it.id > 0L && it.hasSameMessageIdentity(entity) } ?: entity
+            } else {
+                entity
+            }
+            val updated = (listOf(record) + old.filterNot { existing ->
+                existing.id == record.id || existing.id == entity.id ||
+                    reconcilesByMessage && existing.hasSameMessageIdentity(entity)
+            }).take(DB_CACHE_LIMIT)
+            changed = updated != old
+            updated
+        }
+        if (changed) {
+            notificationCenter.postNotificationOnMainThread(
+                NotificationCenter.notificationsDidLoad, entity.category
+            )
         }
     }
 
@@ -302,21 +353,7 @@ class NotificationStore @Inject constructor(
                     notificationDao.trimCategory(category, clanId, DB_CACHE_LIMIT)
                 } catch (_: Exception) {}
             }
-            val activeClanId = currentClanId
-            if (activeClanId == 0L || clanId != activeClanId) return@collect
-            val flow = getMutableForCategory(category) ?: return@collect
-            var inserted = false
-            flow.update { old ->
-                if (old.any { it.id == entity.id }) old
-                else {
-                    inserted = true
-                    (listOf(entity) + old).take(DB_CACHE_LIMIT)
-                }
-            }
-            if (!inserted) return@collect
-            notificationCenter.postNotificationOnMainThread(
-                NotificationCenter.notificationsDidLoad, category
-            )
+            prependToActiveCategory(entity)
         }
     }
 }
