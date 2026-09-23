@@ -63,6 +63,11 @@ data class ChannelSearchDisplay(
         get() = channel.type == CHANNEL_TYPE_VOICE || channel.type == CHANNEL_TYPE_STREAMING
 }
 
+internal data class SearchScreenState(
+    val selectedTab: Int,
+    val query: String
+)
+
 @Singleton
 class SearchController @Inject constructor(
     private val api: MezonApi,
@@ -79,6 +84,8 @@ class SearchController @Inject constructor(
     private val allChannels = ArrayList<ClanChannelEntity>()
     private val channelById = HashMap<Long, ClanChannelEntity>()
     private val searchMessages = ArrayList<SearchMessageDocument>()
+    private val screenStateByChannel = HashMap<Long, SearchScreenState>()
+    private var hasActiveSession = true
     var searchMessagesTotal = 0
         private set
 
@@ -89,6 +96,14 @@ class SearchController @Inject constructor(
     private var ctrlKGeneration = 0L
 
     init {
+        appScope.launch {
+            sessionManager.sessionFlow.collect { session ->
+                synchronized(this@SearchController) {
+                    hasActiveSession = session != null
+                    if (!hasActiveSession) screenStateByChannel.clear()
+                }
+            }
+        }
         appScope.launch {
             dispatcher.clanDeletedEvents.collect { event ->
                 removeClanData(event.clanId)
@@ -150,6 +165,15 @@ class SearchController @Inject constructor(
 
     @Synchronized
     fun getMessages(): List<SearchMessageDocument> = ArrayList(searchMessages)
+
+    @Synchronized
+    internal fun getScreenState(channelId: Long): SearchScreenState? = screenStateByChannel[channelId]
+
+    @Synchronized
+    internal fun saveScreenState(channelId: Long, selectedTab: Int, query: String) {
+        if (!hasActiveSession) return
+        screenStateByChannel[channelId] = SearchScreenState(selectedTab, query)
+    }
 
     fun cancelCtrlKSearch() {
         synchronized(this) {
@@ -461,4 +485,3 @@ private fun DirectMessage.toSearchMember(): SearchMember = SearchMember(
     channelId = channelId,
     channelType = type
 )
-
