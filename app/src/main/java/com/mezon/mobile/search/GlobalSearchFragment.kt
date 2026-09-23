@@ -1088,7 +1088,8 @@ class GlobalSearchFragment : BaseFragment() {
         val displays = buildMemberDisplays(memberIds, targetClanId)
         val sheet = JoinVoiceBottomSheet(
             activity, themeColors, channel.channelLabel, channel.channelId, targetClanId, displays, channel.unreadCount,
-            JoinMediaSheetKind.STREAMING
+            JoinMediaSheetKind.STREAMING,
+            canJoin = memberIds.isNotEmpty(),
         )
         sheet.onJoinVoice = { _ ->
             (activity as? MainActivity)?.showStreamingRoom(channel.channelId, targetClanId, channel.channelLabel)

@@ -8582,7 +8582,8 @@ open class ChatFragment : BaseFragment() {
             targetClanId,
             displays,
             channel.unreadCount,
-            JoinMediaSheetKind.STREAMING
+            JoinMediaSheetKind.STREAMING,
+            canJoin = memberIds.isNotEmpty(),
         )
         sheet.onJoinVoice = { _ ->
             (activity as? MainActivity)?.showStreamingRoom(

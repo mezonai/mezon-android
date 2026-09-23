@@ -27,6 +27,7 @@ import com.mezon.mobile.home.clans.CHANNEL_TYPE_STREAMING
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.voice.VoiceChrome
 import com.mezon.mobile.home.voice.VoiceStyleCircleButton
+import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.util.absoluteResourceUrl
@@ -38,9 +39,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.webrtc.RendererCommon
-import org.webrtc.SurfaceViewRenderer
-import org.webrtc.VideoTrack
 
 private const val ARG_CHANNEL_ID = "channel_id"
 private const val ARG_CLAN_ID = "clan_id"
@@ -69,6 +67,7 @@ class StreamingRoomFragment : BaseFragment() {
     private lateinit var streamingSession: StreamingWebRtcSession
     private lateinit var channelController: ChannelController
     private lateinit var sessionManager: SessionManager
+    private lateinit var mezonApi: MezonApi
     private lateinit var userClanController: UserClanController
     private lateinit var userController: com.mezon.mobile.home.profile.UserController
 
@@ -78,11 +77,10 @@ class StreamingRoomFragment : BaseFragment() {
     private var channelAvatar = ""
 
     private val roomScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private var isMinimizing = false
+    private var hadStreamMembers = false
 
     private lateinit var backgroundView: ImageView
     private lateinit var bannerView: ImageView
-    private lateinit var videoRenderer: SurfaceViewRenderer
     private lateinit var membersRow: LinearLayout
     private lateinit var membersOverflow: TextView
     private val memberAvatarHolders = ArrayList<AvatarHolder>()
@@ -99,6 +97,7 @@ class StreamingRoomFragment : BaseFragment() {
         streamingSession = entryPoint.streamingWebRtcSession()
         channelController = entryPoint.channelController()
         sessionManager = entryPoint.sessionManager()
+        mezonApi = entryPoint.mezonApi()
         userClanController = entryPoint.userClanController()
         userController = entryPoint.userController()
     }
@@ -163,16 +162,6 @@ class StreamingRoomFragment : BaseFragment() {
             setImageDrawable(MezonIcon.channelStream.getDrawable(context))
         }
 
-        videoRenderer = SurfaceViewRenderer(context).apply {
-            visibility = View.GONE
-        }
-        entryPoint().webRtcInfra().ensureFactoryReady()
-        videoRenderer.init(entryPoint().webRtcInfra().eglContext, null)
-        videoRenderer.setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT)
-        videoRenderer.setMirror(true)
-        videoRenderer.setEnableHardwareScaler(true)
-        videoRenderer.setZOrderMediaOverlay(false)
-
         val header = buildHeader(context)
         membersRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -186,9 +175,6 @@ class StreamingRoomFragment : BaseFragment() {
         }
         val footer = buildFooter(context)
 
-        root.addView(videoRenderer, LayoutHelper.createFrame(
-            LayoutHelper.MATCH_PARENT.toFloat(), LayoutHelper.MATCH_PARENT.toFloat(), Gravity.CENTER
-        ))
         root.addView(backgroundView, LayoutHelper.createFrame(
             LayoutHelper.MATCH_PARENT.toFloat(), LayoutHelper.MATCH_PARENT.toFloat(), Gravity.CENTER
         ))
@@ -224,21 +210,25 @@ class StreamingRoomFragment : BaseFragment() {
 
     private fun joinStreamIfNeeded() {
         roomScope.launch {
-            sessionManager.withAutoRefresh { session ->
-                val userId = userController.userId.toString()
-                val username = userController.username.ifEmpty { userId }
-                streamingController.applyStreamJoined(clanId, channelId, userController.userId)
-                streamingSession.join(
-                    clanId = clanId,
-                    channelId = channelId,
-                    streamId = channelId,
-                    userId = userId,
-                    username = username,
-                    token = session.token,
-                )
-            }
+            val token = requestMeetToken() ?: return@launch
+            streamingSession.join(
+                channelId = channelId,
+                token = token,
+                tokenProvider = { requestMeetToken() ?: "" },
+            )
         }
     }
+
+    private suspend fun requestMeetToken(): String? = runCatching {
+        sessionManager.withAutoRefresh { session ->
+            mezonApi.generateMeetToken(
+                apiUrl = session.apiUrl,
+                token = session.token,
+                channelId = channelId,
+                roomName = "",
+            ).token.trim()
+        }
+    }.getOrNull()?.takeIf { it.isNotEmpty() }
 
     private fun imageContext(): Context? = fragmentView?.context
 
@@ -264,27 +254,12 @@ class StreamingRoomFragment : BaseFragment() {
                 loadBackgroundIfNeeded()
             }
         }
-        streamingSession.onRemoteVideoTrackChanged = { track ->
-            fragmentView?.post {
-                attachVideoTrack(track)
-                refreshPlaybackUi()
-            }
-        }
-        attachVideoTrack(streamingSession.remoteVideoTrack)
-    }
-
-    private fun attachVideoTrack(track: VideoTrack?) {
-        streamingSession.remoteVideoTrack?.removeSink(videoRenderer)
-        track?.addSink(videoRenderer)
     }
 
     private fun refreshPlaybackUi() {
-        if (!::videoRenderer.isInitialized) return
-        val hasVideo = streamingSession.isRemoteVideoStream
-        videoRenderer.visibility = if (hasVideo) View.VISIBLE else View.GONE
-        val showFallback = !hasVideo
-        backgroundView.visibility = if (showFallback && channelAvatar.isNotBlank()) View.VISIBLE else View.GONE
-        bannerView.visibility = if (showFallback && channelAvatar.isBlank()) View.VISIBLE else View.GONE
+        if (!::backgroundView.isInitialized || !::bannerView.isInitialized) return
+        backgroundView.visibility = if (channelAvatar.isNotBlank()) View.VISIBLE else View.GONE
+        bannerView.visibility = if (channelAvatar.isBlank()) View.VISIBLE else View.GONE
     }
 
     private fun syncStreamingMiniOverlay() {
@@ -292,7 +267,6 @@ class StreamingRoomFragment : BaseFragment() {
     }
 
     private fun loadBackgroundIfNeeded() {
-        if (streamingSession.isRemoteVideoStream) return
         val rawAvatar = channelAvatar.trim()
         if (rawAvatar.isBlank()) return
         val absolute = absoluteResourceUrl(rawAvatar)
@@ -320,9 +294,15 @@ class StreamingRoomFragment : BaseFragment() {
 
         val memberIds = streamingController.getStreamMembersForChannel(channelId, clanId)
         if (memberIds.isEmpty()) {
+            val wasActive = hadStreamMembers
+            hadStreamMembers = false
             membersRow.visibility = View.GONE
+            if (wasActive) {
+                (getParentActivity() as? MainActivity)?.dismissStreamingRoom(disconnectSession = true)
+            }
             return
         }
+        hadStreamMembers = true
         membersRow.visibility = View.VISIBLE
         val clanMembers = userClanController.getClanMembers(clanId)
         val memberMap = HashMap<Long, ClanMember>(clanMembers.size)
@@ -488,14 +468,11 @@ class StreamingRoomFragment : BaseFragment() {
     }
 
     fun minimizeToOverlay() {
-        isMinimizing = true
         streamingSession.onStreamingStateChanged = null
-        streamingSession.onRemoteVideoTrackChanged = null
         (getParentActivity() as? MainActivity)?.minimizeStreamingRoom()
     }
 
     private fun leaveStream() {
-        streamingController.applyStreamLeaved(clanId, channelId, userController.userId)
         (getParentActivity() as? MainActivity)?.dismissStreamingRoom(disconnectSession = true)
     }
 
@@ -520,16 +497,9 @@ class StreamingRoomFragment : BaseFragment() {
     }
 
     override fun onFragmentDestroy() {
-        if (!isMinimizing) {
-            streamingSession.onStreamingStateChanged = null
-            streamingSession.onRemoteVideoTrackChanged = null
-        }
+        streamingSession.onStreamingStateChanged = null
         getParentActivity()?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         clearMemberAvatars()
-        if (::videoRenderer.isInitialized) {
-            streamingSession.remoteVideoTrack?.removeSink(videoRenderer)
-            videoRenderer.release()
-        }
         roomScope.cancel()
         super.onFragmentDestroy()
     }
