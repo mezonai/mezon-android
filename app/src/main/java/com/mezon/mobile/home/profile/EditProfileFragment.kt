@@ -47,6 +47,7 @@ class EditProfileFragment : BaseFragment() {
         private const val REQUEST_CODE_PICK_DM_LOGO = 2002
         private const val MAX_AVATAR_SIZE_BYTES = 10L * 1024 * 1024
         private const val MAX_DM_LOGO_SIZE_BYTES = 1L * 1024 * 1024
+        private const val MAX_DISPLAY_NAME_UTF8_BYTES = 32
         private const val TAB_PERSONAL = 0
         private const val TAB_CLAN = 1
         private const val ARG_OPEN_CLAN_TAB = "openClanTab"
@@ -323,8 +324,8 @@ class EditProfileFragment : BaseFragment() {
         displayNameCell = InputCell(context, themeColors).apply {
             setLabel(getString(R.string.edit_profile_display_name_label)) 
             setHint(getString(R.string.edit_profile_display_name_hint))
+            setMaxUtf8Bytes(MAX_DISPLAY_NAME_UTF8_BYTES)
             setText(displayName)
-            setMaxCharacter(32)
             setCellBackgroundColor(themeColors.surface)
             setCellStrokeColor(0x00000000)
             onTextChanged = { text ->
