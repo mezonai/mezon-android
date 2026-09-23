@@ -138,6 +138,9 @@ class GlobalSearchFragment : BaseFragment() {
     private var filterUser: SearchMember? = null
     private var isPickingFilterUser = false
 
+    private val searchScopeChannelId: Long
+        get() = arguments?.getLong(ARG_FILTER_CHANNEL_ID) ?: 0L
+
     var onOpenChat: ((channelId: Long, channelName: String, clanId: Long, channelType: Int) -> Unit)? = null
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
@@ -152,7 +155,7 @@ class GlobalSearchFragment : BaseFragment() {
     override fun onFragmentCreate(): Boolean {
         super.onFragmentCreate()
 
-        val argChannelId = arguments?.getLong(ARG_FILTER_CHANNEL_ID) ?: 0L
+        val argChannelId = searchScopeChannelId
         val argChannelName = arguments?.getString(ARG_FILTER_CHANNEL_NAME) ?: ""
         argClanId = arguments?.getLong(ARG_CLAN_ID) ?: 0L
         argChannelType = arguments?.getInt(ARG_CHANNEL_TYPE) ?: 0
@@ -169,7 +172,11 @@ class GlobalSearchFragment : BaseFragment() {
             hideChannelsTab -> listOf(TAB_MEMBERS, TAB_MESSAGES)
             else -> listOf(TAB_MEMBERS, TAB_CHANNELS)
         }
-        currentTab = visibleTabs.first()
+        val savedState = searchController.getScreenState(searchScopeChannelId)
+        currentTab = savedState?.selectedTab
+            ?.takeIf { it in visibleTabs }
+            ?: visibleTabs.first()
+        searchText = savedState?.query.orEmpty()
 
         observe(NotificationCenter.searchMembersDidLoad) { _, _, _ ->
             if (fragmentView == null || isPaused) return@observe
@@ -301,6 +308,8 @@ class GlobalSearchFragment : BaseFragment() {
 
         searchCell = SearchCell(context, themeColors).apply {
             setPlaceholder(context.getString(R.string.common_search))
+            editText.setText(searchText)
+            editText.setSelection(searchText.length)
             onTextChanged = { text ->
                 if (isChannelPickerMode) {
                     pickerQuery = text
@@ -370,6 +379,7 @@ class GlobalSearchFragment : BaseFragment() {
         }
         tabHeader = SearchTabHeader(context, themeColors).apply {
             setTabs(tabLabels)
+            selectTab(visibleTabs.indexOf(currentTab))
             visibility = if (visibleTabs.size == 1) View.GONE else View.VISIBLE
             onTabSelected = { visualIndex ->
                 searchRunnable?.let { handler.removeCallbacks(it) }
@@ -484,6 +494,9 @@ class GlobalSearchFragment : BaseFragment() {
         updateFilterButtonVisibility()
         loadingView.visibility = View.GONE
         recyclerView.visibility = View.VISIBLE
+        if (searchText.isNotBlank() && searchScopeChannelId == 0L) {
+            searchController.fetchCtrlKResults(searchText.trim())
+        }
         updateCurrentTab()
         updateTabCounts()
 
@@ -1159,6 +1172,7 @@ class GlobalSearchFragment : BaseFragment() {
     }
 
     override fun onFragmentDestroy() {
+        searchController.saveScreenState(searchScopeChannelId, currentTab, searchText)
         searchRunnable?.let { handler.removeCallbacks(it) }
         pickerFilterRunnable?.let { handler.removeCallbacks(it) }
         AndroidUtilities.hideKeyboard(searchCell.editText)
