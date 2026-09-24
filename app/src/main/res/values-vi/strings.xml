@@ -1197,6 +1197,11 @@
     <string name="clan_link_invite_invalid_message">Hãy thử gửi một lời mời khác!</string>
     <string name="clan_link_invite_channel_prefix"># %1$s</string>
     <string name="clan_link_invite_unknown_clan">Clan không xác định</string>
+    <string name="deeplink_opening_channel">Đang mở kênh…</string>
+    <string name="deeplink_checking_access">Đang kiểm tra quyền truy cập</string>
+    <string name="deeplink_channel_unavailable_title">Không thể mở kênh</string>
+    <string name="deeplink_channel_unavailable_message">Có thể bạn chưa có quyền xem kênh này hoặc kênh không còn tồn tại. Hãy kiểm tra lại với người gửi liên kết.</string>
+    <string name="deeplink_channel_unavailable_got_it">Đã hiểu</string>
     <string name="discover_join_clan">Tham gia clan</string>
     <string name="discover_join_failed">Không thể tham gia clan này.</string>
 

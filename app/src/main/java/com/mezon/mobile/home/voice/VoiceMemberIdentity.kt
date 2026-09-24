@@ -32,6 +32,14 @@ fun resolveVoiceMemberIdentity(
     user: ClanUser?,
     fallbackName: String
 ): VoiceMemberIdentity {
+    if (VoiceAgent.isAgent(userId)) {
+        return VoiceMemberIdentity(
+            VoiceAgent.DISPLAY_NAME,
+            VoiceAgent.DISPLAY_NAME,
+            VoiceAgent.AVATAR_URL
+        )
+    }
+
     val name = member?.clanNick?.ifBlank { null }
         ?: member?.displayName?.ifBlank { null }
         ?: member?.username?.ifBlank { null }
@@ -41,11 +49,6 @@ fun resolveVoiceMemberIdentity(
     val avatarUrl = member?.clanAvatar?.ifBlank { null }
         ?: member?.avatarUrl?.ifBlank { null }
         ?: user?.avatarUrl?.ifBlank { null }
-
-    if (VoiceAgent.isAgent(userId)) {
-        val agentName = name ?: VoiceAgent.DISPLAY_NAME
-        return VoiceMemberIdentity(agentName, username.ifBlank { agentName }, VoiceAgent.AVATAR_URL)
-    }
 
     return VoiceMemberIdentity(name ?: fallbackName, username, avatarUrl)
 }

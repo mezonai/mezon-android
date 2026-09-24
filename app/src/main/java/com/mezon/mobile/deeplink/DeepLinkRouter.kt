@@ -1,23 +1,39 @@
 package com.mezon.mobile.deeplink
 
 import android.net.Uri
+import android.util.Log
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.widget.FrameLayout
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.lifecycle.lifecycleScope
 import com.mezon.mobile.MainActivity
 import com.mezon.mobile.R
 import com.mezon.mobile.auth.AuthRepository
 import com.mezon.mobile.core.AlertsCreator
 import com.mezon.mobile.core.AndroidUtilities
+import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.StartupCache
 import com.mezon.mobile.di.IoDispatcher
+import com.mezon.mobile.home.clans.ClanChannelEntity
 import com.mezon.mobile.home.clans.ClansController
+import com.mezon.mobile.home.clans.ChannelController
+import com.mezon.mobile.home.clans.toClanChannelEntity
 import com.mezon.mobile.home.clans.channelapp.ChannelAppController
 import com.mezon.mobile.home.clans.channelapp.ChannelAppFragment
 import com.mezon.mobile.home.qr.QrPayloadParser
 import com.mezon.mobile.home.qr.QrProfileFragment
+import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.session.SessionExpiredException
+import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.ui.cells.ToastOverlay
-import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -26,9 +42,12 @@ import javax.inject.Singleton
 @Singleton
 class DeepLinkRouter @Inject constructor(
     private val clansController: ClansController,
+    private val channelController: ChannelController,
     private val channelAppController: ChannelAppController,
     private val notificationCenter: NotificationCenter,
     private val authRepository: AuthRepository,
+    private val api: MezonApi,
+    private val sessionManager: SessionManager,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) {
     @Volatile
@@ -37,11 +56,16 @@ class DeepLinkRouter @Inject constructor(
     @Volatile
     private var pendingSourceUrl: String? = null
 
+    private var channelJob: Job? = null
+    private var channelLoadingView: View? = null
+    private var channelRequestId = 0L
+
     fun hasPending(): Boolean = pendingRoute != null
 
     fun clearPending() {
         pendingRoute = null
         pendingSourceUrl = null
+        AndroidUtilities.runOnUIThread { cancelChannelLookup() }
     }
 
     fun ingest(uri: Uri): DeepLinkRoute? {
@@ -66,7 +90,9 @@ class DeepLinkRouter @Inject constructor(
             return
         }
         AndroidUtilities.runOnUIThread {
+            cancelChannelLookup()
             when (route) {
+                is DeepLinkRoute.Channel -> dispatchChannel(activity, route)
                 is DeepLinkRoute.ChannelApp -> dispatchChannelApp(activity, route)
                 is DeepLinkRoute.Invite -> presentFragment(activity, InviteClanFragment.newInstance(route.inviteId))
                 is DeepLinkRoute.Profile -> dispatchProfile(activity, route)
@@ -81,6 +107,96 @@ class DeepLinkRouter @Inject constructor(
                 is DeepLinkRoute.Login -> dispatchLogin(activity, route)
             }
         }
+    }
+
+    private fun dispatchChannel(activity: MainActivity, route: DeepLinkRoute.Channel) {
+        val requestId = ++channelRequestId
+        val loadingView = ChannelDeepLinkLoadingView(activity, activity.themeColors)
+        channelLoadingView = loadingView
+        val navigationInset = ViewCompat.getRootWindowInsets(activity.drawerLayoutContainer)
+            ?.getInsets(WindowInsetsCompat.Type.navigationBars())?.bottom ?: 0
+        activity.drawerLayoutContainer.addView(
+            loadingView,
+            FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM).apply {
+                leftMargin = LayoutHelper.dp(20)
+                rightMargin = LayoutHelper.dp(20)
+                bottomMargin = LayoutHelper.dp(80) + navigationInset
+            }
+        )
+        loadingView.bringToFront()
+
+        channelJob = activity.lifecycleScope.launch {
+            val channel = try {
+                withContext(ioDispatcher) { resolveAccessibleChannel(route) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Log.w(TAG, "Could not resolve channel ${route.channelId} in clan ${route.clanId}", error)
+                null
+            } finally {
+                if (requestId == channelRequestId) {
+                    removeChannelLoadingView()
+                    channelJob = null
+                }
+            }
+
+            if (requestId != channelRequestId || activity.isFinishing || activity.isDestroyed) return@launch
+            if (channel == null) {
+                ChannelUnavailableBottomSheet(activity, activity.themeColors).show()
+                return@launch
+            }
+            channelController.upsertChannel(channel)
+            activity.openChat(
+                channelId = channel.channelId,
+                channelName = channel.channelLabel,
+                clanId = route.clanId,
+                channelType = channel.type,
+                fromNotification = true
+            )
+        }
+    }
+
+    private suspend fun resolveAccessibleChannel(route: DeepLinkRoute.Channel): ClanChannelEntity? {
+        repeat(3) { attempt ->
+            try {
+                val response = sessionManager.withAutoRefresh { session ->
+                    api.listChannelsByClan(session.apiUrl, session.token, route.clanId)
+                }
+                response.channeldescList.firstOrNull {
+                    it.channelId == route.channelId && (it.clanId == 0L || it.clanId == route.clanId)
+                }?.let { return it.toClanChannelEntity().copy(clanId = route.clanId) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Log.w(TAG, "Channel list attempt ${attempt + 1} failed for clan ${route.clanId}", error)
+            }
+            if (attempt < 2) delay(500)
+        }
+        return try {
+            val response = sessionManager.withAutoRefresh { session ->
+                api.listChannelByUserId(session.apiUrl, session.token)
+            }
+            response.channeldescList.firstOrNull {
+                it.channelId == route.channelId && it.clanId == route.clanId
+            }?.toClanChannelEntity()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            Log.w(TAG, "User channel list failed for channel ${route.channelId}", error)
+            null
+        }
+    }
+
+    private fun cancelChannelLookup() {
+        channelRequestId++
+        channelJob?.cancel()
+        channelJob = null
+        removeChannelLoadingView()
+    }
+
+    private fun removeChannelLoadingView() {
+        (channelLoadingView?.parent as? ViewGroup)?.removeView(channelLoadingView)
+        channelLoadingView = null
     }
 
     private fun dispatchLogin(activity: MainActivity, route: DeepLinkRoute.Login) {
@@ -173,5 +289,9 @@ class DeepLinkRouter @Inject constructor(
 
     private fun presentFragment(activity: MainActivity, fragment: com.mezon.mobile.core.BaseFragment) {
         activity.actionBarLayout.presentFragment(fragment)
+    }
+
+    private companion object {
+        const val TAG = "DeepLinkRouter"
     }
 }

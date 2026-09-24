@@ -607,11 +607,19 @@ class MezonApi @Inject constructor(
             return rpcOverHttpWithRetry(apiUrl, token, method, body, retryableRead)
         }
         return try {
-            rpcOverSocket(method, body, token)
+            val bytes = rpcOverSocket(method, body, token)
+            if (method == "GenerateMeetToken") {
+                // Validate before returning so an unusable socket token can fall back to HTTP.
+                decodeMeetTokenResponse(bytes)
+            }
+            bytes
         } catch (e: UnauthorizedException) {
             throw e
         } catch (e: SocketRpcServerException) {
             throw e
+        } catch (e: com.google.protobuf.InvalidProtocolBufferException) {
+            if (method != "GenerateMeetToken") throw e
+            rpcOverHttpWithRetry(apiUrl, token, method, body, retryable = retryableRead)
         } catch (e: SocketRpcTransportException) {
             if (!e.retryOverHttp) throw e
             Log.w("MezonApi", "SOCKET unavailable method=$method, falling back to HTTP: ${e.message}")
@@ -2697,18 +2705,17 @@ class MezonApi @Inject constructor(
         apiUrl: String,
         token: String,
         channelId: Long,
-        roomName: String
+        roomName: String,
+        metadata: String
     ): GenerateMeetTokenResponse {
         val request = generateMeetTokenRequest {
             this.channelId = channelId
             this.roomName = roomName
+            this.metadata = metadata
         }
         val bytes = rpc(apiUrl, token, "GenerateMeetToken", request.toByteArray())
-        val text = bytes.toString(Charsets.UTF_8).trim().trim('"')
-        if (text.startsWith("eyJ") && text.count { it == '.' } == 2) {
-            return GenerateMeetTokenResponse.newBuilder().setToken(text).build()
-        }
-        return GenerateMeetTokenResponse.parseFrom(bytes)
+        // Both transports can return either raw JWT or GenerateMeetTokenResponse protobuf.
+        return decodeMeetTokenResponse(bytes)
     }
 
     suspend fun listChannelVoiceUsers(

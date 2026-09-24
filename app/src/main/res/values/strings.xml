@@ -1411,6 +1411,11 @@
     <string name="clan_link_invite_invalid_message">Try sending a new invite!</string>
     <string name="clan_link_invite_channel_prefix"># %1$s</string>
     <string name="clan_link_invite_unknown_clan">Unknown clan</string>
+    <string name="deeplink_opening_channel">Opening channel…</string>
+    <string name="deeplink_checking_access">Checking your access</string>
+    <string name="deeplink_channel_unavailable_title">Channel unavailable</string>
+    <string name="deeplink_channel_unavailable_message">You may not have access to this channel, or it may no longer exist. Please check with the person who shared the link.</string>
+    <string name="deeplink_channel_unavailable_got_it">Got it</string>
     <string name="discover_join_clan">Join Clan</string>
     <string name="discover_join_failed">Could not join this clan.</string>
 

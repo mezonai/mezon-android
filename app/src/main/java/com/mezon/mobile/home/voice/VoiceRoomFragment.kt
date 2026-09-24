@@ -226,8 +226,7 @@ class VoiceRoomFragment : BaseFragment() {
 
     private var agentParticipantInRoom = false
 
-    private fun isVoiceAgentActive(): Boolean =
-        agentParticipantInRoom || voiceController.isAiAgentEnabled(clanId, channelId)
+    private fun isVoiceAgentActive(): Boolean = agentParticipantInRoom
 
     private fun applyAgentHeaderUi() {
         if (!::headerView.isInitialized) return
@@ -341,20 +340,6 @@ class VoiceRoomFragment : BaseFragment() {
             }
         }
 
-
-        observe(NotificationCenter.voiceAiAgentStateChanged) { _, _, args ->
-            if (fragmentView == null) return@observe
-            val evClan = args.getOrNull(0) as? Long ?: return@observe
-            val evCh = args.getOrNull(1) as? Long ?: return@observe
-            if (evCh != channelId) return@observe
-            if (evClan != clanId) {
-                Log.w(TAG, "voiceAiAgentStateChanged clan mismatch evClan=$evClan localClan=$clanId channelId=$channelId")
-                return@observe
-            }
-            if (!::headerView.isInitialized) return@observe
-            val evEnabled = args.getOrNull(2) as? Boolean
-            applyAgentHeaderUi()
-        }
 
         observe(NotificationCenter.clanRolesDidLoad) { _, _, args ->
             if (fragmentView == null) return@observe
@@ -912,7 +897,7 @@ class VoiceRoomFragment : BaseFragment() {
                 localPttActive = active
                 doUpdateParticipantList()
             }
-            sfuSession.tokenProvider = { voiceController.refreshMeetToken(channelId) }
+            sfuSession.tokenProvider = { voiceController.refreshMeetToken(channelId, clanId) }
             sfuSession.onMutedByModerator = { onMutedByModerator() }
             sfuSession.onRemoved = { cause, reason -> onRemovedFromRoom(cause, reason) }
 

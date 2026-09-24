@@ -226,6 +226,7 @@ class StreamingRoomFragment : BaseFragment() {
                 token = session.token,
                 channelId = channelId,
                 roomName = "",
+                metadata = "",
             ).token.trim()
         }
     }.getOrNull()?.takeIf { it.isNotEmpty() }

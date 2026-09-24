@@ -18,6 +18,10 @@ import com.mezon.mobile.network.MezonSocket
 import com.mezon.mobile.network.SocketEventDispatcher
 import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.session.SessionManager
+import com.mezon.mobile.home.UserClanController
+import com.mezon.mobile.home.profile.UserController
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -35,6 +39,8 @@ class VoiceController @Inject constructor(
     private val socket: MezonSocket,
     private val dispatcher: SocketEventDispatcher,
     private val sessionManager: SessionManager,
+    private val userClanController: UserClanController,
+    private val userController: UserController,
     private val notificationCenter: NotificationCenter,
     private val cacheTracker: ApiCacheTracker,
     @ApplicationContext private val appContext: Context,
@@ -43,6 +49,8 @@ class VoiceController @Inject constructor(
 ) {
     val voiceMembersByClan = HashMap<Long, HashMap<Long, ArrayList<Long>>>()
     val inVoiceStatus = HashMap<Long, VoiceStatus>()
+    private var voicePresence = VoicePeerPresence()
+    private var voicePresenceGeneration = 0L
     private val screenSharingByClan = HashMap<Long, HashMap<Long, HashSet<Long>>>()
 
     var currentVoiceInfo: VoiceInfo? = null
@@ -74,6 +82,9 @@ class VoiceController @Inject constructor(
 
     fun cleanup() {
         synchronized(this) {
+            voicePresenceGeneration++
+            voicePresence = VoicePeerPresence()
+            voiceMemberListFetchInflight.clear()
             voiceMembersByClan.clear()
             inVoiceStatus.clear()
             screenSharingByClan.clear()
@@ -85,7 +96,6 @@ class VoiceController @Inject constructor(
             aiAgentEnabled.clear()
         }
         VoiceChannelForegroundService.stop(appContext)
-        voiceMemberListFetchInflight.clear()
     }
 
     @Synchronized
@@ -117,50 +127,66 @@ class VoiceController @Inject constructor(
         if (clanId == 0L) return
         val key = apiCacheKey("ListChannelVoiceUsers", clanId)
         if (cacheTracker.shouldCall(key, noCache = noCache) == ApiCacheTracker.ShouldCall.SKIP) return
-        if (!noCache && !voiceMemberListFetchInflight.add(clanId)) return
+        val generation = synchronized(this) {
+            if (!voiceMemberListFetchInflight.add(clanId)) return
+            voicePresenceGeneration
+        }
 
         appScope.launch {
             try {
                 sessionManager.withAutoRefresh { session ->
-                val response = withContext(ioDispatcher) {
-                    api.listChannelVoiceUsers(session.apiUrl, session.token, clanId)
-                }
-                synchronized(this@VoiceController) {
-                    val clanMap = voiceMembersByClan.getOrPut(clanId) { HashMap() }
-                    clanMap.clear()
-                    inVoiceStatus.entries.removeAll { it.value.clanId == clanId }
-                    val sharingMap = screenSharingByClan.getOrPut(clanId) { HashMap() }
-                    sharingMap.clear()
-                    for (voiceChannelUser in response.voiceChannelUsersList) {
-                        val channelId = voiceChannelUser.channelId
-                        val sharingIds = HashSet<Long>()
-                        for (sid in voiceChannelUser.shareScreenIdsList) {
-                            sid.toLongOrNull()?.let { sharingIds.add(it) }
+                    repeat(3) {
+                        val revision = synchronized(this@VoiceController) { voicePresence.revision(clanId) }
+                        val response = withContext(ioDispatcher) {
+                            api.listChannelVoiceUsers(session.apiUrl, session.token, clanId)
                         }
-                        if (sharingIds.isNotEmpty()) {
-                            sharingMap[channelId] = sharingIds
+                        val applied = synchronized(this@VoiceController) {
+                            if (generation != voicePresenceGeneration) return@withAutoRefresh
+                            if (revision != voicePresence.revision(clanId)) {
+                                false
+                            } else {
+                                val clanMap = voiceMembersByClan.getOrPut(clanId) { HashMap() }
+                                clanMap.clear()
+                                inVoiceStatus.entries.removeAll { it.value.clanId == clanId }
+                                val sharingMap = screenSharingByClan.getOrPut(clanId) { HashMap() }
+                                sharingMap.clear()
+                                val peers = ArrayList<VoicePeerPresence.Entry>()
+                                for (room in response.voiceChannelUsersList) {
+                                    val channelId = room.channelId
+                                    val aligned = room.userIdsCount == room.peerIdsCount
+                                    Log.d(TAG, "[MezonSFU][presence] snapshot clan=$clanId channel=$channelId users=${room.userIdsList} peers=${room.peerIdsList} aligned=$aligned")
+                                    val userIds = LinkedHashSet<Long>()
+                                    for ((index, uid) in room.userIdsList.withIndex()) {
+                                        val userId = uid.toLongOrNull() ?: continue
+                                        userIds.add(userId)
+                                        peers.add(VoicePeerPresence.Entry(channelId, userId, if (aligned) room.getPeerIds(index) else 0))
+                                        inVoiceStatus[userId] = VoiceStatus(clanId, channelId)
+                                    }
+                                    val sharingIds = room.shareScreenIdsList.mapNotNull { it.toLongOrNull() }
+                                        .filterTo(HashSet()) { it in userIds }
+                                    if (sharingIds.isNotEmpty()) sharingMap[channelId] = sharingIds
+                                    if (userIds.isNotEmpty()) clanMap[channelId] = ArrayList(userIds)
+                                }
+                                voicePresence.replaceClan(clanId, peers)
+                                true
+                            }
                         }
-                        val userIds = ArrayList<Long>()
-                        for (uid in voiceChannelUser.userIdsList) {
-                            val parsed = uid.toLongOrNull() ?: continue
-                            userIds.add(parsed)
-                            inVoiceStatus[parsed] = VoiceStatus(clanId, channelId)
-                        }
-                        if (userIds.isNotEmpty()) {
-                            clanMap[channelId] = userIds
+                        if (applied) {
+                            cacheTracker.markCalled(key)
+                            notificationCenter.postNotificationOnMainThread(NotificationCenter.voiceChannelMembersChanged, clanId)
+                            return@withAutoRefresh
                         }
                     }
-                }
-                cacheTracker.markCalled(key)
-                notificationCenter.postNotificationOnMainThread(
-                    NotificationCenter.voiceChannelMembersChanged, clanId
-                )
+                    cacheTracker.invalidate(key)
+                    Log.d(TAG, "[MezonSFU][presence] snapshot skipped: membership changed during refresh clan=$clanId")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "fetchVoiceChannelMembers failed", e)
                 cacheTracker.invalidate(key)
             } finally {
-                if (!noCache) voiceMemberListFetchInflight.remove(clanId)
+                synchronized(this@VoiceController) {
+                    if (generation == voicePresenceGeneration) voiceMemberListFetchInflight.remove(clanId)
+                }
             }
         }
     }
@@ -181,7 +207,10 @@ class VoiceController @Inject constructor(
             sessionManager.withAutoRefresh { session ->
                 val roomName = channelId.toString()
                 val response = withContext(ioDispatcher) {
-                    api.generateMeetToken(session.apiUrl, session.token, channelId, roomName)
+                    api.generateMeetToken(
+                        session.apiUrl, session.token, channelId, roomName,
+                        meetTokenMetadata(clanId, session.userId.toLongOrNull() ?: 0L)
+                    )
                 }
                 val token = response.token
                 if (token.isNullOrEmpty()) {
@@ -202,12 +231,15 @@ class VoiceController @Inject constructor(
         }
     }
 
-    suspend fun refreshMeetToken(channelId: Long): String? {
+    suspend fun refreshMeetToken(channelId: Long, clanId: Long): String? {
         return try {
             sessionManager.withAutoRefresh { session ->
                 val roomName = channelId.toString()
                 val response = withContext(ioDispatcher) {
-                    api.generateMeetToken(session.apiUrl, session.token, channelId, roomName)
+                    api.generateMeetToken(
+                        session.apiUrl, session.token, channelId, roomName,
+                        meetTokenMetadata(clanId, session.userId.toLongOrNull() ?: 0L)
+                    )
                 }
                 val token = response.token
                 if (!token.isNullOrEmpty()) {
@@ -219,6 +251,31 @@ class VoiceController @Inject constructor(
             Log.e(TAG, "refreshMeetToken failed", e)
             null
         }
+    }
+
+    private fun meetTokenMetadata(clanId: Long, userId: Long): String {
+        val member = userClanController.getClanMembers(clanId).firstOrNull { it.userId == userId }
+        val profile = userClanController.getUserById(userId)
+        val isCurrentUser = userController.userId == userId
+        val name = listOf(
+            member?.clanNick,
+            member?.displayName,
+            userController.displayName.takeIf { isCurrentUser },
+            profile?.displayName,
+            member?.username,
+            userController.username.takeIf { isCurrentUser },
+            profile?.username
+        ).firstOrNull { !it.isNullOrBlank() }?.trim().orEmpty()
+        val avatar = listOf(
+            member?.clanAvatar,
+            member?.avatarUrl,
+            userController.avatarUrl.takeIf { isCurrentUser },
+            profile?.avatarUrl
+        ).firstOrNull { !it.isNullOrBlank() }?.trim().orEmpty()
+        return buildJsonObject {
+            put("username", name)
+            put("avatar", avatar)
+        }.toString()
     }
 
     fun onRoomConnected(channelId: Long) {
@@ -301,6 +358,9 @@ class VoiceController @Inject constructor(
         if (clanId == 0L || channelId == 0L || userId == 0L) return
 
         synchronized(this) {
+            val before = voicePresence.peerIds(clanId, channelId, userId)
+            voicePresence.joined(clanId, channelId, userId, event.peerId)
+            Log.d(TAG, "[MezonSFU][presence] joined clan=$clanId channel=$channelId user=$userId peer=${event.peerId} before=$before after=${voicePresence.peerIds(clanId, channelId, userId)}")
             val clanMap = voiceMembersByClan.getOrPut(clanId) { HashMap() }
             val members = clanMap.getOrPut(channelId) { ArrayList() }
             if (!members.contains(userId)) {
@@ -321,10 +381,14 @@ class VoiceController @Inject constructor(
         if (clanId == 0L || channelId == 0L || userId == 0L) return
 
         synchronized(this) {
+            val before = voicePresence.peerIds(clanId, channelId, userId)
+            val removeUser = voicePresence.left(clanId, channelId, userId, event.peerId)
+            Log.d(TAG, "[MezonSFU][presence] leaved clan=$clanId channel=$channelId user=$userId peer=${event.peerId} before=$before after=${voicePresence.peerIds(clanId, channelId, userId)} removeUser=$removeUser")
+            if (!removeUser) return
             voiceMembersByClan[clanId]?.get(channelId)?.remove(userId)
             screenSharingByClan[clanId]?.get(channelId)?.remove(userId)
             val status = inVoiceStatus[userId]
-            if (status != null && status.channelId == channelId) {
+            if (status != null && status.clanId == clanId && status.channelId == channelId) {
                 inVoiceStatus.remove(userId)
             }
         }
@@ -340,6 +404,7 @@ class VoiceController @Inject constructor(
         if (clanId == 0L || channelId == 0L) return
 
         val shouldDisconnect = synchronized(this) {
+            voicePresence.removeRoom(clanId, channelId)
             val removed = voiceMembersByClan[clanId]?.remove(channelId)
             screenSharingByClan[clanId]?.remove(channelId)
             removed?.forEach { uid ->
@@ -484,6 +549,10 @@ class VoiceController @Inject constructor(
     private fun onChannelDeleted(clanId: Long, channelId: Long) {
         if (clanId == 0L || channelId == 0L) return
         val shouldDisconnect = synchronized(this) {
+            voicePresence.removeRoom(clanId, channelId)
+            voiceMembersByClan[clanId]?.remove(channelId)
+            screenSharingByClan[clanId]?.remove(channelId)
+            inVoiceStatus.entries.removeAll { it.value.clanId == clanId && it.value.channelId == channelId }
             currentVoiceInfo?.clanId == clanId && currentVoiceInfo?.channelId == channelId
         }
         if (shouldDisconnect) {
@@ -494,6 +563,10 @@ class VoiceController @Inject constructor(
     private fun onClanDeleted(clanId: Long) {
         if (clanId == 0L) return
         val shouldDisconnect = synchronized(this) {
+            voicePresence.removeClan(clanId)
+            voiceMembersByClan.remove(clanId)
+            screenSharingByClan.remove(clanId)
+            inVoiceStatus.entries.removeAll { it.value.clanId == clanId }
             currentVoiceInfo?.clanId == clanId
         }
         if (shouldDisconnect) {

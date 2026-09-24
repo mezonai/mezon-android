@@ -217,6 +217,8 @@ class MezonSfuSession @Inject constructor(
     private var transceiverCache: List<RtpTransceiver> = emptyList()
     private var remoteSnapshot: List<RemoteTransceiverSnapshot> = emptyList()
     private var remoteMediaSyncScheduled = false
+    private var remoteMediaSyncRunning = false
+    private var remoteMediaRevision = 0
     private val webRtcDispatcher = Executors.newSingleThreadExecutor { runnable -> Thread(runnable, "sfu-webrtc") }.asCoroutineDispatcher()
 
     private val userIdByMid = HashMap<String, String>()
@@ -368,6 +370,8 @@ class MezonSfuSession @Inject constructor(
             remote.clear()
             emitParticipants()
         }
+        remoteMediaSyncScheduled = false
+        remoteMediaSyncRunning = false
         transceiverCache = emptyList()
         remoteSnapshot = emptyList()
         val pc = createPeerConnection(gen)
@@ -436,6 +440,8 @@ class MezonSfuSession @Inject constructor(
         runCatching { localAudioTrack?.dispose() }
         runCatching { audioSource?.dispose() }
         localAudioTrack = null; audioSource = null
+        remoteMediaSyncScheduled = false
+        remoteMediaSyncRunning = false
         transceiverCache = emptyList()
         remoteSnapshot = emptyList()
         iceRecoveryJob?.cancel()
@@ -803,6 +809,7 @@ class MezonSfuSession @Inject constructor(
             if (gen != connectionGen) return
             val (generation, sdp) = offer
             val pc = peerConnection ?: break
+            remoteMediaRevision++
             var answerSent = false
             try {
                 val previousRemoteSdp = withContext(webRtcDispatcher) { pc.remoteDescription?.description }
@@ -842,6 +849,7 @@ class MezonSfuSession @Inject constructor(
             if (offer != null) delay(50)
         }
         negotiating = false
+        scheduleRemoteMediaSync()
     }
 
     private fun isCurrentConnection(pc: PeerConnection, gen: Int): Boolean =
@@ -1094,13 +1102,38 @@ class MezonSfuSession @Inject constructor(
     }
 
     private fun scheduleRemoteMediaSync() {
-        if (remoteMediaSyncScheduled) return
-        val roomScope = scope ?: return
         remoteMediaSyncScheduled = true
+        if (remoteMediaSyncRunning || negotiating || !active) return
+        val roomScope = scope ?: return
+        val pc = peerConnection ?: return
+        val gen = connectionGen
+        remoteMediaSyncRunning = true
         roomScope.launch {
-            remoteMediaSyncScheduled = false
-            if (!active || peerConnection == null || negotiating) return@launch
-            syncRemoteMedia()
+            try {
+                while (remoteMediaSyncScheduled && active && isCurrentConnection(pc, gen)) {
+                    if (negotiating) return@launch
+                    remoteMediaSyncScheduled = false
+                    val revision = remoteMediaRevision
+                    // Read live receivers, not the snapshot from the last SDP negotiation.
+                    val transceivers = withContext(webRtcDispatcher) { pc.transceivers }
+                    if (!isCurrentConnection(pc, gen)) return@launch
+                    val snapshot = withContext(webRtcDispatcher) { captureRemoteSnapshot(transceivers) }
+                    if (!isCurrentConnection(pc, gen)) return@launch
+                    if (negotiating) {
+                        remoteMediaSyncScheduled = true
+                        return@launch
+                    }
+                    if (revision != remoteMediaRevision) {
+                        remoteMediaSyncScheduled = true
+                        continue
+                    }
+                    transceiverCache = transceivers
+                    remoteSnapshot = snapshot
+                    syncRemoteMedia()
+                }
+            } finally {
+                if (isCurrentConnection(pc, gen)) remoteMediaSyncRunning = false
+            }
         }
     }
 
@@ -1131,6 +1164,10 @@ class MezonSfuSession @Inject constructor(
                 continue
             }
             val track = item.track ?: continue
+            if (kind == "screen" && track is VideoTrack) {
+                // Preserve a frame while the participant tile is still being created.
+                VideoTrackLastFrameStore.observe(track)
+            }
             val ownerUserId = userIdByMid[mid]
             val ownerPeerId = peerIdByMid[mid]
             if (ownerUserId == null && ownerPeerId == null) {
