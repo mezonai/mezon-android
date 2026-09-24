@@ -37,6 +37,7 @@ object QrPayloadParser {
 
         DeepLinkParser.parse(trimmed)?.let { route ->
             return when (route) {
+                is DeepLinkRoute.Channel -> QrAction.DeepLink(trimmed)
                 is DeepLinkRoute.ChannelApp -> QrAction.DeepLink(trimmed)
                 is DeepLinkRoute.Invite -> QrAction.Invite(route.inviteId.toString())
                 is DeepLinkRoute.Profile -> QrAction.Profile(route.username, route.data)
