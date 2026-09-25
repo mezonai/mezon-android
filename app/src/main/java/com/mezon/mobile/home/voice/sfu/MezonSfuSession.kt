@@ -100,7 +100,8 @@ private const val SPEAKING_POLL_MS = 300L
 private const val SPEAKING_POLL_LARGE_ROOM_MS = 1_000L
 private const val LARGE_ROOM_REMOTE_COUNT = 16
 private const val RECONNECT_POLL_MS = 3000L
-private const val MAX_RECONNECT_ATTEMPTS = 40
+private const val MAX_RECONNECT_ATTEMPTS = 4
+private const val HEALTHY_SESSION_MS = 30_000L
 private const val MAX_TOKEN_REFRESHES = 3
 private const val MAX_INITIAL_CONNECT_ATTEMPTS = 3
 internal const val TOKEN_EXPIRY_MARGIN_SECONDS = 60L
@@ -205,6 +206,8 @@ class MezonSfuSession @Inject constructor(
     private var connectionGen = 0
     private var stateRestored = false
     private var reconnectAttempts = 0
+    private var healthySessionResetJob: Job? = null
+    private var mediaConnected = false
     private var tokenRefreshes = 0
     private var tokenRejected = false
     private var retryableClosePending = false
@@ -312,7 +315,6 @@ class MezonSfuSession @Inject constructor(
                         emitState(SfuConnectionState.FAILED)
                         break
                     }
-                    reconnectAttempts++
                     if (tokenNeedsRefresh() && tokenRefreshes < MAX_TOKEN_REFRESHES) {
                         val fresh = runCatching { tokenProvider?.invoke() }.getOrNull()
                         if (!fresh.isNullOrEmpty()) {
@@ -343,6 +345,18 @@ class MezonSfuSession @Inject constructor(
     }
 
     private fun openConnection(initial: Boolean) {
+        if (!initial) {
+            val limit = if (joined) MAX_RECONNECT_ATTEMPTS else MAX_INITIAL_CONNECT_ATTEMPTS
+            if (reconnectAttempts >= limit) {
+                active = false
+                emitState(SfuConnectionState.FAILED)
+                return
+            }
+            reconnectAttempts++
+        }
+        healthySessionResetJob?.cancel()
+        healthySessionResetJob = null
+        mediaConnected = false
         connecting = true
         retryableClosePending = false
         connectionGen++
@@ -423,6 +437,9 @@ class MezonSfuSession @Inject constructor(
 
     fun leave() {
         active = false
+        healthySessionResetJob?.cancel()
+        healthySessionResetJob = null
+        mediaConnected = false
         connectionGen++
         socketOpen = false
         connecting = false
@@ -665,7 +682,6 @@ class MezonSfuSession @Inject constructor(
                 joined = true
                 admitted = true
                 selfPeerId = msg.opt("self_peer_id")?.toString()
-                reconnectAttempts = 0
                 tokenRefreshes = 0
                 tokenRejected = false
                 if (!stateRestored) {
@@ -1479,6 +1495,9 @@ class MezonSfuSession @Inject constructor(
                 when (newState) {
                     PeerConnection.PeerConnectionState.CONNECTED -> clearTransportWatchdog()
                     PeerConnection.PeerConnectionState.FAILED -> {
+                        mediaConnected = false
+                        healthySessionResetJob?.cancel()
+                        healthySessionResetJob = null
                         clearTransportWatchdog()
                         if (active && joined) {
                             emitState(SfuConnectionState.DISCONNECTED)
@@ -1498,12 +1517,23 @@ class MezonSfuSession @Inject constructor(
                     PeerConnection.IceConnectionState.COMPLETED -> {
                         iceRecoveryJob?.cancel()
                         iceRecoveryJob = null
+                        mediaConnected = true
+                        if (healthySessionResetJob == null) {
+                            healthySessionResetJob = scope?.launch {
+                                delay(HEALTHY_SESSION_MS)
+                                healthySessionResetJob = null
+                                if (active && gen == connectionGen && mediaConnected && socketOpen) reconnectAttempts = 0
+                            }
+                        }
                         emitState(SfuConnectionState.CONNECTED)
                         armTransportWatchdog(gen)
                     }
                     PeerConnection.IceConnectionState.FAILED -> {
                         iceRecoveryJob?.cancel()
                         iceRecoveryJob = null
+                        mediaConnected = false
+                        healthySessionResetJob?.cancel()
+                        healthySessionResetJob = null
                         if (active && joined) {
                             emitState(SfuConnectionState.DISCONNECTED)
                             restartSession("ice failed")
@@ -1512,6 +1542,9 @@ class MezonSfuSession @Inject constructor(
                         }
                     }
                     PeerConnection.IceConnectionState.DISCONNECTED -> {
+                        mediaConnected = false
+                        healthySessionResetJob?.cancel()
+                        healthySessionResetJob = null
                         emitState(SfuConnectionState.DISCONNECTED)
                         if (active && joined && iceRecoveryJob == null) {
                             iceRecoveryJob = scope?.launch {
