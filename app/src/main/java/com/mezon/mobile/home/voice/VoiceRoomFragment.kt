@@ -22,7 +22,6 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.GridLayoutManager
-import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.MainActivity
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AlertDialog
@@ -224,14 +223,15 @@ class VoiceRoomFragment : BaseFragment() {
     private fun getMainActivity(): MainActivity? = getParentActivity() as? MainActivity
 
 
-    private var agentParticipantInRoom = false
-
-    private fun isVoiceAgentActive(): Boolean = agentParticipantInRoom
+    private fun isVoiceAgentActive(): Boolean =
+        participants.any { VoiceAgent.isAgent(it.identity) }
 
     private fun applyAgentHeaderUi() {
         if (!::headerView.isInitialized) return
-        headerView.setAgentVisible(canManageVoiceChannel())
-        headerView.setAgentActive(isVoiceAgentActive())
+        val active = isVoiceAgentActive()
+        val visible = canManageVoiceChannel()
+        headerView.setAgentVisible(visible)
+        headerView.setAgentActive(active)
     }
 
     private fun getAgentToggleFallbackRoomNames(): List<String> {
@@ -833,6 +833,8 @@ class VoiceRoomFragment : BaseFragment() {
             val text = when (cause) {
                 SfuRemovalCause.KICKED -> reason.ifBlank { getString(R.string.voice_room_kicked) }
                 SfuRemovalCause.ALONE_TIMEOUT -> getString(R.string.voice_room_alone_timeout)
+                SfuRemovalCause.DUPLICATE_SESSION -> getString(R.string.voice_room_duplicate_session)
+                SfuRemovalCause.DISCONNECTED -> getString(R.string.voice_room_disconnected_rejoin)
             }
             Toast.makeText(activity, text, Toast.LENGTH_SHORT).show()
         }
@@ -854,7 +856,7 @@ class VoiceRoomFragment : BaseFragment() {
         roomScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
         roomScope?.launch {
-            var token = voiceController.meetToken
+            var token = voiceController.cachedMeetTokenFor(channelId)
             if (token.isNullOrEmpty()) {
                 token = voiceController.joinVoiceChannel(channelId, clanId, channelLabel)
                 if (token.isNullOrEmpty()) {
@@ -1090,11 +1092,6 @@ class VoiceRoomFragment : BaseFragment() {
 
     private fun doUpdateParticipantList() {
         if (fragmentView == null) return
-        val agentPresent = sfuRemote.any { VoiceAgent.isAgent(it.userId.orEmpty()) }
-        if (agentPresent != agentParticipantInRoom) {
-            agentParticipantInRoom = agentPresent
-            applyAgentHeaderUi()
-        }
         if (isGridScrolling && !isInPipMode) {
             pendingGridUpdate = true
             return
@@ -1121,6 +1118,7 @@ class VoiceRoomFragment : BaseFragment() {
             if (!p.isScreenShare) prioritized.add(p)
         }
         updateParticipants(prioritized)
+        applyAgentHeaderUi()
         dismissFocusedShareIfStale()
         refreshFocusedShareTrack()
         syncFocusedShareForPip()
@@ -1157,6 +1155,11 @@ class VoiceRoomFragment : BaseFragment() {
 
     private fun showDisconnectDialog(reason: String) {
         val activity = getParentActivity() ?: return
+        if (reason == "disconnected") {
+            Toast.makeText(activity, getString(R.string.voice_room_disconnected_rejoin), Toast.LENGTH_SHORT).show()
+            dismissOverlay()
+            return
+        }
         val message = when (reason) {
             "removed" -> "You have been removed from the voice channel"
             "duplicate" -> "You have been disconnected due to another join"

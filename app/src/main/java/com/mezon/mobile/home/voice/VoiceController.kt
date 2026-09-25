@@ -19,6 +19,8 @@ import com.mezon.mobile.network.SocketEventDispatcher
 import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.home.UserClanController
+import com.mezon.mobile.home.voice.sfu.TOKEN_EXPIRY_MARGIN_SECONDS
+import com.mezon.mobile.home.voice.sfu.tokenSecondsLeft
 import com.mezon.mobile.home.profile.UserController
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -191,11 +193,19 @@ class VoiceController @Inject constructor(
         }
     }
 
-    suspend fun joinVoiceChannel(channelId: Long, clanId: Long, channelLabel: String): String? {
+    fun cachedMeetTokenFor(channelId: Long): String? {
         synchronized(this) {
-            if (isJoined && currentVoiceInfo?.channelId == channelId) {
-                return meetToken
-            }
+            val token = meetToken ?: return null
+            if (currentVoiceInfo?.channelId != channelId) return null
+            val secondsLeft = tokenSecondsLeft(token) ?: return null
+            return if (secondsLeft > TOKEN_EXPIRY_MARGIN_SECONDS) token else null
+        }
+    }
+
+    suspend fun joinVoiceChannel(channelId: Long, clanId: Long, channelLabel: String): String? {
+        val joinedSameChannel = synchronized(this) { isJoined && currentVoiceInfo?.channelId == channelId }
+        if (joinedSameChannel) {
+            return cachedMeetTokenFor(channelId) ?: refreshMeetToken(channelId, clanId)
         }
         if (isJoined || isConnecting) {
             leaveVoiceChannel()

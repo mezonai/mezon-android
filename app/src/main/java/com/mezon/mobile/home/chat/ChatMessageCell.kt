@@ -1955,14 +1955,26 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         return y
     }
 
+    private fun hasBlocksBelowText(): Boolean =
+        (messageEntity?.isPollMessage == true && pollParsed != null) ||
+            hasShareContactCard || hasLocationCard || hasCallLogCard ||
+            drawPhotoImage || drawFileAttachment || drawAudioAttachment ||
+            hasEmbedContent || drawEphemeral ||
+            reactionGroups.isNotEmpty() || topicButtonLayout.visible || drawError
+
+    private fun textBottomSpacing(): Int = when {
+        ogpData != null || linkInviteBlock.isVisible -> LINK_INVITE_V_MARGIN
+        hasBlocksBelowText() -> GAP_V_INNER
+        else -> 0
+    }
+
     private fun mainContentStackHeight(): Int {
         var h = 0
         if (hasCallLogCard) {
             h += callLogCardHeight + GAP_V_INNER
         } else {
             contentLayout?.let {
-                h += it.height
-                h += if (ogpData != null || linkInviteBlock.isVisible) LINK_INVITE_V_MARGIN else GAP_V_INNER
+                h += it.height + textBottomSpacing()
             }
         }
         if (ogpData != null) {
@@ -2843,7 +2855,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     senderLayout?.let { reacBaseY += it.height + GAP_V_INNER }
                     forwardLayout?.let { reacBaseY += it.height + GAP_V_INNER }
                     contentLayout?.let {
-                        reacBaseY += it.height + (if (ogpData != null || linkInviteBlock.isVisible) LINK_INVITE_V_MARGIN else GAP_V_INNER)
+                        reacBaseY += it.height + textBottomSpacing()
                     }
                     if (messageEntity?.isPollMessage == true && pollParsed != null) {
                         reacBaseY += pollLayoutHelper.blockHeight + GAP_V_INNER
@@ -3505,7 +3517,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             canvas.translate(contentLeft.toFloat(), yOff)
             it.draw(canvas)
             canvas.restore()
-            yOff += it.height + (if (ogpData != null || linkInviteBlock.isVisible) LINK_INVITE_V_MARGIN else GAP_V_INNER)
+            yOff += it.height + textBottomSpacing()
         }
 
         if (pollParsed != null && msg.isPollMessage) {
@@ -3849,7 +3861,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private fun drawErrorText(canvas: Canvas, msg: MessageEntity) {
         val layout = errorLayout ?: return
-        val errorY = measuredCellHeight - PAD_V - layout.height
+        val errorY = measuredCellHeight - PAD_BOTTOM - GAP_V_INNER - layout.height
         val errorX = (PAD_H + AVATAR_SIZE + GAP_AVATAR).toFloat()
         canvas.save()
         canvas.translate(errorX, errorY.toFloat())
@@ -5136,9 +5148,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
         private val AVATAR_SIZE = LayoutHelper.dp(40)  
         private val PAD_H = LayoutHelper.dp(6)          
-        private val PAD_V = LayoutHelper.dp(10)         
-        private val PAD_BOTTOM = LayoutHelper.dp(6)    
-        private val COMBINE_PAD_V = LayoutHelper.dp(1)
+        private val PAD_V = LayoutHelper.dp(13)
+        private val PAD_BOTTOM = LayoutHelper.dp(3)
+        private val COMBINE_PAD_V = LayoutHelper.dp(2)
         private val PIN_PAD_H = LayoutHelper.dp(4)
         private val GAP_AVATAR = LayoutHelper.dp(12)   
         private val MENTION_BAR_WIDTH = LayoutHelper.dp(2)
@@ -5392,14 +5404,14 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             strokeJoin = Paint.Join.ROUND
         }
 
-        private val REACTION_CHIP_H = LayoutHelper.dp(30)
+        private val REACTION_CHIP_H = LayoutHelper.dp(26)
         private val REACTION_EMOJI_SIZE = LayoutHelper.dp(18)
-        private val REACTION_CHIP_PAD = LayoutHelper.dp(2)
+        private val REACTION_CHIP_PAD = LayoutHelper.dp(6)
         private val REACTION_CHIP_RADIUS = LayoutHelper.dpf(5f)
         private val REACTION_GAP = LayoutHelper.dp(6)
-        private val REACTION_EMOJI_MR = LayoutHelper.dp(2)
+        private val REACTION_EMOJI_MR = LayoutHelper.dp(3)
         private val REACTION_ADD_SIZE = LayoutHelper.dp(20)
-        private val REACTION_TOP_PAD = LayoutHelper.dp(6)
+        private val REACTION_TOP_PAD = LayoutHelper.dp(2)
         private val STICKER_REACTION_TOP_PAD = LayoutHelper.dp(4)
 
         private val REACTION_COUNT_PAINT = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {

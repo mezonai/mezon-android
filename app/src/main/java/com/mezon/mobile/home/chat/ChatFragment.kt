@@ -1695,6 +1695,8 @@ open class ChatFragment : BaseFragment() {
             lm.stackFromEnd = false
             layoutManager = lm
             itemAnimator = null
+            setPadding(0, 0, 0, LayoutHelper.dp(8f))
+            clipToPadding = false
             setItemViewCacheSize(8)
             visibility = View.INVISIBLE
         }
@@ -2063,7 +2065,7 @@ open class ChatFragment : BaseFragment() {
             hint = getString(R.string.message_input_placeholder)
             setHintTextColor(themeColors.onSurfaceVariant)
             setTextColor(themeColors.onSurface)
-            textSize = 15f
+            textSize = 16f
             maxLines = 4
             minimumHeight = LayoutHelper.dp(40f)
             imeOptions = EditorInfo.IME_ACTION_SEND
@@ -2074,7 +2076,8 @@ open class ChatFragment : BaseFragment() {
                 setColor(themeColors.tertiary)
                 cornerRadius = LayoutHelper.dp(20f).toFloat()
             }
-            setPadding(LayoutHelper.dp(20f), LayoutHelper.dp(8f), LayoutHelper.dp(40f), LayoutHelper.dp(12f))
+            val verticalPadding = ((LayoutHelper.dp(40f) - lineHeight) / 2).coerceAtLeast(LayoutHelper.dp(6f))
+            setPadding(LayoutHelper.dp(14f), verticalPadding, LayoutHelper.dp(40f), verticalPadding)
         }
         inputWrapper.addView(inputField, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT
@@ -2098,7 +2101,7 @@ open class ChatFragment : BaseFragment() {
             Gravity.END or Gravity.BOTTOM
         ).apply {
             rightMargin = LayoutHelper.dp(8f)
-            bottomMargin = LayoutHelper.dp(8f)
+            bottomMargin = inputField.paddingBottom + inputField.lineHeight / 2 - LayoutHelper.dp(12f)
         })
 
         anonymousIndicator = ImageView(context).apply {
@@ -8381,7 +8384,7 @@ open class ChatFragment : BaseFragment() {
         inputField.setSelection(start + insertText.length)
     }
 
-    private fun channelTitleIconSizePx(): Int = LayoutHelper.dp(20)
+    private fun channelTitleIconSizePx(): Int = LayoutHelper.sp(18f).toInt()
 
     private fun channelTitleIconDrawable(context: Context, iconEnum: MezonIcon): Drawable {
         val drawable = iconEnum.getDrawable(context, themeColors)
@@ -8402,6 +8405,7 @@ open class ChatFragment : BaseFragment() {
         val iconSize = channelTitleIconSizePx()
         val span = ColoredImageSpan(iconEnum.getDrawable(context, themeColors), ColoredImageSpan.ALIGN_CENTER)
         span.setSize(iconSize)
+        span.translateY = LayoutHelper.dpf(1f)
         if (isThread) {
             span.usePaintColor = false
         } else {

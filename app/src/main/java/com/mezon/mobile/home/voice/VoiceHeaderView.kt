@@ -46,7 +46,7 @@ class VoiceHeaderView(
     private val minimizeBtn: FrameLayout
     private val moreBtn: FrameLayout
     private val audioOutputBtn: FrameLayout
-    private val agentBtnBg: GradientDrawable = GradientDrawable().apply {
+    private var agentBtnBg: GradientDrawable = GradientDrawable().apply {
         shape = GradientDrawable.OVAL
         setColor(themeColors.channelPanelBg)
         setStroke(LayoutHelper.dp(1), themeColors.textDisabled)
@@ -161,13 +161,16 @@ class VoiceHeaderView(
 
     fun setAgentActive(active: Boolean) {
         agentActive = active
-        if (active) {
-            agentBtnBg.setColor(themeColors.blurple)
-            agentBtnBg.setStroke(LayoutHelper.dp(1), themeColors.blurple)
-        } else {
-            agentBtnBg.setColor(themeColors.channelPanelBg)
-            agentBtnBg.setStroke(LayoutHelper.dp(1), themeColors.textDisabled)
+        agentBtnBg = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(if (active) themeColors.blurple else themeColors.channelPanelBg)
+            setStroke(
+                LayoutHelper.dp(1),
+                if (active) themeColors.blurple else themeColors.textDisabled
+            )
         }
+        agentBtn.background = agentBtnBg
+        agentBtn.applyVoiceButtonPressFeedback()
         applyAgentIconTint()
     }
 

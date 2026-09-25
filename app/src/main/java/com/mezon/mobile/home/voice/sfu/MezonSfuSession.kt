@@ -102,7 +102,8 @@ private const val LARGE_ROOM_REMOTE_COUNT = 16
 private const val RECONNECT_POLL_MS = 3000L
 private const val MAX_RECONNECT_ATTEMPTS = 40
 private const val MAX_TOKEN_REFRESHES = 3
-private const val TOKEN_EXPIRY_MARGIN_SECONDS = 60L
+private const val MAX_INITIAL_CONNECT_ATTEMPTS = 3
+internal const val TOKEN_EXPIRY_MARGIN_SECONDS = 60L
 private const val MIN_SESSION_RESTART_SPACING_MS = 5_000L
 private const val RETIRING_PEER_CONNECTION_GRACE_MS = 10_000L
 private const val OFFER_REISSUE_DEADLINE_MS = 8_000L
@@ -112,6 +113,8 @@ private const val ICE_RECOVERY_GRACE_MS = 4000L
 private const val MODERATOR_MUTE_WINDOW_MS = 300L
 private const val SFU_CLOSE_KICKED = 4006
 private const val SFU_CLOSE_ALONE_TIMEOUT = 4011
+private const val SFU_CLOSE_DUPLICATE_SESSION = 4012
+private val SFU_RETRYABLE_CLOSE_CODES = setOf(4001, 4002, 4008, 4010)
 private val PARTICIPANT_ACTION_ERRORS = setOf(
     "invalid_token",
     "token_room_mismatch",
@@ -121,15 +124,17 @@ private val PARTICIPANT_ACTION_ERRORS = setOf(
     "auth_not_configured",
 )
 
-enum class SfuRemovalCause { KICKED, ALONE_TIMEOUT }
+enum class SfuRemovalCause { KICKED, ALONE_TIMEOUT, DUPLICATE_SESSION, DISCONNECTED }
 
 private fun removalCause(code: Int): SfuRemovalCause? = when (code) {
+    in SFU_RETRYABLE_CLOSE_CODES -> null
     SFU_CLOSE_KICKED -> SfuRemovalCause.KICKED
     SFU_CLOSE_ALONE_TIMEOUT -> SfuRemovalCause.ALONE_TIMEOUT
-    else -> null
+    SFU_CLOSE_DUPLICATE_SESSION -> SfuRemovalCause.DUPLICATE_SESSION
+    else -> SfuRemovalCause.DISCONNECTED
 }
 
-private fun tokenSecondsLeft(token: String): Long? {
+internal fun tokenSecondsLeft(token: String): Long? {
     val parts = token.split('.')
     if (parts.size != 3) return null
     return runCatching {
@@ -202,6 +207,8 @@ class MezonSfuSession @Inject constructor(
     private var reconnectAttempts = 0
     private var tokenRefreshes = 0
     private var tokenRejected = false
+    private var retryableClosePending = false
+    @Volatile private var locallyClosingSocket: WebSocket? = null
     private var lastConnectionOpenedAtMs = 0L
     private var deferredRestartJob: Job? = null
     private var retiringCloseJob: Job? = null
@@ -272,6 +279,7 @@ class MezonSfuSession @Inject constructor(
         this.reconnectAttempts = 0
         this.tokenRefreshes = 0
         this.tokenRejected = false
+        this.retryableClosePending = false
         val roomScope = CoroutineScope(SupervisorJob() + mainDispatcher)
         scope = roomScope
 
@@ -294,11 +302,12 @@ class MezonSfuSession @Inject constructor(
         roomScope.launch {
             while (isActive) {
                 delay(RECONNECT_POLL_MS)
-                if (active && joined && !socketOpen && !connecting) {
+                val retryingJoin = !joined && (retryableClosePending || retryingRejectedToken())
+                if (active && (joined || retryingJoin) && !socketOpen && !connecting) {
                     if (!networkMonitor.isOnline.value) {
                         continue
                     }
-                    if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+                    if (reconnectAttempts >= (if (joined) MAX_RECONNECT_ATTEMPTS else MAX_INITIAL_CONNECT_ATTEMPTS)) {
                         active = false
                         emitState(SfuConnectionState.FAILED)
                         break
@@ -312,8 +321,8 @@ class MezonSfuSession @Inject constructor(
                             tokenRejected = false
                         }
                     }
-                    if (!isActive || !active || !joined || socketOpen || connecting) continue
-                    openConnection(initial = false)
+                    if (!isActive || !active || !(joined || retryingJoin) || socketOpen || connecting) continue
+                    openConnection(initial = !joined)
                 }
             }
         }
@@ -335,6 +344,7 @@ class MezonSfuSession @Inject constructor(
 
     private fun openConnection(initial: Boolean) {
         connecting = true
+        retryableClosePending = false
         connectionGen++
         val gen = connectionGen
         stateRestored = false
@@ -431,6 +441,8 @@ class MezonSfuSession @Inject constructor(
         scope = null
         webSocket?.close(1000, "leave")
         webSocket = null
+        retryableClosePending = false
+        locallyClosingSocket = null
         stopCameraCapture()
         stopScreenShare()
         runCatching { cameraTrack?.dispose() }
@@ -593,7 +605,7 @@ class MezonSfuSession @Inject constructor(
         }
 
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-            val cause = removalCause(code)
+            val cause = if (webSocket === locallyClosingSocket) null else removalCause(code)
             if (cause != null) {
                 appScope.launch(mainDispatcher) { handleRemoved(gen, cause, reason) }
             }
@@ -603,10 +615,16 @@ class MezonSfuSession @Inject constructor(
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
             appScope.launch(mainDispatcher) {
                 if (gen != connectionGen) return@launch
+                val localRestart = webSocket === locallyClosingSocket
+                if (localRestart) locallyClosingSocket = null
                 socketOpen = false
                 connecting = false
                 Log.e(TAG, "ws failure ${t.javaClass.simpleName}: ${t.message} respCode=${response?.code}")
-                if (active && joined) emitState(SfuConnectionState.DISCONNECTED)
+                if (!localRestart) {
+                    handleRemoved(gen, SfuRemovalCause.DISCONNECTED, t.message.orEmpty())
+                    return@launch
+                }
+                if (active && (joined || retryingRejectedToken())) emitState(SfuConnectionState.DISCONNECTED)
                 else if (active) emitState(SfuConnectionState.FAILED)
             }
         }
@@ -616,9 +634,12 @@ class MezonSfuSession @Inject constructor(
                 if (gen != connectionGen) return@launch
                 socketOpen = false
                 connecting = false
-                val cause = removalCause(code)
+                val localRestart = webSocket === locallyClosingSocket
+                if (localRestart) locallyClosingSocket = null
+                val cause = if (localRestart) null else removalCause(code)
+                if (cause == null && !localRestart) retryableClosePending = true
                 if (cause != null) handleRemoved(gen, cause, reason)
-                else if (active && joined) emitState(SfuConnectionState.DISCONNECTED)
+                else if (active && (joined || retryableClosePending || retryingRejectedToken())) emitState(SfuConnectionState.DISCONNECTED)
                 else if (active) emitState(SfuConnectionState.FAILED)
             }
         }
@@ -716,21 +737,10 @@ class MezonSfuSession @Inject constructor(
                         Log.w(TAG, "sfu rejected the participant action ($detail)")
                         participantActionCallbacks.removeFirstOrNull()?.invoke(false, detail)
                     }
-                    (detail == "invalid_token" || detail == "missing_token") && active && joined && tokenRefreshes >= MAX_TOKEN_REFRESHES -> {
-                        Log.e(TAG, "sfu rejected the token ($detail) after $tokenRefreshes refreshes; giving up")
-                        active = false
-                        runCatching { webSocket?.close(1000, null) }
-                        onError?.invoke(detail, msg.optString("message"))
-                        emitState(SfuConnectionState.FAILED)
-                    }
-                    active && joined -> {
-                        Log.e(TAG, "sfu error during session: $detail (will retry with fresh token)")
-                        runCatching { webSocket?.close(1000, null) }
-                    }
                     else -> {
                         Log.e(TAG, "sfu error: $detail")
                         onError?.invoke(detail, msg.optString("message"))
-                        emitState(SfuConnectionState.FAILED)
+                        handleRemoved(connectionGen, SfuRemovalCause.DISCONNECTED, detail)
                     }
                 }
             }
@@ -811,6 +821,7 @@ class MezonSfuSession @Inject constructor(
             val pc = peerConnection ?: break
             remoteMediaRevision++
             var answerSent = false
+            val negotiateStartedMs = SystemClock.elapsedRealtime()
             try {
                 val previousRemoteSdp = withContext(webRtcDispatcher) { pc.remoteDescription?.description }
                 if (!isCurrentConnection(pc, gen)) return
@@ -827,6 +838,7 @@ class MezonSfuSession @Inject constructor(
                         .put("sdp", patchAnswerForSfu(answer.description))
                 )
                 answerSent = true
+                Log.i(TAG, "sfu answer sent generation=$generation after ${SystemClock.elapsedRealtime() - negotiateStartedMs} ms")
                 awaitSetLocal(pc, SessionDescription(SessionDescription.Type.ANSWER, answer.description))
                 if (!isCurrentConnection(pc, gen)) return
                 val transceivers = withContext(webRtcDispatcher) { pc.transceivers }
@@ -1242,6 +1254,7 @@ class MezonSfuSession @Inject constructor(
         if (tokenNeedsRefresh()) {
             socketOpen = false
             emitState(SfuConnectionState.DISCONNECTED)
+            locallyClosingSocket = webSocket
             runCatching { webSocket?.close(1000, null) }
             return
         }
@@ -1263,6 +1276,9 @@ class MezonSfuSession @Inject constructor(
         deferredRestartJob?.cancel()
         deferredRestartJob = null
     }
+
+    private fun retryingRejectedToken(): Boolean =
+        tokenRejected && tokenRefreshes < MAX_TOKEN_REFRESHES && tokenProvider != null
 
     private fun tokenNeedsRefresh(): Boolean {
         if (tokenRejected) return true

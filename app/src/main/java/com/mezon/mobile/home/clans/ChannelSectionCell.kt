@@ -19,7 +19,7 @@ class ChannelSectionCell(
     companion object {
         val ARROW_SIZE = LayoutHelper.dp(18)
         val PADDING_START = LayoutHelper.dp(8)
-        val HEIGHT = LayoutHelper.dp(36)
+        val HEIGHT = LayoutHelper.dp(32)
 
         private val PADDING_END = LayoutHelper.dp(16)
 
