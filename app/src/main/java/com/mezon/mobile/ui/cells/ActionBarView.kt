@@ -567,7 +567,8 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
     companion object {
         @JvmStatic val ACTION_BAR_HEIGHT = com.mezon.mobile.core.LayoutHelper.dp(56)
         private val BACK_BUTTON_SIZE = com.mezon.mobile.core.LayoutHelper.dp(54)
-        private val TEXT_LEFT_WITH_BACK = com.mezon.mobile.core.LayoutHelper.dp(72)
+        private val TEXT_LEFT_WITH_BACK = com.mezon.mobile.core.LayoutHelper.dp(56)
+        private val TITLE_START_ICON_OPTICAL_OFFSET = com.mezon.mobile.core.LayoutHelper.dp(1)
 
         @JvmStatic fun getCurrentActionBarHeightStatic(): Int = ACTION_BAR_HEIGHT
 
@@ -724,7 +725,7 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
 
             titleStartImageView?.let { iv ->
                 if (iv.visibility != GONE && titleStartIconSize > 0) {
-                    val iconTop = topMargin + (totalH - titleStartIconSize) / 2
+                    val iconTop = topMargin + (totalH - titleStartIconSize) / 2 + TITLE_START_ICON_OPTICAL_OFFSET
                     iv.layout(blockLeft, iconTop, blockLeft + titleStartIconSize, iconTop + titleStartIconSize)
                 }
             }
@@ -751,7 +752,7 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
 
             titleStartImageView?.let { iv ->
                 if (iv.visibility != GONE && titleStartIconSize > 0) {
-                    val iconTop = topMargin + (totalH - titleStartIconSize) / 2
+                    val iconTop = topMargin + (totalH - titleStartIconSize) / 2 + TITLE_START_ICON_OPTICAL_OFFSET
                     iv.layout(titleLeft, iconTop, titleLeft + titleStartIconSize, iconTop + titleStartIconSize)
                 }
             }
@@ -774,7 +775,7 @@ class ActionBarView(context: Context, private val theme: ThemeColors) : FrameLay
                     val textStart = titleLeft + lead
                     titleStartImageView?.let { iv ->
                         if (iv.visibility != GONE && titleStartIconSize > 0) {
-                            val iconTop = topMargin + (titleH - titleStartIconSize) / 2
+                            val iconTop = topMargin + (titleH - titleStartIconSize) / 2 + TITLE_START_ICON_OPTICAL_OFFSET
                             iv.layout(titleLeft, iconTop, titleLeft + titleStartIconSize, iconTop + titleStartIconSize)
                         }
                     }

@@ -77,7 +77,7 @@ class ChannelItemCell(
     private val voiceActiveColorFilter = PorterDuffColorFilter(themeColors.voiceActiveGreen, PorterDuff.Mode.SRC_IN)
     private val badgeRectF = RectF()
 
-    private val cellHeightPx = LayoutHelper.dp(37)
+    private val cellHeightPx = LayoutHelper.dp(34)
     private val paddingHPx = LayoutHelper.dp(16)
     private val iconSizePx = LayoutHelper.dp(12)
     private val iconMarginPx = LayoutHelper.dp(8)

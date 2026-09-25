@@ -1392,6 +1392,8 @@
     <string name="voice_room_muted_by_moderator">You have been muted by a channel moderator.</string>
     <string name="voice_room_kicked">You have been kicked from the channel.</string>
     <string name="voice_room_alone_timeout">You were disconnected from the voice channel because you were alone in it for too long.</string>
+    <string name="voice_room_duplicate_session">You joined the voice channel on another device, so this session was disconnected.</string>
+    <string name="voice_room_disconnected_rejoin">You were disconnected from the voice channel.</string>
     <string name="voice_room_mic_permission_title">Microphone permission required</string>
     <string name="voice_room_mic_permission_message">Mezon needs microphone access to let you speak in this voice channel. Please enable it in Settings.</string>
     <string name="voice_room_camera_permission_title">Camera permission required</string>
