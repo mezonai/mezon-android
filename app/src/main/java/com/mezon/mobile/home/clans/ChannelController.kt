@@ -193,7 +193,40 @@ class ChannelController @Inject constructor(
 
     fun isChannelListLoading(clanId: Long): Boolean = channelListLoading[clanId] == true
 
+    private val linkedChannels = ChannelLinkLookupCache<ClanChannelEntity>(appScope)
+
+    fun linkedChannelDetail(channelId: Long): ClanChannelEntity? = linkedChannels.get(channelId)
+
+    suspend fun resolveLinkedChannelForNavigation(channelId: Long, clanId: Long): ClanChannelEntity? {
+        if (clanId != 0L && clansController.get().clans.value.none { it.clanId == clanId }) return null
+        return sessionManager.withAutoRefresh { session ->
+            withContext(ioDispatcher) { api.listChannelDetail(session.apiUrl, session.token, channelId) }
+        }.takeIf { it.channelId == channelId && (clanId == 0L || it.clanId == clanId) }?.toClanChannelEntity()
+    }
+
+    fun requestLinkedChannel(channelId: Long, clanId: Long) {
+        if (channelId == 0L || (clanId != 0L && clansController.get().clans.value.none { it.clanId == clanId })) return
+        linkedChannels.request(channelId, lookup = {
+            if (clanId != 0L && clansController.get().clans.value.none { it.clanId == clanId }) {
+                throw kotlinx.coroutines.CancellationException("Clan left")
+            }
+            try {
+                sessionManager.withAutoRefresh { session ->
+                    withContext(ioDispatcher) { api.listChannelDetail(session.apiUrl, session.token, channelId) }
+                }.takeIf { it.channelId == channelId && (clanId == 0L || it.clanId == clanId) }
+                    ?.toClanChannelEntity()
+            } catch (e: com.mezon.mobile.network.SocketRpcServerException) {
+                if (e.code in setOf(3, 5, 7)) null else throw e
+            } catch (e: com.mezon.mobile.network.HttpRpcStatusException) {
+                if (e.code in setOf(400, 403, 404)) null else throw e
+            }
+        }, onResolved = {
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.linkedChannelDidLoad, channelId)
+        })
+    }
+
     fun cleanup() {
+        linkedChannels.clear()
         _channelsByClan.value = emptyMap()
         sdTopicChannelsById.clear()
         currentOpenChannelId = 0L

@@ -117,7 +117,9 @@ data class ContentElement(
     val image: String? = null,
     val index: Int? = null,
     val channelPrivate: Int? = null,
-    val parentId: String? = null
+    val parentId: String? = null,
+    val channelLabel: String? = null,
+    val channelType: Int? = null
 )
 
 internal fun filterOverlappingContentElements(elements: List<ContentElement>): List<ContentElement> {
@@ -348,7 +350,9 @@ fun parseContentToSpannable(
                 channelId = j.optString("channelId").takeIf { it.isNotEmpty() },
                 clanId = j.optString("clanId").takeIf { it.isNotEmpty() },
                 channelPrivate = if (j.has("channelPrivate")) j.optInt("channelPrivate") else if (j.has("channel_private")) j.optInt("channel_private") else null,
-                parentId = j.optString("parentId").takeIf { it.isNotEmpty() && it != "0" }
+                parentId = j.optString("parentId").takeIf { it.isNotEmpty() && it != "0" },
+                channelLabel = j.optString("channelLabel").takeIf { it.isNotBlank() },
+                channelType = if (j.has("channelType")) j.optInt("channelType") else null
             )
         }.let { elements.addAll(it) }
         parseArray(obj, "ej") { j -> ContentElement("e", j.optInt("s"), j.optInt("e"), emojiid = j.optString("emojiid").takeIf { it.isNotEmpty() }) }
@@ -362,7 +366,12 @@ fun parseContentToSpannable(
                 title = j.optString("title").takeIf { it.isNotEmpty() },
                 description = j.optString("description").takeIf { it.isNotEmpty() },
                 image = j.optString("image").takeIf { it.isNotEmpty() },
-                index = if (j.has("index")) j.optInt("index") else null
+                index = if (j.has("index")) j.optInt("index") else null,
+                channelId = j.optString("channelId").takeIf { it.isNotEmpty() },
+                clanId = j.optString("clanId").takeIf { it.isNotEmpty() },
+                parentId = j.optString("parentId").takeIf { it.isNotEmpty() && it != "0" },
+                channelLabel = j.optString("channelLabel").takeIf { it.isNotBlank() },
+                channelType = if (j.has("channelType")) j.optInt("channelType") else null
             )
         }.let { elements.addAll(it) }
     } catch (_: Exception) {
@@ -467,7 +476,8 @@ fun parseContentToSpannable(
                     linkColor = linkColor,
                     mentionColors = mentionColors,
                     theme = theme,
-                    labelOverride = null,
+                    labelOverride = el.channelLabel,
+                    sentChannelType = el.channelType,
                     preResolvedEntity = null
                 )
             }
@@ -527,7 +537,8 @@ fun parseContentToSpannable(
                         val resolved = view?.context?.let { ctx ->
                             resolveChannelEntity(ctx, channelLink.channelId, channelLink.clanId)
                         }
-                        val label = resolved?.channelLabel?.ifBlank { "channel" }
+                        val sent = el.takeIf { it.matchesChannelLink(channelLink) }
+                        val label = resolved?.channelLabel?.takeIf { it.isNotBlank() } ?: sent?.channelLabel
                         appendHashtagPill(
                             sb,
                             spanStart,
@@ -539,6 +550,8 @@ fun parseContentToSpannable(
                             mentionColors = mentionColors,
                             theme = theme,
                             labelOverride = label,
+                            sentChannelType = sent?.channelType,
+                            parentId = sent?.parentId,
                             preResolvedEntity = resolved
                         )
                     } else {
@@ -694,10 +707,8 @@ private fun resolveChannelEntity(
     val searchCtl = entryPoint.searchController()
     val entity = entryPoint.channelController().findChannelById(cid, clanId)
         ?: searchCtl.findChannelById(cid)
-    if (entity == null && !searchCtl.hasChannels()) {
-        searchCtl.loadChannels()
-    }
-    return entity
+    return entity?.takeIf { clanId == 0L || it.clanId == clanId }
+        ?: entryPoint.channelController().linkedChannelDetail(cid)?.takeIf { clanId == 0L || it.clanId == clanId }
 }
 
 private fun resolveHashtagIcon(entity: ClanChannelEntity): MezonIcon {
@@ -771,17 +782,25 @@ private fun appendHashtagPill(
     mentionColors: MentionColors?,
     theme: ThemeColors,
     labelOverride: String?,
+    sentChannelType: Int? = null,
     preResolvedEntity: ClanChannelEntity?
 ) {
     val ctx = view?.context
     val entity = preResolvedEntity ?: ctx?.let { resolveChannelEntity(it, channelId, clanId) }
-    val resolvedLabel = labelOverride?.takeIf { it.isNotBlank() }
-        ?: entity?.channelLabel?.takeIf { it.isNotBlank() }
-    
-    var isAccessible = false
+    val resolvedLabel = entity?.channelLabel?.takeIf { it.isNotBlank() }
+        ?: labelOverride?.takeIf { it.isNotBlank() }
+    val hasSentDetails = !labelOverride.isNullOrBlank() && sentChannelType != null &&
+        !clanId.isNullOrBlank() && clanId != "0" && (channelPrivate ?: 0) == 0
+    if (entity == null && !hasSentDetails && ctx != null) {
+        channelId?.toLongOrNull()?.let { id ->
+            obtainEntryPoint(ctx)?.channelController()?.requestLinkedChannel(id, clanId?.toLongOrNull() ?: 0L)
+        }
+    }
+
+    var isAccessible = hasSentDetails
     if (entity != null) {
         isAccessible = true
-    } else {
+    } else if (!hasSentDetails) {
         val actualPriv = channelPrivate ?: 0
         if (actualPriv == 0 && parentId != null) {
             val parentEntity = ctx?.let { resolveChannelEntity(it, parentId, clanId) }
@@ -795,6 +814,8 @@ private fun appendHashtagPill(
     val iconDrawable = if (ctx != null) {
         if (entity != null) {
             resolveHashtagIcon(entity).getDrawable(ctx)
+        } else if (hasSentDetails) {
+            ChannelItemCell.resolveChannelIcon(sentChannelType!!, false, false).getDrawable(ctx)
         } else if (!isAccessible) {
             ChannelItemCell.resolveChannelIcon(
                 com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL, true, false
@@ -824,7 +845,8 @@ private fun appendHashtagPill(
             sb.append(resolvedLabel?.let { "#$it" } ?: segText)
         }
     }
-    sb.setExclusiveSpan(HashtagSpan(channelId, fgColor), spanStart, sb.length)
+    val targetClan = entity?.clanId?.toString() ?: clanId
+    sb.setExclusiveSpan(HashtagSpan(channelId, fgColor, targetClan), spanStart, sb.length)
     sb.setExclusiveSpan(StyleSpan(Typeface.BOLD), spanStart, sb.length)
     sb.setExclusiveSpan(BackgroundColorSpan(bgColor), spanStart, sb.length)
 }

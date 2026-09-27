@@ -108,6 +108,7 @@ class NotificationCenter(val currentAccount: Int) {
         val channelMembersDidLoad = nextId()
         val searchMembersDidLoad = nextId()
         val searchChannelsDidLoad = nextId()
+        val linkedChannelDidLoad = nextId()
         val searchMessagesDidLoad = nextId()
         val emojisNeedReload = nextId()
         val clanEmojiCropExportReady = nextId()

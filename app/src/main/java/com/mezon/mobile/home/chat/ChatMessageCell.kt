@@ -619,6 +619,23 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         if (hasPendingSendVisual()) invalidate()
     }
 
+    private var linkedChannelRenderRevision = 0
+
+    fun refreshLinkedChannelLabels(revision: Int) {
+        if (linkedChannelRenderRevision == revision) return
+        linkedChannelRenderRevision = revision
+        val msg = messageEntity ?: return
+        val text = contentLayout?.text as? Spanned ?: return
+        if (text.getSpans(0, text.length, HashtagSpan::class.java).isEmpty()) return
+        val width = currentWidth()
+        val textWidth = if (drawPhotoImage) photoWidth else maxBubbleWidth(width)
+        if (textWidth <= 0) return
+        contentLayout = buildContentLayout(msg, textWidth)
+        updateBubbleGeometry(msg, width)
+        requestLayout()
+        invalidate()
+    }
+
     fun resetForRebind() {
         lastBoundId = 0L
         lastBoundContentHash = 0
@@ -1474,90 +1491,15 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
     }
 
-    private fun buildLayouts(msg: MessageEntity) {
-        buildLayouts(msg, currentWidth())
-    }
-
-    private fun buildLayouts(msg: MessageEntity, width: Int) {
-        val bubbleMaxW = maxBubbleWidth(width)
-        val bubbleWidth = if (drawPhotoImage) photoWidth else bubbleMaxW
-        if (bubbleWidth <= 0) return
-
-        val textWidth = if (drawPhotoImage) photoWidth else bubbleWidth
-
-        val callLogParse = if (!msg.isPollMessage) parseCallLogMessage(msg.content) else null
-        hasCallLogCard = callLogParse != null
-        if (callLogParse != null) {
-            callLogParsed = callLogParse
-            buildCallLogLayouts(msg, textWidth, callLogParse)
-        } else {
-            callLogParsed = null
-            callLogTitleLayout = null
-            callLogDescLayout = null
-            callLogCallbackLayout = null
-            callLogShowCallback = false
-            callLogCardHeight = 0
-            callLogInnerWidth = 0
-            callLogCallbackRect.setEmpty()
-        }
-
-        forwardLayout = if (drawForwardHeader) {
-            val fwdText = FORWARD_TEXT
-            StaticLayout.Builder.obtain(fwdText, 0, fwdText.length, FORWARD_PAINT, textWidth.coerceAtLeast(1))
-                .setMaxLines(1)
-                .build()
-        } else null
-
+    private fun buildContentLayout(msg: MessageEntity, textWidth: Int): StaticLayout? {
         val editedText = context.getString(R.string.message_edited)
-        editedLayout = null
-
-        val timeStr = timeText
-        timeLayout = if (isCombined) null else {
-            StaticLayout.Builder.obtain(timeStr, 0, timeStr.length, currentTimePaint, textWidth.coerceAtLeast(1))
-                .setMaxLines(1)
-                .build()
-        }
-
-        pollParsed = if (msg.isPollMessage) parsePollContent(msg.content) else null
-        shareContactParsed = if (!hasCallLogCard && !msg.isPollMessage &&
-            isShareContactMessage(msg.code, msg.content)
-        ) {
-            parseShareContactData(msg.content)
-        } else {
-            null
-        }
-        hasShareContactCard = shareContactParsed != null
-        if (hasShareContactCard) {
-            val scData = shareContactParsed!!
-            val isOnline = shareContactOnlineResolver?.invoke(scData.userId) == true
-            shareContactLayout.prepare(scData, theme, bubbleMaxW, isOnline)
-        } else {
-            shareContactLayout.clear()
-        }
-        locationParsed = if (!hasCallLogCard && !hasShareContactCard && isLocationMessage(msg.code, msg.content)) {
-            parseLocationMessageData(msg.content)
-        } else {
-            null
-        }
-        hasLocationCard = locationParsed != null
-        if (hasLocationCard) {
-            val locData = locationParsed!!
-            val title = if (msg.isMe) {
-                context.getString(R.string.location_card_your_location)
-            } else {
-                context.getString(R.string.location_card_location_of, msg.senderName.ifBlank { msg.senderUsername })
-            }
-            locationCardLayout.prepare(locData, msg.senderId, msg.senderUsername, msg.senderAvatar, title, theme, bubbleMaxW)
-        } else {
-            locationCardLayout.clear()
-        }
         val hasEmbedPayload = !hasCallLogCard && !hasShareContactCard && isEmbedOrComponentsPayload(msg.content)
         val hasActualText = !hasCallLogCard && !msg.isPollMessage && !hasLocationCard &&
             parsedContent.isNotBlank() && parsedContent != "[file]" && parsedContent != "[embed]" &&
             parsedContent != "[Contact]" &&
             (!hasEmbedPayload || hasExplicitTextBody)
         val hasText = hasActualText || drawEdited
-        contentLayout = if (hasText) {
+        return if (hasText) {
             val contentToParse = if (hasActualText) msg.content else ""
             val parsedToParse = if (hasActualText) parsedContent else ""
             val linkColor = theme.blurple
@@ -1612,6 +1554,86 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             (charSeq as? Spanned)?.let { CodeFenceSpan.bindLineBounds(it, layout) }
             layout
         } else null
+    }
+
+    private fun buildLayouts(msg: MessageEntity) {
+        buildLayouts(msg, currentWidth())
+    }
+
+    private fun buildLayouts(msg: MessageEntity, width: Int) {
+        val bubbleMaxW = maxBubbleWidth(width)
+        val bubbleWidth = if (drawPhotoImage) photoWidth else bubbleMaxW
+        if (bubbleWidth <= 0) return
+
+        val textWidth = if (drawPhotoImage) photoWidth else bubbleWidth
+
+        val callLogParse = if (!msg.isPollMessage) parseCallLogMessage(msg.content) else null
+        hasCallLogCard = callLogParse != null
+        if (callLogParse != null) {
+            callLogParsed = callLogParse
+            buildCallLogLayouts(msg, textWidth, callLogParse)
+        } else {
+            callLogParsed = null
+            callLogTitleLayout = null
+            callLogDescLayout = null
+            callLogCallbackLayout = null
+            callLogShowCallback = false
+            callLogCardHeight = 0
+            callLogInnerWidth = 0
+            callLogCallbackRect.setEmpty()
+        }
+
+        forwardLayout = if (drawForwardHeader) {
+            val fwdText = FORWARD_TEXT
+            StaticLayout.Builder.obtain(fwdText, 0, fwdText.length, FORWARD_PAINT, textWidth.coerceAtLeast(1))
+                .setMaxLines(1)
+                .build()
+        } else null
+
+        editedLayout = null
+
+        val timeStr = timeText
+        timeLayout = if (isCombined) null else {
+            StaticLayout.Builder.obtain(timeStr, 0, timeStr.length, currentTimePaint, textWidth.coerceAtLeast(1))
+                .setMaxLines(1)
+                .build()
+        }
+
+        pollParsed = if (msg.isPollMessage) parsePollContent(msg.content) else null
+        shareContactParsed = if (!hasCallLogCard && !msg.isPollMessage &&
+            isShareContactMessage(msg.code, msg.content)
+        ) {
+            parseShareContactData(msg.content)
+        } else {
+            null
+        }
+        hasShareContactCard = shareContactParsed != null
+        if (hasShareContactCard) {
+            val scData = shareContactParsed!!
+            val isOnline = shareContactOnlineResolver?.invoke(scData.userId) == true
+            shareContactLayout.prepare(scData, theme, bubbleMaxW, isOnline)
+        } else {
+            shareContactLayout.clear()
+        }
+        locationParsed = if (!hasCallLogCard && !hasShareContactCard && isLocationMessage(msg.code, msg.content)) {
+            parseLocationMessageData(msg.content)
+        } else {
+            null
+        }
+        hasLocationCard = locationParsed != null
+        if (hasLocationCard) {
+            val locData = locationParsed!!
+            val title = if (msg.isMe) {
+                context.getString(R.string.location_card_your_location)
+            } else {
+                context.getString(R.string.location_card_location_of, msg.senderName.ifBlank { msg.senderUsername })
+            }
+            locationCardLayout.prepare(locData, msg.senderId, msg.senderUsername, msg.senderAvatar, title, theme, bubbleMaxW)
+        } else {
+            locationCardLayout.clear()
+        }
+        val hasEmbedPayload = !hasCallLogCard && !hasShareContactCard && isEmbedOrComponentsPayload(msg.content)
+        contentLayout = buildContentLayout(msg, textWidth)
 
         reserveSenderRoleIcon = false
         cachedSenderNameW = 0f
@@ -1736,15 +1758,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 .build()
         } else null
 
-        val hasCodeFence = contentLayout?.text?.let { cs ->
-            cs is android.text.Spanned && cs.getSpans(0, cs.length, com.mezon.mobile.home.chat.CodeFenceSpan::class.java).isNotEmpty()
-        } == true
-
-        cachedContentW = when {
-            hasCallLogCard -> textWidth.toFloat()
-            hasCodeFence -> textWidth.toFloat()
-            else -> contentLayout?.let { maxLineWidth(it) } ?: 0f
-        }
         cachedSenderW = if (senderLayout != null) {
             val nw = maxLineWidth(senderLayout!!)
             cachedSenderNameW = nw
@@ -1774,6 +1787,22 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             pollLayoutHelper.prepare(forLayout, st, currentUserId, theme, bubbleMaxW, this)
         }
 
+        buildTopicButton(msg, width)
+        updateBubbleGeometry(msg, width)
+    }
+
+    private fun updateBubbleGeometry(msg: MessageEntity, width: Int) {
+        val bubbleMaxW = maxBubbleWidth(width)
+        val textWidth = if (drawPhotoImage) photoWidth else bubbleMaxW
+        val hasCodeFence = contentLayout?.text?.let { cs ->
+            cs is android.text.Spanned && cs.getSpans(0, cs.length, com.mezon.mobile.home.chat.CodeFenceSpan::class.java).isNotEmpty()
+        } == true
+
+        cachedContentW = when {
+            hasCallLogCard -> textWidth.toFloat()
+            hasCodeFence -> textWidth.toFloat()
+            else -> contentLayout?.let { maxLineWidth(it) } ?: 0f
+        }
         val replyW = if (hasReply) cachedReplyNameW + cachedReplyTextW + REPLY_AVATAR_SIZE + REPLY_H_GAP * 2 else 0f
         val ogpW = if (ogpData != null) maxOf(cachedOgpTitleW, cachedOgpDescW, ogpImageW.toFloat()) + OGP_ACCENT_W + OGP_PADDING * 2 else 0f
         val fileW = if (drawFileAttachment) fileRowWidth.toFloat() else 0f
@@ -1823,7 +1852,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             hasEphemeralDecor = false
         }
 
-        buildTopicButton(msg, width)
+        if (topicButtonLayout.visible && width > 0) {
+            topicButtonLayout.layout(messageContentLeft().toFloat(), yOffsetBeforeTopicButton(msg), width)
+        }
         measuredCellHeight = computeHeight(msg)
         updatedContent = true
         syncPollHitRect()
@@ -2608,7 +2639,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         fun didClickFile(cell: ChatMessageCell, msg: MessageEntity) {}
         fun didTapAudio(cell: ChatMessageCell, msg: MessageEntity) {}
         fun didClickMention(cell: ChatMessageCell, userId: String?, roleId: String?) {}
-        fun didClickHashtag(cell: ChatMessageCell, channelId: String?) {}
+        fun didClickHashtag(cell: ChatMessageCell, channelId: String?, clanId: String?) {}
         fun didLongPress(cell: ChatMessageCell, msg: MessageEntity) {}
         fun didClickAvatar(cell: ChatMessageCell, msg: MessageEntity) {}
         fun didPressReply(cell: ChatMessageCell, replyMessageId: Long) {}
@@ -3156,8 +3187,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         delegate?.didClickMention(this, userId, roleId)
     }
 
-    fun onHashtagClicked(channelId: String?) {
-        delegate?.didClickHashtag(this, channelId)
+    fun onHashtagClicked(channelId: String?, clanId: String? = null) {
+        delegate?.didClickHashtag(this, channelId, clanId)
     }
 
     fun onLinkClicked(url: String) {
