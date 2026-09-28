@@ -169,14 +169,23 @@ class ChannelPermissionController @Inject constructor(
                     clanId,
                     channelId,
                     if (isPrivate) 0 else 1,
-                    listOfNotNull(userController.userId.takeIf { it != 0L }),
+                    listOfNotNull(
+                        channelController.findChannelById(channelId, clanId)?.creatorId
+                            ?.takeIf { channelType == CHANNEL_TYPE_VOICE && it != 0L }
+                            ?: userController.userId.takeIf { it != 0L },
+                    ),
                     emptyList(),
                 )
             }
             channelController.findChannelById(channelId, clanId)?.let { existing ->
                 channelController.upsertChannel(existing.copy(isPrivate = isPrivate))
             }
-            channelController.loadChannelsForClan(clanId, force = true)
+            if (channelType == CHANNEL_TYPE_VOICE) {
+                if (!isPrivate) clearVoiceChannelRoles(clanId, channelId)
+                channelController.refreshChannelAccess(clanId)
+            } else {
+                channelController.loadChannelsForClan(clanId, force = true)
+            }
             loadChannelPermissionData(clanId, channelId, channelType, force = true)
             notificationCenter.postNotificationOnMainThread(NotificationCenter.channelPermissionsDidLoad, channelId)
             Result.success(Unit)
@@ -209,6 +218,9 @@ class ChannelPermissionController @Inject constructor(
                     api.removeChannelUsers(session.apiUrl, session.token, channelId, listOf(userId))
                 }
                 userClanController.removeDirectChannelMembers(channelId, listOf(userId))
+                if (channelType == CHANNEL_TYPE_VOICE && userId != 0L && userId == userController.userId) {
+                    channelController.removeChannelAccess(clanId, channelId, channelType)
+                }
                 userClanController.loadDirectChannelMembers(clanId, channelId, noCache = true)
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.channelPermissionsDidLoad, channelId)
                 Result.success(Unit)
@@ -241,6 +253,9 @@ class ChannelPermissionController @Inject constructor(
                     api.deleteRoleChannelDesc(session.apiUrl, session.token, clanId, channelId, role.roleId, role.title)
                 }
                 roleController.removeChannelFromRole(clanId, channelId, role.roleId)
+                if (channelController.findChannelById(channelId, clanId)?.type == CHANNEL_TYPE_VOICE) {
+                    channelController.refreshChannelAccess(clanId)
+                }
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.channelPermissionsDidLoad, channelId)
                 Result.success(Unit)
             } catch (e: Exception) {
@@ -383,6 +398,13 @@ class ChannelPermissionController @Inject constructor(
 
     private fun observeRealtimeEvents() {
         appScope.launch {
+            socketEventDispatcher.channelUpdatedEvents.collect { event ->
+                if (event.channelType == CHANNEL_TYPE_VOICE && !event.channelPrivate) {
+                    clearVoiceChannelRoles(event.clanId, event.channelId)
+                }
+            }
+        }
+        appScope.launch {
             socketEventDispatcher.userChannelAddedEvents.collect { event ->
                 val channelId = event.channelDesc.channelId
                 val clanId = event.clanId.takeIf { it != 0L } ?: event.channelDesc.clanId
@@ -405,6 +427,9 @@ class ChannelPermissionController @Inject constructor(
                 val channelId = event.channelId
                 if (channelId == 0L) return@collect
                 userClanController.removeDirectChannelMembers(channelId, event.userIdsList)
+                if (event.clanId != 0L && event.channelType == CHANNEL_TYPE_VOICE) {
+                    roleController.loadRolesForClan(event.clanId, force = true)
+                }
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.channelPermissionsDidLoad, channelId)
             }
         }
@@ -446,6 +471,12 @@ class ChannelPermissionController @Inject constructor(
                 )
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.channelPermissionsDidLoad, event.channelId)
             }
+        }
+    }
+
+    private fun clearVoiceChannelRoles(clanId: Long, channelId: Long) {
+        getChannelRoles(clanId, channelId).forEach { role ->
+            roleController.removeChannelFromRole(clanId, channelId, role.roleId)
         }
     }
 }

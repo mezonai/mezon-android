@@ -48,7 +48,7 @@ class ChannelItemCell(
             isPrivate: Boolean,
             isAgeRestricted: Boolean = false
         ): MezonIcon = when (type) {
-            CHANNEL_TYPE_VOICE -> MezonIcon.channelVoice
+            CHANNEL_TYPE_VOICE -> if (isPrivate) MezonIcon.channelVoiceLock else MezonIcon.channelVoice
             CHANNEL_TYPE_STREAMING -> MezonIcon.channelStream
             CHANNEL_TYPE_APP -> MezonIcon.channelApp
             CHANNEL_TYPE_FORUM -> MezonIcon.forumIcon

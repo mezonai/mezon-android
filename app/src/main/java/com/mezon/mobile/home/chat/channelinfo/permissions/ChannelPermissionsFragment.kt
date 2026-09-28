@@ -25,6 +25,7 @@ import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.clans.CHANNEL_PERMISSION_TARGET_MEMBER
 import com.mezon.mobile.home.clans.CHANNEL_PERMISSION_TARGET_ROLE
+import com.mezon.mobile.home.clans.CHANNEL_TYPE_VOICE
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.ChannelPermissionController
 import com.mezon.mobile.home.clans.ClanRole
@@ -84,6 +85,7 @@ class ChannelPermissionsFragment : BaseFragment() {
     private var channelType = 0
     private var routePrivate = false
     private var activeTab = TAB_BASIC
+    private var updatingPrivate = false
     private lateinit var permissionController: ChannelPermissionController
     private lateinit var channelController: ChannelController
     private lateinit var userClanController: UserClanController
@@ -152,7 +154,10 @@ class ChannelPermissionsFragment : BaseFragment() {
             orientation = LinearLayout.VERTICAL
             setPadding(LayoutHelper.dp(12f), 0, LayoutHelper.dp(12f), 0)
         }
-        inner.addView(buildTabs(context), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 44, 0f, Gravity.NO_GRAVITY, 0f, 4f, 0f, 10f))
+
+        if (channelType != CHANNEL_TYPE_VOICE) {
+            inner.addView(buildTabs(context), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 44, 0f, Gravity.NO_GRAVITY, 0f, 4f, 0f, 10f))
+        }
         contentFrame = FrameLayout(context)
         inner.addView(contentFrame, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
         root.addView(inner, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
@@ -218,6 +223,7 @@ class ChannelPermissionsFragment : BaseFragment() {
     private fun buildBasicView(context: Context): View {
         val rows = ArrayList<PermissionRow>()
         rows.add(PermissionRow.PrivateChannel)
+        if (channelType == CHANNEL_TYPE_VOICE && !isChannelPrivate()) return buildRowsRecycler(context, rows)
         if (isChannelPrivate()) {
             rows.add(PermissionRow.AddMembers)
         }
@@ -265,6 +271,7 @@ class ChannelPermissionsFragment : BaseFragment() {
         )
         row.addView(copy, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL, 0f, 0f, 12f, 0f))
         val sw = SwitchView(context, themeColors).apply {
+            isEnabled = !updatingPrivate
             setChecked(isChannelPrivate(), animated = false)
             onCheckedChange = { next -> updatePrivateState(next, this) }
         }
@@ -409,7 +416,8 @@ class ChannelPermissionsFragment : BaseFragment() {
         if (advanced) {
             row.addView(chevron(context), LayoutHelper.createLinear(16, 16, 0f, Gravity.CENTER_VERTICAL))
         } else {
-            val canDelete = member.userId != ownerUserId() && member.userId != userController.userId
+            val canDelete = member.userId != ownerUserId() &&
+                (channelType == CHANNEL_TYPE_VOICE || member.userId != userController.userId)
             row.addView(
                 deleteIcon(context) { if (canDelete) removeMember(member) }.apply { alpha = if (canDelete) 1f else 0.35f },
                 LayoutHelper.createLinear(24, 24, 0f, Gravity.CENTER_VERTICAL)
@@ -534,17 +542,25 @@ class ChannelPermissionsFragment : BaseFragment() {
     }
 
     private fun updatePrivateState(next: Boolean, switchView: SwitchView) {
+        if (updatingPrivate) {
+            switchView.setChecked(isChannelPrivate(), animated = false)
+            return
+        }
+        updatingPrivate = true
+        switchView.isEnabled = false
         fragmentScope.launch {
             val result = permissionController.updateChannelPrivate(clanId, channelId, channelType, next)
             withContext(Dispatchers.Main.immediate) {
+                updatingPrivate = false
+                switchView.isEnabled = true
                 if (result.isSuccess) {
                     routePrivate = next
                     MezonToast.show(this@ChannelPermissionsFragment, ToastOverlay.ToastType.SUCCESS, getString(R.string.channel_permissions_toast_success))
-                    renderCurrentTab()
                 } else {
                     switchView.setChecked(!next, animated = true)
                     MezonToast.show(this@ChannelPermissionsFragment, ToastOverlay.ToastType.ERROR, getString(R.string.channel_permissions_toast_failed))
                 }
+                renderCurrentTab()
             }
         }
     }
@@ -604,6 +620,10 @@ class ChannelPermissionsFragment : BaseFragment() {
             withContext(Dispatchers.Main.immediate) {
                 if (result.isSuccess) {
                     MezonToast.show(this@ChannelPermissionsFragment, ToastOverlay.ToastType.SUCCESS, getString(R.string.channel_permissions_toast_success))
+                    if (channelType == CHANNEL_TYPE_VOICE && member.userId == userController.userId) {
+                        finishFragment()
+                        return@withContext
+                    }
                 } else {
                     MezonToast.show(this@ChannelPermissionsFragment, ToastOverlay.ToastType.ERROR, getString(R.string.channel_permissions_toast_failed))
                 }
@@ -615,8 +635,11 @@ class ChannelPermissionsFragment : BaseFragment() {
     private fun isChannelPrivate(): Boolean =
         channelController.findChannelById(channelId, clanId)?.isPrivate ?: routePrivate
 
-    private fun ownerUserId(): Long =
+    private fun ownerUserId(): Long = if (channelType == CHANNEL_TYPE_VOICE) {
+        channelController.findChannelById(channelId, clanId)?.creatorId ?: 0L
+    } else {
         clansController.clans.value.firstOrNull { it.clanId == clanId }?.creatorId ?: 0L
+    }
 
     private fun ownerMember(): ClanMember? {
         val ownerId = ownerUserId()
