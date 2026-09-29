@@ -1740,4 +1740,8 @@
     <string name="voice_channel_ongoing_title">Kênh thoại</string>
     <string name="voice_channel_ongoing_text">Đang kết nối tới %1$s</string>
     <string name="voice_channel_ongoing_text_generic">Đang kết nối tới một kênh thoại</string>
+    <string name="voice_room_connection_failed_title">Không thể kết nối thoại</string>
+    <string name="voice_room_connection_failed_message">Không thể khôi phục kết nối thoại. Hãy kiểm tra kết nối và thử tham gia lại.</string>
+    <string name="voice_room_connection_exit">Thoát</string>
+    <string name="voice_room_connection_rejoin">Tham gia lại</string>
 </resources>

@@ -5,7 +5,6 @@ import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.home.clans.CHANNEL_MUTE_ACTIVE_INFINITY
 import com.mezon.mobile.home.clans.SET_MUTE_ACTIVE_UNMUTE
 import com.mezon.mobile.util.SentryReporter
-import android.net.Uri
 import android.util.Base64
 import com.mezon.mezon.api.Account
 import com.mezon.mezon.api.AllUsersAddChannelResponse
@@ -444,15 +443,6 @@ class MezonApi @Inject constructor(
         socketDegradedUntilMs.set(0L)
     }
 
-    private fun logRpcRequest(method: String, url: String) {
-        if (!BuildConfig.DEBUG) return
-        // Avoid a single https://… token — Logcat URL scrubbing replaces it with asterisks.
-        val path = "mezon.api.Mezon/$method"
-        val uri = runCatching { Uri.parse(url) }.getOrNull()
-        val host = uri?.host?.replace('.', '|') ?: "?"
-        Log.d("MezonApi", "rpc method=$method path=$path host=$host")
-    }
-
     private fun logRpcHttpError(method: String, response: HttpResponse, requestByteSize: Int, errorBody: String) {
         val meta = StringBuilder()
         val keys = arrayOf(
@@ -683,12 +673,6 @@ class MezonApi @Inject constructor(
         val started = System.currentTimeMillis()
         try {
             val resp = socket.sendApiRequest(apiName = method, body = body)
-            if (BuildConfig.DEBUG) {
-                Log.d(
-                    "MezonApi",
-                    "SOCKET ok method=$method respBytes=${resp.size} elapsedMs=${System.currentTimeMillis() - started}"
-                )
-            }
             markSocketHealthy()
             return resp
         } catch (e: Exception) {
@@ -757,8 +741,6 @@ class MezonApi @Inject constructor(
     ): ByteArray {
         val base = apiUrl.trimEnd('/')
         val url = "$base/mezon.api.Mezon/$method"
-        logRpcRequest(method, url)
-        val started = System.currentTimeMillis()
         val response = httpClient.post(url) {
             header(HttpHeaders.Authorization, "Bearer $token")
             header(HttpHeaders.Accept, CONTENT_TYPE_PROTO.toString())
@@ -783,12 +765,6 @@ class MezonApi @Inject constructor(
         }
 
         val bytes = response.readBytes()
-        if (BuildConfig.DEBUG) {
-            Log.d(
-                "MezonApi",
-                "HTTP ok method=$method status=${response.status.value} bytes=${bytes.size} elapsedMs=${System.currentTimeMillis() - started}"
-            )
-        }
         return bytes
     }
 
@@ -834,7 +810,6 @@ class MezonApi @Inject constructor(
     ): ByteArray {
         val base = apiUrl.trimEnd('/')
         val url = "$base/mezon.api.Mezon/$method"
-        logRpcRequest(method, url)
         val response = httpClient.post(url) {
             header(HttpHeaders.Accept, CONTENT_TYPE_PROTO.toString())
             contentType(CONTENT_TYPE_PROTO)

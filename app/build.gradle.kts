@@ -39,8 +39,8 @@ android {
         applicationId = "com.mezon.mobile"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1171
-        versionName = "1.2.4"
+        versionCode = 1194
+        versionName = "1.2.10"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -96,6 +96,8 @@ android {
         buildBool("MEZON_API_SECURE")
         buildIntOpt("MEZON_TCP_PORT", 443)
         buildBoolOpt("MEZON_ABRIDGED_FALLBACK", true)
+        buildBoolOpt("MEZON_ENDPOINT_FAILOVER", true)
+        buildBoolOpt("MEZON_ENDPOINT_FAILOVER_SLOW", false)
         buildStr("MEZON_API_KEY")
         buildStr("MEZON_API_CLIENT_KEY_CUSTOM")
         buildStr("MEZON_DOMAIN_URL")
@@ -127,6 +129,10 @@ android {
         buildStr("MEZON_LOGO_URL")
         buildStr("MEZON_IMGPROXY_BASE_URL")
         buildStr("MEZON_IMGPROXY_KEY")
+        buildStrOpt("MEZON_STATIC_MAP_URL_TEMPLATE", "")
+        buildStrOpt("MEZON_STATIC_MAP_URL_TEMPLATE_DARK", "")
+        buildStrOpt("MEZON_MAP_TILE_URL_TEMPLATE", "")
+        buildStrOpt("MEZON_MAP_TILE_URL_TEMPLATE_DARK", "")
         buildStr("KLIPY_API_URL")
         buildStr("KLIPY_API_KEY")
         buildStr("MEZON_SENTRY_DSN")
@@ -136,6 +142,7 @@ android {
         buildStr("MEZON_TREASURY_URL_NETWORK")
         buildStr("MEZON_CONTRACT_ADDRESS")
         buildStr("MEZON_ANONYMOUS_USER_ID")
+        buildStrOpt("MEZON_VOICE_AGENT_ID", "2037383744142184448")
         buildInt("MEZON_MAX_LENGTH_NAME_ALLOWED")
         buildStr("MEZON_MMN_API_URL")
         buildStr("MEZON_DONG_API_URL")

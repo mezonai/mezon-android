@@ -1,11 +1,13 @@
 package com.mezon.mobile.home.voice
 
 import android.content.Context
+import android.content.res.ColorStateList
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
+import com.mezon.mobile.R
 import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
@@ -27,7 +29,7 @@ class VoiceHeaderView(
         private val BUTTON_SIZE = LayoutHelper.dp(40)
         private val BUTTON_RADIUS = LayoutHelper.dp(40).toFloat()
         private val ICON_SIZE = LayoutHelper.dp(20)
-        private val LEFT_GAP = LayoutHelper.dp(20)
+        private val LEFT_GAP = LayoutHelper.dp(12)
         private val RIGHT_GAP = LayoutHelper.dp(10)
         private val H_PADDING = LayoutHelper.dp(10)
     }
@@ -38,6 +40,8 @@ class VoiceHeaderView(
     var onAudioOutputClick: ((View) -> Unit)? = null
     var onMoreClick: ((View) -> Unit)? = null
 
+    private val connectionStatusText: TextView
+    private val connectionStatusRow: LinearLayout
     private val channelNameText: TextView
     private val agentBtn: FrameLayout
     private val agentIconView: ImageView
@@ -55,8 +59,17 @@ class VoiceHeaderView(
     private var reconnecting: Boolean = false
     private var agentActive: Boolean = false
 
+    // Connection state must never resize the header or move the participant grid.
+    val preferredHeightDp: Float = 56f
+
     init {
         setPadding(H_PADDING, 0, H_PADDING, 0)
+
+        val mainRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        addView(mainRow, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
 
         val leftContainer = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -79,13 +92,44 @@ class VoiceHeaderView(
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
         }
-        val nameLP = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-            marginStart = LEFT_GAP
-        }
-        leftContainer.addView(channelNameText, nameLP)
+        val titleContainer = FrameLayout(context)
+        titleContainer.addView(channelNameText, LayoutParams(LayoutParams.MATCH_PARENT,
+            LayoutParams.WRAP_CONTENT, Gravity.CENTER_VERTICAL))
 
-        addView(leftContainer, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT, Gravity.START or Gravity.CENTER_VERTICAL).apply {
-            rightMargin = LayoutHelper.dp(10) + (BUTTON_SIZE + RIGHT_GAP) * 4
+        connectionStatusRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            visibility = View.INVISIBLE
+            alpha = 0f
+        }
+        val connectionProgress = ProgressBar(context, null, android.R.attr.progressBarStyleSmall).apply {
+            isIndeterminate = true
+            indeterminateTintList = ColorStateList.valueOf(themeColors.blurple)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        connectionStatusRow.addView(connectionProgress, LinearLayout.LayoutParams(
+            LayoutHelper.dp(10), LayoutHelper.dp(10)).apply { marginEnd = LayoutHelper.dp(4) })
+        connectionStatusText = TextView(context).apply {
+            text = context.getString(R.string.connection_connecting)
+            textSize = 12f
+            setTextColor(themeColors.colorText)
+            alpha = 0.7f
+            includeFontPadding = false
+            setSingleLine(true)
+            ellipsize = TextUtils.TruncateAt.END
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+        }
+        connectionStatusRow.addView(connectionStatusText,
+            LinearLayout.LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
+        titleContainer.addView(connectionStatusRow, LayoutParams(LayoutParams.MATCH_PARENT,
+            LayoutParams.WRAP_CONTENT, Gravity.BOTTOM).apply { bottomMargin = LayoutHelper.dp(6) })
+        leftContainer.addView(titleContainer, LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f).apply {
+            marginStart = LEFT_GAP
+        })
+
+        // Measure only visible action buttons; the room name takes the remaining width.
+        mainRow.addView(leftContainer, LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f).apply {
+            marginEnd = RIGHT_GAP
         })
 
         val rightContainer = LinearLayout(context).apply {
@@ -138,17 +182,42 @@ class VoiceHeaderView(
         }
         rightContainer.addView(moreBtn, moreLP)
 
-        addView(rightContainer, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.END or Gravity.CENTER_VERTICAL))
+        mainRow.addView(rightContainer, LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
     }
 
     fun setChannelName(name: String) {
+        if (channelName == name) return
         channelName = name
-        renderChannelTitle()
+        channelNameText.text = name
     }
 
     fun setReconnecting(value: Boolean) {
+        if (reconnecting == value) return
         reconnecting = value
-        renderChannelTitle()
+        connectionStatusRow.animate().cancel()
+        channelNameText.animate().cancel()
+        val titleOffset = if (value) -LayoutHelper.dp(8).toFloat() else 0f
+        if (!isLaidOut || !isAttachedToWindow) {
+            connectionStatusRow.visibility = if (value) View.VISIBLE else View.INVISIBLE
+            connectionStatusRow.alpha = if (value) 1f else 0f
+            channelNameText.translationY = titleOffset
+            return
+        }
+        connectionStatusRow.visibility = View.VISIBLE
+        connectionStatusRow.animate().alpha(if (value) 1f else 0f).setDuration(160L)
+            .withEndAction {
+                if (!reconnecting) connectionStatusRow.visibility = View.INVISIBLE
+            }.start()
+        channelNameText.animate().translationY(titleOffset).setDuration(160L).start()
+    }
+
+    override fun onDetachedFromWindow() {
+        connectionStatusRow.animate().cancel()
+        channelNameText.animate().cancel()
+        connectionStatusRow.visibility = if (reconnecting) View.VISIBLE else View.INVISIBLE
+        connectionStatusRow.alpha = if (reconnecting) 1f else 0f
+        channelNameText.translationY = if (reconnecting) -LayoutHelper.dp(8).toFloat() else 0f
+        super.onDetachedFromWindow()
     }
 
     fun setSwitchCameraVisible(visible: Boolean) {
@@ -227,11 +296,4 @@ class VoiceHeaderView(
         }
     }
 
-    private fun renderChannelTitle() {
-        channelNameText.text = if (reconnecting) {
-            "$channelName (Reconnecting...)"
-        } else {
-            channelName
-        }
-    }
 }
