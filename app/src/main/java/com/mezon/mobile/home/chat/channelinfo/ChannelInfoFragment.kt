@@ -608,7 +608,9 @@ class ChannelInfoFragment : BaseFragment() {
     }
 
     private fun updateSettingsActionVisibility() {
-        val visible = !isDm && permissionPolicy.canOpenChannelSettings(channelId, clanId, channelType, routeParentId)
+        val visible = !isDm && permissionPolicy.canOpenChannelSettings(
+            channelId, clanId, channelType, routeParentId, channelController.findChannelById(channelId, clanId)?.creatorId ?: 0L,
+        )
         val visibility = if (visible) View.VISIBLE else View.GONE
         settingsActionGap?.visibility = visibility
         settingsActionView?.visibility = visibility
@@ -1066,7 +1068,9 @@ class ChannelInfoFragment : BaseFragment() {
             Toast.makeText(context, R.string.feature_coming_soon, Toast.LENGTH_SHORT).show()
             return
         }
-        if (!permissionPolicy.canOpenChannelSettings(channelId, clanId, channelType, routeParentId)) {
+        if (!permissionPolicy.canOpenChannelSettings(
+                channelId, clanId, channelType, routeParentId, channelController.findChannelById(channelId, clanId)?.creatorId ?: 0L,
+            )) {
             channelPermissionController.loadChannelPermissionData(clanId, channelId, channelType, force = true)
             Toast.makeText(context, getString(R.string.channel_permissions_no_access), Toast.LENGTH_SHORT).show()
             return

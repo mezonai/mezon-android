@@ -32,17 +32,25 @@ import com.mezon.mezon.rtapi.UserChannelAdded
 import com.mezon.mezon.rtapi.UserChannelRemoved
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import java.text.Collator
 import java.util.Locale
@@ -165,11 +173,90 @@ class ChannelController @Inject constructor(
     private val badgeCoordinator: dagger.Lazy<com.mezon.mobile.home.BadgeCoordinator>,
     private val topicBadgeTracker: dagger.Lazy<com.mezon.mobile.home.TopicBadgeTracker>,
     private val channelAppController: dagger.Lazy<com.mezon.mobile.home.clans.channelapp.ChannelAppController>,
+    private val permissionPolicy: dagger.Lazy<PermissionPolicy>,
+    private val userClanController: com.mezon.mobile.home.UserClanController,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     @ApplicationScope private val appScope: CoroutineScope
 ) {
     private val _channelsByClan = MutableStateFlow<Map<Long, List<ClanChannelEntity>>>(emptyMap())
     val channelsByClan: StateFlow<Map<Long, List<ClanChannelEntity>>> = _channelsByClan.asStateFlow()
+
+    private val _channelAccessLost = MutableSharedFlow<Long>(extraBufferCapacity = 64)
+    val channelAccessLost = _channelAccessLost.asSharedFlow()
+    private val channelAccessRevisions = ConcurrentHashMap<Long, Long>()
+    private val channelAccessRefreshJobs = HashMap<Long, Job>()
+    private val channelPersistenceLocks = ConcurrentHashMap<Long, Mutex>()
+
+    /** Refresh after an ACL/role change, invalidating any older list request. */
+    @Synchronized
+    fun refreshChannelAccess(clanId: Long) {
+        if (clanId == 0L) return
+        channelAccessRevisions.merge(clanId, 1L, Long::plus)
+        scheduleChannelAccessRefresh(clanId)
+    }
+
+    @Synchronized
+    private fun scheduleChannelAccessRefresh(clanId: Long) {
+        if (channelAccessRefreshJobs.containsKey(clanId)) return
+        val job = appScope.launch(start = CoroutineStart.LAZY) {
+            try {
+                delay(150)
+                while (true) {
+                    val revision = channelAccessRevisions[clanId] ?: 0L
+                    loadChannelsForClanNow(clanId, force = true)
+                    synchronized(this@ChannelController) {
+                        if (revision == (channelAccessRevisions[clanId] ?: 0L)) {
+                            channelAccessRefreshJobs.remove(clanId)
+                            return@launch
+                        }
+                    }
+                }
+            } finally {
+                val completedJob = currentCoroutineContext()[Job]
+                synchronized(this@ChannelController) {
+                    if (channelAccessRefreshJobs[clanId] === completedJob) channelAccessRefreshJobs.remove(clanId)
+                }
+            }
+        }
+        channelAccessRefreshJobs[clanId] = job
+        job.start()
+    }
+
+    private fun notifyChannelAccessLost(channelId: Long) {
+        appScope.launch { _channelAccessLost.emit(channelId) }
+    }
+
+    @Synchronized
+    fun removeChannelAccess(clanId: Long, channelId: Long, channelType: Int) {
+        if (channelType == CHANNEL_TYPE_VOICE) {
+            channelAccessRevisions.merge(clanId, 1L, Long::plus)
+            removeVoiceAccessLocally(clanId, channelId)
+        } else {
+            removeChannelLocally(clanId, channelId, channelType)
+        }
+    }
+
+    private fun persistChannelRow(channel: ClanChannelEntity) {
+        if (channel.type != CHANNEL_TYPE_VOICE) {
+            appScope.launch(ioDispatcher) { clanChannelDao.upsert(channel) }
+            return
+        }
+        persistVoiceChannelRow(channel.clanId, channel.channelId)
+    }
+
+    private fun persistVoiceChannelRow(clanId: Long, channelId: Long) {
+        appScope.launch { writeCurrentVoiceChannel(clanId, channelId) }
+    }
+
+    private suspend fun writeCurrentVoiceChannel(clanId: Long, channelId: Long) {
+        withContext(ioDispatcher) {
+            channelPersistenceLocks.getOrPut(clanId) { Mutex() }.withLock {
+                val current = getChannels(clanId).firstOrNull { it.channelId == channelId }
+                if (current != null) clanChannelDao.upsert(current)
+                else clanChannelDao.delete(clanId, channelId)
+            }
+        }
+    }
 
     @Volatile
     private var _channelByIdSnapshot: Map<Long, List<ClanChannelEntity>>? = null
@@ -207,6 +294,11 @@ class ChannelController @Inject constructor(
         _notificationSettingTypes.value = emptyMap()
         categoriesByClan.clear()
         channelAvatarByKey.clear()
+        channelAccessRevisions.clear()
+        synchronized(this) {
+            channelAccessRefreshJobs.values.toList().forEach { it.cancel() }
+            channelAccessRefreshJobs.clear()
+        }
     }
 
     fun getChannelAvatar(clanId: Long, channelId: Long): String =
@@ -241,6 +333,8 @@ class ChannelController @Inject constructor(
 
     fun purgeClanChannelsCache(clanId: Long) {
         if (clanId == 0L) return
+        getChannels(clanId).filter { it.type == CHANNEL_TYPE_VOICE }
+            .forEach { notifyChannelAccessLost(it.channelId) }
         clearSdTopicsForClan(clanId)
         val m = _channelsByClan.value.toMutableMap()
         m.remove(clanId)
@@ -259,7 +353,7 @@ class ChannelController @Inject constructor(
     internal suspend fun loadChannelsForClanNow(clanId: Long, force: Boolean = false) {
         val cacheKey = apiCacheKey("listChannelsByClan", clanId.toString())
         val inMemory = _channelsByClan.value[clanId]
-        if (!inMemory.isNullOrEmpty()) {
+        if (inMemory != null) {
             if (favoritesByClan[clanId] == null) {
                 val cachedFavs = withContext(ioDispatcher) { favoriteChannelDao.getByClan(clanId) }
                 favoritesByClan[clanId] = LinkedHashSet(cachedFavs)
@@ -299,6 +393,7 @@ class ChannelController @Inject constructor(
             return
         }
         channelListLoading[clanId] = true
+        val accessRevision = channelAccessRevisions[clanId] ?: 0L
         try {
             val entitiesList = sessionManager.withAutoRefresh { session ->
                 val (result, categoryListResult) = coroutineScope {
@@ -363,7 +458,10 @@ class ChannelController @Inject constructor(
                         )
                     )
                 }
-                mergeCache(clanId, entities)
+                synchronized(this@ChannelController) {
+                    if (accessRevision != (channelAccessRevisions[clanId] ?: 0L)) return@withAutoRefresh emptyList()
+                    mergeCache(clanId, entities)
+                }
                 categoryListResult.onSuccess { categoryList ->
                     val fromApi = categoryList.categorydescList.mapNotNull { desc ->
                         normalizeCategoryItem(desc.toClanCategoryItem(), clanId)
@@ -391,22 +489,29 @@ class ChannelController @Inject constructor(
                 }
                 entities
             }
+            if (accessRevision != (channelAccessRevisions[clanId] ?: 0L)) return
             cacheTracker.markCalled(cacheKey, ttlMs = ApiCacheTracker.LIST_CACHE_TTL_MS)
-            val merged = _channelsByClan.value[clanId] ?: entitiesList
             withContext(ioDispatcher) {
-                if (merged.isEmpty()) {
-                    clanChannelDao.deleteByClan(clanId)
-                } else {
-                    clanChannelDao.deleteMissing(clanId, merged.map { it.channelId })
-                    clanChannelDao.upsertAll(merged)
+                channelPersistenceLocks.getOrPut(clanId) { Mutex() }.withLock {
+                    val merged = _channelsByClan.value[clanId] ?: entitiesList
+                    if (merged.isEmpty()) {
+                        clanChannelDao.deleteByClan(clanId)
+                    } else {
+                        clanChannelDao.deleteMissing(clanId, merged.map { it.channelId })
+                        clanChannelDao.upsertAll(merged)
+                    }
                 }
             }
             notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
         } finally {
             if (!force) channelListNetworkFetchInflight.remove(clanId)
             channelListLoading.remove(clanId)
             badgeCoordinator.get().processDeferredQueue()
+            if (currentCoroutineContext().isActive && accessRevision != (channelAccessRevisions[clanId] ?: 0L)) {
+                scheduleChannelAccessRefresh(clanId)
+            }
         }
     }
 
@@ -452,7 +557,7 @@ class ChannelController @Inject constructor(
         val existing = _channelsByClan.value[clanId] ?: emptyList()
         val merged = sortChannels(existing.filter { it.channelId != channel.channelId } + channel)
         updateCache(clanId, merged)
-        appScope.launch(ioDispatcher) { clanChannelDao.upsert(channel) }
+        persistChannelRow(channel)
         notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
     }
 
@@ -702,6 +807,7 @@ class ChannelController @Inject constructor(
             withContext(ioDispatcher) {
                 api.deleteChannelDesc(session.apiUrl, session.token, clanId, channelId)
             }
+            if (channelType == CHANNEL_TYPE_VOICE) channelAccessRevisions.merge(clanId, 1L, Long::plus)
             removeChannelLocally(clanId, channelId, channelType)
         }
     }
@@ -715,17 +821,39 @@ class ChannelController @Inject constructor(
         }
     }
 
-    private fun removeChannelLocally(clanId: Long, channelId: Long, channelType: Int) {
+    private fun removeVoiceAccessLocally(clanId: Long, channelId: Long) {
+        notifyChannelAccessLost(channelId)
         val existing = _channelsByClan.value[clanId] ?: emptyList()
         updateCache(clanId, existing.filter { it.channelId != channelId })
         favoritesByClan[clanId]?.remove(channelId)
         channelAppController.get().removeAppLocally(clanId, channelId)
+        persistVoiceChannelRow(clanId, channelId)
+        appScope.launch(ioDispatcher) { favoriteChannelDao.delete(clanId, channelId) }
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.voiceChannelAccessLost, channelId, clanId)
+        if (channelId == currentOpenChannelId) {
+            currentOpenChannelId = 0L
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.closeChats, channelId, CHANNEL_TYPE_VOICE)
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.navigateToClansTab)
+        }
+    }
+
+    private fun removeChannelLocally(clanId: Long, channelId: Long, channelType: Int) {
+        if (channelType == CHANNEL_TYPE_VOICE) notifyChannelAccessLost(channelId)
+        val existing = _channelsByClan.value[clanId] ?: emptyList()
+        updateCache(clanId, existing.filter { it.channelId != channelId })
+        favoritesByClan[clanId]?.remove(channelId)
+        channelAppController.get().removeAppLocally(clanId, channelId)
+        if (channelType == CHANNEL_TYPE_VOICE) persistVoiceChannelRow(clanId, channelId)
         appScope.launch(ioDispatcher) {
-            clanChannelDao.delete(clanId, channelId)
+            if (channelType != CHANNEL_TYPE_VOICE) clanChannelDao.delete(clanId, channelId)
             favoriteChannelDao.delete(clanId, channelId)
             messageDao.deleteByChannel(channelId)
         }
         notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
+        if (channelType == CHANNEL_TYPE_VOICE) {
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.voiceChannelAccessLost, channelId, clanId)
+        }
         if (channelId == currentOpenChannelId) {
             currentOpenChannelId = 0L
             notificationCenter.postNotificationOnMainThread(NotificationCenter.closeChats, channelId, channelType)
@@ -785,7 +913,7 @@ class ChannelController @Inject constructor(
             ageRestricted = event.ageRestricted,
         )
         updateCache(clanId, sortChannels(existing.filter { it.channelId != channelId } + restored))
-        appScope.launch(ioDispatcher) { clanChannelDao.upsert(restored) }
+        persistChannelRow(restored)
         notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
     }
 
@@ -796,7 +924,7 @@ class ChannelController @Inject constructor(
         }
 
         val fromDb = withContext(ioDispatcher) { clanChannelDao.getByChannelId(channelId) }
-        if (fromDb != null) {
+        if (fromDb != null && fromDb.type != CHANNEL_TYPE_VOICE) {
             val existing = _channelsByClan.value[fromDb.clanId] ?: emptyList()
             updateCache(fromDb.clanId, sortChannels(existing.filter { it.channelId != fromDb.channelId } + fromDb))
             if (fromDb.channelLabel.isNotBlank()) {
@@ -805,14 +933,17 @@ class ChannelController @Inject constructor(
         }
 
         if (clanId != 0L) {
+            val accessRevision = channelAccessRevisions[clanId] ?: 0L
             val result = runCatching {
                 sessionManager.withAutoRefresh { session ->
                     withContext(ioDispatcher) { api.listChannelsByClan(session.apiUrl, session.token, clanId) }
                 }
             }.getOrNull()
-            if (result == null) {
+            if (result == null || result.channeldescList.isEmpty()) {
                 return findChannelById(channelId)?.channelLabel.orEmpty()
             }
+            val fetchedLabel = result.channeldescList.firstOrNull { it.channelId == channelId }
+                ?.channelLabel?.takeIf { it.isNotBlank() }
             val cachedOrderByCategory = _channelsByClan.value[clanId]
                 ?.asSequence()
                 ?.filter { it.categoryOrder != 0 }
@@ -827,8 +958,23 @@ class ChannelController @Inject constructor(
                     ch.toClanChannelEntity().copy(categoryOrder = cachedOrderByCategory[ch.categoryId] ?: 0)
                 )
             }
-            updateCache(clanId, sortChannels(entities))
-            withContext(ioDispatcher) { clanChannelDao.upsertAll(entities) }
+            synchronized(this) {
+                if (accessRevision != (channelAccessRevisions[clanId] ?: 0L)) {
+                    return findChannelById(channelId)?.channelLabel.orEmpty()
+                }
+              
+                val fetchedIds = entities.mapTo(HashSet()) { it.channelId }
+                val cachedVoice = getChannels(clanId).filter {
+                    it.type == CHANNEL_TYPE_VOICE && it.channelId !in fetchedIds
+                }
+                updateCache(clanId, sortChannels(entities + cachedVoice))
+            }
+            withContext(ioDispatcher) {
+                channelPersistenceLocks.getOrPut(clanId) { Mutex() }.withLock {
+                    clanChannelDao.upsertAll(getChannels(clanId))
+                }
+            }
+            return fetchedLabel ?: findChannelById(channelId)?.channelLabel.orEmpty()
         }
         return findChannelById(channelId)?.channelLabel.orEmpty()
     }
@@ -1031,14 +1177,15 @@ class ChannelController @Inject constructor(
         updateCache(clanId, updated)
         val entity = updated.firstOrNull { it.channelId == channelId } ?: return
         if (persistAsync) {
-            appScope.launch(ioDispatcher) { clanChannelDao.upsert(entity) }
+            persistChannelRow(entity)
         }
         notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
     }
 
     private suspend fun persistChannelMute(clanId: Long, channelId: Long) {
         val entity = findChannelById(channelId, clanId) ?: return
-        withContext(ioDispatcher) { clanChannelDao.upsert(entity) }
+        if (entity.type == CHANNEL_TYPE_VOICE) writeCurrentVoiceChannel(clanId, channelId)
+        else withContext(ioDispatcher) { clanChannelDao.upsert(entity) }
     }
 
     private fun patchChannelNotificationType(channelId: Long, notificationType: Int) {
@@ -1257,7 +1404,7 @@ class ChannelController @Inject constructor(
                     },
                     channelLabel = apiNorm.channelLabel.ifBlank { cached.channelLabel },
                     categoryName = apiNorm.categoryName.ifBlank { cached.categoryName },
-                    topic = apiNorm.topic.ifBlank { cached.topic },
+                    topic = if (apiNorm.type == CHANNEL_TYPE_VOICE) apiNorm.topic else apiNorm.topic.ifBlank { cached.topic },
                     type = if (apiNorm.type != 0) apiNorm.type else cached.type,
                     parentId = if (apiNorm.parentId != 0L) apiNorm.parentId else cached.parentId,
                     categoryId = if (apiNorm.categoryId != 0L) apiNorm.categoryId else cached.categoryId,
@@ -1275,6 +1422,8 @@ class ChannelController @Inject constructor(
         }
         val mergedIds = HashSet<Long>(merged.size)
         for (ch in merged) mergedIds.add(ch.channelId)
+        existing.filter { it.channelId !in mergedIds && it.type == CHANNEL_TYPE_VOICE }
+            .forEach { removeVoiceAccessLocally(clanId, it.channelId) }
         val openId = currentOpenChannelId
         val preservedOpen = if (openId != 0L && openId !in mergedIds) {
             existing.filter { it.channelId == openId }.map { ch ->
@@ -1407,15 +1556,17 @@ class ChannelController @Inject constructor(
     private fun isDirectChannelType(type: Int): Boolean =
         type == CHANNEL_TYPE_DM || type == CHANNEL_TYPE_GROUP
 
+    @Synchronized
     private fun applyUserChannelAdded(event: UserChannelAdded, currentUserId: Long) {
         if (!event.hasChannelDesc()) return
         val desc = event.channelDesc
         if (isDirectChannelType(desc.type)) return
-        if (event.usersList.none { it.userId == currentUserId }) {
+        if (currentUserId == 0L || event.usersList.none { it.userId == currentUserId }) {
             return
         }
         val clanId = event.clanId.takeIf { it != 0L } ?: desc.clanId
         if (clanId == 0L || desc.channelId == 0L) return
+        if (desc.type == CHANNEL_TYPE_VOICE) channelAccessRevisions.merge(clanId, 1L, Long::plus)
         cacheChannelAvatar(clanId, desc)
         val active = event.active.takeIf { it != 0 } ?: desc.active.takeIf { it != 0 } ?: 1
         val incoming = desc.toClanChannelEntity().copy(clanId = clanId, active = active)
@@ -1433,31 +1584,39 @@ class ChannelController @Inject constructor(
             incoming
         }
         updateCache(clanId, sortChannels(existing.filter { it.channelId != merged.channelId } + merged))
-        appScope.launch(ioDispatcher) { clanChannelDao.upsert(merged) }
+        persistChannelRow(merged)
         flushPendingMentionsInto(merged.channelId)
         scheduleBadgeRefreshForClan(clanId, merged.channelId)
         notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
         notificationCenter.postNotificationOnMainThread(NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_CHAT)
     }
 
+    @Synchronized
     private fun applyUserChannelRemoved(event: UserChannelRemoved, currentUserId: Long) {
         if (isDirectChannelType(event.channelType)) return
-        if (event.userIdsList.none { it == currentUserId }) return
+        if (!channelEventTargetsUser(currentUserId, event.userIdsList)) return
         val channelId = event.channelId
         if (channelId == 0L) return
         val clanId = event.clanId.takeIf { it != 0L } ?: findClanIdForChannel(channelId)
+        val isVoice = event.channelType == CHANNEL_TYPE_VOICE || findChannelById(channelId, clanId)?.type == CHANNEL_TYPE_VOICE
+        if (isVoice) notifyChannelAccessLost(channelId)
         if (clanId != 0L) {
+            if (isVoice) channelAccessRevisions.merge(clanId, 1L, Long::plus)
             val existing = _channelsByClan.value[clanId]
             if (existing != null) {
                 updateCache(clanId, existing.filter { it.channelId != channelId })
             }
             favoritesByClan[clanId]?.remove(channelId)
+            if (isVoice) persistVoiceChannelRow(clanId, channelId)
             appScope.launch(ioDispatcher) {
-                clanChannelDao.delete(clanId, channelId)
+                if (!isVoice) clanChannelDao.delete(clanId, channelId)
                 favoriteChannelDao.delete(clanId, channelId)
-                messageDao.deleteByChannel(channelId)
+                if (!isVoice) messageDao.deleteByChannel(channelId)
             }
             notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
+        }
+        if (isVoice) {
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.voiceChannelAccessLost, channelId, clanId)
         }
         val wasOpen = currentOpenChannelId == channelId
         if (wasOpen) {
@@ -1599,7 +1758,7 @@ class ChannelController @Inject constructor(
                 _channelsByClan.value = map
                 val delta = newUnread - oldUnread
                 if (delta != 0) clansController.get().updateClanBadgeCount(clanId, delta)
-                appScope.launch(ioDispatcher) { clanChannelDao.upsert(newRow) }
+                persistChannelRow(newRow)
                 return
             }
         }
@@ -1646,7 +1805,7 @@ class ChannelController @Inject constructor(
                 map[clanId] = updated
                 _channelsByClan.value = map
                 if (oldUnread > 0) clansController.get().updateClanBadgeCount(clanId, -oldUnread)
-                appScope.launch(ioDispatcher) { clanChannelDao.upsert(newRow) }
+                persistChannelRow(newRow)
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
                 return
             }
@@ -1719,7 +1878,7 @@ class ChannelController @Inject constructor(
                 map[clanId] = updated
                 _channelsByClan.value = map
                 if (oldUnread > 0) clansController.get().updateClanBadgeCount(clanId, -oldUnread)
-                appScope.launch(ioDispatcher) { clanChannelDao.upsert(newRow) }
+                persistChannelRow(newRow)
                 notificationCenter.postNotificationOnMainThread(
                     NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_BADGE
                 )
@@ -1789,7 +1948,7 @@ class ChannelController @Inject constructor(
             _channelsByClan.value = map
             val delta = newUnread - oldUnread
             if (delta != 0) clansController.get().updateClanBadgeCount(clanId, delta)
-            appScope.launch(ioDispatcher) { clanChannelDao.upsert(newRow) }
+            persistChannelRow(newRow)
             notificationCenter.postNotificationOnMainThread(
                 NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_BADGE
             )
@@ -1842,6 +2001,12 @@ class ChannelController @Inject constructor(
                 if (isDirectChannelType(event.channelType)) {
                     return@collect
                 }
+                if (event.channelType == CHANNEL_TYPE_VOICE && event.channelPrivate != 0 &&
+                    event.creatorId != sessionManager.sessionFlow.first()?.userId?.toLongOrNull() &&
+                    !permissionPolicy.get().checkPermission(PermissionPolicy.ADMINISTRATOR, clanId = clanId)
+                ) {
+                    return@collect
+                }
                 val newChannel = ClanChannelEntity(
                     clanId = clanId,
                     channelId = event.channelId,
@@ -1853,7 +2018,8 @@ class ChannelController @Inject constructor(
                     isPrivate = event.channelPrivate != 0,
                     topic = "",
                     unreadCount = 0,
-                    isMuted = false
+                    isMuted = false,
+                    creatorId = if (event.channelType == CHANNEL_TYPE_VOICE) event.creatorId else 0L,
                 )
                 val existing = _channelsByClan.value[clanId] ?: emptyList()
                 if (existing.any { it.channelId == newChannel.channelId }) {
@@ -1864,7 +2030,7 @@ class ChannelController @Inject constructor(
                 }?.categoryOrder ?: 0
                 val placed = if (inheritedOrder != 0) newChannel.copy(categoryOrder = inheritedOrder) else newChannel
                 updateCache(clanId, sortChannels(existing + placed))
-                appScope.launch(ioDispatcher) { clanChannelDao.upsert(placed) }
+                persistChannelRow(placed)
                 flushPendingMentionsInto(placed.channelId)
                 scheduleBadgeRefreshForClan(clanId, placed.channelId)
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
@@ -1874,10 +2040,15 @@ class ChannelController @Inject constructor(
         appScope.launch {
             dispatcher.channelDeletedEvents.collect { event ->
                 val clanId = event.clanId
-                val existing = _channelsByClan.value[clanId] ?: return@collect
-                updateCache(clanId, existing.filter { it.channelId != event.channelId })
-                appScope.launch(ioDispatcher) { clanChannelDao.delete(clanId, event.channelId) }
-                notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
+                if (findChannelById(event.channelId)?.type == CHANNEL_TYPE_VOICE) {
+                    channelAccessRevisions.merge(clanId, 1L, Long::plus)
+                    removeChannelLocally(clanId, event.channelId, CHANNEL_TYPE_VOICE)
+                } else {
+                    val existing = _channelsByClan.value[clanId] ?: return@collect
+                    updateCache(clanId, existing.filter { it.channelId != event.channelId })
+                    appScope.launch(ioDispatcher) { clanChannelDao.delete(clanId, event.channelId) }
+                    notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
+                }
             }
         }
 
@@ -1888,22 +2059,17 @@ class ChannelController @Inject constructor(
         }
 
         appScope.launch {
-            val currentUserId = sessionManager.sessionFlow
-                .first { it != null }?.userId?.toLongOrNull() ?: 0L
-
             dispatcher.userChannelAddedEvents.collect { event ->
-                applyUserChannelAdded(event, currentUserId)
+                applyUserChannelAdded(event, sessionManager.sessionFlow.first()?.userId?.toLongOrNull() ?: 0L)
             }
         }
 
         appScope.launch {
-            val currentUserId = sessionManager.sessionFlow
-                .first { it != null }?.userId?.toLongOrNull() ?: 0L
-
             dispatcher.userChannelRemovedEvents.collect { event ->
-                applyUserChannelRemoved(event, currentUserId)
+                applyUserChannelRemoved(event, sessionManager.sessionFlow.first()?.userId?.toLongOrNull() ?: 0L)
             }
         }
+
 
         appScope.launch {
             val currentUserId = sessionManager.sessionFlow
@@ -2008,35 +2174,80 @@ class ChannelController @Inject constructor(
 
         appScope.launch {
             dispatcher.channelUpdatedEvents.collect { event ->
-                val clanId = event.clanId
-                val existing = _channelsByClan.value[clanId] ?: return@collect
-                val updated = existing.map { ch ->
-                    if (ch.channelId != event.channelId) ch
-                    else {
-                        val newCategoryId = if (event.categoryId != 0L) event.categoryId else ch.categoryId
-                        val categoryName = if (newCategoryId != ch.categoryId) {
-                            getCachedCategories(clanId).firstOrNull { it.categoryId == newCategoryId }?.categoryName
-                                ?: ch.categoryName
-                        } else {
-                            ch.categoryName
-                        }
-                        ch.copy(
-                            channelLabel = event.channelLabel.ifEmpty { ch.channelLabel },
-                            topic = if (event.topic.isNotEmpty()) event.topic else ch.topic,
-                            categoryId = newCategoryId,
-                            categoryName = categoryName,
-                            isPrivate = event.channelPrivate,
-                            ageRestricted = event.ageRestricted,
-                        )
+                val selfId = sessionManager.sessionFlow.first()?.userId?.toLongOrNull() ?: 0L
+                synchronized(this@ChannelController) {
+                    val clanId = event.clanId
+                    val existing = _channelsByClan.value[clanId] ?: return@collect
+                    val previous = existing.firstOrNull { it.channelId == event.channelId }
+                    val isVoice = event.channelType == CHANNEL_TYPE_VOICE || previous?.type == CHANNEL_TYPE_VOICE
+                    var voiceAccess: Boolean? = !event.channelPrivate || previous != null
+                    if (isVoice && previous?.isPrivate != event.channelPrivate) {
+                        channelAccessRevisions.merge(clanId, 1L, Long::plus)
                     }
+                    if (isVoice && event.channelPrivate && previous?.isPrivate != true) {
+                        val policy = permissionPolicy.get()
+                        val access = privateChannelAccessAfterUpdate(
+                            selfId, event.creatorId, event.userIdsList, event.roleIdsList,
+                            userClanController.getClanMembers(clanId).firstOrNull { it.userId == selfId }?.roleIds,
+                            policy.checkPermission(PermissionPolicy.ADMINISTRATOR, clanId = clanId),
+                            policy.isPermissionDataReadyForClan(clanId),
+                        )
+                        voiceAccess = access
+                        when (access) {
+                            false -> {
+                                removeChannelAccess(clanId, event.channelId, CHANNEL_TYPE_VOICE)
+                                return@collect
+                            }
+                            null -> {
+                                removeChannelAccess(clanId, event.channelId, CHANNEL_TYPE_VOICE)
+                                return@collect
+                            }
+                            true -> Unit
+                        }
+                    }
+                   
+                    if (isVoice && previous == null) {
+                        if (voiceAccess == true && event.channelType != 0 && event.parentId == 0L) {
+                            upsertChannel(ClanChannelEntity(
+                                clanId = clanId, channelId = event.channelId, parentId = 0L,
+                                categoryId = event.categoryId,
+                                categoryName = getCachedCategories(clanId).firstOrNull { it.categoryId == event.categoryId }?.categoryName.orEmpty(),
+                                channelLabel = event.channelLabel, type = CHANNEL_TYPE_VOICE,
+                                isPrivate = event.channelPrivate, topic = event.topic,
+                                unreadCount = 0, isMuted = false, creatorId = event.creatorId,
+                                categoryOrder = existing.firstOrNull { it.categoryId == event.categoryId }?.categoryOrder ?: 0,
+                            ))
+                        }
+                        return@collect
+                    }
+                    val updated = existing.map { ch ->
+                        if (ch.channelId != event.channelId) ch
+                        else {
+                            val newCategoryId = if (event.categoryId != 0L) event.categoryId else ch.categoryId
+                            val categoryName = if (newCategoryId != ch.categoryId) {
+                                getCachedCategories(clanId).firstOrNull { it.categoryId == newCategoryId }?.categoryName
+                                    ?: ch.categoryName
+                            } else {
+                                ch.categoryName
+                            }
+                            ch.copy(
+                                channelLabel = event.channelLabel.ifEmpty { ch.channelLabel },
+                                topic = if (isVoice && event.channelType != 0) event.topic else event.topic.ifEmpty { ch.topic },
+                                categoryId = newCategoryId,
+                                categoryName = categoryName,
+                                isPrivate = event.channelPrivate,
+                                ageRestricted = event.ageRestricted,
+                            )
+                        }
+                    }
+                    updateCache(clanId, updated)
+                    val entity = updated.find { it.channelId == event.channelId } ?: return@collect
+                    persistChannelRow(entity)
+                    notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
+                    notificationCenter.postNotificationOnMainThread(
+                        NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_CHAT
+                    )
                 }
-                updateCache(clanId, updated)
-                val entity = updated.find { it.channelId == event.channelId } ?: return@collect
-                appScope.launch(ioDispatcher) { clanChannelDao.upsert(entity) }
-                notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
-                notificationCenter.postNotificationOnMainThread(
-                    NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_CHAT
-                )
             }
         }
 
@@ -2098,7 +2309,10 @@ class ChannelController @Inject constructor(
                     if (updated != channels) {
                         updateCache(clanId, updated)
                         appScope.launch(ioDispatcher) {
-                            updated.filter { it.categoryId == categoryId }.forEach { clanChannelDao.upsert(it) }
+                            updated.filter { it.categoryId == categoryId }.forEach {
+                                if (it.type == CHANNEL_TYPE_VOICE) writeCurrentVoiceChannel(clanId, it.channelId)
+                                else clanChannelDao.upsert(it)
+                            }
                         }
                         notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
                     }

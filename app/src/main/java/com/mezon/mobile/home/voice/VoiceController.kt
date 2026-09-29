@@ -19,11 +19,14 @@ import com.mezon.mobile.network.SocketEventDispatcher
 import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.home.UserClanController
+import com.mezon.mobile.home.clans.ChannelController
+import com.mezon.mobile.home.clans.channelEventTargetsUser
 import com.mezon.mobile.home.voice.sfu.TOKEN_EXPIRY_MARGIN_SECONDS
 import com.mezon.mobile.home.voice.sfu.tokenSecondsLeft
 import com.mezon.mobile.home.profile.UserController
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -41,6 +44,7 @@ class VoiceController @Inject constructor(
     private val sessionManager: SessionManager,
     private val userClanController: UserClanController,
     private val userController: UserController,
+    private val channelController: ChannelController,
     private val notificationCenter: NotificationCenter,
     private val cacheTracker: ApiCacheTracker,
     @ApplicationContext private val appContext: Context,
@@ -51,15 +55,16 @@ class VoiceController @Inject constructor(
     val inVoiceStatus = HashMap<Long, VoiceStatus>()
     private val voiceRevisions = HashMap<Long, Long>()
     private var voicePresenceGeneration = 0L
+    private var connectionGeneration = 0L
     private val screenSharingByClan = HashMap<Long, HashMap<Long, HashSet<Long>>>()
 
-    var currentVoiceInfo: VoiceInfo? = null
+    @Volatile var currentVoiceInfo: VoiceInfo? = null
         private set
-    var isJoined: Boolean = false
+    @Volatile var isJoined: Boolean = false
         private set
-    var isConnecting: Boolean = false
+    @Volatile var isConnecting: Boolean = false
         private set
-    var meetToken: String? = null
+    @Volatile var meetToken: String? = null
         private set
     var isLocalVideoEnabled: Boolean = false
 
@@ -76,13 +81,29 @@ class VoiceController @Inject constructor(
         appScope.launch { dispatcher.voiceReactionEvents.collect { onVoiceReaction(it) } }
         appScope.launch { dispatcher.channelDeletedEvents.collect { onChannelDeleted(it.clanId, it.channelId) } }
         appScope.launch { dispatcher.clanDeletedEvents.collect { onClanDeleted(it.clanId) } }
-        appScope.launch { dispatcher.userClanRemovedEvents.collect { onUserRemovedFromClan(it.clanId) } }
+        appScope.launch {
+            dispatcher.userClanRemovedEvents.collect {
+                if (channelEventTargetsUser(userController.userId, it.userIdsList)) onUserRemovedFromClan(it.clanId)
+            }
+        }
+        appScope.launch {
+            dispatcher.userChannelRemovedEvents.collect {
+                if (channelEventTargetsUser(userController.userId, it.userIdsList)) leaveLostChannel(it.channelId)
+            }
+        }
+        appScope.launch { channelController.channelAccessLost.collect { leaveLostChannel(it) } }
+        appScope.launch {
+            socket.reconnected.collect {
+                currentVoiceInfo?.clanId?.takeIf { it != 0L }?.let { channelController.refreshChannelAccess(it) }
+            }
+        }
         appScope.launch { dispatcher.aiagentEnabledEvents.collect { onAiAgentEnabled(it) } }
     }
 
     fun cleanup() {
         synchronized(this) {
             voicePresenceGeneration++
+            connectionGeneration++
             voiceRevisions.clear()
             voiceMemberListFetchInflight.clear()
             voiceMembersByClan.clear()
@@ -210,8 +231,11 @@ class VoiceController @Inject constructor(
         if (isJoined || isConnecting) {
             leaveVoiceChannel()
         }
-        synchronized(this) {
+        val generation = synchronized(this) {
+            connectionGeneration++
+            currentVoiceInfo = VoiceInfo(channelId, clanId, channelLabel, channelId.toString())
             isConnecting = true
+            connectionGeneration
         }
         return try {
             sessionManager.withAutoRefresh { session ->
@@ -223,25 +247,36 @@ class VoiceController @Inject constructor(
                     )
                 }
                 val token = response.token
-                if (token.isNullOrEmpty()) {
-                    synchronized(this) { isConnecting = false }
-                    return@withAutoRefresh null
-                }
                 synchronized(this) {
-                    currentVoiceInfo = VoiceInfo(channelId, clanId, channelLabel, roomName)
+                    if (generation != connectionGeneration) return@withAutoRefresh null
+                    if (token.isNullOrEmpty()) {
+                        currentVoiceInfo = null
+                        isConnecting = false
+                        return@withAutoRefresh null
+                    }
                     meetToken = token
                     isJoined = false
                 }
                 token
             }
         } catch (e: Exception) {
+            synchronized(this) {
+                if (generation == connectionGeneration) {
+                    currentVoiceInfo = null
+                    isConnecting = false
+                }
+            }
+            if (e is CancellationException) throw e
             Log.e(TAG, "joinVoiceChannel failed", e)
-            synchronized(this) { isConnecting = false }
             null
         }
     }
 
     suspend fun refreshMeetToken(channelId: Long, clanId: Long): String? {
+        val generation = synchronized(this) {
+            if (currentVoiceInfo?.channelId != channelId || currentVoiceInfo?.clanId != clanId) return null
+            connectionGeneration
+        }
         return try {
             sessionManager.withAutoRefresh { session ->
                 val roomName = channelId.toString()
@@ -252,12 +287,14 @@ class VoiceController @Inject constructor(
                     )
                 }
                 val token = response.token
-                if (!token.isNullOrEmpty()) {
-                    synchronized(this) { meetToken = token }
+                synchronized(this) {
+                    if (generation != connectionGeneration) return@withAutoRefresh null
+                    if (!token.isNullOrEmpty()) meetToken = token
                 }
                 token
             }
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Log.e(TAG, "refreshMeetToken failed", e)
             null
         }
@@ -286,38 +323,50 @@ class VoiceController @Inject constructor(
     }
 
     fun onRoomConnected(channelId: Long) {
-        val label: String
         synchronized(this) {
             if (currentVoiceInfo?.channelId != channelId) return
             isJoined = true
             isConnecting = false
-            label = currentVoiceInfo?.channelLabel.orEmpty()
+            VoiceChannelForegroundService.start(appContext, currentVoiceInfo?.channelLabel.orEmpty())
         }
-        VoiceChannelForegroundService.start(appContext, label)
     }
 
     fun leaveVoiceChannel() {
         synchronized(this) {
+            connectionGeneration++
             currentVoiceInfo = null
             meetToken = null
             isJoined = false
             isConnecting = false
+            isLocalVideoEnabled = false
         }
         VoiceChannelForegroundService.stop(appContext)
         notificationCenter.postNotificationOnMainThread(NotificationCenter.voiceLeftRoom)
     }
 
     fun onDisconnectedFromRoom(reason: String) {
-        synchronized(this) {
+        val channelId = synchronized(this) {
+            val channelId = currentVoiceInfo?.channelId
+            connectionGeneration++
             currentVoiceInfo = null
             meetToken = null
             isJoined = false
             isConnecting = false
+            isLocalVideoEnabled = false
+            channelId
         }
         VoiceChannelForegroundService.stop(appContext)
         notificationCenter.postNotificationOnMainThread(
-            NotificationCenter.voiceRoomDisconnected, reason
+            NotificationCenter.voiceRoomDisconnected, reason, channelId
         )
+    }
+
+    private fun leaveLostChannel(channelId: Long) {
+        if (channelId == 0L) return
+        synchronized(this) {
+            if (currentVoiceInfo?.channelId != channelId) return
+            onDisconnectedFromRoom("removed")
+        }
     }
 
     suspend fun kickParticipant(clanId: Long, channelId: Long, userId: Long): String {

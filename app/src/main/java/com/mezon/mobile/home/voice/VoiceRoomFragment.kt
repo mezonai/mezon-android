@@ -291,6 +291,13 @@ class VoiceRoomFragment : BaseFragment() {
             .getOrDefault(SfuRole.SPEAKER)
 
         observe(NotificationCenter.voiceRoomDisconnected) { _, _, args ->
+            val disconnectedChannelId = args.getOrNull(1) as? Long
+            if (disconnectedChannelId != null && disconnectedChannelId != channelId) return@observe
+            roomScope?.cancel()
+            roomScope = null
+            if (::participantGrid.isInitialized) releaseAllRenderers()
+            if (::sfuSession.isInitialized) sfuSession.leave()
+            sfuConnected = false
             if (fragmentView == null) return@observe
             val reason = args.firstOrNull() as? String ?: "unknown"
             showDisconnectDialog(reason)

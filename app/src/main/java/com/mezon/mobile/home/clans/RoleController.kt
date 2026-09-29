@@ -995,10 +995,8 @@ class RoleController @Inject constructor(
                 api.listRoles(session.apiUrl, session.token, clanId)
             }
             val roleList = response.roles
-            val mapped = mergeLocalChannelAssignments(
-                clanId,
-                roleList.rolesList.map { mapProtoRoleToClanRole(it) }
-            )
+           
+            val mapped = roleList.rolesList.map { mapProtoRoleToClanRole(it) }
             var userMax: Int? = null
             if (beginUserMaxLoad(clanId, force = true)) {
                 try {
@@ -1035,21 +1033,6 @@ class RoleController @Inject constructor(
             notificationCenter.postNotificationOnMainThread(NotificationCenter.clanRolesDidLoad, clanId)
         } catch (e: Exception) {
             Log.e(TAG, "loadRolesForClan failed for clan $clanId", e)
-        }
-    }
-
-    private fun mergeLocalChannelAssignments(clanId: Long, remoteRoles: List<ClanRole>): List<ClanRole> {
-        val existingById = synchronized(lock) {
-            rolesByClan[clanId]?.associateBy { it.roleId }.orEmpty()
-        }
-        if (existingById.isEmpty()) return remoteRoles
-        return remoteRoles.map { remote ->
-            val existing = existingById[remote.roleId]
-            if (existing != null && remote.channelIds.isEmpty() && existing.channelIds.isNotEmpty()) {
-                remote.copy(roleChannelActive = 1, channelIds = existing.channelIds)
-            } else {
-                remote
-            }
         }
     }
 
