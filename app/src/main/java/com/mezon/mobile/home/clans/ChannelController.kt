@@ -917,6 +917,8 @@ class ChannelController @Inject constructor(
             if (result == null || result.channeldescList.isEmpty()) {
                 return findChannelById(channelId)?.channelLabel.orEmpty()
             }
+            val fetchedLabel = result.channeldescList.firstOrNull { it.channelId == channelId }
+                ?.channelLabel?.takeIf { it.isNotBlank() }
             val cachedOrderByCategory = _channelsByClan.value[clanId]
                 ?.asSequence()
                 ?.filter { it.categoryOrder != 0 }
@@ -935,16 +937,19 @@ class ChannelController @Inject constructor(
                 if (accessRevision != (channelAccessRevisions[clanId] ?: 0L)) {
                     return findChannelById(channelId)?.channelLabel.orEmpty()
                 }
-                val ids = entities.mapTo(HashSet()) { it.channelId }
-                getChannels(clanId).filter { it.type == CHANNEL_TYPE_VOICE && it.channelId !in ids }
-                    .forEach { removeChannelLocally(clanId, it.channelId, it.type) }
-                updateCache(clanId, sortChannels(entities))
+              
+                val fetchedIds = entities.mapTo(HashSet()) { it.channelId }
+                val cachedVoice = getChannels(clanId).filter {
+                    it.type == CHANNEL_TYPE_VOICE && it.channelId !in fetchedIds
+                }
+                updateCache(clanId, sortChannels(entities + cachedVoice))
             }
             withContext(ioDispatcher) {
                 channelPersistenceLocks.getOrPut(clanId) { Mutex() }.withLock {
                     clanChannelDao.upsertAll(getChannels(clanId))
                 }
             }
+            return fetchedLabel ?: findChannelById(channelId)?.channelLabel.orEmpty()
         }
         return findChannelById(channelId)?.channelLabel.orEmpty()
     }
