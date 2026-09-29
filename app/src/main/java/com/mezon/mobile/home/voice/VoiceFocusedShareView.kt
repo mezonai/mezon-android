@@ -43,6 +43,8 @@ class VoiceFocusedShareView(
     private val fullScreenButton: FrameLayout
     private val minimizeButton: FrameLayout
     private var rendererInitialized = false
+    private var frameReplay: VideoSurfaceFrameReplay? = null
+    var onVideoVisibilityChanged: ((VideoTrack, Boolean) -> Unit)? = null
     private var currentVideoTrack: VideoTrack? = null
     private var contentAspectRatio = 16f / 9f
     private var pendingVideoTrack: VideoTrack? = null
@@ -165,10 +167,12 @@ class VoiceFocusedShareView(
     }
 
     fun clear() {
+        frameReplay?.cancel()
         val renderer = textureRenderer
         if (renderer != null) {
             currentVideoTrack?.let { runCatching { it.removeSink(renderer) } }
         }
+        currentVideoTrack?.let { onVideoVisibilityChanged?.invoke(it, false) }
         currentVideoTrack = null
         pendingVideoTrack = null
         contentAspectRatio = 16f / 9f
@@ -181,6 +185,8 @@ class VoiceFocusedShareView(
 
     fun releaseRenderer() {
         clear()
+        frameReplay?.release()
+        frameReplay = null
         textureRenderer?.release()
         if (rendererInitialized) EglBaseProvider.release()
         textureRenderer = null
@@ -222,13 +228,18 @@ class VoiceFocusedShareView(
         if (!rendererInitialized) {
             renderer.init(EglBaseProvider.acquire(), null)
             rendererInitialized = true
+            frameReplay = VideoSurfaceFrameReplay(renderer) { currentVideoTrack }
         }
         if (currentVideoTrack !== track) {
-            currentVideoTrack?.let { runCatching { it.removeSink(renderer) } }
+            currentVideoTrack?.let {
+                onVideoVisibilityChanged?.invoke(it, false)
+                runCatching { it.removeSink(renderer) }
+            }
             try {
                 track.addSink(renderer)
                 currentVideoTrack = track
-                VideoTrackLastFrameStore.replayLastFrame(track, renderer)
+                frameReplay?.request()
+                onVideoVisibilityChanged?.invoke(track, isShown)
                 resetTransformState(renderer)
             } catch (e: IllegalStateException) {
                 currentVideoTrack = null
@@ -268,9 +279,26 @@ class VoiceFocusedShareView(
         maybeAttachPending()
     }
 
+    override fun onVisibilityChanged(changedView: View, visibility: Int) {
+        super.onVisibilityChanged(changedView, visibility)
+        if (isShown) frameReplay?.request() else frameReplay?.cancel()
+        currentVideoTrack?.let { onVideoVisibilityChanged?.invoke(it, isShown) }
+    }
+
+    override fun onWindowVisibilityChanged(visibility: Int) {
+        super.onWindowVisibilityChanged(visibility)
+        if (visibility == VISIBLE) frameReplay?.request() else frameReplay?.cancel()
+    }
+
+    override fun onDetachedFromWindow() {
+        currentVideoTrack?.let { onVideoVisibilityChanged?.invoke(it, false) }
+        super.onDetachedFromWindow()
+    }
+
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         maybeAttachPending()
+        currentVideoTrack?.let { onVideoVisibilityChanged?.invoke(it, isShown) }
     }
 
     private fun updateZoomContentLayout() {

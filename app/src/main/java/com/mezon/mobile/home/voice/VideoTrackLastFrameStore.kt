@@ -13,30 +13,56 @@ class VideoTrackFrameKeeper : VideoSink {
     private val lock = Any()
     private var frame: VideoFrame? = null
     private var lastCaptureMs = 0L
+    private var captureInProgress = false
+    private var closed = false
+    private var receivedAtMs = 0L
     var track: VideoTrack? = null
+
+    val lastFrameReceivedMs: Long?
+        get() = synchronized(lock) { receivedAtMs.takeIf { it > 0 } }
 
     override fun onFrame(frame: VideoFrame) {
         val now = SystemClock.elapsedRealtime()
-        val hasFrame = synchronized(lock) { this.frame != null }
-        if (hasFrame && now - lastCaptureMs < FRAME_CAPTURE_INTERVAL_MS) return
-        lastCaptureMs = now
-        val i420 = frame.buffer.toI420() ?: return
-        val copy = VideoFrame(i420, frame.rotation, frame.timestampNs)
-        val previous = synchronized(lock) {
-            val old = this.frame
-            this.frame = copy
-            old
+        synchronized(lock) {
+            if (closed) return
+            // Arrival monitoring must not depend on the thumbnail copy interval.
+            receivedAtMs = now
+            if (captureInProgress || (this.frame != null && now - lastCaptureMs < FRAME_CAPTURE_INTERVAL_MS)) return
+            captureInProgress = true
+            lastCaptureMs = now
         }
-        previous?.release()
+        // Keep CPU-backed snapshots; retaining a texture can exhaust the capture pool.
+        try {
+            val copy = frame.buffer.toI420()?.let { VideoFrame(it, frame.rotation, frame.timestampNs) } ?: return
+            val previous = synchronized(lock) {
+                if (closed) {
+                    copy.release()
+                    return
+                }
+                val old = this.frame
+                this.frame = copy
+                old
+            }
+            previous?.release()
+        } finally {
+            synchronized(lock) { captureInProgress = false }
+        }
     }
 
     fun replay(sink: VideoSink) {
-        val current = synchronized(lock) { frame } ?: return
-        sink.onFrame(current)
+        // The WebRTC thread can replace/release the cache while the UI replays it.
+        val current = synchronized(lock) { frame?.also { it.retain() } } ?: return
+        try {
+            sink.onFrame(current)
+        } finally {
+            current.release()
+        }
     }
 
     fun clear() {
         val previous = synchronized(lock) {
+            closed = true
+            receivedAtMs = 0
             val old = frame
             frame = null
             old
@@ -49,32 +75,50 @@ object VideoTrackLastFrameStore {
 
     private val keepers = LinkedHashMap<String, VideoTrackFrameKeeper>()
 
+    @Synchronized
     fun observe(track: VideoTrack): VideoTrackFrameKeeper? {
         val trackId = runCatching { track.id() }.getOrNull() ?: return null
-        val keeper = keepers.remove(trackId) ?: VideoTrackFrameKeeper()
-        keepers[trackId] = keeper
-        if (keeper.track !== track) {
-            keeper.track?.let { previous -> runCatching { previous.removeSink(keeper) } }
-            keeper.track = if (runCatching { track.addSink(keeper) }.isSuccess) track else null
+        val previous = keepers.remove(trackId)
+        val keeper = if (previous?.track === track) previous else {
+            previous?.let { detach(it) }
+            VideoTrackFrameKeeper().also {
+                it.track = if (runCatching { track.addSink(it) }.isSuccess) track else null
+            }
         }
+        keepers[trackId] = keeper
         while (keepers.size > MAX_TRACKED_FRAMES) {
             val eldest = keepers.entries.first()
             keepers.remove(eldest.key)
-            eldest.value.track?.let { previous -> runCatching { previous.removeSink(eldest.value) } }
-            eldest.value.clear()
+            detach(eldest.value)
         }
         return keeper
+    }
+
+    @Synchronized
+    fun lastFrameReceivedAt(track: VideoTrack): Long? {
+        val id = runCatching { track.id() }.getOrNull() ?: return null
+        return keepers[id]?.takeIf { it.track === track }?.lastFrameReceivedMs
     }
 
     fun replayLastFrame(track: VideoTrack, sink: VideoSink) {
         observe(track)?.replay(sink)
     }
 
+    @Synchronized
+    fun retainTracks(tracks: Collection<VideoTrack>) {
+        val stale = keepers.filterValues { keeper -> tracks.none { it === keeper.track } }.keys
+        for (id in stale) keepers.remove(id)?.let { detach(it) }
+    }
+
+    private fun detach(keeper: VideoTrackFrameKeeper) {
+        keeper.clear()
+        keeper.track?.let { track -> runCatching { track.removeSink(keeper) } }
+        keeper.track = null
+    }
+
+    @Synchronized
     fun clear() {
-        for (keeper in keepers.values) {
-            keeper.track?.let { previous -> runCatching { previous.removeSink(keeper) } }
-            keeper.clear()
-        }
+        keepers.values.forEach { detach(it) }
         keepers.clear()
     }
 }
