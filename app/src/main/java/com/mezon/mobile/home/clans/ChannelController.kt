@@ -228,8 +228,12 @@ class ChannelController @Inject constructor(
 
     @Synchronized
     fun removeChannelAccess(clanId: Long, channelId: Long, channelType: Int) {
-        if (channelType == CHANNEL_TYPE_VOICE) channelAccessRevisions.merge(clanId, 1L, Long::plus)
-        removeChannelLocally(clanId, channelId, channelType)
+        if (channelType == CHANNEL_TYPE_VOICE) {
+            channelAccessRevisions.merge(clanId, 1L, Long::plus)
+            removeVoiceAccessLocally(clanId, channelId)
+        } else {
+            removeChannelLocally(clanId, channelId, channelType)
+        }
     }
 
     private fun persistChannelRow(channel: ClanChannelEntity) {
@@ -803,7 +807,8 @@ class ChannelController @Inject constructor(
             withContext(ioDispatcher) {
                 api.deleteChannelDesc(session.apiUrl, session.token, clanId, channelId)
             }
-            removeChannelAccess(clanId, channelId, channelType)
+            if (channelType == CHANNEL_TYPE_VOICE) channelAccessRevisions.merge(clanId, 1L, Long::plus)
+            removeChannelLocally(clanId, channelId, channelType)
         }
     }
 
@@ -813,6 +818,23 @@ class ChannelController @Inject constructor(
                 api.leaveThread(session.apiUrl, session.token, clanId, threadId)
             }
             removeChannelLocally(clanId, threadId, com.mezon.mobile.network.CHANNEL_TYPE_THREAD)
+        }
+    }
+
+    private fun removeVoiceAccessLocally(clanId: Long, channelId: Long) {
+        notifyChannelAccessLost(channelId)
+        val existing = _channelsByClan.value[clanId] ?: emptyList()
+        updateCache(clanId, existing.filter { it.channelId != channelId })
+        favoritesByClan[clanId]?.remove(channelId)
+        channelAppController.get().removeAppLocally(clanId, channelId)
+        persistVoiceChannelRow(clanId, channelId)
+        appScope.launch(ioDispatcher) { favoriteChannelDao.delete(clanId, channelId) }
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.voiceChannelAccessLost, channelId, clanId)
+        if (channelId == currentOpenChannelId) {
+            currentOpenChannelId = 0L
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.closeChats, channelId, CHANNEL_TYPE_VOICE)
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.navigateToClansTab)
         }
     }
 
@@ -829,6 +851,9 @@ class ChannelController @Inject constructor(
             messageDao.deleteByChannel(channelId)
         }
         notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
+        if (channelType == CHANNEL_TYPE_VOICE) {
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.voiceChannelAccessLost, channelId, clanId)
+        }
         if (channelId == currentOpenChannelId) {
             currentOpenChannelId = 0L
             notificationCenter.postNotificationOnMainThread(NotificationCenter.closeChats, channelId, channelType)
@@ -1398,7 +1423,7 @@ class ChannelController @Inject constructor(
         val mergedIds = HashSet<Long>(merged.size)
         for (ch in merged) mergedIds.add(ch.channelId)
         existing.filter { it.channelId !in mergedIds && it.type == CHANNEL_TYPE_VOICE }
-            .forEach { removeChannelLocally(clanId, it.channelId, it.type) }
+            .forEach { removeVoiceAccessLocally(clanId, it.channelId) }
         val openId = currentOpenChannelId
         val preservedOpen = if (openId != 0L && openId !in mergedIds) {
             existing.filter { it.channelId == openId }.map { ch ->
@@ -1586,9 +1611,12 @@ class ChannelController @Inject constructor(
             appScope.launch(ioDispatcher) {
                 if (!isVoice) clanChannelDao.delete(clanId, channelId)
                 favoriteChannelDao.delete(clanId, channelId)
-                messageDao.deleteByChannel(channelId)
+                if (!isVoice) messageDao.deleteByChannel(channelId)
             }
             notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
+        }
+        if (isVoice) {
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.voiceChannelAccessLost, channelId, clanId)
         }
         val wasOpen = currentOpenChannelId == channelId
         if (wasOpen) {
@@ -1977,7 +2005,6 @@ class ChannelController @Inject constructor(
                     event.creatorId != sessionManager.sessionFlow.first()?.userId?.toLongOrNull() &&
                     !permissionPolicy.get().checkPermission(PermissionPolicy.ADMINISTRATOR, clanId = clanId)
                 ) {
-                    refreshChannelAccess(clanId)
                     return@collect
                 }
                 val newChannel = ClanChannelEntity(
@@ -2014,7 +2041,8 @@ class ChannelController @Inject constructor(
             dispatcher.channelDeletedEvents.collect { event ->
                 val clanId = event.clanId
                 if (findChannelById(event.channelId)?.type == CHANNEL_TYPE_VOICE) {
-                    removeChannelAccess(clanId, event.channelId, CHANNEL_TYPE_VOICE)
+                    channelAccessRevisions.merge(clanId, 1L, Long::plus)
+                    removeChannelLocally(clanId, event.channelId, CHANNEL_TYPE_VOICE)
                 } else {
                     val existing = _channelsByClan.value[clanId] ?: return@collect
                     updateCache(clanId, existing.filter { it.channelId != event.channelId })
@@ -2042,30 +2070,6 @@ class ChannelController @Inject constructor(
             }
         }
 
-        appScope.launch {
-            dispatcher.roleAssignEvents.collect { event ->
-                val clanId = event.clanId.toLongOrNull() ?: return@collect
-                if (!_channelsByClan.value.containsKey(clanId)) return@collect
-                val selfId = sessionManager.sessionFlow.first()?.userId?.toLongOrNull() ?: 0L
-                if (channelEventTargetsUser(selfId, event.userIdsAssignedList + event.userIdsRemovedList)) {
-                    refreshChannelAccess(clanId)
-                }
-            }
-        }
-        appScope.launch {
-            dispatcher.roleEvents.collect { event ->
-                if (!event.hasRole()) return@collect
-                val clanId = event.role.clanId
-                if (!_channelsByClan.value.containsKey(clanId)) return@collect
-                val selfId = sessionManager.sessionFlow.first()?.userId?.toLongOrNull() ?: 0L
-                val selfRoles = userClanController.getClanMembers(clanId).firstOrNull { it.userId == selfId }?.roleIds
-                if (channelEventTargetsUser(selfId, event.userAddIdsList + event.userRemoveIdsList) ||
-                    selfRoles?.contains(event.role.id) == true
-                ) {
-                    refreshChannelAccess(clanId)
-                }
-            }
-        }
 
         appScope.launch {
             val currentUserId = sessionManager.sessionFlow
@@ -2194,7 +2198,10 @@ class ChannelController @Inject constructor(
                                 removeChannelAccess(clanId, event.channelId, CHANNEL_TYPE_VOICE)
                                 return@collect
                             }
-                            null -> refreshChannelAccess(clanId)
+                            null -> {
+                                removeChannelAccess(clanId, event.channelId, CHANNEL_TYPE_VOICE)
+                                return@collect
+                            }
                             true -> Unit
                         }
                     }
@@ -2210,8 +2217,6 @@ class ChannelController @Inject constructor(
                                 unreadCount = 0, isMuted = false, creatorId = event.creatorId,
                                 categoryOrder = existing.firstOrNull { it.categoryId == event.categoryId }?.categoryOrder ?: 0,
                             ))
-                        } else {
-                            scheduleChannelAccessRefresh(clanId)
                         }
                         return@collect
                     }
@@ -2227,7 +2232,7 @@ class ChannelController @Inject constructor(
                             }
                             ch.copy(
                                 channelLabel = event.channelLabel.ifEmpty { ch.channelLabel },
-                                topic = event.topic.ifEmpty { ch.topic },
+                                topic = if (isVoice && event.channelType != 0) event.topic else event.topic.ifEmpty { ch.topic },
                                 categoryId = newCategoryId,
                                 categoryName = categoryName,
                                 isPrivate = event.channelPrivate,
@@ -2237,9 +2242,6 @@ class ChannelController @Inject constructor(
                     }
                     updateCache(clanId, updated)
                     val entity = updated.find { it.channelId == event.channelId } ?: return@collect
-                    if (isVoice && event.topic.isEmpty() && entity.topic.isNotEmpty()) {
-                        refreshChannelAccess(clanId)
-                    }
                     persistChannelRow(entity)
                     notificationCenter.postNotificationOnMainThread(NotificationCenter.channelsDidLoad, clanId)
                     notificationCenter.postNotificationOnMainThread(

@@ -126,7 +126,9 @@ class ChannelPermissionsFragment : BaseFragment() {
             renderCurrentTab()
         }
         userClanController.loadUsers()
-        permissionController.loadChannelPermissionData(clanId, channelId, channelType)
+        permissionController.loadChannelPermissionData(
+            clanId, channelId, channelType, refreshRoles = channelType == CHANNEL_TYPE_VOICE
+        )
         return true
     }
 
@@ -228,7 +230,7 @@ class ChannelPermissionsFragment : BaseFragment() {
             rows.add(PermissionRow.AddMembers)
         }
         rows.add(PermissionRow.Title(getString(R.string.channel_permissions_who_can_access)))
-        val roles = if (isChannelPrivate()) permissionController.getChannelRoles(clanId, channelId) else emptyList()
+        val roles = if (isChannelPrivate()) permissionController.getChannelRoles(clanId, channelId, channelType) else emptyList()
         val members = if (isChannelPrivate()) userClanController.getDirectChannelMembers(channelId) else listOfNotNull(ownerMember())
         if (roles.isNotEmpty()) {
             rows.add(PermissionRow.Section(getString(R.string.channel_permissions_roles)))
@@ -303,7 +305,7 @@ class ChannelPermissionsFragment : BaseFragment() {
     }
 
     private fun buildAdvancedView(context: Context): View {
-        val roles = if (isChannelPrivate()) permissionController.getChannelRoles(clanId, channelId) else emptyList()
+        val roles = if (isChannelPrivate()) permissionController.getChannelRoles(clanId, channelId, channelType) else emptyList()
         val members = if (isChannelPrivate()) userClanController.getDirectChannelMembers(channelId) else emptyList()
         val rows = ArrayList<PermissionRow>()
         if (roles.isEmpty() && members.isEmpty()) {
@@ -567,7 +569,7 @@ class ChannelPermissionsFragment : BaseFragment() {
 
     private fun showAddSheet(context: Context) {
         val selectedMembers = userClanController.getDirectChannelMembers(channelId).map { it.userId }.toHashSet()
-        val roles = permissionController.getAvailableRoles(clanId, channelId)
+        val roles = permissionController.getAvailableRoles(clanId, channelId, channelType)
         val members = availableClanMembersForAdd(selectedMembers)
         val sheet = AddMemberOrRoleBottomSheet(context, themeColors, roles, members) { memberIds, roleIds ->
             addMembersAndRoles(memberIds, roleIds)

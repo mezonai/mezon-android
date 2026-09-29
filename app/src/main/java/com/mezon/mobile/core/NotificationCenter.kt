@@ -97,6 +97,7 @@ class NotificationCenter(val currentAccount: Int) {
         val stopAllHeavyOperations = nextId()
         val startAllHeavyOperations = nextId()
         val closeChats = nextId()
+        val voiceChannelAccessLost = nextId()
         val needCheckSystemBarColors = nextId()
         val navigateToMessagesTab = nextId()
         val navigateToClansTab = nextId()
