@@ -40,6 +40,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -274,6 +275,16 @@ class MezonSfuSession @Inject constructor(
     var onAudioRecovery: (() -> Unit)? = null
     var onMutedByModerator: (() -> Unit)? = null
     var onRemoved: ((SfuRemovalCause, String) -> Unit)? = null
+    var onNoiseStateChanged: ((NoiseSuppressionState) -> Unit)? = null
+    var noiseState = NoiseSuppressionState.OFF
+        private set
+    var noiseCaptureConfirmed = false
+        private set
+    private var noiseProcessor: MezonNsCaptureProcessor? = null
+    private var noiseChangeJob: Job? = null
+    private var noiseChangeGeneration = 0
+    private var micBeforeNoiseChange = false
+    private var noiseRequestedEnabled = false
 
     @Volatile var role: SfuRole = SfuRole.SPEAKER
         private set
@@ -502,7 +513,35 @@ class MezonSfuSession @Inject constructor(
     private fun startInitialSession(roomScope: CoroutineScope) {
         try {
             restoreCommunicationAudio()
-            callFactory = webRtcInfra.createVoiceFactory()
+            val gen = connectionGen
+            val processor = MezonNsCaptureProcessor(context,
+                onFirstProcessedFrame = {
+                    appScope.launch(mainDispatcher) {
+                        if (active && gen == connectionGen && noiseRequestedEnabled) {
+                            noiseCaptureConfirmed = true
+                            onNoiseStateChanged?.invoke(noiseState)
+                        }
+                    }
+                },
+                onFailure = {
+                    appScope.launch(mainDispatcher) {
+                        if (active && gen == connectionGen && noiseRequestedEnabled) {
+                            val wasApplying = noiseState == NoiseSuppressionState.APPLYING
+                            noiseChangeGeneration++
+                            noiseChangeJob?.cancel()
+                            noiseChangeJob = null
+                            noiseRequestedEnabled = false
+                            noiseState = NoiseSuppressionState.ERROR
+                            noiseProcessor?.cancelChange()
+                            if (wasApplying && micBeforeNoiseChange && role == SfuRole.SPEAKER && !micEnabled) {
+                                applyMicEnabled(true)
+                            }
+                            onNoiseStateChanged?.invoke(noiseState)
+                        }
+                    }
+                })
+            noiseProcessor = processor
+            callFactory = webRtcInfra.createVoiceFactory(processor)
             createLocalAudioTrack()
         } catch (e: Exception) {
             leave()
@@ -585,7 +624,6 @@ class MezonSfuSession @Inject constructor(
         if (!active || !localTracksAdded || pc.connectionState() != PeerConnection.PeerConnectionState.CONNECTED) return
         val gen = connectionGen
         appScope.launch(webRtcDispatcher) {
-            // A queued poll must not access a PC already retired/disposed on this queue.
             if (gen != connectionGen) return@launch
             pc.getStats { report ->
                 val packets = report.statsMap.values.filter {
@@ -738,6 +776,14 @@ class MezonSfuSession @Inject constructor(
     }
 
     fun leave() {
+        noiseChangeGeneration++
+        noiseChangeJob?.cancel()
+        noiseChangeJob = null
+        noiseState = NoiseSuppressionState.OFF
+        noiseCaptureConfirmed = false
+        noiseRequestedEnabled = false
+        val retiredNoiseProcessor = noiseProcessor
+        noiseProcessor = null
         nativeStartupJob?.cancel()
         nativeStartupJob = null
         transportRecoveryJob?.cancel()
@@ -803,7 +849,7 @@ class MezonSfuSession @Inject constructor(
         callFactory = null
         // Runs after queued PC closes on the same serial dispatcher. Snapshot references
         // so late cleanup cannot stop capture belonging to a new join.
-        if (retiredFactory != null || oldCameraCapturer != null || oldScreenCapturer != null ||
+        if (retiredFactory != null || retiredNoiseProcessor != null || oldCameraCapturer != null || oldScreenCapturer != null ||
             oldAudioTrack != null || oldAudioSource != null || oldCameraTrack != null || oldScreenTrack != null ||
             oldCameraSource != null || oldCameraHelper != null || oldScreenSource != null || oldScreenHelper != null) {
             nativeCleanup.enqueue {
@@ -824,6 +870,7 @@ class MezonSfuSession @Inject constructor(
                 release { oldAudioTrack?.dispose() }
                 release { oldAudioSource?.dispose() }
                 release { retiredFactory?.dispose() }
+                release { retiredNoiseProcessor?.close() }
                 failure?.let { throw it }
             }
         }
@@ -841,6 +888,14 @@ class MezonSfuSession @Inject constructor(
 
     fun setMicEnabled(on: Boolean) {
         if (!active || role != SfuRole.SPEAKER || (on && connectionState != SfuConnectionState.CONNECTED)) return
+        if (noiseState == NoiseSuppressionState.APPLYING) {
+            micBeforeNoiseChange = on
+            return
+        }
+        applyMicEnabled(on)
+    }
+
+    private fun applyMicEnabled(on: Boolean) {
         micEnabled = on
         val attached = synchronizeLocalAudioTrack()
         if (on) restoreCommunicationAudio()
@@ -849,6 +904,35 @@ class MezonSfuSession @Inject constructor(
             return
         }
         send(JSONObject().put("type", "mute").put("is_mute", !on))
+    }
+
+    fun setNoiseSuppressionEnabled(enabled: Boolean) {
+        if (!active || noiseState == NoiseSuppressionState.APPLYING) return
+        val processor = noiseProcessor ?: return
+        noiseRequestedEnabled = enabled
+        micBeforeNoiseChange = micEnabled
+        processor.beginChange()
+        if (micEnabled && role == SfuRole.SPEAKER) applyMicEnabled(false)
+        noiseCaptureConfirmed = false
+        noiseState = NoiseSuppressionState.APPLYING
+        onNoiseStateChanged?.invoke(noiseState)
+        val change = ++noiseChangeGeneration
+        noiseChangeJob?.cancel()
+        noiseChangeJob = scope?.launch {
+            val success = withContext(Dispatchers.IO) {
+                if (enabled) processor.enable() else runCatching { processor.disable() }.isSuccess
+            }
+            if (!active || change != noiseChangeGeneration || processor !== noiseProcessor) return@launch
+            if (!success) processor.cancelChange()
+            if (!success) noiseRequestedEnabled = false
+            noiseState = when {
+                !success -> NoiseSuppressionState.ERROR
+                enabled -> NoiseSuppressionState.ON
+                else -> NoiseSuppressionState.OFF
+            }
+            if (micBeforeNoiseChange && role == SfuRole.SPEAKER) applyMicEnabled(true)
+            onNoiseStateChanged?.invoke(noiseState)
+        }
     }
 
     fun setCameraEnabled(on: Boolean) {

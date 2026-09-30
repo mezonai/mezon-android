@@ -48,6 +48,7 @@ import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.home.voice.sfu.MezonSfuSession
+import com.mezon.mobile.home.voice.sfu.NoiseSuppressionState
 import com.mezon.mobile.home.voice.sfu.SfuConnectionState
 import com.mezon.mobile.home.voice.sfu.SfuParticipant
 import com.mezon.mobile.home.voice.sfu.SfuRemovalCause
@@ -457,7 +458,12 @@ class VoiceRoomFragment : BaseFragment() {
                         onRaiseHandClick = { sendRaiseHandReaction() },
                         onMessageClick = { openChatHistoryForCurrentChannel() },
                         onEmojiClick = { reactionHandler.showEmojiReactionPicker() },
-                        onSoundClick = { reactionHandler.showSoundReactionPicker() }
+                        onSoundClick = { reactionHandler.showSoundReactionPicker() },
+                        noiseState = sfuSession.noiseState,
+                        noiseCaptureConfirmed = sfuSession.noiseCaptureConfirmed,
+                        onNoiseClick = {
+                            sfuSession.setNoiseSuppressionEnabled(sfuSession.noiseState != NoiseSuppressionState.ON)
+                        }
                     )
                 }
             }
@@ -933,6 +939,9 @@ class VoiceRoomFragment : BaseFragment() {
             sfuSession.tokenProvider = { callChannelId, callClanId -> voiceController.refreshMeetToken(callChannelId, callClanId) }
             sfuSession.onMutedByModerator = { onMutedByModerator() }
             sfuSession.onRemoved = { cause, reason -> onRemovedFromRoom(cause, reason) }
+            sfuSession.onNoiseStateChanged = { state ->
+                morePopup.updateNoiseState(state, sfuSession.noiseCaptureConfirmed)
+            }
 
             voiceController.onRoomConnecting(targetChannelId, targetClanId)
             sfuSession.join(targetChannelId, targetClanId, targetUserId, token, targetRole)
@@ -1579,6 +1588,7 @@ class VoiceRoomFragment : BaseFragment() {
             sfuSession.onPushToTalkActive = null
             sfuSession.onMutedByModerator = null
             sfuSession.onRemoved = null
+            sfuSession.onNoiseStateChanged = null
             sfuSession.leave()
         }
         sfuConnected = false

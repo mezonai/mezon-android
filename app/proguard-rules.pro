@@ -30,3 +30,4 @@
 -keepclasseswithmembernames class * {
     native <methods>;
 }
+-keep class ai.mezon.ns.MezonNS { *; }

@@ -9,6 +9,20 @@ plugins {
     alias(libs.plugins.google.services)
 }
 
+val onnxruntimeNative by configurations.creating
+val extractOnnxruntimeNative by tasks.registering(Sync::class) {
+    from(provider { zipTree(onnxruntimeNative.singleFile) }) {
+        include("headers/**", "jni/**")
+    }
+    into(layout.buildDirectory.dir("onnxruntime-native"))
+}
+
+tasks.configureEach {
+    if (name.startsWith("configureCMake") || name.startsWith("buildCMake")) {
+        dependsOn(extractOnnxruntimeNative)
+    }
+}
+
 val mezonSecretsFile = rootProject.file("mezon.secrets.properties")
 if (!mezonSecretsFile.exists()) {
     throw GradleException(
@@ -22,6 +36,7 @@ val mezonSecrets: Properties = Properties().apply {
 android {
     namespace = "com.mezon.mobile"
     compileSdk = 36
+    ndkVersion = "28.1.13356709"
 
     val signingPropsFile = rootProject.file("signing.properties")
     val signingProps = Properties().apply {
@@ -39,6 +54,11 @@ android {
         applicationId = "com.mezon.mobile"
         minSdk = 24
         targetSdk = 36
+        externalNativeBuild {
+            cmake {
+                arguments += "-DONNXRUNTIME_ROOT=${layout.buildDirectory.get().asFile}/onnxruntime-native"
+            }
+        }
         versionCode = 1194
         versionName = "1.2.10"
 
@@ -202,6 +222,12 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
     testOptions {
         unitTests.isReturnDefaultValues = true
     }
@@ -214,6 +240,8 @@ kotlin {
 }
 
 dependencies {
+    onnxruntimeNative("com.microsoft.onnxruntime:onnxruntime-android:1.20.0")
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.20.0")
     val usePrebuiltLocalModules = providers.gradleProperty("mezon.usePrebuiltLocalModules")
         .map(String::toBoolean)
         .getOrElse(false)

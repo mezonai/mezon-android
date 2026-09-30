@@ -18,6 +18,7 @@ import org.webrtc.VideoCodecInfo
 import org.webrtc.VideoDecoder
 import org.webrtc.VideoDecoderFactory
 import org.webrtc.audio.JavaAudioDeviceModule
+import com.mezon.mobile.home.voice.sfu.MezonNsCaptureProcessor
 
 private const val TAG = "WebRtcInfra"
 
@@ -54,10 +55,11 @@ class WebRtcInfra @Inject constructor(
         ensureReadyBlocking()
     }
 
-    fun createVoiceFactory(): PeerConnectionFactory {
+    fun createVoiceFactory(noiseProcessor: MezonNsCaptureProcessor): PeerConnectionFactory {
         ensureReadyBlocking()
         val egl = checkNotNull(_eglContext)
         val audioDeviceModule = JavaAudioDeviceModule.builder(context)
+            .setAudioBufferCallback(noiseProcessor)
             .setUseHardwareAcousticEchoCanceler(JavaAudioDeviceModule.isBuiltInAcousticEchoCancelerSupported())
             .setUseHardwareNoiseSuppressor(JavaAudioDeviceModule.isBuiltInNoiseSuppressorSupported())
             .createAudioDeviceModule()
