@@ -273,6 +273,12 @@ class ChannelListView(
                 }
             }
         }
+       
+        if (freshChannels != null) {
+            currentSections = currentSections.map { section ->
+                section.copy(channels = section.channels.map { freshChannels[it.channelId] ?: it })
+            }
+        }
         val count = recyclerView.childCount
         for (i in 0 until count) {
             when (val child = recyclerView.getChildAt(i)) {

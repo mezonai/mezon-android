@@ -203,7 +203,7 @@ class NotificationCenter(val currentAccount: Int) {
     val heavyOperationsCounter = HashSet<Int>()
     private var currentHeavyOperationFlags = 0
 
-    private val alreadyPostedRunnables = SparseArray<Runnable>()
+    private val alreadyPostedRunnables = HashMap<Pair<Int, Int>, Runnable>()
 
     private fun createArrayForId(id: Int): ArrayList<NotificationCenterDelegate> {
         return if (id == didReplacedPhotoInMemCache || id == stopAllHeavyOperations || id == startAllHeavyOperations) {
@@ -409,13 +409,13 @@ class NotificationCenter(val currentAccount: Int) {
     }
 
     private fun postNotificationDebounced(id: Int, allowDuringAnimation: Boolean, args: Array<out Any?>) {
-        val hash = id + (Arrays.hashCode(args) shl 16)
-        if (alreadyPostedRunnables.indexOfKey(hash) >= 0) return
+        val key = id to Arrays.hashCode(args)
+        if (alreadyPostedRunnables.containsKey(key)) return
         val runnable = Runnable {
             postNotificationNameInternal(id, allowDuringAnimation, args)
-            alreadyPostedRunnables.remove(hash)
+            alreadyPostedRunnables.remove(key)
         }
-        alreadyPostedRunnables.put(hash, runnable)
+        alreadyPostedRunnables[key] = runnable
         mainHandler.postDelayed(runnable, DEBOUNCE_DELAY_MS)
     }
 

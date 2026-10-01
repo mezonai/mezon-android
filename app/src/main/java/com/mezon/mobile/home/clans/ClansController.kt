@@ -251,7 +251,7 @@ class ClansController @Inject constructor(
 
     fun loadClans(force: Boolean = false) {
         val cacheKey = apiCacheKey("listClanDescs")
-        appScope.launch {
+        appScope.launch(Dispatchers.Main.immediate) {
             try {
                 if (!force && cacheTracker.shouldCall(cacheKey) == ApiCacheTracker.ShouldCall.SKIP) {
                     Log.d(TAG, "loadClans: SKIP listClanDescs cache (still may fetch badges)")
@@ -282,7 +282,6 @@ class ClansController @Inject constructor(
 
                 val existingOrder = _clans.value.mapIndexed { i, c -> c.clanId to i }.toMap()
                 val cachedById = _clans.value.associateBy { it.clanId }
-                val descBadges = apiEntities.associate { it.clanId to ClanBadgeState(it.badgeCount, it.hasUnread) }
                 val entities = apiEntities.map { entity ->
                     val cached = cachedById[entity.clanId] ?: return@map entity
                     entity.copy(badgeCount = cached.badgeCount, hasUnread = cached.hasUnread)
@@ -310,7 +309,7 @@ class ClansController @Inject constructor(
                     roleController.loadRolesForClan(sel)
                 }
 
-                fetchClanBadgeCountsIfNeeded(force, descBadges)
+                fetchClanBadgeCountsIfNeeded(force)
             } catch (e: Exception) {
                 Log.e(TAG, "loadClans failed", e)
             }
@@ -319,40 +318,38 @@ class ClansController @Inject constructor(
 
     private data class ClanBadgeState(val badgeCount: Int, val hasUnread: Boolean)
 
-    private suspend fun fetchClanBadgeCountsIfNeeded(
-        force: Boolean,
-        listFallback: Map<Long, ClanBadgeState>? = null
-    ) {
+    private suspend fun fetchClanBadgeCountsIfNeeded(force: Boolean) {
         val badgeKey = apiCacheKey("listClanBadgeCount")
         if (!force && cacheTracker.shouldCall(badgeKey) == ApiCacheTracker.ShouldCall.SKIP) {
             return
         }
+        val before = _clans.value.associateBy { it.clanId }
         runCatching {
             val badgeResponse = sessionManager.withAutoRefresh { session ->
                 api.listClanBadgeCount(session.apiUrl, session.token)
             }
             cacheTracker.markCalled(badgeKey)
-            applyClanBadgeList(badgeResponse.listBadgeList, listFallback)
+            applyClanBadgeList(badgeResponse.listBadgeList, before = before)
         }.onFailure {
             Log.e(TAG, "listClanBadgeCount: request failed", it)
-            if (listFallback != null) applyClanBadgeList(emptyList(), listFallback)
         }
     }
 
     private fun applyClanBadgeList(
         badges: List<ClanBadgeCount>,
-        listFallback: Map<Long, ClanBadgeState>? = null
+        before: Map<Long, ClanEntity>
     ) {
-        if (badges.isEmpty() && listFallback == null) {
-            return
-        }
         val byClanId = badges.associateBy { it.clanId }
         val changedRows = ArrayList<ClanEntity>()
         val updated = _clans.value.map { clan ->
+            val start = before[clan.clanId]
+            if (start != null && (start.badgeCount != clan.badgeCount || start.hasUnread != clan.hasUnread)) {
+                return@map clan
+            }
             val target = byClanId[clan.clanId]?.let { b ->
                 val badge = b.badge.coerceAtLeast(0)
                 ClanBadgeState(badge, b.hasUnread || badge > 0)
-            } ?: listFallback?.get(clan.clanId) ?: return@map clan
+            } ?: ClanBadgeState(0, false)
             if (clan.badgeCount == target.badgeCount && clan.hasUnread == target.hasUnread) return@map clan
             clan.copy(badgeCount = target.badgeCount, hasUnread = target.hasUnread).also { changedRows.add(it) }
         }
@@ -583,15 +580,33 @@ class ClansController @Inject constructor(
 
     fun reconcileClanBadgeFromChannels(clanId: Long) {
         if (clanId == 0L) return
+        if (!channelController.hasLoadedBadgeSnapshot(clanId)) {
+            return
+        }
         val channels = channelController.getChannels(clanId)
-        val total = channels.sumOf { it.unreadCount.coerceAtLeast(0) }
-        val anyUnread = channels.any { it.hasUnread }
+        val pendingCount = channelController.getPendingMentionCount(clanId)
+        val total = channels.sumOf { it.unreadCount.coerceAtLeast(0) } + pendingCount
+        val anyUnread = pendingCount > 0 || channels.any { it.hasUnread }
         val list = _clans.value
         val idx = list.indexOfFirst { it.clanId == clanId }
         if (idx < 0) return
         val clan = list[idx]
         if (clan.badgeCount == total && clan.hasUnread == anyUnread) return
         val updated = clan.copy(badgeCount = total, hasUnread = anyUnread)
+        _clans.value = list.toMutableList().also { it[idx] = updated }
+        appScope.launch(ioDispatcher) { clanDao.upsert(updated) }
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_BADGE
+        )
+    }
+
+    fun applyBadgeRead(clanId: Long) {
+        val list = _clans.value
+        val idx = list.indexOfFirst { it.clanId == clanId }
+        if (idx < 0) return
+        val clan = list[idx]
+        if (clan.badgeCount == 0 && !clan.hasUnread) return
+        val updated = clan.copy(badgeCount = 0, hasUnread = false)
         _clans.value = list.toMutableList().also { it[idx] = updated }
         appScope.launch(ioDispatcher) { clanDao.upsert(updated) }
         notificationCenter.postNotificationOnMainThread(
