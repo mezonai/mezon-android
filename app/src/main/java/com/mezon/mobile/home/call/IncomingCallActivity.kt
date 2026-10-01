@@ -77,13 +77,14 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
     private var pendingConnectedUnmuteMicAfterAudioGrant = false
 
     private val autoDeclineRunnable = Runnable {
-        if (!dismissed && !connecting) {
-            declineCall()
+        val state = CallController.instance?.callState
+        if (!dismissed && !connecting && state !is CallState.Connecting && state !is CallState.Connected) {
+            declineCall(automatic = true)
         }
     }
 
     private val acceptTimeoutRunnable = Runnable {
-        if (!dismissed && connecting) {
+        if (!dismissed && connecting && CallController.instance?.isCallEstablished() != true) {
             Log.w(TAG, "acceptTimeoutRunnable: connecting timed out, ending")
             CallController.instance?.endCall(CallEndReason.TIMEOUT)
             finishCallActivity()
@@ -351,7 +352,7 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
                 parsed.has("isVideoCall") -> parsed.getBoolean("isVideoCall")
                 parsed.has("is_video_call") -> parsed.getBoolean("is_video_call")
                 parsed.has("isVideo") -> parsed.getBoolean("isVideo")
-                else -> SdpCompressor.sdpPlainTextFromNegotiationJson(parsed)?.contains("m=video") == true
+                else -> SdpCompressor.sdpPlainTextFromNegotiationJson(parsed)?.let { offerSdpSendsVideo(it) } == true
             }
         } catch (_: Exception) {
             false
@@ -1003,7 +1004,7 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
         }
     }
 
-    private fun declineCall() {
+    private fun declineCall(automatic: Boolean = false) {
         if (dismissed) return
         dismissed = true
 
@@ -1013,7 +1014,7 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
         handler.removeCallbacks(autoDeclineRunnable)
         handler.removeCallbacks(acceptTimeoutRunnable)
 
-        ensureCallController()?.rejectCallFromIncomingCallUi(offerJson)
+        ensureCallController()?.rejectCallFromIncomingCallUi(offerJson, automatic)
 
         CallNotificationManager(this).dismissIncomingNotification()
         finishCallActivity()
