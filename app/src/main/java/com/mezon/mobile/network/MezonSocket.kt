@@ -388,7 +388,6 @@ class MezonSocket @Inject constructor(
             val startedAtMs = System.currentTimeMillis()
             lastPingSentAtMs = startedAtMs
             t.sendPing(nextCid())
-            Log.d(TAG, "[ABRIDGED] liveness probe ($reason) gen=$probedGen")
             livenessProbeJob = scope.launch {
                 delay(LIVENESS_PROBE_TIMEOUT_MS)
                 val silent = synchronized(connectLock) {
@@ -866,7 +865,6 @@ class MezonSocket @Inject constructor(
                     val now = System.currentTimeMillis()
                     val rtt = if (lastPingSentAtMs > 0) now - lastPingSentAtMs else -1L
                     lastPongAtMs = now
-                    Log.d(TAG, "[ABRIDGED] ← pong (rtt=${rtt}ms) — heartbeat healthy")
                     if (rtt > 0) failover.onProbeRtt(rtt)
                 }
                 is AbridgedParsedEvent.ApiResponse -> {
@@ -1025,13 +1023,6 @@ class MezonSocket @Inject constructor(
             else -> Unit
         }
 
-        if (BuildConfig.DEBUG) {
-            when (case) {
-                Envelope.MessageCase.MESSAGE_TYPING_EVENT,
-                Envelope.MessageCase.STATUS_PRESENCE_EVENT -> Unit
-                else -> Log.d(TAG, "Event: $case")
-            }
-        }
         if (!_events.tryEmit(envelope)) {
             scope.launch { _events.emit(envelope) }
         }
@@ -1058,7 +1049,6 @@ class MezonSocket @Inject constructor(
                 }
                 lastPingSentAtMs = System.currentTimeMillis()
                 t.sendPing(nextCid())
-                Log.d(TAG, "[ABRIDGED] → ping sent (sinceLastPong=${sinceLastPong}ms)")
             }
         }
     }

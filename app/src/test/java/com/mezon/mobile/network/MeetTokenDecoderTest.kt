@@ -21,6 +21,18 @@ class MeetTokenDecoderTest {
         assertEquals(token, decodeMeetTokenResponse(bytes).token)
     }
 
+    @Test fun readsUrlFromProtobuf() {
+        val url = "wss://sfu.example.com/ws"
+        val bytes = GenerateMeetTokenResponse.newBuilder().setToken(token).setUrl(url).build().toByteArray()
+        val response = decodeMeetTokenResponse(bytes)
+        assertEquals(token, response.token)
+        assertEquals(url, response.url)
+    }
+
+    @Test fun acceptsJwtWithLeadingNewline() {
+        assertEquals(token, decodeMeetTokenResponse("\n$token".toByteArray()).token)
+    }
+
     @Test(expected = InvalidProtocolBufferException::class)
     fun rejectsMalformedPayload() {
         decodeMeetTokenResponse(byteArrayOf(0x0a, 0x7f))

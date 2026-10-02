@@ -1697,6 +1697,8 @@ open class ChatFragment : BaseFragment() {
             lm.stackFromEnd = false
             layoutManager = lm
             itemAnimator = null
+            setPadding(0, 0, 0, LayoutHelper.dp(8f))
+            clipToPadding = false
             setItemViewCacheSize(8)
             visibility = View.INVISIBLE
         }
@@ -2065,7 +2067,7 @@ open class ChatFragment : BaseFragment() {
             hint = getString(R.string.message_input_placeholder)
             setHintTextColor(themeColors.onSurfaceVariant)
             setTextColor(themeColors.onSurface)
-            textSize = 15f
+            textSize = 16f
             maxLines = 4
             minimumHeight = LayoutHelper.dp(40f)
             imeOptions = EditorInfo.IME_ACTION_SEND
@@ -2076,7 +2078,8 @@ open class ChatFragment : BaseFragment() {
                 setColor(themeColors.tertiary)
                 cornerRadius = LayoutHelper.dp(20f).toFloat()
             }
-            setPadding(LayoutHelper.dp(20f), LayoutHelper.dp(8f), LayoutHelper.dp(40f), LayoutHelper.dp(12f))
+            val verticalPadding = ((LayoutHelper.dp(40f) - lineHeight) / 2).coerceAtLeast(LayoutHelper.dp(6f))
+            setPadding(LayoutHelper.dp(14f), verticalPadding, LayoutHelper.dp(40f), verticalPadding)
         }
         inputWrapper.addView(inputField, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT
@@ -2100,7 +2103,7 @@ open class ChatFragment : BaseFragment() {
             Gravity.END or Gravity.BOTTOM
         ).apply {
             rightMargin = LayoutHelper.dp(8f)
-            bottomMargin = LayoutHelper.dp(8f)
+            bottomMargin = inputField.paddingBottom + inputField.lineHeight / 2 - LayoutHelper.dp(12f)
         })
 
         anonymousIndicator = ImageView(context).apply {
@@ -2691,6 +2694,9 @@ open class ChatFragment : BaseFragment() {
     override fun onResume() {
         super.onResume()
         lastResumeTime = android.os.SystemClock.elapsedRealtime()
+        if (clanId != 0L) {
+            channelController.setVisibleBadgeChannel(channelId, if (isTopicMode) topicId else 0L)
+        }
         pendingLocationSettingsReturn?.let { origin ->
             pendingLocationSettingsReturn = null
             resumeLocationSendAfterSettings(origin)
@@ -2748,7 +2754,16 @@ open class ChatFragment : BaseFragment() {
                     )
                 }
             } else {
+                val badgeBeforeRead = channelController.badgeCountForRead(channelId)
                 channelController.markChannelAsRead(channelId, seenMessageId = lastSeenMessageId)
+                val readRow = channelController.findChannelById(channelId)
+                if (readRow != null && readRow.lastSeenMessageId != 0L && badgeBeforeRead > 0) {
+                    chatController.updateLastSeenMessage(
+                        channelId, clanId, channelType, readRow.lastSeenMessageId,
+                        readRow.lastSeenMessageTs.toInt(), badgeCount = 0, applyLocal = false,
+                        capturedBadgeCount = badgeBeforeRead
+                    )
+                }
                 channelController.clearCurrentTopic()
                 refreshTopicRootRowsFromCache()
                 updateVisibleRows(NotificationCenter.UPDATE_MASK_TOPIC)
@@ -2806,7 +2821,10 @@ open class ChatFragment : BaseFragment() {
     override fun onPause() {
         super.onPause()
         pausedFromAppBackground = MainActivity.applicationPaused
-        if (clanId != 0L) channelController.clearCurrentTopic()
+        if (clanId != 0L) {
+            channelController.clearVisibleBadgeChannel(channelId, if (isTopicMode) topicId else 0L)
+            channelController.clearCurrentTopic()
+        }
         waitingForKeyboardOpen = false
         AndroidUtilities.cancelRunOnUIThread(openKeyboardRunnable)
         AndroidUtilities.cancelRunOnUIThread(showKeyboardFromEmojiRunnable)
@@ -3718,7 +3736,8 @@ open class ChatFragment : BaseFragment() {
         }
         chatController.updateLastSeenMessage(
             readChannelId, clanId, channelType,
-            msgId, ts, badgeCount = badge
+            msgId, ts,
+            badgeCount = if (clanId != 0L) 0 else badge
         )
     }
 
@@ -8383,7 +8402,7 @@ open class ChatFragment : BaseFragment() {
         inputField.setSelection(start + insertText.length)
     }
 
-    private fun channelTitleIconSizePx(): Int = LayoutHelper.dp(20)
+    private fun channelTitleIconSizePx(): Int = LayoutHelper.sp(18f).toInt()
 
     private fun channelTitleIconDrawable(context: Context, iconEnum: MezonIcon): Drawable {
         val drawable = iconEnum.getDrawable(context, themeColors)
@@ -8404,6 +8423,7 @@ open class ChatFragment : BaseFragment() {
         val iconSize = channelTitleIconSizePx()
         val span = ColoredImageSpan(iconEnum.getDrawable(context, themeColors), ColoredImageSpan.ALIGN_CENTER)
         span.setSize(iconSize)
+        span.translateY = LayoutHelper.dpf(1f)
         if (isThread) {
             span.usePaintColor = false
         } else {

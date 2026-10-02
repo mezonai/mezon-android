@@ -92,10 +92,12 @@ class VoiceControlBar(
     private val defaultMicTint = themeColors.tabLabelActive
     private val defaultMicIconSize = VoiceStyleCircleButton.defaultIconSizePx(context)
 
+    private var microphoneAvailable = true
     private var holdTriggered = false
     private var pulseAnimator: ValueAnimator? = null
     private var hintToast: Toast? = null
     private val holdRunnable = Runnable {
+        if (!microphoneAvailable) return@Runnable
         holdTriggered = true
         setPttPressed(true)
         startRecordingPulse()
@@ -204,6 +206,7 @@ class VoiceControlBar(
             isClickable = true
             addView(pttMicContent, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.CENTER))
             setOnTouchListener { v, event ->
+                if (!microphoneAvailable) return@setOnTouchListener true
                 when (event.actionMasked) {
                     MotionEvent.ACTION_DOWN -> {
                         holdTriggered = false
@@ -416,6 +419,23 @@ class VoiceControlBar(
         val vis = if (!isGroupCall && !pushToTalkMode) View.VISIBLE else View.GONE
         chatButton.visibility = vis
         raiseHandButton.visibility = vis
+    }
+
+    fun setMicrophoneAvailable(available: Boolean) {
+        microphoneAvailable = available
+        micButton.isEnabled = available
+        micButton.alpha = if (available) 1f else 0.4f
+        pttMicPill.isEnabled = available
+        pttMicPill.alpha = if (available) 1f else 0.4f
+        if (!available) {
+            pttMicPill.removeCallbacks(holdRunnable)
+            if (holdTriggered) {
+                holdTriggered = false
+                setPttPressed(false)
+                stopRecordingPulse()
+                onMicPressEnd?.invoke()
+            }
+        }
     }
 
     fun setMicEnabled(enabled: Boolean) {

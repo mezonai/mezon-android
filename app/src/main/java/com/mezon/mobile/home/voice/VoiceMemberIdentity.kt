@@ -9,11 +9,8 @@ object VoiceAgent {
     const val AVATAR_URL =
         "https://cdn.mezon.vn/0/0/1779484387973271600/1737423959329_undefined173740153013517374015248704886401586613166392.png"
 
-    private val ids: Set<String> = BuildConfig.MEZON_VOICE_AGENT_ID
-        .split(',')
-        .map { it.trim() }
-        .filter { it.isNotEmpty() }
-        .toSet()
+    private val ids: Set<String> = setOf("2037383744142184448", "2090694093138038784") +
+        BuildConfig.MEZON_VOICE_AGENT_ID.split(',').map { it.trim() }.filter { it.isNotEmpty() }
 
     fun isAgent(userId: String): Boolean = userId.isNotEmpty() && userId in ids
 

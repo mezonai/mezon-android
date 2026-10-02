@@ -185,7 +185,7 @@ class ThemeColors @Inject constructor() {
 
         currentColors[key_chat_inBubble] = surfaceVariant
         currentColors[key_chat_outBubble] = primary
-        currentColors[key_chat_inText] = onSurfaceVariant
+        currentColors[key_chat_inText] = onSurface
         currentColors[key_chat_outText] = onPrimary
         currentColors[key_chat_inTime] = onSurfaceVariant
         currentColors[key_chat_outTime] = onPrimary and 0x99FFFFFF.toInt()
@@ -284,7 +284,7 @@ class ThemeColors @Inject constructor() {
         dividerPaint.color = outlineVariant
         chatSenderPaint.color = primary
         val fs = LayoutHelper.sp(SharedConfig.fontSize.toFloat())
-        chatContentPaint.color = onSurfaceVariant
+        chatContentPaint.color = onSurface
         chatContentPaint.textSize = fs
         chatContentOutPaint.color = onPrimary
         chatContentOutPaint.textSize = fs
