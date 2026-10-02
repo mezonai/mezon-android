@@ -226,7 +226,7 @@ class DialogCell(context: Context, private val theme: ThemeColors) : BaseCell(co
             return
         }
         val previewText = when {
-            dm.lastMessageContent.isNotEmpty() -> dm.lastMessageContent
+            dm.lastMessageContent.isNotEmpty() -> formatDirectMessagePreview(dm.lastMessageContent)
             dm.lastSentMessageId > 0L || dm.lastSentMessageTs > 0L -> ""
             else -> context.getString(R.string.dm_no_messages)
         }
