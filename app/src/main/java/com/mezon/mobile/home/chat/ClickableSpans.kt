@@ -40,10 +40,11 @@ class SystemMessageMentionSpan(
 
 class HashtagSpan(
     private val channelId: String?,
-    private val linkColor: Int
+    private val linkColor: Int,
+    private val clanId: String? = null
 ) : ClickableSpan() {
     override fun onClick(widget: View) {
-        (widget as? ChatMessageCell)?.onHashtagClicked(channelId)
+        (widget as? ChatMessageCell)?.onHashtagClicked(channelId, clanId)
     }
 
     override fun updateDrawState(ds: TextPaint) {

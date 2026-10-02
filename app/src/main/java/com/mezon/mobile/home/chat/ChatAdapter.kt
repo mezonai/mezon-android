@@ -355,6 +355,24 @@ class ChatAdapter(
         }
     }
 
+    private var linkedChannelRenderRevision = 0
+    private object LinkedChannelLabelsPayload
+
+    fun refreshLinkedChannelLabels() {
+        linkedChannelRenderRevision++
+        if (messagesEndRow > messagesStartRow) {
+            notifyItemRangeChanged(messagesStartRow, messagesEndRow - messagesStartRow, LinkedChannelLabelsPayload)
+        }
+    }
+
+    override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int, payloads: MutableList<Any>) {
+        if (payloads.isNotEmpty() && payloads.all { it === LinkedChannelLabelsPayload }) {
+            if (holder is MessageViewHolder) holder.cell.refreshLinkedChannelLabels(linkedChannelRenderRevision)
+            return
+        }
+        super.onBindViewHolder(holder, position, payloads)
+    }
+
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         if (holder is TopicRootViewHolder) {
             val resolver = displayRoleResolver
@@ -387,6 +405,7 @@ class ChatAdapter(
                 holder.cell.topicButtonEnabled = topicButtonEnabled
                 holder.cell.hasMentionHighlight = cachedHasMention(msg)
                 holder.cell.update(0, msg)
+                holder.cell.refreshLinkedChannelLabels(linkedChannelRenderRevision)
             }
             is WelcomeViewHolder -> {
                 holder.cell.channelName = channelName

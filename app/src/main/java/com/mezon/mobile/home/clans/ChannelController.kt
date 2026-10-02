@@ -193,6 +193,7 @@ class ChannelController @Inject constructor(
     private val categoriesByClan = ConcurrentHashMap<Long, List<ClanCategoryItem>>()
     private val sdTopicChannelsById = ConcurrentHashMap<Long, ClanChannelEntity>()
     private val channelAvatarByKey = ConcurrentHashMap<Long, String>()
+    private val linkedChannels = ChannelLinkLookupCache<ClanChannelEntity>(appScope)
 
     init {
         observeSocketEvents()
@@ -200,7 +201,47 @@ class ChannelController @Inject constructor(
 
     fun isChannelListLoading(clanId: Long): Boolean = channelListLoading[clanId] == true
 
+    fun linkedChannelDetail(channelId: Long): ClanChannelEntity? = linkedChannels.get(channelId)
+
+    // After an access change, only a new detail lookup can authorize a cached channel link.
+    fun requiresLinkedChannelValidation(channelId: Long): Boolean = linkedChannels.wasInvalidated(channelId)
+
+    private fun invalidateLinkedChannel(channelId: Long) {
+        if (channelId == 0L) return
+        linkedChannels.invalidate(channelId)
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.linkedChannelDidLoad, channelId)
+    }
+
+    suspend fun resolveLinkedChannelForNavigation(channelId: Long, clanId: Long): ClanChannelEntity? {
+        if (clanId != 0L && clansController.get().clans.value.none { it.clanId == clanId }) return null
+        return sessionManager.withAutoRefresh { session ->
+            withContext(ioDispatcher) { api.listChannelDetail(session.apiUrl, session.token, channelId) }
+        }.takeIf { it.channelId == channelId && (clanId == 0L || it.clanId == clanId) }?.toClanChannelEntity()
+    }
+
+    fun requestLinkedChannel(channelId: Long, clanId: Long) {
+        if (channelId == 0L || (clanId != 0L && clansController.get().clans.value.none { it.clanId == clanId })) return
+        linkedChannels.request(channelId, groupId = clanId, lookup = {
+            if (clanId != 0L && clansController.get().clans.value.none { it.clanId == clanId }) {
+                throw kotlinx.coroutines.CancellationException("Clan left")
+            }
+            try {
+                sessionManager.withAutoRefresh { session ->
+                    withContext(ioDispatcher) { api.listChannelDetail(session.apiUrl, session.token, channelId) }
+                }.takeIf { it.channelId == channelId && (clanId == 0L || it.clanId == clanId) }
+                    ?.toClanChannelEntity()
+            } catch (e: com.mezon.mobile.network.SocketRpcServerException) {
+                if (e.code in setOf(3, 5, 7)) null else throw e
+            } catch (e: com.mezon.mobile.network.HttpRpcStatusException) {
+                if (e.code in setOf(400, 403, 404)) null else throw e
+            }
+        }, onResolved = {
+            notificationCenter.postNotificationOnMainThread(NotificationCenter.linkedChannelDidLoad, channelId)
+        })
+    }
+
     fun cleanup() {
+        linkedChannels.clear()
         _channelsByClan.value = emptyMap()
         sdTopicChannelsById.clear()
         currentOpenChannelId = 0L
@@ -256,10 +297,12 @@ class ChannelController @Inject constructor(
 
     fun purgeClanChannelsCache(clanId: Long) {
         if (clanId == 0L) return
+        linkedChannels.invalidateGroup(clanId)
         clearSdTopicsForClan(clanId)
         val m = _channelsByClan.value.toMutableMap()
         m.remove(clanId)
         _channelsByClan.value = m
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.linkedChannelDidLoad)
         favoritesByClan.remove(clanId)
         mutedChannelIdsByClan.remove(clanId)
         categoriesByClan.remove(clanId)
@@ -756,6 +799,7 @@ class ChannelController @Inject constructor(
     }
 
     private fun removeChannelLocally(clanId: Long, channelId: Long, channelType: Int) {
+        invalidateLinkedChannel(channelId)
         val existing = _channelsByClan.value[clanId] ?: emptyList()
         updateCache(clanId, existing.filter { it.channelId != channelId })
         favoritesByClan[clanId]?.remove(channelId)
@@ -777,6 +821,7 @@ class ChannelController @Inject constructor(
         val clanId = event.clanId
         val channelId = event.channelId
         if (clanId == 0L || channelId == 0L || isDirectChannelType(event.channelType)) return
+        invalidateLinkedChannel(channelId)
 
         val existing = _channelsByClan.value[clanId].orEmpty()
         if (event.active == 0) {
@@ -1524,6 +1569,7 @@ class ChannelController @Inject constructor(
         if (event.usersList.none { it.userId == currentUserId }) {
             return
         }
+        invalidateLinkedChannel(desc.channelId)
         val clanId = event.clanId.takeIf { it != 0L } ?: desc.clanId
         if (clanId == 0L || desc.channelId == 0L) return
         cacheChannelAvatar(clanId, desc)
@@ -1555,6 +1601,7 @@ class ChannelController @Inject constructor(
         if (event.userIdsList.none { it == currentUserId }) return
         val channelId = event.channelId
         if (channelId == 0L) return
+        invalidateLinkedChannel(channelId)
         val clanId = event.clanId.takeIf { it != 0L } ?: findClanIdForChannel(channelId)
         if (clanId != 0L) {
             val existing = _channelsByClan.value[clanId]
@@ -2021,6 +2068,7 @@ class ChannelController @Inject constructor(
 
         appScope.launch {
             dispatcher.channelDeletedEvents.collect { event ->
+                invalidateLinkedChannel(event.channelId)
                 val clanId = event.clanId
                 val existing = _channelsByClan.value[clanId] ?: return@collect
                 updateCache(clanId, existing.filter { it.channelId != event.channelId })
@@ -2215,6 +2263,8 @@ class ChannelController @Inject constructor(
 
         appScope.launch {
             dispatcher.channelUpdatedEvents.collect { event ->
+                // Linked channels may not be present in the sidebar cache.
+                invalidateLinkedChannel(event.channelId)
                 val clanId = event.clanId
                 val existing = _channelsByClan.value[clanId] ?: return@collect
                 val updated = existing.map { ch ->
@@ -2244,6 +2294,22 @@ class ChannelController @Inject constructor(
                 notificationCenter.postNotificationOnMainThread(
                     NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_CHAT
                 )
+            }
+        }
+
+        appScope.launch {
+            dispatcher.permissionChangedEvents.collect { event ->
+                val userId = sessionManager.sessionFlow.first()?.userId?.toLongOrNull() ?: 0L
+                if (userId != 0L && event.userId == userId) invalidateLinkedChannel(event.channelId)
+            }
+        }
+
+        appScope.launch {
+            dispatcher.permissionSetEvents.collect { event ->
+                val userId = sessionManager.sessionFlow.first()?.userId?.toLongOrNull() ?: 0L
+                if (userId != 0L && (event.userId == userId || event.userId == 0L || event.roleId != 0L)) {
+                    invalidateLinkedChannel(event.channelId)
+                }
             }
         }
 

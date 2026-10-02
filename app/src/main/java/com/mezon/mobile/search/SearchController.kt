@@ -86,6 +86,8 @@ class SearchController @Inject constructor(
     private val searchMessages = ArrayList<SearchMessageDocument>()
     private val screenStateByChannel = HashMap<Long, SearchScreenState>()
     private var hasActiveSession = true
+    private var currentUserId = 0L
+    private var channelCacheGeneration = 0L
     var searchMessagesTotal = 0
         private set
 
@@ -100,6 +102,7 @@ class SearchController @Inject constructor(
             sessionManager.sessionFlow.collect { session ->
                 synchronized(this@SearchController) {
                     hasActiveSession = session != null
+                    currentUserId = session?.userId?.toLongOrNull() ?: 0L
                     if (!hasActiveSession) screenStateByChannel.clear()
                 }
             }
@@ -117,6 +120,33 @@ class SearchController @Inject constructor(
         appScope.launch {
             dispatcher.channelDeletedEvents.collect { event ->
                 removeChannelData(event.channelId)
+            }
+        }
+        appScope.launch {
+            dispatcher.userChannelRemovedEvents.collect { event ->
+                val userId = synchronized(this@SearchController) { currentUserId }
+                if (userId == 0L || userId !in event.userIdsList) return@collect
+                if (event.channelType == CHANNEL_TYPE_DM || event.channelType == CHANNEL_TYPE_GROUP) return@collect
+                removeChannelData(event.channelId)
+            }
+        }
+        appScope.launch {
+            dispatcher.channelUpdatedEvents.collect { event ->
+                removeChannelData(event.channelId)
+            }
+        }
+        appScope.launch {
+            dispatcher.permissionChangedEvents.collect { event ->
+                val userId = synchronized(this@SearchController) { currentUserId }
+                if (userId != 0L && event.userId == userId) removeChannelData(event.channelId)
+            }
+        }
+        appScope.launch {
+            dispatcher.permissionSetEvents.collect { event ->
+                val userId = synchronized(this@SearchController) { currentUserId }
+                if (userId != 0L && (event.userId == userId || event.userId == 0L || event.roleId != 0L)) {
+                    removeChannelData(event.channelId)
+                }
             }
         }
     }
@@ -140,16 +170,17 @@ class SearchController @Inject constructor(
     }
 
     private fun removeChannelData(channelId: Long) {
+        if (channelId == 0L) return
         var changed = false
         synchronized(this) {
-            if (channelById.containsKey(channelId)) {
-                channelById.remove(channelId)
-                allChannels.removeAll { it.channelId == channelId }
-                changed = true
-            }
+            channelCacheGeneration++
+            ctrlKGeneration++
+            changed = channelById.remove(channelId) != null
+            changed = allChannels.removeAll { it.channelId == channelId } || changed
+            changed = ctrlKChannels.removeAll { it.channelId == channelId } || changed
+            cacheTracker.invalidate(apiCacheKey("searchChannels"))
         }
         if (changed) {
-            cacheTracker.invalidate(apiCacheKey("searchChannels"))
             notificationCenter.postNotificationOnMainThread(NotificationCenter.searchChannelsDidLoad)
         }
     }
@@ -307,18 +338,20 @@ class SearchController @Inject constructor(
                 }
 
                 sessionManager.withAutoRefresh { session ->
+                    val generation = synchronized(this@SearchController) { channelCacheGeneration }
                     val response = api.listChannelByUserId(session.apiUrl, session.token)
 
                     val channels = response.channeldescList.map { it.toClanChannelEntity() }
                     synchronized(this@SearchController) {
+                        if (generation != channelCacheGeneration) return@withAutoRefresh
                         allChannels.clear()
                         allChannels.addAll(channels)
                         channelById.clear()
                         for (c in channels) channelById[c.channelId] = c
                         channelsLoaded = true
+                        cacheTracker.markCalled(cacheKey)
                     }
 
-                    cacheTracker.markCalled(cacheKey)
                     notificationCenter.postNotificationOnMainThread(NotificationCenter.searchChannelsDidLoad)
                 }
             } catch (e: Exception) {

@@ -930,6 +930,12 @@ class MezonApi @Inject constructor(
         return endpoint
     }
 
+    suspend fun listChannelDetail(apiUrl: String, token: String, channelId: Long): ChannelDescription {
+        val request = com.mezon.mezon.api.ListChannelDetailRequest.newBuilder()
+            .setChannelId(channelId).build()
+        return ChannelDescription.parseFrom(rpcOverHttp(apiUrl, token, "ListChannelDetail", request.toByteArray()))
+    }
+
     suspend fun listChannelDescs(
         apiUrl: String,
         token: String,

@@ -1299,6 +1299,7 @@ open class ChatFragment : BaseFragment() {
         }
 
         observe(NotificationCenter.channelsDidLoad) { _, _, args ->
+            if (::adapter.isInitialized) adapter.refreshLinkedChannelLabels()
             if (fragmentView == null || isPaused || isTopicMode) return@observe
             val changedClanId = args.firstOrNull() as? Long ?: return@observe
             if (changedClanId != clanId || clanId == 0L) return@observe
@@ -1500,14 +1501,15 @@ open class ChatFragment : BaseFragment() {
             }
         }
 
+        observe(NotificationCenter.linkedChannelDidLoad) { _, _, _ ->
+            if (::adapter.isInitialized) adapter.refreshLinkedChannelLabels()
+        }
+
         observe(NotificationCenter.searchChannelsDidLoad) { _, _, _ ->
+            if (::adapter.isInitialized) adapter.refreshLinkedChannelLabels()
             if (isPaused) return@observe
             if (currentTrigger.mode == InputSuggestionsController.Mode.HASHTAG) {
                 checkSuggestionTrigger()
-            }
-            val isDmLike = channelType == CHANNEL_TYPE_DM || channelType == CHANNEL_TYPE_GROUP
-            if (isDmLike || clanId == 0L) {
-                adapter.notifyDataSetChanged()
             }
         }
 
@@ -2322,8 +2324,8 @@ open class ChatFragment : BaseFragment() {
             override fun didTapAddReaction(cell: ChatMessageCell, msg: MessageEntity) {
                 showReactionEmojiPicker(msg)
             }
-            override fun didClickHashtag(cell: ChatMessageCell, channelId: String?) {
-                navigateToChannelFromHashtag(channelId)
+            override fun didClickHashtag(cell: ChatMessageCell, channelId: String?, clanId: String?) {
+                navigateToChannelFromHashtag(channelId, clanId)
             }
             override fun didClickMention(cell: ChatMessageCell, userId: String?, roleId: String?) {
                 if (!roleId.isNullOrBlank() && roleId != "0") return
@@ -8468,17 +8470,35 @@ open class ChatFragment : BaseFragment() {
         return ChannelItemCell.resolveChannelIcon(type, entity.isPrivate, isAgeRestricted)
     }
 
-    private fun navigateToChannelFromHashtag(channelIdStr: String?) {
+    private fun navigateToChannelFromHashtag(channelIdStr: String?, targetClanIdStr: String?) {
         val cid = channelIdStr?.toLongOrNull() ?: return
         if (cid == 0L) return
-        val entity = channelController.findChannelById(cid, clanId)
-            ?: channelController.findChannelById(cid, 0L)
-            ?: searchController.findChannelById(cid)
-        if (entity == null) {
-            if (!searchController.hasChannels()) searchController.loadChannels()
+        val targetClanId = targetClanIdStr?.toLongOrNull() ?: clanId
+        if (targetClanId != 0L && clansController.clans.value.none { it.clanId == targetClanId }) return
+        val entity = (if (channelController.requiresLinkedChannelValidation(cid)) {
+            channelController.linkedChannelDetail(cid)
+        } else {
+            channelController.findChannelById(cid, targetClanId)
+                ?: searchController.findChannelById(cid)
+                ?: channelController.linkedChannelDetail(cid)
+        })
+            ?.takeIf { targetClanId == 0L || it.clanId == targetClanId }
+        if (entity != null) {
+            openChannelEntity(entity)
             return
         }
-        openChannelEntity(entity)
+        appScope.launch(ioDispatcher) {
+            try {
+                val resolved = channelController.resolveLinkedChannelForNavigation(cid, targetClanId) ?: return@launch
+                withContext(mainDispatcher) {
+                    if (!isPaused) openChannelEntity(resolved)
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                
+            }
+        }
     }
 
     private fun openChannelAppFromHotbar() {
