@@ -21,6 +21,7 @@ import com.mezon.mobile.home.chat.EmojiController
 import com.mezon.mobile.home.clans.settings.SoundEffectSettingsController
 import com.mezon.mobile.home.clans.settings.StickerSettingsController
 import com.mezon.mobile.home.chat.ImageClipboardCoordinator
+import com.mezon.mobile.home.chat.input.MentionSearchController
 import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.ForwardTargetUsageStore
 import com.mezon.mobile.home.messages.DmPinStorage
@@ -109,6 +110,7 @@ interface FragmentEntryPoint {
     fun mezonSfuSession(): MezonSfuSession
     fun anonymousController(): AnonymousController
     fun memberResolver(): MemberResolver
+    fun mentionSearchController(): MentionSearchController
     fun roleController(): RoleController
     fun communitySettingsController(): CommunitySettingsController
     fun invitePeopleController(): InvitePeopleController

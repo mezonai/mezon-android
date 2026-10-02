@@ -17,7 +17,7 @@ class MezonNS private constructor(private var handle: Long) : AutoCloseable {
             val handle = nativeCreateFromMemory(model, 15.0f)
             if (handle == 0L) return null
             return MezonNS(handle).apply {
-                nativeSetNoiseGate(handle, true)
+                nativeSetNoiseGate(handle, false)
                 nativeSetSuppressionIntensity(handle, 1.6f)
                 nativeSetModelInputTargetDbfs(handle, -20.0f)
             }

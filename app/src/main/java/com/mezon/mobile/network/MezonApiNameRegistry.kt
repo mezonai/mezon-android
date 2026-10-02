@@ -223,7 +223,8 @@ object MezonApiNameRegistry {
         "DeletePinMessage",
         "MarkAsRead",
         "UploadBatchAttachmentFile",
-        "SearchCtrlK"
+        "SearchCtrlK",
+        "SearchMentionUsers"
     )
 
     private val nameToIndex: Map<String, Int> = orderedNames

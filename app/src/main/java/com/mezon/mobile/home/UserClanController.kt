@@ -24,6 +24,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 private const val TAG = "UserClanController"
+private const val LIST_CLAN_USERS_CAP = 1000
 
 data class ClanUser(
     val id: Long,
@@ -138,6 +139,7 @@ class UserClanController @Inject constructor(
     }
 
     private val membersByClan = LongSparseArray<List<ClanMember>>()
+    private val rosterCappedClans = HashSet<Long>()
     private val inFlightLoads = HashSet<String>()
 
     private fun beginLoad(key: String): Boolean = synchronized(this) { inFlightLoads.add(key) }
@@ -159,6 +161,10 @@ class UserClanController @Inject constructor(
         synchronized(this) { return membersByClan.indexOfKey(clanId) >= 0 }
     }
 
+    fun isClanRosterCapped(clanId: Long): Boolean {
+        synchronized(this) { return clanId in rosterCappedClans }
+    }
+
     fun hasClanMemberCount(clanId: Long): Boolean {
         return hasClanMembersCache(clanId) || clanMemberCountStore.get(clanId) > 0
     }
@@ -172,6 +178,7 @@ class UserClanController @Inject constructor(
         synchronized(this) {
             val ix = membersByClan.indexOfKey(clanId)
             if (ix >= 0) membersByClan.removeAt(ix)
+            rosterCappedClans.remove(clanId)
         }
     }
 
@@ -326,6 +333,11 @@ class UserClanController @Inject constructor(
 
                         synchronized(this@UserClanController) {
                             membersByClan.put(clanId, members)
+                            if (clanUsers.size >= LIST_CLAN_USERS_CAP) {
+                                rosterCappedClans.add(clanId)
+                            } else {
+                                rosterCappedClans.remove(clanId)
+                            }
                         }
                         clanMemberCountStore.save(clanId, members.size)
 
@@ -556,6 +568,7 @@ class UserClanController @Inject constructor(
             usersDict.clear()
             loaded = false
             membersByClan.clear()
+            rosterCappedClans.clear()
             membersByChannel.clear()
             directMembersByChannel.clear()
         }

@@ -91,6 +91,8 @@ import com.mezon.mobile.home.chat.input.SlashCommand
 import com.mezon.mobile.home.chat.input.SlashCommandCatalog
 import com.mezon.mobile.home.chat.input.InputSuggestionsController
 import com.mezon.mobile.home.chat.input.InputSuggestionsPopup
+import com.mezon.mobile.home.chat.input.MentionSearchController
+import com.mezon.mobile.home.chat.input.MentionSearchResult
 import com.mezon.mobile.home.chat.input.VoiceRecorder
 import com.mezon.mobile.home.chat.input.VoiceRecordingOverlay
 import com.mezon.mobile.home.sharing.SharingFragment
@@ -438,6 +440,7 @@ open class ChatFragment : BaseFragment() {
     private lateinit var userClanController: UserClanController
     private lateinit var userController: com.mezon.mobile.home.profile.UserController
     private lateinit var memberResolver: MemberResolver
+    private lateinit var mentionSearchController: MentionSearchController
     private lateinit var topicController: TopicController
     private lateinit var topicBadgeTracker: TopicBadgeTracker
     private var topicBadgeHydrateJob: Job? = null
@@ -1475,6 +1478,14 @@ open class ChatFragment : BaseFragment() {
             }
         }
 
+        observe(NotificationCenter.mentionSearchDidLoad) { _, _, args ->
+            if (isPaused) return@observe
+            val searchedClanId = args.firstOrNull() as? Long ?: return@observe
+            if (searchedClanId == clanId && currentTrigger.mode == InputSuggestionsController.Mode.MENTION) {
+                checkSuggestionTrigger()
+            }
+        }
+
         observe(NotificationCenter.closeChats) { _, _, args ->
             val removedChannelId = args.firstOrNull() as? Long ?: 0L
             if (removedChannelId != 0L && removedChannelId != channelId) return@observe
@@ -1575,6 +1586,7 @@ open class ChatFragment : BaseFragment() {
         userClanController = entryPoint.userClanController()
         userController = entryPoint.userController()
         memberResolver = entryPoint.memberResolver()
+        mentionSearchController = entryPoint.mentionSearchController()
         roleController = entryPoint.roleController()
         permissionPolicy = entryPoint.permissionPolicy()
         searchController = entryPoint.searchController()
@@ -8106,7 +8118,7 @@ open class ChatFragment : BaseFragment() {
         slashCommandDebounceJob = null
 
         val items: List<InputSuggestionItem> = when (trigger.mode) {
-            InputSuggestionsController.Mode.MENTION -> buildMentionSuggestions(trigger.keyword)
+            InputSuggestionsController.Mode.MENTION -> buildMentionSuggestions(trigger)
             InputSuggestionsController.Mode.HASHTAG -> buildHashtagSuggestions(trigger.keyword)
             InputSuggestionsController.Mode.EMOJI -> buildEmojiSuggestions(trigger.keyword)
             else -> emptyList()
@@ -8125,6 +8137,7 @@ open class ChatFragment : BaseFragment() {
     private fun hideSuggestionsPopup() {
         slashCommandDebounceJob?.cancel()
         slashCommandDebounceJob = null
+        mentionSearchController.cancelPending()
         suggestionsPopup?.updateVisibility(false)
         suggestionsAdapter?.clear()
         currentTrigger = InputSuggestionsController.TriggerState.NONE
@@ -8191,7 +8204,7 @@ open class ChatFragment : BaseFragment() {
         updateInputOgpPreview(message)
     }
 
-    private fun buildMentionSuggestions(keyword: String): List<InputSuggestionItem> {
+    private fun buildMentionSuggestions(trigger: InputSuggestionsController.TriggerState): List<InputSuggestionItem> {
         val members = resolveMentionMembers()
         val membersPending = memberResolver.mentionMembersPending(clanId, members)
         if (membersPending) loadMentionMemberSources()
@@ -8202,14 +8215,21 @@ open class ChatFragment : BaseFragment() {
             }
         } else emptyList()
         val includeHere = channelType != CHANNEL_TYPE_DM
+        val continuesInsertedMention = mentionTrackers.any { it.startOffset == trigger.triggerPos }
+        val remote = if (isChannelOrThread && !continuesInsertedMention) {
+            mentionSearchController.search(clanId, channelId, trigger.keyword)
+        } else {
+            MentionSearchResult.NONE
+        }
         val ctx = InputSuggestionsController.MentionContext(
             members = members,
             roles = roles,
             includeHere = includeHere,
             includeRoles = isChannelOrThread,
-            membersPending = membersPending
+            membersPending = membersPending || remote.pending,
+            remoteMembers = remote.members
         )
-        return InputSuggestionsController.buildMentionItems(keyword, ctx)
+        return InputSuggestionsController.buildMentionItems(trigger.keyword, ctx)
     }
 
     private fun loadMentionMemberSources() {
