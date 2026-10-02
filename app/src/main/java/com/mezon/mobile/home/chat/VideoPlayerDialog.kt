@@ -408,15 +408,15 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
         initializePlayer(startPositionMs = 0L, playWhenReady = true)
 
         playerView.alpha = 1f
-        topBar.alpha = 1f
-        topBar.visibility = View.VISIBLE
+        topBar.alpha = 0f
+        topBar.visibility = View.INVISIBLE
         backgroundDrawable.alpha = 0
         activeInstance = java.lang.ref.WeakReference(this)
         super.show()
         InAppOverlayHost.register(this, dismissOnOverlayTap = true)
         registerLifecycleObserver()
         ObjectAnimator.ofInt(backgroundDrawable, "alpha", 0, 255).setDuration(200).start()
-        playerView.showController()
+        playerView.hideController()
     }
 
     override fun dismiss() {
@@ -438,6 +438,20 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
             .build()
             .also { exoPlayer ->
                 playerView.player = exoPlayer
+                exoPlayer.addListener(object : Player.Listener {
+                    private var previousPlaybackState = exoPlayer.playbackState
+
+                    override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                        if (playWhenReady) playerView.hideController()
+                    }
+
+                    override fun onPlaybackStateChanged(playbackState: Int) {
+                        if (previousPlaybackState == Player.STATE_ENDED && exoPlayer.playWhenReady) {
+                            playerView.hideController()
+                        }
+                        previousPlaybackState = playbackState
+                    }
+                })
                 exoPlayer.setMediaItem(MediaItem.fromUri(currentItem.url))
                 exoPlayer.repeatMode = Player.REPEAT_MODE_OFF
                 if (startPositionMs > 0L) exoPlayer.seekTo(startPositionMs)
