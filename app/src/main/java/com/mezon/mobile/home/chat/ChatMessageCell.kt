@@ -50,12 +50,16 @@ import com.mezon.mobile.util.messageHasExplicitTextBody
 import com.mezon.mobile.util.parseContentText
 import com.mezon.mobile.util.ShareContactData
 import com.mezon.mobile.util.isShareContactMessage
+import com.mezon.mobile.util.LocationMessageData
+import com.mezon.mobile.util.isLocationMessage
+import com.mezon.mobile.util.parseLocationMessageData
 import com.mezon.mobile.util.parseShareContactData
 import com.mezon.mobile.util.parseContentToSpannable
 import com.mezon.mobile.home.chat.poll.ChatPollBridge
 import com.mezon.mobile.home.chat.poll.ParsedPoll
 import com.mezon.mobile.home.chat.poll.PollLocalState
 import com.mezon.mobile.home.chat.poll.PollMessageLayout
+import com.mezon.mobile.home.chat.poll.isPollContentJson
 import com.mezon.mobile.home.chat.poll.parsePollContent
 import com.mezon.mobile.home.call.CallLogMessageType
 import com.mezon.mobile.home.call.ParsedCallLogMessage
@@ -174,6 +178,13 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private val shareContactHitRect = RectF()
     private var shareContactCardDrawTopY = Float.NaN
     private var pressedShareContactAction = ShareContactHit.None
+    private val locationCardLayout = LocationCardLayout(context).also {
+        it.invalidateCallback = { invalidate() }
+    }
+    private var locationParsed: LocationMessageData? = null
+    private var hasLocationCard = false
+    private val locationHitRect = RectF()
+    private var locationCardDrawTopY = Float.NaN
     var loadLinkInvitePreview: (suspend (Long) -> com.mezon.mobile.network.LinkInvitePreview?)?
         get() = linkInviteBlock.loadLinkInvitePreview
         set(v) {
@@ -274,6 +285,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private var audioIsLoading = false
     private var audioPositionMs: Long = 0
     private var audioDurationMs: Long = 0
+    private var audioPlaybackDurationMs: Long = 0
+    private var audioLockedDisplaySeconds: Int = 0
+    private var audioDurationProbeJob: Job? = null
+    private var audioDurationProbeUrl = ""
     private var audioWaveTimeMs: Long = 0
     private var audioLastFrameTimeMs: Long = 0
     private val audioWavePath = Path()
@@ -417,6 +432,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             pendingMessage = null
             update(0, msg)
         }
+        messageEntity?.let { resolveAudioDurationIfNeeded(it) }
     }
 
     override fun onDetachedFromWindow() {
@@ -443,6 +459,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         avatarCancellable?.cancel()
         avatarCancellable = null
         senderRoleIconCancellable?.cancel()
+        cancelAudioDurationProbe()
         senderRoleIconCancellable = null
         reactionEmojiCancellables.forEach { it?.cancel() }
         cancelEmojiLoads()
@@ -584,6 +601,11 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         shareContactCardDrawTopY = Float.NaN
         clearShareContactActionPress()
         shareContactLayout.clear()
+        locationParsed = null
+        hasLocationCard = false
+        locationHitRect.setEmpty()
+        locationCardDrawTopY = Float.NaN
+        locationCardLayout.clear()
     }
 
     private var lastBoundId = 0L
@@ -595,6 +617,23 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     private val sendingDimTickRunnable = Runnable {
         sendingDimTickScheduled = false
         if (hasPendingSendVisual()) invalidate()
+    }
+
+    private var linkedChannelRenderRevision = 0
+
+    fun refreshLinkedChannelLabels(revision: Int) {
+        if (linkedChannelRenderRevision == revision) return
+        linkedChannelRenderRevision = revision
+        val msg = messageEntity ?: return
+        val text = contentLayout?.text as? Spanned ?: return
+        if (text.getSpans(0, text.length, HashtagSpan::class.java).isEmpty()) return
+        val width = currentWidth()
+        val textWidth = if (drawPhotoImage) photoWidth else maxBubbleWidth(width)
+        if (textWidth <= 0) return
+        contentLayout = buildContentLayout(msg, textWidth)
+        updateBubbleGeometry(msg, width)
+        requestLayout()
+        invalidate()
     }
 
     fun resetForRebind() {
@@ -633,6 +672,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             audioIsLoading = false
             audioPositionMs = 0L
             audioDurationMs = (msg.attachmentDuration * 1000L).coerceAtLeast(0L)
+            audioPlaybackDurationMs = 0L
+            audioLockedDisplaySeconds = msg.attachmentDuration.coerceAtLeast(0)
             audioWaveTimeMs = 0L
             audioLastFrameTimeMs = 0L
             drawForwardHeader = msg.isForwarded
@@ -873,7 +914,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             (msg.attachmentFiletype.equals("sticker", true) || msg.attachmentUrl.contains("/stickers/"))
         val bubbleCap = maxBubbleWidth(width)
         var maxW = when {
-            isStickerMsg -> LayoutHelper.dp(160)
+            isStickerMsg -> STICKER_MEDIA_SIZE.coerceAtMost(bubbleCap)
             isInPinMode -> albumMaxWidthPx(width).coerceAtMost(bubbleCap)
             else -> albumMaxWidthPx(width)
         }
@@ -1040,7 +1081,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             } else if (isLocalUri) {
                 receiver.setLocalUri(android.net.Uri.parse(att.url), context)
             } else if (isAnimated || isStickerAttachment) {
-                val mainUrl = if (isStickerAttachment) {
+                val mainUrl = if (isStickerAttachment || android.os.Build.VERSION.SDK_INT >= 28) {
                     createImgproxyUrl(att.url, pw, ph, "fit")
                 } else {
                     att.url
@@ -1450,73 +1491,15 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
     }
 
-    private fun buildLayouts(msg: MessageEntity) {
-        buildLayouts(msg, currentWidth())
-    }
-
-    private fun buildLayouts(msg: MessageEntity, width: Int) {
-        val bubbleMaxW = maxBubbleWidth(width)
-        val bubbleWidth = if (drawPhotoImage) photoWidth else bubbleMaxW
-        if (bubbleWidth <= 0) return
-
-        val textWidth = if (drawPhotoImage) photoWidth else bubbleWidth
-
-        val callLogParse = if (!msg.isPollMessage) parseCallLogMessage(msg.content) else null
-        hasCallLogCard = callLogParse != null
-        if (callLogParse != null) {
-            callLogParsed = callLogParse
-            buildCallLogLayouts(msg, textWidth, callLogParse)
-        } else {
-            callLogParsed = null
-            callLogTitleLayout = null
-            callLogDescLayout = null
-            callLogCallbackLayout = null
-            callLogShowCallback = false
-            callLogCardHeight = 0
-            callLogInnerWidth = 0
-            callLogCallbackRect.setEmpty()
-        }
-
-        forwardLayout = if (drawForwardHeader) {
-            val fwdText = FORWARD_TEXT
-            StaticLayout.Builder.obtain(fwdText, 0, fwdText.length, FORWARD_PAINT, textWidth.coerceAtLeast(1))
-                .setMaxLines(1)
-                .build()
-        } else null
-
+    private fun buildContentLayout(msg: MessageEntity, textWidth: Int): StaticLayout? {
         val editedText = context.getString(R.string.message_edited)
-        editedLayout = null
-
-        val timeStr = timeText
-        timeLayout = if (isCombined) null else {
-            StaticLayout.Builder.obtain(timeStr, 0, timeStr.length, currentTimePaint, textWidth.coerceAtLeast(1))
-                .setMaxLines(1)
-                .build()
-        }
-
-        pollParsed = if (msg.isPollMessage) parsePollContent(msg.content) else null
-        shareContactParsed = if (!hasCallLogCard && !msg.isPollMessage &&
-            isShareContactMessage(msg.code, msg.content)
-        ) {
-            parseShareContactData(msg.content)
-        } else {
-            null
-        }
-        hasShareContactCard = shareContactParsed != null
-        if (hasShareContactCard) {
-            val scData = shareContactParsed!!
-            val isOnline = shareContactOnlineResolver?.invoke(scData.userId) == true
-            shareContactLayout.prepare(scData, theme, bubbleMaxW, isOnline)
-        } else {
-            shareContactLayout.clear()
-        }
         val hasEmbedPayload = !hasCallLogCard && !hasShareContactCard && isEmbedOrComponentsPayload(msg.content)
-        val hasActualText = !hasCallLogCard && !msg.isPollMessage &&
+        val hasActualText = !hasCallLogCard && !msg.isPollMessage && !hasLocationCard &&
             parsedContent.isNotBlank() && parsedContent != "[file]" && parsedContent != "[embed]" &&
             parsedContent != "[Contact]" &&
             (!hasEmbedPayload || hasExplicitTextBody)
         val hasText = hasActualText || drawEdited
-        contentLayout = if (hasText) {
+        return if (hasText) {
             val contentToParse = if (hasActualText) msg.content else ""
             val parsedToParse = if (hasActualText) parsedContent else ""
             val linkColor = theme.blurple
@@ -1533,7 +1516,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             }
             if (drawEdited) {
                 val ssb = android.text.SpannableStringBuilder(charSeq)
-                if (ssb.isNotEmpty()) ssb.append("  ")
+                val endsWithCodeFence = ssb.getSpans(0, ssb.length, CodeFenceSpan::class.java)
+                    .any { ssb.getSpanEnd(it) == ssb.length }
+                if (ssb.isNotEmpty()) ssb.append(if (endsWithCodeFence) "\n" else "  ")
                 val start = ssb.length
                 ssb.append(editedText)
                 ssb.setSpan(
@@ -1569,6 +1554,86 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             (charSeq as? Spanned)?.let { CodeFenceSpan.bindLineBounds(it, layout) }
             layout
         } else null
+    }
+
+    private fun buildLayouts(msg: MessageEntity) {
+        buildLayouts(msg, currentWidth())
+    }
+
+    private fun buildLayouts(msg: MessageEntity, width: Int) {
+        val bubbleMaxW = maxBubbleWidth(width)
+        val bubbleWidth = if (drawPhotoImage) photoWidth else bubbleMaxW
+        if (bubbleWidth <= 0) return
+
+        val textWidth = if (drawPhotoImage) photoWidth else bubbleWidth
+
+        val callLogParse = if (!msg.isPollMessage) parseCallLogMessage(msg.content) else null
+        hasCallLogCard = callLogParse != null
+        if (callLogParse != null) {
+            callLogParsed = callLogParse
+            buildCallLogLayouts(msg, textWidth, callLogParse)
+        } else {
+            callLogParsed = null
+            callLogTitleLayout = null
+            callLogDescLayout = null
+            callLogCallbackLayout = null
+            callLogShowCallback = false
+            callLogCardHeight = 0
+            callLogInnerWidth = 0
+            callLogCallbackRect.setEmpty()
+        }
+
+        forwardLayout = if (drawForwardHeader) {
+            val fwdText = FORWARD_TEXT
+            StaticLayout.Builder.obtain(fwdText, 0, fwdText.length, FORWARD_PAINT, textWidth.coerceAtLeast(1))
+                .setMaxLines(1)
+                .build()
+        } else null
+
+        editedLayout = null
+
+        val timeStr = timeText
+        timeLayout = if (isCombined) null else {
+            StaticLayout.Builder.obtain(timeStr, 0, timeStr.length, currentTimePaint, textWidth.coerceAtLeast(1))
+                .setMaxLines(1)
+                .build()
+        }
+
+        pollParsed = if (msg.isPollMessage) parsePollContent(msg.content) else null
+        shareContactParsed = if (!hasCallLogCard && !msg.isPollMessage &&
+            isShareContactMessage(msg.code, msg.content)
+        ) {
+            parseShareContactData(msg.content)
+        } else {
+            null
+        }
+        hasShareContactCard = shareContactParsed != null
+        if (hasShareContactCard) {
+            val scData = shareContactParsed!!
+            val isOnline = shareContactOnlineResolver?.invoke(scData.userId) == true
+            shareContactLayout.prepare(scData, theme, bubbleMaxW, isOnline)
+        } else {
+            shareContactLayout.clear()
+        }
+        locationParsed = if (!hasCallLogCard && !hasShareContactCard && isLocationMessage(msg.code, msg.content)) {
+            parseLocationMessageData(msg.content)
+        } else {
+            null
+        }
+        hasLocationCard = locationParsed != null
+        if (hasLocationCard) {
+            val locData = locationParsed!!
+            val title = if (msg.isMe) {
+                context.getString(R.string.location_card_your_location)
+            } else {
+                context.getString(R.string.location_card_location_of, msg.senderName.ifBlank { msg.senderUsername })
+            }
+            locationCardLayout.prepare(locData, msg.senderId, msg.senderUsername, msg.senderAvatar, title, theme, bubbleMaxW)
+        } else {
+            locationCardLayout.clear()
+        }
+        val hasEmbedPayload = !hasCallLogCard && !hasShareContactCard && isEmbedOrComponentsPayload(msg.content)
+        contentLayout = buildContentLayout(msg, textWidth)
 
         reserveSenderRoleIcon = false
         cachedSenderNameW = 0f
@@ -1693,15 +1758,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 .build()
         } else null
 
-        val hasCodeFence = contentLayout?.text?.let { cs ->
-            cs is android.text.Spanned && cs.getSpans(0, cs.length, com.mezon.mobile.home.chat.CodeFenceSpan::class.java).isNotEmpty()
-        } == true
-
-        cachedContentW = when {
-            hasCallLogCard -> textWidth.toFloat()
-            hasCodeFence -> textWidth.toFloat()
-            else -> contentLayout?.let { maxLineWidth(it) } ?: 0f
-        }
         cachedSenderW = if (senderLayout != null) {
             val nw = maxLineWidth(senderLayout!!)
             cachedSenderNameW = nw
@@ -1731,6 +1787,22 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             pollLayoutHelper.prepare(forLayout, st, currentUserId, theme, bubbleMaxW, this)
         }
 
+        buildTopicButton(msg, width)
+        updateBubbleGeometry(msg, width)
+    }
+
+    private fun updateBubbleGeometry(msg: MessageEntity, width: Int) {
+        val bubbleMaxW = maxBubbleWidth(width)
+        val textWidth = if (drawPhotoImage) photoWidth else bubbleMaxW
+        val hasCodeFence = contentLayout?.text?.let { cs ->
+            cs is android.text.Spanned && cs.getSpans(0, cs.length, com.mezon.mobile.home.chat.CodeFenceSpan::class.java).isNotEmpty()
+        } == true
+
+        cachedContentW = when {
+            hasCallLogCard -> textWidth.toFloat()
+            hasCodeFence -> textWidth.toFloat()
+            else -> contentLayout?.let { maxLineWidth(it) } ?: 0f
+        }
         val replyW = if (hasReply) cachedReplyNameW + cachedReplyTextW + REPLY_AVATAR_SIZE + REPLY_H_GAP * 2 else 0f
         val ogpW = if (ogpData != null) maxOf(cachedOgpTitleW, cachedOgpDescW, ogpImageW.toFloat()) + OGP_ACCENT_W + OGP_PADDING * 2 else 0f
         val fileW = if (drawFileAttachment) fileRowWidth.toFloat() else 0f
@@ -1738,6 +1810,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         val embedW = if (hasEmbedContent) (bubbleMaxW).toFloat() else 0f
         val inviteW = if (linkInviteBlock.isVisible) linkInviteBlock.cachedWidth else 0f
         val shareContactW = if (hasShareContactCard) shareContactLayout.cardWidth.toFloat() else 0f
+        val locationW = if (hasLocationCard) locationCardLayout.cardWidth.toFloat() else 0f
         cachedInnerWidth = if (drawPhotoImage) {
             photoWidth
         } else if (hasCodeFence) {
@@ -1745,7 +1818,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         } else {
             val allW = maxOf(
                 cachedSenderW, cachedContentW, cachedTimeW, replyW, ogpW, cachedForwardW,
-                fileW, audioW, cachedEphW, embedW, inviteW, shareContactW, reactionRowContentWidth,
+                fileW, audioW, cachedEphW, embedW, inviteW, shareContactW, locationW, reactionRowContentWidth,
             )
             var w = allW.toInt().coerceAtMost(bubbleMaxW)
             if (msg.isPollMessage && pollParsed != null) {
@@ -1753,6 +1826,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             }
             if (hasShareContactCard) {
                 w = maxOf(w, shareContactLayout.cardWidth)
+            }
+            if (hasLocationCard) {
+                w = maxOf(w, locationCardLayout.cardWidth)
             }
             w
         }
@@ -1776,7 +1852,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             hasEphemeralDecor = false
         }
 
-        buildTopicButton(msg, width)
+        if (topicButtonLayout.visible && width > 0) {
+            topicButtonLayout.layout(messageContentLeft().toFloat(), yOffsetBeforeTopicButton(msg), width)
+        }
         measuredCellHeight = computeHeight(msg)
         updatedContent = true
         syncPollHitRect()
@@ -1817,7 +1895,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         var yOff = yOffsetTopOfMainContent(msg)
         yOff += mainContentStackHeight().toFloat()
         if (reactionGroups.isNotEmpty()) {
-            yOff += REACTION_TOP_PAD + reactionRowHeight
+            yOff += reactionTopSpacing() + reactionRowHeight
         }
         return yOff
     }
@@ -1856,6 +1934,19 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         )
     }
 
+    private fun syncLocationHitRect(contentLeft: Int) {
+        if (!hasLocationCard || locationParsed == null || locationCardDrawTopY.isNaN()) {
+            locationHitRect.setEmpty()
+            return
+        }
+        locationHitRect.set(
+            contentLeft.toFloat(),
+            locationCardDrawTopY,
+            contentLeft + locationCardLayout.cardWidth.toFloat(),
+            locationCardDrawTopY + locationCardLayout.blockHeight
+        )
+    }
+
     private fun syncPollHitRect() {
         val msg = messageEntity
         if (msg == null || !msg.isPollMessage || pollParsed == null) {
@@ -1889,7 +1980,23 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         if (hasShareContactCard) {
             y += shareContactLayout.blockHeight + GAP_V_INNER
         }
+        if (hasLocationCard) {
+            y += locationCardLayout.blockHeight + GAP_V_INNER
+        }
         return y
+    }
+
+    private fun hasBlocksBelowText(): Boolean =
+        (messageEntity?.isPollMessage == true && pollParsed != null) ||
+            hasShareContactCard || hasLocationCard || hasCallLogCard ||
+            drawPhotoImage || drawFileAttachment || drawAudioAttachment ||
+            hasEmbedContent || drawEphemeral ||
+            reactionGroups.isNotEmpty() || topicButtonLayout.visible || drawError
+
+    private fun textBottomSpacing(): Int = when {
+        ogpData != null || linkInviteBlock.isVisible -> LINK_INVITE_V_MARGIN
+        hasBlocksBelowText() -> GAP_V_INNER
+        else -> 0
     }
 
     private fun mainContentStackHeight(): Int {
@@ -1898,8 +2005,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             h += callLogCardHeight + GAP_V_INNER
         } else {
             contentLayout?.let {
-                h += it.height
-                h += if (ogpData != null || linkInviteBlock.isVisible) LINK_INVITE_V_MARGIN else GAP_V_INNER
+                h += it.height + textBottomSpacing()
             }
         }
         if (ogpData != null) {
@@ -1914,7 +2020,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
         if (drawPhotoImage) {
             val imgH = if (mediaGridCount > 1) mediaGridTotalH else photoHeight
-            h += imgH + GAP_V_INNER
+            h += imgH + mediaBottomSpacing()
         }
         if (drawFileAttachment) {
             fun fileCardH(nameL: StaticLayout?, sizeL: StaticLayout?): Int {
@@ -1955,11 +2061,14 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         if (hasShareContactCard) {
             h += shareContactLayout.blockHeight + GAP_V_INNER
         }
+        if (hasLocationCard) {
+            h += locationCardLayout.blockHeight + GAP_V_INNER
+        }
 
         h += mainContentStackHeight()
 
         if (reactionGroups.isNotEmpty()) {
-            h += REACTION_TOP_PAD + reactionRowHeight
+            h += reactionTopSpacing() + reactionRowHeight
         }
 
         if (topicButtonLayout.visible) {
@@ -2035,6 +2144,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private fun buildAudioLayouts(msg: MessageEntity) {
         if (!drawAudioAttachment) {
+            cancelAudioDurationProbe()
             audioTimeLayout = null
             audioDurationSec = 0
             audioPillWidth = 0
@@ -2051,18 +2161,61 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             AUDIO_WAVE_WIDTH +
             AUDIO_TIME_GAP +
             LayoutHelper.dp(38)
+        resolveAudioDurationIfNeeded(msg)
+    }
+
+    private fun resolveAudioDurationIfNeeded(msg: MessageEntity) {
+        if (!attachedToWindow || !drawAudioAttachment || msg.attachmentDuration > 0) {
+            cancelAudioDurationProbe()
+            return
+        }
+        val url = msg.attachmentUrl.trim()
+        if (url.isEmpty() || audioDurationMs > 0L) return
+        if (audioDurationProbeUrl == url && audioDurationProbeJob?.isActive == true) return
+
+        cancelAudioDurationProbe()
+        audioDurationProbeUrl = url
+        audioDurationProbeJob = AUDIO_DURATION_UI_SCOPE.launch {
+            val durationMs = AudioDurationResolver.resolve(url)
+            if (durationMs <= 0L || messageEntity?.attachmentUrl?.trim() != url || !drawAudioAttachment) {
+                return@launch
+            }
+            audioDurationMs = durationMs
+            rebuildAudioTimeLayout()
+            invalidate()
+        }
+    }
+
+    private fun cancelAudioDurationProbe() {
+        audioDurationProbeJob?.cancel()
+        audioDurationProbeJob = null
+        audioDurationProbeUrl = ""
     }
 
     private fun audioDisplayTime(): String {
-        val remainingMs = when {
-            audioIsPlaying && audioDurationMs > 0 -> (audioDurationMs - audioPositionMs).coerceAtLeast(0L)
-            audioPositionMs in 1 until audioDurationMs -> (audioDurationMs - audioPositionMs).coerceAtLeast(0L)
-            audioDurationMs > 0 -> audioDurationMs
-            audioDurationSec > 0 -> audioDurationSec * 1000L
-            else -> 0L
+        val rawTotalDurationMs = maxOf(audioDurationMs, audioDurationSec * 1000L)
+        if (rawTotalDurationMs > 0L) {
+            val roundedSeconds = ((rawTotalDurationMs + 999L) / 1000L).toInt()
+            audioLockedDisplaySeconds = maxOf(audioLockedDisplaySeconds, roundedSeconds)
         }
-        if (remainingMs <= 0L && audioDurationSec <= 0) return "--:--"
-        val totalSeconds = (remainingMs / 1000).toInt()
+        val totalDurationMs = maxOf(
+            rawTotalDurationMs,
+            audioLockedDisplaySeconds * 1000L
+        )
+        val progress = if (audioPlaybackDurationMs > 0L) {
+            (audioPositionMs.toDouble() / audioPlaybackDurationMs.toDouble())
+                .coerceIn(0.0, 1.0)
+        } else {
+            0.0
+        }
+        val remainingMs = when {
+            totalDurationMs <= 0L -> 0.0
+            audioIsPlaying || progress > 0.001 ->
+                (totalDurationMs.toDouble() * (1.0 - progress)).coerceAtLeast(0.0)
+            else -> totalDurationMs.toDouble()
+        }
+        if (totalDurationMs <= 0L) return "--:--"
+        val totalSeconds = ceil(remainingMs / 1000.0).toInt()
         val minutes = totalSeconds / 60
         val seconds = totalSeconds % 60
         val sb = StringBuilder(6).append(minutes).append(':')
@@ -2080,7 +2233,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     ) {
         val msg = messageEntity ?: return
         if (msg.id != messageId) {
-            if (audioIsPlaying || audioIsLoading) {
+            if (audioIsPlaying || audioIsLoading || audioPositionMs > 0L) {
                 audioIsPlaying = false
                 audioIsLoading = false
                 audioPositionMs = 0L
@@ -2092,7 +2245,10 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         audioIsPlaying = isPlaying
         audioIsLoading = isLoading
         audioPositionMs = positionMs
-        if (durationMs > 0) audioDurationMs = durationMs
+        if (durationMs > 0) {
+            audioPlaybackDurationMs = durationMs
+            audioDurationMs = maxOf(audioDurationMs, durationMs, audioDurationSec * 1000L)
+        }
         rebuildAudioTimeLayout()
         invalidate()
     }
@@ -2172,7 +2328,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 ?.replace("\\n", " ")
                 ?.replace("\\\"", "\"")
                 ?: ""
-            replyContent = parseContentPreview(rawRefContent).take(80)
+            replyContent = replyMessagePreview(rawRefContent).take(80)
 
             val senderIdMatch = REFERENCE_SENDER_ID_REGEX.find(content)
             replySenderId = senderIdMatch?.groupValues?.getOrNull(1)?.toLongOrNull() ?: 0L
@@ -2202,6 +2358,13 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         } catch (_: Exception) {
             false
         }
+    }
+
+    private fun replyMessagePreview(content: String): String {
+        if (isPollContentJson(content)) {
+            return "[${context.getString(R.string.message_attachment_poll)}]"
+        }
+        return parseContentPreview(content)
     }
 
     private var replySenderName = ""
@@ -2488,7 +2651,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         fun didClickFile(cell: ChatMessageCell, msg: MessageEntity) {}
         fun didTapAudio(cell: ChatMessageCell, msg: MessageEntity) {}
         fun didClickMention(cell: ChatMessageCell, userId: String?, roleId: String?) {}
-        fun didClickHashtag(cell: ChatMessageCell, channelId: String?) {}
+        fun didClickHashtag(cell: ChatMessageCell, channelId: String?, clanId: String?) {}
         fun didLongPress(cell: ChatMessageCell, msg: MessageEntity) {}
         fun didClickAvatar(cell: ChatMessageCell, msg: MessageEntity) {}
         fun didPressReply(cell: ChatMessageCell, replyMessageId: Long) {}
@@ -2504,6 +2667,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         fun didTapShareContactProfile(cell: ChatMessageCell, msg: MessageEntity, data: ShareContactData) {}
         fun didTapShareContactMessage(cell: ChatMessageCell, msg: MessageEntity, data: ShareContactData) {}
         fun didTapShareContactCall(cell: ChatMessageCell, msg: MessageEntity, data: ShareContactData) {}
+        fun didTapLocationCard(cell: ChatMessageCell, msg: MessageEntity, data: LocationMessageData) {}
     }
 
     private var pressedLink: ClickableSpan? = null
@@ -2528,6 +2692,12 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 (msg.attachmentFiletype.equals("sticker", true) ||
                  msg.attachmentUrl.contains("/stickers/"))
         }
+
+    private fun mediaBottomSpacing(): Int =
+        if (isSticker && reactionGroups.isNotEmpty()) 0 else GAP_V_INNER
+
+    private fun reactionTopSpacing(): Int =
+        if (isSticker) STICKER_REACTION_TOP_PAD else REACTION_TOP_PAD
 
     private var startX = 0f
     private var startY = 0f
@@ -2611,6 +2781,13 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                                 ShareContactHit.None -> Unit
                             }
                         }
+                    }
+                }
+                if (hasLocationCard && locationParsed != null && !locationCardDrawTopY.isNaN()) {
+                    syncLocationHitRect(messageContentLeft())
+                    if (!locationHitRect.isEmpty && locationHitRect.contains(x, y)) {
+                        scheduleLongPress()
+                        return true
                     }
                 }
 
@@ -2709,13 +2886,16 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     senderLayout?.let { reacBaseY += it.height + GAP_V_INNER }
                     forwardLayout?.let { reacBaseY += it.height + GAP_V_INNER }
                     contentLayout?.let {
-                        reacBaseY += it.height + (if (ogpData != null || linkInviteBlock.isVisible) LINK_INVITE_V_MARGIN else GAP_V_INNER)
+                        reacBaseY += it.height + textBottomSpacing()
                     }
                     if (messageEntity?.isPollMessage == true && pollParsed != null) {
                         reacBaseY += pollLayoutHelper.blockHeight + GAP_V_INNER
                     }
                     if (hasShareContactCard) {
                         reacBaseY += shareContactLayout.blockHeight + GAP_V_INNER
+                    }
+                    if (hasLocationCard) {
+                        reacBaseY += locationCardLayout.blockHeight + GAP_V_INNER
                     }
                     if (hasCallLogCard) {
                         reacBaseY += callLogCardHeight + GAP_V_INNER
@@ -2732,7 +2912,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     }
                     if (drawPhotoImage) {
                         val imgH = if (mediaGridCount > 1) mediaGridTotalH else photoHeight
-                        reacBaseY += imgH + GAP_V_INNER
+                        reacBaseY += imgH + mediaBottomSpacing()
                     }
                     if (drawFileAttachment) {
                         fun fileCardH2(nl: StaticLayout?, sl: StaticLayout?): Int {
@@ -2746,7 +2926,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     if (drawAudioAttachment) reacBaseY += AUDIO_PILL_HEIGHT + GAP_V_INNER
                     if (hasEmbedContent) reacBaseY += embedMessage.computeHeight()
                     if (drawEphemeral) ephemeralLayout?.let { reacBaseY += it.height + GAP_V_INNER }
-                    reacBaseY += REACTION_TOP_PAD
+                    reacBaseY += reactionTopSpacing()
 
                     if (reactionAddBounds.width() > 0) {
                         val ax = contentLeft + reactionAddBounds.left
@@ -2881,6 +3061,14 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     }
                     return true
                 }
+                val locMsg = messageEntity
+                val locData = locationParsed
+                if (!longPressHandled && locMsg != null && locData != null && hasLocationCard &&
+                    !locationHitRect.isEmpty && locationHitRect.contains(x, y)
+                ) {
+                    delegate?.didTapLocationCard(this, locMsg, locData)
+                    return true
+                }
                 clearShareContactActionPress()
                 if (pressedReactionIndex >= 0) {
                     val idx = pressedReactionIndex
@@ -3011,8 +3199,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         delegate?.didClickMention(this, userId, roleId)
     }
 
-    fun onHashtagClicked(channelId: String?) {
-        delegate?.didClickHashtag(this, channelId)
+    fun onHashtagClicked(channelId: String?, clanId: String? = null) {
+        delegate?.didClickHashtag(this, channelId, clanId)
     }
 
     fun onLinkClicked(url: String) {
@@ -3291,6 +3479,19 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 canvas, imgX, yOff, photoWidth.toFloat(), photoHeight.toFloat(), MEDIA_RADIUS,
             )
         }
+
+        yOff += photoHeight + mediaBottomSpacing()
+
+        if (reactionGroups.isNotEmpty()) {
+            yOff += reactionTopSpacing()
+            drawReactionRow(canvas, contentLeft.toFloat(), yOff)
+            yOff += reactionRowHeight
+        }
+
+        if (topicButtonLayout.visible) {
+            topicButtonLayout.layout(contentLeft.toFloat(), yOff, width)
+            topicButtonLayout.draw(canvas)
+        }
     }
 
     private fun drawMessageBubble(canvas: Canvas, msg: MessageEntity) {
@@ -3347,7 +3548,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             canvas.translate(contentLeft.toFloat(), yOff)
             it.draw(canvas)
             canvas.restore()
-            yOff += it.height + (if (ogpData != null || linkInviteBlock.isVisible) LINK_INVITE_V_MARGIN else GAP_V_INNER)
+            yOff += it.height + textBottomSpacing()
         }
 
         if (pollParsed != null && msg.isPollMessage) {
@@ -3375,6 +3576,16 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             shareContactCardDrawTopY = Float.NaN
         }
 
+        if (hasLocationCard && locationParsed != null) {
+            locationCardDrawTopY = yOff
+            locationCardLayout.draw(canvas, contentLeft.toFloat(), yOff)
+            syncLocationHitRect(contentLeft)
+            yOff += locationCardLayout.blockHeight + GAP_V_INNER
+        } else {
+            locationHitRect.setEmpty()
+            locationCardDrawTopY = Float.NaN
+        }
+
         if (hasCallLogCard) {
             yOff = drawCallLogCard(canvas, contentLeft.toFloat(), yOff) + GAP_V_INNER
         }
@@ -3394,7 +3605,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 photoImage.setImageCoords(imgX, yOff, photoWidth.toFloat(), photoHeight.toFloat())
                 photoImage.draw(canvas)
                 drawMediaOverlays(canvas, msg, imgX, yOff)
-                yOff += photoHeight + GAP_V_INNER
+                yOff += photoHeight + mediaBottomSpacing()
             } else {
                 yOff = drawMediaGrid(canvas, msg, imgX, yOff)
                 yOff += GAP_V_INNER
@@ -3418,7 +3629,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
 
         if (reactionGroups.isNotEmpty()) {
-            yOff += REACTION_TOP_PAD
+            yOff += reactionTopSpacing()
             drawReactionRow(canvas, contentLeft.toFloat(), yOff)
             yOff += reactionRowHeight
         }
@@ -3681,7 +3892,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     private fun drawErrorText(canvas: Canvas, msg: MessageEntity) {
         val layout = errorLayout ?: return
-        val errorY = measuredCellHeight - PAD_V - layout.height
+        val errorY = measuredCellHeight - PAD_BOTTOM - GAP_V_INNER - layout.height
         val errorX = (PAD_H + AVATAR_SIZE + GAP_AVATAR).toFloat()
         canvas.save()
         canvas.translate(errorX, errorY.toFloat())
@@ -4248,13 +4459,22 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
     }
 
-    private fun showEmbedSelectDialog(messageId: Long, componentId: String, spec: EmbedSelectSpec, fieldName: String) {
+    private fun formatStandaloneSelectLabel(
+        spec: EmbedSelectSpec,
+        messageId: Long,
+        componentId: String,
+        placeholder: String,
+    ): CharSequence {
+        val vals = EmbedFormUtil.getValuesForComponent(messageId, componentId)
+        if (vals.isEmpty()) return placeholder.ifEmpty { embedSelectPlaceholder(spec, "") }
+        return vals.joinToString(", ") { valItem ->
+            spec.options.find { it.value == valItem }?.let { embedSelectOptionDisplayLabel(it) } ?: valItem
+        }
+    }
+
+    private fun showEmbedSelectDialog(messageId: Long, componentId: String, spec: EmbedSelectSpec, title: CharSequence) {
         val act = AndroidUtilities.findActivity(context) ?: return
         val msg = messageEntity
-        val title = run {
-            val ph = embedSelectPlaceholder(spec, fieldName)
-            if (spec.minPick > 0) embedRequiredSuffixStar(ph) else ph
-        }
         EmbedSelectOptionSheet.show(
             context = act,
             theme = theme,
@@ -4367,6 +4587,8 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     h = h * 31 + 2
                     h = h * 31 + g.input.hashCode()
                     h = h * 31 + g.fieldName.hashCode()
+                    h = h * 31 + g.placeholder.hashCode()
+                    h = h * 31 + if (g.standalone) 1 else 0
                 }
                 is EmbedInteractiveGeometry.RadioField -> {
                     h = h * 31 + 3
@@ -4405,7 +4627,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     while (embedSelectSlots.size <= selectIdx) embedSelectSlots.add(EmbedSelectSlot())
                     val slot = embedSelectSlots[selectIdx++]
                     if (slot.row.parent == null) addView(slot.row)
-                    slot.bind(msg.id, g.componentId, g.input, g.fieldName)
+                    slot.bind(msg.id, g.componentId, g.input, g.fieldName, g.placeholder, g.standalone)
                     slot.row.visibility = View.VISIBLE
                     layoutEmbeddedChild(slot.row, g.rect)
                 }
@@ -4432,20 +4654,39 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             isFocusable = true
         }
         val label: TextView = TextView(context).apply {
-            setPadding(LayoutHelper.dp(10), LayoutHelper.dp(9), LayoutHelper.dp(10), LayoutHelper.dp(9))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-            maxLines = 2
             ellipsize = TextUtils.TruncateAt.END
             gravity = Gravity.CENTER_VERTICAL or Gravity.START
             isClickable = false
             isFocusable = false
         }
+        private val note: TextView = TextView(context).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTypeface(Typeface.DEFAULT, Typeface.ITALIC)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            isClickable = false
+            isFocusable = false
+            visibility = View.GONE
+        }
+        private val column: LinearLayout = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
         private var boundKey = ""
         private var rippleInstalled = false
 
         init {
-            row.addView(
+            column.addView(
                 label,
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT),
+            )
+            column.addView(
+                note,
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT),
+            )
+            row.addView(
+                column,
                 FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT,
@@ -4453,10 +4694,17 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             )
         }
 
-        fun bind(messageId: Long, componentId: String, spec: EmbedSelectSpec, fieldName: String) {
+        fun bind(
+            messageId: Long,
+            componentId: String,
+            spec: EmbedSelectSpec,
+            fieldName: String,
+            placeholder: String,
+            standalone: Boolean,
+        ) {
             val key = "$messageId|$componentId|${spec.options.size}|${spec.isMulti}|${
                 spec.initialSelection.joinToString()
-            }|$fieldName"
+            }|$fieldName|$placeholder|$standalone"
             val identityChanged = boundKey != key
             boundKey = key
 
@@ -4472,6 +4720,19 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             label.setCompoundDrawablesRelative(null, null, embedSelectChevronDrawable, null)
             label.compoundDrawablePadding = LayoutHelper.dp(6)
 
+            if (standalone) {
+                label.setPadding(LayoutHelper.dp(12), LayoutHelper.dp(12), LayoutHelper.dp(12), 0)
+                label.maxLines = 1
+                note.setPadding(LayoutHelper.dp(12), LayoutHelper.dp(2), LayoutHelper.dp(12), LayoutHelper.dp(12))
+                note.text = embedSelectPlaceholder(spec, "")
+                note.setTextColor(theme.onSurfaceVariant)
+                note.visibility = View.VISIBLE
+            } else {
+                label.setPadding(LayoutHelper.dp(10), LayoutHelper.dp(9), LayoutHelper.dp(10), LayoutHelper.dp(9))
+                label.maxLines = 2
+                note.visibility = View.GONE
+            }
+
             if (identityChanged && spec.initialSelection.isNotEmpty() &&
                 EmbedFormUtil.isComponentEmpty(messageId, componentId)
             ) {
@@ -4482,17 +4743,26 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 }
             }
 
-            label.text = formatEmbedSelectLabel(spec, messageId, componentId, fieldName)
+            label.text = if (standalone) {
+                formatStandaloneSelectLabel(spec, messageId, componentId, placeholder)
+            } else {
+                formatEmbedSelectLabel(spec, messageId, componentId, fieldName)
+            }
             val hasValue = !EmbedFormUtil.isComponentEmpty(messageId, componentId)
             label.setTextColor(if (hasValue) theme.onSurface else theme.onSurfaceVariant)
 
+            val sheetTitle: CharSequence = if (standalone) {
+                placeholder.ifEmpty { embedSelectPlaceholder(spec, "") }
+            } else {
+                val ph = embedSelectPlaceholder(spec, fieldName)
+                if (spec.minPick > 0) embedRequiredSuffixStar(ph) else ph
+            }
             val mid = messageId
             val cid = componentId
             val sp = spec
-            val fname = fieldName
             row.setOnClickListener {
                 if (sp.disabled) return@setOnClickListener
-                showEmbedSelectDialog(mid, cid, sp, fname)
+                showEmbedSelectDialog(mid, cid, sp, sheetTitle)
             }
         }
     }
@@ -4887,6 +5157,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
         private const val VIDEO_THUMB_TIMEOUT_MS = 8_000L
         private val VIDEO_THUMB_SCOPE = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        private val AUDIO_DURATION_UI_SCOPE = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         private val EMBED_INPUT_HEIGHT = LayoutHelper.dp(40)
         private val EMBED_TEXTAREA_HEIGHT = LayoutHelper.dp(80)
         private val BUBBLE_RIGHT_INSET = LayoutHelper.dp(28)
@@ -4908,9 +5179,9 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
         private val AVATAR_SIZE = LayoutHelper.dp(40)  
         private val PAD_H = LayoutHelper.dp(6)          
-        private val PAD_V = LayoutHelper.dp(10)         
-        private val PAD_BOTTOM = LayoutHelper.dp(6)    
-        private val COMBINE_PAD_V = LayoutHelper.dp(1)
+        private val PAD_V = LayoutHelper.dp(13)
+        private val PAD_BOTTOM = LayoutHelper.dp(3)
+        private val COMBINE_PAD_V = LayoutHelper.dp(2)
         private val PIN_PAD_H = LayoutHelper.dp(4)
         private val GAP_AVATAR = LayoutHelper.dp(12)   
         private val MENTION_BAR_WIDTH = LayoutHelper.dp(2)
@@ -4928,6 +5199,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         private val LINK_INVITE_V_MARGIN = LayoutHelper.dp(12) 
         private val MEDIA_RADIUS = 0f
         private val GIF_MAX_WIDTH = LayoutHelper.dp(200)
+        private val STICKER_MEDIA_SIZE = LayoutHelper.dp(120)
         private val OGP_CARD_RADIUS = LayoutHelper.dp(4).toFloat()
         private val OGP_PADDING = LayoutHelper.dp(10)
         private val OGP_ACCENT_W = LayoutHelper.dp(4)
@@ -5163,14 +5435,15 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             strokeJoin = Paint.Join.ROUND
         }
 
-        private val REACTION_CHIP_H = LayoutHelper.dp(30)
+        private val REACTION_CHIP_H = LayoutHelper.dp(26)
         private val REACTION_EMOJI_SIZE = LayoutHelper.dp(18)
-        private val REACTION_CHIP_PAD = LayoutHelper.dp(2)
+        private val REACTION_CHIP_PAD = LayoutHelper.dp(6)
         private val REACTION_CHIP_RADIUS = LayoutHelper.dpf(5f)
         private val REACTION_GAP = LayoutHelper.dp(6)
-        private val REACTION_EMOJI_MR = LayoutHelper.dp(2)
+        private val REACTION_EMOJI_MR = LayoutHelper.dp(3)
         private val REACTION_ADD_SIZE = LayoutHelper.dp(20)
-        private val REACTION_TOP_PAD = LayoutHelper.dp(6)
+        private val REACTION_TOP_PAD = LayoutHelper.dp(2)
+        private val STICKER_REACTION_TOP_PAD = LayoutHelper.dp(4)
 
         private val REACTION_COUNT_PAINT = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             textSize = LayoutHelper.dpf(12f)

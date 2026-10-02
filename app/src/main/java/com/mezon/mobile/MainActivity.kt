@@ -70,6 +70,8 @@ import com.mezon.mobile.home.sharing.VideoShareRefinementContract
 import com.mezon.mobile.home.stream.StreamingRoomFragment
 import com.mezon.mobile.home.voice.VoiceOverlayManager
 import com.mezon.mobile.home.voice.VoiceRoomFragment
+import com.mezon.mobile.home.voice.sfu.MezonSfuSession
+import com.mezon.mobile.home.voice.sfu.SfuRole
 import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
@@ -145,6 +147,7 @@ class MainActivity : BasePermissionsActivity(),
     @Inject lateinit var callManager: CallManager
     @Inject lateinit var networkMonitor: NetworkMonitor
     @Inject lateinit var deepLinkRouter: DeepLinkRouter
+    @Inject lateinit var mezonSfuSession: MezonSfuSession
 
     lateinit var actionBarLayout: ActionBarLayout
     lateinit var drawerLayoutContainer: DrawerLayoutContainer
@@ -220,6 +223,9 @@ class MainActivity : BasePermissionsActivity(),
 
         voiceOverlayManager = VoiceOverlayManager(drawerLayoutContainer, themeColors).also { manager ->
             manager.onExpandRequest = { expandVoiceRoom() }
+            manager.onVideoVisibilityChanged = { track, visible ->
+                mezonSfuSession.setVideoTrackVisible(track, visible, "mini-overlay", focused = true)
+            }
         }
         streamingOverlayManager = VoiceOverlayManager(drawerLayoutContainer, themeColors).also { manager ->
             manager.onExpandRequest = { expandStreamingRoom() }
@@ -287,7 +293,32 @@ class MainActivity : BasePermissionsActivity(),
         notificationCenter.addObserver(this, NotificationCenter.incomingCall)
         notificationCenter.addObserver(this, NotificationCenter.callEnded)
         notificationCenter.addObserver(this, NotificationCenter.callStateChanged)
-        notificationCenter.addObserver(this, NotificationCenter.needUsernameSetup)
+    }
+
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+        when (event.keyCode) {
+            android.view.KeyEvent.KEYCODE_VOLUME_UP,
+            android.view.KeyEvent.KEYCODE_VOLUME_DOWN -> {
+                val key = if (event.keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP) "VOL_UP" else "VOL_DOWN"
+                val act = when (event.action) {
+                    android.view.KeyEvent.ACTION_DOWN -> "DOWN"
+                    android.view.KeyEvent.ACTION_UP -> "UP"
+                    else -> "action=${event.action}"
+                }
+                Log.d("VolumeKey", "$key $act repeat=${event.repeatCount}")
+            }
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        mezonSfuSession.setAppVisible(true)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        mezonSfuSession.setAppVisible(false)
     }
 
     override fun onResume() {
@@ -295,6 +326,7 @@ class MainActivity : BasePermissionsActivity(),
         isResumed = true
         applicationPaused = false
         actionBarLayout.onResume()
+        voiceRoomFragment?.onResume()
         if (StartupCache.hasSession) {
             connectionController.handleAppForeground()
             maybePromptFullScreenIntentForIncomingCalls()
@@ -367,7 +399,6 @@ class MainActivity : BasePermissionsActivity(),
         notificationCenter.removeObserver(this, NotificationCenter.incomingCall)
         notificationCenter.removeObserver(this, NotificationCenter.callEnded)
         notificationCenter.removeObserver(this, NotificationCenter.callStateChanged)
-        notificationCenter.removeObserver(this, NotificationCenter.needUsernameSetup)
 
         dismissIncomingCallOverlay(removeView = true)
         dismissOngoingCallBanner(removeView = true)
@@ -395,7 +426,7 @@ class MainActivity : BasePermissionsActivity(),
     private fun tryEnterPiP(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
         val fragment = voiceRoomFragment ?: return false
-        if (fragment.getRoom() == null) return false
+        if (!fragment.hasActiveSession()) return false
         val manager = voiceOverlayManager ?: return false
         if (!manager.isVisible()) return false
         if (manager.isMinimized()) {
@@ -485,8 +516,6 @@ class MainActivity : BasePermissionsActivity(),
         actionBarLayout.onRequestPermissionsResult(requestCode, permissions, grantResults)
     }
 
-    // ── NotificationCenterDelegate ──────────────────────────────────────────
-
     override fun didReceivedNotification(id: Int, account: Int, vararg args: Any?) {
         when (id) {
             NotificationCenter.themeChanged -> {
@@ -514,9 +543,7 @@ class MainActivity : BasePermissionsActivity(),
             NotificationCenter.needCheckSystemBarColors -> {
                 checkSystemBarColors()
             }
-            NotificationCenter.connectionStateChanged -> {
-                // handled by ConnectionController UI updates
-            }
+            NotificationCenter.connectionStateChanged -> {}
             NotificationCenter.sessionExpired -> {
                 dismissIncomingCallOverlay(removeView = false)
                 promptSessionExpired()
@@ -538,17 +565,6 @@ class MainActivity : BasePermissionsActivity(),
             NotificationCenter.callStateChanged -> {
                 refreshOngoingCallBanner()
             }
-            NotificationCenter.needUsernameSetup -> {
-                maybeShowUsernameGate()
-            }
-        }
-    }
-
-    private fun maybeShowUsernameGate() {
-        if (!StartupCache.hasSession || !StartupCache.needsUsernameSetup) return
-        when (actionBarLayout.getLastFragment()) {
-            is UpdateUsernameFragment, is LoginFragment, is OTPVerificationFragment -> return
-            else -> showUpdateUsernameGate()
         }
     }
 
@@ -1016,7 +1032,7 @@ class MainActivity : BasePermissionsActivity(),
         showHome()
     }
 
-    fun showVoiceRoom(channelId: Long, clanId: Long, channelLabel: String) {
+    fun showVoiceRoom(channelId: Long, clanId: Long, channelLabel: String, role: SfuRole = SfuRole.SPEAKER) {
         if (isStreamingOverlayVisible()) dismissStreamingRoom()
         val manager = voiceOverlayManager ?: return
         val existing = voiceRoomFragment
@@ -1028,7 +1044,7 @@ class MainActivity : BasePermissionsActivity(),
             }
             dismissVoiceRoom()
         }
-        val fragment = VoiceRoomFragment.create(channelId, clanId, channelLabel)
+        val fragment = VoiceRoomFragment.create(channelId, clanId, channelLabel, role = role)
         fragment.themeColors = themeColors
         fragment.notificationCenter = notificationCenter
         fragment.parentLayout = actionBarLayout
@@ -1048,11 +1064,11 @@ class MainActivity : BasePermissionsActivity(),
         val focused = fragment.getFocusedContent()
         if (focused != null) {
             manager.minimize(
-                fragment.getRoom(), focused.videoTrack,
+                focused.videoTrack,
                 focused.name, focused.username, focused.avatarUrl, focused.isMuted, focused.userId
             )
         } else {
-            manager.minimize(null, null, fragment.getChannelLabel(), "", null, false, 0L)
+            manager.minimize(null, fragment.getChannelLabel(), "", null, false, 0L)
         }
     }
 
@@ -1071,6 +1087,11 @@ class MainActivity : BasePermissionsActivity(),
 
     fun isVoiceOverlayVisible(): Boolean = voiceOverlayManager?.isVisible() == true
     fun isVoiceOverlayExpanded(): Boolean = voiceOverlayManager?.isExpanded() == true
+
+    private fun collapseRoomOverlaysForNavigation() {
+        if (isVoiceOverlayExpanded()) minimizeVoiceRoom()
+        if (isStreamingOverlayExpanded()) streamingRoomFragment?.minimizeToOverlay()
+    }
 
     fun showStreamingRoom(
         channelId: Long,
@@ -1129,8 +1150,7 @@ class MainActivity : BasePermissionsActivity(),
     }
 
     fun dismissStreamingRoom(disconnectSession: Boolean = true) {
-        val manager = streamingOverlayManager ?: return
-        manager.dismiss()
+        streamingOverlayManager?.dismiss()
         streamingRoomFragment?.onPause()
         streamingRoomFragment?.onFragmentDestroy()
         streamingRoomFragment = null
@@ -1143,9 +1163,14 @@ class MainActivity : BasePermissionsActivity(),
 
     fun isStreamingOverlayVisible(): Boolean = streamingOverlayManager?.isVisible() == true
     fun isStreamingOverlayExpanded(): Boolean = streamingOverlayManager?.isExpanded() == true
+    fun isStreamingRoomFor(channelId: Long, clanId: Long): Boolean =
+        streamingRoomFragment?.getChannelId() == channelId &&
+            streamingRoomFragment?.getClanId() == clanId &&
+            isStreamingOverlayVisible()
 
     fun openFriendRequestsFromNotification(noAnimation: Boolean = true) {
         if (!StartupCache.hasSession) return
+        collapseRoomOverlaysForNavigation()
         friendController.loadFriendRelations(noCache = true)
 
         if (actionBarLayout.getLastFragment() is AddFriendFragment) {
@@ -1171,6 +1196,7 @@ class MainActivity : BasePermissionsActivity(),
         forceRejoin: Boolean = false,
         replaceLastFragment: Boolean = false
     ) {
+        collapseRoomOverlaysForNavigation()
         val routeMeta = resolveChatRouteMeta(channelId, clanId, channelType)
         val resolvedChannelName = resolveChatDisplayName(channelId, channelName, clanId, routeMeta.channelType)
         val lastFragment = actionBarLayout.getLastFragment()
@@ -1181,7 +1207,7 @@ class MainActivity : BasePermissionsActivity(),
         ) {
             preloadChatContext(channelId, resolvedChannelName, clanId, routeMeta)
             if (fromNotification) {
-                clearStackAboveTabs()
+                clearStackAboveTabs(keep = lastFragment)
                 switchToTabForClan(clanId)
             }
             if (messageId != 0L) {
@@ -1390,12 +1416,12 @@ class MainActivity : BasePermissionsActivity(),
         )
     }
 
-    private fun clearStackAboveTabs() {
+    private fun clearStackAboveTabs(keep: BaseFragment? = null) {
         val stack = actionBarLayout.getFragmentStack()
         val toRemove = ArrayList<BaseFragment>(stack.size)
         for (i in 1 until stack.size) {
             val f = stack[i]
-            if (f !is MainTabsActivity) {
+            if (f !is MainTabsActivity && f !== keep) {
                 toRemove.add(f)
             }
         }
@@ -1567,12 +1593,14 @@ class MainActivity : BasePermissionsActivity(),
             if (StartupCache.hasSession) {
                 openChat(channelId, channelName, clanId, channelType, noAnimation = isFromNotification, fromNotification = true)
             }
+            notificationHelper.cancelNotification(channelId.toInt())
             intent.removeExtra(NotificationHelper.EXTRA_CHANNEL_ID)
         } else if (dmId != 0L) {
             val dmType = extras.getInt(NotificationHelper.EXTRA_CHANNEL_TYPE, CHANNEL_TYPE_DM)
             if (StartupCache.hasSession) {
                 openChat(dmId, channelName, 0L, dmType, noAnimation = isFromNotification, fromNotification = isFromNotification)
             }
+            notificationHelper.cancelNotification(dmId.toInt())
             intent.removeExtra(NotificationHelper.EXTRA_DM_ID)
         }
     }

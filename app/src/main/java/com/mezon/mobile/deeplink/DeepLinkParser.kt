@@ -3,6 +3,8 @@ package com.mezon.mobile.deeplink
 import android.net.Uri
 
 sealed class DeepLinkRoute {
+    data class Channel(val clanId: Long, val channelId: Long) : DeepLinkRoute()
+
     data class ChannelApp(
         val channelId: Long,
         val clanId: Long,
@@ -24,6 +26,7 @@ enum class InstallKind {
 
 object DeepLinkParser {
 
+    private val CHANNEL_REGEX = Regex("""(?:^|/)chat/clans/(\d+)/channels/(\d+)/?(?:[?#].*)?$""")
     private val CHANNEL_APP_REGEX = Regex("""channel-app/(\d+)/(\d+)(?:\?[^#]*)?""")
     private val INVITE_REGEX = Regex("""invite/(?:chat/)?(\d+)""")
     private val APP_INSTALL_REGEX = Regex("""(?:^|/)app/install/(\d+)""")
@@ -53,6 +56,13 @@ object DeepLinkParser {
     fun parse(input: String): DeepLinkRoute? {
         val trimmed = input.trim()
         if (trimmed.isEmpty()) return null
+
+        if (trimmed.startsWith("chat/clans/") || trimmed.contains("/chat/clans/")) {
+            val match = CHANNEL_REGEX.find(trimmed) ?: return null
+            val clanId = match.groupValues[1].toLongOrNull()?.takeIf { it > 0L } ?: return null
+            val channelId = match.groupValues[2].toLongOrNull()?.takeIf { it > 0L } ?: return null
+            return DeepLinkRoute.Channel(clanId, channelId)
+        }
 
         if (trimmed.contains("login/") || trimmed.contains("login_id=") || trimmed.contains("loginId=")) {
             LOGIN_REGEX.find(trimmed)?.groupValues?.getOrNull(1)?.toLongOrNull()?.let {

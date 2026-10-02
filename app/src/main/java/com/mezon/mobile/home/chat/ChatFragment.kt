@@ -11,6 +11,8 @@ import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.Rect
 import android.graphics.drawable.ColorDrawable
+import android.graphics.Canvas
+import android.graphics.Paint
 import android.graphics.drawable.Drawable
 import android.os.Build
 import android.os.Bundle
@@ -20,6 +22,8 @@ import android.text.Editable
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.TextWatcher
+import android.text.style.ImageSpan
+import com.mezon.mobile.network.NetworkMonitor
 import android.view.TouchDelegate
 import android.util.Log
 import android.util.LongSparseArray
@@ -37,7 +41,6 @@ import android.widget.HorizontalScrollView
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.PopupWindow
 import android.widget.Toast
@@ -71,6 +74,7 @@ import com.mezon.mobile.home.friends.FRIEND_STATE_INVITE_SENT
 import com.mezon.mobile.home.friends.FriendController
 import com.mezon.mobile.home.call.CallFragment
 import com.mezon.mobile.util.ShareContactData
+import com.mezon.mobile.util.LocationMessageData
 import com.mezon.mobile.util.isShareContactMessage
 import com.mezon.mobile.home.clans.CLAN_CREATE_LIMIT
 import com.mezon.mobile.home.clans.ChannelController
@@ -83,8 +87,12 @@ import com.mezon.mobile.home.clans.UserDisplayRole
 import com.mezon.mobile.home.clans.isEveryoneRole
 import com.mezon.mobile.home.chat.input.InputSuggestionItem
 import com.mezon.mobile.home.chat.input.InputSuggestionsAdapter
+import com.mezon.mobile.home.chat.input.SlashCommand
+import com.mezon.mobile.home.chat.input.SlashCommandCatalog
 import com.mezon.mobile.home.chat.input.InputSuggestionsController
 import com.mezon.mobile.home.chat.input.InputSuggestionsPopup
+import com.mezon.mobile.home.chat.input.MentionSearchController
+import com.mezon.mobile.home.chat.input.MentionSearchResult
 import com.mezon.mobile.home.chat.input.VoiceRecorder
 import com.mezon.mobile.home.chat.input.VoiceRecordingOverlay
 import com.mezon.mobile.home.sharing.SharingFragment
@@ -100,6 +108,7 @@ import com.mezon.mobile.home.stream.JoinMediaSheetKind
 import com.mezon.mobile.home.stream.StreamingController
 import com.mezon.mobile.home.voice.JoinVoiceBottomSheet
 import com.mezon.mobile.home.voice.VoiceController
+import com.mezon.mobile.home.voice.resolveVoiceMemberIdentity
 import com.mezon.mobile.wallet.WalletController
 import com.mezon.mobile.home.profile.AccountController
 import com.mezon.mobile.home.wallet.SendTokenFragment
@@ -196,6 +205,14 @@ open class ChatFragment : BaseFragment() {
         private const val VIEWPORT_LIMIT = 300
         private const val PAGE_DOWN_SCROLL_THRESHOLD = 2
         private const val REQUEST_CODE_LOCATION_PERMISSION = 1002
+        private const val LOCATION_FIX_TIMEOUT_MS = 10_000L
+        private const val LOCATION_FRESH_MAX_AGE_MS = 2 * 60_000L
+        private val LOCATION_FIX_PROVIDERS = listOf(
+            android.location.LocationManager.GPS_PROVIDER,
+            android.location.LocationManager.NETWORK_PROVIDER
+        )
+        private val LOCATION_LAST_KNOWN_PROVIDERS =
+            LOCATION_FIX_PROVIDERS + android.location.LocationManager.PASSIVE_PROVIDER
         private const val REQUEST_CODE_PICK_FILE = 1005
         private const val REQUEST_CODE_TAKE_PHOTO = 1006
         private const val REQUEST_CODE_CAMERA_PERMISSION = 1007
@@ -210,6 +227,9 @@ open class ChatFragment : BaseFragment() {
         private const val GIVE_COFFEE_EMOJI_ID = 7280417126303261185L
         private const val GIVE_COFFEE_EMOJI = ":coffee:"
         private const val LOADING_INDICATOR_DELAY_MS = 300L
+        private const val LOAD_WATCHDOG_MS = 30_000L
+        private val INITIAL_LOAD_RETRY_DELAYS_MS = longArrayOf(600L, 1_200L, 2_400L)
+        private const val LIST_REVEAL_FALLBACK_MS = 2_000L
         private val ANONYMOUS_USER_ID = BuildConfig.MEZON_ANONYMOUS_USER_ID.toLongOrNull() ?: 0L
         private const val REQUEST_CALL_PERMISSIONS = 9002
         private const val MENU_DM_VOICE_CALL = 8801
@@ -218,6 +238,7 @@ open class ChatFragment : BaseFragment() {
         private val INPUT_OGP_BAR_CORNER = LayoutHelper.dp(12f).toFloat()
         private val INPUT_OGP_URL_REGEX = Regex("""https?://[^\s]+""", RegexOption.IGNORE_CASE)
         private const val INPUT_OGP_DEBOUNCE_MS = 80L
+        private const val SLASH_COMMAND_DEBOUNCE_MS = 300L
         private const val INPUT_OGP_CACHE_MAX = 32
         private const val INPUT_OGP_SEND_WAIT_MS = 400L
         private const val MAX_MESSAGE_CONTENT_BYTES = 3700
@@ -267,8 +288,9 @@ open class ChatFragment : BaseFragment() {
     private lateinit var friendController: FriendController
 
     private lateinit var recyclerView: RecyclerListView
-    private lateinit var loadingView: ProgressBar
-    private lateinit var errorView: TextView
+    private lateinit var loadingView: ChatSkeletonView
+    private lateinit var errorView: LinearLayout
+    private lateinit var emptyView: TextView
     private lateinit var inputField: EditText
     private lateinit var sendButton: ImageButton
     private lateinit var micButton: ImageButton
@@ -309,6 +331,11 @@ open class ChatFragment : BaseFragment() {
     private var activeImageEditor: ChatImageEditorDialog? = null
     private var mediaPermissionDeniedOnce = false
     private var locationPermissionAskedBefore = false
+    private var pendingLocationSettingsReturn: LocationSettingsReturn? = null
+    private var locationFixListener: android.location.LocationListener? = null
+    private var locationFixManager: android.location.LocationManager? = null
+    private var locationFixTimeout: Runnable? = null
+    private var locationFixDialog: com.mezon.mobile.core.AlertDialog? = null
     private val pendingAttachmentThumbTasks = ArrayList<Runnable?>()
     private var attachmentProgressReloadRunnable: Runnable? = null
     private var buzzMediaPlayer: android.media.MediaPlayer? = null
@@ -348,7 +375,6 @@ open class ChatFragment : BaseFragment() {
     private var routeChannelAgeRestricted = false
     private var routeParentId = 0L
     private var forceLatest = false
-    private var openedFromNotification = false
     private var startLoadFromMessageId = 0L
     private var startLoadFromMessageOffset = Int.MAX_VALUE
     private var pausedOnLastMessage = false
@@ -356,6 +382,8 @@ open class ChatFragment : BaseFragment() {
     private var needScrollRestore = false
     private var isLoading = false
     private var isLoadingMore = false
+    private var initialLoadFailed = false
+    private var initialLoadRetryAttempt = 0
     private var hasMoreTop = false
     private var hasMoreBottom = false
     private var isViewingOlder = false
@@ -365,6 +393,7 @@ open class ChatFragment : BaseFragment() {
     private var firstLoad = true
     private var newUnreadCount = 0
     private var lastSeenMessageId = 0L
+    private var lastWrittenSeenMessageId = 0L
     private var dividerSeenMessageId = 0L
     private var lastSentMessageId = 0L
     private var hasUnread = false
@@ -411,12 +440,14 @@ open class ChatFragment : BaseFragment() {
     private lateinit var userClanController: UserClanController
     private lateinit var userController: com.mezon.mobile.home.profile.UserController
     private lateinit var memberResolver: MemberResolver
+    private lateinit var mentionSearchController: MentionSearchController
     private lateinit var topicController: TopicController
     private lateinit var topicBadgeTracker: TopicBadgeTracker
     private var topicBadgeHydrateJob: Job? = null
     private lateinit var roleController: RoleController
     private lateinit var searchController: com.mezon.mobile.search.SearchController
     private lateinit var voiceController: VoiceController
+    private lateinit var networkMonitor: NetworkMonitor
     private lateinit var streamingController: StreamingController
     private lateinit var channelAppController: ChannelAppController
     private lateinit var clansController: ClansController
@@ -434,6 +465,8 @@ open class ChatFragment : BaseFragment() {
     private var suppressInputTrackerMutation = false
     private var systemMessageMemberIds: Set<String> = emptySet()
     private var currentTrigger: InputSuggestionsController.TriggerState = InputSuggestionsController.TriggerState.NONE
+    private var slashCommandDebounceJob: Job? = null
+    private var slashCommandLoadJob: Job? = null
 
     private var slidingView: ChatMessageCell? = null
     private var maybeStartTrackingSlidingView = false
@@ -457,6 +490,29 @@ open class ChatFragment : BaseFragment() {
             recyclerView.visibility = View.INVISIBLE
             errorView.visibility = View.GONE
             loadingView.visibility = View.VISIBLE
+        }
+    }
+    private val initialLoadRetryRunnable = Runnable {
+        if (!isLoading || messages.isNotEmpty() || fragmentView == null) return@Runnable
+        loadInitialMessages()
+    }
+    private val loadWatchdogRunnable = Runnable {
+        if (!isLoading || messages.isNotEmpty() || fragmentView == null) return@Runnable
+        if (!networkMonitor.isOnline.value) {
+            rearmLoadWatchdog()
+            return@Runnable
+        }
+        Log.w(TAG, "initial load watchdog fired channel=$channelId topic=$topicId")
+        isLoading = false
+        initialLoadFailed = true
+        showLoadError()
+    }
+    private val revealListRunnable = Runnable {
+        if (fragmentView == null || messages.isEmpty()) return@Runnable
+        if (recyclerView.visibility != View.VISIBLE) {
+            Log.w(TAG, "list reveal fallback fired channel=$channelId topic=$topicId")
+            needScrollRestore = false
+            recyclerView.visibility = View.VISIBLE
         }
     }
     private var pendingSeenMessageId = 0L
@@ -493,7 +549,6 @@ open class ChatFragment : BaseFragment() {
         routeChannelAgeRestricted = arguments?.getBoolean(ARG_CHANNEL_AGE_RESTRICTED) ?: false
         routeParentId = arguments?.getLong(ARG_PARENT_ID) ?: 0L
         forceLatest = arguments?.getBoolean(ARG_FORCE_LATEST) ?: false
-        openedFromNotification = arguments?.getBoolean(ARG_OPENED_FROM_NOTIFICATION) ?: false
         if (clanId != 0L) {
             val cachedEntity = channelController.findChannelById(channelId, clanId)
                 ?: channelController.findChannelById(channelId)
@@ -533,23 +588,10 @@ open class ChatFragment : BaseFragment() {
         hasUnread = !isSeenUpToDate && lastSeenMessageId != 0L
 
         if (clanId != 0L) {
-            userClanController.loadClanMembers(clanId)
+            loadMentionMemberSources()
             roleController.loadRolesForClan(clanId)
             appScope.launch(ioDispatcher) {
                 roleController.hydrateLocalPermissionSnapshotForClan(clanId)
-            }
-            val ch = channelController.findChannelById(channelId)
-            val effectiveParentId = ch?.parentId ?: routeParentId
-            val effectivePrivate = ch?.isPrivate ?: routeChannelPrivate
-            val shouldLoadScopedMembers =
-                channelType == CHANNEL_TYPE_THREAD || effectivePrivate || effectiveParentId != 0L
-            if (shouldLoadScopedMembers) {
-                if (effectiveParentId != 0L) {
-                    userClanController.loadChannelMembers(clanId, effectiveParentId, CHANNEL_TYPE_CHANNEL)
-                    Log.d(TAG, "onFragmentCreate loadChannelMembers parent clanId=$clanId parentId=$effectiveParentId")
-                }
-                userClanController.loadChannelMembers(clanId, channelId, CHANNEL_TYPE_CHANNEL)
-                Log.d(TAG, "onFragmentCreate loadChannelMembers channel clanId=$clanId channelId=$channelId")
             }
         } else if (channelType == CHANNEL_TYPE_GROUP) {
             dialogsController.loadDmParticipants(channelId)
@@ -697,6 +739,8 @@ open class ChatFragment : BaseFragment() {
             }
 
             isLoading = false
+            initialLoadFailed = false
+            initialLoadRetryAttempt = 0
 
             if (jumpingToPresent && isCache) {
                 Log.d(TAG, "jumpToPresent: skip cache response (waiting for API), loaded=${loadedMessages.size}")
@@ -905,6 +949,12 @@ open class ChatFragment : BaseFragment() {
                             recyclerView.post { scrollToAndHighlight(hIdx) }
                         } else if (!isCache) {
                             scrollToReplyMessage(highlightId)
+                        } else {
+                            pendingHighlightMessageId = highlightId
+                            if (needScrollRestore) {
+                                needScrollRestore = false
+                                recyclerView.visibility = View.VISIBLE
+                            }
                         }
                     } else if (forceLatest && wasFirstLoad) {
                         forceScrollToBottom()
@@ -1224,17 +1274,32 @@ open class ChatFragment : BaseFragment() {
 
         observe(NotificationCenter.messagesLoadError) { _, _, args ->
             if (args.isNotEmpty() && args[0] == messageListKey) {
-                isLoading = false
                 isLoadingMore = false
-                if (fragmentView != null && messages.isEmpty()) {
-                    showEmpty()
+                if (messages.isEmpty() && startLoadFromMessageId != 0L) {
+                    Log.w(TAG, "anchored initial load failed, falling back to latest channel=$channelId")
+                    startLoadFromMessageId = 0L
+                    pendingHighlightMessageId = 0L
+                    needScrollRestore = false
+                    isLoading = true
+                    if (fragmentView != null) showLoading()
+                    loadInitialMessages()
+                    return@observe
+                }
+                if (messages.isEmpty() && holdInitialLoadForRetry()) return@observe
+                isLoading = false
+                if (messages.isEmpty()) {
+                    initialLoadFailed = true
+                    if (fragmentView != null) showLoadError()
                 } else if (fragmentView != null) {
+                    pendingHighlightMessageId = 0L
+                    needScrollRestore = false
                     refreshUI()
                 }
             }
         }
 
         observe(NotificationCenter.channelsDidLoad) { _, _, args ->
+            if (::adapter.isInitialized) adapter.refreshLinkedChannelLabels()
             if (fragmentView == null || isPaused || isTopicMode) return@observe
             val changedClanId = args.firstOrNull() as? Long ?: return@observe
             if (changedClanId != clanId || clanId == 0L) return@observe
@@ -1277,12 +1342,14 @@ open class ChatFragment : BaseFragment() {
         }
 
         observe(NotificationCenter.audioPlaybackStateChanged) { _, _, args ->
-            if (fragmentView == null || isPaused) return@observe
+            if (fragmentView == null) return@observe
             val messageId = args.getOrNull(0) as? Long ?: return@observe
             val isPlaying = args.getOrNull(1) as? Boolean ?: false
             val isLoading = args.getOrNull(2) as? Boolean ?: false
             val positionMs = args.getOrNull(3) as? Long ?: 0L
             val durationMs = args.getOrNull(4) as? Long ?: 0L
+            val isStopped = !isPlaying && !isLoading && positionMs == 0L && durationMs == 0L
+            if (isPaused && !isStopped) return@observe
             for (i in 0 until recyclerView.childCount) {
                 val child = recyclerView.getChildAt(i) as? ChatMessageCell ?: continue
                 child.applyAudioPlayback(messageId, isPlaying, isLoading, positionMs, durationMs)
@@ -1374,7 +1441,7 @@ open class ChatFragment : BaseFragment() {
             if (isPaused) return@observe
             Log.d(TAG, "appDidReconnect: reloading messages for channel $channelId")
             rejoinChannelOnSocket()
-            chatController.loadMessages(channelId, clanId, forceRefresh = true, preferHttp = false, topicId = topicId)
+            chatController.loadMessages(channelId, clanId, forceRefresh = true, refreshWhenBackOnline = true, topicId = topicId)
         }
 
         observe(NotificationCenter.scrollToBottomChat) { _, _, args ->
@@ -1412,6 +1479,14 @@ open class ChatFragment : BaseFragment() {
             }
         }
 
+        observe(NotificationCenter.mentionSearchDidLoad) { _, _, args ->
+            if (isPaused) return@observe
+            val searchedClanId = args.firstOrNull() as? Long ?: return@observe
+            if (searchedClanId == clanId && currentTrigger.mode == InputSuggestionsController.Mode.MENTION) {
+                checkSuggestionTrigger()
+            }
+        }
+
         observe(NotificationCenter.closeChats) { _, _, args ->
             val removedChannelId = args.firstOrNull() as? Long ?: 0L
             if (removedChannelId != 0L && removedChannelId != channelId) return@observe
@@ -1426,15 +1501,20 @@ open class ChatFragment : BaseFragment() {
             }
         }
 
+        observe(NotificationCenter.linkedChannelDidLoad) { _, _, _ ->
+            if (::adapter.isInitialized) adapter.refreshLinkedChannelLabels()
+        }
+
         observe(NotificationCenter.searchChannelsDidLoad) { _, _, _ ->
+            if (::adapter.isInitialized) adapter.refreshLinkedChannelLabels()
             if (isPaused) return@observe
             if (currentTrigger.mode == InputSuggestionsController.Mode.HASHTAG) {
                 checkSuggestionTrigger()
             }
-            val isDmLike = channelType == CHANNEL_TYPE_DM || channelType == CHANNEL_TYPE_GROUP
-            if (isDmLike || clanId == 0L) {
-                adapter.notifyDataSetChanged()
-            }
+        }
+
+        observe(NotificationCenter.voiceChannelMembersChanged) { _, _, _ ->
+            actionBar?.let { applyDmVoicePresenceSubtitle(it) }
         }
 
         observe(NotificationCenter.dialogsNeedReload) { _, _, _ ->
@@ -1445,6 +1525,7 @@ open class ChatFragment : BaseFragment() {
             }
             if (clanId == 0L && (channelType == CHANNEL_TYPE_DM || channelType == CHANNEL_TYPE_GROUP)) {
                 refreshDmHeaderTitleFromDialog()
+                actionBar?.let { applyDmVoicePresenceSubtitle(it) }
                 refreshWelcomeFromDialog()
             }
             if (clanId != 0L || channelType != CHANNEL_TYPE_DM) return@observe
@@ -1472,15 +1553,7 @@ open class ChatFragment : BaseFragment() {
         notificationCenter.addPostponeNotificationsCallback(postponeNewMessagesCallback)
 
         isLoading = true
-        if (openedFromNotification) {
-            fragmentScope.launch(ioDispatcher) {
-                if (sessionManager.ensureFreshSession() != null) {
-                    loadInitialMessages()
-                }
-            }
-        } else {
-            loadInitialMessages()
-        }
+        loadInitialMessages()
         return true
     }
 
@@ -1491,7 +1564,7 @@ open class ChatFragment : BaseFragment() {
                 clanId = clanId,
                 anchorMessageId = startLoadFromMessageId,
                 requireExactAnchor = true,
-                preferHttp = true,
+                refreshWhenBackOnline = true,
                 topicId = topicId
             )
         } else {
@@ -1499,7 +1572,7 @@ open class ChatFragment : BaseFragment() {
                 channelId,
                 clanId,
                 forceRefresh = true,
-                preferHttp = openedFromNotification,
+                refreshWhenBackOnline = true,
                 topicId = topicId
             )
         }
@@ -1515,6 +1588,7 @@ open class ChatFragment : BaseFragment() {
         userClanController = entryPoint.userClanController()
         userController = entryPoint.userController()
         memberResolver = entryPoint.memberResolver()
+        mentionSearchController = entryPoint.mentionSearchController()
         roleController = entryPoint.roleController()
         permissionPolicy = entryPoint.permissionPolicy()
         searchController = entryPoint.searchController()
@@ -1527,6 +1601,7 @@ open class ChatFragment : BaseFragment() {
         topicController = entryPoint.topicController()
         topicBadgeTracker = entryPoint.topicBadgeTracker()
         voiceController = entryPoint.voiceController()
+        networkMonitor = entryPoint.networkMonitor()
         streamingController = entryPoint.streamingController()
         channelAppController = entryPoint.channelAppController()
         clansController = entryPoint.clansController()
@@ -1611,6 +1686,7 @@ open class ChatFragment : BaseFragment() {
                 val rect = Rect(backWidth, 0, width, height)
                 touchDelegate = TouchDelegate(rect, tv)
             }
+            applyDmVoicePresenceSubtitle(this)
             setupDmHeaderCallMenu(this)
             if (isTopicMode) {
                 setTitle(getString(R.string.topic_discussion))
@@ -1633,6 +1709,8 @@ open class ChatFragment : BaseFragment() {
             lm.stackFromEnd = false
             layoutManager = lm
             itemAnimator = null
+            setPadding(0, 0, 0, LayoutHelper.dp(8f))
+            clipToPadding = false
             setItemViewCacheSize(8)
             visibility = View.INVISIBLE
         }
@@ -1640,16 +1718,54 @@ open class ChatFragment : BaseFragment() {
         recyclerView.addItemDecoration(unreadDecoration)
         contentFrame.addView(recyclerView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
-        loadingView = ProgressBar(context).apply { visibility = View.GONE }
-        contentFrame.addView(loadingView, LayoutHelper.createFrame(48, 48, Gravity.CENTER))
+        loadingView = ChatSkeletonView(context, themeColors).apply { visibility = View.GONE }
+        contentFrame.addView(loadingView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
-        errorView = TextView(context).apply {
-            setTextColor(themeColors.error)
+        errorView = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+            addView(
+                TextView(context).apply {
+                    setTextColor(themeColors.onSurfaceVariant)
+                    textSize = 14f
+                    gravity = Gravity.CENTER
+                    text = getString(R.string.chat_load_messages_failed)
+                },
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+            addView(
+                TextView(context).apply {
+                    setTextColor(themeColors.onSurface)
+                    textSize = 14f
+                    gravity = Gravity.CENTER
+                    text = getString(R.string.common_retry)
+                    setPadding(LayoutHelper.dp(20f), LayoutHelper.dp(8f), LayoutHelper.dp(20f), LayoutHelper.dp(8f))
+                    background = android.graphics.drawable.GradientDrawable().apply {
+                        cornerRadius = LayoutHelper.dp(18f).toFloat()
+                        setStroke(LayoutHelper.dp(1f), themeColors.outline)
+                    }
+                    setOnClickListener { retryInitialLoad() }
+                },
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = LayoutHelper.dp(12f) }
+            )
+        }
+        contentFrame.addView(errorView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
+
+        emptyView = TextView(context).apply {
+            setTextColor(themeColors.onSurfaceVariant)
             textSize = 14f
             gravity = Gravity.CENTER
             visibility = View.GONE
+            text = getString(R.string.dm_no_messages)
         }
-        contentFrame.addView(errorView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
+        contentFrame.addView(emptyView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
         pageDownButton = PageDownButton(context, themeColors).apply {
             setOnClickListener { onPageDownClicked() }
@@ -1963,7 +2079,7 @@ open class ChatFragment : BaseFragment() {
             hint = getString(R.string.message_input_placeholder)
             setHintTextColor(themeColors.onSurfaceVariant)
             setTextColor(themeColors.onSurface)
-            textSize = 15f
+            textSize = 16f
             maxLines = 4
             minimumHeight = LayoutHelper.dp(40f)
             imeOptions = EditorInfo.IME_ACTION_SEND
@@ -1974,7 +2090,8 @@ open class ChatFragment : BaseFragment() {
                 setColor(themeColors.tertiary)
                 cornerRadius = LayoutHelper.dp(20f).toFloat()
             }
-            setPadding(LayoutHelper.dp(20f), LayoutHelper.dp(8f), LayoutHelper.dp(40f), LayoutHelper.dp(12f))
+            val verticalPadding = ((LayoutHelper.dp(40f) - lineHeight) / 2).coerceAtLeast(LayoutHelper.dp(6f))
+            setPadding(LayoutHelper.dp(14f), verticalPadding, LayoutHelper.dp(40f), verticalPadding)
         }
         inputWrapper.addView(inputField, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT
@@ -1998,7 +2115,7 @@ open class ChatFragment : BaseFragment() {
             Gravity.END or Gravity.BOTTOM
         ).apply {
             rightMargin = LayoutHelper.dp(8f)
-            bottomMargin = LayoutHelper.dp(8f)
+            bottomMargin = inputField.paddingBottom + inputField.lineHeight / 2 - LayoutHelper.dp(12f)
         })
 
         anonymousIndicator = ImageView(context).apply {
@@ -2166,7 +2283,16 @@ open class ChatFragment : BaseFragment() {
                         val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
                         dm.enqueue(request)
                         MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.INFO, "Downloading $filename")
-                    } catch (_: Exception) {}
+                    } catch (_: Exception) {
+                        runCatching {
+                            context.startActivity(
+                                android.content.Intent(
+                                    android.content.Intent.ACTION_VIEW,
+                                    android.net.Uri.parse(url)
+                                )
+                            )
+                        }
+                    }
                 }
             }
             override fun didLongPress(cell: ChatMessageCell, msg: MessageEntity) {
@@ -2198,8 +2324,8 @@ open class ChatFragment : BaseFragment() {
             override fun didTapAddReaction(cell: ChatMessageCell, msg: MessageEntity) {
                 showReactionEmojiPicker(msg)
             }
-            override fun didClickHashtag(cell: ChatMessageCell, channelId: String?) {
-                navigateToChannelFromHashtag(channelId)
+            override fun didClickHashtag(cell: ChatMessageCell, channelId: String?, clanId: String?) {
+                navigateToChannelFromHashtag(channelId, clanId)
             }
             override fun didClickMention(cell: ChatMessageCell, userId: String?, roleId: String?) {
                 if (!roleId.isNullOrBlank() && roleId != "0") return
@@ -2272,6 +2398,9 @@ open class ChatFragment : BaseFragment() {
             override fun didClickEmbedComponentButton(cell: ChatMessageCell, msg: MessageEntity, buttonId: String) {
                 submitEmbedComponentButton(msg, buttonId)
             }
+            override fun didChangeEmbedSelect(cell: ChatMessageCell, msg: MessageEntity, componentId: String, value: String) {
+                submitEmbedSelectChange(msg, componentId, value)
+            }
             override fun didTapShareContactProfile(cell: ChatMessageCell, msg: MessageEntity, data: ShareContactData) {
                 showShareContactProfile(data)
             }
@@ -2280,6 +2409,9 @@ open class ChatFragment : BaseFragment() {
             }
             override fun didTapShareContactCall(cell: ChatMessageCell, msg: MessageEntity, data: ShareContactData) {
                 startShareContactCall(data)
+            }
+            override fun didTapLocationCard(cell: ChatMessageCell, msg: MessageEntity, data: LocationMessageData) {
+                openLocationInMaps(data)
             }
         })
 
@@ -2574,6 +2706,13 @@ open class ChatFragment : BaseFragment() {
     override fun onResume() {
         super.onResume()
         lastResumeTime = android.os.SystemClock.elapsedRealtime()
+        if (clanId != 0L) {
+            channelController.setVisibleBadgeChannel(channelId, if (isTopicMode) topicId else 0L)
+        }
+        pendingLocationSettingsReturn?.let { origin ->
+            pendingLocationSettingsReturn = null
+            resumeLocationSendAfterSettings(origin)
+        }
         if (clanId == 0L) {
             refreshDmHeaderTitleFromDialog()
             refreshWelcomeFromDialog()
@@ -2582,8 +2721,9 @@ open class ChatFragment : BaseFragment() {
         }
         if (pausedFromAppBackground) {
             pausedFromAppBackground = false
+            dialogsController.setCurrentChannel(channelId)
             rejoinChannelOnSocket()
-            chatController.loadMessages(channelId, clanId, forceRefresh = true, preferHttp = true, topicId = topicId)
+            chatController.loadMessages(channelId, clanId, forceRefresh = true, refreshWhenBackOnline = true, topicId = topicId)
         }
     }
 
@@ -2626,7 +2766,16 @@ open class ChatFragment : BaseFragment() {
                     )
                 }
             } else {
+                val badgeBeforeRead = channelController.badgeCountForRead(channelId)
                 channelController.markChannelAsRead(channelId, seenMessageId = lastSeenMessageId)
+                val readRow = channelController.findChannelById(channelId)
+                if (readRow != null && readRow.lastSeenMessageId != 0L && badgeBeforeRead > 0) {
+                    chatController.updateLastSeenMessage(
+                        channelId, clanId, channelType, readRow.lastSeenMessageId,
+                        readRow.lastSeenMessageTs.toInt(), badgeCount = 0, applyLocal = false,
+                        capturedBadgeCount = badgeBeforeRead
+                    )
+                }
                 channelController.clearCurrentTopic()
                 refreshTopicRootRowsFromCache()
                 updateVisibleRows(NotificationCenter.UPDATE_MASK_TOPIC)
@@ -2669,8 +2818,10 @@ open class ChatFragment : BaseFragment() {
             }
         } else if (!isLoading) {
             isLoading = true
+            initialLoadFailed = false
+            initialLoadRetryAttempt = 0
             showLoading()
-            chatController.loadMessages(channelId, clanId, forceRefresh = true, preferHttp = openedFromNotification, topicId = topicId)
+            chatController.loadMessages(channelId, clanId, forceRefresh = true, refreshWhenBackOnline = true, topicId = topicId)
         }
         mainHandler.post { refreshPollSnapshotsForStoredVotes() }
         startVisiblePollTallyRefreshLoop()
@@ -2682,7 +2833,10 @@ open class ChatFragment : BaseFragment() {
     override fun onPause() {
         super.onPause()
         pausedFromAppBackground = MainActivity.applicationPaused
-        if (clanId != 0L) channelController.clearCurrentTopic()
+        if (clanId != 0L) {
+            channelController.clearVisibleBadgeChannel(channelId, if (isTopicMode) topicId else 0L)
+            channelController.clearCurrentTopic()
+        }
         waitingForKeyboardOpen = false
         AndroidUtilities.cancelRunOnUIThread(openKeyboardRunnable)
         AndroidUtilities.cancelRunOnUIThread(showKeyboardFromEmojiRunnable)
@@ -3073,6 +3227,7 @@ open class ChatFragment : BaseFragment() {
     }
 
     override fun onFragmentDestroy() {
+        cancelLocationFix()
         activeImageEditor?.setOnDismissListener(null)
         activeImageEditor?.dismiss()
         activeImageEditor = null
@@ -3131,6 +3286,10 @@ open class ChatFragment : BaseFragment() {
         failedInputOgpUrl = null
         suggestionsPopup = null
         suggestionsAdapter = null
+        slashCommandDebounceJob?.cancel()
+        slashCommandDebounceJob = null
+        slashCommandLoadJob?.cancel()
+        slashCommandLoadJob = null
         EmbedFormUtil.clearAll()
         pendingHighlightMessageId = 0L
         chatAdjustPanHelper?.onDetach()
@@ -3290,11 +3449,14 @@ open class ChatFragment : BaseFragment() {
     private fun refreshUI() {
         if (messages.isNotEmpty()) showMessages()
         else if (isLoading) showLoading()
+        else if (initialLoadFailed) showLoadError()
         else showEmpty()
     }
 
     private fun showLoading() {
         errorView.visibility = View.GONE
+        emptyView.visibility = View.GONE
+        rearmLoadWatchdog()
         if (!showLoadingPending) {
             showLoadingPending = true
             mainHandler.postDelayed(showLoadingRunnable, LOADING_INDICATOR_DELAY_MS)
@@ -3305,8 +3467,10 @@ open class ChatFragment : BaseFragment() {
         cancelPendingLoading()
         loadingView.visibility = View.GONE
         errorView.visibility = View.GONE
+        emptyView.visibility = View.GONE
         val vis = if (needScrollRestore) View.INVISIBLE else View.VISIBLE
         recyclerView.visibility = vis
+        if (needScrollRestore) mainHandler.postDelayed(revealListRunnable, LIST_REVEAL_FALLBACK_MS)
         adapter.showLoadingUp = hasMoreTop
         adapter.showLoadingDown = hasMoreBottom
         adapter.notifyMessagesUpdated()
@@ -3318,11 +3482,47 @@ open class ChatFragment : BaseFragment() {
         loadingView.visibility = View.GONE
         recyclerView.visibility = View.VISIBLE
         errorView.visibility = View.GONE
+        emptyView.visibility = if (messages.isEmpty()) View.VISIBLE else View.GONE
         adapter.notifyMessagesUpdated()
+    }
+
+    private fun showLoadError() {
+        cancelPendingLoading()
+        loadingView.visibility = View.GONE
+        emptyView.visibility = View.GONE
+        recyclerView.visibility = View.INVISIBLE
+        errorView.visibility = View.VISIBLE
+    }
+
+    private fun retryInitialLoad() {
+        if (isLoading) return
+        isLoading = true
+        initialLoadFailed = false
+        initialLoadRetryAttempt = 0
+        showLoading()
+        loadInitialMessages()
+    }
+
+    private fun holdInitialLoadForRetry(): Boolean {
+        if (!networkMonitor.isOnline.value) return true
+        if (initialLoadRetryAttempt >= INITIAL_LOAD_RETRY_DELAYS_MS.size) return false
+        val delayMs = INITIAL_LOAD_RETRY_DELAYS_MS[initialLoadRetryAttempt]
+        initialLoadRetryAttempt++
+        mainHandler.removeCallbacks(initialLoadRetryRunnable)
+        mainHandler.postDelayed(initialLoadRetryRunnable, delayMs)
+        return true
+    }
+
+    private fun rearmLoadWatchdog() {
+        mainHandler.removeCallbacks(loadWatchdogRunnable)
+        mainHandler.postDelayed(loadWatchdogRunnable, LOAD_WATCHDOG_MS)
     }
 
     private fun cancelPendingLoading() {
         mainHandler.removeCallbacks(showLoadingRunnable)
+        mainHandler.removeCallbacks(loadWatchdogRunnable)
+        mainHandler.removeCallbacks(revealListRunnable)
+        mainHandler.removeCallbacks(initialLoadRetryRunnable)
         showLoadingPending = false
     }
 
@@ -3422,28 +3622,56 @@ open class ChatFragment : BaseFragment() {
             jumpingToPresent = true
             firstLoad = true
             Log.d(TAG, "jumpToPresent: keeping current list until reload completes, loadMessages forceRefresh=true")
-            chatController.loadMessages(channelId, clanId, forceRefresh = true, preferHttp = false, topicId = topicId)
+            chatController.loadMessages(channelId, clanId, forceRefresh = true, refreshWhenBackOnline = true, topicId = topicId)
         }
     }
 
     private fun markAsRead() {
-        val newest = newestReadStateMessage() ?: return
-        if (messagesDict[newest.id] == null) return
         if (clanId != 0L) {
             if (channelController.findChannelById(channelId) == null) return
         } else {
             if (dialogsController.getDialog(channelId) == null) return
         }
-        if (newest.id <= lastSeenMessageId) return
-        lastSeenMessageId = newest.id
+        val newest = newestReadStateMessage()
+        val seenId: Long
+        val seenTs: Int
+        if (newest != null) {
+            if (messagesDict[newest.id] == null) return
+            seenId = newest.id
+            seenTs = newest.timestampSeconds.toInt()
+        } else {
+            if (lastSentMessageId == 0L) return
+            seenId = lastSentMessageId
+            seenTs = channelTailTimestampSeconds()
+        }
+        if (seenId <= lastWrittenSeenMessageId) return
+        if (!canAdvanceSeenPointer(seenId)) return
+        lastWrittenSeenMessageId = seenId
+        lastSeenMessageId = maxOf(lastSeenMessageId, seenId)
         newUnreadCount = 0
         if (::pageDownButton.isInitialized) pageDownButton.setUnreadCount(0)
 
-        pendingSeenMessageId = newest.id
-        pendingSeenTimestamp = newest.timestampSeconds.toInt()
+        pendingSeenMessageId = seenId
+        pendingSeenTimestamp = seenTs
         pendingBadgeCount = 0
         mainHandler.removeCallbacks(markVisibleRunnable)
         mainHandler.postDelayed(markVisibleRunnable, 500)
+    }
+
+    private fun canAdvanceSeenPointer(messageId: Long): Boolean {
+        if (lastSeenMessageId == 0L || messageId >= lastSeenMessageId) return true
+        val tail = maxOf(lastSentMessageId, chatController.getLastMessageId(messageListKey))
+        return tail != 0L && messageId == tail
+    }
+
+    private fun channelTailTimestampSeconds(): Int {
+        val readStateChannelId = if (isTopicMode && topicId != 0L) topicId else channelId
+        val ts = if (clanId != 0L) {
+            channelController.findChannelById(readStateChannelId)?.lastSentMessageTs ?: 0L
+        } else {
+            dialogsController.getDialog(readStateChannelId)?.lastSentMessageTs ?: 0L
+        }
+        return ts.toInt()
     }
 
     private fun markVisibleAsRead() {
@@ -3481,6 +3709,7 @@ open class ChatFragment : BaseFragment() {
         if (visibleMsg.id <= lastSeenMessageId) return
 
         lastSeenMessageId = visibleMsg.id
+        lastWrittenSeenMessageId = maxOf(lastWrittenSeenMessageId, visibleMsg.id)
         val remaining = if (lastSentMessageId != 0L && visibleMsg.id < lastSentMessageId) {
             countNewerReadable(candidateIndex, visibleMsg.id)
         } else {
@@ -3519,7 +3748,8 @@ open class ChatFragment : BaseFragment() {
         }
         chatController.updateLastSeenMessage(
             readChannelId, clanId, channelType,
-            msgId, ts, badgeCount = badge
+            msgId, ts,
+            badgeCount = if (clanId != 0L) 0 else badge
         )
     }
 
@@ -3824,6 +4054,29 @@ open class ChatFragment : BaseFragment() {
                         getString(R.string.embed_form_submit_failed),
                     )
                 }
+            }
+        }
+    }
+
+    private fun submitEmbedSelectChange(msg: MessageEntity, componentId: String, value: String) {
+        if (msg.isSending) return
+        val uid = currentUserIdLong()
+        appScope.launch(Dispatchers.IO) {
+            try {
+                sessionManager.withAutoRefresh { session ->
+                    mezonApi.messageButtonClick(
+                        session.apiUrl,
+                        session.token,
+                        msg.id,
+                        msg.channelId,
+                        componentId,
+                        msg.senderId,
+                        uid,
+                        value,
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "embed select notify failed", e)
             }
         }
     }
@@ -4392,6 +4645,51 @@ open class ChatFragment : BaseFragment() {
         val dm = dialogsController.getDialog(channelId) ?: return false
         if (dm.otherUserId == 0L) return false
         return dm.otherUserId == myId
+    }
+
+    private fun applyDmVoicePresenceSubtitle(bar: ActionBarView) {
+        if (clanId != 0L || channelType != CHANNEL_TYPE_DM || isTopicMode) return
+        val peerId = dialogsController.getDialog(channelId)?.otherUserId ?: 0L
+        val inVoice = peerId != 0L && peerId != userController.userId && voiceController.isUserInVoice(peerId)
+        if (!inVoice) {
+            bar.setSubtitleOnClickListener(null)
+            bar.setSubtitle(null)
+            return
+        }
+        val dimAlpha = 0x99 shl 24
+        bar.setSubtitleStartPadding(0)
+        bar.setSubtitleOnClickListener { showJoinVoiceSheetForDmPeer() }
+        bar.setSubtitleColor((themeColors.onSurface and 0x00FFFFFF) or dimAlpha)
+        val iconSize = LayoutHelper.dp(12)
+        val icon = MezonIcon.channelVoice.getDrawable(bar.context).mutate().apply {
+            colorFilter = PorterDuffColorFilter(themeColors.voiceActiveGreen, PorterDuff.Mode.SRC_IN)
+            setBounds(0, 0, iconSize, iconSize)
+        }
+        val text = SpannableString("  " + getString(R.string.voice_profile_in_voice))
+        text.setSpan(CenteredImageSpan(icon), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        bar.setSubtitle(text)
+    }
+
+    private class CenteredImageSpan(drawable: Drawable) : ImageSpan(drawable) {
+        override fun draw(
+            canvas: Canvas,
+            text: CharSequence?,
+            start: Int,
+            end: Int,
+            x: Float,
+            top: Int,
+            y: Int,
+            bottom: Int,
+            paint: Paint
+        ) {
+            val iconDrawable = drawable
+            val metrics = paint.fontMetricsInt
+            val iconTop = y + (metrics.ascent + metrics.descent) / 2 - iconDrawable.bounds.height() / 2
+            canvas.save()
+            canvas.translate(x, iconTop.toFloat())
+            iconDrawable.draw(canvas)
+            canvas.restore()
+        }
     }
 
     private fun refreshDmHeaderTitleFromDialog() {
@@ -5612,12 +5910,15 @@ open class ChatFragment : BaseFragment() {
             .setMessage(getString(R.string.permission_no_location))
             .setPositiveButton(getString(R.string.permission_open_settings)) { _, _ ->
                 try {
+                    pendingLocationSettingsReturn = LocationSettingsReturn.APP_PERMISSION
                     val intent = android.content.Intent(
                         android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                         android.net.Uri.fromParts("package", activity.packageName, null)
                     )
                     activity.startActivity(intent)
-                } catch (_: Exception) {}
+                } catch (_: Exception) {
+                    pendingLocationSettingsReturn = null
+                }
             }
             .setNegativeButton(getString(R.string.permission_not_now), null)
             .create()
@@ -5626,38 +5927,177 @@ open class ChatFragment : BaseFragment() {
 
     @android.annotation.SuppressLint("MissingPermission")
     private fun fetchCurrentLocationAndSend() {
-        val ctx = getContext() ?: return
-        val locationManager = ctx.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager ?: return
+        val activity = getParentActivity() ?: return
+        val locationManager = locationManagerOrNull() ?: return
+        cancelLocationFix()
 
-        val lastKnown = locationManager.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
-            ?: locationManager.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
+        val providers = enabledLocationProviders(locationManager)
+        if (providers.isEmpty()) {
+            showEnableLocationServicesDialog()
+            return
+        }
 
-        if (lastKnown != null) {
-            showLocationConfirmDialog(lastKnown.latitude, lastKnown.longitude)
+        val recent = freshestLastKnownLocation(locationManager)
+        if (recent != null && locationAgeMs(recent) <= LOCATION_FRESH_MAX_AGE_MS) {
+            showLocationConfirmDialog(recent.latitude, recent.longitude)
             return
         }
 
         val listener = object : android.location.LocationListener {
             override fun onLocationChanged(location: android.location.Location) {
-                locationManager.removeUpdates(this)
+                if (locationFixListener !== this) return
+                cancelLocationFix()
                 showLocationConfirmDialog(location.latitude, location.longitude)
             }
             @Deprecated("Deprecated in Java")
             override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
             override fun onProviderEnabled(provider: String) {}
-            override fun onProviderDisabled(provider: String) {}
+            override fun onProviderDisabled(provider: String) {
+                if (locationFixListener !== this) return
+                if (enabledLocationProviders(locationManager).isNotEmpty()) return
+                cancelLocationFix()
+                showEnableLocationServicesDialog()
+            }
+        }
+        locationFixListener = listener
+        locationFixManager = locationManager
+        var requested = false
+        for (provider in providers) {
+            try {
+                locationManager.requestLocationUpdates(provider, 0L, 0f, listener, Looper.getMainLooper())
+                requested = true
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to request location updates from $provider", e)
+            }
+        }
+        if (!requested) {
+            finishLocationFixWithLastKnown()
+            return
         }
 
-        try {
-            if (locationManager.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)) {
-                locationManager.requestSingleUpdate(android.location.LocationManager.GPS_PROVIDER, listener, null)
-            } else if (locationManager.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)) {
-                locationManager.requestSingleUpdate(android.location.LocationManager.NETWORK_PROVIDER, listener, null)
-            } else {
-                MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.permission_no_location))
+        val timeout = Runnable { finishLocationFixWithLastKnown() }
+        locationFixTimeout = timeout
+        AndroidUtilities.runOnUIThread(timeout, LOCATION_FIX_TIMEOUT_MS)
+
+        val row = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(
+                android.widget.ProgressBar(activity),
+                LayoutHelper.createLinear(28, 28, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, 16f, 0f)
+            )
+            addView(
+                TextView(activity).apply {
+                    text = getString(R.string.share_location_fetching)
+                    setTextColor(themeColors.onSurface)
+                    setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 16f)
+                },
+                LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL)
+            )
+        }
+        val dialog = com.mezon.mobile.core.AlertDialog.Builder(activity)
+            .setView(row)
+            .setNegativeButton(getString(R.string.share_location_cancel)) { _, _ -> cancelLocationFix() }
+            .setOnCancelListener { cancelLocationFix() }
+            .create()
+        locationFixDialog = dialog
+        dialog.show()
+    }
+
+    private fun finishLocationFixWithLastKnown() {
+        val locationManager = locationFixManager ?: locationManagerOrNull()
+        cancelLocationFix()
+        val fallback = locationManager?.let { freshestLastKnownLocation(it) }
+        if (fallback != null) {
+            showLocationConfirmDialog(fallback.latitude, fallback.longitude)
+        } else {
+            MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.share_location_unavailable))
+        }
+    }
+
+    private fun cancelLocationFix() {
+        locationFixListener?.let { listener -> locationFixManager?.removeUpdates(listener) }
+        locationFixListener = null
+        locationFixManager = null
+        locationFixTimeout?.let { AndroidUtilities.cancelRunOnUIThread(it) }
+        locationFixTimeout = null
+        locationFixDialog?.let { dialog ->
+            dialog.setOnCancelListener(null)
+            if (dialog.isShowing) dialog.dismiss()
+        }
+        locationFixDialog = null
+    }
+
+    private fun locationManagerOrNull(): android.location.LocationManager? =
+        getContext()?.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager
+
+    private fun enabledLocationProviders(locationManager: android.location.LocationManager): List<String> =
+        LOCATION_FIX_PROVIDERS.filter { provider ->
+            try {
+                locationManager.isProviderEnabled(provider)
+            } catch (_: Exception) {
+                false
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to get location", e)
+        }
+
+    @android.annotation.SuppressLint("MissingPermission")
+    private fun freshestLastKnownLocation(locationManager: android.location.LocationManager): android.location.Location? =
+        LOCATION_LAST_KNOWN_PROVIDERS
+            .mapNotNull { provider ->
+                try {
+                    locationManager.getLastKnownLocation(provider)
+                } catch (_: Exception) {
+                    null
+                }
+            }
+            .maxByOrNull { it.elapsedRealtimeNanos }
+
+    private fun locationAgeMs(location: android.location.Location): Long =
+        (android.os.SystemClock.elapsedRealtimeNanos() - location.elapsedRealtimeNanos) / 1_000_000L
+
+    private fun showEnableLocationServicesDialog() {
+        val activity = getParentActivity() ?: return
+        com.mezon.mobile.core.AlertDialog.Builder(activity)
+            .setTitle(getString(R.string.location_services_off_title))
+            .setMessage(getString(R.string.location_services_off_message))
+            .setPositiveButton(getString(R.string.permission_open_settings)) { _, _ ->
+                try {
+                    pendingLocationSettingsReturn = LocationSettingsReturn.LOCATION_SERVICES
+                    activity.startActivity(
+                        android.content.Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS)
+                    )
+                } catch (_: Exception) {
+                    pendingLocationSettingsReturn = null
+                }
+            }
+            .setNegativeButton(getString(R.string.permission_not_now), null)
+            .create()
+            .show()
+    }
+
+    private enum class LocationSettingsReturn { APP_PERMISSION, LOCATION_SERVICES }
+
+    private fun resumeLocationSendAfterSettings(origin: LocationSettingsReturn) {
+        val ctx = getContext() ?: return
+        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return
+        val locationManager = locationManagerOrNull() ?: return
+        val servicesOn = enabledLocationProviders(locationManager).isNotEmpty()
+        if (servicesOn || origin == LocationSettingsReturn.APP_PERMISSION) fetchCurrentLocationAndSend()
+    }
+
+    private fun openLocationInMaps(data: LocationMessageData) {
+        val activity = getParentActivity() ?: return
+        val coordinates = String.format(java.util.Locale.US, "%.6f,%.6f", data.latitude, data.longitude)
+        val targets = listOf(
+            android.net.Uri.parse("geo:$coordinates?q=$coordinates"),
+            android.net.Uri.parse(data.mapsUrl)
+        )
+        for (uri in targets) {
+            try {
+                activity.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, uri))
+                return
+            } catch (_: Exception) {
+            }
         }
     }
 
@@ -6987,6 +7427,9 @@ open class ChatFragment : BaseFragment() {
                 clipboard.setPrimaryClip(android.content.ClipData.newPlainText("message", plainText))
                 MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.message_toast_copy_text))
             }
+            MessageActionBottomSheet.ActionType.ShareText -> {
+                shareMessageText(msg)
+            }
             MessageActionBottomSheet.ActionType.ForwardMessage -> {
                 openForwardScreen(msg)
             }
@@ -7046,6 +7489,9 @@ open class ChatFragment : BaseFragment() {
                 getContext() ?: return
                 MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.feature_coming_soon))
             }
+            MessageActionBottomSheet.ActionType.AddToInbox -> {
+                addMessageToInbox(msg)
+            }
             MessageActionBottomSheet.ActionType.SaveMedia -> {
                 val ctx = getContext() ?: return
                 val url = msg.allImageAttachments.firstOrNull()?.url?.takeIf { it.isNotBlank() }
@@ -7072,7 +7518,12 @@ open class ChatFragment : BaseFragment() {
                     val ctx = getContext() ?: return
                     val clipboard = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                     clipboard.setPrimaryClip(android.content.ClipData.newPlainText("media_url", url))
-                    MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.action_copy_link))
+                    val messageRes = if (isVideoAttachmentType(msg.attachmentFiletype)) {
+                        R.string.action_copy_video_link
+                    } else {
+                        R.string.action_copy_image_link
+                    }
+                    MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(messageRes))
                 }
             }
             MessageActionBottomSheet.ActionType.CopyImage -> {
@@ -7104,6 +7555,47 @@ open class ChatFragment : BaseFragment() {
                 handleGiveCoffee(msg)
             }
         }
+    }
+
+    private fun addMessageToInbox(msg: MessageEntity) {
+        fragmentScope.launch {
+            val result = runCatching {
+                withContext(ioDispatcher) {
+                    chatController.addMessageToInbox(
+                        channelId = channelId,
+                        clanId = clanId,
+                        channelType = channelType,
+                        channelLabel = channelName,
+                        activeTopicId = topicId,
+                        message = msg
+                    )
+                }
+            }
+            withContext(mainDispatcher) {
+                val toastType = if (result.isSuccess) {
+                    ToastOverlay.ToastType.SUCCESS
+                } else {
+                    ToastOverlay.ToastType.ERROR
+                }
+                val messageRes = if (result.isSuccess) {
+                    R.string.message_toast_add_to_inbox_success
+                } else {
+                    R.string.message_toast_add_to_inbox_failed
+                }
+                MezonToast.show(this@ChatFragment, toastType, getString(messageRes))
+            }
+        }
+    }
+
+    private fun shareMessageText(msg: MessageEntity) {
+        val activity = getParentActivity() ?: return
+        val plainText = parseContentText(msg.content)
+        if (plainText.isBlank()) return
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, plainText)
+        }
+        activity.startActivity(Intent.createChooser(intent, getString(R.string.action_share_text)))
     }
 
     private fun showReportMessageSheet(msg: MessageEntity) {
@@ -7586,7 +8078,7 @@ open class ChatFragment : BaseFragment() {
                 clanId,
                 messageId,
                 requireExactAnchor = true,
-                preferHttp = openedFromNotification,
+                refreshWhenBackOnline = true,
                 topicId = topicId
             )
         }
@@ -7620,9 +8112,15 @@ open class ChatFragment : BaseFragment() {
             hideSuggestionsPopup()
             return
         }
+        if (trigger.mode == InputSuggestionsController.Mode.SLASH) {
+            scheduleSlashCommandSuggestions()
+            return
+        }
+        slashCommandDebounceJob?.cancel()
+        slashCommandDebounceJob = null
 
         val items: List<InputSuggestionItem> = when (trigger.mode) {
-            InputSuggestionsController.Mode.MENTION -> buildMentionSuggestions(trigger.keyword)
+            InputSuggestionsController.Mode.MENTION -> buildMentionSuggestions(trigger)
             InputSuggestionsController.Mode.HASHTAG -> buildHashtagSuggestions(trigger.keyword)
             InputSuggestionsController.Mode.EMOJI -> buildEmojiSuggestions(trigger.keyword)
             else -> emptyList()
@@ -7639,13 +8137,79 @@ open class ChatFragment : BaseFragment() {
     }
 
     private fun hideSuggestionsPopup() {
+        slashCommandDebounceJob?.cancel()
+        slashCommandDebounceJob = null
+        mentionSearchController.cancelPending()
         suggestionsPopup?.updateVisibility(false)
         suggestionsAdapter?.clear()
         currentTrigger = InputSuggestionsController.TriggerState.NONE
     }
 
-    private fun buildMentionSuggestions(keyword: String): List<InputSuggestionItem> {
+    private fun scheduleSlashCommandSuggestions() {
+        if (currentTrigger.mode != InputSuggestionsController.Mode.SLASH) hideSuggestionsPopup()
+        ensureSlashCommandsLoaded()
+        slashCommandDebounceJob?.cancel()
+        slashCommandDebounceJob = fragmentScope.launch(mainDispatcher) {
+            delay(SLASH_COMMAND_DEBOUNCE_MS)
+            slashCommandDebounceJob = null
+            presentSlashCommandSuggestions()
+        }
+    }
+
+    private fun presentSlashCommandSuggestions() {
+        if (isPaused || fragmentView == null) return
+        val text = inputField.text?.toString() ?: ""
+        val cursor = inputField.selectionStart
+        val trigger = InputSuggestionsController.detect(text, cursor)
+        if (trigger.mode != InputSuggestionsController.Mode.SLASH) return
+        val items = InputSuggestionsController.buildSlashCommandItems(
+            trigger.keyword,
+            SlashCommandCatalog.cached(channelId)
+        )
+        if (items.isEmpty()) {
+            hideSuggestionsPopup()
+            return
+        }
+        currentTrigger = trigger
+        suggestionsAdapter?.submit(items)
+        suggestionsPopup?.updateVisibility(true)
+    }
+
+    private fun ensureSlashCommandsLoaded() {
+        val targetChannelId = channelId
+        if (targetChannelId == 0L) return
+        if (SlashCommandCatalog.isFresh(targetChannelId)) return
+        if (slashCommandLoadJob?.isActive == true) return
+        slashCommandLoadJob = fragmentScope.launch(mainDispatcher) {
+            SlashCommandCatalog.load(targetChannelId, mezonApi, sessionManager, ioDispatcher)
+            if (channelId != targetChannelId) return@launch
+            slashCommandDebounceJob?.cancel()
+            slashCommandDebounceJob = null
+            presentSlashCommandSuggestions()
+        }
+    }
+
+    private fun applySlashCommand(command: SlashCommand) {
+        val message = command.actionMsg.trim()
+        if (message.isEmpty()) return
+        mentionTrackers.clear()
+        hashtagTrackers.clear()
+        emojiObjPicked.clear()
+        suppressInputTrackerMutation = true
+        try {
+            inputField.setText(message)
+        } finally {
+            suppressInputTrackerMutation = false
+        }
+        inputField.setSelection(message.length)
+        updateSendButtonState()
+        updateInputOgpPreview(message)
+    }
+
+    private fun buildMentionSuggestions(trigger: InputSuggestionsController.TriggerState): List<InputSuggestionItem> {
         val members = resolveMentionMembers()
+        val membersPending = memberResolver.mentionMembersPending(clanId, members)
+        if (membersPending) loadMentionMemberSources()
         val isChannelOrThread = channelType != CHANNEL_TYPE_DM && channelType != CHANNEL_TYPE_GROUP
         val roles = if (isChannelOrThread && clanId != 0L) {
             roleController.getRoles(clanId).also {
@@ -7653,13 +8217,36 @@ open class ChatFragment : BaseFragment() {
             }
         } else emptyList()
         val includeHere = channelType != CHANNEL_TYPE_DM
+        val continuesInsertedMention = mentionTrackers.any { it.startOffset == trigger.triggerPos }
+        val remote = if (isChannelOrThread && !continuesInsertedMention) {
+            mentionSearchController.search(clanId, channelId, trigger.keyword)
+        } else {
+            MentionSearchResult.NONE
+        }
         val ctx = InputSuggestionsController.MentionContext(
             members = members,
             roles = roles,
             includeHere = includeHere,
-            includeRoles = isChannelOrThread
+            includeRoles = isChannelOrThread,
+            membersPending = membersPending || remote.pending,
+            remoteMembers = remote.members
         )
-        return InputSuggestionsController.buildMentionItems(keyword, ctx)
+        return InputSuggestionsController.buildMentionItems(trigger.keyword, ctx)
+    }
+
+    private fun loadMentionMemberSources() {
+        if (clanId == 0L) return
+        userClanController.loadClanMembers(clanId)
+        val ch = channelController.findChannelById(channelId)
+        val effectiveParentId = ch?.parentId ?: routeParentId
+        val effectivePrivate = ch?.isPrivate ?: routeChannelPrivate
+        val shouldLoadScopedMembers =
+            channelType == CHANNEL_TYPE_THREAD || effectivePrivate || effectiveParentId != 0L
+        if (!shouldLoadScopedMembers) return
+        if (effectiveParentId != 0L) {
+            userClanController.loadChannelMembers(clanId, effectiveParentId, CHANNEL_TYPE_CHANNEL)
+        }
+        userClanController.loadChannelMembers(clanId, channelId, CHANNEL_TYPE_CHANNEL)
     }
 
     private fun buildHashtagSuggestions(keyword: String): List<InputSuggestionItem> {
@@ -7710,12 +8297,13 @@ open class ChatFragment : BaseFragment() {
         val replaceEnd = minOf(triggerPos + trigger.queryLen, editable.length)
 
         when (item) {
+            is InputSuggestionItem.Loading -> return
             is InputSuggestionItem.Here -> {
                 insertMentionToken(editable, triggerPos, replaceEnd, "@here", ChatController.ID_MENTION_HERE, "", themeColors.textLink)
             }
             is InputSuggestionItem.Member -> {
                 val member = item.member
-                val displayName = member.clanNick.ifBlank { member.displayName.ifBlank { member.username } }
+                val displayName = InputSuggestionsController.mentionDisplayName(member)
                 insertMentionToken(editable, triggerPos, replaceEnd, "@$displayName", member.userId.toString(), "", themeColors.textLink)
             }
             is InputSuggestionItem.Role -> {
@@ -7728,6 +8316,9 @@ open class ChatFragment : BaseFragment() {
             }
             is InputSuggestionItem.Emoji -> {
                 insertEmojiToken(editable, triggerPos, replaceEnd, item.item)
+            }
+            is InputSuggestionItem.SlashCommand -> {
+                applySlashCommand(item.command)
             }
         }
         hideSuggestionsPopup()
@@ -7831,7 +8422,7 @@ open class ChatFragment : BaseFragment() {
         inputField.setSelection(start + insertText.length)
     }
 
-    private fun channelTitleIconSizePx(): Int = LayoutHelper.dp(20)
+    private fun channelTitleIconSizePx(): Int = LayoutHelper.sp(18f).toInt()
 
     private fun channelTitleIconDrawable(context: Context, iconEnum: MezonIcon): Drawable {
         val drawable = iconEnum.getDrawable(context, themeColors)
@@ -7852,6 +8443,7 @@ open class ChatFragment : BaseFragment() {
         val iconSize = channelTitleIconSizePx()
         val span = ColoredImageSpan(iconEnum.getDrawable(context, themeColors), ColoredImageSpan.ALIGN_CENTER)
         span.setSize(iconSize)
+        span.translateY = LayoutHelper.dpf(1f)
         if (isThread) {
             span.usePaintColor = false
         } else {
@@ -7878,17 +8470,35 @@ open class ChatFragment : BaseFragment() {
         return ChannelItemCell.resolveChannelIcon(type, entity.isPrivate, isAgeRestricted)
     }
 
-    private fun navigateToChannelFromHashtag(channelIdStr: String?) {
+    private fun navigateToChannelFromHashtag(channelIdStr: String?, targetClanIdStr: String?) {
         val cid = channelIdStr?.toLongOrNull() ?: return
         if (cid == 0L) return
-        val entity = channelController.findChannelById(cid, clanId)
-            ?: channelController.findChannelById(cid, 0L)
-            ?: searchController.findChannelById(cid)
-        if (entity == null) {
-            if (!searchController.hasChannels()) searchController.loadChannels()
+        val targetClanId = targetClanIdStr?.toLongOrNull() ?: clanId
+        if (targetClanId != 0L && clansController.clans.value.none { it.clanId == targetClanId }) return
+        val entity = (if (channelController.requiresLinkedChannelValidation(cid)) {
+            channelController.linkedChannelDetail(cid)
+        } else {
+            channelController.findChannelById(cid, targetClanId)
+                ?: searchController.findChannelById(cid)
+                ?: channelController.linkedChannelDetail(cid)
+        })
+            ?.takeIf { targetClanId == 0L || it.clanId == targetClanId }
+        if (entity != null) {
+            openChannelEntity(entity)
             return
         }
-        openChannelEntity(entity)
+        appScope.launch(ioDispatcher) {
+            try {
+                val resolved = channelController.resolveLinkedChannelForNavigation(cid, targetClanId) ?: return@launch
+                withContext(mainDispatcher) {
+                    if (!isPaused) openChannelEntity(resolved)
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                
+            }
+        }
     }
 
     private fun openChannelAppFromHotbar() {
@@ -7952,6 +8562,29 @@ open class ChatFragment : BaseFragment() {
         }
     }
 
+    private fun showJoinVoiceSheetForDmPeer() {
+        if (clanId != 0L || channelType != CHANNEL_TYPE_DM) return
+        val peerId = dialogsController.getDialog(channelId)?.otherUserId ?: return
+        if (peerId == 0L) return
+        val status = voiceController.getUserVoiceStatus(peerId) ?: return
+        val entity = channelController.findChannelById(status.channelId, status.clanId)
+            ?: channelController.findChannelById(status.channelId)
+            ?: ClanChannelEntity(
+                clanId = status.clanId,
+                channelId = status.channelId,
+                parentId = 0L,
+                categoryId = 0L,
+                categoryName = "",
+                channelLabel = getString(R.string.channel_creator_type_voice_title),
+                type = CHANNEL_TYPE_VOICE,
+                isPrivate = false,
+                topic = "",
+                unreadCount = 0,
+                isMuted = false
+            )
+        showJoinVoiceBottomSheet(entity, status.clanId)
+    }
+
     private fun showJoinVoiceBottomSheet(channel: ClanChannelEntity, targetClanId: Long) {
         val activity = getParentActivity() ?: return
         val memberIds = voiceController.getVoiceMembersForChannel(channel.channelId, targetClanId)
@@ -7959,11 +8592,10 @@ open class ChatFragment : BaseFragment() {
         val memberMap = HashMap<Long, ClanMember>(clanMembers.size)
         for (m in clanMembers) memberMap[m.userId] = m
         val displays = memberIds.map { uid ->
-            val m = memberMap[uid]
-            val name = m?.clanNick?.ifEmpty { null } ?: m?.displayName?.ifEmpty { null } ?: m?.username ?: "User"
-            val username = m?.username.orEmpty()
-            val avatar = m?.clanAvatar?.ifEmpty { null } ?: m?.avatarUrl
-            VoiceMemberDisplay(uid, name, username, avatar)
+            val identity = resolveVoiceMemberIdentity(
+                uid, memberMap[uid], userClanController.getUserById(uid), "User"
+            )
+            VoiceMemberDisplay(uid, identity.displayName, identity.username, identity.avatarUrl)
         }
         val sheet = JoinVoiceBottomSheet(
             activity,
@@ -7974,9 +8606,9 @@ open class ChatFragment : BaseFragment() {
             displays,
             channel.unreadCount
         )
-        sheet.onJoinVoice = {
+        sheet.onJoinVoice = { role ->
             (activity as? MainActivity)?.showVoiceRoom(
-                channel.channelId, targetClanId, channel.channelLabel
+                channel.channelId, targetClanId, channel.channelLabel, role
             )
         }
         sheet.onOpenChat = {
@@ -7997,11 +8629,10 @@ open class ChatFragment : BaseFragment() {
         val memberMap = HashMap<Long, ClanMember>(clanMembers.size)
         for (m in clanMembers) memberMap[m.userId] = m
         val displays = memberIds.map { uid ->
-            val m = memberMap[uid]
-            val name = m?.clanNick?.ifEmpty { null } ?: m?.displayName?.ifEmpty { null } ?: m?.username ?: "User"
-            val username = m?.username.orEmpty()
-            val avatar = m?.clanAvatar?.ifEmpty { null } ?: m?.avatarUrl
-            VoiceMemberDisplay(uid, name, username, avatar)
+            val identity = resolveVoiceMemberIdentity(
+                uid, memberMap[uid], userClanController.getUserById(uid), "User"
+            )
+            VoiceMemberDisplay(uid, identity.displayName, identity.username, identity.avatarUrl)
         }
         val sheet = JoinVoiceBottomSheet(
             activity,
@@ -8011,9 +8642,10 @@ open class ChatFragment : BaseFragment() {
             targetClanId,
             displays,
             channel.unreadCount,
-            JoinMediaSheetKind.STREAMING
+            JoinMediaSheetKind.STREAMING,
+            canJoin = memberIds.isNotEmpty(),
         )
-        sheet.onJoinVoice = {
+        sheet.onJoinVoice = { _ ->
             (activity as? MainActivity)?.showStreamingRoom(
                 channel.channelId, targetClanId, channel.channelLabel
             )
@@ -8106,29 +8738,16 @@ open class ChatFragment : BaseFragment() {
             chatController.reloadChannelMessageIfMissing(channelId, clanId, rootMessageId)
             var root = chatController.getMessageById(channelId, rootMessageId)
             if (root == null) {
-                val detail = topicController.fetchTopicDetail(topicId)
-                if (detail != null) {
-                    root = MessageEntity(
-                        id = detail.messageId,
-                        channelId = channelId,
-                        senderId = detail.creatorId,
-                        senderName = "",
-                        senderUsername = "",
-                        senderAvatar = "",
-                        content = detail.content,
-                        timestampSeconds = detail.createTimeSeconds,
-                        code = MessageEntity.CODE_TOPIC,
-                        topicId = topicId,
-                        topicCreatorId = detail.creatorId
-                    )
+                val authoritativeRootId = topicController.fetchTopicDetail(topicId)?.messageId ?: 0L
+                if (authoritativeRootId != 0L && authoritativeRootId != rootMessageId) {
+                    chatController.reloadChannelMessageIfMissing(channelId, clanId, authoritativeRootId)
+                    root = chatController.getMessageById(channelId, authoritativeRootId)
                 }
             }
             val base = root ?: return@launch
-            val creatorId = base.topicCreatorId.takeIf { it != 0L } ?: base.senderId
-            val member = memberResolver.resolveMember(creatorId, clanId, channelId, channelType)
+            val member = memberResolver.resolveMember(base.senderId, clanId, channelId, channelType)
             val resolved = if (member != null) {
                 base.copy(
-                    senderId = creatorId,
                     senderName = member.clanNick.ifBlank { member.displayName.ifBlank { member.username } },
                     senderUsername = member.username,
                     senderAvatar = member.clanAvatar.ifBlank { member.avatarUrl }

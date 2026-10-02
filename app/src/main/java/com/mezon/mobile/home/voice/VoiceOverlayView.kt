@@ -22,9 +22,9 @@ import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.util.absoluteResourceUrl
 import com.mezon.mobile.util.avatarImgproxyUrl
 import com.mezon.mobile.util.createImgproxyUrl
-import io.livekit.android.renderer.SurfaceViewRenderer
-import io.livekit.android.room.Room
-import io.livekit.android.room.track.VideoTrack
+import com.mezon.mobile.home.call.EglBaseProvider
+import org.webrtc.SurfaceViewRenderer
+import org.webrtc.VideoTrack
 
 class VoiceOverlayView(
     context: Context,
@@ -50,6 +50,8 @@ class VoiceOverlayView(
 
     private var surfaceRenderer: SurfaceViewRenderer? = null
     private var rendererInitialized = false
+    private var frameReplay: VideoSurfaceFrameReplay? = null
+    var onVideoVisibilityChanged: ((VideoTrack, Boolean) -> Unit)? = null
     private var currentVideoTrack: VideoTrack? = null
 
     private val avatarDrawable = AvatarDrawable()
@@ -127,7 +129,6 @@ class VoiceOverlayView(
     }
 
     fun setContent(
-        room: Room?,
         videoTrack: VideoTrack?,
         name: String,
         username: String,
@@ -137,8 +138,8 @@ class VoiceOverlayView(
     ) {
         backgroundImageView.visibility = GONE
         backgroundImageView.setImageDrawable(null)
-        if (videoTrack != null && room != null) {
-            showVideoContent(room, videoTrack)
+        if (videoTrack != null) {
+            showVideoContent(videoTrack)
             avatarView.visibility = GONE
         } else {
             detachVideo()
@@ -203,7 +204,7 @@ class VoiceOverlayView(
         )
     }
 
-    private fun showVideoContent(room: Room, videoTrack: VideoTrack) {
+    private fun showVideoContent(videoTrack: VideoTrack) {
         if (currentVideoTrack == videoTrack && surfaceRenderer != null) return
         detachVideo()
 
@@ -215,17 +216,31 @@ class VoiceOverlayView(
         }
 
         if (!rendererInitialized) {
-            room.initVideoRenderer(renderer)
+            renderer.init(EglBaseProvider.acquire(), null)
             rendererInitialized = true
+            frameReplay = VideoSurfaceFrameReplay(renderer) { currentVideoTrack }
         }
 
-        videoTrack.addRenderer(renderer)
+        try {
+            videoTrack.addSink(renderer)
+        } catch (e: IllegalStateException) {
+            currentVideoTrack = null
+            renderer.visibility = GONE
+            return
+        }
         currentVideoTrack = videoTrack
+        onVideoVisibilityChanged?.invoke(videoTrack, isShown)
         renderer.visibility = VISIBLE
+        frameReplay?.request()
     }
 
     private fun detachVideo() {
-        currentVideoTrack?.removeRenderer(surfaceRenderer ?: return)
+        frameReplay?.cancel()
+        val renderer = surfaceRenderer ?: return
+        currentVideoTrack?.let {
+            onVideoVisibilityChanged?.invoke(it, false)
+            runCatching { it.removeSink(renderer) }
+        }
         currentVideoTrack = null
         surfaceRenderer?.visibility = GONE
     }
@@ -271,6 +286,27 @@ class VoiceOverlayView(
         )
     }
 
+    override fun onVisibilityChanged(changedView: View, visibility: Int) {
+        super.onVisibilityChanged(changedView, visibility)
+        if (isShown) frameReplay?.request() else frameReplay?.cancel()
+        currentVideoTrack?.let { onVideoVisibilityChanged?.invoke(it, isShown) }
+    }
+
+    override fun onWindowVisibilityChanged(visibility: Int) {
+        super.onWindowVisibilityChanged(visibility)
+        if (visibility == VISIBLE) frameReplay?.request() else frameReplay?.cancel()
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        currentVideoTrack?.let { onVideoVisibilityChanged?.invoke(it, isShown) }
+    }
+
+    override fun onDetachedFromWindow() {
+        currentVideoTrack?.let { onVideoVisibilityChanged?.invoke(it, false) }
+        super.onDetachedFromWindow()
+    }
+
     fun releaseRenderer() {
         detachVideo()
         avatarDisposable?.cancel()
@@ -278,6 +314,8 @@ class VoiceOverlayView(
         backgroundImageView.setImageBitmap(null)
         backgroundImageView.setImageDrawable(null)
         backgroundImageView.visibility = GONE
+        frameReplay?.release()
+        frameReplay = null
         surfaceRenderer?.let {
             removeView(it)
             it.release()

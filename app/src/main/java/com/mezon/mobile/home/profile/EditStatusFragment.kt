@@ -12,33 +12,36 @@ import com.mezon.mobile.R
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.di.FragmentEntryPoint
-import com.mezon.mobile.home.clans.ClansController
 import com.mezon.mobile.ui.cells.InputCell
 import com.mezon.mobile.ui.cells.ToastOverlay
 
 class EditStatusFragment : BaseFragment() {
 
     private lateinit var accountController: AccountController
-    private lateinit var clansController: ClansController
 
     private lateinit var statusInput: InputCell
     private lateinit var optionsContainer: LinearLayout
 
-    private var selectedDuration: Int = -1
+    private var selectedDuration: Int = CUSTOM_STATUS_DURATION_TODAY
     private val durations = listOf(
-        Pair(R.string.status_duration_today, -1),
+        Pair(R.string.status_duration_today, CUSTOM_STATUS_DURATION_TODAY),
         Pair(R.string.status_duration_4_hours, 240),
         Pair(R.string.status_duration_1_hour, 60),
         Pair(R.string.status_duration_30_minutes, 30),
-        Pair(R.string.status_duration_dont_clear, 0)
+        Pair(R.string.status_duration_dont_clear, CUSTOM_STATUS_DURATION_DONT_CLEAR)
     )
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
         accountController = entryPoint.accountController()
-        clansController = entryPoint.clansController()
     }
 
     override fun createView(context: Context): View {
+        val accountInfo = accountController.accountInfo.value
+        selectedDuration = customStatusDurationSelection(
+            accountInfo.customStatusTimeReset,
+            accountInfo.customStatusNoClear
+        )
+
         actionBar = createActionBar(context).apply {
             setBackButtonImage(R.drawable.ic_close_icon)
             setTitle(context.getString(R.string.status_edit_status))
@@ -102,7 +105,7 @@ class EditStatusFragment : BaseFragment() {
             setCellBackgroundColor(themeColors.surfaceVariant)
             setCellStrokeColor(0x00000000)
             editText.gravity = Gravity.TOP or Gravity.START
-            val currentStatus = accountController.accountInfo.value.userStatus
+            val currentStatus = accountInfo.userStatus
             if (currentStatus.isNotEmpty()) {
                 setText(currentStatus)
             }
@@ -200,7 +203,7 @@ class EditStatusFragment : BaseFragment() {
         var minutes = selectedDuration
         var noClear = false
 
-        if (minutes == -1) {
+        if (minutes == CUSTOM_STATUS_DURATION_TODAY) {
             val cal = java.util.Calendar.getInstance()
             cal.set(java.util.Calendar.HOUR_OF_DAY, 23)
             cal.set(java.util.Calendar.MINUTE, 59)
@@ -208,16 +211,13 @@ class EditStatusFragment : BaseFragment() {
             val timeDiff = cal.timeInMillis - System.currentTimeMillis()
             minutes = (timeDiff / (1000 * 60)).toInt()
         }
-        if (selectedDuration == 0) {
+        if (selectedDuration == CUSTOM_STATUS_DURATION_DONT_CLEAR) {
             noClear = true
         }
 
-        val clanId = clansController.selectedClanId.value
-        
         com.mezon.mobile.core.AndroidUtilities.hideKeyboard(fragmentView ?: return)
-        
-        android.util.Log.d("EditStatusFragment", "handleSave: clanId=$clanId, text='$statusText', minutes=$minutes, noClear=$noClear")
-        accountController.updateCustomStatus(clanId, statusText, minutes, noClear) { success ->
+
+        accountController.updateCustomStatus(statusText, minutes, noClear) { success ->
             if (success) {
                 finishFragment()
                 return@updateCustomStatus

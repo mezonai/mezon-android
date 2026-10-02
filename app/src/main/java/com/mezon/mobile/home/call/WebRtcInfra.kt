@@ -12,7 +12,13 @@ import org.webrtc.DefaultVideoDecoderFactory
 import org.webrtc.DefaultVideoEncoderFactory
 import org.webrtc.EglBase
 import org.webrtc.PeerConnectionFactory
+import org.webrtc.Logging
+import org.webrtc.SoftwareVideoDecoderFactory
+import org.webrtc.VideoCodecInfo
+import org.webrtc.VideoDecoder
+import org.webrtc.VideoDecoderFactory
 import org.webrtc.audio.JavaAudioDeviceModule
+import com.mezon.mobile.home.voice.sfu.MezonNsCaptureProcessor
 
 private const val TAG = "WebRtcInfra"
 
@@ -49,6 +55,26 @@ class WebRtcInfra @Inject constructor(
         ensureReadyBlocking()
     }
 
+    fun createVoiceFactory(noiseProcessor: MezonNsCaptureProcessor): PeerConnectionFactory {
+        ensureReadyBlocking()
+        val egl = checkNotNull(_eglContext)
+        val audioDeviceModule = JavaAudioDeviceModule.builder(context)
+            .setAudioBufferCallback(noiseProcessor)
+            .setUseHardwareAcousticEchoCanceler(JavaAudioDeviceModule.isBuiltInAcousticEchoCancelerSupported())
+            .setUseHardwareNoiseSuppressor(JavaAudioDeviceModule.isBuiltInNoiseSuppressorSupported())
+            .createAudioDeviceModule()
+        return try {
+            PeerConnectionFactory.builder()
+                .setVideoEncoderFactory(DefaultVideoEncoderFactory(egl, true, true))
+                .setVideoDecoderFactory(SfuVideoDecoderFactory(egl))
+                .setAudioDeviceModule(audioDeviceModule)
+                .createPeerConnectionFactory()
+        } finally {
+            // The native factory holds its own reference until dispose().
+            audioDeviceModule.release()
+        }
+    }
+
     private fun ensureReadyBlocking() {
         if (initialized) return
         if (Looper.myLooper() == Looper.getMainLooper()) {
@@ -73,7 +99,6 @@ class WebRtcInfra @Inject constructor(
             try {
                 doInitialize()
                 initialized = true
-                Log.d(TAG, "WebRTC infra ready")
             } catch (e: Exception) {
                 Log.e(TAG, "ensureInitializedOnMain failed", e)
             }
@@ -84,6 +109,13 @@ class WebRtcInfra @Inject constructor(
         PeerConnectionFactory.initialize(
             PeerConnectionFactory.InitializationOptions.builder(context)
                 .setEnableInternalTracer(false)
+                .setInjectableLogger({ message, severity, tag ->
+                    when (severity) {
+                        Logging.Severity.LS_ERROR -> Log.e(tag, message)
+                        Logging.Severity.LS_WARNING -> Log.w(tag, message)
+                        else -> Unit
+                    }
+                }, Logging.Severity.LS_WARNING)
                 .createInitializationOptions()
         )
 
@@ -91,14 +123,28 @@ class WebRtcInfra @Inject constructor(
         _eglContext = sharedEglContext
 
         val audioDeviceModule = JavaAudioDeviceModule.builder(context)
-            .setUseHardwareAcousticEchoCanceler(false)
-            .setUseHardwareNoiseSuppressor(false)
+            .setUseHardwareAcousticEchoCanceler(JavaAudioDeviceModule.isBuiltInAcousticEchoCancelerSupported())
+            .setUseHardwareNoiseSuppressor(JavaAudioDeviceModule.isBuiltInNoiseSuppressorSupported())
             .createAudioDeviceModule()
 
         _factory = PeerConnectionFactory.builder()
             .setVideoEncoderFactory(DefaultVideoEncoderFactory(sharedEglContext, true, true))
-            .setVideoDecoderFactory(DefaultVideoDecoderFactory(sharedEglContext))
+            .setVideoDecoderFactory(SfuVideoDecoderFactory(sharedEglContext))
             .setAudioDeviceModule(audioDeviceModule)
             .createPeerConnectionFactory()
     }
+}
+
+private class SfuVideoDecoderFactory(eglContext: EglBase.Context?) : VideoDecoderFactory {
+    private val hardware = DefaultVideoDecoderFactory(eglContext)
+    private val software = SoftwareVideoDecoderFactory()
+
+    override fun createDecoder(codecInfo: VideoCodecInfo): VideoDecoder? {
+        if (codecInfo.name.equals("VP8", ignoreCase = true)) {
+            return software.createDecoder(codecInfo) ?: hardware.createDecoder(codecInfo)
+        }
+        return hardware.createDecoder(codecInfo)
+    }
+
+    override fun getSupportedCodecs(): Array<VideoCodecInfo> = hardware.supportedCodecs
 }

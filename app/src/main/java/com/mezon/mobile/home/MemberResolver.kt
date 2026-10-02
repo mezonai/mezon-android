@@ -1,5 +1,6 @@
 package com.mezon.mobile.home
 
+import com.mezon.mobile.home.chat.input.InputSuggestionsController
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.messages.DmParticipant
 import com.mezon.mobile.home.profile.UserController
@@ -117,6 +118,12 @@ class MemberResolver @Inject constructor(
             if (channelMembers.isNotEmpty()) return enrichMembers(clanId, channelMembers)
         }
         return userClanController.getClanMembers(clanId)
+    }
+
+    fun mentionMembersPending(clanId: Long, members: List<ClanMember>): Boolean {
+        if (clanId == 0L) return false
+        if (userClanController.hasClanMembersCache(clanId)) return false
+        return members.isEmpty() || InputSuggestionsController.hasUnresolvedMembers(members)
     }
 
     private fun buildSelfMemberInContext(clanId: Long, channelId: Long, channelType: Int): ClanMember {

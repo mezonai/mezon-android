@@ -13,13 +13,22 @@ object ClanEventStatus {
     const val COMPLETED = 3
 }
 
+object ClanEventAction {
+    const val STATUS_UPDATE = 0
+    const val CREATED = 1
+    const val UPDATE = 2
+    const val DELETE = 3
+    const val INTERESTED = 4
+    const val UNINTERESTED = 5
+}
+
 object ClanEventRepeatType {
-    const val DOES_NOT_REPEAT = 0
-    const val WEEKLY_ON_DAY = 1
-    const val EVERY_OTHER_DAY = 2
-    const val MONTHLY = 3
-    const val ANNUALLY = 4
-    const val EVERY_WEEKDAY = 5
+    const val DOES_NOT_REPEAT = 1
+    const val WEEKLY_ON_DAY = 2
+    const val EVERY_OTHER_DAY = 3
+    const val MONTHLY = 4
+    const val ANNUALLY = 5
+    const val EVERY_WEEKDAY = 6
 }
 
 data class CreateEventDraft(
@@ -34,7 +43,11 @@ data class CreateEventDraft(
     val endTimeSeconds: Int = 0,
     val repeatType: Int = ClanEventRepeatType.DOES_NOT_REPEAT,
     val logoUrl: String = "",
-    val originalLogoUrl: String? = null,
     val editingEventId: Long = 0L,
-    val editingChannelIdOld: Long = 0L,
-)
+) {
+    fun hasChangesFrom(event: ClanEventEntity): Boolean =
+        title != event.title || description != event.description || logoUrl != event.logo ||
+            channelVoiceId != event.channelVoiceId || address != event.address ||
+            channelId != event.channelId || repeatType != event.repeatType ||
+            startTimeSeconds != event.startTimeSeconds || endTimeSeconds != event.endTimeSeconds
+}

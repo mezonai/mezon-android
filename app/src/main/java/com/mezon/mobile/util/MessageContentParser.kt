@@ -117,8 +117,24 @@ data class ContentElement(
     val image: String? = null,
     val index: Int? = null,
     val channelPrivate: Int? = null,
-    val parentId: String? = null
+    val parentId: String? = null,
+    val channelLabel: String? = null,
+    val channelType: Int? = null
 )
+
+internal fun filterOverlappingContentElements(elements: List<ContentElement>): List<ContentElement> {
+    if (elements.size < 2) return elements
+    val sorted = elements.sortedBy { it.s }
+    val accepted = ArrayList<ContentElement>(sorted.size)
+    var acceptedEnd: Int? = null
+    for (element in sorted) {
+        val previousEnd = acceptedEnd
+        if (previousEnd != null && element.s < previousEnd) continue
+        accepted.add(element)
+        acceptedEnd = element.e
+    }
+    return accepted
+}
 
 private val HEADING_REGEX = Regex("^(#{1,6})\\s+(.+)$")
 private val HEADING_LINE_ANYWHERE = Regex("(?m)^#{1,6}\\s+\\S")
@@ -260,7 +276,14 @@ fun formatEmbedRichText(raw: String, theme: ThemeColors): CharSequence {
     val sb = SpannableStringBuilder()
     appendRichMarkdownWithFences(sb, raw, theme)
     applyAutoDetectedHttpLinks(sb, theme.blurple)
+    trimTrailingNewlines(sb)
     return sb
+}
+
+private fun trimTrailingNewlines(sb: SpannableStringBuilder) {
+    var end = sb.length
+    while (end > 0 && sb[end - 1] == '\n') end--
+    if (end < sb.length) sb.delete(end, sb.length)
 }
 
 private fun stripDelimiterAndSpan(
@@ -327,7 +350,9 @@ fun parseContentToSpannable(
                 channelId = j.optString("channelId").takeIf { it.isNotEmpty() },
                 clanId = j.optString("clanId").takeIf { it.isNotEmpty() },
                 channelPrivate = if (j.has("channelPrivate")) j.optInt("channelPrivate") else if (j.has("channel_private")) j.optInt("channel_private") else null,
-                parentId = j.optString("parentId").takeIf { it.isNotEmpty() && it != "0" }
+                parentId = j.optString("parentId").takeIf { it.isNotEmpty() && it != "0" },
+                channelLabel = j.optString("channelLabel").takeIf { it.isNotBlank() },
+                channelType = if (j.has("channelType")) j.optInt("channelType") else null
             )
         }.let { elements.addAll(it) }
         parseArray(obj, "ej") { j -> ContentElement("e", j.optInt("s"), j.optInt("e"), emojiid = j.optString("emojiid").takeIf { it.isNotEmpty() }) }
@@ -341,7 +366,12 @@ fun parseContentToSpannable(
                 title = j.optString("title").takeIf { it.isNotEmpty() },
                 description = j.optString("description").takeIf { it.isNotEmpty() },
                 image = j.optString("image").takeIf { it.isNotEmpty() },
-                index = if (j.has("index")) j.optInt("index") else null
+                index = if (j.has("index")) j.optInt("index") else null,
+                channelId = j.optString("channelId").takeIf { it.isNotEmpty() },
+                clanId = j.optString("clanId").takeIf { it.isNotEmpty() },
+                parentId = j.optString("parentId").takeIf { it.isNotEmpty() && it != "0" },
+                channelLabel = j.optString("channelLabel").takeIf { it.isNotBlank() },
+                channelType = if (j.has("channelType")) j.optInt("channelType") else null
             )
         }.let { elements.addAll(it) }
     } catch (_: Exception) {
@@ -351,14 +381,14 @@ fun parseContentToSpannable(
         mergeSyntheticAtHereForSystemPlain(text, elements)
     }
 
-    elements.sortBy { it.s }
+    val renderElements = filterOverlappingContentElements(elements)
     
     val UNICODE_EMOJI_REGEX = Regex("^(?:[\\p{So}\\p{Sk}\\u200D\\uFE0F\\s]|\\d\\uFE0F\\u20E3|[#*]\\uFE0F\\u20E3)+$")
     val isOnlyEmoji = run {
         var hasElementEmoji = false
         var allElementsAreEmoji = true
         var textIndex = 0
-        for (el in elements) {
+        for (el in renderElements) {
             if (el.kind != "e") {
                 allElementsAreEmoji = false
                 break
@@ -380,7 +410,7 @@ fun parseContentToSpannable(
     val viewRef = view?.let { java.lang.ref.WeakReference(it) }
     val richPlainMarkdown = isEmbedOrComponentsPayload(content)
 
-    for (el in elements) {
+    for (el in renderElements) {
         var nextLast = el.e
         val clampedS = el.s.coerceIn(0, text.length)
         val clampedE = el.e.coerceIn(clampedS, text.length)
@@ -440,13 +470,11 @@ fun parseContentToSpannable(
                     segText = segText,
                     channelId = el.channelId,
                     clanId = el.clanId,
-                    channelPrivate = el.channelPrivate,
-                    parentId = el.parentId,
                     view = view,
                     linkColor = linkColor,
                     mentionColors = mentionColors,
                     theme = theme,
-                    labelOverride = null,
+                    labelOverride = el.channelLabel,
                     preResolvedEntity = null
                 )
             }
@@ -506,7 +534,8 @@ fun parseContentToSpannable(
                         val resolved = view?.context?.let { ctx ->
                             resolveChannelEntity(ctx, channelLink.channelId, channelLink.clanId)
                         }
-                        val label = resolved?.channelLabel?.ifBlank { "channel" }
+                        val sent = el.takeIf { it.matchesChannelLink(channelLink) }
+                        val label = resolved?.channelLabel?.takeIf { it.isNotBlank() } ?: sent?.channelLabel
                         appendHashtagPill(
                             sb,
                             spanStart,
@@ -538,7 +567,7 @@ fun parseContentToSpannable(
             }
             else -> sb.append(segText)
         }
-        last = nextLast
+        last = maxOf(last, nextLast)
     }
     if (last < text.length) {
         val tail = text.substring(last)
@@ -551,6 +580,7 @@ fun parseContentToSpannable(
     if (richPlainMarkdown) {
         applyAutoDetectedHttpLinks(sb, linkColor)
     }
+    trimTrailingNewlines(sb)
     return sb
 }
 
@@ -669,13 +699,15 @@ private fun resolveChannelEntity(
     if (cid == 0L) return null
     val clanId = clanIdStr?.toLongOrNull() ?: 0L
     val entryPoint = obtainEntryPoint(context) ?: return null
-    val searchCtl = entryPoint.searchController()
-    val entity = entryPoint.channelController().findChannelById(cid, clanId)
-        ?: searchCtl.findChannelById(cid)
-    if (entity == null && !searchCtl.hasChannels()) {
-        searchCtl.loadChannels()
+    val channelCtl = entryPoint.channelController()
+    if (channelCtl.requiresLinkedChannelValidation(cid)) {
+        return channelCtl.linkedChannelDetail(cid)?.takeIf { clanId == 0L || it.clanId == clanId }
     }
-    return entity
+    val searchCtl = entryPoint.searchController()
+    val entity = channelCtl.findChannelById(cid, clanId)
+        ?: searchCtl.findChannelById(cid)
+    return entity?.takeIf { clanId == 0L || it.clanId == clanId }
+        ?: channelCtl.linkedChannelDetail(cid)?.takeIf { clanId == 0L || it.clanId == clanId }
 }
 
 private fun resolveHashtagIcon(entity: ClanChannelEntity): MezonIcon {
@@ -742,8 +774,6 @@ private fun appendHashtagPill(
     segText: String,
     channelId: String?,
     clanId: String?,
-    channelPrivate: Int? = null,
-    parentId: String? = null,
     view: View?,
     linkColor: Int,
     mentionColors: MentionColors?,
@@ -753,17 +783,17 @@ private fun appendHashtagPill(
 ) {
     val ctx = view?.context
     val entity = preResolvedEntity ?: ctx?.let { resolveChannelEntity(it, channelId, clanId) }
-    
-    var isAccessible = false
-    if (entity != null) {
-        isAccessible = true
-    } else {
-        val actualPriv = channelPrivate ?: 0
-        if (actualPriv == 0 && parentId != null) {
-            val parentEntity = ctx?.let { resolveChannelEntity(it, parentId, clanId) }
-            isAccessible = parentEntity != null
+    val resolvedLabel = entity?.let {
+        it.channelLabel.takeIf { label -> label.isNotBlank() }
+            ?: labelOverride?.takeIf { label -> label.isNotBlank() }
+    }
+    if (entity == null && ctx != null) {
+        channelId?.toLongOrNull()?.let { id ->
+            obtainEntryPoint(ctx)?.channelController()?.requestLinkedChannel(id, clanId?.toLongOrNull() ?: 0L)
         }
     }
+
+    val isAccessible = entity != null
     
     val fgColor = if (isAccessible) (mentionColors?.userText ?: linkColor) else theme.textDisabled
     val bgColor = if (isAccessible) theme.midnightBlue else theme.tertiary
@@ -782,7 +812,7 @@ private fun appendHashtagPill(
         val labelText = if (!isAccessible) {
             ctx?.getString(R.string.channel_permission_private_channel) ?: "Private Channel"
         } else {
-            labelOverride ?: if (segText.startsWith("#")) segText.substring(1) else segText
+            resolvedLabel ?: if (segText.startsWith("#")) segText.substring(1) else segText
         }
         sb.append("\u200B")
         val iconSpanEnd = sb.length
@@ -797,10 +827,11 @@ private fun appendHashtagPill(
         if (!isAccessible) {
             sb.append(ctx?.getString(R.string.channel_permission_private_channel) ?: "Private Channel")
         } else {
-            sb.append(labelOverride?.let { "#$it" } ?: segText)
+            sb.append(resolvedLabel?.let { "#$it" } ?: segText)
         }
     }
-    sb.setExclusiveSpan(HashtagSpan(channelId, fgColor), spanStart, sb.length)
+    val targetClan = entity?.clanId?.toString() ?: clanId
+    sb.setExclusiveSpan(HashtagSpan(channelId, fgColor, targetClan), spanStart, sb.length)
     sb.setExclusiveSpan(StyleSpan(Typeface.BOLD), spanStart, sb.length)
     sb.setExclusiveSpan(BackgroundColorSpan(bgColor), spanStart, sb.length)
 }
@@ -938,8 +969,7 @@ data class EmbedData(
 )
 
 private const val MESSAGE_COMPONENT_TYPE_ACTION_ROW = 1
-private const val MESSAGE_COMPONENT_TYPE_BUTTON_LEGACY = 1
-private const val MESSAGE_COMPONENT_TYPE_BUTTON_V2 = 2
+private const val MESSAGE_COMPONENT_TYPE_BUTTON = 1
 
 enum class EmbedButtonStyle(val value: Int) {
     PRIMARY(1),
@@ -961,7 +991,17 @@ data class EmbedComponentButton(
     val disabled: Boolean,
 )
 
-data class EmbedActionRow(val buttons: List<EmbedComponentButton>)
+sealed class EmbedRowComponent {
+    data class Button(val button: EmbedComponentButton) : EmbedRowComponent()
+
+    data class Select(
+        val componentId: String,
+        val placeholder: String,
+        val spec: EmbedSelectSpec,
+    ) : EmbedRowComponent()
+}
+
+data class EmbedActionRow(val components: List<EmbedRowComponent>)
 
 data class EmbedPayload(
     val embeds: List<EmbedData>,
@@ -991,47 +1031,109 @@ private fun parseEmbedActionRowsFromObject(obj: JSONObject): List<EmbedActionRow
         val rowType = rowObj.optInt("type", -1)
         if (rowType > 0 && rowType != MESSAGE_COMPONENT_TYPE_ACTION_ROW) continue
         val comps = rowObj.optJSONArray("components") ?: continue
-        val buttons = ArrayList<EmbedComponentButton>(comps.length())
+        val components = ArrayList<EmbedRowComponent>(comps.length())
         for (c in 0 until comps.length()) {
             val comp = comps.optJSONObject(c) ?: continue
-            val compType = comp.optInt("type", -1)
-            val isButton = compType == MESSAGE_COMPONENT_TYPE_BUTTON_LEGACY ||
-                compType == MESSAGE_COMPONENT_TYPE_BUTTON_V2
-            if (!isButton) continue
-            val inner = comp.optJSONObject("component")
-            val id = comp.optString("id", "")
-                .ifEmpty { comp.optString("custom_id", "") }
-                .ifEmpty { comp.optString("component_id", "") }
-                .ifEmpty {
-                    inner?.optString("id", "")
-                        ?.ifEmpty { inner.optString("custom_id", "") }
-                        ?.ifEmpty { inner.optString("component_id", "") }
-                        .orEmpty()
-                }
-            if (id.isEmpty()) continue
-            val label = inner?.optString("label", "")?.ifEmpty { comp.optString("label", "") }
-                ?: comp.optString("label", "")
-            if (label.isEmpty()) continue
-            val url = inner?.optString("url", "")?.takeIf { it.isNotEmpty() }
-                ?: comp.optString("url", "").takeIf { it.isNotEmpty() }
-            val style = EmbedButtonStyle.fromInt(
-                if (inner != null && inner.has("style")) {
-                    inner.optInt("style", EmbedButtonStyle.PRIMARY.value)
-                } else {
-                    comp.optInt("style", EmbedButtonStyle.PRIMARY.value)
-                }
-            )
-            val disabled = comp.optBoolean("disable", false) ||
-                comp.optBoolean("disabled", false) ||
-                comp.optBoolean("isDisabled", false) ||
-                inner?.optBoolean("disable", false) == true ||
-                inner?.optBoolean("disabled", false) == true ||
-                inner?.optBoolean("isDisabled", false) == true
-            buttons.add(EmbedComponentButton(id, label, url, style, disabled))
+            val parsed = when (comp.optInt("type", -1)) {
+                MESSAGE_COMPONENT_TYPE_BUTTON -> parseRowButton(comp)?.let { EmbedRowComponent.Button(it) }
+                MESSAGE_COMPONENT_TYPE_SELECT -> parseRowSelect(comp)
+                else -> null
+            } ?: continue
+            components.add(parsed)
         }
-        if (buttons.isNotEmpty()) out.add(EmbedActionRow(buttons))
+        if (components.isNotEmpty()) out.add(EmbedActionRow(components))
     }
     return out
+}
+
+private fun rowComponentId(comp: JSONObject, inner: JSONObject?): String =
+    comp.optString("id", "")
+        .ifEmpty { comp.optString("custom_id", "") }
+        .ifEmpty { comp.optString("component_id", "") }
+        .ifEmpty {
+            inner?.optString("id", "")
+                ?.ifEmpty { inner.optString("custom_id", "") }
+                ?.ifEmpty { inner.optString("component_id", "") }
+                .orEmpty()
+        }
+
+private fun parseRowButton(comp: JSONObject): EmbedComponentButton? {
+    val inner = comp.optJSONObject("component")
+    val id = rowComponentId(comp, inner)
+    if (id.isEmpty()) return null
+    val label = inner?.optString("label", "")?.ifEmpty { comp.optString("label", "") }
+        ?: comp.optString("label", "")
+    if (label.isEmpty()) return null
+    val url = inner?.optString("url", "")?.takeIf { it.isNotEmpty() }
+        ?: comp.optString("url", "").takeIf { it.isNotEmpty() }
+    val style = EmbedButtonStyle.fromInt(
+        if (inner != null && inner.has("style")) {
+            inner.optInt("style", EmbedButtonStyle.PRIMARY.value)
+        } else {
+            comp.optInt("style", EmbedButtonStyle.PRIMARY.value)
+        }
+    )
+    val disabled = comp.optBoolean("disable", false) ||
+        comp.optBoolean("disabled", false) ||
+        comp.optBoolean("isDisabled", false) ||
+        inner?.optBoolean("disable", false) == true ||
+        inner?.optBoolean("disabled", false) == true ||
+        inner?.optBoolean("isDisabled", false) == true
+    return EmbedComponentButton(id, label, url, style, disabled)
+}
+
+private fun parseRowSelect(comp: JSONObject): EmbedRowComponent.Select? {
+    val inner = comp.optJSONObject("component")
+    val id = rowComponentId(comp, inner)
+    if (id.isEmpty()) return null
+    val placeholder = inner?.optString("placeholder", "")?.ifEmpty { comp.optString("placeholder", "") }
+        ?: comp.optString("placeholder", "")
+    return EmbedRowComponent.Select(id, placeholder, parseEmbedSelectSpec(inner ?: JSONObject(), comp))
+}
+
+private fun parseEmbedSelectSpec(comp: JSONObject, wrapper: JSONObject): EmbedSelectSpec {
+    val opts = mutableListOf<EmbedSelectOptionSpec>()
+    val optionsArr = comp.optJSONArray("options")
+    if (optionsArr != null) {
+        for (oi in 0 until optionsArr.length()) {
+            val o = optionsArr.optJSONObject(oi)
+            if (o != null) {
+                opts.add(
+                    EmbedSelectOptionSpec(
+                        label = o.optString("label", ""),
+                        value = o.optString("value", ""),
+                        defaultSelected = o.optBoolean("default", false),
+                    ),
+                )
+                continue
+            }
+            val scalar = optionsArr.opt(oi)
+            if (scalar == null || scalar == JSONObject.NULL) continue
+            val text = scalar.toString()
+            if (text.isNotEmpty()) opts.add(EmbedSelectOptionSpec(label = text, value = text, defaultSelected = false))
+        }
+    }
+    val minO = comp.optInt("min_options", 0)
+    val maxSource = if (wrapper.has("max_options") && !wrapper.isNull("max_options")) wrapper else comp
+    val hasMaxKey = maxSource.has("max_options") && !maxSource.isNull("max_options")
+    val maxO = if (hasMaxKey) maxSource.optInt("max_options", 1).coerceAtLeast(1) else 1
+    val isMulti = (minO > 1) || (hasMaxKey && maxO >= 2)
+    val initial = mutableListOf<String>()
+    for (o in opts) {
+        if (o.defaultSelected && o.value.isNotEmpty()) initial.add(o.value)
+    }
+    for (vv in extractSelectValueSelectedStrings(comp)) {
+        if (vv.isNotEmpty() && vv !in initial) initial.add(vv)
+    }
+    val disabled = comp.optBoolean("disabled", false) || comp.optBoolean("disable", false)
+    return EmbedSelectSpec(
+        options = opts,
+        isMulti = isMulti,
+        minPick = minO,
+        maxPick = maxO,
+        disabled = disabled,
+        initialSelection = initial.distinct(),
+    )
 }
 
 fun parseEmbedActionRows(content: String): List<EmbedActionRow> =
@@ -1074,6 +1176,23 @@ fun parseEmbedDataList(content: String): List<EmbedData> =
 
 fun parseEmbedData(content: String): EmbedData? = parseEmbedDataList(content).firstOrNull()
 
+private fun JSONObject.optEmbedImageDimension(key: String): Int {
+    val dimension = when (val value = opt(key)) {
+        is Number -> value.toInt()
+        is String -> {
+            val text = value.trim()
+            val numeric = if (text.endsWith("px", ignoreCase = true)) {
+                text.dropLast(2).trim()
+            } else {
+                text
+            }
+            numeric.toDoubleOrNull()?.toInt()
+        }
+        else -> null
+    }
+    return dimension?.coerceAtLeast(0) ?: 0
+}
+
 private fun parseEmbedImages(embed: JSONObject): List<EmbedImageRef> {
     if (!embed.has("image") || embed.isNull("image")) return emptyList()
     return try {
@@ -1084,7 +1203,11 @@ private fun parseEmbedImages(embed: JSONObject): List<EmbedImageRef> {
             is JSONObject -> {
                 val u = raw.optString("url", "").trim()
                 if (u.isEmpty()) emptyList()
-                else listOf(EmbedImageRef(u, raw.optInt("width", 0), raw.optInt("height", 0)))
+                else listOf(EmbedImageRef(
+                    u,
+                    raw.optEmbedImageDimension("width"),
+                    raw.optEmbedImageDimension("height"),
+                ))
             }
             is JSONArray -> {
                 val list = mutableListOf<EmbedImageRef>()
@@ -1092,7 +1215,13 @@ private fun parseEmbedImages(embed: JSONObject): List<EmbedImageRef> {
                     when (val item = raw.opt(i)) {
                         is JSONObject ->
                             item.optString("url", "").trim().takeIf { it.isNotEmpty() }
-                                ?.let { list.add(EmbedImageRef(it, item.optInt("width", 0), item.optInt("height", 0))) }
+                                ?.let {
+                                    list.add(EmbedImageRef(
+                                        it,
+                                        item.optEmbedImageDimension("width"),
+                                        item.optEmbedImageDimension("height"),
+                                    ))
+                                }
                         is String ->
                             item.trim().takeIf { it.isNotEmpty() }?.let { list.add(EmbedImageRef(it, 0, 0)) }
                         else -> {
@@ -1139,43 +1268,9 @@ private fun parseEmbedJsonObject(embed: JSONObject): EmbedData? {
                     when (type) {
                         MESSAGE_COMPONENT_TYPE_SELECT -> {
                             val comp = inputsObj.optJSONObject("component") ?: JSONObject()
-                            val opts = mutableListOf<EmbedSelectOptionSpec>()
-                            val optionsArr = comp.optJSONArray("options")
-                            if (optionsArr != null) {
-                                for (oi in 0 until optionsArr.length()) {
-                                    val o = optionsArr.optJSONObject(oi) ?: continue
-                                    opts.add(
-                                        EmbedSelectOptionSpec(
-                                            label = o.optString("label", ""),
-                                            value = o.optString("value", ""),
-                                            defaultSelected = o.optBoolean("default", false),
-                                        ),
-                                    )
-                                }
-                            }
-                            val minO = comp.optInt("min_options", 0)
-                            val hasMaxKey = comp.has("max_options") && !comp.isNull("max_options")
-                            val maxO = if (hasMaxKey) comp.optInt("max_options", 1).coerceAtLeast(1) else 1
-                            val isMulti = (minO > 1) || (hasMaxKey && maxO >= 2)
-                            val initial = mutableListOf<String>()
-                            for (o in opts) {
-                                if (o.defaultSelected && o.value.isNotEmpty()) initial.add(o.value)
-                            }
-                            for (vv in extractSelectValueSelectedStrings(comp)) {
-                                if (vv.isNotEmpty() && vv !in initial) initial.add(vv)
-                            }
-                            val disabled = comp.optBoolean("disabled", false) ||
-                                comp.optBoolean("disable", false)
                             EmbedFieldInteractive.Select(
                                 componentId = idResolved,
-                                input = EmbedSelectSpec(
-                                    options = opts,
-                                    isMulti = isMulti,
-                                    minPick = minO,
-                                    maxPick = maxO,
-                                    disabled = disabled,
-                                    initialSelection = initial.distinct(),
-                                ),
+                                input = parseEmbedSelectSpec(comp, inputsObj),
                             )
                         }
                         MESSAGE_COMPONENT_TYPE_INPUT -> {

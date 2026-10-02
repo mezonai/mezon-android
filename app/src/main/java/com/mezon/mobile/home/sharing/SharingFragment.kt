@@ -8,7 +8,6 @@ import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
-import android.graphics.drawable.RippleDrawable
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Handler
@@ -44,15 +43,14 @@ import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.ForwardTargetUsageStore
 import com.mezon.mobile.home.chat.AttachmentInfo
 import com.mezon.mobile.home.chat.AttachmentPickerItem
-import com.mezon.mobile.home.chat.ForwardDestination
 import com.mezon.mobile.home.chat.ForwardNavigationStash
 import com.mezon.mobile.home.chat.MessageEntity
 import com.mezon.mobile.home.chat.isGifAttachment
 import com.mezon.mobile.home.chat.isImageAttachmentType
 import com.mezon.mobile.home.chat.isMediaAttachment
 import com.mezon.mobile.home.chat.isVideoAttachmentType
-import com.mezon.mobile.home.clans.CHANNEL_TYPE_VOICE
 import com.mezon.mobile.home.clans.ChannelController
+import com.mezon.mobile.home.clans.ClanChannelEntity
 import com.mezon.mobile.home.clans.ClansController
 import com.mezon.mobile.home.clans.PermissionPolicy
 import com.mezon.mobile.home.friends.FriendController
@@ -67,8 +65,8 @@ import com.mezon.mobile.ui.MezonToast
 import com.mezon.mobile.ui.cells.AvatarView
 import com.mezon.mobile.ui.cells.BackupImageView
 import com.mezon.mobile.ui.cells.MezonIcon
-import com.mezon.mobile.ui.cells.PopupMenu
 import com.mezon.mobile.ui.cells.ToastOverlay
+import com.mezon.mobile.util.MarkdownMarker
 import com.mezon.mobile.util.parseContentPreview
 import com.mezon.mobile.util.parseMarkdownAndStrip
 import android.util.Log
@@ -136,13 +134,13 @@ class SharingFragment(
     private lateinit var adapter: SharingTargetAdapter
     private lateinit var searchEditText: EditText
     private lateinit var emptyView: TextView
+    private lateinit var suggestionsLabel: TextView
     private lateinit var chatArea: LinearLayout
     private lateinit var captionInput: EditText
     private lateinit var sendButton: FrameLayout
     private lateinit var sendIcon: ImageView
     private lateinit var sendProgress: ProgressBar
     private var thumbnailContainer: HorizontalScrollView? = null
-    private lateinit var filterButton: FrameLayout
     private lateinit var searchBarContainer: LinearLayout
     private lateinit var selectedChipView: LinearLayout
     private lateinit var selectedChipAvatar: AvatarView
@@ -155,7 +153,8 @@ class SharingFragment(
     private val filteredTargets = ArrayList<SharingTarget>()
 
     private var selectedTarget: SharingTarget? = null
-    private var currentFilter = FilterType.ALL
+    private var searchQuery = ""
+    private var awaitingSearchResults = false
     private var displayLimit = LOCAL_PAGE_SIZE
     private var isSending = false
     private var pendingDeviceShareKey: Pair<Long, Long>? = null
@@ -187,9 +186,13 @@ class SharingFragment(
             if (fragmentView == null) return@observe
             if (isForwardMode) scheduleRebuildForwardTargets() else rebuildTargets()
         }
+        observe(NotificationCenter.searchMembersDidLoad) { _, _, _ ->
+            if (fragmentView == null || isForwardMode) return@observe
+            onSearchResultsLoaded()
+        }
         observe(NotificationCenter.searchChannelsDidLoad) { _, _, _ ->
             if (fragmentView == null || isForwardMode) return@observe
-            rebuildTargets()
+            onSearchResultsLoaded()
         }
         observe(NotificationCenter.channelsDidLoad) { _, _, _ ->
             if (fragmentView == null || !isForwardMode) return@observe
@@ -239,7 +242,6 @@ class SharingFragment(
             setSendingState(false)
             showErrorToast()
         }
-        searchController.loadChannels()
         appScope.launch(ioDispatcher) {
             runCatching { sessionManager.requireValidSession() }
                 .onFailure { Log.w(TAG, "requireValidSession", it) }
@@ -253,17 +255,15 @@ class SharingFragment(
         v.postDelayed(rebuildForwardDebounced, 120L)
     }
 
-    private fun targetKey(t: SharingTarget): String = "${t.channelId}_${t.channelType}"
-
     private fun hasTargetForChannel(channelId: Long): Boolean {
         if (selectedTarget?.channelId == channelId) return true
-        return allTargets.any { it.channelId == channelId && forwardSelectedKeys.contains(targetKey(it)) }
+        return allTargets.any { it.channelId == channelId && forwardSelectedKeys.contains(it.key) }
     }
 
     private fun hasTargetForClan(clanId: Long): Boolean {
         if (clanId == 0L) return false
         if (selectedTarget?.clanId == clanId) return true
-        return allTargets.any { it.clanId == clanId && forwardSelectedKeys.contains(targetKey(it)) }
+        return allTargets.any { it.clanId == clanId && forwardSelectedKeys.contains(it.key) }
     }
 
     private fun ensureSendPermission(t: SharingTarget) {
@@ -276,7 +276,7 @@ class SharingFragment(
     }
 
     private fun canSendToTarget(t: SharingTarget): Boolean {
-        if (t.channelId == 0L) return false
+        if (t.channelId == 0L && !t.needsDmChannel) return false
         if (t.clanId == 0L || t.isDm || t.isGroup) return true
         ensureSendPermission(t)
         return permissionPolicy.checkPermission(PermissionPolicy.SEND_MESSAGE, t.channelId, t.clanId)
@@ -284,7 +284,7 @@ class SharingFragment(
 
     private fun selectedForwardTargets(): List<SharingTarget> {
         if (!isForwardMode || forwardSelectedKeys.isEmpty()) return emptyList()
-        return allTargets.filter { forwardSelectedKeys.contains(targetKey(it)) }
+        return allTargets.filter { forwardSelectedKeys.contains(it.key) }
     }
 
     private fun showNoSendPermissionToast() {
@@ -295,6 +295,7 @@ class SharingFragment(
         fragmentView?.removeCallbacks(rebuildForwardDebounced)
         super.onFragmentDestroy()
         debounceRunnable?.let { debounceHandler.removeCallbacks(it) }
+        if (!isForwardMode) searchController.cancelCtrlKSearch()
     }
 
     override fun createView(context: Context): View {
@@ -319,7 +320,7 @@ class SharingFragment(
 
         rootView.addView(buildSearchBar(context), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
-        val suggestionsLabel = TextView(context).apply {
+        suggestionsLabel = TextView(context).apply {
             text = getString(R.string.sharing_suggestions)
             setTextColor(themeColors.onSurfaceVariant)
             textSize = 13f
@@ -343,14 +344,11 @@ class SharingFragment(
         }
         (recyclerView.itemAnimator as? SimpleItemAnimator)?.supportsChangeAnimations = false
         recyclerView.itemAnimator = null
-        if (!isForwardMode) {
-            recyclerView.setEmptyView(emptyView)
-        }
         recyclerView.setOnItemClickListener(RecyclerListView.OnItemClickListener { view, _ ->
             if (view is SharingTargetCell) {
                 val t = view.target ?: return@OnItemClickListener
                 if (isForwardMode) {
-                    val key = targetKey(t)
+                    val key = t.key
                     if (forwardSelectedKeys.contains(key)) {
                         forwardSelectedKeys.remove(key)
                     } else {
@@ -402,7 +400,7 @@ class SharingFragment(
         val outer = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             setBackgroundColor(themeColors.surface)
-            setPadding(LayoutHelper.dp(12), LayoutHelper.dp(8), LayoutHelper.dp(8), LayoutHelper.dp(8))
+            setPadding(LayoutHelper.dp(12), LayoutHelper.dp(8), LayoutHelper.dp(12), LayoutHelper.dp(8))
             gravity = Gravity.CENTER_VERTICAL
         }
 
@@ -461,10 +459,7 @@ class SharingFragment(
                     debounceRunnable?.let { debounceHandler.removeCallbacks(it) }
                     val query = s?.toString() ?: ""
                     debounceRunnable = Runnable {
-                        if (!isForwardMode) {
-                            displayLimit = LOCAL_PAGE_SIZE
-                        }
-                        applyFilter(query)
+                        if (isForwardMode) applyForwardFilter(query) else onDeviceQueryChanged(query)
                     }
                     debounceHandler.postDelayed(debounceRunnable!!, DEBOUNCE_MS)
                 }
@@ -483,35 +478,6 @@ class SharingFragment(
         searchBarContainer.addView(selectedChipClose, LayoutHelper.createLinear(24, 24, 0f, Gravity.CENTER_VERTICAL))
 
         outer.addView(searchBarContainer, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f))
-
-        val rippleMask = GradientDrawable().apply {
-            shape = GradientDrawable.OVAL
-            setColor(Color.WHITE)
-        }
-        val filterBg = GradientDrawable().apply {
-            shape = GradientDrawable.OVAL
-            setColor(themeColors.surfaceVariant)
-        }
-        filterButton = FrameLayout(context).apply {
-            background = RippleDrawable(
-                ColorStateList.valueOf(themeColors.onSurfaceVariant and 0x33FFFFFF),
-                filterBg,
-                rippleMask
-            )
-            setOnClickListener { showFilterPopup(it) }
-        }
-        val filterIcon = ImageView(context).apply {
-            val d = MezonIcon.filterHorizontalIcon.getDrawable(context)
-            d.colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
-            setImageDrawable(d)
-        }
-        filterButton.addView(filterIcon, LayoutHelper.createFrame(18, 18, Gravity.CENTER))
-        outer.addView(filterButton, LayoutHelper.createLinear(36, 36, 0f, Gravity.CENTER_VERTICAL, 6f, 0f, 0f, 0f))
-
-        if (isForwardMode) {
-            filterButton.visibility = View.GONE
-        }
-
         return outer
     }
 
@@ -817,7 +783,7 @@ class SharingFragment(
         selectedChipView.visibility = View.VISIBLE
         selectedChipClose.visibility = View.VISIBLE
 
-        selectedChipAvatar.setInfo(t.channelId, t.channelLabel)
+        selectedChipAvatar.setInfo(t.avatarId, t.channelLabel)
         selectedChipAvatar.setImageUrl(t.avatarUrl.ifEmpty { t.clanLogo }.ifEmpty { null })
         selectedChipLabel.text = t.channelLabel
 
@@ -842,66 +808,85 @@ class SharingFragment(
         searchEditText.requestFocus()
     }
 
-    private fun showFilterPopup(anchor: View) {
-        if (isForwardMode) return
-        AndroidUtilities.hideKeyboard(searchEditText)
-
-        val popup = PopupMenu(anchor.context, themeColors)
-        popup.addItem(getString(R.string.sharing_filter_all), MezonIcon.communityIcon)
-        popup.addItem(getString(R.string.sharing_filter_users), MezonIcon.userIcon)
-        popup.addItem(getString(R.string.sharing_filter_channels), MezonIcon.channelText)
-
-        popup.setOnItemClickListener { index ->
-            currentFilter = when (index) {
-                1 -> FilterType.USER
-                2 -> FilterType.CHANNEL
-                else -> FilterType.ALL
-            }
-            updateSearchHint()
-            displayLimit = LOCAL_PAGE_SIZE
-            applyFilter(searchEditText.text?.toString() ?: "")
-        }
-
-        popup.show(anchor)
-    }
-
-    private fun updateSearchHint() {
-        searchEditText.hint = when (currentFilter) {
-            FilterType.ALL -> getString(R.string.sharing_select_channel_placeholder)
-            FilterType.USER -> getString(R.string.sharing_select_user)
-            FilterType.CHANNEL -> getString(R.string.sharing_select_channel)
-        }
-    }
-
     private fun rebuildTargets() {
         if (isForwardMode) rebuildForwardTargets() else rebuildDeviceTargets()
     }
 
     private fun rebuildDeviceTargets() {
         allTargets.clear()
-
-        val dms = dialogsController.getDialogs()
-        for (dm in dms) {
-            allTargets.add(dm.toSharingTarget())
+        for (dm in dialogsController.getDialogs()) {
+            if (dm.type != CHANNEL_TYPE_DM && dm.type != CHANNEL_TYPE_GROUP) continue
+            val target = dm.toSharingTarget()
+            if (target.channelLabel.isBlank()) continue
+            allTargets.add(target)
         }
-
-        val clans = clansController.clans.value
-        val clanMap = clans.associateBy { it.clanId }
-        val channels = searchController.getChannels()
-        val channelLabelById = HashMap<Long, String>(channels.size)
-        for (ch in channels) {
-            channelLabelById[ch.channelId] = ch.channelLabel
-        }
-        for (ch in channels) {
-            if (ch.type == CHANNEL_TYPE_VOICE) continue
-            val clan = clanMap[ch.clanId]
-            val parentLabel = if (ch.parentId != 0L) channelLabelById[ch.parentId].orEmpty() else ""
-            allTargets.add(ch.toSharingTarget(clan?.clanName ?: "", clan?.logo ?: "", parentLabel))
-        }
-
         allTargets.sortByDescending { it.lastActivityTs }
+        renderDeviceTargets()
+    }
+
+    private fun onDeviceQueryChanged(query: String) {
+        searchQuery = query.trim()
         displayLimit = LOCAL_PAGE_SIZE
-        applyFilter(searchEditText.text?.toString() ?: "")
+        awaitingSearchResults = searchQuery.isNotEmpty() && searchController.fetchCtrlKResults(searchQuery)
+        if (!awaitingSearchResults) searchController.cancelCtrlKSearch()
+        renderDeviceTargets()
+    }
+
+    private fun onSearchResultsLoaded() {
+        awaitingSearchResults = false
+        renderDeviceTargets()
+    }
+
+    private fun renderDeviceTargets() {
+        filteredTargets.clear()
+        val searching = searchQuery.isNotEmpty()
+        if (searching) {
+            filteredTargets.addAll(buildSearchResultTargets())
+        } else {
+            filteredTargets.addAll(allTargets)
+        }
+        suggestionsLabel.visibility = if (searching) View.GONE else View.VISIBLE
+        val showEmpty = filteredTargets.isEmpty() && !awaitingSearchResults
+        emptyView.visibility = if (showEmpty) View.VISIBLE else View.GONE
+        recyclerView.visibility = if (showEmpty) View.GONE else View.VISIBLE
+        adapter.setData(filteredTargets.take(displayLimit), false, emptySet())
+    }
+
+    private fun buildSearchResultTargets(): List<SharingTarget> {
+        val dmChannelByUserId = HashMap<Long, Long>()
+        for (dm in dialogsController.getDialogs()) {
+            if (dm.type == CHANNEL_TYPE_DM && dm.otherUserId != 0L) {
+                dmChannelByUserId[dm.otherUserId] = dm.channelId
+            }
+        }
+        val clanLogoById = clansController.clans.value.associate { it.clanId to it.logo }
+        val results = ArrayList<SharingTarget>()
+        val seenKeys = HashSet<String>()
+        for (member in searchController.ctrlKMembersSnapshot()) {
+            val target = member.toSharingTarget(dmChannelByUserId[member.id] ?: 0L)
+            if (target.channelLabel.isBlank()) continue
+            if (seenKeys.add(target.key)) results.add(target)
+        }
+        for (display in searchController.ctrlKChannelDisplays(Int.MAX_VALUE)) {
+            val channel = display.channel
+            if (channel.type != CHANNEL_TYPE_CHANNEL && channel.type != CHANNEL_TYPE_THREAD) continue
+            if (channel.channelLabel.isBlank()) continue
+            val target = channel.toSharingTarget(
+                clanName = display.clanName,
+                clanLogo = clanLogoById[channel.clanId].orEmpty(),
+                parentChannelLabel = display.parentChannelLabel.ifEmpty { resolveParentLabel(channel) }
+            )
+            if (seenKeys.add(target.key)) results.add(target)
+        }
+        return results
+    }
+
+    private fun resolveParentLabel(channel: ClanChannelEntity): String {
+        if (channel.parentId == 0L) return ""
+        return channelController.getChannels(channel.clanId)
+            .firstOrNull { it.channelId == channel.parentId }
+            ?.channelLabel
+            .orEmpty()
     }
 
     private fun prefetchChannelCachesIfNeeded() {
@@ -942,63 +927,36 @@ class SharingFragment(
             compareByDescending<SharingTarget> { forwardTargetOwnSentTs(it) }
         )
         displayLimit = maxOf(allTargets.size, LOCAL_PAGE_SIZE)
-        applyFilter(searchEditText.text?.toString() ?: "")
+        applyForwardFilter(searchEditText.text?.toString() ?: "")
     }
 
     private fun forwardTargetOwnSentTs(target: SharingTarget): Long {
         return forwardTargetUsageStore.getLastSent(target.channelId, target.channelType)
     }
 
-    private fun applyFilter(query: String) {
-        if (isForwardMode) {
-            filteredTargets.clear()
-            val qTrim = query.trim()
-            when {
-                qTrim.isEmpty() -> filteredTargets.addAll(allTargets)
-                qTrim.startsWith("#") -> {
-                    val needle = qTrim.drop(1).trim().lowercase()
-                    for (t in allTargets) {
-                        if (t.channelType != CHANNEL_TYPE_CHANNEL && t.channelType != CHANNEL_TYPE_THREAD) continue
-                        if (t.matchesForwardQuery(needle)) filteredTargets.add(t)
-                    }
-                }
-                else -> {
-                    val needle = qTrim.lowercase()
-                    for (t in allTargets) {
-                        if (t.matchesForwardQuery(needle)) filteredTargets.add(t)
-                    }
-                }
-            }
-            val empty = filteredTargets.isEmpty()
-            emptyView.visibility = if (empty) View.VISIBLE else View.GONE
-            recyclerView.visibility = if (empty) View.GONE else View.VISIBLE
-            adapter.setData(filteredTargets, true, forwardSelectedKeys)
-            return
-        }
-
+    private fun applyForwardFilter(query: String) {
         filteredTargets.clear()
-
-        val source = when (currentFilter) {
-            FilterType.ALL -> allTargets
-            FilterType.USER -> allTargets.filter { it.isDm || it.isGroup }
-            FilterType.CHANNEL -> allTargets.filter { it.isClanChannel }
-        }
-
-        if (query.isBlank()) {
-            filteredTargets.addAll(source)
-        } else {
-            val lower = query.lowercase()
-            for (t in source) {
-                if (t.channelLabel.lowercase().contains(lower) ||
-                    t.clanName.lowercase().contains(lower) ||
-                    t.username.lowercase().contains(lower.removePrefix("@"))
-                ) {
-                    filteredTargets.add(t)
+        val qTrim = query.trim()
+        when {
+            qTrim.isEmpty() -> filteredTargets.addAll(allTargets)
+            qTrim.startsWith("#") -> {
+                val needle = qTrim.drop(1).trim().lowercase()
+                for (t in allTargets) {
+                    if (t.channelType != CHANNEL_TYPE_CHANNEL && t.channelType != CHANNEL_TYPE_THREAD) continue
+                    if (t.matchesForwardQuery(needle)) filteredTargets.add(t)
+                }
+            }
+            else -> {
+                val needle = qTrim.lowercase()
+                for (t in allTargets) {
+                    if (t.matchesForwardQuery(needle)) filteredTargets.add(t)
                 }
             }
         }
-
-        adapter.setData(filteredTargets.take(displayLimit), false, emptySet())
+        val empty = filteredTargets.isEmpty()
+        emptyView.visibility = if (empty) View.VISIBLE else View.GONE
+        recyclerView.visibility = if (empty) View.GONE else View.VISIBLE
+        adapter.setData(filteredTargets, true, forwardSelectedKeys)
     }
 
     private fun refreshForwardSelectionUi() {
@@ -1188,23 +1146,44 @@ class SharingFragment(
             showNoSendPermissionToast()
             return
         }
-        AndroidUtilities.hideKeyboard(captionInput)
-
         val caption = captionInput.text?.toString()?.trim() ?: sharedText ?: ""
         val mdResult = parseMarkdownAndStrip(caption)
         val cleanedText = mdResult.cleanedText
         val mdMarkers = mdResult.markers.ifEmpty { null }
+        if (existingAttachment == null && sharedUris.isEmpty() && cleanedText.isBlank()) return
+        AndroidUtilities.hideKeyboard(captionInput)
+        pendingDeviceShareKey = null
+        setSendingState(true)
+        fragmentScope.launch(mainDispatcher) {
+            val resolved = resolveDmChannel(target)
+            if (fragmentView == null) return@launch
+            if (resolved == null) {
+                setSendingState(false)
+                showErrorToast()
+                return@launch
+            }
+            selectedTarget = resolved
+            sendToTarget(resolved, cleanedText, mdMarkers)
+        }
+    }
 
+    private suspend fun resolveDmChannel(target: SharingTarget): SharingTarget? {
+        if (!target.needsDmChannel) return target
+        val channelId = withContext(ioDispatcher) { dialogsController.getOrCreateDm(target.userId) }
+        if (channelId == 0L) return null
+        return target.copy(channelId = channelId)
+    }
+
+    private suspend fun sendToTarget(target: SharingTarget, text: String, markdownMarkers: List<MarkdownMarker>?) {
         existingAttachment?.let { attachment ->
-            setSendingState(true)
             chatController.shareExistingMediaToChannel(
                 channelId = target.channelId,
                 clanId = target.clanId,
                 channelType = target.channelType,
                 isChannelPrivate = target.isPrivate,
-                text = cleanedText,
+                text = text,
                 attachment = attachment,
-                markdownMarkers = mdMarkers,
+                markdownMarkers = markdownMarkers,
                 parentId = target.parentId
             ) { ok ->
                 if (fragmentView == null) return@shareExistingMediaToChannel
@@ -1217,59 +1196,53 @@ class SharingFragment(
             }
             return
         }
-
         if (sharedUris.isNotEmpty()) {
-            val activity = getParentActivity() ?: run {
+            val activity = getParentActivity()
+            if (activity == null) {
+                setSendingState(false)
                 showErrorToast()
                 return
             }
-            pendingDeviceShareKey = null
-            setSendingState(true)
             val contentResolver = activity.contentResolver
             val metadataContext = activity.applicationContext
-            fragmentScope.launch(mainDispatcher) {
-                val attachments = try {
-                    withContext(ioDispatcher) {
-                        buildAttachments(metadataContext, contentResolver)
-                    }
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (_: Exception) {
-                    if (fragmentView != null) {
-                        pendingDeviceShareKey = null
-                        setSendingState(false)
-                        showErrorToast()
-                    }
-                    return@launch
+            val attachments = try {
+                withContext(ioDispatcher) { buildAttachments(metadataContext, contentResolver) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                if (fragmentView != null) {
+                    setSendingState(false)
+                    showErrorToast()
                 }
-                if (fragmentView == null || !isSending) return@launch
-                val tempId = chatController.shareMediaToChannel(
-                    channelId = target.channelId,
-                    clanId = target.clanId,
-                    channelType = target.channelType,
-                    isChannelPrivate = target.isPrivate,
-                    text = cleanedText,
-                    attachments = attachments,
-                    contentResolver = contentResolver,
-                    markdownMarkers = mdMarkers,
-                    parentId = target.parentId
-                )
-                pendingDeviceShareKey = target.channelId to tempId
+                return
             }
-        } else if (cleanedText.isNotBlank()) {
-            if (target.isClanChannel) {
-                chatController.openChannel(target.channelId, target.clanId, target.channelType, target.isPrivate)
-            }
-            chatController.sendMessage(
+            if (fragmentView == null || !isSending) return
+            val tempId = chatController.shareMediaToChannel(
                 channelId = target.channelId,
                 clanId = target.clanId,
                 channelType = target.channelType,
                 isChannelPrivate = target.isPrivate,
-                text = cleanedText,
-                markdownMarkers = mdMarkers
+                text = text,
+                attachments = attachments,
+                contentResolver = contentResolver,
+                markdownMarkers = markdownMarkers,
+                parentId = target.parentId
             )
-            finishFragment()
+            pendingDeviceShareKey = target.channelId to tempId
+            return
         }
+        if (target.isClanChannel) {
+            chatController.openChannel(target.channelId, target.clanId, target.channelType, target.isPrivate)
+        }
+        chatController.sendMessage(
+            channelId = target.channelId,
+            clanId = target.clanId,
+            channelType = target.channelType,
+            isChannelPrivate = target.isPrivate,
+            text = text,
+            markdownMarkers = markdownMarkers
+        )
+        finishFragment()
     }
 
     private fun buildAttachments(context: Context, contentResolver: ContentResolver): List<AttachmentPickerItem> {
@@ -1394,8 +1367,6 @@ class SharingFragment(
             0L
         }
     }
-
-    enum class FilterType { ALL, USER, CHANNEL }
 
     companion object {
         private const val TAG = "SharingFragment"

@@ -15,10 +15,10 @@ import com.otaliastudios.zoom.ZoomLayout
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.ui.cells.MezonIcon
-import io.livekit.android.renderer.TextureViewRenderer
-import io.livekit.android.room.Room
-import io.livekit.android.room.track.VideoTrack
-import livekit.org.webrtc.RendererCommon
+import com.mezon.mobile.home.call.EglBaseProvider
+import org.webrtc.RendererCommon
+import org.webrtc.SurfaceViewRenderer
+import org.webrtc.VideoTrack
 
 class VoiceFocusedShareView(
     context: Context,
@@ -34,7 +34,7 @@ class VoiceFocusedShareView(
         private const val ACTION_END_RATIO = 0.03f
     }
 
-    private var textureRenderer: TextureViewRenderer? = null
+    private var textureRenderer: SurfaceViewRenderer? = null
     private val zoomContainer: ZoomLayout
     private val zoomCenterHost: FrameLayout
     private val zoomContent: FrameLayout
@@ -43,9 +43,10 @@ class VoiceFocusedShareView(
     private val fullScreenButton: FrameLayout
     private val minimizeButton: FrameLayout
     private var rendererInitialized = false
+    private var frameReplay: VideoSurfaceFrameReplay? = null
+    var onVideoVisibilityChanged: ((VideoTrack, Boolean) -> Unit)? = null
     private var currentVideoTrack: VideoTrack? = null
     private var contentAspectRatio = 16f / 9f
-    private var pendingRoom: Room? = null
     private var pendingVideoTrack: VideoTrack? = null
     private var attachScheduled = false
 
@@ -69,15 +70,8 @@ class VoiceFocusedShareView(
         }
         zoomCenterHost = FrameLayout(context)
         zoomContent = FrameLayout(context)
-        val renderer = object : TextureViewRenderer(context) {
-            override fun onFirstFrameRendered() {
-                super.onFirstFrameRendered()
-            }
-
-            override fun onFrameResolutionChanged(videoWidth: Int, videoHeight: Int, rotation: Int) {
-                super.onFrameResolutionChanged(videoWidth, videoHeight, rotation)
-            }
-        }.apply {
+        val renderer = SurfaceViewRenderer(context).apply {
+            setZOrderMediaOverlay(true)
             setScalingType(
                 RendererCommon.ScalingType.SCALE_ASPECT_FIT,
                 RendererCommon.ScalingType.SCALE_ASPECT_FIT
@@ -145,7 +139,7 @@ class VoiceFocusedShareView(
         fullScreenButton.visibility = View.GONE
     }
 
-    fun showShare(participant: ParticipantInfo, room: Room): Boolean {
+    fun showShare(participant: ParticipantInfo): Boolean {
         if (!participant.isScreenShare || participant.videoTrack == null) {
             return false
         }
@@ -154,7 +148,6 @@ class VoiceFocusedShareView(
         val videoTrack = participant.videoTrack
         contentAspectRatio = participant.contentAspectRatio.coerceIn(MIN_ASPECT_RATIO, MAX_ASPECT_RATIO)
         updateZoomContentLayout()
-        pendingRoom = room
         pendingVideoTrack = videoTrack
         maybeAttachPending()
         renderer.setScalingType(
@@ -165,13 +158,22 @@ class VoiceFocusedShareView(
         return true
     }
 
+    fun refreshTrack(participant: ParticipantInfo) {
+        if (!participant.isScreenShare) return
+        val track = participant.videoTrack ?: return
+        if (track === currentVideoTrack) return
+        pendingVideoTrack = track
+        maybeAttachPending()
+    }
+
     fun clear() {
+        frameReplay?.cancel()
         val renderer = textureRenderer
         if (renderer != null) {
-            currentVideoTrack?.removeRenderer(renderer)
+            currentVideoTrack?.let { runCatching { it.removeSink(renderer) } }
         }
+        currentVideoTrack?.let { onVideoVisibilityChanged?.invoke(it, false) }
         currentVideoTrack = null
-        pendingRoom = null
         pendingVideoTrack = null
         contentAspectRatio = 16f / 9f
         updateZoomContentLayout()
@@ -183,7 +185,10 @@ class VoiceFocusedShareView(
 
     fun releaseRenderer() {
         clear()
+        frameReplay?.release()
+        frameReplay = null
         textureRenderer?.release()
+        if (rendererInitialized) EglBaseProvider.release()
         textureRenderer = null
         rendererInitialized = false
         attachScheduled = false
@@ -209,34 +214,43 @@ class VoiceFocusedShareView(
         }
     }
 
-    private fun resetTransformState(renderer: TextureViewRenderer) {
+    private fun resetTransformState(renderer: SurfaceViewRenderer) {
         zoomContainer.moveToCenter(MIN_SCALE, false)
     }
 
     private fun maybeAttachPending() {
         val renderer = textureRenderer ?: return
-        val room = pendingRoom ?: return
         val track = pendingVideoTrack ?: return
         if (!canInitRenderer(renderer)) {
             scheduleAttachRetry()
             return
         }
         if (!rendererInitialized) {
-            room.initVideoRenderer(renderer)
+            renderer.init(EglBaseProvider.acquire(), null)
             rendererInitialized = true
+            frameReplay = VideoSurfaceFrameReplay(renderer) { currentVideoTrack }
         }
         if (currentVideoTrack !== track) {
-            currentVideoTrack?.removeRenderer(renderer)
-            track.addRenderer(renderer)
-            currentVideoTrack = track
-            resetTransformState(renderer)
+            currentVideoTrack?.let {
+                onVideoVisibilityChanged?.invoke(it, false)
+                runCatching { it.removeSink(renderer) }
+            }
+            try {
+                track.addSink(renderer)
+                currentVideoTrack = track
+                frameReplay?.request()
+                onVideoVisibilityChanged?.invoke(track, isShown)
+                resetTransformState(renderer)
+            } catch (e: IllegalStateException) {
+                currentVideoTrack = null
+                pendingVideoTrack = null
+            }
         }
     }
 
-    private fun canInitRenderer(renderer: TextureViewRenderer): Boolean {
+    private fun canInitRenderer(renderer: SurfaceViewRenderer): Boolean {
         if (visibility != View.VISIBLE) return false
         if (!renderer.isAttachedToWindow || !isAttachedToWindow) return false
-        if (!renderer.isAvailable) return false
         if (renderer.width <= 0 || renderer.height <= 0) return false
         if (renderer.width > width * 4 || renderer.height > height * 4) return false
         if (width <= 0 || height <= 0) return false
@@ -249,7 +263,7 @@ class VoiceFocusedShareView(
         postOnAnimation {
             attachScheduled = false
             maybeAttachPending()
-            if (pendingRoom != null && pendingVideoTrack != null && currentVideoTrack == null) {
+            if (pendingVideoTrack != null && currentVideoTrack == null) {
                 scheduleAttachRetry()
             }
         }
@@ -265,9 +279,26 @@ class VoiceFocusedShareView(
         maybeAttachPending()
     }
 
+    override fun onVisibilityChanged(changedView: View, visibility: Int) {
+        super.onVisibilityChanged(changedView, visibility)
+        if (isShown) frameReplay?.request() else frameReplay?.cancel()
+        currentVideoTrack?.let { onVideoVisibilityChanged?.invoke(it, isShown) }
+    }
+
+    override fun onWindowVisibilityChanged(visibility: Int) {
+        super.onWindowVisibilityChanged(visibility)
+        if (visibility == VISIBLE) frameReplay?.request() else frameReplay?.cancel()
+    }
+
+    override fun onDetachedFromWindow() {
+        currentVideoTrack?.let { onVideoVisibilityChanged?.invoke(it, false) }
+        super.onDetachedFromWindow()
+    }
+
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         maybeAttachPending()
+        currentVideoTrack?.let { onVideoVisibilityChanged?.invoke(it, isShown) }
     }
 
     private fun updateZoomContentLayout() {

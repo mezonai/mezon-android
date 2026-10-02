@@ -20,6 +20,8 @@ import com.mezon.mobile.core.BottomSheet
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.ui.cells.MezonIcon
+import com.mezon.mobile.util.messageHasExplicitTextBody
+import com.mezon.mobile.util.parseContentText
 
 
 class MessageActionBottomSheet(
@@ -48,12 +50,14 @@ class MessageActionBottomSheet(
         ForwardAllNearby,
         EditMessage,
         CopyText,
+        ShareText,
         TopicDiscussion,
         PinMessage,
         UnPinMessage,
         DeleteMessage,
         CreateThread,
         MarkUnRead,
+        AddToInbox,
         SaveMedia,
         CopyMediaLink,
         CopyImage,
@@ -198,7 +202,7 @@ class MessageActionBottomSheet(
         val fallbacks = listOf(
             QuickEmoji(7227274405304181951L, ":100:"),
             QuickEmoji(7227274405302432668L, ":joy:"),
-            QuickEmoji(7227274405303613492L, ":like:"),
+            QuickEmoji(LIKE_EMOJI_ID, LIKE_EMOJI_SHORTNAME),
             QuickEmoji(7227274405305046042L, ":laughing:"),
             QuickEmoji(7227274405301971870L, ":innocent:")
         )
@@ -353,21 +357,31 @@ class MessageActionBottomSheet(
         actions.add(ActionItem(
             ActionType.CopyText,
             context.getString(R.string.action_copy_text),
-            R.drawable.ic_copy_icon
+            R.drawable.ic_copy_text
         ))
+
+        if (messageHasExplicitTextBody(message.content) && parseContentText(message.content).isNotBlank()) {
+            actions.add(ActionItem(
+                ActionType.ShareText,
+                context.getString(R.string.action_share_text),
+                R.drawable.ic_share_box
+            ))
+        }
 
         if (showPinActions) {
             if (isPinned) {
                 actions.add(ActionItem(
                     ActionType.UnPinMessage,
                     context.getString(R.string.action_unpin),
-                    R.drawable.ic_pin_icon
+                    R.drawable.ic_pin_icon,
+                    applyIconTint = false
                 ))
             } else {
                 actions.add(ActionItem(
                     ActionType.PinMessage,
                     context.getString(R.string.action_pin),
-                    R.drawable.ic_pin_icon
+                    R.drawable.ic_pin_icon,
+                    applyIconTint = false
                 ))
             }
         }
@@ -375,8 +389,17 @@ class MessageActionBottomSheet(
         actions.add(ActionItem(
             ActionType.MarkUnRead,
             context.getString(R.string.action_mark_unread),
-            R.drawable.ic_chat_mark_unread_icon
+            R.drawable.ic_chat_mark_unread_icon,
+            applyIconTint = false
         ))
+
+        if (message.id > 0L && message.sendState == MessageEntity.SEND_STATE_SENT) {
+            actions.add(ActionItem(
+                ActionType.AddToInbox,
+                context.getString(R.string.action_add_to_inbox),
+                MezonIcon.inbox.resId
+            ))
+        }
 
         return actions
     }
@@ -387,14 +410,26 @@ class MessageActionBottomSheet(
         val actions = mutableListOf<ActionItem>()
 
         if (hasMedia) {
+            val isVideo = isVideoAttachmentType(message.attachmentFiletype)
+            val saveMediaTitleRes = if (isVideo) {
+                R.string.action_save_video
+            } else {
+                R.string.action_save_image
+            }
+            val copyLinkTitleRes = if (isVideo) {
+                R.string.action_copy_video_link
+            } else {
+                R.string.action_copy_image_link
+            }
+
             actions.add(ActionItem(
                 ActionType.SaveMedia,
-                context.getString(R.string.action_save_media),
+                context.getString(saveMediaTitleRes),
                 R.drawable.ic_download_icon
             ))
             actions.add(ActionItem(
                 ActionType.CopyMediaLink,
-                context.getString(R.string.action_copy_link),
+                context.getString(copyLinkTitleRes),
                 R.drawable.ic_link_icon
             ))
         }
@@ -513,10 +548,10 @@ class MessageActionBottomSheet(
             // Icon 18×18 inside 32×32 circle
             iconBg.addView(icon, LayoutHelper.createFrame(18, 18, Gravity.CENTER))
             row.addView(iconBg, LayoutHelper.createFrame(32, 32,
-                Gravity.CENTER_VERTICAL or Gravity.START, 16f, 0f, 10f, 0f))
+                Gravity.CENTER_VERTICAL or Gravity.START, 10f, 0f, 10f, 0f))
             row.addView(title, LayoutHelper.createFrame(
                 LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT,
-                Gravity.CENTER_VERTICAL or Gravity.START, 58f, 0f, 16f, 0f))
+                Gravity.CENTER_VERTICAL or Gravity.START, 48f, 0f, 16f, 0f))
         } else {
             // RN: icon { width: 20, height: 20 } — icon is 20dp inside a left-padded area
             row.addView(icon, LayoutHelper.createFrame(20, 20,
@@ -547,9 +582,7 @@ class MessageActionBottomSheet(
             setBackgroundColor(theme.getColor(ThemeColors.key_divider))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 1
-            ).apply {
-                leftMargin = LayoutHelper.dp(56)
-            }
+            )
         }
     }
 }

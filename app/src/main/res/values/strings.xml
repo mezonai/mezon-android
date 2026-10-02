@@ -21,6 +21,7 @@
     <string name="common_go_back">Go Back</string>
     <string name="common_settings">Settings</string>
     <string name="common_loading_data">Loading data, please wait a moment!</string>
+    <string name="mention_suggestions_loading">Loading members…</string>
     <string name="common_failed_to_load">Failed to load</string>
     <string name="common_no_results_found">No results found</string>
     <string name="common_something_went_wrong">Something went wrong</string>
@@ -245,6 +246,7 @@
     <string name="dm_unmute_failed">Failed to unmute!</string>
     <string name="dm_wave_welcome">Wave to say hi!</string>
     <string name="dm_no_messages">No messages yet</string>
+    <string name="chat_load_messages_failed">Couldn\'t load messages</string>
     <string name="dm_no_friends">No friends found</string>
     <string name="dm_new_message_to">To:</string>
     <string name="dm_new_group">New Group</string>
@@ -366,6 +368,7 @@
     <string name="message_attachment_location">Location</string>
     <string name="message_attachment_poll">Poll</string>
     <string name="action_copy_text">Copy Text</string>
+    <string name="action_share_text">Share Text</string>
     <string name="tokens_sent_title">Funds Transferred: %1$s₫</string>
     <string name="give_coffee_action">Give coffee action</string>
     <string name="give_coffee_error_self">Cannot give coffee to yourself</string>
@@ -397,10 +400,15 @@
     <string name="channel_files_media_empty_description">We searched far and wide. Unfortunately, no results were found</string>
     <string name="channel_files_shared_by">Shared by %1$s</string>
     <string name="action_mark_unread">Mark Unread</string>
+    <string name="action_add_to_inbox">Add To Inbox</string>
+    <string name="message_toast_add_to_inbox_success">Added to Inbox</string>
+    <string name="message_toast_add_to_inbox_failed">Couldn\'t add message to Inbox</string>
     <string name="action_delete">Delete Message</string>
     <string name="action_report">Report</string>
     <string name="action_save_media">Save Media</string>
-    <string name="action_copy_link">Copy Media Link</string>
+    <string name="action_save_image">Save Image</string>
+    <string name="action_copy_image_link">Copy Image Link</string>
+    <string name="action_copy_video_link">Copy Video Link</string>
     <string name="action_copy_image">Copy Image</string>
     <string name="action_share_image">Share Image</string>
     <string name="action_save_video">Save Video</string>
@@ -435,6 +443,7 @@
     <string name="topic_replies">Replies</string>
     <string name="notif_tab_for_you">For You</string>
     <string name="notif_empty">No notifications</string>
+    <string name="notif_remove_notification">Remove notification</string>
     <string name="notification_tab_for_you">For you</string>
     <string name="notification_tab_mention">Mention</string>
     <string name="notification_tab_messages">Messages</string>
@@ -890,7 +899,7 @@
     <string name="send_token_select_user_placeholder">Tap to select a user</string>
     <string name="send_token_search_user_hint">Search by name or username</string>
     <string name="send_token_no_user_match">No matching users</string>
-    <string name="send_token_no_friends_to_select">No friends available to select yet. Pull friends list and try again.</string>
+    <string name="send_token_type_to_search">Type a name or username to search</string>
     <string name="send_token_error_no_recipient">Please select a recipient</string>
     <string name="send_token_error_amount">Enter an amount greater than zero</string>
     <string name="send_token_error_exceeds_balance">Amount exceeds your balance</string>
@@ -1002,6 +1011,15 @@
     <string name="notification_channel_dm_desc">Notifications for direct messages</string>
     <string name="notification_channel_system">System</string>
     <string name="notification_channel_system_desc">System notifications</string>
+    <string name="notification_action_view">View</string>
+    <string name="notification_action_reply">Reply</string>
+    <string name="notification_action_like">Like</string>
+    <string name="notification_like_reacted">reacted 👍</string>
+    <string name="notification_reply_hint">Message</string>
+    <string name="notification_reply_failed">Your reply could not be sent. Tap to open the conversation.</string>
+    <string name="notification_like_failed">Your like could not be sent. Tap to open the conversation.</string>
+    <string name="notification_self">You</string>
+    <string name="notification_group_summary">%1$d new messages</string>
 
     <!-- channelList -->
     <string name="channel_list_favorite">Favorite Channel</string>
@@ -1013,14 +1031,21 @@
     <string name="clan_event_empty_title">No events yet</string>
     <string name="clan_event_empty_desc">Create an event to bring your community together.</string>
     <string name="clan_event_badge_new">NEW</string>
-    <string name="clan_event_badge_private">Private Event</string>
+    <string name="clan_event_badge_private">External Event</string>
     <string name="clan_event_badge_channel">Channel Event</string>
     <string name="clan_event_badge_clan">Clan Event</string>
     <string name="clan_event_status_upcoming">Starts in %1$d min</string>
     <string name="clan_event_status_ongoing">Event is happening now</string>
+    <string name="clan_event_end">End Event</string>
     <string name="clan_event_interested">Interested</string>
     <string name="clan_event_uninterested">Not interested</string>
-    <string name="clan_event_private_room">Private room</string>
+    <string name="clan_event_private_room">External Meeting Room</string>
+    <string name="clan_event_invite_action">Invite</string>
+    <string name="clan_event_invite_title">Invite friends to join External Event</string>
+    <string name="clan_event_invite_search_placeholder">Search friends</string>
+    <string name="clan_event_invite_empty_title">No people found</string>
+    <string name="clan_event_invite_empty_description">No members or friends are available to invite.</string>
+    <string name="clan_event_invite_link_label">OR, SEND THEM THE MEETING ROOM LINK</string>
     <string name="clan_event_created_by">Created by %1$s</string>
     <string name="clan_event_no_one_interested">No one is interested yet</string>
     <string name="clan_event_one_person_interested">1 person is interested</string>
@@ -1032,36 +1057,28 @@
     <string name="clan_event_ends_at">Ends %1$s</string>
     <string name="clan_event_detail_title">Event details</string>
     <string name="event_creator_screen_title">Create Event</string>
-    <string name="event_creator_type_header">Event Type</string>
     <string name="event_creator_type_title">What type of event is this?</string>
     <string name="event_creator_type_subtitle">Choose how members will join your event.</string>
     <string name="event_creator_type_voice_title">Voice Channel</string>
     <string name="event_creator_type_voice_desc">Host the event in a voice channel</string>
     <string name="event_creator_type_location_title">Somewhere else</string>
     <string name="event_creator_type_location_desc">Meet at an offline location</string>
-    <string name="event_creator_type_private_title">Private Event</string>
-    <string name="event_creator_type_private_desc">Only visible to you until it starts</string>
+    <string name="event_creator_type_private_title">Create External Event</string>
+    <string name="event_creator_type_private_desc">Users can join the meeting by link without logging in.</string>
     <string name="event_creator_voice_channel_label">Voice channel</string>
     <string name="event_creator_address_label">Address</string>
     <string name="event_creator_address_placeholder">Enter event location</string>
-    <string name="event_creator_channel_section_title">Link to a channel</string>
-    <string name="event_creator_channel_section_subtitle">Post the event announcement in a text channel.</string>
     <string name="event_creator_linked_channel_label">Announcement channel (optional)</string>
     <string name="event_creator_channel_picker_title">Select channel</string>
-    <string name="event_creator_channel_search">Search channels</string>
-    <string name="event_creator_details_header">Event Details</string>
+    <string name="event_creator_no_channels">No channels available</string>
     <string name="event_creator_details_title">Tell us about your event</string>
     <string name="event_creator_details_subtitle">Add a name, schedule, and optional cover image.</string>
     <string name="event_creator_name_label">Event name</string>
     <string name="event_creator_name_placeholder">Enter event name</string>
-    <string name="event_creator_name_error">Please enter an event name</string>
-    <string name="event_creator_start_date_label">Start date</string>
+    <string name="event_creator_date_label">Date</string>
     <string name="event_creator_start_time_label">Start time</string>
-    <string name="event_creator_end_date_label">End date</string>
     <string name="event_creator_end_time_label">End time</string>
-    <string name="event_creator_start_date_error">Start date cannot be in the past</string>
     <string name="event_creator_start_time_error">Start time must be in the future</string>
-    <string name="event_creator_end_date_error">End date cannot be before start date</string>
     <string name="event_creator_end_time_error">End time must be after start time</string>
     <string name="event_creator_description_label">Description</string>
     <string name="event_creator_description_placeholder">Describe your event (optional)</string>
@@ -1080,12 +1097,17 @@
     <string name="event_creator_preview_subtitle_voice">Members will join via the selected voice channel.</string>
     <string name="event_creator_action_next">Next</string>
     <string name="event_creator_action_create">Create Event</string>
-    <string name="event_creator_error_type">Please select an event type</string>
-    <string name="event_creator_error_location">Please enter a location</string>
     <string name="event_creator_create_success">Event created</string>
     <string name="event_creator_create_failed">Could not create event</string>
     <string name="event_creator_edit_screen_title">Edit Event</string>
-    <string name="event_creator_action_save">Save Event</string>
+    <string name="event_creator_step_count">Step %1$d of %2$d</string>
+    <string name="event_creator_step_location">Location</string>
+    <string name="event_creator_step_details">Details</string>
+    <string name="event_creator_action_back">Back</string>
+    <string name="event_creator_clear_selection">Clear selection</string>
+    <string name="event_creator_action_save">Update Event</string>
+    <string name="event_creator_invalid_topic">Event name contains invalid characters</string>
+    <string name="event_creator_location_too_long">Location must be 100 characters or fewer</string>
     <string name="event_creator_update_success">Event updated</string>
     <string name="event_creator_update_failed">Could not update event</string>
     <string name="event_creator_preview_subtitle_edit">Review your changes before saving.</string>
@@ -1241,6 +1263,8 @@
     <string name="permission_no_audio">Mezon needs access to your microphone. Please go to Settings and enable the permission.</string>
     <string name="permission_no_camera_mic_video">Mezon needs access to your camera and microphone for video messages. Please go to Settings and enable the permissions.</string>
     <string name="permission_no_location">Mezon needs access to your location. Please go to Settings and enable the permission.</string>
+    <string name="location_services_off_title">Location is turned off</string>
+    <string name="location_services_off_message">Turn on location in Settings to share your position.</string>
 
     <!-- UserProfile BottomSheet -->
     <string name="user_profile_send_message">Message</string>
@@ -1280,6 +1304,10 @@
     <string name="share_location_coordinate">Coordinate (%1$.6f, %2$.6f)</string>
     <string name="share_location_cancel">Cancel</string>
     <string name="share_location_send">Send</string>
+    <string name="share_location_fetching">Getting your location…</string>
+    <string name="share_location_unavailable">Couldn\'t get your location. Please try again.</string>
+    <string name="location_card_your_location">Your location</string>
+    <string name="location_card_location_of">%1$s\'s location</string>
     <string name="feature_coming_soon">Coming soon</string>
     <string name="file_too_large">File exceeds the %s limit</string>
 
@@ -1314,12 +1342,6 @@
     <string name="status_duration_1_hour">1 hour</string>
     <string name="status_duration_30_minutes">30 minutes</string>
     <string name="status_duration_dont_clear">Don\'t clear</string>
-    <string name="sharing_filter_all">All</string>
-    <string name="sharing_filter_users">Users</string>
-    <string name="sharing_filter_channels">Channels</string>
-    <string name="sharing_filter_options">Filter options</string>
-    <string name="sharing_select_channel">Select a channel</string>
-    <string name="sharing_select_user">Select a user</string>
     <string name="sharing_select_channel_placeholder">Select a channel or user</string>
     <string name="sharing_suggestions">Suggestions</string>
     <string name="sharing_add_comment">Add a comment…</string>
@@ -1344,6 +1366,8 @@
     <string name="search_message_attachment">[Attachment]</string>
     <string name="search_user_fallback">User</string>
     <string name="search_type_to_search_messages">Type to search messages</string>
+    <string name="search_type_to_search">Type something to find members and channels</string>
+    <string name="search_section_recent">Recent</string>
     <string name="search_no_messages_found">No messages found</string>
 
     <string name="buzz_dialog_title">Enter your message Buzz!!</string>
@@ -1365,6 +1389,11 @@
     <string name="voice_room_kick_modal_action">Kick</string>
     <string name="voice_room_moderation_mute_failed">Could not mute this member.</string>
     <string name="voice_room_moderation_kick_failed">Could not kick this member.</string>
+    <string name="voice_room_muted_by_moderator">You have been muted by a channel moderator.</string>
+    <string name="voice_room_kicked">You have been kicked from the channel.</string>
+    <string name="voice_room_alone_timeout">You were disconnected from the voice channel because you were alone in it for too long.</string>
+    <string name="voice_room_duplicate_session">You joined the voice channel on another device, so this session was disconnected.</string>
+    <string name="voice_room_disconnected_rejoin">You were disconnected from the voice channel.</string>
     <string name="voice_room_mic_permission_title">Microphone permission required</string>
     <string name="voice_room_mic_permission_message">Mezon needs microphone access to let you speak in this voice channel. Please enable it in Settings.</string>
     <string name="voice_room_camera_permission_title">Camera permission required</string>
@@ -1384,6 +1413,11 @@
     <string name="clan_link_invite_invalid_message">Try sending a new invite!</string>
     <string name="clan_link_invite_channel_prefix"># %1$s</string>
     <string name="clan_link_invite_unknown_clan">Unknown clan</string>
+    <string name="deeplink_opening_channel">Opening channel…</string>
+    <string name="deeplink_checking_access">Checking your access</string>
+    <string name="deeplink_channel_unavailable_title">Channel unavailable</string>
+    <string name="deeplink_channel_unavailable_message">You may not have access to this channel, or it may no longer exist. Please check with the person who shared the link.</string>
+    <string name="deeplink_channel_unavailable_got_it">Got it</string>
     <string name="discover_join_clan">Join Clan</string>
     <string name="discover_join_failed">Could not join this clan.</string>
 
@@ -1804,4 +1838,13 @@
     <string name="message_toast_save_success">Save successfully</string>
     <string name="message_toast_save_failed">Save failed</string>
     <string name="message_toast_share_failed">Share failed</string>
+    <string name="voice_channel_ongoing_channel_name">Ongoing Voice</string>
+    <string name="voice_channel_ongoing_channel_desc">Active voice channel indicator</string>
+    <string name="voice_channel_ongoing_title">Voice channel</string>
+    <string name="voice_channel_ongoing_text">Connected to %1$s</string>
+    <string name="voice_channel_ongoing_text_generic">Connected to a voice channel</string>
+    <string name="voice_room_connection_failed_title">Unable to connect to voice</string>
+    <string name="voice_room_connection_failed_message">The voice connection could not be restored. Check your connection and try joining again.</string>
+    <string name="voice_room_connection_exit">Exit</string>
+    <string name="voice_room_connection_rejoin">Rejoin</string>
 </resources>

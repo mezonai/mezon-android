@@ -9,13 +9,14 @@ import android.text.Spanned
 import android.text.StaticLayout
 import android.text.style.LeadingMarginSpan
 import android.text.style.LineBackgroundSpan
+import android.text.style.LineHeightSpan
 import com.mezon.mobile.core.LayoutHelper
 
 class CodeFenceSpan(
     private val bgColor: Int,
     var spanFirstLine: Int = -1,
     var spanLastLine: Int = -1,
-) : LineBackgroundSpan, LeadingMarginSpan {
+) : LineBackgroundSpan, LeadingMarginSpan, LineHeightSpan {
 
     private val rect = RectF()
     private val cornerRadii = FloatArray(8)
@@ -25,8 +26,28 @@ class CodeFenceSpan(
     private val lineGapBridge = LayoutHelper.dpf(2f)
     private val containerInsetH = LayoutHelper.dp(4)
     private val innerTextPadH = LayoutHelper.dp(12)
+    private val innerTextPadV = LayoutHelper.dp(6)
 
     override fun getLeadingMargin(first: Boolean): Int = innerTextPadH + containerInsetH
+
+    override fun chooseHeight(
+        text: CharSequence, start: Int, end: Int,
+        spanstartv: Int, lineHeight: Int,
+        fm: Paint.FontMetricsInt
+    ) {
+        val spanned = text as? Spanned ?: return
+        val spanStart = spanned.getSpanStart(this)
+        val spanEnd = spanned.getSpanEnd(this)
+        if (spanStart < 0 || end <= spanStart || start >= spanEnd) return
+        if (start <= spanStart) {
+            fm.ascent -= innerTextPadV
+            fm.top -= innerTextPadV
+        }
+        if (end >= spanEnd) {
+            fm.descent += innerTextPadV
+            fm.bottom += innerTextPadV
+        }
+    }
 
     companion object {
         fun layoutExtraHorizontalShrink(): Int = LayoutHelper.dp(4) * 2

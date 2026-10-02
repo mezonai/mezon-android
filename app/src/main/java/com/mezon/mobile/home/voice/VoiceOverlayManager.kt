@@ -9,8 +9,7 @@ import android.view.animation.DecelerateInterpolator
 import android.widget.FrameLayout
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
-import io.livekit.android.room.Room
-import io.livekit.android.room.track.VideoTrack
+import org.webrtc.VideoTrack
 
 class VoiceOverlayManager(
     private val rootContainer: ViewGroup,
@@ -39,6 +38,8 @@ class VoiceOverlayManager(
     private var miniOverlay: VoiceOverlayView? = null
     private var currentAnimator: ValueAnimator? = null
 
+    var onVideoVisibilityChanged: ((VideoTrack, Boolean) -> Unit)? = null
+
     var onExpandRequest: (() -> Unit)? = null
 
     init {
@@ -62,7 +63,6 @@ class VoiceOverlayManager(
     }
 
     fun minimize(
-        room: Room?,
         videoTrack: VideoTrack?,
         name: String,
         username: String,
@@ -77,9 +77,10 @@ class VoiceOverlayManager(
 
         val overlay = miniOverlay ?: VoiceOverlayView(rootContainer.context, themeColors).also {
             it.onTapExpand = { onExpandRequest?.invoke() }
+            it.onVideoVisibilityChanged = { track, visible -> onVideoVisibilityChanged?.invoke(track, visible) }
             miniOverlay = it
         }
-        overlay.setContent(room, videoTrack, name, username, avatarUrl, isMuted, userId)
+        overlay.setContent(videoTrack, name, username, avatarUrl, isMuted, userId)
 
         val anim = ValueAnimator.ofFloat(1f, 0f)
         anim.duration = ANIM_DURATION
@@ -112,6 +113,7 @@ class VoiceOverlayManager(
 
         val overlay = miniOverlay ?: VoiceOverlayView(rootContainer.context, themeColors).also {
             it.onTapExpand = { onExpandRequest?.invoke() }
+            it.onVideoVisibilityChanged = { track, visible -> onVideoVisibilityChanged?.invoke(track, visible) }
             miniOverlay = it
         }
         overlay.setStreamContent(channelLabel, channelAvatarUrl)
@@ -189,7 +191,6 @@ class VoiceOverlayManager(
     fun isVisible() = state != State.HIDDEN
 
     fun updateMiniContent(
-        room: Room?,
         videoTrack: VideoTrack?,
         name: String,
         username: String,
@@ -197,6 +198,6 @@ class VoiceOverlayManager(
         isMuted: Boolean,
         userId: Long
     ) {
-        miniOverlay?.setContent(room, videoTrack, name, username, avatarUrl, isMuted, userId)
+        miniOverlay?.setContent(videoTrack, name, username, avatarUrl, isMuted, userId)
     }
 }

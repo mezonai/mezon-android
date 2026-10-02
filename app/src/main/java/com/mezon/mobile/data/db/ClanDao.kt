@@ -10,6 +10,9 @@ interface ClanDao {
     @Query("SELECT * FROM clans ORDER BY clanOrder ASC LIMIT :limit")
     suspend fun getAll(limit: Int = 500): List<ClanEntity>
 
+    @Query("SELECT * FROM clans WHERE clanId = :clanId LIMIT 1")
+    suspend fun getById(clanId: Long): ClanEntity?
+
     @Upsert
     suspend fun upsertAll(clans: List<ClanEntity>)
 

@@ -35,7 +35,8 @@ private data class PendingLastSeen(
     val messageId: Long,
     val timestampSeconds: Int,
     val badgeCount: Int,
-    val applyLocal: Boolean
+    val applyLocal: Boolean,
+    val capturedBadgeCount: Int
 )
 
 private data class ChannelActivityTick(
@@ -68,6 +69,7 @@ class BadgeCoordinator @Inject constructor(
     private val retryLastSeenByKey = ConcurrentHashMap<String, QueuedLastSeenWrite>()
     private val retryLastSeenJobs = ConcurrentHashMap<String, Job>()
     private val fullReadDedupAt = ConcurrentHashMap<String, Long>()
+    private val fullReadDedupMessageId = ConcurrentHashMap<String, Long>()
     private val reconcileJobs = ConcurrentHashMap<Long, Job>()
 
     private val channelActivityTicks = ConcurrentHashMap<String, ChannelActivityTick>()
@@ -75,13 +77,10 @@ class BadgeCoordinator @Inject constructor(
     private val channelActivityLock = Any()
 
     fun onReconnect() {
-        lastSeenJobs.values.forEach { it.cancel() }
-        lastSeenJobs.clear()
-        pendingLastSeen.clear()
-        deferredLastSeenByKey.clear()
         retryLastSeenJobs.values.forEach { it.cancel() }
         retryLastSeenJobs.clear()
         fullReadDedupAt.clear()
+        fullReadDedupMessageId.clear()
         reconcileJobs.values.forEach { it.cancel() }
         reconcileJobs.clear()
         channelActivityJob?.cancel()
@@ -91,6 +90,10 @@ class BadgeCoordinator @Inject constructor(
     }
 
     fun cleanup() {
+        lastSeenJobs.values.forEach { it.cancel() }
+        lastSeenJobs.clear()
+        pendingLastSeen.clear()
+        deferredLastSeenByKey.clear()
         onReconnect()
         retryLastSeenByKey.clear()
     }
@@ -103,12 +106,26 @@ class BadgeCoordinator @Inject constructor(
         timestampSeconds: Int,
         badgeCount: Int = 0,
         applyLocal: Boolean = true,
-        skipDefer: Boolean = false
+        skipDefer: Boolean = false,
+        capturedBadgeCount: Int? = null
     ) {
         val key = "${clanId}_$channelId"
-        val pending = PendingLastSeen(
-            channelId, clanId, channelType, messageId, timestampSeconds, badgeCount, applyLocal
+        val captured = if (clanId != 0L) maxOf(
+            capturedBadgeCount ?: channelController.get().badgeCountForRead(channelId),
+            pendingLastSeen[key]?.capturedBadgeCount ?: 0,
+            deferredLastSeenByKey[key]?.capturedBadgeCount ?: 0
+        ) else badgeCount
+        var pending = PendingLastSeen(
+            channelId, clanId, channelType, messageId, timestampSeconds, badgeCount, applyLocal, captured
         )
+        if (clanId != 0L && applyLocal && badgeCount == 0) {
+            if (shouldSkipDuplicateFullRead(key, pending)) return
+            fullReadDedupAt[key] = SystemClock.elapsedRealtime()
+            fullReadDedupMessageId[key] = messageId
+            channelController.get().markChannelAsRead(channelId, timestampSeconds, messageId)
+            scheduleClanReconcile(clanId)
+            pending = pending.copy(applyLocal = false)
+        }
         if (!skipDefer && shouldDeferLastSeen(pending)) {
             deferredLastSeenByKey[key] = pending
             return
@@ -137,7 +154,8 @@ class BadgeCoordinator @Inject constructor(
                         p.timestampSeconds,
                         p.badgeCount,
                         p.applyLocal,
-                        skipDefer = true
+                        skipDefer = true,
+                        capturedBadgeCount = p.capturedBadgeCount
                     )
                 }
             }
@@ -168,13 +186,14 @@ class BadgeCoordinator @Inject constructor(
             return
         }
         val socketBadgeCount = if (p.clanId != 0L) {
-            channelController.get().findChannelById(p.channelId)?.unreadCount ?: p.badgeCount
+            p.capturedBadgeCount
         } else {
             p.badgeCount
         }
         if (p.applyLocal) {
             if (p.badgeCount == 0) {
                 fullReadDedupAt[key] = SystemClock.elapsedRealtime()
+                fullReadDedupMessageId[key] = p.messageId
             }
             if (p.badgeCount == 0) {
                 if (p.clanId != 0L) {
@@ -272,10 +291,11 @@ class BadgeCoordinator @Inject constructor(
     }
 
     private fun shouldSkipDuplicateFullRead(key: String, p: PendingLastSeen): Boolean {
-        if (p.badgeCount != 0) return false
+        if (p.badgeCount != 0 || p.capturedBadgeCount > 0) return false
         val now = SystemClock.elapsedRealtime()
         val last = fullReadDedupAt[key] ?: return false
         if (now - last >= DEDUP_FULL_READ_MS) return false
+        if (p.messageId > (fullReadDedupMessageId[key] ?: 0L)) return false
         if (p.clanId != 0L) {
             val ch = channelController.get().findChannelById(p.channelId) ?: return false
             return ch.unreadCount == 0 && !ch.hasUnread

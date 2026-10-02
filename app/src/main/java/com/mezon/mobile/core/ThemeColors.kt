@@ -185,7 +185,7 @@ class ThemeColors @Inject constructor() {
 
         currentColors[key_chat_inBubble] = surfaceVariant
         currentColors[key_chat_outBubble] = primary
-        currentColors[key_chat_inText] = onSurfaceVariant
+        currentColors[key_chat_inText] = onSurface
         currentColors[key_chat_outText] = onPrimary
         currentColors[key_chat_inTime] = onSurfaceVariant
         currentColors[key_chat_outTime] = onPrimary and 0x99FFFFFF.toInt()
@@ -284,7 +284,7 @@ class ThemeColors @Inject constructor() {
         dividerPaint.color = outlineVariant
         chatSenderPaint.color = primary
         val fs = LayoutHelper.sp(SharedConfig.fontSize.toFloat())
-        chatContentPaint.color = onSurfaceVariant
+        chatContentPaint.color = onSurface
         chatContentPaint.textSize = fs
         chatContentOutPaint.color = onPrimary
         chatContentOutPaint.textSize = fs
@@ -440,6 +440,7 @@ class ThemeColors @Inject constructor() {
 
     val badgeRed: Int get() = 0xFFD30E0E.toInt()
     val onlineGreen: Int get() = 0xFF43B581.toInt()
+    val voiceActiveGreen: Int get() = 0xFF16A34A.toInt()
 
     val reactionBgColor: Int get() = when (resolvedMode) {
         ThemeMode.LIGHT -> 0x99E5E7EB.toInt()

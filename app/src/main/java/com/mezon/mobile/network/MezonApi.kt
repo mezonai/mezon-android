@@ -5,7 +5,6 @@ import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.home.clans.CHANNEL_MUTE_ACTIVE_INFINITY
 import com.mezon.mobile.home.clans.SET_MUTE_ACTIVE_UNMUTE
 import com.mezon.mobile.util.SentryReporter
-import android.net.Uri
 import android.util.Base64
 import com.mezon.mezon.api.Account
 import com.mezon.mezon.api.AllUsersAddChannelResponse
@@ -42,6 +41,9 @@ import com.mezon.mezon.api.ChannelUserList
 import com.mezon.mezon.api.ClanUserList
 import com.mezon.mezon.api.FriendList
 import com.mezon.mezon.api.NotificationList
+import com.mezon.mezon.api.Message2InboxRequest
+import com.mezon.mezon.api.SearchCtrlKResponse
+import com.mezon.mezon.api.SearchMentionUsersResponse
 import com.mezon.mezon.api.SearchMessageResponse
 import com.mezon.mezon.api.ChannelAttachmentList
 import com.mezon.mezon.api.ChannelCanvasDetailResponse
@@ -131,6 +133,8 @@ import com.mezon.mezon.api.listChannelMessagesRequest
 import com.mezon.mezon.api.votePollRequest
 import com.mezon.mezon.api.listFriendsRequest
 import com.mezon.mezon.api.listNotificationsRequest
+import com.mezon.mezon.api.searchCtrlKRequest
+import com.mezon.mezon.api.searchMentionUsersRequest
 import com.mezon.mezon.api.searchMessageRequest
 import com.mezon.mezon.api.sessionRefreshRequest
 import com.mezon.mezon.api.Session
@@ -191,7 +195,9 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import org.json.JSONObject
@@ -214,10 +220,15 @@ import kotlinx.coroutines.CompletableDeferred
 import java.io.IOException
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 class UnauthorizedException(message: String) : RuntimeException(message)
+
+class ThrottledException(val code: Int, message: String) : RuntimeException(message)
+
+class HealthyEndpointStatusException(val code: Int) :
+    RuntimeException("HTTP $code fetching healthy endpoint")
 
 class SocketRpcTransportException(
     message: String,
@@ -364,15 +375,15 @@ class MezonApi @Inject constructor(
         private val SERVER_KEY = BuildConfig.MEZON_API_KEY
         private const val DISCOVER_ITEMS_PER_PAGE = 6
         private const val SOCKET_WAIT_MS = 5_000L
-        private const val MAX_CONSECUTIVE_SOCKET_TIMEOUTS = 3
+        private const val HEALTHY_ENDPOINT_TIMEOUT_MS = 5_000L
+        private const val SOCKET_DEGRADED_COOLDOWN_MS = 12_000L
         private const val READ_SINGLE_FLIGHT_MAX_AGE_MS = 3_000L
         private val HTTP_RETRY_DELAYS_MS = longArrayOf(300L, 900L)
         private val HTTP_ONLY_API_NAMES = setOf(
             "SessionRefresh",
-            "RegistFCMDeviceToken",
             "SendChannelMessage"
         )
-        private val SOCKET_RPC_API_NAMES = setOf(
+        private val READ_RETRYABLE_API_NAMES = setOf(
             "GetAccount",
             "GetListEmojisByUserId",
             "GetListFavoriteChannel",
@@ -399,6 +410,7 @@ class MezonApi @Inject constructor(
             "ListClanDescs",
             "ListClanUsers",
             "ListClanWebhook",
+            "ListEvents",
             "ListFriends",
             "ListLogedDevice",
             "ListNotifications",
@@ -406,23 +418,31 @@ class MezonApi @Inject constructor(
             "ListThreadDescs",
             "ListUserClansByUserId",
             "ListWebhookByChannelId",
-            "SearchMessage"
+            "SearchCtrlK",
+            "SearchMessage",
+            "GenerateHashChannelApps"
         )
-        private val READ_RETRYABLE_API_NAMES = SOCKET_RPC_API_NAMES + "GenerateHashChannelApps"
     }
 
     private val linkInvitePreviewCache = android.util.LruCache<Long, LinkInvitePreview>(256)
     private val inFlightReadRpcs = ConcurrentHashMap<String, InFlightReadRpc>()
 
-    private val consecutiveSocketTimeouts = AtomicInteger(0)
+    private val socketDegradedUntilMs = AtomicLong(0L)
 
-    private fun logRpcRequest(method: String, url: String) {
-        if (!BuildConfig.DEBUG) return
-        // Avoid a single https://… token — Logcat URL scrubbing replaces it with asterisks.
-        val path = "mezon.api.Mezon/$method"
-        val uri = runCatching { Uri.parse(url) }.getOrNull()
-        val host = uri?.host?.replace('.', '|') ?: "?"
-        Log.d("MezonApi", "rpc method=$method path=$path host=$host")
+    private fun isSocketDegraded(): Boolean {
+        val until = socketDegradedUntilMs.get()
+        if (until == 0L) return false
+        if (System.currentTimeMillis() < until) return true
+        socketDegradedUntilMs.compareAndSet(until, 0L)
+        return false
+    }
+
+    private fun markSocketDegraded() {
+        socketDegradedUntilMs.set(System.currentTimeMillis() + SOCKET_DEGRADED_COOLDOWN_MS)
+    }
+
+    private fun markSocketHealthy() {
+        socketDegradedUntilMs.set(0L)
     }
 
     private fun logRpcHttpError(method: String, response: HttpResponse, requestByteSize: Int, errorBody: String) {
@@ -546,15 +566,15 @@ class MezonApi @Inject constructor(
         token: String,
         method: String,
         body: ByteArray,
-        preferHttp: Boolean = false
+        httpOnly: Boolean = false
     ): ByteArray {
         val retryableRead = method in READ_RETRYABLE_API_NAMES
         if (retryableRead) {
-            val key = readRpcKey(apiUrl, token, method, body, preferHttp)
+            val key = readRpcKey(apiUrl, token, method, body)
             val flight = startOrJoinReadRpc(key)
             if (!flight.owner) return flight.entry.deferred.await()
             try {
-                val bytes = executeRpc(apiUrl, token, method, body, preferHttp, retryableRead)
+                val bytes = executeRpc(apiUrl, token, method, body, retryableRead, httpOnly)
                 flight.entry.deferred.complete(bytes)
                 return bytes
             } catch (e: Throwable) {
@@ -564,7 +584,7 @@ class MezonApi @Inject constructor(
                 inFlightReadRpcs.remove(key, flight.entry)
             }
         }
-        return executeRpc(apiUrl, token, method, body, preferHttp, retryableRead)
+        return executeRpc(apiUrl, token, method, body, retryableRead, httpOnly)
     }
 
     private suspend fun executeRpc(
@@ -572,25 +592,35 @@ class MezonApi @Inject constructor(
         token: String,
         method: String,
         body: ByteArray,
-        preferHttp: Boolean,
-        retryableRead: Boolean
+        retryableRead: Boolean,
+        httpOnly: Boolean
     ): ByteArray {
-        if (preferHttp || method in HTTP_ONLY_API_NAMES || method !in SOCKET_RPC_API_NAMES) {
+        if (httpOnly || method in HTTP_ONLY_API_NAMES || isSocketDegraded()) {
             return rpcOverHttpWithRetry(apiUrl, token, method, body, retryableRead)
         }
         return try {
-            rpcOverSocket(method, body, token)
+            val bytes = rpcOverSocket(method, body, token)
+            if (method == "GenerateMeetToken") {
+                // Validate before returning so an unusable socket token can fall back to HTTP.
+                decodeMeetTokenResponse(bytes)
+            }
+            bytes
         } catch (e: UnauthorizedException) {
             throw e
         } catch (e: SocketRpcServerException) {
             throw e
+        } catch (e: com.google.protobuf.InvalidProtocolBufferException) {
+            if (method != "GenerateMeetToken") throw e
+            rpcOverHttpWithRetry(apiUrl, token, method, body, retryable = retryableRead)
         } catch (e: SocketRpcTransportException) {
-            if (!retryableRead || !e.retryOverHttp) throw e
+            if (!e.retryOverHttp) throw e
             Log.w("MezonApi", "SOCKET unavailable method=$method, falling back to HTTP: ${e.message}")
             sentryReporter.logRpcWarning(method, "socket", "fallback to HTTP: ${e.message}")
-            rpcOverHttpWithRetry(apiUrl, token, method, body, true)
+            rpcOverHttpWithRetry(apiUrl, token, method, body, retryable = retryableRead)
         } catch (e: IllegalArgumentException) {
-            throw e
+            Log.w("MezonApi", "SOCKET rejected method=$method, falling back to HTTP: ${e.message}")
+            sentryReporter.logRpcWarning(method, "socket", "fallback to HTTP: ${e.message}")
+            rpcOverHttpWithRetry(apiUrl, token, method, body, retryable = retryableRead)
         }
     }
 
@@ -611,13 +641,12 @@ class MezonApi @Inject constructor(
         apiUrl: String,
         token: String,
         method: String,
-        body: ByteArray,
-        preferHttp: Boolean
+        body: ByteArray
     ): String {
         val base = apiUrl.trimEnd('/')
         val tokenHash = sha256Base64(token.toByteArray(Charsets.UTF_8))
         val bodyHash = sha256Base64(body)
-        return "$base|$method|$preferHttp|$tokenHash|$bodyHash"
+        return "$base|$method|$tokenHash|$bodyHash"
     }
 
     private fun sha256Base64(bytes: ByteArray): String {
@@ -628,6 +657,7 @@ class MezonApi @Inject constructor(
     private suspend fun rpcOverSocket(method: String, body: ByteArray, token: String): ByteArray {
         val socket = mezonSocketLazy.get()
         if (!socket.awaitConnected(SOCKET_WAIT_MS)) {
+            markSocketDegraded()
             throw SocketRpcTransportException(
                 "WebSocket unavailable for '$method'",
                 retryOverHttp = true
@@ -645,13 +675,7 @@ class MezonApi @Inject constructor(
         val started = System.currentTimeMillis()
         try {
             val resp = socket.sendApiRequest(apiName = method, body = body)
-            if (BuildConfig.DEBUG) {
-                Log.d(
-                    "MezonApi",
-                    "SOCKET ok method=$method respBytes=${resp.size} elapsedMs=${System.currentTimeMillis() - started}"
-                )
-            }
-            consecutiveSocketTimeouts.set(0)
+            markSocketHealthy()
             return resp
         } catch (e: Exception) {
             Log.w(
@@ -662,22 +686,15 @@ class MezonApi @Inject constructor(
                 sentryReporter.logRpcFailure(method, "socket", e)
             }
             if (e is UnauthorizedException) {
-                consecutiveSocketTimeouts.set(0)
                 socket.forceReconnectForAuthFailure("Socket RPC unauthorized for '$method'")
                 throw e
             }
             if (e is SocketRpcServerException || e is IllegalArgumentException) {
-                consecutiveSocketTimeouts.set(0)
                 throw e
             }
             if (isSocketTransportFailure(e)) {
-                val streak = consecutiveSocketTimeouts.incrementAndGet()
-                if (streak >= MAX_CONSECUTIVE_SOCKET_TIMEOUTS) {
-                    consecutiveSocketTimeouts.set(0)
-                    socket.forceReconnect(
-                        "consecutive socket RPC transport failures=$streak (last method='$method')"
-                    )
-                }
+                markSocketDegraded()
+                socket.probeLiveness("rpc transport failure method=$method")
                 throw SocketRpcTransportException(
                     "WebSocket transport failed for '$method': ${e.message}",
                     retryOverHttp = true,
@@ -726,8 +743,6 @@ class MezonApi @Inject constructor(
     ): ByteArray {
         val base = apiUrl.trimEnd('/')
         val url = "$base/mezon.api.Mezon/$method"
-        logRpcRequest(method, url)
-        val started = System.currentTimeMillis()
         val response = httpClient.post(url) {
             header(HttpHeaders.Authorization, "Bearer $token")
             header(HttpHeaders.Accept, CONTENT_TYPE_PROTO.toString())
@@ -752,17 +767,12 @@ class MezonApi @Inject constructor(
         }
 
         val bytes = response.readBytes()
-        if (BuildConfig.DEBUG) {
-            Log.d(
-                "MezonApi",
-                "HTTP ok method=$method status=${response.status.value} bytes=${bytes.size} elapsedMs=${System.currentTimeMillis() - started}"
-            )
-        }
         return bytes
     }
 
     private fun isSocketTransportFailure(e: Throwable): Boolean {
         if (e is SocketRpcTransportException) return true
+        if (hasCause<SocketConnectionLostException>(e)) return true
         if (e is SocketRpcServerException || e is UnauthorizedException || e is IllegalArgumentException) return false
         val message = e.message.orEmpty()
         if (message.startsWith("Server error")) return false
@@ -781,7 +791,7 @@ class MezonApi @Inject constructor(
     private fun isHttpRetryableFailure(e: Throwable): Boolean {
         if (e is UnauthorizedException) return false
         if (e is HttpRpcStatusException) {
-            return e.code == 408 || e.code == 429 || e.code in 500..599
+            return e.code == 408 || e.code in 500..599
         }
         return hasCause<IOException>(e)
     }
@@ -802,7 +812,6 @@ class MezonApi @Inject constructor(
     ): ByteArray {
         val base = apiUrl.trimEnd('/')
         val url = "$base/mezon.api.Mezon/$method"
-        logRpcRequest(method, url)
         val response = httpClient.post(url) {
             header(HttpHeaders.Accept, CONTENT_TYPE_PROTO.toString())
             contentType(CONTENT_TYPE_PROTO)
@@ -877,11 +886,54 @@ class MezonApi @Inject constructor(
             if (code == 401 || code == 403) {
                 throw UnauthorizedException("SessionRefresh: $code Unauthorized")
             }
+            if (code == 429 || code == 503) {
+                throw ThrottledException(code, "SessionRefresh throttled ($code): $errorBody")
+            }
             throw RuntimeException("SessionRefresh failed ($code): $errorBody")
         }
 
         val session = Session.parseFrom(response.readBytes())
         return session
+    }
+
+    suspend fun getHealthyEndpoint(
+        token: String,
+        currentEndpointId: Int,
+        reasonCode: Int
+    ): HealthyEndpoint {
+        val gatewayUrl = BuildConfig.MEZON_GATEWAY_URL.trimEnd('/')
+        val url = "$gatewayUrl/v2/healthy/endpoint" +
+            "?currentEndpointId=$currentEndpointId&reasonCode=$reasonCode&geoIp="
+        val body = try {
+            withTimeout(HEALTHY_ENDPOINT_TIMEOUT_MS) {
+                val response = httpClient.get(url) {
+                    header(HttpHeaders.Authorization, "Bearer $token")
+                    header(HttpHeaders.Accept, ContentType.Application.Json.toString())
+                }
+                if (!response.status.isSuccess()) {
+                    throw HealthyEndpointStatusException(response.status.value)
+                }
+                response.bodyAsText()
+            }
+        } catch (e: TimeoutCancellationException) {
+            throw IOException("Healthy endpoint request timed out after ${HEALTHY_ENDPOINT_TIMEOUT_MS}ms", e)
+        }
+        val json = JSONObject(body)
+        val endpoint = HealthyEndpoint(
+            apiUrl = json.optString("api_url", "").ifEmpty { json.optString("apiUrl", "") },
+            wsUrl = json.optString("ws_url", "").ifEmpty { json.optString("wsUrl", "") },
+            tcpUrl = json.optString("tcp_url", "").ifEmpty { json.optString("tcpUrl", "") }
+        )
+        if (endpoint.wsUrl.isBlank() && endpoint.tcpUrl.isBlank()) {
+            throw IOException("Healthy endpoint response carries no realtime URL")
+        }
+        return endpoint
+    }
+
+    suspend fun listChannelDetail(apiUrl: String, token: String, channelId: Long): ChannelDescription {
+        val request = com.mezon.mezon.api.ListChannelDetailRequest.newBuilder()
+            .setChannelId(channelId).build()
+        return ChannelDescription.parseFrom(rpcOverHttp(apiUrl, token, "ListChannelDetail", request.toByteArray()))
     }
 
     suspend fun listChannelDescs(
@@ -1560,6 +1612,21 @@ class MezonApi @Inject constructor(
         return rpc(apiUrl, token, "UpdateUserStatus", request.toByteArray())
     }
 
+    suspend fun updateUserCustomStatus(
+        apiUrl: String,
+        token: String,
+        status: String,
+        minutes: Int,
+        untilTurnOn: Boolean
+    ): ByteArray {
+        val request = com.mezon.mezon.api.UserStatusUpdate.newBuilder()
+            .setStatus(status)
+            .setMinutes(minutes)
+            .setUntilTurnOn(untilTurnOn)
+            .build()
+        return rpc(apiUrl, token, "UpdateUserCustomStatus", request.toByteArray())
+    }
+
     suspend fun getUserStatus(
         apiUrl: String,
         token: String
@@ -1746,7 +1813,8 @@ class MezonApi @Inject constructor(
         actionDelete: Boolean,
         topicId: Long = 0L,
         emojiRecentId: Long = 0L,
-        senderName: String = ""
+        senderName: String = "",
+        httpOnly: Boolean = false
     ): ChannelMessageSend {
         val request = messageReaction {
             this.clanId = clanId
@@ -1763,7 +1831,7 @@ class MezonApi @Inject constructor(
             this.emojiRecentId = emojiRecentId
             this.senderName = senderName
         }
-        val bytes = rpc(apiUrl, token, "ReactChannelMessage", request.toByteArray())
+        val bytes = rpc(apiUrl, token, "ReactChannelMessage", request.toByteArray(), httpOnly)
         return if (bytes.isEmpty()) ChannelMessageSend.getDefaultInstance()
         else ChannelMessageSend.parseFrom(bytes)
     }
@@ -1867,8 +1935,7 @@ class MezonApi @Inject constructor(
         messageId: Long = 0L,
         direction: Int = 0,
         limit: Int = 50,
-        topicId: Long = 0L,
-        preferHttp: Boolean = false
+        topicId: Long = 0L
     ): ChannelMessageList {
         val request = listChannelMessagesRequest {
             this.channelId = channelId
@@ -1882,8 +1949,7 @@ class MezonApi @Inject constructor(
             apiUrl,
             token,
             "ListChannelMessages",
-            request.toByteArray(),
-            preferHttp = preferHttp
+            request.toByteArray()
         )
         val result = ChannelMessageList.parseFrom(bytes)
         return result
@@ -1919,6 +1985,12 @@ class MezonApi @Inject constructor(
         }
         return rpc(apiUrl, token, "DeleteNotifications", request.toByteArray())
     }
+
+    suspend fun createMessage2Inbox(
+        apiUrl: String,
+        token: String,
+        request: Message2InboxRequest
+    ): ByteArray = rpc(apiUrl, token, "CreateMessage2Inbox", request.toByteArray())
 
     suspend fun listPinMessages(
         apiUrl: String,
@@ -2474,6 +2546,36 @@ class MezonApi @Inject constructor(
         return SearchMessageResponse.parseFrom(bytes)
     }
 
+    suspend fun searchCtrlK(
+        apiUrl: String,
+        token: String,
+        text: String,
+        type: Int
+    ): SearchCtrlKResponse {
+        val request = searchCtrlKRequest {
+            this.text = text
+            this.type = type
+        }
+        val bytes = rpc(apiUrl, token, "SearchCtrlK", request.toByteArray())
+        return SearchCtrlKResponse.parseFrom(bytes)
+    }
+
+    suspend fun searchMentionUsers(
+        apiUrl: String,
+        token: String,
+        clanId: Long,
+        channelId: Long,
+        text: String
+    ): SearchMentionUsersResponse {
+        val request = searchMentionUsersRequest {
+            this.clanId = clanId
+            this.channelId = channelId
+            this.text = text
+        }
+        val bytes = rpc(apiUrl, token, "SearchMentionUsers", request.toByteArray())
+        return SearchMentionUsersResponse.parseFrom(bytes)
+    }
+
     suspend fun listEmojisByUserId(
         apiUrl: String,
         token: String
@@ -2602,14 +2704,17 @@ class MezonApi @Inject constructor(
         apiUrl: String,
         token: String,
         channelId: Long,
-        roomName: String
+        roomName: String,
+        metadata: String
     ): GenerateMeetTokenResponse {
         val request = generateMeetTokenRequest {
             this.channelId = channelId
             this.roomName = roomName
+            this.metadata = metadata
         }
         val bytes = rpc(apiUrl, token, "GenerateMeetToken", request.toByteArray())
-        return GenerateMeetTokenResponse.parseFrom(bytes)
+        // Both transports can return either raw JWT or GenerateMeetTokenResponse protobuf.
+        return decodeMeetTokenResponse(bytes)
     }
 
     suspend fun listChannelVoiceUsers(
@@ -2646,16 +2751,15 @@ class MezonApi @Inject constructor(
         token: String,
         clanId: Long,
         channelId: Long,
-        roomName: String,
-        username: String
-    ): ByteArray {
+        userId: Long
+    ): String {
         val request = meetParticipantRequest {
             this.clanId = clanId
             this.channelId = channelId
-            this.roomName = roomName
-            this.username = username
+            this.userId = userId
         }
-        return rpc(apiUrl, token, "RemoveParticipantMezonMeet", request.toByteArray())
+        val bytes = rpc(apiUrl, token, "RemoveParticipantMezonMeet", request.toByteArray())
+        return participantActionToken("RemoveParticipantMezonMeet", bytes)
     }
 
     suspend fun muteMeetParticipant(
@@ -2663,16 +2767,21 @@ class MezonApi @Inject constructor(
         token: String,
         clanId: Long,
         channelId: Long,
-        roomName: String,
-        username: String
-    ): ByteArray {
+        userId: Long
+    ): String {
         val request = meetParticipantRequest {
             this.clanId = clanId
             this.channelId = channelId
-            this.roomName = roomName
-            this.username = username
+            this.userId = userId
         }
-        return rpc(apiUrl, token, "MuteParticipantMezonMeet", request.toByteArray())
+        val bytes = rpc(apiUrl, token, "MuteParticipantMezonMeet", request.toByteArray())
+        return participantActionToken("MuteParticipantMezonMeet", bytes)
+    }
+
+    private fun participantActionToken(method: String, bytes: ByteArray): String {
+        val text = bytes.toString(Charsets.UTF_8).trim().trim('"')
+        if (text.startsWith("eyJ") && text.count { it == '.' } == 2) return text
+        throw IllegalStateException("$method returned no participant action token")
     }
 
     suspend fun addAgentToChannel(

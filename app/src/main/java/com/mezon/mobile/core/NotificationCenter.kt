@@ -80,9 +80,7 @@ class NotificationCenter(val currentAccount: Int) {
         val channelAppsDidLoad = nextId()
         val clanInfoUpdated = nextId()
         val clanBannerCropped = nextId()
-        val eventCoverCropped = nextId()
         val accountInfoLoaded = nextId()
-        val needUsernameSetup = nextId()
         val blockedUsersLoaded = nextId()
         val friendsLoaded = nextId()
         val notificationsDidLoad = nextId()
@@ -109,7 +107,9 @@ class NotificationCenter(val currentAccount: Int) {
         val clanRolesDidLoad = nextId()
         val channelMembersDidLoad = nextId()
         val searchMembersDidLoad = nextId()
+        val mentionSearchDidLoad = nextId()
         val searchChannelsDidLoad = nextId()
+        val linkedChannelDidLoad = nextId()
         val searchMessagesDidLoad = nextId()
         val emojisNeedReload = nextId()
         val clanEmojiCropExportReady = nextId()
@@ -205,7 +205,7 @@ class NotificationCenter(val currentAccount: Int) {
     val heavyOperationsCounter = HashSet<Int>()
     private var currentHeavyOperationFlags = 0
 
-    private val alreadyPostedRunnables = SparseArray<Runnable>()
+    private val alreadyPostedRunnables = HashMap<Pair<Int, Int>, Runnable>()
 
     private fun createArrayForId(id: Int): ArrayList<NotificationCenterDelegate> {
         return if (id == didReplacedPhotoInMemCache || id == stopAllHeavyOperations || id == startAllHeavyOperations) {
@@ -411,13 +411,13 @@ class NotificationCenter(val currentAccount: Int) {
     }
 
     private fun postNotificationDebounced(id: Int, allowDuringAnimation: Boolean, args: Array<out Any?>) {
-        val hash = id + (Arrays.hashCode(args) shl 16)
-        if (alreadyPostedRunnables.indexOfKey(hash) >= 0) return
+        val key = id to Arrays.hashCode(args)
+        if (alreadyPostedRunnables.containsKey(key)) return
         val runnable = Runnable {
             postNotificationNameInternal(id, allowDuringAnimation, args)
-            alreadyPostedRunnables.remove(hash)
+            alreadyPostedRunnables.remove(key)
         }
-        alreadyPostedRunnables.put(hash, runnable)
+        alreadyPostedRunnables[key] = runnable
         mainHandler.postDelayed(runnable, DEBOUNCE_DELAY_MS)
     }
 

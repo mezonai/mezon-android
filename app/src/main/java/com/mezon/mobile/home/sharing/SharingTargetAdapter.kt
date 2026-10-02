@@ -26,10 +26,7 @@ class SharingTargetAdapter(
         setHasStableIds(true)
     }
 
-    override fun getItemId(position: Int): Long {
-        val item = items[position]
-        return item.channelId * 31L + item.channelType
-    }
+    override fun getItemId(position: Int): Long = items[position].stableId
 
     override fun getItemCount(): Int = items.size
 
@@ -42,8 +39,7 @@ class SharingTargetAdapter(
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val t = items[position]
-        val key = "${t.channelId}_${t.channelType}"
-        val sel = forwardMode && forwardSelectedKeys.contains(key)
+        val sel = forwardMode && forwardSelectedKeys.contains(t.key)
         (holder.itemView as SharingTargetCell).setData(t, forwardMode, sel)
     }
 
@@ -78,8 +74,7 @@ class SharingTargetAdapter(
         if (old == next) return
         forwardSelectedKeys = next
         for (i in items.indices) {
-            val t = items[i]
-            val key = "${t.channelId}_${t.channelType}"
+            val key = items[i].key
             val wasSelected = key in old
             val isSelected = key in next
             if (wasSelected != isSelected) {
@@ -101,8 +96,12 @@ class SharingTargetAdapter(
     ) : DiffUtil.Callback() {
         override fun getOldListSize() = old.size
         override fun getNewListSize() = new.size
-        override fun areItemsTheSame(a: Int, b: Int) =
-            old[a].channelId == new[b].channelId && old[a].channelType == new[b].channelType
+        override fun areItemsTheSame(a: Int, b: Int) = old[a].key == new[b].key
         override fun areContentsTheSame(a: Int, b: Int) = old[a] == new[b]
     }
 }
+
+private const val UNRESOLVED_DM_ROW_TYPE = 11
+
+private val SharingTarget.stableId: Long
+    get() = if (channelId != 0L) channelId * 31L + channelType else userId * 31L + UNRESOLVED_DM_ROW_TYPE

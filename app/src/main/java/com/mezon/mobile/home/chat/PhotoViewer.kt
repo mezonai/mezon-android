@@ -130,6 +130,7 @@ class PhotoViewer(context: Context) : Dialog(context, android.R.style.Theme_Blac
 
         avatarView = BackupImageView(context).apply {
             setRoundRadius(LayoutHelper.dp(20))
+            setAspectFill(true)
         }
         val avatarParams = FrameLayout.LayoutParams(LayoutHelper.dp(40), LayoutHelper.dp(40), Gravity.START or Gravity.CENTER_VERTICAL)
         avatarParams.marginStart = LayoutHelper.dp(56)

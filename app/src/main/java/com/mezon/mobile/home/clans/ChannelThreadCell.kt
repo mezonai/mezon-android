@@ -55,7 +55,7 @@ class ChannelThreadCell(
     private var truncatedNameWidth = -1
     private val eventIcon = ChannelEventIcon(context)
 
-    private val cellHeightPx = LayoutHelper.dp(37)
+    private val cellHeightPx = LayoutHelper.dp(34)
     private val connectorLineX = LayoutHelper.dp(26).toFloat()
     private val branchEndX = LayoutHelper.dp(40).toFloat()
     private val textStartX = LayoutHelper.dp(44)

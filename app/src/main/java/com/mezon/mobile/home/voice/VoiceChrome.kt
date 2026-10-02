@@ -82,6 +82,14 @@ class VoiceStyleCircleButton(
         })
     }
 
+    fun setIconSize(px: Int) {
+        val lp = iconView.layoutParams as LayoutParams
+        if (lp.width == px && lp.height == px) return
+        lp.width = px
+        lp.height = px
+        iconView.layoutParams = lp
+    }
+
     fun updateBgColor(color: Int) {
         bgDrawable.setColor(color)
     }

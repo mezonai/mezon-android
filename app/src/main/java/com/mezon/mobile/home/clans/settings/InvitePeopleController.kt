@@ -18,6 +18,7 @@ import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.network.channelTypeToStreamMode
 import com.mezon.mobile.session.SessionManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -49,15 +50,24 @@ class InvitePeopleController @Inject constructor(
     val state: StateFlow<InvitePeopleUiState> = _state.asStateFlow()
 
     private var allTargets: List<InviteDmTarget> = emptyList()
+    private var loadJob: Job? = null
     private var searchJob: Job? = null
 
-    fun open(clanId: Long, clanName: String, clanLogo: String) {
-        scope.launch(io) {
+    fun open(
+        clanId: Long,
+        clanName: String,
+        clanLogo: String,
+        externalEventUrl: String? = null,
+    ) {
+        val eventUrl = externalEventUrl?.takeIf { it.isNotBlank() }
+        loadJob?.cancel()
+        loadJob = scope.launch(io) {
             _state.value = InvitePeopleUiState(
                 clanId = clanId,
                 clanName = clanName,
                 clanLogo = clanLogo,
-                isLoadingLink = true,
+                inviteUrl = eventUrl.orEmpty(),
+                isLoadingLink = eventUrl == null,
                 isLoadingTargets = true,
             )
             try {
@@ -65,23 +75,27 @@ class InvitePeopleController @Inject constructor(
                 userClanController.loadClanMembers(clanId)
                 dialogsController.loadDialogs()
 
-                val (welcomeChannelId, inviteUrl, inviteToken) = sessionManager.withAutoRefresh { session ->
-                    val sys = api.getSystemMessageForClan(session.apiUrl, session.token, clanId)
-                    val welcomeId = sys.channelId
-                    if (welcomeId == 0L) {
-                        throw NoWelcomeChannelException()
+                val (welcomeChannelId, inviteUrl, inviteToken) = if (eventUrl != null) {
+                    Triple(0L, eventUrl, "")
+                } else {
+                    sessionManager.withAutoRefresh { session ->
+                        val sys = api.getSystemMessageForClan(session.apiUrl, session.token, clanId)
+                        val welcomeId = sys.channelId
+                        if (welcomeId == 0L) {
+                            throw NoWelcomeChannelException()
+                        }
+                        val link = api.createLinkInviteUser(
+                            session.apiUrl,
+                            session.token,
+                            clanId,
+                            welcomeId,
+                            expiryTime = 10,
+                        )
+                        Triple(welcomeId, link.toShareableInviteUrl(), link.inviteLink)
                     }
-                    val link = api.createLinkInviteUser(
-                        session.apiUrl,
-                        session.token,
-                        clanId,
-                        welcomeId,
-                        expiryTime = 10,
-                    )
-                    Triple(welcomeId, link.toShareableInviteUrl(), link.inviteLink)
                 }
 
-                allTargets = fetchInviteTargets(clanId)
+                allTargets = fetchInviteTargets(clanId, includeClanMembers = eventUrl != null)
                 _state.update {
                     it.copy(
                         welcomeChannelId = welcomeChannelId,
@@ -93,6 +107,8 @@ class InvitePeopleController @Inject constructor(
                         linkError = null,
                     )
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: NoWelcomeChannelException) {
                 _state.update {
                     it.copy(
@@ -114,6 +130,8 @@ class InvitePeopleController @Inject constructor(
     }
 
     fun reset() {
+        loadJob?.cancel()
+        loadJob = null
         searchJob?.cancel()
         searchJob = null
         allTargets = emptyList()
@@ -204,22 +222,33 @@ class InvitePeopleController @Inject constructor(
         }
     }
 
-    private suspend fun fetchInviteTargets(clanId: Long): List<InviteDmTarget> {
+    private suspend fun fetchInviteTargets(
+        clanId: Long,
+        includeClanMembers: Boolean,
+    ): List<InviteDmTarget> {
         return sessionManager.withAutoRefresh { session ->
             val currentUserId = session.userId.toLongOrNull() ?: userController.userId
 
-            val clanMemberIds = runCatching {
-                api.listClanUsers(session.apiUrl, session.token, clanId)
-                    .clanUsersList
-                    .mapNotNull { it.user?.id }
-                    .toSet()
-            }.getOrElse {
-                userClanController.getClanMembers(clanId).map { it.userId }.toSet()
+            val clanUsersResult = runCatching {
+                api.listClanUsers(session.apiUrl, session.token, clanId).clanUsersList
             }
+            val clanUsers = clanUsersResult.getOrElse { error ->
+                if (error is CancellationException) throw error
+                emptyList()
+            }
+            val cachedClanMembers = userClanController.getClanMembers(clanId)
+            val clanMemberIds = clanUsersResult.getOrNull()
+                ?.mapNotNull { it.user?.id }
+                ?.toSet()
+                ?: cachedClanMembers.map { it.userId }.toSet()
+            val excludedClanMemberIds = if (includeClanMembers) emptySet() else clanMemberIds
 
             val allFriends: List<Friend> = runCatching {
                 api.listFriendsAll(session.apiUrl, session.token).friendsList
-            }.getOrElse { friendController.friends.value }
+            }.getOrElse { error ->
+                if (error is CancellationException) throw error
+                friendController.friends.value
+            }
 
             val blockedIds = allFriends
                 .filter { it.state == FRIEND_STATE_BLOCKED }
@@ -238,39 +267,88 @@ class InvitePeopleController @Inject constructor(
 
             if (cachedDialogs != null) {
                 for (dm in cachedDialogs) {
-                    addDmTarget(result, dm, clanMemberIds, blockedIds)
+                    addDmTarget(result, dm, excludedClanMemberIds, blockedIds)
                 }
             } else {
                 val dmDescs = runCatching {
                     api.listChannelDescs(session.apiUrl, session.token, CHANNEL_TYPE_DM).channeldescList +
                         api.listChannelDescs(session.apiUrl, session.token, CHANNEL_TYPE_GROUP).channeldescList
-                }.getOrElse { emptyList() }
+                }.getOrElse { error ->
+                    if (error is CancellationException) throw error
+                    emptyList()
+                }
                 for (desc in dmDescs.filter { it.active == 1 }) {
                     val dm = desc.toDirectMessage(currentUserId, null)
-                    addDmTarget(result, dm, clanMemberIds, blockedIds)
+                    addDmTarget(result, dm, excludedClanMemberIds, blockedIds)
                 }
             }
+            val addedUserIds = result.values.mapNotNullTo(HashSet()) { it.userId }
 
             for (friend in allFriends) {
                 if (friend.state != FRIEND_STATE_FRIEND) continue
                 val userId = friend.user.id
-                if (userId == currentUserId || userId in clanMemberIds || userId in blockedIds) continue
-                val rowId = "user_$userId"
-                if (result.values.any { it.userId == userId }) continue
-                val display = friend.user.displayName.ifBlank { friend.user.username }
-                result[rowId] = InviteDmTarget(
-                    rowId = rowId,
-                    channelId = null,
-                    channelType = CHANNEL_TYPE_DM,
+                if (userId == currentUserId || (!includeClanMembers && userId in clanMemberIds) || userId in blockedIds) continue
+                addUserTarget(
+                    result = result,
+                    addedUserIds = addedUserIds,
                     userId = userId,
-                    title = display,
-                    subtitle = friend.user.username.takeIf { it.isNotBlank() },
-                    avatarUrl = friend.user.avatarUrl.takeIf { it.isNotBlank() },
+                    title = friend.user.displayName.ifBlank { friend.user.username },
+                    username = friend.user.username,
+                    avatarUrl = friend.user.avatarUrl,
                 )
+            }
+
+            if (includeClanMembers) {
+                if (clanUsers.isNotEmpty()) {
+                    for (clanUser in clanUsers) {
+                        val user = clanUser.user ?: continue
+                        if (user.id == currentUserId || user.id in blockedIds) continue
+                        addUserTarget(
+                            result = result,
+                            addedUserIds = addedUserIds,
+                            userId = user.id,
+                            title = clanUser.clanNick.ifBlank { user.displayName.ifBlank { user.username } },
+                            username = user.username,
+                            avatarUrl = clanUser.clanAvatar.ifBlank { user.avatarUrl },
+                        )
+                    }
+                } else {
+                    for (member in cachedClanMembers) {
+                        if (member.userId == currentUserId || member.userId in blockedIds) continue
+                        addUserTarget(
+                            result = result,
+                            addedUserIds = addedUserIds,
+                            userId = member.userId,
+                            title = member.clanNick.ifBlank { member.displayName.ifBlank { member.username } },
+                            username = member.username,
+                            avatarUrl = member.clanAvatar.ifBlank { member.avatarUrl },
+                        )
+                    }
+                }
             }
 
             result.values.sortedBy { it.title.lowercase() }
         }
+    }
+
+    private fun addUserTarget(
+        result: LinkedHashMap<String, InviteDmTarget>,
+        addedUserIds: MutableSet<Long>,
+        userId: Long,
+        title: String,
+        username: String,
+        avatarUrl: String,
+    ) {
+        if (!addedUserIds.add(userId)) return
+        result["user_$userId"] = InviteDmTarget(
+            rowId = "user_$userId",
+            channelId = null,
+            channelType = CHANNEL_TYPE_DM,
+            userId = userId,
+            title = title,
+            subtitle = username.takeIf { it.isNotBlank() },
+            avatarUrl = avatarUrl.takeIf { it.isNotBlank() },
+        )
     }
 
     private fun addDmTarget(

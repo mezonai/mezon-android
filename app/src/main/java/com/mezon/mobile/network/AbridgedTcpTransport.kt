@@ -3,13 +3,9 @@ package com.mezon.mobile.network
 import android.net.Network
 import android.util.Log
 import java.io.OutputStream
-import java.net.InetAddress
-import java.net.InetSocketAddress
-import java.net.Socket
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLSocket
-import javax.net.ssl.SSLSocketFactory
 
 class AbridgedTransportException(message: String) : RuntimeException(message)
 
@@ -41,24 +37,15 @@ class AbridgedTcpTransport {
         io.execute {
             if (closed || socket != null) return@execute
             try {
-                val raw = network?.socketFactory?.createSocket() ?: Socket()
-                raw.tcpNoDelay = true
-                val address: InetAddress = network?.getByName(host) ?: InetAddress.getByName(host)
-                raw.connect(InetSocketAddress(address, port), connectTimeoutMs.toInt())
-                val factory = SSLSocketFactory.getDefault() as SSLSocketFactory
-                val ssl = factory.createSocket(raw, host, port, true) as SSLSocket
-                val params = ssl.sslParameters
-                params.endpointIdentificationAlgorithm = "HTTPS"
-                ssl.sslParameters = params
-                ssl.startHandshake()
+                val ssl = HappyEyeballsConnector.connectTls(host, port, network, connectTimeoutMs.toInt())
                 socket = ssl
                 output = ssl.getOutputStream()
-                Log.d(TAG, "[ABRIDGED] TLS connected $host:$port (cipher=${ssl.session.cipherSuite}) — sending handshake (cred=${credential.length} chars)")
+                Log.d(TAG, "[ABRIDGED] TLS connected $host:$port via ${ssl.inetAddress?.hostAddress} (cipher=${ssl.session.cipherSuite}), sending handshake (cred=${credential.length} chars)")
                 writeRaw(AbridgedFrameCodec.frameHandshake(credential))
                 onOpen?.invoke()
                 startReadLoop(ssl)
             } catch (t: Throwable) {
-                Log.w(TAG, "[ABRIDGED] connect/TLS failed for $host:$port: ${t.message}")
+                Log.w(TAG, "[ABRIDGED] connect/TLS failed for $host:$port: ${t.javaClass.simpleName}: ${t.message}")
                 failConnection(t)
             }
         }

@@ -18,8 +18,9 @@ import com.mezon.mobile.ui.cells.RadioCell
 
 class ChannelNotificationSettingsBottomSheet(
     context: android.content.Context,
-    val channelId: Long,
+    val channelId: Long? = null,
     initialType: Int,
+    private val includeUseDefault: Boolean = true,
     private val onTypeSelected: (notificationType: Int, complete: (Boolean) -> Unit) -> Unit,
 ) : BottomSheet(context) {
 
@@ -27,7 +28,7 @@ class ChannelNotificationSettingsBottomSheet(
     private val radioCells = LinkedHashMap<Int, RadioCell>()
     private val optionRows = ArrayList<View>()
     private var defaultSubtitleView: TextView? = null
-    private var selectedType = normalizeChannelNotificationType(initialType)
+    private var selectedType = normalizeType(initialType)
     private var loadingInitialType = true
     private var saving = false
 
@@ -45,28 +46,38 @@ class ChannelNotificationSettingsBottomSheet(
             setPadding(0, 0, 0, LayoutHelper.dp(22))
         }
 
-        val options = listOf(
-            Triple(
-                CHANNEL_NOTIFICATION_USE_DEFAULT,
-                R.string.channel_notification_settings_use_default,
-                null,
-            ),
-            Triple(
-                CHANNEL_NOTIFICATION_ALL_MESSAGES,
-                R.string.channel_notification_settings_all_messages,
-                null,
-            ),
-            Triple(
-                CHANNEL_NOTIFICATION_MENTIONS_ONLY,
-                R.string.channel_notification_settings_mentions_only,
-                null,
-            ),
-            Triple(
-                CHANNEL_NOTIFICATION_NOTHING,
-                R.string.channel_notification_settings_nothing,
-                null,
-            ),
-        )
+        val options = buildList {
+            if (includeUseDefault) {
+                add(
+                    Triple(
+                        CHANNEL_NOTIFICATION_USE_DEFAULT,
+                        R.string.channel_notification_settings_use_default,
+                        null,
+                    ),
+                )
+            }
+            add(
+                Triple(
+                    CHANNEL_NOTIFICATION_ALL_MESSAGES,
+                    R.string.channel_notification_settings_all_messages,
+                    null,
+                ),
+            )
+            add(
+                Triple(
+                    CHANNEL_NOTIFICATION_MENTIONS_ONLY,
+                    R.string.channel_notification_settings_mentions_only,
+                    null,
+                ),
+            )
+            add(
+                Triple(
+                    CHANNEL_NOTIFICATION_NOTHING,
+                    R.string.channel_notification_settings_nothing,
+                    null,
+                ),
+            )
+        }
 
         optionRows.clear()
         radioCells.clear()
@@ -99,7 +110,7 @@ class ChannelNotificationSettingsBottomSheet(
 
     fun updateSelection(notificationType: Int) {
         if (saving) return
-        selectedType = normalizeChannelNotificationType(notificationType)
+        selectedType = normalizeType(notificationType)
         radioCells.forEach { (type, radio) ->
             radio.setChecked(type == selectedType, animated = false)
         }
@@ -113,6 +124,7 @@ class ChannelNotificationSettingsBottomSheet(
     }
 
     private fun updateClanDefaultSubtitle(clanDefaultType: Int?) {
+        if (!includeUseDefault) return
         val subtitleRes = when (clanDefaultType?.let(::channelTypeForClanNotificationDefault)) {
             CHANNEL_NOTIFICATION_ALL_MESSAGES -> R.string.channel_notification_settings_all_messages
             CHANNEL_NOTIFICATION_MENTIONS_ONLY -> R.string.channel_notification_settings_mentions_only
@@ -127,6 +139,12 @@ class ChannelNotificationSettingsBottomSheet(
                 visibility = View.VISIBLE
             }
         }
+    }
+
+    private fun normalizeType(notificationType: Int): Int = if (includeUseDefault) {
+        normalizeChannelNotificationType(notificationType)
+    } else {
+        normalizeClanNotificationType(notificationType)
     }
 
     private fun buildOptionRow(type: Int, title: String, subtitle: String?): View {

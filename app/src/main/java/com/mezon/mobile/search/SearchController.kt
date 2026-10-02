@@ -1,20 +1,16 @@
 package com.mezon.mobile.search
 
 import android.util.Log
-import com.mezon.mezon.api.Friend
 import com.mezon.mezon.api.SearchMessageDocument
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
-import com.mezon.mobile.home.ClanUser
 import com.mezon.mobile.home.DialogsController
-import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.clans.CHANNEL_TYPE_STREAMING
 import com.mezon.mobile.home.clans.CHANNEL_TYPE_VOICE
 import com.mezon.mobile.home.clans.ClanChannelEntity
 import com.mezon.mobile.home.clans.ClansController
 import com.mezon.mobile.home.clans.toClanChannelEntity
-import com.mezon.mobile.home.friends.FriendController
 import com.mezon.mobile.home.messages.DirectMessage
 import com.mezon.mobile.network.ApiCacheTracker
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
@@ -25,7 +21,6 @@ import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.network.SocketEventDispatcher
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.text.Normalizer
 import javax.inject.Inject
@@ -34,6 +29,10 @@ import javax.inject.Singleton
 private const val TAG = "SearchController"
 private const val SIZE_PAGE_SEARCH = 20
 const val LOCAL_PAGE_SIZE = 50
+const val RECENT_INIT_LIMIT = 20
+private const val CTRL_K_TYPE_ALL = 0
+private const val CTRL_K_TYPE_USERS = 1
+private const val CTRL_K_TYPE_CHANNELS = 2
 
 data class SearchMember(
     val id: Long,
@@ -64,14 +63,17 @@ data class ChannelSearchDisplay(
         get() = channel.type == CHANNEL_TYPE_VOICE || channel.type == CHANNEL_TYPE_STREAMING
 }
 
+internal data class SearchScreenState(
+    val selectedTab: Int,
+    val query: String
+)
+
 @Singleton
 class SearchController @Inject constructor(
     private val api: MezonApi,
     private val sessionManager: SessionManager,
     private val dialogsController: DialogsController,
     private val clansController: ClansController,
-    private val userClanController: UserClanController,
-    private val friendController: FriendController,
     private val notificationCenter: NotificationCenter,
     private val cacheTracker: ApiCacheTracker,
     private val dispatcher: SocketEventDispatcher,
@@ -79,17 +81,32 @@ class SearchController @Inject constructor(
     @ApplicationScope private val appScope: CoroutineScope
 ) {
 
-    private val allMembers = ArrayList<SearchMember>()
     private val allChannels = ArrayList<ClanChannelEntity>()
     private val channelById = HashMap<Long, ClanChannelEntity>()
     private val searchMessages = ArrayList<SearchMessageDocument>()
+    private val screenStateByChannel = HashMap<Long, SearchScreenState>()
+    private var hasActiveSession = true
+    private var currentUserId = 0L
+    private var channelCacheGeneration = 0L
     var searchMessagesTotal = 0
         private set
 
-    private var membersLoaded = false
     private var channelsLoaded = false
 
+    private val ctrlKMembers = ArrayList<SearchMember>()
+    private val ctrlKChannels = ArrayList<ClanChannelEntity>()
+    private var ctrlKGeneration = 0L
+
     init {
+        appScope.launch {
+            sessionManager.sessionFlow.collect { session ->
+                synchronized(this@SearchController) {
+                    hasActiveSession = session != null
+                    currentUserId = session?.userId?.toLongOrNull() ?: 0L
+                    if (!hasActiveSession) screenStateByChannel.clear()
+                }
+            }
+        }
         appScope.launch {
             dispatcher.clanDeletedEvents.collect { event ->
                 removeClanData(event.clanId)
@@ -103,6 +120,33 @@ class SearchController @Inject constructor(
         appScope.launch {
             dispatcher.channelDeletedEvents.collect { event ->
                 removeChannelData(event.channelId)
+            }
+        }
+        appScope.launch {
+            dispatcher.userChannelRemovedEvents.collect { event ->
+                val userId = synchronized(this@SearchController) { currentUserId }
+                if (userId == 0L || userId !in event.userIdsList) return@collect
+                if (event.channelType == CHANNEL_TYPE_DM || event.channelType == CHANNEL_TYPE_GROUP) return@collect
+                removeChannelData(event.channelId)
+            }
+        }
+        appScope.launch {
+            dispatcher.channelUpdatedEvents.collect { event ->
+                removeChannelData(event.channelId)
+            }
+        }
+        appScope.launch {
+            dispatcher.permissionChangedEvents.collect { event ->
+                val userId = synchronized(this@SearchController) { currentUserId }
+                if (userId != 0L && event.userId == userId) removeChannelData(event.channelId)
+            }
+        }
+        appScope.launch {
+            dispatcher.permissionSetEvents.collect { event ->
+                val userId = synchronized(this@SearchController) { currentUserId }
+                if (userId != 0L && (event.userId == userId || event.userId == 0L || event.roleId != 0L)) {
+                    removeChannelData(event.channelId)
+                }
             }
         }
     }
@@ -121,31 +165,25 @@ class SearchController @Inject constructor(
 
         if (channelsChanged) {
             cacheTracker.invalidate(apiCacheKey("searchChannels"))
-            invalidateFilterCache()
             notificationCenter.postNotificationOnMainThread(NotificationCenter.searchChannelsDidLoad)
         }
-
-        rebuildMembers()
     }
 
     private fun removeChannelData(channelId: Long) {
+        if (channelId == 0L) return
         var changed = false
         synchronized(this) {
-            if (channelById.containsKey(channelId)) {
-                channelById.remove(channelId)
-                allChannels.removeAll { it.channelId == channelId }
-                changed = true
-            }
+            channelCacheGeneration++
+            ctrlKGeneration++
+            changed = channelById.remove(channelId) != null
+            changed = allChannels.removeAll { it.channelId == channelId } || changed
+            changed = ctrlKChannels.removeAll { it.channelId == channelId } || changed
+            cacheTracker.invalidate(apiCacheKey("searchChannels"))
         }
         if (changed) {
-            cacheTracker.invalidate(apiCacheKey("searchChannels"))
-            invalidateFilterCache()
             notificationCenter.postNotificationOnMainThread(NotificationCenter.searchChannelsDidLoad)
         }
     }
-
-    @Synchronized
-    fun getMembers(): List<SearchMember> = ArrayList(allMembers)
 
     @Synchronized
     fun getChannels(): List<ClanChannelEntity> = ArrayList(allChannels)
@@ -159,62 +197,132 @@ class SearchController @Inject constructor(
     @Synchronized
     fun getMessages(): List<SearchMessageDocument> = ArrayList(searchMessages)
 
-    fun loadMembers(noCache: Boolean = false) {
-        userClanController.loadUsers(noCache)
-        friendController.loadFriends(noCache)
-        rebuildMembers()
+    @Synchronized
+    internal fun getScreenState(channelId: Long): SearchScreenState? = screenStateByChannel[channelId]
+
+    @Synchronized
+    internal fun saveScreenState(channelId: Long, selectedTab: Int, query: String) {
+        if (!hasActiveSession) return
+        screenStateByChannel[channelId] = SearchScreenState(selectedTab, query)
     }
 
-    fun rebuildMembers() {
+    fun cancelCtrlKSearch() {
+        synchronized(this) {
+            ctrlKGeneration++
+            ctrlKMembers.clear()
+            ctrlKChannels.clear()
+        }
+    }
+
+    fun fetchCtrlKResults(rawQuery: String): Boolean {
+        val type = when {
+            rawQuery.startsWith("@") -> CTRL_K_TYPE_USERS
+            rawQuery.startsWith("#") -> CTRL_K_TYPE_CHANNELS
+            else -> CTRL_K_TYPE_ALL
+        }
+        val text = if (type == CTRL_K_TYPE_ALL) rawQuery else rawQuery.drop(1).trim()
+        return fetchCtrlK(text, type)
+    }
+
+    fun fetchCtrlKUsers(query: String): Boolean =
+        fetchCtrlK(query.trim().removePrefix("@").trim(), CTRL_K_TYPE_USERS)
+
+    private fun fetchCtrlK(text: String, type: Int): Boolean {
+        if (text.isEmpty() || text.toByteArray(Charsets.UTF_8).size > 255) return false
+        val generation = synchronized(this) { ++ctrlKGeneration }
         appScope.launch(ioDispatcher) {
             try {
-                val currentUserId = sessionManager.sessionFlow.first()?.userId?.toLongOrNull() ?: 0L
+                sessionManager.withAutoRefresh { session ->
+                    val response = api.searchCtrlK(session.apiUrl, session.token, text, type)
 
-                val dmList = dialogsController.getDialogs()
-                val dmUserIds = HashSet<Long>()
-                val dmMembers = ArrayList<SearchMember>()
+                    val members = ArrayList<SearchMember>()
+                    val channels = ArrayList<ClanChannelEntity>()
+                    val seenChannelIds = HashSet<Long>()
+                    for (ch in response.channelsList) {
+                        if (ch.channelId == 0L || !seenChannelIds.add(ch.channelId)) continue
+                        when (ch.type) {
+                            CHANNEL_TYPE_GROUP -> members.add(
+                                SearchMember(
+                                    id = ch.channelId,
+                                    username = ch.channelLabel,
+                                    displayName = ch.channelLabel,
+                                    avatarUrl = ch.channelAvatar,
+                                    isOnline = false,
+                                    isDm = true,
+                                    channelId = ch.channelId,
+                                    channelType = CHANNEL_TYPE_GROUP
+                                )
+                            )
+                            CHANNEL_TYPE_DM -> Unit
+                            else -> channels.add(ch.toClanChannelEntity())
+                        }
+                    }
+                    val seenUserIds = HashSet<Long>()
+                    for (user in response.usersList) {
+                        if (user.id == 0L || !seenUserIds.add(user.id)) continue
+                        members.add(
+                            SearchMember(
+                                id = user.id,
+                                username = user.username,
+                                displayName = user.displayName,
+                                avatarUrl = user.avatarUrl,
+                                isOnline = user.online,
+                                isDm = false,
+                                channelId = 0L,
+                                channelType = 0
+                            )
+                        )
+                    }
 
-                for (dm in dmList) {
-                    if (dm.type == CHANNEL_TYPE_DM && dm.otherUserId != 0L) {
-                        dmUserIds.add(dm.otherUserId)
-                        dmMembers.add(dm.toSearchMember())
-                    } else if (dm.type != CHANNEL_TYPE_DM) {
-                        dmMembers.add(dm.toSearchMember())
+                    val stale = synchronized(this@SearchController) {
+                        if (generation != ctrlKGeneration) {
+                            true
+                        } else {
+                            ctrlKMembers.clear()
+                            ctrlKMembers.addAll(members)
+                            ctrlKChannels.clear()
+                            ctrlKChannels.addAll(channels)
+                            false
+                        }
+                    }
+                    if (!stale) {
+                        notificationCenter.postNotificationOnMainThread(NotificationCenter.searchMembersDidLoad)
+                        notificationCenter.postNotificationOnMainThread(NotificationCenter.searchChannelsDidLoad)
                     }
                 }
-
-                val clanUsers = userClanController.getUsers()
-                val seenUserIds = HashSet<Long>(dmUserIds)
-                seenUserIds.add(currentUserId)
-
-                val nonDmMembers = ArrayList<SearchMember>()
-                for (user in clanUsers) {
-                    if (user.id in seenUserIds) continue
-                    seenUserIds.add(user.id)
-                    nonDmMembers.add(user.toSearchMember())
-                }
-
-                for (friend in friendController.friends.value) {
-                    val friendUserId = friend.user.id
-                    if (friendUserId == 0L || friendUserId in seenUserIds) continue
-                    seenUserIds.add(friendUserId)
-                    nonDmMembers.add(friend.toSearchMember())
-                }
-
-                synchronized(this@SearchController) {
-                    allMembers.clear()
-                    allMembers.addAll(dmMembers)
-                    allMembers.addAll(nonDmMembers)
-                    membersLoaded = true
-                    cachedMembersQuery = null
-                    cachedMembersResult.clear()
-                }
-
-                notificationCenter.postNotificationOnMainThread(NotificationCenter.searchMembersDidLoad)
             } catch (e: Exception) {
-                Log.e(TAG, "rebuildMembers failed", e)
+                Log.e(TAG, "searchCtrlK failed", e)
             }
         }
+        return true
+    }
+
+    @Synchronized
+    fun ctrlKMembersSnapshot(): List<SearchMember> = ArrayList(ctrlKMembers)
+
+    @Synchronized
+    fun ctrlKChannelsCount(): Int = ctrlKChannels.size
+
+    fun ctrlKChannelDisplays(limit: Int = LOCAL_PAGE_SIZE): List<ChannelSearchDisplay> {
+        val snapshot: List<ClanChannelEntity>
+        synchronized(this) { snapshot = ArrayList(ctrlKChannels) }
+        val enriched = enrichChannelDisplays(snapshot, hideClanName = false)
+        return orderTextVoiceStreaming(enriched).take(limit)
+    }
+
+    fun recentMembers(limit: Int = RECENT_INIT_LIMIT): List<SearchMember> {
+        val recents = dialogsController.getDialogs()
+            .filter { it.type == CHANNEL_TYPE_DM || it.type == CHANNEL_TYPE_GROUP }
+            .sortedByDescending { it.lastSentMessageTs }
+        val out = ArrayList<SearchMember>()
+        val seenIds = HashSet<Long>()
+        for (dm in recents) {
+            if (out.size >= limit) break
+            if (dm.type == CHANNEL_TYPE_DM && dm.otherUserId == 0L) continue
+            val member = dm.toSearchMember()
+            if (seenIds.add(member.id)) out.add(member)
+        }
+        return out
     }
 
     fun loadChannels(noCache: Boolean = false) {
@@ -230,20 +338,20 @@ class SearchController @Inject constructor(
                 }
 
                 sessionManager.withAutoRefresh { session ->
+                    val generation = synchronized(this@SearchController) { channelCacheGeneration }
                     val response = api.listChannelByUserId(session.apiUrl, session.token)
 
                     val channels = response.channeldescList.map { it.toClanChannelEntity() }
                     synchronized(this@SearchController) {
+                        if (generation != channelCacheGeneration) return@withAutoRefresh
                         allChannels.clear()
                         allChannels.addAll(channels)
                         channelById.clear()
                         for (c in channels) channelById[c.channelId] = c
                         channelsLoaded = true
-                        cachedChannelsQuery = null
-                        cachedChannelsResult.clear()
+                        cacheTracker.markCalled(cacheKey)
                     }
 
-                    cacheTracker.markCalled(cacheKey)
                     notificationCenter.postNotificationOnMainThread(NotificationCenter.searchChannelsDidLoad)
                 }
             } catch (e: Exception) {
@@ -329,137 +437,8 @@ class SearchController @Inject constructor(
         )
     }
 
-    private var cachedMembersQuery: String? = null
-    private var cachedMembersResult = ArrayList<SearchMember>()
-    private var cachedChannelsQuery: String? = null
-    private var cachedChannelsResult = ArrayList<ClanChannelEntity>()
-
-    fun filterMembers(query: String, limit: Int = LOCAL_PAGE_SIZE): List<SearchMember> {
-        val result = getFilteredMembersCached(query)
-        return result.take(limit)
-    }
-
-    fun filterChannelDisplays(
-        query: String,
-        limit: Int = LOCAL_PAGE_SIZE,
-        hideClanName: Boolean = false
-    ): List<ChannelSearchDisplay> {
-        val filtered = getFilteredChannelsCached(query)
-        val enriched = enrichChannelDisplays(filtered, hideClanName)
-        return orderTextVoiceStreaming(enriched).take(limit)
-    }
-
     fun channelDisplaysForPicker(entities: List<ClanChannelEntity>): List<ChannelSearchDisplay> =
         enrichChannelDisplays(entities, hideClanName = true)
-
-    fun filterMembersCount(query: String): Int = getFilteredMembersCached(query).size
-
-    fun filterChannelsCount(query: String): Int = getFilteredChannelsCached(query).size
-
-    fun totalMembersForQuery(query: String): Int = getFilteredMembersCached(query).size
-
-    fun totalChannelsForQuery(query: String): Int = getFilteredChannelsCached(query).size
-
-    @Synchronized
-    private fun getFilteredMembersCached(query: String): List<SearchMember> {
-        if (query == cachedMembersQuery && cachedMembersResult.isNotEmpty()) {
-            return cachedMembersResult
-        }
-        val members = ArrayList(allMembers)
-        val result = if (query.isBlank()) {
-            members
-        } else {
-            val search = query.trim().lowercase()
-            val searchNorm = removeDiacritics(search)
-            val scored = ArrayList<Triple<SearchMember, Int, Int>>(members.size / 4)
-            for (member in members) {
-                val username = member.username.lowercase()
-                val displayName = member.displayName.lowercase()
-                val usernameNorm = removeDiacritics(username)
-                val displayNorm = removeDiacritics(displayName)
-
-                val displayScore = when {
-                    displayName == search -> 1050
-                    displayName.startsWith(search) -> 950
-                    displayNorm == searchNorm -> 850
-                    displayNorm.startsWith(searchNorm) -> 750
-                    displayName.contains(search) -> 550
-                    displayNorm.contains(searchNorm) -> 450
-                    else -> 0
-                }
-                val usernameScore = when {
-                    username == search -> 1000
-                    username.startsWith(search) -> 900
-                    usernameNorm == searchNorm -> 800
-                    usernameNorm.startsWith(searchNorm) -> 700
-                    username.contains(search) -> 500
-                    usernameNorm.contains(searchNorm) -> 400
-                    else -> 0
-                }
-                val score = maxOf(displayScore, usernameScore)
-                if (score > 0) {
-                    val len = displayName.length.takeIf { it > 0 } ?: username.length
-                    scored.add(Triple(member, score, len))
-                }
-            }
-            scored.sortWith(compareByDescending<Triple<SearchMember, Int, Int>> { it.second }
-                .thenBy { it.third })
-            ArrayList<SearchMember>(scored.size).also { list ->
-                for (t in scored) list.add(t.first)
-            }
-        }
-        cachedMembersQuery = query
-        cachedMembersResult = result
-        return result
-    }
-
-    @Synchronized
-    private fun getFilteredChannelsCached(query: String): List<ClanChannelEntity> {
-        if (query == cachedChannelsQuery && cachedChannelsResult.isNotEmpty()) {
-            return cachedChannelsResult
-        }
-        val channels = ArrayList(allChannels)
-        val result = if (query.isBlank()) {
-            channels
-        } else {
-            val searchNorm = normalizeSearchString(query)
-            val pairs = ArrayList<Pair<ClanChannelEntity, String>>(channels.size)
-            for (ch in channels) {
-                val norm = normalizeSearchString(ch.channelLabel)
-                if (norm.contains(searchNorm)) pairs.add(ch to norm)
-            }
-            pairs.sortWith(Comparator { a, b -> compareNormalized(a.second, b.second, searchNorm) })
-            ArrayList<ClanChannelEntity>(pairs.size).also { out ->
-                for (p in pairs) out.add(p.first)
-            }
-        }
-        cachedChannelsQuery = query
-        cachedChannelsResult = result
-        return result
-    }
-
-    private fun compareNormalized(aNorm: String, bNorm: String, search: String): Int {
-        val aExact = aNorm == search
-        val bExact = bNorm == search
-        if (aExact && !bExact) return -1
-        if (!aExact && bExact) return 1
-        val aIndex = aNorm.indexOf(search)
-        val bIndex = bNorm.indexOf(search)
-        if (aIndex == -1 && bIndex == -1) return 0
-        if (aIndex == -1) return 1
-        if (bIndex == -1) return -1
-        if (aIndex != bIndex) return aIndex - bIndex
-        return aNorm.compareTo(bNorm)
-    }
-
-    fun invalidateFilterCache() {
-        synchronized(this) {
-            cachedMembersQuery = null
-            cachedMembersResult.clear()
-            cachedChannelsQuery = null
-            cachedChannelsResult.clear()
-        }
-    }
 
     fun clearSearchMessages() {
         synchronized(this) {
@@ -515,40 +494,12 @@ class SearchController @Inject constructor(
         return out
     }
 
-    private fun compareByLabel(a: ClanChannelEntity, b: ClanChannelEntity, search: String): Int {
-        val aNorm = normalizeSearchString(a.channelLabel)
-        val bNorm = normalizeSearchString(b.channelLabel)
-
-        val aExact = aNorm == search
-        val bExact = bNorm == search
-        if (aExact && !bExact) return -1
-        if (!aExact && bExact) return 1
-
-        val aIndex = aNorm.indexOf(search)
-        val bIndex = bNorm.indexOf(search)
-
-        if (aIndex == -1 && bIndex == -1) return 0
-        if (aIndex == -1) return 1
-        if (bIndex == -1) return -1
-        if (aIndex != bIndex) return aIndex - bIndex
-        return aNorm.compareTo(bNorm)
-    }
-
     companion object {
         private val DIACRITICS_REGEX = Regex("[\\u0300-\\u036f]")
 
         fun removeDiacritics(input: String): String {
             return Normalizer.normalize(input, Normalizer.Form.NFD)
                 .replace(DIACRITICS_REGEX, "")
-        }
-
-        fun normalizeSearchString(str: String): String {
-            if (str.isEmpty()) return ""
-            return removeDiacritics(str)
-                .replace("-", " ")
-                .replace("_", " ")
-                .replace("+", " ")
-                .uppercase()
         }
     }
 }
@@ -566,26 +517,4 @@ private fun DirectMessage.toSearchMember(): SearchMember = SearchMember(
     isDm = true,
     channelId = channelId,
     channelType = type
-)
-
-private fun ClanUser.toSearchMember(): SearchMember = SearchMember(
-    id = id,
-    username = username,
-    displayName = displayName,
-    avatarUrl = avatarUrl,
-    isOnline = isOnline,
-    isDm = false,
-    channelId = 0L,
-    channelType = 0
-)
-
-private fun Friend.toSearchMember(): SearchMember = SearchMember(
-    id = user.id,
-    username = user.username,
-    displayName = user.displayName,
-    avatarUrl = user.avatarUrl,
-    isOnline = user.online,
-    isDm = false,
-    channelId = 0L,
-    channelType = 0
 )

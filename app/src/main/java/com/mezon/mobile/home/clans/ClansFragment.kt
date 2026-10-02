@@ -58,6 +58,7 @@ import com.mezon.mobile.home.voice.VoiceController
 import com.mezon.mobile.home.stream.JoinMediaSheetKind
 import com.mezon.mobile.home.stream.StreamingController
 import com.mezon.mobile.home.voice.VoiceRoomFragment
+import com.mezon.mobile.home.voice.resolveVoiceMemberIdentity
 import com.mezon.mobile.home.clans.discover.DiscoverClansListSection
 import com.mezon.mobile.home.clans.discover.buildDiscoverCommunitySearchToolbar
 import com.mezon.mobile.home.clans.discover.DiscoverRailCell
@@ -103,6 +104,8 @@ class ClansFragment : BaseFragment() {
     private lateinit var clanEventController: ClanEventController
     private var clanMenuSheet: ClanMenuBottomSheet? = null
     private var clanEventSheet: ClanEventBottomSheet? = null
+    private var clanEventEditorDialog: ClanEventEditorDialog? = null
+    private var restoreClanEventSheetOnVisible = false
     private var channelMenuSheet: ChannelMenuBottomSheet? = null
     private var channelMenuClanId = 0L
     private var channelMenuChannelId = 0L
@@ -120,6 +123,15 @@ class ClansFragment : BaseFragment() {
     private var lastVoiceFetchClanId = 0L
     private var railScrollingManually = false
     private var pendingUpdateMask = 0
+    private var railAnimationsEnabled = false
+    private val railItemAnimator by lazy {
+        DefaultItemAnimator().apply {
+            supportsChangeAnimations = false
+            addDuration = 100L
+            removeDuration = 100L
+            moveDuration = 140L
+        }
+    }
 
     private val FULL_UPDATE_MASK = Int.MIN_VALUE
 
@@ -284,13 +296,16 @@ class ClansFragment : BaseFragment() {
         fragmentScope.launch(Dispatchers.Main.immediate) {
             channelController.notificationSettingTypes.collect { settings ->
                 val sheet = channelNotificationSettingsSheet ?: return@collect
-                settings[sheet.channelId]?.let(sheet::updateSelection)
+                sheet.channelId?.let(settings::get)?.let(sheet::updateSelection)
             }
         }
         return true
     }
 
     override fun onFragmentDestroy() {
+        clanEventEditorDialog?.setOnDismissListener(null)
+        clanEventEditorDialog?.dismiss()
+        clanEventEditorDialog = null
         clanMenuSheet?.dismiss()
         clanMenuSheet = null
         clanEventSheet?.dismiss()
@@ -308,16 +323,12 @@ class ClansFragment : BaseFragment() {
             setBackgroundColor(themeColors.serverRailBg)
         }
 
+        railAnimationsEnabled = false
         serverRail = RecyclerListView(context).apply {
             layoutManager = LinearLayoutManager(context)
             setBackgroundColor(themeColors.serverRailBg)
             isVerticalScrollBarEnabled = false
-            itemAnimator = DefaultItemAnimator().apply {
-                supportsChangeAnimations = false
-                addDuration = 100L
-                removeDuration = 100L
-                moveDuration = 140L
-            }
+            itemAnimator = null
             setSelectorType(RecyclerListView.SELECTOR_CIRCLE_TO_BOUND)
             addOnScrollListener(object : RecyclerView.OnScrollListener() {
                 override fun onScrollStateChanged(rv: RecyclerView, newState: Int) {
@@ -808,6 +819,9 @@ class ClansFragment : BaseFragment() {
 
     override fun onResume() {
         super.onResume()
+        if (fragmentView != null && !listFrozen && clansController.clansLoaded) {
+            updateVisibleRows(NotificationCenter.UPDATE_MASK_BADGE)
+        }
         ensureVoiceMembersLoaded()
         updateMemberCount()
         val clanId = clansController.selectedClanId.value
@@ -825,6 +839,10 @@ class ClansFragment : BaseFragment() {
             discoverListSection.onEmbeddedVisibilityChanged(true)
         }
         ensureVoiceMembersLoaded()
+        if (restoreClanEventSheetOnVisible) {
+            restoreClanEventSheetOnVisible = false
+            clanEventSheet?.restoreAfterNavigation()
+        }
         if (viewJustCreated) {
             viewJustCreated = false
             return
@@ -901,11 +919,7 @@ class ClansFragment : BaseFragment() {
     }
 
     private fun updateServerRail() {
-        val unreadDms = if (dialogsController.dmBadgesServerSynced) {
-            dialogsController.getDialogs().filter { it.unreadCount > 0 && !it.isMute }
-        } else {
-            emptyList()
-        }
+        val unreadDms = dialogsController.getDialogs().filter { it.unreadCount > 0 && !it.isMute }
         val clans = clansController.clans.value
         val selectedId = clansController.selectedClanId.value
         val logoUrl = accountController.accountInfo.value.logo
@@ -913,7 +927,7 @@ class ClansFragment : BaseFragment() {
         pinnedDmLogo.setPendingFriendCount(friendController.pendingReceivedCount.value)
         val highlightDiscoverRail = discoveringFromRailWhileHasClans && clans.isNotEmpty()
         val wasAtTop = !serverRail.canScrollVertically(-1)
-        serverAdapter.submitData(
+        val rowsChanged = serverAdapter.submitData(
             unreadDms,
             clans,
             selectedId,
@@ -921,7 +935,14 @@ class ClansFragment : BaseFragment() {
             newPendingFriendCount = friendController.pendingReceivedCount.value,
             embeddedDiscoverRail = highlightDiscoverRail
         )
-        if (wasAtTop) serverRail.scrollToPosition(0)
+        if (rowsChanged && wasAtTop) serverRail.scrollToPosition(0)
+        if (!railAnimationsEnabled &&
+            clansController.clansLoaded &&
+            dialogsController.dialogsLoaded
+        ) {
+            railAnimationsEnabled = true
+            serverRail.itemAnimator = railItemAnimator
+        }
 
         updateClanPanelHeaderMode()
 
@@ -969,7 +990,7 @@ class ClansFragment : BaseFragment() {
         if (clanChanged) {
             renderedSubtitleKey = null
             memberCountText.animate().cancel()
-            if (userClanController.hasClanMembersCache(clan.clanId)) {
+            if (userClanController.hasClanMemberCount(clan.clanId)) {
                 memberCountText.alpha = 1f
                 memberCountText.visibility = View.VISIBLE
             } else {
@@ -982,8 +1003,7 @@ class ClansFragment : BaseFragment() {
 
     private fun updateMemberCount() {
         val clanId = clansController.selectedClanId.value
-        val hasCache = userClanController.hasClanMembersCache(clanId)
-        if (!hasCache) {
+        if (!userClanController.hasClanMemberCount(clanId)) {
             memberCountText.visibility = View.INVISIBLE
             return
         }
@@ -1058,11 +1078,19 @@ class ClansFragment : BaseFragment() {
             notificationCenter,
             clanEventController,
             userClanController,
-            accountController,
             clanId,
             onCreateEvent = Runnable { openCreateClanEvent() },
             onOpenEventDetail = { event -> openClanEventDetail(event) },
             onOpenChannel = { channel -> onChannelSelected(channel) },
+            onEditEvent = { event ->
+                openClanEventEditor(clanId, event.id)
+            },
+            onInviteExternalEvent = { url ->
+                val clan = clansController.clans.value.firstOrNull { it.clanId == clanId }
+                if (clan != null) {
+                    openInvitePeopleSheet(clanId, clan.clanName, clan.logo, url)
+                }
+            },
         ).apply {
             setDrawNavigationBar(true)
         }
@@ -1074,9 +1102,9 @@ class ClansFragment : BaseFragment() {
         val clanId = clansController.selectedClanId.value
         if (clanId == 0L) return
         val clan = clansController.clans.value.firstOrNull { it.clanId == clanId }
-        clanEventSheet?.dismiss()
-        clanEventSheet = null
-        presentFragment(
+        val sheet = clanEventSheet
+        sheet?.hideForNavigation()
+        val opened = presentFragment(
             ClanEventDetailFragment.newInstance(
                 clanId,
                 event.id,
@@ -1086,13 +1114,27 @@ class ClansFragment : BaseFragment() {
                 fragment.onOpenChannel = { channel -> onChannelSelected(channel) }
             },
         )
+        restoreClanEventSheetOnVisible = opened && sheet != null
+        if (!opened) sheet?.restoreAfterNavigation()
     }
 
     private fun openCreateClanEvent() {
         val clanId = clansController.selectedClanId.value
         if (clanId == 0L) return
-        dismissClanEventSheet()
-        presentFragment(ClanEventCreateFragment.newInstance(clanId))
+        openClanEventEditor(clanId)
+    }
+
+    private fun openClanEventEditor(clanId: Long, eventId: Long = 0L) {
+        clanEventEditorDialog?.dismiss()
+        val dialog = ClanEventEditorDialog.show(
+            host = this,
+            clanId = clanId,
+            eventId = eventId,
+        )
+        clanEventEditorDialog = dialog
+        dialog?.setOnDismissListener {
+            if (clanEventEditorDialog === dialog) clanEventEditorDialog = null
+        }
     }
 
     private fun dismissClanEventSheet() {
@@ -1100,7 +1142,12 @@ class ClansFragment : BaseFragment() {
         clanEventSheet = null
     }
 
-    private fun openInvitePeopleSheet(clanId: Long, clanName: String, clanLogo: String) {
+    private fun openInvitePeopleSheet(
+        clanId: Long,
+        clanName: String,
+        clanLogo: String,
+        externalEventUrl: String? = null,
+    ) {
         val ctx = fragmentView?.context ?: return
         InvitePeopleBottomSheet(
             ctx,
@@ -1108,6 +1155,7 @@ class ClansFragment : BaseFragment() {
             clanId,
             clanName,
             clanLogo,
+            externalEventUrl,
         ).apply {
             setDrawNavigationBar(true)
             show()
@@ -1139,7 +1187,6 @@ class ClansFragment : BaseFragment() {
         roleController.loadPermissionCatalogIfNeeded()
         roleController.loadUserMaxPermissionForClan(clanId)
         roleController.loadRolesForClanThen(clanId, force = true, Runnable {
-            val members = userClanController.getClanMembers(clanId)
             val permissionState = permissionPolicy.clanSettingsPermissionState(clanId)
             val showEmptyCategories = showEmptyCategoryStore.isEnabled(clanId)
             dismissClanMenuSheet()
@@ -1150,7 +1197,7 @@ class ClansFragment : BaseFragment() {
                 clan.clanName,
                 clan.logo.ifBlank { null },
                 clan.isCommunity,
-                members.size,
+                userClanController.getClanMemberCount(clanId),
                 permissionState,
                 showEmptyCategories,
                 { enabled ->
@@ -1160,6 +1207,11 @@ class ClansFragment : BaseFragment() {
                 Runnable {
                     dismissClanMenuThen(Runnable {
                         presentFragment(ClanSettingFragment.newInstance(clanId))
+                    })
+                },
+                Runnable {
+                    dismissClanMenuThen(Runnable {
+                        openClanNotificationSettings(clanId)
                     })
                 },
                 Runnable {
@@ -1292,15 +1344,17 @@ class ClansFragment : BaseFragment() {
                 else -> voiceController.getVoiceMembersForChannel(vc.channelId, clanId)
             }
             if (userIds.isEmpty()) continue
+            val sharingIds: Set<Long> = when (vc.type) {
+                CHANNEL_TYPE_STREAMING -> emptySet()
+                else -> voiceController.getScreenSharingUsersForChannel(vc.channelId, clanId)
+            }
             val displays = userIds.map { uid ->
-                val member = memberMap[uid]
-                val name = member?.clanNick?.ifEmpty { null }
-                    ?: member?.displayName?.ifEmpty { null }
-                    ?: member?.username
-                    ?: "User"
-                val username = member?.username.orEmpty()
-                val avatar = member?.clanAvatar?.ifEmpty { null } ?: member?.avatarUrl
-                VoiceMemberDisplay(uid, name, username, avatar)
+                val identity = resolveVoiceMemberIdentity(
+                    uid, memberMap[uid], userClanController.getUserById(uid), "User"
+                )
+                VoiceMemberDisplay(
+                    uid, identity.displayName, identity.username, identity.avatarUrl, uid in sharingIds
+                )
             }
             if (displays.isNotEmpty()) result[vc.channelId] = displays
         }
@@ -1545,6 +1599,54 @@ class ClansFragment : BaseFragment() {
         }
     }
 
+    private fun openClanNotificationSettings(clanId: Long) {
+        val ctx = fragmentView?.context ?: return
+        val sheet = ChannelNotificationSettingsBottomSheet(
+            context = ctx,
+            initialType = CHANNEL_NOTIFICATION_ALL_MESSAGES,
+            includeUseDefault = false,
+        ) { notificationType, complete ->
+            fragmentScope.launch(Dispatchers.Main.immediate) {
+                val result = channelController.setClanDefaultNotificationType(
+                    clanId = clanId,
+                    notificationType = notificationType,
+                )
+                complete(result.isSuccess)
+                if (result.isFailure) {
+                    MezonToast.show(
+                        this@ClansFragment,
+                        ToastOverlay.ToastType.ERROR,
+                        getString(R.string.clan_overview_notif_update_failed),
+                    )
+                }
+            }
+        }
+        channelNotificationSettingsSheet?.dismiss()
+        channelNotificationSettingsSheet = sheet
+        sheet.setOnDismissListener {
+            if (channelNotificationSettingsSheet === sheet) {
+                channelNotificationSettingsSheet = null
+            }
+        }
+        sheet.show()
+
+        fragmentScope.launch(Dispatchers.Main.immediate) {
+            val result = channelController.getClanDefaultNotificationType(clanId)
+            if (channelNotificationSettingsSheet === sheet && sheet.isShowing) {
+                result.onSuccess { notificationType ->
+                    sheet.completeInitialLoad(notificationType, clanDefaultType = null)
+                }.onFailure {
+                    sheet.dismiss()
+                    MezonToast.show(
+                        this@ClansFragment,
+                        ToastOverlay.ToastType.ERROR,
+                        getString(R.string.clan_overview_load_failed),
+                    )
+                }
+            }
+        }
+    }
+
     private fun confirmLeaveThread(channel: ClanChannelEntity, clanId: Long) {
         val act = getParentActivity() ?: return
         if (!channel.isThread) return
@@ -1643,7 +1745,7 @@ class ClansFragment : BaseFragment() {
     }
 
     private fun streamingRoomActiveFor(channelId: Long, clanId: Long, activity: MainActivity): Boolean {
-        return activity.isStreamingOverlayVisible()
+        return activity.isStreamingRoomFor(channelId, clanId)
     }
 
     private fun showJoinStreamBottomSheet(channel: ClanChannelEntity, clanId: Long) {
@@ -1654,18 +1756,18 @@ class ClansFragment : BaseFragment() {
         for (m in clanMembers) memberMap[m.userId] = m
 
         val displays = members.map { uid ->
-            val m = memberMap[uid]
-            val name = m?.clanNick?.ifEmpty { null } ?: m?.displayName?.ifEmpty { null } ?: m?.username ?: "User"
-            val username = m?.username.orEmpty()
-            val avatar = m?.clanAvatar?.ifEmpty { null } ?: m?.avatarUrl
-            VoiceMemberDisplay(uid, name, username, avatar)
+            val identity = resolveVoiceMemberIdentity(
+                uid, memberMap[uid], userClanController.getUserById(uid), "User"
+            )
+            VoiceMemberDisplay(uid, identity.displayName, identity.username, identity.avatarUrl)
         }
 
         val sheet = JoinVoiceBottomSheet(
             activity, themeColors, channel.channelLabel, channel.channelId, clanId, displays, channel.unreadCount,
-            JoinMediaSheetKind.STREAMING
+            JoinMediaSheetKind.STREAMING,
+            canJoin = members.isNotEmpty(),
         )
-        sheet.onJoinVoice = {
+        sheet.onJoinVoice = { _ ->
             (getParentActivity() as? MainActivity)?.showStreamingRoom(
                 channel.channelId, clanId, channel.channelLabel
             )
@@ -1684,19 +1786,18 @@ class ClansFragment : BaseFragment() {
         for (m in clanMembers) memberMap[m.userId] = m
 
         val displays = members.map { uid ->
-            val m = memberMap[uid]
-            val name = m?.clanNick?.ifEmpty { null } ?: m?.displayName?.ifEmpty { null } ?: m?.username ?: "User"
-            val username = m?.username.orEmpty()
-            val avatar = m?.clanAvatar?.ifEmpty { null } ?: m?.avatarUrl
-            VoiceMemberDisplay(uid, name, username, avatar)
+            val identity = resolveVoiceMemberIdentity(
+                uid, memberMap[uid], userClanController.getUserById(uid), "User"
+            )
+            VoiceMemberDisplay(uid, identity.displayName, identity.username, identity.avatarUrl)
         }
 
         val sheet = JoinVoiceBottomSheet(
             activity, themeColors, channel.channelLabel, channel.channelId, clanId, displays, channel.unreadCount
         )
-        sheet.onJoinVoice = {
+        sheet.onJoinVoice = { role ->
             (getParentActivity() as? MainActivity)?.showVoiceRoom(
-                channel.channelId, clanId, channel.channelLabel
+                channel.channelId, clanId, channel.channelLabel, role
             )
         }
         sheet.onOpenChat = {
@@ -1738,7 +1839,7 @@ class ClansFragment : BaseFragment() {
             newPendingFriendCount: Int = 0,
             newLogoUrl: String = "",
             embeddedDiscoverRail: Boolean = false
-        ) {
+        ): Boolean {
             val oldRows = buildRows(
                 unreadDms, clans, selectedClanId,
                 pendingFriendCount, logoUrl, embeddedRailDiscoverHighlight
@@ -1758,14 +1859,18 @@ class ClansFragment : BaseFragment() {
                 pendingFriendCount, logoUrl, embeddedRailDiscoverHighlight
             )
 
+            if (oldRows == newRows) return false
+
             DiffUtil.calculateDiff(object : DiffUtil.Callback() {
                 override fun getOldListSize() = oldRows.size
                 override fun getNewListSize() = newRows.size
                 override fun areItemsTheSame(oldPos: Int, newPos: Int) =
-                    oldRows[oldPos].id == newRows[newPos].id
+                    oldRows[oldPos].id == newRows[newPos].id &&
+                        oldRows[oldPos].type == newRows[newPos].type
                 override fun areContentsTheSame(oldPos: Int, newPos: Int) =
                     oldRows[oldPos] == newRows[newPos]
             }).dispatchUpdatesTo(this)
+            return true
         }
 
         private fun buildRows(
@@ -1778,7 +1883,15 @@ class ClansFragment : BaseFragment() {
         ): List<RailRow> {
             val rows = ArrayList<RailRow>(unreadList.size + clanList.size + 4)
             for (dm in unreadList) {
-                rows.add(RailRow(dm.channelId, VIEW_TYPE_UNREAD_DM, listOf(dm.unreadCount, dm.lastMessageContent)))
+                rows.add(
+                    RailRow(
+                        dm.channelId, VIEW_TYPE_UNREAD_DM,
+                        listOf(
+                            dm.unreadCount, dm.type, dm.avatarUrl,
+                            dm.avatarPlaceholderKey(), dm.displayName, dm.label
+                        )
+                    )
+                )
             }
             if (clanList.isNotEmpty()) {
                 rows.add(RailRow(Long.MIN_VALUE + 1, VIEW_TYPE_SEPARATOR, Unit))

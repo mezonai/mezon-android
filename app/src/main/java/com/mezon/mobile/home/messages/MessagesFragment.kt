@@ -35,6 +35,7 @@ import com.mezon.mobile.home.friends.FriendController
 import com.mezon.mobile.home.friends.createFriendRequestBadgeView
 import com.mezon.mobile.home.friends.updateFriendRequestBadge
 import com.mezon.mobile.home.profile.UserController
+import com.mezon.mobile.home.voice.VoiceController
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.search.GlobalSearchFragment
@@ -58,6 +59,7 @@ class MessagesFragment : BaseFragment() {
     private lateinit var appScope: CoroutineScope
     private lateinit var ioDispatcher: CoroutineDispatcher
     private lateinit var mainDispatcher: CoroutineDispatcher
+    private lateinit var voiceController: VoiceController
 
     private lateinit var headerTitle: TextView
     private lateinit var addFriendBadgeText: TextView
@@ -86,6 +88,7 @@ class MessagesFragment : BaseFragment() {
         appScope = entryPoint.applicationScope()
         ioDispatcher = entryPoint.ioDispatcher()
         mainDispatcher = entryPoint.mainDispatcher()
+        voiceController = entryPoint.voiceController()
     }
 
     override fun onFragmentCreate(): Boolean {
@@ -133,6 +136,10 @@ class MessagesFragment : BaseFragment() {
         observe(NotificationCenter.messageActivitiesRowsUpdated) { _, _, _ ->
             if (fragmentView == null) return@observe
             syncMessageActivitiesStrip()
+        }
+        observe(NotificationCenter.voiceChannelMembersChanged) { _, _, _ ->
+            if (fragmentView == null || !::adapter.isInitialized) return@observe
+            adapter.refreshVoicePresence()
         }
 
         if (!StartupCache.suppressHomeListApiForIncomingCallWake) {
@@ -205,7 +212,10 @@ class MessagesFragment : BaseFragment() {
         }
         contentFrame.addView(errorView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
-        adapter = DmListAdapter(themeColors) { channelId -> controller.isBuzzActive(channelId) }
+        adapter = DmListAdapter(
+            themeColors,
+            inVoiceChecker = { dm -> isDmPeerInVoice(dm) }
+        ) { channelId -> controller.isBuzzActive(channelId) }
         adapter.setEntryBuilder { messages ->
             buildSectionedDmEntries(
                 messages,
@@ -467,6 +477,13 @@ class MessagesFragment : BaseFragment() {
             this.onOpenChat = this@MessagesFragment.onOpenChat
         }
         presentFragment(fragment)
+    }
+
+    private fun isDmPeerInVoice(dm: DirectMessage): Boolean {
+        if (dm.type != CHANNEL_TYPE_DM) return false
+        val peerId = dm.otherUserId
+        if (peerId == 0L || peerId == userController.userId) return false
+        return voiceController.isUserInVoice(peerId)
     }
 
     override fun onBecomeFullyVisible() {

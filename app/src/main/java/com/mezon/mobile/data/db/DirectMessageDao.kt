@@ -28,4 +28,7 @@ interface DirectMessageDao {
 
     @Query("DELETE FROM direct_messages WHERE channelId = :channelId")
     suspend fun delete(channelId: Long)
+
+    @Query("DELETE FROM direct_messages WHERE channelId NOT IN (:keepIds)")
+    suspend fun deleteMissing(keepIds: List<Long>)
 }

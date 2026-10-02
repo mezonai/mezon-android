@@ -6,9 +6,12 @@ import com.mezon.mobile.util.EmbedFormUtil
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.network.NetworkMonitor
+import com.mezon.mobile.network.ThrottledException
+import com.mezon.mobile.network.doubledBackoffMs
 import com.mezon.mobile.network.UnauthorizedException
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Base64
 import android.util.Log
 import android.webkit.CookieManager
@@ -59,6 +62,27 @@ class SessionManager @Inject constructor(
         private const val TOKEN_EXPIRY_BUFFER_SEC = 60
         private const val SESSION_SECRET_ALIAS = "mezon_session_v1"
         private const val ENCRYPTED_PREFIX = "enc:v1:"
+        private const val REFRESH_THROTTLED_BASE_MS = 60_000L
+        private const val REFRESH_THROTTLED_CAP_MS = 300_000L
+    }
+
+    @Volatile
+    private var refreshHoldUntilMs = 0L
+
+    @Volatile
+    private var refreshThrottleMs = REFRESH_THROTTLED_BASE_MS
+
+    fun mayRefresh(): Boolean = SystemClock.elapsedRealtime() >= refreshHoldUntilMs
+
+    fun releaseRefreshThrottle() {
+        refreshHoldUntilMs = 0L
+        refreshThrottleMs = REFRESH_THROTTLED_BASE_MS
+    }
+
+    private fun holdRefresh() {
+        refreshHoldUntilMs = SystemClock.elapsedRealtime() + refreshThrottleMs
+        Log.w(TAG, "SessionRefresh is being throttled, pacing the next one ${refreshThrottleMs / 1000}s out")
+        refreshThrottleMs = doubledBackoffMs(refreshThrottleMs, REFRESH_THROTTLED_CAP_MS)
     }
 
     private fun encryptSecret(plain: String): String {
@@ -147,6 +171,10 @@ class SessionManager @Inject constructor(
             Log.w(TAG, "Token expired but offline — returning cached session")
             return session
         }
+        if (!mayRefresh()) {
+            Log.w(TAG, "Token expired but SessionRefresh is on cooldown, returning cached session")
+            return session
+        }
         return try {
             refresh()
         } catch (e: SessionExpiredException) {
@@ -222,6 +250,7 @@ class SessionManager @Inject constructor(
             }
             lastRefreshToken = newSession.refreshToken
             failCount = 0
+            releaseRefreshThrottle()
             Log.d(TAG, "Session refreshed successfully")
             return newSession
         } catch (e: SessionExpiredException) {
@@ -247,6 +276,9 @@ class SessionManager @Inject constructor(
             }
             Log.w(TAG, "Session refresh 401/403 (failCount=$failCount/$MAX_REFRESH_RETRIES) — treating as transient", e)
             throw IOException("Session refresh unauthorized: ${e.message}", e)
+        } catch (e: ThrottledException) {
+            holdRefresh()
+            throw IOException("Session refresh throttled: ${e.message}", e)
         } catch (e: IOException) {
             Log.w(TAG, "Network error during refresh, not logging out", e)
             throw e
@@ -272,6 +304,18 @@ class SessionManager @Inject constructor(
 
     suspend fun saveSession(session: StoredSession) {
         persistSession(session, requiredEpoch = null)
+    }
+
+    suspend fun updateEndpoints(apiUrl: String, wsUrl: String, tcpUrl: String): Boolean {
+        sessionPersistMutex.withLock {
+            if (sessionFlow.first() == null) return false
+            dataStore.edit { prefs ->
+                prefs[SessionKeys.API_URL] = apiUrl
+                prefs[SessionKeys.WS_URL] = wsUrl
+                prefs[SessionKeys.TCP_URL] = tcpUrl
+            }
+            return true
+        }
     }
 
     private suspend fun persistSession(session: StoredSession, requiredEpoch: Long?): Boolean {

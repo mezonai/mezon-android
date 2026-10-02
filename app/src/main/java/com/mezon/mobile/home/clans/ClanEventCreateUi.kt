@@ -3,11 +3,8 @@ package com.mezon.mobile.home.clans
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.content.Context
-import android.content.res.ColorStateList
-import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
-import android.graphics.drawable.RippleDrawable
 import android.text.format.DateFormat
 import android.util.TypedValue
 import android.view.Gravity
@@ -23,70 +20,16 @@ import com.mezon.mobile.R
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.chat.MezonImageLoader
-import com.mezon.mobile.util.createImgproxyUrl
-import com.mezon.mobile.ui.cells.ActionBarView
 import com.mezon.mobile.ui.cells.MezonIcon
-import com.mezon.mobile.ui.cells.RadioCell
 import com.mezon.mobile.util.DateTimeUtil
+import com.mezon.mobile.util.createImgproxyUrl
 import java.util.Calendar
 import java.util.Locale
-
-object ClanEventCreateArgs {
-    const val ARG_CLAN_ID = "clanId"
-    const val ARG_EVENT_ID = "eventId"
-    const val ARG_OPTION = "option"
-    const val ARG_CHANNEL_VOICE_ID = "channelVoiceId"
-    const val ARG_ADDRESS = "address"
-    const val ARG_CHANNEL_ID = "channelId"
-    const val ARG_IS_PRIVATE = "isPrivate"
-    const val ARG_TITLE = "title"
-    const val ARG_DESCRIPTION = "description"
-    const val ARG_START_TIME_SECONDS = "startTimeSeconds"
-    const val ARG_END_TIME_SECONDS = "endTimeSeconds"
-    const val ARG_REPEAT_TYPE = "repeatType"
-    const val ARG_LOGO_URL = "logoUrl"
-
-    fun baseBundle(
-        clanId: Long,
-        option: Int,
-        channelVoiceId: Long,
-        address: String,
-        channelId: Long,
-        isPrivate: Boolean,
-    ) = android.os.Bundle().apply {
-        putLong(ARG_CLAN_ID, clanId)
-        putInt(ARG_OPTION, option)
-        putLong(ARG_CHANNEL_VOICE_ID, channelVoiceId)
-        putString(ARG_ADDRESS, address)
-        putLong(ARG_CHANNEL_ID, channelId)
-        putBoolean(ARG_IS_PRIVATE, isPrivate)
-    }
-
-    fun readDraft(bundle: android.os.Bundle?): CreateEventDraft {
-        val b = bundle ?: return CreateEventDraft()
-        return CreateEventDraft(
-            option = b.getInt(ARG_OPTION, 0),
-            channelVoiceId = b.getLong(ARG_CHANNEL_VOICE_ID, 0L),
-            address = b.getString(ARG_ADDRESS).orEmpty(),
-            channelId = b.getLong(ARG_CHANNEL_ID, 0L),
-            isPrivate = b.getBoolean(ARG_IS_PRIVATE, false),
-            title = b.getString(ARG_TITLE).orEmpty(),
-            description = b.getString(ARG_DESCRIPTION).orEmpty(),
-            startTimeSeconds = b.getInt(ARG_START_TIME_SECONDS, 0),
-            endTimeSeconds = b.getInt(ARG_END_TIME_SECONDS, 0),
-            repeatType = b.getInt(ARG_REPEAT_TYPE, ClanEventRepeatType.DOES_NOT_REPEAT),
-            logoUrl = b.getString(ARG_LOGO_URL).orEmpty(),
-        )
-    }
-
-    fun clanId(bundle: android.os.Bundle?): Long = bundle?.getLong(ARG_CLAN_ID, 0L) ?: 0L
-
-    fun eventId(bundle: android.os.Bundle?): Long = bundle?.getLong(ARG_EVENT_ID, 0L) ?: 0L
-}
 
 object ClanEventCreateUi {
 
     private const val MAX_LOGO_BYTES = 1 * 1024 * 1024
+    const val MAX_LOCATION_LENGTH = 100
     const val EVENT_THUMB_SIZE_DP = 56
     const val EVENT_THUMB_CORNER_DP = 8f
     const val EVENT_BANNER_CORNER_DP = 12f
@@ -121,8 +64,13 @@ object ClanEventCreateUi {
         return logoWrap
     }
 
-    fun nearTime(addMinutes: Int): Calendar = Calendar.getInstance().apply {
-        add(Calendar.MINUTE, addMinutes)
+    fun defaultStartTime(now: Calendar = Calendar.getInstance()): Calendar = (now.clone() as Calendar).apply {
+        if (get(Calendar.MINUTE) != 0 || get(Calendar.SECOND) != 0 || get(Calendar.MILLISECOND) != 0) {
+            add(Calendar.HOUR_OF_DAY, 1)
+        }
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
     }
 
     fun applyEpochSeconds(calendar: Calendar, epochSeconds: Int) {
@@ -134,27 +82,6 @@ object ClanEventCreateUi {
         event.isOfflineEvent() -> ClanEventOption.LOCATION
         event.isPrivate -> ClanEventOption.PRIVATE
         else -> ClanEventOption.SPEAKER
-    }
-
-    fun sectionHeader(context: Context, theme: ThemeColors, titleRes: Int, subtitleRes: Int): LinearLayout {
-        return LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, LayoutHelper.dp(24), 0, LayoutHelper.dp(16))
-            addView(TextView(context).apply {
-                text = context.getString(titleRes)
-                setTextColor(theme.textStrong)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
-                typeface = Typeface.DEFAULT_BOLD
-                gravity = Gravity.CENTER
-            })
-            addView(TextView(context).apply {
-                text = context.getString(subtitleRes)
-                setTextColor(theme.colorText)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-                gravity = Gravity.CENTER
-                setPadding(LayoutHelper.dp(8), LayoutHelper.dp(8), LayoutHelper.dp(8), 0)
-            })
-        }
     }
 
     fun sectionCaption(context: Context, theme: ThemeColors, textRes: Int): TextView {
@@ -174,11 +101,6 @@ object ClanEventCreateUi {
             setLineSpacing(LayoutHelper.dp(2).toFloat(), 1f)
         }
     }
-
-    fun mutedLabel(context: Context, theme: ThemeColors, textRes: Int): TextView =
-        sectionCaption(context, theme, textRes).apply {
-            setPadding(0, 0, 0, LayoutHelper.dp(8))
-        }
 
     fun createOptionPicker(
         context: Context,
@@ -206,170 +128,6 @@ object ClanEventCreateUi {
             if (bottomMargin > 0) this.bottomMargin = bottomMargin
         }
 
-    fun buildActionBar(
-        context: Context,
-        theme: ThemeColors,
-        titleRes: Int,
-        showBack: Boolean,
-        onBack: () -> Unit,
-        onClose: () -> Unit,
-    ): ActionBarView {
-        return ActionBarView(context, theme).apply {
-            occupyStatusBar = false
-            setTitle(context.getString(titleRes))
-            setTitleColor(theme.textStrong)
-            setCenterTitle(true)
-            if (showBack) {
-                setBackButtonImage(MezonIcon.arrowLargeLeftIcon.resId)
-                setMenuOnItemClick(object : ActionBarView.ActionBarMenuOnItemClick() {
-                    override fun onItemClick(id: Int) {
-                        if (id == -1) onBack()
-                    }
-                })
-            } else {
-                setBackButtonImage(0)
-            }
-            createMenu().addItem(1, "").also { cell ->
-                cell.addView(
-                    ImageView(context).apply {
-                        setImageDrawable(MezonIcon.closeLargeIcon.getDrawable(context, theme.textStrong))
-                        scaleType = ImageView.ScaleType.CENTER_INSIDE
-                        val px = LayoutHelper.dp(16)
-                        setPadding(px, px, px, px)
-                        setOnClickListener { onClose() }
-                    },
-                    LayoutHelper.createFrame(
-                        LayoutHelper.WRAP_CONTENT,
-                        LayoutHelper.MATCH_PARENT,
-                        Gravity.CENTER_VERTICAL or Gravity.END,
-                        0f, 0f, 8f, 0f,
-                    ),
-                )
-            }
-        }
-    }
-
-    fun buildNextButton(context: Context, theme: ThemeColors, enabled: Boolean, onClick: () -> Unit): FrameLayout {
-        val radius = LayoutHelper.dp(10).toFloat()
-        val fill = GradientDrawable().apply {
-            setColor(theme.blurple)
-            cornerRadius = radius
-        }
-        val mask = GradientDrawable().apply {
-            setColor(Color.WHITE)
-            cornerRadius = radius
-        }
-        val label = TextView(context).apply {
-            text = context.getString(R.string.event_creator_action_next)
-            setTextColor(Color.WHITE)
-            textSize = 15f
-            typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
-            val p = LayoutHelper.dp(14)
-            setPadding(p, p, p, p)
-            background = RippleDrawable(
-                ColorStateList.valueOf(0x33FFFFFF),
-                fill,
-                mask,
-            )
-            setOnClickListener { if (isEnabled) onClick() }
-        }
-        return FrameLayout(context).apply {
-            addView(label, FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-            ))
-            setNextEnabled(this, enabled)
-        }
-    }
-
-    fun setNextEnabled(container: FrameLayout, enabled: Boolean) {
-        val btn = container.getChildAt(0) as? TextView ?: return
-        btn.isEnabled = enabled
-        btn.alpha = if (enabled) 1f else 0.5f
-    }
-
-    fun addTypeOption(
-        context: Context,
-        theme: ThemeColors,
-        parent: LinearLayout,
-        option: Int,
-        selectedOption: Int,
-        icon: MezonIcon,
-        titleRes: Int,
-        descRes: Int,
-        enabled: Boolean,
-        radioCells: MutableList<RadioCell>,
-        cardRadius: Float,
-        rowPad: Int,
-        showTopDivider: Boolean,
-        onSelect: (Int) -> Unit,
-    ) {
-        if (showTopDivider) {
-            parent.addView(
-                View(context).apply { setBackgroundColor(theme.outlineVariant) },
-                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 1),
-            )
-        }
-        val radio = RadioCell(context, theme).apply { drawSelectionAsCheckmark = false }
-        radioCells.add(radio)
-        val selected = selectedOption == option
-        radio.setChecked(selected, animated = false)
-
-        val borderColor = if (selected) theme.blurple else theme.outlineVariant
-        val row = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.TOP
-            isClickable = enabled
-            isFocusable = enabled
-            alpha = if (enabled) 1f else 0.45f
-            setPadding(rowPad, rowPad, rowPad, rowPad)
-            background = GradientDrawable().apply {
-                setColor(theme.surfaceVariant)
-                cornerRadius = cardRadius
-                setStroke(LayoutHelper.dp(if (selected) 2 else 1), borderColor)
-            }
-            setOnClickListener {
-                if (enabled) onSelect(option)
-            }
-        }
-        row.addView(
-            ImageView(context).apply {
-                setImageDrawable(icon.getDrawable(context, theme.textStrong))
-                scaleType = ImageView.ScaleType.FIT_CENTER
-            },
-            LayoutHelper.createLinear(24, 24, 0f, Gravity.CENTER_VERTICAL, 0f, 0f, 12f, 0f),
-        )
-        val texts = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            addView(TextView(context).apply {
-                text = context.getString(titleRes)
-                setTextColor(theme.textStrong)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-                typeface = Typeface.DEFAULT_BOLD
-            })
-            addView(TextView(context).apply {
-                text = context.getString(descRes)
-                setTextColor(theme.onSurfaceVariant)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-                setPadding(0, LayoutHelper.dp(4), 0, 0)
-            })
-        }
-        row.addView(texts)
-        row.addView(radio, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.CENTER_VERTICAL))
-        parent.addView(row, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
-            bottomMargin = LayoutHelper.dp(10)
-        })
-    }
-
-    fun refreshTypeRadios(radioCells: List<RadioCell>, options: List<Int>, selectedOption: Int) {
-        radioCells.forEachIndexed { index, cell ->
-            val opt = options.getOrNull(index) ?: return@forEachIndexed
-            cell.setChecked(opt == selectedOption, animated = true)
-        }
-    }
-
     fun formatDate(context: Context, cal: Calendar): String =
         DateFormat.getMediumDateFormat(context).format(cal.time)
 
@@ -384,7 +142,7 @@ object ClanEventCreateUi {
         }
     }
 
-    fun showDatePicker(context: Context, cal: Calendar, minToday: Boolean, onPicked: () -> Unit) {
+    fun datePicker(context: Context, cal: Calendar, minDate: Calendar, onPicked: () -> Unit): DatePickerDialog =
         DatePickerDialog(
             context,
             { _, y, m, d ->
@@ -397,11 +155,10 @@ object ClanEventCreateUi {
             cal.get(Calendar.MONTH),
             cal.get(Calendar.DAY_OF_MONTH),
         ).apply {
-            if (minToday) datePicker.minDate = startOfDay(Calendar.getInstance()).timeInMillis
-        }.show()
-    }
+            datePicker.minDate = startOfDay(minDate).timeInMillis
+        }
 
-    fun showTimePicker(context: Context, cal: Calendar, onPicked: () -> Unit) {
+    fun timePicker(context: Context, cal: Calendar, onPicked: () -> Unit): TimePickerDialog =
         TimePickerDialog(
             context,
             { _, hour, minute ->
@@ -414,8 +171,7 @@ object ClanEventCreateUi {
             cal.get(Calendar.HOUR_OF_DAY),
             cal.get(Calendar.MINUTE),
             DateFormat.is24HourFormat(context),
-        ).show()
-    }
+        )
 
     fun combineDateAndTime(date: Calendar, time: Calendar): Calendar {
         return Calendar.getInstance().apply {
@@ -452,31 +208,26 @@ object ClanEventCreateUi {
             ClanEventRepeatType.MONTHLY to context.getString(R.string.event_creator_repeat_monthly, weekOfMonth, dayName),
             ClanEventRepeatType.ANNUALLY to context.getString(R.string.event_creator_repeat_annually, monthName, dayOfMonth),
             ClanEventRepeatType.EVERY_WEEKDAY to context.getString(R.string.event_creator_repeat_weekday),
-        )
+        ).filter { (type, _) -> type != ClanEventRepeatType.EVERY_WEEKDAY || isWeekday(start) }
     }
 
+    fun isWeekday(date: Calendar): Boolean =
+        date.get(Calendar.DAY_OF_WEEK) !in listOf(Calendar.SATURDAY, Calendar.SUNDAY)
+
+    fun hasInvalidTopic(title: String): Boolean = title.any { it in "`<>,/\"\\'" }
+
     fun validateDetails(
-        context: Context,
         title: String,
-        option: Int,
         start: Calendar,
         end: Calendar,
         allowPastStart: Boolean = false,
+        now: Calendar = Calendar.getInstance(),
     ): Boolean {
-        if (title.trim().isEmpty()) return false
-        val now = Calendar.getInstance()
-        if (!allowPastStart) {
-            if (startOfDay(start).before(startOfDay(now))) return false
-            if (isSameDay(start, now) && start.timeInMillis <= now.timeInMillis) return false
-        }
-        if (option != ClanEventOption.LOCATION) {
-            if (startOfDay(end).before(startOfDay(start))) return false
-            if (isSameDay(start, end) && !end.after(start)) return false
-        }
-        return true
+        if (title.isBlank() || hasInvalidTopic(title)) return false
+        if (!allowPastStart && isSameDay(start, now) && !start.after(now)) return false
+        return !isSameDay(start, end) || end.after(start)
     }
 
-    const val REQUEST_PICK_LOGO = 8401
     const val MAX_LOGO_SIZE_BYTES = MAX_LOGO_BYTES
 
     fun buildCoverBannerSection(
@@ -503,10 +254,18 @@ class EventCoverBannerPicker private constructor(
     private var previewLoad: MezonImageLoader.Cancellable? = null
     private var previewUrl: String? = null
 
+    init {
+        bannerFrame.addOnLayoutChangeListener { _, left, _, right, _, oldLeft, _, oldRight, _ ->
+            if (right > left && right - left != oldRight - oldLeft) renderPreview()
+        }
+    }
+
     fun setUploading(uploading: Boolean) {
         progressBar.visibility = if (uploading) View.VISIBLE else View.GONE
         bannerFrame.isEnabled = !uploading
+        clearButton.isEnabled = !uploading
         imageView.alpha = if (uploading) 0.6f else 1f
+        cameraBadge.alpha = if (uploading) 0f else 1f
     }
 
     fun loadPreview(url: String) {
@@ -527,15 +286,18 @@ class EventCoverBannerPicker private constructor(
         clearButton.visibility = View.GONE
     }
 
+    fun release() {
+        clearImage()
+        onPickRequested = null
+        onClearRequested = null
+    }
+
     private fun renderPreview() {
         val url = previewUrl ?: return
         previewLoad?.cancel()
         val width = bannerFrame.width.coerceAtLeast(LayoutHelper.dp(300))
         val height = LayoutHelper.dp(BANNER_HEIGHT_DP)
-        if (bannerFrame.width <= 0) {
-            bannerFrame.post { renderPreview() }
-            return
-        }
+        if (bannerFrame.width <= 0) return
         cameraBadge.visibility = View.GONE
         clearButton.visibility = View.VISIBLE
         val proxyUrl = createImgproxyUrl(url, width, height, "fit")
@@ -548,7 +310,7 @@ class EventCoverBannerPicker private constructor(
     }
 
     companion object {
-        private const val BANNER_HEIGHT_DP = 200
+        private const val BANNER_HEIGHT_DP = 128
 
         fun create(
             context: Context,
@@ -565,10 +327,10 @@ class EventCoverBannerPicker private constructor(
                 scaleType = ImageView.ScaleType.CENTER
                 val pad = LayoutHelper.dp(11)
                 setPadding(pad, pad, pad, pad)
-                setImageDrawable(MezonIcon.cameraIcon.getDrawable(context, Color.WHITE))
+                setImageDrawable(MezonIcon.cameraIcon.getDrawable(context, theme.primary))
                 background = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL
-                    setColor(0x99000000.toInt())
+                    setColor(theme.surface)
                 }
                 elevation = LayoutHelper.dpf(2f)
             }
@@ -591,8 +353,10 @@ class EventCoverBannerPicker private constructor(
             val bannerFrame = FrameLayout(context).apply {
                 background = GradientDrawable().apply {
                     cornerRadius = LayoutHelper.dpf(ClanEventCreateUi.EVENT_BANNER_CORNER_DP)
-                    setColor(theme.surfaceVariant)
+                    setColor(theme.secondaryLight)
+                    setStroke(LayoutHelper.dp(1), theme.outlineVariant, LayoutHelper.dpf(5f), LayoutHelper.dpf(4f))
                 }
+                contentDescription = context.getString(R.string.event_creator_cover_label)
                 clipToOutline = true
                 outlineProvider = ViewOutlineProvider.BACKGROUND
                 isClickable = true

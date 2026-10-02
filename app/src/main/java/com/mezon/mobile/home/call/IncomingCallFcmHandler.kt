@@ -90,14 +90,19 @@ class IncomingCallFcmHandler @Inject constructor(
     private fun handleCancelCallFcm(parsed: JSONObject) {
         val answeredElsewhere = parsed.optBoolean("isConnected", false)
         val ctrl = CallController.instance
+        val channelId = parsed.optString("channelId").toLongOrNull() ?: 0L
+        val callerId = parsed.optString("callerId").toLongOrNull() ?: 0L
+        if (ctrl?.isCancelCallFcmForCurrentCall(channelId, callerId) == false) {
+            return
+        }
         CallNotificationManager(appContext).dismissIncomingNotification()
-        if (answeredElsewhere && ctrl?.shouldIgnoreCancelCallFcmAnsweredElsewhere() == true) {
+        if (ctrl?.shouldIgnoreCancelCallFcm() == true) {
             return
         }
         telecomBridge.endWithCause(DisconnectCause.CANCELED)
         if (answeredElsewhere) {
             if (ctrl?.callState is CallState.Idle) {
-                ctrl.clearIdleIncomingArtifactsAfterAnsweredElsewhere()
+                ctrl.clearIdleIncomingArtifactsAfterAnsweredElsewhere(callerId, channelId)
             } else {
                 ctrl?.endCall(CallEndReason.CLEAR_CALL)
             }

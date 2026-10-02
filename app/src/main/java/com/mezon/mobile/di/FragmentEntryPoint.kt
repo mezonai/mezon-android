@@ -21,6 +21,7 @@ import com.mezon.mobile.home.chat.EmojiController
 import com.mezon.mobile.home.clans.settings.SoundEffectSettingsController
 import com.mezon.mobile.home.clans.settings.StickerSettingsController
 import com.mezon.mobile.home.chat.ImageClipboardCoordinator
+import com.mezon.mobile.home.chat.input.MentionSearchController
 import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.ForwardTargetUsageStore
 import com.mezon.mobile.home.messages.DmPinStorage
@@ -28,6 +29,7 @@ import com.mezon.mobile.home.messages.MessageActivitiesController
 import com.mezon.mobile.home.voice.VoiceController
 import com.mezon.mobile.home.stream.StreamingController
 import com.mezon.mobile.home.stream.StreamingWebRtcSession
+import com.mezon.mobile.home.voice.sfu.MezonSfuSession
 import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.chat.MediaController
 import com.mezon.mobile.home.MessagesController
@@ -52,6 +54,7 @@ import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.deeplink.DeepLinkRouter
 import com.mezon.mobile.network.NetworkMonitor
 import com.mezon.mobile.notification.FcmRepository
+import com.mezon.mobile.notification.NotificationHelper
 import com.mezon.mobile.search.SearchController
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.util.SentryReporter
@@ -104,8 +107,10 @@ interface FragmentEntryPoint {
     fun voiceController(): VoiceController
     fun streamingController(): StreamingController
     fun streamingWebRtcSession(): StreamingWebRtcSession
+    fun mezonSfuSession(): MezonSfuSession
     fun anonymousController(): AnonymousController
     fun memberResolver(): MemberResolver
+    fun mentionSearchController(): MentionSearchController
     fun roleController(): RoleController
     fun communitySettingsController(): CommunitySettingsController
     fun invitePeopleController(): InvitePeopleController
@@ -123,6 +128,8 @@ interface FragmentEntryPoint {
     fun webRtcInfra(): WebRtcInfra
     fun okHttpClient(): OkHttpClient
     fun sentryReporter(): SentryReporter
+
+    fun notificationHelper(): NotificationHelper
 
     @IoDispatcher
     fun ioDispatcher(): CoroutineDispatcher

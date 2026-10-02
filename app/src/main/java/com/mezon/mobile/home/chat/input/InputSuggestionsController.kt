@@ -8,7 +8,7 @@ import java.text.Normalizer
 
 object InputSuggestionsController {
 
-    enum class Mode { NONE, MENTION, HASHTAG, EMOJI }
+    enum class Mode { NONE, MENTION, HASHTAG, EMOJI, SLASH }
 
     data class TriggerState(
         val mode: Mode,
@@ -23,7 +23,12 @@ object InputSuggestionsController {
 
     fun detect(text: CharSequence, cursor: Int): TriggerState {
         if (cursor <= 0 || cursor > text.length) return TriggerState.NONE
+        val inline = detectInline(text, cursor)
+        if (inline.mode != Mode.NONE) return inline
+        return detectSlashCommand(text, cursor)
+    }
 
+    private fun detectInline(text: CharSequence, cursor: Int): TriggerState {
         for (a in (cursor - 1) downTo 0) {
             val ch = text[a]
             when (ch) {
@@ -58,6 +63,15 @@ object InputSuggestionsController {
         return TriggerState.NONE
     }
 
+    private fun detectSlashCommand(text: CharSequence, cursor: Int): TriggerState {
+        var slashPos = 0
+        while (slashPos < text.length && isTriggerBoundary(text[slashPos])) slashPos++
+        if (slashPos >= text.length || text[slashPos] != '/' || cursor <= slashPos) return TriggerState.NONE
+        val keyword = text.substring(slashPos + 1, cursor)
+        if (keyword.any { isTriggerBoundary(it) }) return TriggerState.NONE
+        return TriggerState(Mode.SLASH, slashPos, keyword.length + 1, keyword)
+    }
+
     private fun isTriggerBoundary(ch: Char): Boolean =
         ch == ' ' || ch == '\n' || ch == '\t'
 
@@ -76,8 +90,16 @@ object InputSuggestionsController {
         val members: List<ClanMember>,
         val roles: List<ClanRole>,
         val includeHere: Boolean,
-        val includeRoles: Boolean
+        val includeRoles: Boolean,
+        val membersPending: Boolean = false,
+        val remoteMembers: List<ClanMember> = emptyList()
     )
+
+    fun mentionDisplayName(member: ClanMember): String =
+        member.clanNick.ifBlank { member.displayName.ifBlank { member.username } }
+
+    fun hasUnresolvedMembers(members: List<ClanMember>): Boolean =
+        members.any { mentionDisplayName(it).isBlank() }
 
     fun buildMentionItems(keyword: String, ctx: MentionContext): List<InputSuggestionItem> {
         val search = keyword.trim()
@@ -96,7 +118,8 @@ object InputSuggestionsController {
         }
 
         for (member in ctx.members) {
-            val display = member.clanNick.ifBlank { member.displayName.ifBlank { member.username } }
+            val display = mentionDisplayName(member)
+            if (display.isBlank()) continue
             val score = if (search.isEmpty()) 1000
             else scoreText(display, member.username, sLower, sNorm)
             if (score > 0) {
@@ -106,6 +129,7 @@ object InputSuggestionsController {
 
         if (ctx.includeRoles) {
             for (role in ctx.roles) {
+                if (role.title.isBlank()) continue
                 val score = if (search.isEmpty()) 1000
                 else scoreText(role.title, "", sLower, sNorm)
                 if (score > 0) {
@@ -115,7 +139,19 @@ object InputSuggestionsController {
         }
 
         results.sortWith(compareByDescending<Scored> { it.score }.thenBy { it.length }.thenBy { it.label })
-        return results.map { it.item }
+        val items = ArrayList<InputSuggestionItem>(results.size + ctx.remoteMembers.size + 1)
+        val listedUserIds = HashSet<Long>()
+        for (scored in results) {
+            val item = scored.item
+            if (item is InputSuggestionItem.Member) listedUserIds.add(item.member.userId)
+            items.add(item)
+        }
+        for (member in ctx.remoteMembers) {
+            if (mentionDisplayName(member).isBlank() || !listedUserIds.add(member.userId)) continue
+            items.add(InputSuggestionItem.Member(member))
+        }
+        if (ctx.membersPending) items.add(InputSuggestionItem.Loading)
+        return items
     }
 
     fun buildChannelItems(
@@ -123,10 +159,11 @@ object InputSuggestionsController {
         channels: List<ClanChannelEntity>
     ): List<InputSuggestionItem> {
         val sLower = keyword.trim().lowercase()
+        val named = channels.filter { it.channelLabel.isNotBlank() }
         val filtered = if (sLower.isEmpty()) {
-            channels
+            named
         } else {
-            channels.filter { it.channelLabel.lowercase().contains(sLower) }
+            named.filter { it.channelLabel.lowercase().contains(sLower) }
         }
         return filtered.map {
             InputSuggestionItem.Channel(
@@ -134,6 +171,17 @@ object InputSuggestionsController {
                 subText = it.categoryName
             )
         }
+    }
+
+    fun buildSlashCommandItems(keyword: String, commands: List<SlashCommand>): List<InputSuggestionItem> {
+        val sLower = keyword.trim().lowercase()
+        val named = commands.filter { it.name.isNotBlank() }
+        val filtered = if (sLower.isEmpty()) {
+            named
+        } else {
+            named.filter { it.name.lowercase().contains(sLower) }
+        }
+        return filtered.take(20).map { InputSuggestionItem.SlashCommand(it) }
     }
 
     fun buildEmojiItems(keyword: String, emojis: List<EmojiItem>): List<InputSuggestionItem> {

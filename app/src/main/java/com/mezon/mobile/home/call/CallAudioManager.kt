@@ -14,7 +14,6 @@ import android.os.VibrationEffect
 import android.telecom.CallAudioState
 import android.util.Log
 import com.twilio.audioswitch.AudioDevice
-import io.livekit.android.audio.AudioSwitchHandler
 
 private const val TAG = "CallAudioManager"
 
@@ -24,7 +23,7 @@ class CallAudioManager(context: Context) {
     private val audioManager = appContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private val powerManager = appContext.getSystemService(Context.POWER_SERVICE) as PowerManager
 
-    private val audioSwitch = AudioSwitchHandler(appContext).apply {
+    private val audioSwitch = MezonAudioSwitch(appContext).apply {
         focusMode = AudioManager.AUDIOFOCUS_GAIN
         forceHandleAudioRouting = true
         preferredDeviceList = listOf(

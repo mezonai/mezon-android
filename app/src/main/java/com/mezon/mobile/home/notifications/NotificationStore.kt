@@ -25,6 +25,9 @@ private const val PAGE_SIZE = 50
 private const val DB_CACHE_LIMIT = 200
 private const val VIEWPORT_LIMIT = 300
 
+internal fun needsInitialNotificationLoad(items: List<NotificationEntity>): Boolean =
+    items.none { it.id > 0L }
+
 @Singleton
 class NotificationStore @Inject constructor(
     private val api: MezonApi,
@@ -47,6 +50,7 @@ class NotificationStore @Inject constructor(
 
     private val _emptyCategory = MutableStateFlow<List<NotificationEntity>>(emptyList())
 
+    @Volatile
     private var currentClanId: Long = 0L
 
     private var hasMoreMentions = false
@@ -162,11 +166,18 @@ class NotificationStore @Inject constructor(
     }
 
     fun deleteNotification(id: Long, category: Int) {
+        val deletionClanId = currentClanId
         val list = getForCategory(category).value
         val removedIndex = list.indexOfFirst { it.id == id }
         if (removedIndex < 0) return
         val removed = list[removedIndex]
         getMutableForCategory(category)?.update { old -> old.filter { it.id != id } }
+        notificationCenter.postNotificationOnMainThread(
+            NotificationCenter.notificationsDidLoad, category
+        )
+        if (id < 0L) {
+            return
+        }
         appScope.launch {
             try {
                 sessionManager.withAutoRefresh { session ->
@@ -179,18 +190,20 @@ class NotificationStore @Inject constructor(
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "deleteNotification failed", e)
-                getMutableForCategory(category)?.update { old ->
-                    if (old.any { it.id == id }) {
-                        old
-                    } else {
-                        val restored = old.toMutableList()
-                        restored.add(removedIndex.coerceIn(0, restored.size), removed)
-                        restored
+                if (currentClanId == deletionClanId) {
+                    getMutableForCategory(category)?.update { old ->
+                        if (old.any { it.id == id }) {
+                            old
+                        } else {
+                            val restored = old.toMutableList()
+                            restored.add(removedIndex.coerceIn(0, restored.size), removed)
+                            restored
+                        }
                     }
+                    notificationCenter.postNotificationOnMainThread(
+                        NotificationCenter.notificationsDidLoad, category
+                    )
                 }
-                notificationCenter.postNotificationOnMainThread(
-                    NotificationCenter.notificationsDidLoad, category
-                )
             }
         }
     }
@@ -202,6 +215,10 @@ class NotificationStore @Inject constructor(
             return _emptyCategory.asStateFlow()
         }
         return flow
+    }
+
+    fun prependLocalNotification(entity: NotificationEntity) {
+        prependToActiveCategory(entity, isLocal = true)
     }
 
     private fun getMutableForCategory(category: Int) = when (category) {
@@ -220,7 +237,48 @@ class NotificationStore @Inject constructor(
         setHasMore(category, hasMore)
         flow.update { old ->
             if (isRefresh) items
-            else (old + items).distinctBy { it.id }.takeLast(VIEWPORT_LIMIT)
+            else {
+                val current = if (category == NOTIF_CATEGORY_MESSAGES) {
+                    old.filterNot { existing ->
+                        existing.id < 0L && items.any { it.hasSameMessageIdentity(existing) }
+                    }
+                } else {
+                    old
+                }
+                (current + items).distinctBy { it.id }.takeLast(VIEWPORT_LIMIT)
+            }
+        }
+    }
+
+    private fun prependToActiveCategory(
+        entity: NotificationEntity,
+        isLocal: Boolean = false
+    ) {
+        val isGlobalMessage = isLocal &&
+            entity.category == NOTIF_CATEGORY_MESSAGES && entity.clanId == 0L
+        if (!isGlobalMessage && (currentClanId == 0L || entity.clanId != currentClanId)) return
+        val flow = getMutableForCategory(entity.category) ?: return
+        var changed = false
+        flow.update { old ->
+            changed = false
+            if (!isLocal && old.any { it.id == entity.id }) return@update old
+            val reconcilesByMessage = entity.category == NOTIF_CATEGORY_MESSAGES
+            val record = if (isLocal && entity.id < 0L && reconcilesByMessage) {
+                old.firstOrNull { it.id > 0L && it.hasSameMessageIdentity(entity) } ?: entity
+            } else {
+                entity
+            }
+            val updated = (listOf(record) + old.filterNot { existing ->
+                existing.id == record.id || existing.id == entity.id ||
+                    reconcilesByMessage && existing.hasSameMessageIdentity(entity)
+            }).take(DB_CACHE_LIMIT)
+            changed = updated != old
+            updated
+        }
+        if (changed) {
+            notificationCenter.postNotificationOnMainThread(
+                NotificationCenter.notificationsDidLoad, entity.category
+            )
         }
     }
 
@@ -295,21 +353,7 @@ class NotificationStore @Inject constructor(
                     notificationDao.trimCategory(category, clanId, DB_CACHE_LIMIT)
                 } catch (_: Exception) {}
             }
-            val activeClanId = currentClanId
-            if (activeClanId == 0L || clanId != activeClanId) return@collect
-            val flow = getMutableForCategory(category) ?: return@collect
-            var inserted = false
-            flow.update { old ->
-                if (old.any { it.id == entity.id }) old
-                else {
-                    inserted = true
-                    (listOf(entity) + old).take(DB_CACHE_LIMIT)
-                }
-            }
-            if (!inserted) return@collect
-            notificationCenter.postNotificationOnMainThread(
-                NotificationCenter.notificationsDidLoad, category
-            )
+            prependToActiveCategory(entity)
         }
     }
 }

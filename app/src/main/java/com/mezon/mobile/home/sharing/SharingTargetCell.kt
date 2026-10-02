@@ -76,7 +76,7 @@ class SharingTargetCell(context: Context, private val theme: ThemeColors) : View
             ChannelAvatarRequest(
                 channelType = t.channelType,
                 avatarUrl = url,
-                avatarId = t.channelId,
+                avatarId = t.avatarId,
                 placeholderKey = placeholderKey,
                 sizePx = AVATAR_SIZE
             ),

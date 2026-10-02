@@ -8,6 +8,8 @@ import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.RectF
+import android.media.AudioAttributes
+import android.media.MediaPlayer
 import android.os.Handler
 import android.os.Looper
 import android.text.Editable
@@ -37,6 +39,7 @@ import com.mezon.mobile.network.KlipyCategory
 import com.mezon.mobile.network.KlipyGif
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.R
+import com.mezon.mobile.util.resolveStickerSourceUrl
 
 private const val TAB_EMOJI = 0
 private const val TAB_GIF = 1
@@ -44,6 +47,7 @@ private const val TAB_STICKER = 2
 private const val SEARCH_DEBOUNCE_MS = 300L
 private const val EMOJI_COLUMNS = 9
 private const val STICKER_COLUMNS = 5
+private const val SOUND_STICKER_COLUMNS = 2
 
 class EmojiView(
     context: Context,
@@ -78,6 +82,7 @@ class EmojiView(
     private val tabGif: TextView
     private val tabSticker: TextView
     private val searchField: EditText
+    private val soundFilterButton: ImageView
     private val contentContainer: FrameLayout
     private val backspaceButton: ImageView
 
@@ -92,6 +97,11 @@ class EmojiView(
     private var gifCategoryGrid: RecyclerListView? = null
     private var emojiAdapter: EmojiGridAdapter? = null
     private var stickerAdapter: StickerGridAdapter? = null
+    private var soundStickerMode = false
+    private var soundPreviewPlayer: MediaPlayer? = null
+    private var soundPreviewId: String? = null
+    private var soundPreviewPrepared = false
+    private var soundPreviewShouldPlay = false
     private var gifCategoryAdapter: GifCategoryAdapter? = null
     private var gifSearchActive = false
     private var gifAdapter: GifGridAdapter? = null
@@ -187,6 +197,29 @@ class EmojiView(
             setImageDrawable(d)
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
+        soundFilterButton = ImageView(context).apply {
+            val d = MezonIcon.voiceWaveDoubleIcon.getDrawable(context).mutate()
+            setImageDrawable(d)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setPadding(LayoutHelper.dp(10f), LayoutHelper.dp(10f), LayoutHelper.dp(10f), LayoutHelper.dp(10f))
+            contentDescription = context.getString(R.string.clan_settings_sound)
+            visibility = View.GONE
+            setOnClickListener {
+                stopSoundPreview()
+                searchRunnable?.let { handler.removeCallbacks(it) }
+                searchRunnable = null
+                soundStickerMode = !soundStickerMode
+                ignoreTextChange = true
+                searchField.text?.clear()
+                ignoreTextChange = false
+                updateSoundFilterAppearance()
+                loadStickerData(useDiff = false) {
+                    updateStickerGridColumns()
+                    (stickerGrid?.layoutManager as? GridLayoutManager)
+                        ?.scrollToPositionWithOffset(0, 0)
+                }
+            }
+        }
         searchBar.addView(searchField, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, LayoutHelper.dp(40f)
         ))
@@ -195,6 +228,9 @@ class EmojiView(
         ).apply {
             leftMargin = LayoutHelper.dp(10f)
         })
+        searchBar.addView(soundFilterButton, FrameLayout.LayoutParams(
+            LayoutHelper.dp(40f), LayoutHelper.dp(40f), Gravity.END or Gravity.CENTER_VERTICAL
+        ))
         root.addView(searchBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT))
 
         categoryHeaderContainer = LinearLayout(context).apply {
@@ -315,10 +351,12 @@ class EmojiView(
             TAB_GIF -> loadGifData()
         }
         backspaceButton.visibility = if (currentTab == TAB_EMOJI) View.VISIBLE else View.GONE
+        updateSoundFilterVisibility()
     }
 
     private fun switchTab(tab: Int) {
         if (currentTab == tab) return
+        if (currentTab == TAB_STICKER) stopSoundPreview()
         currentTab = tab
         updateTabSelection()
         ignoreTextChange = true
@@ -338,6 +376,7 @@ class EmojiView(
             TAB_GIF -> loadGifData()
         }
         backspaceButton.visibility = if (tab == TAB_EMOJI) View.VISIBLE else View.GONE
+        updateSoundFilterVisibility()
     }
 
     private fun updateGifGridVisibility() {
@@ -438,14 +477,22 @@ class EmojiView(
                 contentContainer.addView(emojiGrid, matchLp)
             }
             TAB_STICKER -> if (stickerGrid == null) {
-                stickerAdapter = StickerGridAdapter(themeColors) { sticker ->
-                    if (sticker.isForSale && sticker.src.isBlank()) return@StickerGridAdapter
-                    delegate?.onStickerSelected(sticker, sticker.isAudio)
-                }
-                val lm = GridLayoutManager(context, STICKER_COLUMNS)
+                stickerAdapter = StickerGridAdapter(
+                    themeColors = themeColors,
+                    onStickerClick = { sticker ->
+                        if (sticker.isForSale && sticker.src.isBlank()) return@StickerGridAdapter
+                        if (sticker.isAudio) stopSoundPreview()
+                        delegate?.onStickerSelected(sticker, sticker.isAudio)
+                    },
+                    onSoundPreview = { sticker -> toggleSoundPreview(sticker) }
+                )
+                val lm = GridLayoutManager(
+                    context,
+                    if (soundStickerMode) SOUND_STICKER_COLUMNS else STICKER_COLUMNS
+                )
                 lm.spanSizeLookup = object : GridLayoutManager.SpanSizeLookup() {
                     override fun getSpanSize(position: Int): Int {
-                        return if (stickerAdapter?.isHeader(position) == true) STICKER_COLUMNS else 1
+                        return if (stickerAdapter?.isHeader(position) == true) lm.spanCount else 1
                     }
                 }
                 stickerGrid = RecyclerListView(context).apply {
@@ -579,12 +626,20 @@ class EmojiView(
         emojiAdapter?.setData(data)
     }
 
-    private fun loadStickerData() {
+    private fun loadStickerData(
+        useDiff: Boolean = true,
+        onApplied: (() -> Unit)? = null
+    ) {
         val ctrl = emojiController ?: return
-        val visualOnly = synchronized(ctrl) {
-            ctrl.stickers.filter { !it.isAudio }
+        val items = synchronized(ctrl) {
+            ctrl.stickers.filter { it.isAudio == soundStickerMode }
         }
-        stickerAdapter?.setData(visualOnly)
+        stickerAdapter?.setData(
+            items,
+            includeForSale = !soundStickerMode,
+            useDiff = useDiff,
+            onApplied = onApplied
+        )
     }
 
     private fun performSearch(query: String) {
@@ -604,7 +659,15 @@ class EmojiView(
         }
         when (currentTab) {
             TAB_EMOJI -> emojiAdapter?.setSearchResults(ctrl.searchEmojis(query))
-            TAB_STICKER -> stickerAdapter?.setSearchResults(ctrl.searchStickers(query))
+            TAB_STICKER -> {
+                val results = synchronized(ctrl) {
+                    ctrl.stickers.filter {
+                        it.isAudio == soundStickerMode &&
+                            it.shortname.contains(query, ignoreCase = true)
+                    }
+                }
+                stickerAdapter?.setSearchResults(results)
+            }
             TAB_GIF -> {
                 gifSearchActive = true
                 updateGifGridVisibility()
@@ -640,6 +703,95 @@ class EmojiView(
             TAB_STICKER -> context.getString(R.string.emoji_search_sticker_placeholder)
             else -> context.getString(R.string.common_search)
         }
+    }
+
+    private fun updateSoundFilterVisibility() {
+        val show = currentTab == TAB_STICKER
+        soundFilterButton.visibility = if (show) View.VISIBLE else View.GONE
+        val params = searchField.layoutParams as FrameLayout.LayoutParams
+        params.rightMargin = if (show) LayoutHelper.dp(48f) else 0
+        searchField.layoutParams = params
+        updateSoundFilterAppearance()
+    }
+
+    private fun updateSoundFilterAppearance() {
+        val backgroundColor = if (soundStickerMode) themeColors.primary else themeColors.secondaryLight
+        soundFilterButton.background = android.graphics.drawable.GradientDrawable().apply {
+            setColor(backgroundColor)
+            cornerRadius = LayoutHelper.dp(10f).toFloat()
+        }
+        soundFilterButton.drawable?.colorFilter = PorterDuffColorFilter(
+            if (soundStickerMode) themeColors.onPrimary else themeColors.onSurface,
+            PorterDuff.Mode.SRC_IN
+        )
+    }
+
+    private fun updateStickerGridColumns() {
+        val manager = stickerGrid?.layoutManager as? GridLayoutManager ?: return
+        manager.spanCount = if (soundStickerMode) SOUND_STICKER_COLUMNS else STICKER_COLUMNS
+    }
+
+    private fun toggleSoundPreview(sticker: StickerItem) {
+        val source = resolveStickerSourceUrl(sticker.id, sticker.src).trim()
+        if (!source.startsWith("http://", true) && !source.startsWith("https://", true)) return
+        if (soundPreviewId == sticker.id) {
+            soundPreviewShouldPlay = !soundPreviewShouldPlay
+            if (soundPreviewPrepared) {
+                try {
+                    if (soundPreviewShouldPlay) {
+                        soundPreviewPlayer?.start()
+                    } else {
+                        soundPreviewPlayer?.pause()
+                    }
+                } catch (_: IllegalStateException) {
+                    stopSoundPreview()
+                    return
+                }
+            }
+            stickerAdapter?.setPlayingSoundId(if (soundPreviewShouldPlay) sticker.id else null)
+            return
+        }
+
+        stopSoundPreview(updateUi = false)
+        soundPreviewId = sticker.id
+        soundPreviewPrepared = false
+        soundPreviewShouldPlay = true
+        stickerAdapter?.setPlayingSoundId(sticker.id)
+        try {
+            soundPreviewPlayer = MediaPlayer().apply {
+                setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .build()
+                )
+                setOnPreparedListener {
+                    soundPreviewPrepared = true
+                    if (soundPreviewShouldPlay) it.start()
+                }
+                setOnCompletionListener { stopSoundPreview() }
+                setOnErrorListener { _, _, _ ->
+                    stopSoundPreview()
+                    true
+                }
+                setDataSource(source)
+                prepareAsync()
+            }
+        } catch (_: Exception) {
+            stopSoundPreview()
+        }
+    }
+
+    private fun stopSoundPreview(updateUi: Boolean = true) {
+        soundPreviewPlayer?.setOnPreparedListener(null)
+        soundPreviewPlayer?.setOnCompletionListener(null)
+        soundPreviewPlayer?.setOnErrorListener(null)
+        soundPreviewPlayer?.release()
+        soundPreviewPlayer = null
+        soundPreviewId = null
+        soundPreviewPrepared = false
+        soundPreviewShouldPlay = false
+        if (updateUi) stickerAdapter?.setPlayingSoundId(null)
     }
 
     fun clearSearchFocus() {
@@ -790,10 +942,16 @@ class EmojiView(
     }
 
     override fun onDetachedFromWindow() {
+        stopSoundPreview()
         super.onDetachedFromWindow()
         searchRunnable?.let { handler.removeCallbacks(it) }
         velocityTracker?.recycle()
         velocityTracker = null
+    }
+
+    override fun onVisibilityChanged(changedView: View, visibility: Int) {
+        super.onVisibilityChanged(changedView, visibility)
+        if (changedView === this && visibility != View.VISIBLE) stopSoundPreview()
     }
 
     private class DragHandleView(context: Context, themeColors: ThemeColors) : View(context) {

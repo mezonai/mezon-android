@@ -11,6 +11,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.home.chat.isAudioAttachmentType
 import com.mezon.mobile.ui.cells.MezonIcon
 
 class ChannelFileDocumentRowView(
@@ -63,7 +64,12 @@ class ChannelFileDocumentRowView(
         timeLabel: String
     ) {
         iconView.clearColorFilter()
-        iconView.setImageDrawable(MezonIcon.fileIconNew.getDrawable(context))
+        val icon = if (isAudioAttachmentType(item.filetype)) {
+            MezonIcon.musicNoteIcon.getDrawable(context, theme.onSurface)
+        } else {
+            MezonIcon.fileIconNew.getDrawable(context)
+        }
+        iconView.setImageDrawable(icon)
         nameView.text = item.filename
         nameView.setTextColor(theme.blurple)
         nameView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14f)

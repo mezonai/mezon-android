@@ -8,6 +8,7 @@ import com.mezon.mezon.api.User
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
+import com.mezon.mobile.home.clans.ClanMemberCountStore
 import com.mezon.mobile.network.ApiCacheTracker
 import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.network.SocketEventDispatcher
@@ -23,6 +24,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 private const val TAG = "UserClanController"
+private const val LIST_CLAN_USERS_CAP = 1000
 
 data class ClanUser(
     val id: Long,
@@ -51,6 +53,7 @@ class UserClanController @Inject constructor(
     private val notificationCenter: NotificationCenter,
     private val cacheTracker: ApiCacheTracker,
     private val socketEventDispatcher: SocketEventDispatcher,
+    private val clanMemberCountStore: ClanMemberCountStore,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     @ApplicationScope private val appScope: CoroutineScope
 ) {
@@ -136,23 +139,46 @@ class UserClanController @Inject constructor(
     }
 
     private val membersByClan = LongSparseArray<List<ClanMember>>()
+    private val rosterCappedClans = HashSet<Long>()
+    private val inFlightLoads = HashSet<String>()
+
+    private fun beginLoad(key: String): Boolean = synchronized(this) { inFlightLoads.add(key) }
+
+    private fun endLoad(key: String) {
+        synchronized(this) { inFlightLoads.remove(key) }
+    }
 
     fun getClanMembers(clanId: Long): List<ClanMember> {
         synchronized(this) { return membersByClan[clanId] ?: emptyList() }
     }
 
     fun getClanMemberCount(clanId: Long): Int {
-        synchronized(this) { return membersByClan[clanId]?.size ?: 0 }
+        val loadedCount = synchronized(this) { membersByClan[clanId]?.size }
+        return loadedCount ?: clanMemberCountStore.get(clanId)
     }
 
     fun hasClanMembersCache(clanId: Long): Boolean {
         synchronized(this) { return membersByClan.indexOfKey(clanId) >= 0 }
     }
 
+    fun isClanRosterCapped(clanId: Long): Boolean {
+        synchronized(this) { return clanId in rosterCappedClans }
+    }
+
+    fun hasClanMemberCount(clanId: Long): Boolean {
+        return hasClanMembersCache(clanId) || clanMemberCountStore.get(clanId) > 0
+    }
+
+    private fun rememberClanMemberCount(clanId: Long) {
+        val count = synchronized(this) { membersByClan[clanId]?.size } ?: return
+        clanMemberCountStore.save(clanId, count)
+    }
+
     fun clearClanMembersCache(clanId: Long) {
         synchronized(this) {
             val ix = membersByClan.indexOfKey(clanId)
             if (ix >= 0) membersByClan.removeAt(ix)
+            rosterCappedClans.remove(clanId)
         }
     }
 
@@ -174,6 +200,7 @@ class UserClanController @Inject constructor(
             }
         }
         if (changed) {
+            rememberClanMemberCount(clanId)
             notificationCenter.postNotificationOnMainThread(NotificationCenter.clanMembersDidLoad, clanId)
         }
     }
@@ -193,6 +220,7 @@ class UserClanController @Inject constructor(
                 }
             }
             if (changed) {
+                rememberClanMemberCount(clanId)
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.clanMembersDidLoad, clanId)
             }
         }
@@ -286,28 +314,40 @@ class UserClanController @Inject constructor(
                 synchronized(this@UserClanController) { hasCache = membersByClan[clanId] != null }
 
                 if (hasCache && cacheTracker.shouldCall(cacheKey, noCache = noCache) == ApiCacheTracker.ShouldCall.SKIP) return@launch
+                val guarded = !noCache
+                if (guarded && !beginLoad(cacheKey)) return@launch
 
-                sessionManager.withAutoRefresh { session ->
-                    val response = api.listClanUsers(session.apiUrl, session.token, clanId)
-                    val clanUsers = response.clanUsersList
+                try {
+                    sessionManager.withAutoRefresh { session ->
+                        val response = api.listClanUsers(session.apiUrl, session.token, clanId)
+                        val clanUsers = response.clanUsersList
 
-                    val members = ArrayList<ClanMember>(clanUsers.size)
-                    val seen = HashSet<Long>(clanUsers.size)
-                    for (cu in clanUsers) {
-                        val user = cu.user ?: continue
-                        if (user.id in seen) continue
-                        seen.add(user.id)
-                        members.add(cu.toClanMember())
+                        val members = ArrayList<ClanMember>(clanUsers.size)
+                        val seen = HashSet<Long>(clanUsers.size)
+                        for (cu in clanUsers) {
+                            val user = cu.user ?: continue
+                            if (user.id in seen) continue
+                            seen.add(user.id)
+                            members.add(cu.toClanMember())
+                        }
+
+                        synchronized(this@UserClanController) {
+                            membersByClan.put(clanId, members)
+                            if (clanUsers.size >= LIST_CLAN_USERS_CAP) {
+                                rosterCappedClans.add(clanId)
+                            } else {
+                                rosterCappedClans.remove(clanId)
+                            }
+                        }
+                        clanMemberCountStore.save(clanId, members.size)
+
+                        cacheTracker.markCalled(cacheKey)
+                        notificationCenter.postNotificationOnMainThread(
+                            NotificationCenter.clanMembersDidLoad, clanId
+                        )
                     }
-
-                    synchronized(this@UserClanController) {
-                        membersByClan.put(clanId, members)
-                    }
-
-                    cacheTracker.markCalled(cacheKey)
-                    notificationCenter.postNotificationOnMainThread(
-                        NotificationCenter.clanMembersDidLoad, clanId
-                    )
+                } finally {
+                    if (guarded) endLoad(cacheKey)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "loadClanMembers failed for clan $clanId", e)
@@ -345,46 +385,53 @@ class UserClanController @Inject constructor(
                 if (hasCache && cacheTracker.shouldCall(cacheKey, noCache = noCache) == ApiCacheTracker.ShouldCall.SKIP) {
                     return@launch
                 }
+                val guarded = !noCache
+                if (guarded && !beginLoad(cacheKey)) return@launch
 
-                sessionManager.withAutoRefresh { session ->
-                    val response = api.listChannelUsers(session.apiUrl, session.token, clanId, channelId, channelType)
-                    val channelUsers = response.channelUsersList
+                try {
+                    sessionManager.withAutoRefresh { session ->
+                        val response = api.listChannelUsers(session.apiUrl, session.token, clanId, channelId, channelType)
+                        val channelUsers = response.channelUsersList
 
-                    val clanMembers = getClanMembers(clanId)
-                    val clanMemberDict = HashMap<Long, ClanMember>(clanMembers.size)
-                    for (m in clanMembers) clanMemberDict[m.userId] = m
+                        val clanMembers = getClanMembers(clanId)
+                        val clanMemberDict = HashMap<Long, ClanMember>(clanMembers.size)
+                        for (m in clanMembers) clanMemberDict[m.userId] = m
 
-                    val members = ArrayList<ClanMember>(channelUsers.size)
-                    val seen = HashSet<Long>(channelUsers.size)
-                    for (cu in channelUsers) {
-                        if (cu.userId in seen) continue
-                        seen.add(cu.userId)
-                        val existing = clanMemberDict[cu.userId]
-                        if (existing != null) {
-                            members.add(existing)
-                        } else {
-                            members.add(ClanMember(
-                                userId = cu.userId,
-                                username = "",
-                                displayName = cu.clanNick.ifBlank { "" },
-                                avatarUrl = cu.clanAvatar,
-                                isOnline = false,
-                                clanNick = cu.clanNick,
-                                clanAvatar = cu.clanAvatar,
-                                clanId = clanId,
-                                roleIds = cu.roleIdList
-                            ))
+                        val members = ArrayList<ClanMember>(channelUsers.size)
+                        val seen = HashSet<Long>(channelUsers.size)
+                        for (cu in channelUsers) {
+                            if (cu.userId in seen) continue
+                            seen.add(cu.userId)
+                            val existing = clanMemberDict[cu.userId]
+                            if (existing != null) {
+                                members.add(existing)
+                            } else {
+                                val known = getUserById(cu.userId)
+                                members.add(ClanMember(
+                                    userId = cu.userId,
+                                    username = known?.username.orEmpty(),
+                                    displayName = cu.clanNick.ifBlank { known?.displayName.orEmpty() },
+                                    avatarUrl = cu.clanAvatar.ifBlank { known?.avatarUrl.orEmpty() },
+                                    isOnline = known?.isOnline ?: false,
+                                    clanNick = cu.clanNick,
+                                    clanAvatar = cu.clanAvatar,
+                                    clanId = clanId,
+                                    roleIds = cu.roleIdList
+                                ))
+                            }
                         }
-                    }
 
-                    synchronized(this@UserClanController) {
-                        membersByChannel.put(channelId, members)
-                    }
+                        synchronized(this@UserClanController) {
+                            membersByChannel.put(channelId, members)
+                        }
 
-                    cacheTracker.markCalled(cacheKey)
-                    notificationCenter.postNotificationOnMainThread(
-                        NotificationCenter.channelMembersDidLoad, channelId
-                    )
+                        cacheTracker.markCalled(cacheKey)
+                        notificationCenter.postNotificationOnMainThread(
+                            NotificationCenter.channelMembersDidLoad, channelId
+                        )
+                    }
+                } finally {
+                    if (guarded) endLoad(cacheKey)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "loadChannelMembers failed for channel $channelId", e)
@@ -491,6 +538,7 @@ class UserClanController @Inject constructor(
             notificationCenter.postNotificationOnMainThread(NotificationCenter.channelMembersDidLoad, channelId)
         }
         if (clanMembersChanged) {
+            rememberClanMemberCount(clanId)
             notificationCenter.postNotificationOnMainThread(NotificationCenter.clanMembersDidLoad, clanId)
         }
     }
@@ -520,9 +568,11 @@ class UserClanController @Inject constructor(
             usersDict.clear()
             loaded = false
             membersByClan.clear()
+            rosterCappedClans.clear()
             membersByChannel.clear()
             directMembersByChannel.clear()
         }
+        clanMemberCountStore.clear()
     }
 
     private fun AllUsersAddChannelResponse.toDirectChannelMembers(clanId: Long): List<ClanMember> {

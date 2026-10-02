@@ -1,8 +1,12 @@
 package com.mezon.mobile.home.clans
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.net.Uri
 import android.os.Bundle
 import android.text.format.DateFormat
 import android.view.Gravity
@@ -14,9 +18,12 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
+import android.widget.Toast
 import androidx.core.widget.NestedScrollView
+import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AndroidUtilities
+import com.mezon.mobile.core.AlertsCreator
 import com.mezon.mobile.core.BottomSheet
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
@@ -24,7 +31,6 @@ import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.chat.MezonImageLoader
-import com.mezon.mobile.home.profile.AccountController
 import com.mezon.mobile.ui.cells.AvatarView
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.util.avatarImgproxyUrl
@@ -39,11 +45,12 @@ class ClanEventBottomSheet(
     private val notificationCenter: NotificationCenter,
     private val clanEventController: ClanEventController,
     private val userClanController: UserClanController,
-    private val accountController: AccountController,
     private val clanId: Long,
     private val onCreateEvent: Runnable,
     private val onOpenEventDetail: (ClanEventEntity) -> Unit,
     private val onOpenChannel: (ClanChannelEntity) -> Unit,
+    private val onEditEvent: (ClanEventEntity) -> Unit,
+    private val onInviteExternalEvent: (String) -> Unit,
 ) : BottomSheet(context) {
 
     private val logoLoadTokens = ArrayList<MezonImageLoader.Cancellable>()
@@ -86,6 +93,8 @@ class ClanEventBottomSheet(
     private lateinit var headerLayout: FrameLayout
     private var eventScrollView: NestedScrollView
     private var swipeDismissFromHeader = false
+    private var hiddenForNavigation = false
+    private var endingEvent = false
 
     init {
         containerHeight = (AndroidUtilities.displaySize.y * 0.8f).toInt()
@@ -127,16 +136,18 @@ class ClanEventBottomSheet(
             logoLoadTokens.clear()
             notificationCenter.removeObserver(eventsLoadedObserver, NotificationCenter.clanEventsDidLoad)
             notificationCenter.removeObserver(membersLoadedObserver, NotificationCenter.clanMembersDidLoad)
+            notificationCenter.removeObserver(membersLoadedObserver, NotificationCenter.clanRolesDidLoad)
         }
         notificationCenter.addObserver(eventsLoadedObserver, NotificationCenter.clanEventsDidLoad)
         notificationCenter.addObserver(membersLoadedObserver, NotificationCenter.clanMembersDidLoad)
+        notificationCenter.addObserver(membersLoadedObserver, NotificationCenter.clanRolesDidLoad)
         loadClanEvent()
     }
 
     fun loadClanEvent() {
         logoLoadTokens.forEach { it.cancel() }
         logoLoadTokens.clear()
-        val userId = accountController.accountInfo.value.userId
+        val userId = clanEventController.currentUserId()
         val events = clanEventController.visibleEvents(clanId, userId)
         val loading = clanEventController.isLoading(clanId)
         val loadError = clanEventController.getLoadError(clanId)
@@ -146,7 +157,6 @@ class ClanEventBottomSheet(
         listContainer.visibility = if (events.isNotEmpty()) View.VISIBLE else View.GONE
         emptyView.visibility = if (!loading && loadError == null && events.isEmpty()) View.VISIBLE else View.GONE
         updateHeaderCount(events.size)
-        val dividerColor = theme.outlineVariant
         events.forEachIndexed { index, event ->
             val creator = userClanController.getClanMembers(clanId).firstOrNull { it.userId == event.creatorId }
             val voiceChannel = clanEventController.getChannel(clanId, event.channelVoiceId)
@@ -161,7 +171,6 @@ class ClanEventBottomSheet(
                     voiceChannel,
                     linkedChannel,
                     onOpen = {
-                        dismiss()
                         onOpenEventDetail(event)
                     },
                     onOpenChannel = { channel ->
@@ -172,17 +181,66 @@ class ClanEventBottomSheet(
                         val interested = !event.isInterested(userId)
                         clanEventController.setInterested(clanId, event.id, interested) { _, _ -> }
                     },
+                    onEndEvent = if (clanEventController.canEndEvent(event)) {
+                        { confirmEndEvent(event) }
+                    } else null,
+                    onEdit = if (clanEventController.canModifyEvent(event)) {
+                        {
+                            val latest = clanEventController.getEvent(clanId, event.id)
+                            if (latest != null && clanEventController.canModifyEvent(latest)) {
+                                onEditEvent(latest)
+                            }
+                        }
+                    } else null,
+                    onInviteExternalEvent = onInviteExternalEvent,
                     onLogoLoadToken = { logoLoadTokens.add(it) },
                 ),
-                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT),
+                LayoutHelper.createLinear(
+                    LayoutHelper.MATCH_PARENT,
+                    LayoutHelper.WRAP_CONTENT,
+                    0f,
+                    Gravity.NO_GRAVITY,
+                    0f,
+                    0f,
+                    0f,
+                    if (index < events.lastIndex) 10f else 0f,
+                ),
             )
-            if (index < events.lastIndex) {
-                listContainer.addView(
-                    View(context).apply { setBackgroundColor(dividerColor) },
-                    LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 1, 0f, Gravity.NO_GRAVITY, 0f, 4f, 0f, 4f),
-                )
-            }
         }
+    }
+
+    private fun confirmEndEvent(event: ClanEventEntity) {
+        val latest = clanEventController.getEvent(clanId, event.id) ?: return
+        if (endingEvent || !clanEventController.canEndEvent(latest)) return
+        AlertsCreator.createConfirmDialog(
+            context = context,
+            title = context.getString(R.string.clan_event_delete_confirm_title),
+            message = context.getString(R.string.clan_event_delete_confirm_message),
+            confirmText = context.getString(R.string.clan_event_menu_cancel),
+            cancelText = context.getString(R.string.common_cancel),
+            destructive = true,
+            onConfirm = {
+                endingEvent = true
+                clanEventController.deleteEvent(clanId, latest.id, latest.creatorId, latest.title, latest.channelId) { success, error ->
+                    endingEvent = false
+                    val message = if (success) context.getString(R.string.clan_event_delete_success)
+                        else error ?: context.getString(R.string.clan_event_delete_failed)
+                    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                }
+            },
+        ).show()
+    }
+
+    fun hideForNavigation() {
+        if (isDismissed() || hiddenForNavigation) return
+        hiddenForNavigation = true
+        window?.decorView?.visibility = View.GONE
+    }
+
+    fun restoreAfterNavigation() {
+        if (isDismissed() || !hiddenForNavigation) return
+        hiddenForNavigation = false
+        window?.decorView?.visibility = View.VISIBLE
     }
 
     override fun canDismissWithSwipe(): Boolean = swipeDismissFromHeader
@@ -239,7 +297,6 @@ class ClanEventBottomSheet(
                 isClickable = true
                 isFocusable = true
                 setOnClickListener {
-                    dismiss()
                     onCreateEvent.run()
                 }
             },
@@ -497,21 +554,21 @@ class ClanEventBottomSheet(
         }
     }
 
-    private fun eventBadgeLabel(context: Context, event: ClanEventEntity): String? = when {
+    private fun eventBadgeLabel(context: Context, event: ClanEventEntity): String = when {
         event.isPrivate -> context.getString(R.string.clan_event_badge_private)
         event.channelId != 0L -> context.getString(R.string.clan_event_badge_channel)
         else -> context.getString(R.string.clan_event_badge_clan)
     }
 
-    private fun eventBadgeColor(theme: ThemeColors, event: ClanEventEntity): Int = when {
-        event.isPrivate -> theme.onSurfaceVariant
+    private fun eventBadgeColor(event: ClanEventEntity): Int = when {
+        event.isPrivate -> 0xFFEF4444.toInt()
         event.channelId != 0L -> 0xFFF97316.toInt()
-        else -> theme.blurple
+        else -> 0xFF3B82F6.toInt()
     }
 
-    private fun buildEventBadge(context: Context, theme: ThemeColors, event: ClanEventEntity): TextView {
+    private fun buildEventBadge(context: Context, event: ClanEventEntity): TextView {
         return TextView(context).apply {
-            text = eventBadgeLabel(context, event).orEmpty()
+            text = eventBadgeLabel(context, event)
             textSize = 11f
             setTextColor(0xFFFFFFFF.toInt())
             typeface = Typeface.DEFAULT_BOLD
@@ -520,7 +577,7 @@ class ClanEventBottomSheet(
             setPadding(padH, padV, padH, padV)
             background = GradientDrawable().apply {
                 cornerRadius = LayoutHelper.dp(6f).toFloat()
-                setColor(eventBadgeColor(theme, event))
+                setColor(eventBadgeColor(event))
             }
         }
     }
@@ -569,6 +626,45 @@ class ClanEventBottomSheet(
         }
     }
 
+    private fun externalEventUrl(event: ClanEventEntity): String? {
+        if (!event.isPrivate || event.externalLink.isBlank()) return null
+        val baseUrl = BuildConfig.MEZON_REDIRECT_URI.trimEnd('/')
+        return "$baseUrl/${event.externalLink.trimStart('/')}"
+    }
+
+    private fun openExternalEvent(url: String) {
+        runCatching {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        }.onFailure {
+            Toast.makeText(context, R.string.qr_external_link_open_failed, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun copyExternalEventLink(url: String) {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("external_event", url))
+        Toast.makeText(context, R.string.invite_link_copied, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun buildExternalEventAction(label: String, onClick: () -> Unit): TextView {
+        return TextView(context).apply {
+            text = label
+            textSize = 13f
+            setTextColor(theme.textLink)
+            gravity = Gravity.CENTER
+            maxLines = 2
+            minHeight = LayoutHelper.dp(40)
+            setPadding(LayoutHelper.dp(4), LayoutHelper.dp(4), LayoutHelper.dp(4), LayoutHelper.dp(4))
+            background = GradientDrawable().apply {
+                cornerRadius = LayoutHelper.dpf(8f)
+                setStroke(LayoutHelper.dp(1), theme.outlineVariant)
+            }
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { onClick() }
+        }
+    }
+
     private fun buildEventRow(
         context: Context,
         theme: ThemeColors,
@@ -580,12 +676,19 @@ class ClanEventBottomSheet(
         onOpen: () -> Unit,
         onOpenChannel: (ClanChannelEntity) -> Unit,
         onToggleInterest: () -> Unit,
+        onEndEvent: (() -> Unit)?,
+        onEdit: (() -> Unit)?,
+        onInviteExternalEvent: (String) -> Unit,
         onLogoLoadToken: (MezonImageLoader.Cancellable) -> Unit,
     ): View {
         val pad = LayoutHelper.dp(16)
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(theme.surface)
+            background = GradientDrawable().apply {
+                cornerRadius = LayoutHelper.dpf(12f)
+                setColor(theme.secondaryLight)
+                setStroke(LayoutHelper.dp(1), theme.outlineVariant)
+            }
         }
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -697,12 +800,10 @@ class ClanEventBottomSheet(
             isFocusable = true
             setOnClickListener(openClick)
         }
-        if (eventBadgeLabel(context, event) != null) {
-            titleBlock.addView(
-                buildEventBadge(context, theme, event),
-                LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.START, 0f, 0f, 0f, 6f),
-            )
-        }
+        titleBlock.addView(
+            buildEventBadge(context, event),
+            LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.START, 0f, 0f, 0f, 6f),
+        )
         titleBlock.addView(
             TextView(context).apply {
                 text = event.title
@@ -747,15 +848,102 @@ class ClanEventBottomSheet(
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 0f, 0f, 10f),
         )
 
+        if (event.isPrivate) {
+            content.addView(TextView(context).apply {
+                text = context.getString(R.string.event_creator_type_private_desc)
+                textSize = 13f
+                setTextColor(theme.onSurfaceVariant)
+            }, LayoutHelper.createLinear(
+                LayoutHelper.MATCH_PARENT,
+                LayoutHelper.WRAP_CONTENT,
+                0f,
+                Gravity.START,
+                0f,
+                2f,
+                0f,
+                0f,
+            ))
+
+            externalEventUrl(event)?.let { url ->
+                val externalActions = LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                }
+                externalActions.addView(
+                    buildExternalEventAction(context.getString(R.string.qr_external_link_open)) {
+                        openExternalEvent(url)
+                    },
+                    LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f).apply {
+                        marginEnd = LayoutHelper.dp(4)
+                    },
+                )
+                externalActions.addView(
+                    buildExternalEventAction(context.getString(R.string.clan_event_invite_action)) {
+                        onInviteExternalEvent(url)
+                    },
+                    LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f).apply {
+                        marginStart = LayoutHelper.dp(4)
+                        marginEnd = LayoutHelper.dp(4)
+                    },
+                )
+                externalActions.addView(
+                    buildExternalEventAction(context.getString(R.string.channel_menu_copy_link)) {
+                        copyExternalEventLink(url)
+                    },
+                    LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f).apply {
+                        marginStart = LayoutHelper.dp(4)
+                    },
+                )
+                content.addView(
+                    externalActions,
+                    LayoutHelper.createLinear(
+                        LayoutHelper.MATCH_PARENT,
+                        LayoutHelper.WRAP_CONTENT,
+                        0f,
+                        Gravity.NO_GRAVITY,
+                        0f,
+                        12f,
+                        0f,
+                        0f,
+                    ),
+                )
+            }
+        }
+
         val interested = event.isInterested(currentUserId)
+        val actions = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        if (onEdit != null) {
+            actions.addView(
+                buildEventActionChip(context, theme, MezonIcon.pencilIcon,
+                    context.getString(R.string.clan_event_menu_edit), onEdit),
+                LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f).apply {
+                    marginEnd = LayoutHelper.dp(8)
+                },
+            )
+        }
+        if (status != ClanEventStatus.ONGOING) {
+            actions.addView(
+                buildEventActionChip(
+                    context,
+                    theme,
+                    if (interested) MezonIcon.eventBellSlashIcon else MezonIcon.eventBellIcon,
+                    if (interested) context.getString(R.string.clan_event_uninterested) else context.getString(R.string.clan_event_interested),
+                    onToggleInterest,
+                ),
+                LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f),
+            )
+        } else if (onEndEvent != null) {
+            actions.addView(
+                buildEventActionChip(context, theme, MezonIcon.closeIcon, context.getString(R.string.clan_event_end), onEndEvent),
+                LinearLayout.LayoutParams(0, LayoutHelper.WRAP_CONTENT, 1f),
+            )
+        }
+        actions.visibility = if (actions.childCount == 0) View.GONE else View.VISIBLE
         content.addView(
-            buildEventActionChip(
-                context,
-                theme,
-                if (interested) MezonIcon.bellSlashIcon else MezonIcon.bellIcon,
-                if (interested) context.getString(R.string.clan_event_uninterested) else context.getString(R.string.clan_event_interested),
-                onToggleInterest,
-            ),
+            actions,
             LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.NO_GRAVITY, 0f, 12f, 0f, 8f),
         )
         root.addView(

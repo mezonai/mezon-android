@@ -9,6 +9,20 @@ plugins {
     alias(libs.plugins.google.services)
 }
 
+val onnxruntimeNative by configurations.creating
+val extractOnnxruntimeNative by tasks.registering(Sync::class) {
+    from(provider { zipTree(onnxruntimeNative.singleFile) }) {
+        include("headers/**", "jni/**")
+    }
+    into(layout.buildDirectory.dir("onnxruntime-native"))
+}
+
+tasks.configureEach {
+    if (name.startsWith("configureCMake") || name.startsWith("buildCMake")) {
+        dependsOn(extractOnnxruntimeNative)
+    }
+}
+
 val mezonSecretsFile = rootProject.file("mezon.secrets.properties")
 if (!mezonSecretsFile.exists()) {
     throw GradleException(
@@ -22,6 +36,7 @@ val mezonSecrets: Properties = Properties().apply {
 android {
     namespace = "com.mezon.mobile"
     compileSdk = 36
+    ndkVersion = "28.1.13356709"
 
     val signingPropsFile = rootProject.file("signing.properties")
     val signingProps = Properties().apply {
@@ -39,8 +54,13 @@ android {
         applicationId = "com.mezon.mobile"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1121
-        versionName = "1.1.200"
+        externalNativeBuild {
+            cmake {
+                arguments += "-DONNXRUNTIME_ROOT=${layout.buildDirectory.get().asFile}/onnxruntime-native"
+            }
+        }
+        versionCode = 1194
+        versionName = "1.2.10"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -75,11 +95,29 @@ android {
         fun buildInt(name: String) {
             buildConfigField("int", name, req(name))
         }
+        fun buildIntOpt(name: String, fallback: Int) {
+            val v = mezonSecrets.getProperty(name)?.trim()?.toIntOrNull()
+            buildConfigField("int", name, (v ?: fallback).toString())
+        }
+        fun buildBoolOpt(name: String, fallback: Boolean) {
+            val v = mezonSecrets.getProperty(name)?.trim()?.lowercase()
+            val lit = when (v) {
+                "true", "1", "yes" -> "true"
+                "false", "0", "no" -> "false"
+                null, "" -> fallback.toString()
+                else -> error("Invalid boolean for $name: $v (use true/false in mezon.secrets.properties)")
+            }
+            buildConfigField("Boolean", name, lit)
+        }
 
         buildStr("MEZON_GATEWAY_URL")
         buildStr("MEZON_API_HOST")
         buildStr("MEZON_API_PORT")
         buildBool("MEZON_API_SECURE")
+        buildIntOpt("MEZON_TCP_PORT", 443)
+        buildBoolOpt("MEZON_ABRIDGED_FALLBACK", true)
+        buildBoolOpt("MEZON_ENDPOINT_FAILOVER", true)
+        buildBoolOpt("MEZON_ENDPOINT_FAILOVER_SLOW", false)
         buildStr("MEZON_API_KEY")
         buildStr("MEZON_API_CLIENT_KEY_CUSTOM")
         buildStr("MEZON_DOMAIN_URL")
@@ -103,14 +141,18 @@ android {
         buildStr("MEZON_FCM_MEASUREMENT_ID")
         buildStr("MEZON_FCM_VAPID_KEY")
         buildStr("MEZON_MEET_WS_URL")
+        buildStr("MEZON_SFU_WS_URL")
         buildStr("MEZON_WEBRTC_ICESERVERS_URL")
         buildStr("MEZON_WEBRTC_ICESERVERS_USERNAME")
         buildStr("MEZON_WEBRTC_ICESERVERS_CREDENTIAL")
-        buildStr("MEZON_STREAM_WS_URL")
         buildStr("MEZON_BASE_IMG_URL")
         buildStr("MEZON_LOGO_URL")
         buildStr("MEZON_IMGPROXY_BASE_URL")
         buildStr("MEZON_IMGPROXY_KEY")
+        buildStrOpt("MEZON_STATIC_MAP_URL_TEMPLATE", "")
+        buildStrOpt("MEZON_STATIC_MAP_URL_TEMPLATE_DARK", "")
+        buildStrOpt("MEZON_MAP_TILE_URL_TEMPLATE", "")
+        buildStrOpt("MEZON_MAP_TILE_URL_TEMPLATE_DARK", "")
         buildStr("KLIPY_API_URL")
         buildStr("KLIPY_API_KEY")
         buildStr("MEZON_SENTRY_DSN")
@@ -120,6 +162,7 @@ android {
         buildStr("MEZON_TREASURY_URL_NETWORK")
         buildStr("MEZON_CONTRACT_ADDRESS")
         buildStr("MEZON_ANONYMOUS_USER_ID")
+        buildStrOpt("MEZON_VOICE_AGENT_ID", "2037383744142184448")
         buildInt("MEZON_MAX_LENGTH_NAME_ALLOWED")
         buildStr("MEZON_MMN_API_URL")
         buildStr("MEZON_DONG_API_URL")
@@ -144,6 +187,9 @@ android {
                 storePassword = signingProp("MYAPP_RELEASE_STORE_PASSWORD")
                 keyAlias = signingProp("MYAPP_RELEASE_KEY_ALIAS")
                 keyPassword = signingProp("MYAPP_RELEASE_KEY_PASSWORD")
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
             }
         }
     }
@@ -176,6 +222,12 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
     testOptions {
         unitTests.isReturnDefaultValues = true
     }
@@ -188,6 +240,8 @@ kotlin {
 }
 
 dependencies {
+    onnxruntimeNative("com.microsoft.onnxruntime:onnxruntime-android:1.20.0")
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.20.0")
     val usePrebuiltLocalModules = providers.gradleProperty("mezon.usePrebuiltLocalModules")
         .map(String::toBoolean)
         .getOrElse(false)
@@ -254,8 +308,8 @@ dependencies {
     // Lottie for animated stickers (TGS)
     implementation("com.airbnb.android:lottie:6.4.0")
 
-    // LiveKit (voice/video channels)
-    implementation(libs.livekit.android)
+    // AudioSwitch (audio device routing)
+    implementation(libs.twilio.audioswitch)
     implementation(libs.photoview)
     implementation(libs.androidx.appcompat)
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")

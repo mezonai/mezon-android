@@ -37,7 +37,6 @@ class ChannelItemCell(
         private val activeBgRectF = RectF()
 
         private const val MUTED_CONTENT_ALPHA = 0.6f
-        private const val VOICE_ACTIVE_GREEN = 0xFF16A34A.toInt()
 
         private val ACTIVE_RADIUS = LayoutHelper.dp(6).toFloat()
         private val ACTIVE_INSET = LayoutHelper.dp(2).toFloat()
@@ -75,10 +74,10 @@ class ChannelItemCell(
     private var cachedIconColorFilter: PorterDuffColorFilter? = null
     private var cachedIconColor: Int = 0
     private val eventIcon = ChannelEventIcon(context)
-    private val voiceActiveColorFilter = PorterDuffColorFilter(VOICE_ACTIVE_GREEN, PorterDuff.Mode.SRC_IN)
+    private val voiceActiveColorFilter = PorterDuffColorFilter(themeColors.voiceActiveGreen, PorterDuff.Mode.SRC_IN)
     private val badgeRectF = RectF()
 
-    private val cellHeightPx = LayoutHelper.dp(37)
+    private val cellHeightPx = LayoutHelper.dp(34)
     private val paddingHPx = LayoutHelper.dp(16)
     private val iconSizePx = LayoutHelper.dp(12)
     private val iconMarginPx = LayoutHelper.dp(8)

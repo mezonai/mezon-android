@@ -52,6 +52,7 @@ class InvitePeopleBottomSheet(
     private val clanId: Long,
     private val clanName: String,
     private val clanLogo: String,
+    private val externalEventUrl: String? = null,
 ) : BottomSheet(context, needFocusable = true) {
 
     companion object {
@@ -93,7 +94,13 @@ class InvitePeopleBottomSheet(
         }
 
         root.addView(TextView(context).apply {
-            text = context.getString(R.string.invite_sheet_title)
+            text = context.getString(
+                if (externalEventUrl == null) {
+                    R.string.invite_sheet_title
+                } else {
+                    R.string.clan_event_invite_title
+                },
+            )
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(theme.colorText)
@@ -107,6 +114,7 @@ class InvitePeopleBottomSheet(
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(LayoutHelper.dp(4f), 0, LayoutHelper.dp(4f), 0)
+            visibility = if (externalEventUrl == null) View.VISIBLE else View.GONE
         }
         shareActionBtn = addActionButton(
             actionsRow,
@@ -141,7 +149,13 @@ class InvitePeopleBottomSheet(
         }
 
         searchField = EditText(context).apply {
-            hint = context.getString(R.string.invite_search_placeholder)
+            hint = context.getString(
+                if (externalEventUrl == null) {
+                    R.string.invite_search_placeholder
+                } else {
+                    R.string.clan_event_invite_search_placeholder
+                },
+            )
             setHintTextColor(theme.textDisabled)
             setTextColor(theme.colorText)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
@@ -227,11 +241,19 @@ class InvitePeopleBottomSheet(
         listContainer.addView(targetsLoadingView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT))
 
         root.addView(listContainer, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 0, 1f))
+        externalEventUrl?.let { url ->
+            root.addView(
+                buildExternalLinkFooter(url),
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
+                    topMargin = LayoutHelper.dp(12f)
+                },
+            )
+        }
 
         setCustomView(root)
         super.onCreate(savedInstanceState)
 
-        controller.open(clanId, clanName, clanLogo)
+        controller.open(clanId, clanName, clanLogo, externalEventUrl)
         collectJob = sheetScope.launch {
             controller.state.collect { render(it) }
         }
@@ -314,7 +336,13 @@ class InvitePeopleBottomSheet(
             })
 
             addView(TextView(context).apply {
-                text = context.getString(R.string.invite_empty_title)
+                text = context.getString(
+                    if (externalEventUrl == null) {
+                        R.string.invite_empty_title
+                    } else {
+                        R.string.clan_event_invite_empty_title
+                    },
+                )
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
                 typeface = Typeface.DEFAULT_BOLD
                 setTextColor(theme.colorText)
@@ -324,7 +352,13 @@ class InvitePeopleBottomSheet(
             })
 
             addView(TextView(context).apply {
-                text = context.getString(R.string.invite_empty_description)
+                text = context.getString(
+                    if (externalEventUrl == null) {
+                        R.string.invite_empty_description
+                    } else {
+                        R.string.clan_event_invite_empty_description
+                    },
+                )
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
                 setTextColor(theme.textDisabled)
                 gravity = Gravity.CENTER_HORIZONTAL
@@ -338,11 +372,64 @@ class InvitePeopleBottomSheet(
                 typeface = Typeface.DEFAULT_BOLD
                 setTextColor(theme.textLink)
                 gravity = Gravity.CENTER_HORIZONTAL
+                visibility = if (externalEventUrl == null) View.VISIBLE else View.GONE
                 isClickable = true
                 setOnClickListener {
                     showToast(ToastOverlay.ToastType.INFO, context.getString(R.string.invite_empty_action))
                 }
             }, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, 0f, Gravity.CENTER_HORIZONTAL))
+        }
+    }
+
+    private fun buildExternalLinkFooter(url: String): View {
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(TextView(context).apply {
+                text = context.getString(R.string.clan_event_invite_link_label)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(theme.colorText)
+            })
+
+            val linkRow = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            linkRow.addView(TextView(context).apply {
+                text = url
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+                setTextColor(theme.colorText)
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.MIDDLE
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(LayoutHelper.dp(12f), 0, LayoutHelper.dp(12f), 0)
+                background = GradientDrawable().apply {
+                    cornerRadius = LayoutHelper.dpf(8f)
+                    setColor(theme.surfaceVariant)
+                }
+            }, LinearLayout.LayoutParams(0, LayoutHelper.dp(48f), 1f).apply {
+                rightMargin = LayoutHelper.dp(8f)
+            })
+            linkRow.addView(TextView(context).apply {
+                text = context.getString(R.string.invite_copy)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(0xFFFFFFFF.toInt())
+                gravity = Gravity.CENTER
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { copyInviteLink() }
+                background = GradientDrawable().apply {
+                    cornerRadius = LayoutHelper.dpf(8f)
+                    setColor(theme.blurple)
+                }
+            }, LinearLayout.LayoutParams(LayoutHelper.dp(112f), LayoutHelper.dp(48f)))
+            addView(
+                linkRow,
+                LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT).apply {
+                    topMargin = LayoutHelper.dp(8f)
+                },
+            )
         }
     }
 
@@ -376,7 +463,7 @@ class InvitePeopleBottomSheet(
 
 
     private fun copyInviteLink() {
-        val url = controller.state.value.inviteUrl
+        val url = externalEventUrl ?: controller.state.value.inviteUrl
         if (url.isBlank()) return
         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         cm.setPrimaryClip(ClipData.newPlainText("invite", url))

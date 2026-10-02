@@ -83,7 +83,7 @@ class AuthRepository @Inject constructor(
             }
         }
 
-    suspend fun confirmOTP(reqId: String, otpCode: String): Result<StoredSession> =
+    suspend fun confirmOTP(reqId: String, otpCode: String, isSms: Boolean): Result<StoredSession> =
         withContext(ioDispatcher) {
             runCatching {
                 val session = api.confirmAuthenticateOTP(
@@ -101,7 +101,7 @@ class AuthRepository @Inject constructor(
                     tcpUrl = session.tcpUrl
                 )
                 sessionManager.clearSession()
-                StartupCache.needsUsernameSetup = session.created == true
+                StartupCache.needsUsernameSetup = isSms && session.created == true
                 walletCacheStore.clear()
                 sessionManager.saveSession(stored)
                 stored
@@ -128,8 +128,8 @@ class AuthRepository @Inject constructor(
                     tcpUrl = current.tcpUrl,
                 )
                 walletCacheStore.clear()
-                sessionManager.saveSession(merged)
                 StartupCache.needsUsernameSetup = false
+                sessionManager.saveSession(merged)
                 merged
             }
         }

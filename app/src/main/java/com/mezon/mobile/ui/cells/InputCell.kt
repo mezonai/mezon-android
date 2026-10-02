@@ -202,6 +202,13 @@ class InputCell(context: Context, private val theme: ThemeColors) : LinearLayout
         }
     }
 
+    fun setMaxUtf8Bytes(maxBytes: Int) {
+        editText.filters = editText.filters
+            .filterNot { it is Utf8ByteLengthFilter }
+            .plus(Utf8ByteLengthFilter(maxBytes))
+            .toTypedArray()
+    }
+
     fun setShowCharacterCount(show: Boolean) {
         showCharacterCount = show
         charCountView.visibility = if (show || isTextarea) View.VISIBLE else View.GONE

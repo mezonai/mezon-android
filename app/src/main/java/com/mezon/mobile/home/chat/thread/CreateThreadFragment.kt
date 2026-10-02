@@ -46,6 +46,7 @@ import com.mezon.mobile.R
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
+import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.core.SharedConfig
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.AnonymousController
@@ -78,6 +79,8 @@ import com.mezon.mobile.home.chat.input.InputSuggestionItem
 import com.mezon.mobile.home.chat.input.InputSuggestionsAdapter
 import com.mezon.mobile.home.chat.input.InputSuggestionsController
 import com.mezon.mobile.home.chat.input.InputSuggestionsPopup
+import com.mezon.mobile.home.chat.input.MentionSearchController
+import com.mezon.mobile.home.chat.input.MentionSearchResult
 import com.mezon.mobile.home.clans.ChannelController
 import com.mezon.mobile.home.clans.ClanChannelEntity
 import com.mezon.mobile.home.clans.PermissionPolicy
@@ -162,6 +165,7 @@ class CreateThreadFragment : BaseFragment() {
     private lateinit var sessionManager: SessionManager
     private lateinit var mezonApi: MezonApi
     private lateinit var memberResolver: MemberResolver
+    private lateinit var mentionSearchController: MentionSearchController
     private lateinit var ioDispatcher: CoroutineDispatcher
     private lateinit var mainDispatcher: CoroutineDispatcher
 
@@ -273,6 +277,13 @@ class CreateThreadFragment : BaseFragment() {
             parentChannelId,
             clanId
         )
+        observe(NotificationCenter.mentionSearchDidLoad) { _, _, args ->
+            if (isPaused) return@observe
+            val searchedClanId = args.firstOrNull() as? Long ?: return@observe
+            if (searchedClanId == clanId && currentTrigger.mode == InputSuggestionsController.Mode.MENTION) {
+                checkSuggestionTrigger()
+            }
+        }
         return true
     }
 
@@ -285,6 +296,7 @@ class CreateThreadFragment : BaseFragment() {
         sessionManager = entryPoint.sessionManager()
         mezonApi = entryPoint.mezonApi()
         memberResolver = entryPoint.memberResolver()
+        mentionSearchController = entryPoint.mentionSearchController()
         ioDispatcher = entryPoint.ioDispatcher()
         mainDispatcher = entryPoint.mainDispatcher()
         emojiController = entryPoint.emojiController()
@@ -1671,7 +1683,7 @@ class CreateThreadFragment : BaseFragment() {
             return
         }
         val items: List<InputSuggestionItem> = when (trigger.mode) {
-            InputSuggestionsController.Mode.MENTION -> buildMentionSuggestions(trigger.keyword)
+            InputSuggestionsController.Mode.MENTION -> buildMentionSuggestions(trigger)
             InputSuggestionsController.Mode.HASHTAG -> buildHashtagSuggestions(trigger.keyword)
             InputSuggestionsController.Mode.EMOJI -> buildEmojiSuggestions(trigger.keyword)
             else -> emptyList()
@@ -1694,12 +1706,13 @@ class CreateThreadFragment : BaseFragment() {
     }
 
     private fun hideSuggestionsPopup() {
+        mentionSearchController.cancelPending()
         suggestionsPopup?.updateVisibility(false)
         suggestionsAdapter?.clear()
         currentTrigger = InputSuggestionsController.TriggerState.NONE
     }
 
-    private fun buildMentionSuggestions(keyword: String): List<InputSuggestionItem> {
+    private fun buildMentionSuggestions(trigger: InputSuggestionsController.TriggerState): List<InputSuggestionItem> {
         val members = memberResolver.resolveMentionMembers(clanId, parentChannelId, parentChannelType())
         val pt = parentChannelType()
         val isChannelOrThread = pt != CHANNEL_TYPE_DM && pt != CHANNEL_TYPE_GROUP
@@ -1709,13 +1722,21 @@ class CreateThreadFragment : BaseFragment() {
             }
         } else emptyList()
         val includeHere = pt != CHANNEL_TYPE_DM
+        val continuesInsertedMention = mentionTrackers.any { it.startOffset == trigger.triggerPos }
+        val remote = if (isChannelOrThread && !continuesInsertedMention) {
+            mentionSearchController.search(clanId, parentChannelId, trigger.keyword)
+        } else {
+            MentionSearchResult.NONE
+        }
         val ctx = InputSuggestionsController.MentionContext(
             members = members,
             roles = roles,
             includeHere = includeHere,
-            includeRoles = isChannelOrThread
+            includeRoles = isChannelOrThread,
+            membersPending = memberResolver.mentionMembersPending(clanId, members) || remote.pending,
+            remoteMembers = remote.members
         )
-        return InputSuggestionsController.buildMentionItems(keyword, ctx)
+        return InputSuggestionsController.buildMentionItems(trigger.keyword, ctx)
     }
 
     private fun buildHashtagSuggestions(keyword: String): List<InputSuggestionItem> {
@@ -1765,11 +1786,13 @@ class CreateThreadFragment : BaseFragment() {
         val triggerPos = trigger.triggerPos
         val replaceEnd = minOf(triggerPos + trigger.queryLen, editable.length)
         when (item) {
+            is InputSuggestionItem.Loading -> return
+            is InputSuggestionItem.SlashCommand -> return
             is InputSuggestionItem.Here ->
                 insertMentionToken(editable, triggerPos, replaceEnd, "@here", ChatController.ID_MENTION_HERE, "", themeColors.textLink)
             is InputSuggestionItem.Member -> {
                 val member = item.member
-                val displayName = member.clanNick.ifBlank { member.displayName.ifBlank { member.username } }
+                val displayName = InputSuggestionsController.mentionDisplayName(member)
                 insertMentionToken(
                     editable, triggerPos, replaceEnd, "@$displayName",
                     member.userId.toString(), "", themeColors.textLink

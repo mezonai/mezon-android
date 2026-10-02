@@ -291,6 +291,12 @@ class ChannelListView(
                 }
             }
         }
+       
+        if (freshChannels != null) {
+            currentSections = currentSections.map { section ->
+                section.copy(channels = section.channels.map { freshChannels[it.channelId] ?: it })
+            }
+        }
         val count = recyclerView.childCount
         for (i in 0 until count) {
             when (val child = recyclerView.getChildAt(i)) {
@@ -608,7 +614,8 @@ class ChannelListView(
                         row.member.userId,
                         row.member.displayName,
                         row.member.username,
-                        row.member.avatarUrl
+                        row.member.avatarUrl,
+                        row.member.isSharingScreen
                     )
                 }
                 is ChannelRow.VoiceCollapsedMembers -> {
@@ -677,7 +684,8 @@ data class VoiceMemberDisplay(
     val userId: Long,
     val displayName: String,
     val username: String = "",
-    val avatarUrl: String?
+    val avatarUrl: String?,
+    val isSharingScreen: Boolean = false
 )
 
 sealed class ChannelRow {

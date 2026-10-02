@@ -6,6 +6,7 @@ import com.mezon.mobile.home.messages.DirectMessage
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
+import com.mezon.mobile.search.SearchMember
 
 data class SharingTarget(
     val channelId: Long,
@@ -20,12 +21,16 @@ data class SharingTarget(
     val parentId: Long,
     val parentChannelLabel: String,
     val lastSentMessageTs: Long,
-    val lastActivityTs: Long
+    val lastActivityTs: Long,
+    val userId: Long = 0L
 ) {
     val isDm: Boolean get() = channelType == CHANNEL_TYPE_DM
     val isGroup: Boolean get() = channelType == CHANNEL_TYPE_GROUP
     val isThread: Boolean get() = channelType == CHANNEL_TYPE_THREAD || parentId != 0L
     val isClanChannel: Boolean get() = !isDm && !isGroup && clanId != 0L
+    val needsDmChannel: Boolean get() = channelId == 0L && userId != 0L
+    val key: String get() = if (channelId != 0L) "${channelId}_$channelType" else "user_$userId"
+    val avatarId: Long get() = if (channelId != 0L) channelId else userId
 }
 
 fun SharingTarget.toForwardDestination(): ForwardDestination = ForwardDestination(
@@ -57,7 +62,28 @@ fun DirectMessage.toSharingTarget(): SharingTarget {
         parentId = 0L,
         parentChannelLabel = "",
         lastSentMessageTs = lastSentMessageTs,
-        lastActivityTs = maxOf(lastSeenMessageTs, lastSentMessageTs)
+        lastActivityTs = maxOf(lastSeenMessageTs, lastSentMessageTs),
+        userId = if (type == CHANNEL_TYPE_DM) otherUserId else 0L
+    )
+}
+
+fun SearchMember.toSharingTarget(existingDmChannelId: Long): SharingTarget {
+    val isGroup = isDm && channelType == CHANNEL_TYPE_GROUP
+    return SharingTarget(
+        channelId = if (isDm) channelId else existingDmChannelId,
+        channelLabel = displayName.ifBlank { username },
+        username = if (isGroup) "" else username,
+        avatarUrl = avatarUrl,
+        clanId = 0L,
+        clanName = "",
+        clanLogo = "",
+        channelType = if (isDm) channelType else CHANNEL_TYPE_DM,
+        isPrivate = true,
+        parentId = 0L,
+        parentChannelLabel = "",
+        lastSentMessageTs = 0L,
+        lastActivityTs = 0L,
+        userId = if (isGroup) 0L else id
     )
 }
 

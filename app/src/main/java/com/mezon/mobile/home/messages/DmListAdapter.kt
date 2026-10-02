@@ -27,10 +27,12 @@ sealed class DmListEntry {
 
 class DmListAdapter(
     private val themeColors: ThemeColors,
+    private val inVoiceChecker: ((DirectMessage) -> Boolean)? = null,
     private val buzzChecker: ((Long) -> Boolean)? = null
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     companion object {
+        private const val PAYLOAD_VOICE_PRESENCE = "voice_presence"
         private const val DIFF_BG_THRESHOLD = 50
         private const val VIEW_TYPE_HEADER = 0
         private const val VIEW_TYPE_MESSAGE = 1
@@ -130,6 +132,11 @@ class DmListAdapter(
         }
     }
 
+    fun refreshVoicePresence() {
+        if (items.isEmpty()) return
+        notifyItemRangeChanged(0, items.size, PAYLOAD_VOICE_PRESENCE)
+    }
+
     override fun getItemCount(): Int = items.size
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
@@ -159,9 +166,21 @@ class DmListAdapter(
             is DmListEntry.Message -> {
                 val cell = (holder as MessageViewHolder).cell
                 cell.hasBuzz = buzzChecker?.invoke(entry.dm.channelId) == true
+                cell.isInVoice = inVoiceChecker?.invoke(entry.dm) == true
                 cell.update(0, entry.dm)
             }
         }
+    }
+
+    override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int, payloads: MutableList<Any>) {
+        val entry = items.getOrNull(position)
+        if (payloads.isNotEmpty() && payloads.all { it == PAYLOAD_VOICE_PRESENCE }) {
+            if (entry is DmListEntry.Message && holder is MessageViewHolder) {
+                holder.cell.applyInVoice(inVoiceChecker?.invoke(entry.dm) == true)
+            }
+            return
+        }
+        onBindViewHolder(holder, position)
     }
 
     override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {

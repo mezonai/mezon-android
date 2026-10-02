@@ -40,6 +40,7 @@ import com.mezon.mobile.home.clans.CHANNEL_TYPE_STREAMING
 import com.mezon.mobile.home.clans.VoiceMemberDisplay
 import com.mezon.mobile.home.voice.JoinVoiceBottomSheet
 import com.mezon.mobile.home.voice.VoiceController
+import com.mezon.mobile.home.voice.resolveVoiceMemberIdentity
 import com.mezon.mobile.home.stream.JoinMediaSheetKind
 import com.mezon.mobile.home.stream.StreamingController
 import com.mezon.mobile.ui.cells.ChannelSearchCell
@@ -129,9 +130,6 @@ class GlobalSearchFragment : BaseFragment() {
     private var argClanId = 0L
     private var argChannelType = 0
     private var channelScopedMembers: List<SearchMember>? = null
-    private var membersRequested = false
-    private var channelsRequested = false
-    private var channelsFirstLoadPending = false
     private var isChannelPickerMode = false
     private var pickerQuery = ""
     private var pickerDisplayLimit = LOCAL_PAGE_SIZE
@@ -139,6 +137,9 @@ class GlobalSearchFragment : BaseFragment() {
     private var activeUserFilter: MessageUserFilter? = null
     private var filterUser: SearchMember? = null
     private var isPickingFilterUser = false
+
+    private val searchScopeChannelId: Long
+        get() = arguments?.getLong(ARG_FILTER_CHANNEL_ID) ?: 0L
 
     var onOpenChat: ((channelId: Long, channelName: String, clanId: Long, channelType: Int) -> Unit)? = null
 
@@ -154,7 +155,7 @@ class GlobalSearchFragment : BaseFragment() {
     override fun onFragmentCreate(): Boolean {
         super.onFragmentCreate()
 
-        val argChannelId = arguments?.getLong(ARG_FILTER_CHANNEL_ID) ?: 0L
+        val argChannelId = searchScopeChannelId
         val argChannelName = arguments?.getString(ARG_FILTER_CHANNEL_NAME) ?: ""
         argClanId = arguments?.getLong(ARG_CLAN_ID) ?: 0L
         argChannelType = arguments?.getInt(ARG_CHANNEL_TYPE) ?: 0
@@ -171,7 +172,11 @@ class GlobalSearchFragment : BaseFragment() {
             hideChannelsTab -> listOf(TAB_MEMBERS, TAB_MESSAGES)
             else -> listOf(TAB_MEMBERS, TAB_CHANNELS)
         }
-        currentTab = visibleTabs.first()
+        val savedState = searchController.getScreenState(searchScopeChannelId)
+        currentTab = savedState?.selectedTab
+            ?.takeIf { it in visibleTabs }
+            ?: visibleTabs.first()
+        searchText = savedState?.query.orEmpty()
 
         observe(NotificationCenter.searchMembersDidLoad) { _, _, _ ->
             if (fragmentView == null || isPaused) return@observe
@@ -180,18 +185,9 @@ class GlobalSearchFragment : BaseFragment() {
                 loadingView.visibility = View.GONE
                 recyclerView.visibility = View.VISIBLE
                 updateMembersList()
+                recyclerView.scrollToPosition(0)
             }
             updateTabCounts()
-        }
-        observe(NotificationCenter.userClansDidLoad) { _, _, _ ->
-            if (fragmentView == null || isPaused) return@observe
-            if (channelScopedMembers != null) return@observe
-            searchController.rebuildMembers()
-        }
-        observe(NotificationCenter.friendsLoaded) { _, _, _ ->
-            if (fragmentView == null || isPaused) return@observe
-            if (channelScopedMembers != null) return@observe
-            searchController.rebuildMembers()
         }
         observe(NotificationCenter.clanMembersDidLoad) { _, _, _ ->
             if (fragmentView == null || isPaused) return@observe
@@ -214,17 +210,16 @@ class GlobalSearchFragment : BaseFragment() {
         }
         observe(NotificationCenter.searchChannelsDidLoad) { _, _, _ ->
             if (fragmentView == null || isPaused) return@observe
-            channelsFirstLoadPending = false
             if (currentTab == TAB_CHANNELS) {
                 loadingView.visibility = View.GONE
                 recyclerView.visibility = View.VISIBLE
                 updateChannelsList()
+                recyclerView.scrollToPosition(0)
             }
             updateTabCounts()
         }
         observe(NotificationCenter.clansDidLoad) { _, _, _ ->
             if (fragmentView == null || isPaused) return@observe
-            searchController.invalidateFilterCache()
             if (currentTab == TAB_CHANNELS) {
                 updateChannelsList()
             }
@@ -241,12 +236,16 @@ class GlobalSearchFragment : BaseFragment() {
             isLoadingMore = false
         }
 
-        if (channelScopedMembers != null) {
-            membersRequested = true
-        } else {
-            membersRequested = true
-            searchController.loadMembers()
+        observe(NotificationCenter.dialogsNeedReload) { _, _, _ ->
+            if (fragmentView == null || isPaused) return@observe
+            if (filterChannelId != 0L) return@observe
+            if (searchText.isBlank() && currentTab == TAB_MEMBERS) {
+                updateMembersList()
+                updateTabCounts()
+            }
         }
+
+        if (filterChannelId == 0L) dialogsController.loadDialogs()
         if (argClanId != 0L) userClanController.loadClanMembers(argClanId)
         return true
     }
@@ -309,6 +308,8 @@ class GlobalSearchFragment : BaseFragment() {
 
         searchCell = SearchCell(context, themeColors).apply {
             setPlaceholder(context.getString(R.string.common_search))
+            editText.setText(searchText)
+            editText.setSelection(searchText.length)
             onTextChanged = { text ->
                 if (isChannelPickerMode) {
                     pickerQuery = text
@@ -318,7 +319,17 @@ class GlobalSearchFragment : BaseFragment() {
                     if (text.isBlank() && filterUser == null) {
                         searchController.clearSearchMessages()
                     }
-                    scheduleSearch()
+                    if (text.isBlank() && filterChannelId == 0L && !isDirectMessageSearch) {
+                        searchRunnable?.let { handler.removeCallbacks(it) }
+                        searchController.cancelCtrlKSearch()
+                        membersDisplayLimit = LOCAL_PAGE_SIZE
+                        channelsDisplayLimit = LOCAL_PAGE_SIZE
+                        updateCurrentTab()
+                        updateTabCounts()
+                        recyclerView.scrollToPosition(0)
+                    } else {
+                        scheduleSearch()
+                    }
                 }
             }
             onBadgeRemoved = { clearActiveBadgeFilter() }
@@ -368,6 +379,7 @@ class GlobalSearchFragment : BaseFragment() {
         }
         tabHeader = SearchTabHeader(context, themeColors).apply {
             setTabs(tabLabels)
+            selectTab(visibleTabs.indexOf(currentTab))
             visibility = if (visibleTabs.size == 1) View.GONE else View.VISIBLE
             onTabSelected = { visualIndex ->
                 searchRunnable?.let { handler.removeCallbacks(it) }
@@ -480,15 +492,13 @@ class GlobalSearchFragment : BaseFragment() {
         })
 
         updateFilterButtonVisibility()
-        if (channelScopedMembers != null) {
-            loadingView.visibility = View.GONE
-            recyclerView.visibility = View.VISIBLE
-            updateCurrentTab()
-            updateTabCounts()
-        } else {
-            loadingView.visibility = View.VISIBLE
-            recyclerView.visibility = View.GONE
+        loadingView.visibility = View.GONE
+        recyclerView.visibility = View.VISIBLE
+        if (searchText.isNotBlank() && searchScopeChannelId == 0L) {
+            searchController.fetchCtrlKResults(searchText.trim())
         }
+        updateCurrentTab()
+        updateTabCounts()
 
         whenFullyVisible {
             if (!isChannelPickerMode) {
@@ -505,6 +515,13 @@ class GlobalSearchFragment : BaseFragment() {
         searchRunnable = Runnable {
             membersDisplayLimit = LOCAL_PAGE_SIZE
             channelsDisplayLimit = LOCAL_PAGE_SIZE
+            if (filterChannelId == 0L && !isDirectMessageSearch) {
+                if (searchText.isBlank()) {
+                    searchController.cancelCtrlKSearch()
+                } else {
+                    searchController.fetchCtrlKResults(searchText.trim())
+                }
+            }
             updateCurrentTab()
             updateTabCounts()
         }
@@ -523,35 +540,14 @@ class GlobalSearchFragment : BaseFragment() {
     private fun updateCurrentTab() {
         when (currentTab) {
             TAB_MEMBERS -> {
-                if (channelScopedMembers != null) {
-                    loadingView.visibility = View.GONE
-                    recyclerView.visibility = View.VISIBLE
-                    updateMembersList()
-                } else if (!membersRequested) {
-                    membersRequested = true
-                    loadingView.visibility = View.VISIBLE
-                    recyclerView.visibility = View.GONE
-                    searchController.loadMembers()
-                } else {
-                    loadingView.visibility = View.GONE
-                    updateMembersList()
-                }
+                loadingView.visibility = View.GONE
+                recyclerView.visibility = View.VISIBLE
+                updateMembersList()
             }
             TAB_CHANNELS -> {
-                if (!channelsRequested) {
-                    channelsRequested = true
-                    channelsFirstLoadPending = true
-                    emptyView.visibility = View.GONE
-                    loadingView.visibility = View.VISIBLE
-                    recyclerView.visibility = View.VISIBLE
-                    updateChannelsList()
-                    searchController.loadChannels()
-                } else {
-                    loadingView.visibility =
-                        if (channelsFirstLoadPending) View.VISIBLE else View.GONE
-                    recyclerView.visibility = View.VISIBLE
-                    updateChannelsList()
-                }
+                loadingView.visibility = View.GONE
+                recyclerView.visibility = View.VISIBLE
+                updateChannelsList()
             }
             TAB_MESSAGES -> {
                 if (searchText.isNotBlank() || filterUser != null) {
@@ -587,35 +583,49 @@ class GlobalSearchFragment : BaseFragment() {
             updateEmptyState(page.isEmpty())
             return
         }
-        val filtered = searchController.filterMembers(searchText, membersDisplayLimit)
-        adapter.setMembers(filtered)
-        val totalCount = searchController.totalMembersForQuery(searchText)
-        adapter.hasMore = filtered.size < totalCount
-        updateEmptyState(filtered.isEmpty())
+        val isRecentState = searchText.isBlank()
+        val all = if (isRecentState) {
+            searchController.recentMembers()
+        } else {
+            searchController.ctrlKMembersSnapshot()
+        }
+        val page = all.take(membersDisplayLimit)
+        val header = if (isRecentState && page.isNotEmpty()) {
+            getContext()?.getString(R.string.search_section_recent)?.uppercase()
+        } else {
+            null
+        }
+        adapter.setMembers(page, header)
+        adapter.hasMore = page.size < all.size
+        if (searchText.isBlank()) {
+            updateEmptyState(page.isEmpty(), R.string.search_type_to_search)
+        } else {
+            updateEmptyState(page.isEmpty())
+        }
     }
 
     private fun updateChannelsList() {
-        val ctx = fragmentView?.context ?: return
-        val filtered = searchController.filterChannelDisplays(
-            searchText,
-            channelsDisplayLimit,
-            hideClanName = false
-        )
+        val ctx = getContext() ?: return
+        if (searchText.isBlank()) {
+            adapter.setChannelSearchItems(
+                emptyList(),
+                ctx.getString(R.string.search_section_text_channels),
+                ctx.getString(R.string.search_section_voice_channels),
+                ctx.getString(R.string.search_section_streaming_channels)
+            )
+            adapter.hasMore = false
+            updateEmptyState(isEmpty = true, emptyTextRes = R.string.search_type_to_search)
+            return
+        }
+        val filtered = searchController.ctrlKChannelDisplays(channelsDisplayLimit)
         adapter.setChannelSearchItems(
             filtered,
             ctx.getString(R.string.search_section_text_channels),
             ctx.getString(R.string.search_section_voice_channels),
             ctx.getString(R.string.search_section_streaming_channels)
         )
-        val totalCount = searchController.totalChannelsForQuery(searchText)
-        adapter.hasMore = filtered.size < totalCount
-        val isEmpty = filtered.isEmpty()
-        if (channelsFirstLoadPending && isEmpty) {
-            emptyView.visibility = View.GONE
-            recyclerView.visibility = View.VISIBLE
-        } else {
-            updateEmptyState(isEmpty)
-        }
+        adapter.hasMore = filtered.size < searchController.ctrlKChannelsCount()
+        updateEmptyState(filtered.isEmpty())
     }
 
     private fun updateMessagesList() {
@@ -640,7 +650,12 @@ class GlobalSearchFragment : BaseFragment() {
         when (currentTab) {
             TAB_MEMBERS -> {
                 val scoped = channelScopedMembers
-                val total = scoped?.size ?: searchController.totalMembersForQuery(searchText)
+                val total = scoped?.size
+                    ?: if (searchText.isBlank()) {
+                        searchController.recentMembers().size
+                    } else {
+                        searchController.ctrlKMembersSnapshot().size
+                    }
                 if (membersDisplayLimit >= total) return
                 isLoadingMore = true
                 membersDisplayLimit += LOCAL_PAGE_SIZE
@@ -648,7 +663,7 @@ class GlobalSearchFragment : BaseFragment() {
                 isLoadingMore = false
             }
             TAB_CHANNELS -> {
-                val total = searchController.totalChannelsForQuery(searchText)
+                val total = if (searchText.isBlank()) 0 else searchController.ctrlKChannelsCount()
                 if (channelsDisplayLimit >= total) return
                 isLoadingMore = true
                 channelsDisplayLimit += LOCAL_PAGE_SIZE
@@ -695,10 +710,12 @@ class GlobalSearchFragment : BaseFragment() {
                     dn.contains(q) || un.contains(q)
                 }
             }
+        } else if (searchText.isBlank()) {
+            searchController.recentMembers().size
         } else {
-            searchController.filterMembersCount(searchText)
+            searchController.ctrlKMembersSnapshot().size
         }
-        val channelsCount = searchController.filterChannelsCount(searchText)
+        val channelsCount = if (searchText.isBlank()) 0 else searchController.ctrlKChannelsCount()
         val messagesCount = if (searchText.isBlank() && filterUser == null) {
             0
         } else {
@@ -1084,9 +1101,10 @@ class GlobalSearchFragment : BaseFragment() {
         val displays = buildMemberDisplays(memberIds, targetClanId)
         val sheet = JoinVoiceBottomSheet(
             activity, themeColors, channel.channelLabel, channel.channelId, targetClanId, displays, channel.unreadCount,
-            JoinMediaSheetKind.STREAMING
+            JoinMediaSheetKind.STREAMING,
+            canJoin = memberIds.isNotEmpty(),
         )
-        sheet.onJoinVoice = {
+        sheet.onJoinVoice = { _ ->
             (activity as? MainActivity)?.showStreamingRoom(channel.channelId, targetClanId, channel.channelLabel)
         }
         sheet.onOpenChat = {
@@ -1103,8 +1121,8 @@ class GlobalSearchFragment : BaseFragment() {
         val sheet = JoinVoiceBottomSheet(
             activity, themeColors, channel.channelLabel, channel.channelId, targetClanId, displays, channel.unreadCount
         )
-        sheet.onJoinVoice = {
-            (activity as? MainActivity)?.showVoiceRoom(channel.channelId, targetClanId, channel.channelLabel)
+        sheet.onJoinVoice = { role ->
+            (activity as? MainActivity)?.showVoiceRoom(channel.channelId, targetClanId, channel.channelLabel, role)
         }
         sheet.onOpenChat = {
             onOpenChat?.invoke(channel.channelId, channel.channelLabel, targetClanId, channel.type)
@@ -1117,14 +1135,13 @@ class GlobalSearchFragment : BaseFragment() {
         val memberMap = HashMap<Long, ClanMember>(clanMembers.size)
         for (m in clanMembers) memberMap[m.userId] = m
         return memberIds.map { uid ->
-            val m = memberMap[uid]
-            val name = m?.clanNick?.ifEmpty { null }
-                ?: m?.displayName?.ifEmpty { null }
-                ?: m?.username
-                ?: getString(R.string.search_user_fallback)
-            val username = m?.username.orEmpty()
-            val avatar = m?.clanAvatar?.ifEmpty { null } ?: m?.avatarUrl
-            VoiceMemberDisplay(uid, name, username, avatar)
+            val identity = resolveVoiceMemberIdentity(
+                uid,
+                memberMap[uid],
+                userClanController.getUserById(uid),
+                getString(R.string.search_user_fallback)
+            )
+            VoiceMemberDisplay(uid, identity.displayName, identity.username, identity.avatarUrl)
         }
     }
 
@@ -1156,11 +1173,11 @@ class GlobalSearchFragment : BaseFragment() {
     }
 
     override fun onFragmentDestroy() {
+        searchController.saveScreenState(searchScopeChannelId, currentTab, searchText)
         searchRunnable?.let { handler.removeCallbacks(it) }
         pickerFilterRunnable?.let { handler.removeCallbacks(it) }
         AndroidUtilities.hideKeyboard(searchCell.editText)
         searchCell.editText.clearFocus()
-        searchController.invalidateFilterCache()
         super.onFragmentDestroy()
     }
 }
