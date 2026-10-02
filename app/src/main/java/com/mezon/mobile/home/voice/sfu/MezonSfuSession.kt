@@ -297,7 +297,6 @@ class MezonSfuSession @Inject constructor(
     private var transportWatchdogJob: Job? = null
     private var connectionDeadlineJob: Job? = null
     private var readiness = SfuConnectionReadiness()
-    private var lastReadinessTrace: String? = null
     private var hasReachedConnected = false
     var connectionState = SfuConnectionState.DISCONNECTED
         private set
@@ -737,9 +736,6 @@ class MezonSfuSession @Inject constructor(
             return
         }
         peerConnection = pc
-        traceVoiceJoin("connection.open") {
-            "initial=$initial requiresVoiceJoined=${readiness.requiresVoiceJoined}"
-        }
         emitState(if (initial) SfuConnectionState.CONNECTING else SfuConnectionState.DISCONNECTED)
         val request = Request.Builder().url(buildWsUrl(token)).build()
         webSocket = okHttpClient.newWebSocket(request, SfuSocketListener(gen, call))
@@ -1133,7 +1129,6 @@ class MezonSfuSession @Inject constructor(
 
     private fun handleSocketClosed(gen: Int, code: Int, reason: String) {
         if (gen != connectionGen || !active) return
-        traceVoiceJoin("socket.closed") { "code=$code" }
         val cause = removalCause(code)
         if (cause != null) {
             handleRemoved(gen, cause, reason)
@@ -1159,7 +1154,6 @@ class MezonSfuSession @Inject constructor(
             "ping" -> send(JSONObject().put("type", "pong"))
             "pong" -> {}
             "joined" -> {
-                traceVoiceJoin("sfu.joined") { "awaitingSnapshot=${!admitted}" }
                 if (connectionState == SfuConnectionState.CONNECTING || connectionState == SfuConnectionState.JOINING) {
                     emitState(SfuConnectionState.AWAITING_OFFER)
                 }
@@ -1172,7 +1166,6 @@ class MezonSfuSession @Inject constructor(
                 tokenRefreshes = 0
                 tokenRejected = false
                 if (!stateRestored) {
-                    traceVoiceJoin("sfu.room_snapshot") { "selfPeer=$selfPeerId" }
                     stateRestored = true
                     val attached = synchronizeLocalAudioTrack()
                     if (localTracksAdded && !attached) {
@@ -1191,7 +1184,7 @@ class MezonSfuSession @Inject constructor(
                     }
                     sendVisibility()
                 }
-                updateConnectionReadiness("room_snapshot")
+                updateConnectionReadiness()
                 emitParticipants()
                 requestMissingScreenKeyframes()
             }
@@ -1615,7 +1608,9 @@ class MezonSfuSession @Inject constructor(
             if (peer.has("role")) state.role = SfuRole.fromWire(peer.optString("role"))
             if (peer.has("is_mute")) state.muted = peer.optBoolean("is_mute")
             if (peer.has("camera_active")) state.cameraActive = peer.optBoolean("camera_active")
-            if (peer.has("screen_active")) state.screenActive = peer.optBoolean("screen_active")
+            if (peer.has("screen_active")) {
+                state.screenActive = peer.optBoolean("screen_active") && peer.optBoolean("screen_requested", true)
+            }
             val mids = listOf(
                 peer.opt("mid_audio"), peer.opt("mid_video"), peer.opt("mid_screen")
             ).mapNotNull { it?.toString() }.filter { it.isNotEmpty() && it != "0" }
@@ -1721,11 +1716,9 @@ class MezonSfuSession @Inject constructor(
 
     private suspend fun awaitNativeCleanup(gen: Int): Boolean {
         val started = SystemClock.elapsedRealtime()
-        traceVoiceJoin("native_cleanup.wait") { "timeoutMs=$NATIVE_CLEANUP_TIMEOUT_MS" }
         val completed = nativeCleanup.awaitCompletion(NATIVE_CLEANUP_TIMEOUT_MS)
         if (!active || gen != connectionGen) return false
         val elapsed = SystemClock.elapsedRealtime() - started
-        traceVoiceJoin("native_cleanup.result") { "cleanupMs=$elapsed completed=$completed" }
         if (!completed) {
             Log.w(TAG, "native cleanup did not finish safely; cleanupMs=$elapsed")
             leave()
@@ -1818,7 +1811,6 @@ class MezonSfuSession @Inject constructor(
         if (!active || gen != connectionGen || transportRecoveryJob != null || nativeStartupJob != null) return
         val roomScope = scope ?: return
         val call = callIdentity ?: return
-        traceVoiceJoin("recovery") { "maxRetries=$MAX_RECONNECT_ATTEMPTS exhausted=${reconnectAttempts >= MAX_RECONNECT_ATTEMPTS}" }
         discardFailedTransport()
         if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
             leave()
@@ -2387,9 +2379,7 @@ class MezonSfuSession @Inject constructor(
 
     private fun emitState(state: SfuConnectionState) {
         if (connectionState == state) return
-        val previous = connectionState
         connectionState = state
-        traceVoiceJoin("state") { "from=$previous to=$state micAvailable=${state == SfuConnectionState.CONNECTED}" }
         onConnectionState?.invoke(state)
     }
 
@@ -2397,44 +2387,17 @@ class MezonSfuSession @Inject constructor(
         val gen = connectionGen
         appScope.launch(mainDispatcher) {
             val call = callIdentity
-            val ignoredReason = when {
-                call == null -> "no_active_room"
-                !active -> "inactive"
-                gen != connectionGen -> "stale_generation"
-                !socketOpen -> "socket_not_open"
-                call.clanId != clanId -> "different_clan"
-                call.channelId != channelId -> "different_room"
-                call.userId != userId -> "different_user"
-                else -> null
-            }
-            if (ignoredReason != null) {
-                traceVoiceJoin("voiceJoined.ignored") {
-                    "reason=$ignoredReason eventGeneration=$gen eventClan=$clanId eventChannel=$channelId " +
-                        "eventUser=$userId eventPeer=$peerId"
-                }
+            if (call == null || !active || gen != connectionGen || !socketOpen ||
+                call.clanId != clanId || call.channelId != channelId || call.userId != userId
+            ) {
                 return@launch
             }
             readiness.confirmVoiceJoined(peerId)
-            traceVoiceJoin("voiceJoined.accepted") {
-                val match = when {
-                    peerId.isNullOrBlank() || peerId == "0" -> "legacy_peer"
-                    peerId == selfPeerId -> "current_peer"
-                    else -> "buffered_waiting_for_matching_snapshot"
-                }
-                "eventPeer=$peerId selfPeer=$selfPeerId match=$match requiresVoiceJoined=${readiness.requiresVoiceJoined}"
-            }
-            updateConnectionReadiness("voiceJoined")
+            updateConnectionReadiness()
         }
     }
 
-    private inline fun traceVoiceJoin(event: String, details: () -> String) {
-        if (!BuildConfig.DEBUG) return
-        val call = callIdentity
-        Log.d("VoiceJoin", "event=$event generation=$connectionGen retry=$reconnectAttempts " +
-            "clan=${call?.clanId} channel=${call?.channelId} user=${call?.userId} state=$connectionState ${details()}")
-    }
-
-    private fun updateConnectionReadiness(trigger: String) {
+    private fun updateConnectionReadiness() {
         if (!active || transportRecoveryJob != null) return
         val pc = peerConnection ?: return
         val ice = pc.iceConnectionState()
@@ -2443,18 +2406,6 @@ class MezonSfuSession @Inject constructor(
         readiness.transportConnected = pc.connectionState() == PeerConnection.PeerConnectionState.CONNECTED
         readiness.roomConfirmed = admitted && stateRestored
         readiness.peerId = selfPeerId
-        if (BuildConfig.DEBUG) {
-            // Log gate changes only; repeated snapshots must not flood Logcat.
-            val details = "ice=${pc.iceConnectionState()} nativePeer=${pc.connectionState()} " +
-                "transportReady=${readiness.transportConnected} roomConfirmed=${readiness.roomConfirmed} " +
-                "selfPeer=$selfPeerId requiresVoiceJoined=${readiness.requiresVoiceJoined} " +
-                "voiceJoinedConfirmed=${readiness.voiceJoinedConfirmed} ready=${readiness.isReady}"
-            val key = "$connectionGen $details"
-            if (lastReadinessTrace != key) {
-                lastReadinessTrace = key
-                traceVoiceJoin("readiness") { "trigger=$trigger $details" }
-            }
-        }
         if (readiness.isReady) {
             val wasConnected = mediaConnected
             mediaConnected = true
@@ -2490,7 +2441,6 @@ class MezonSfuSession @Inject constructor(
             delay(timeoutMs)
             connectionDeadlineJob = null
             if (active && gen == connectionGen && connectionState != SfuConnectionState.CONNECTED) {
-                traceVoiceJoin("readiness.timeout") { "timeoutMs=$timeoutMs" }
                 recoverTransport(gen)
             }
         }
@@ -2544,10 +2494,9 @@ class MezonSfuSession @Inject constructor(
         override fun onConnectionChange(newState: PeerConnection.PeerConnectionState?) {
             appScope.launch(mainDispatcher) {
                 if (gen != connectionGen) return@launch
-                traceVoiceJoin("peer.state") { "nativePeer=$newState" }
                 when (newState) {
                     PeerConnection.PeerConnectionState.CONNECTED -> {
-                        updateConnectionReadiness("peer.connected")
+                        updateConnectionReadiness()
                     }
                     PeerConnection.PeerConnectionState.FAILED -> {
                         val ice = peerConnection?.iceConnectionState()
@@ -2580,13 +2529,12 @@ class MezonSfuSession @Inject constructor(
         override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) {
             appScope.launch(mainDispatcher) {
                 if (gen != connectionGen) return@launch
-                traceVoiceJoin("ice.state") { "ice=$state" }
                 when (state) {
                     PeerConnection.IceConnectionState.CONNECTED,
                     PeerConnection.IceConnectionState.COMPLETED -> {
                         iceRecoveryJob?.cancel()
                         iceRecoveryJob = null
-                        updateConnectionReadiness("ice.connected")
+                        updateConnectionReadiness()
                     }
                     PeerConnection.IceConnectionState.FAILED -> {
                         iceRecoveryJob?.cancel()

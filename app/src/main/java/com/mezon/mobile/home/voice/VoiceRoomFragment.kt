@@ -1005,12 +1005,8 @@ class VoiceRoomFragment : BaseFragment() {
                 dismissOverlay()
             }
             .setPositiveButton(getString(R.string.voice_room_connection_rejoin)) { dialog, _ ->
-                if (com.mezon.mobile.BuildConfig.DEBUG) {
-                    Log.d("VoiceJoin", "event=manual_rejoin channel=$channelId clan=$clanId")
-                }
                 connectionFailurePending = false
                 dialog.dismiss()
-                // The failed attempt cleared its token and media; bind a fresh join to this room.
                 connectToRoom()
             }
             .setOnDismissListener { connectionFailureDialog = null }
