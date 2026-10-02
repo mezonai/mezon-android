@@ -244,6 +244,7 @@ class VideoPlayerDialog(context: Context) : ComponentDialog(context, android.R.s
 
         avatarView = BackupImageView(context).apply {
             setRoundRadius(LayoutHelper.dp(20))
+            setAspectFill(true)
         }
         topBar.addView(
             avatarView,
