@@ -2872,6 +2872,11 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                             return true
                         }
                     }
+                    embedMessage.hitTestClickableSpan(x, y)?.let { span ->
+                        pressedLink = span
+                        scheduleLongPress()
+                        return true
+                    }
                     if (embedMessage.containsTouch(x, y)) {
                         pressedOnEmbed = true
                         scheduleLongPress()
