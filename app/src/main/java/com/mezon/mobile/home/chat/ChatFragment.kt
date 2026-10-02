@@ -2692,6 +2692,9 @@ open class ChatFragment : BaseFragment() {
     override fun onResume() {
         super.onResume()
         lastResumeTime = android.os.SystemClock.elapsedRealtime()
+        if (clanId != 0L) {
+            channelController.setVisibleBadgeChannel(channelId, if (isTopicMode) topicId else 0L)
+        }
         pendingLocationSettingsReturn?.let { origin ->
             pendingLocationSettingsReturn = null
             resumeLocationSendAfterSettings(origin)
@@ -2749,7 +2752,16 @@ open class ChatFragment : BaseFragment() {
                     )
                 }
             } else {
+                val badgeBeforeRead = channelController.badgeCountForRead(channelId)
                 channelController.markChannelAsRead(channelId, seenMessageId = lastSeenMessageId)
+                val readRow = channelController.findChannelById(channelId)
+                if (readRow != null && readRow.lastSeenMessageId != 0L && badgeBeforeRead > 0) {
+                    chatController.updateLastSeenMessage(
+                        channelId, clanId, channelType, readRow.lastSeenMessageId,
+                        readRow.lastSeenMessageTs.toInt(), badgeCount = 0, applyLocal = false,
+                        capturedBadgeCount = badgeBeforeRead
+                    )
+                }
                 channelController.clearCurrentTopic()
                 refreshTopicRootRowsFromCache()
                 updateVisibleRows(NotificationCenter.UPDATE_MASK_TOPIC)
@@ -2807,7 +2819,10 @@ open class ChatFragment : BaseFragment() {
     override fun onPause() {
         super.onPause()
         pausedFromAppBackground = MainActivity.applicationPaused
-        if (clanId != 0L) channelController.clearCurrentTopic()
+        if (clanId != 0L) {
+            channelController.clearVisibleBadgeChannel(channelId, if (isTopicMode) topicId else 0L)
+            channelController.clearCurrentTopic()
+        }
         waitingForKeyboardOpen = false
         AndroidUtilities.cancelRunOnUIThread(openKeyboardRunnable)
         AndroidUtilities.cancelRunOnUIThread(showKeyboardFromEmojiRunnable)
@@ -3719,7 +3734,8 @@ open class ChatFragment : BaseFragment() {
         }
         chatController.updateLastSeenMessage(
             readChannelId, clanId, channelType,
-            msgId, ts, badgeCount = badge
+            msgId, ts,
+            badgeCount = if (clanId != 0L) 0 else badge
         )
     }
 
