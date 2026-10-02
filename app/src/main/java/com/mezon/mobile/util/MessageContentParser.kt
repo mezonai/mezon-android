@@ -470,14 +470,11 @@ fun parseContentToSpannable(
                     segText = segText,
                     channelId = el.channelId,
                     clanId = el.clanId,
-                    channelPrivate = el.channelPrivate,
-                    parentId = el.parentId,
                     view = view,
                     linkColor = linkColor,
                     mentionColors = mentionColors,
                     theme = theme,
                     labelOverride = el.channelLabel,
-                    sentChannelType = el.channelType,
                     preResolvedEntity = null
                 )
             }
@@ -550,8 +547,6 @@ fun parseContentToSpannable(
                             mentionColors = mentionColors,
                             theme = theme,
                             labelOverride = label,
-                            sentChannelType = sent?.channelType,
-                            parentId = sent?.parentId,
                             preResolvedEntity = resolved
                         )
                     } else {
@@ -704,11 +699,15 @@ private fun resolveChannelEntity(
     if (cid == 0L) return null
     val clanId = clanIdStr?.toLongOrNull() ?: 0L
     val entryPoint = obtainEntryPoint(context) ?: return null
+    val channelCtl = entryPoint.channelController()
+    if (channelCtl.requiresLinkedChannelValidation(cid)) {
+        return channelCtl.linkedChannelDetail(cid)?.takeIf { clanId == 0L || it.clanId == clanId }
+    }
     val searchCtl = entryPoint.searchController()
-    val entity = entryPoint.channelController().findChannelById(cid, clanId)
+    val entity = channelCtl.findChannelById(cid, clanId)
         ?: searchCtl.findChannelById(cid)
     return entity?.takeIf { clanId == 0L || it.clanId == clanId }
-        ?: entryPoint.channelController().linkedChannelDetail(cid)?.takeIf { clanId == 0L || it.clanId == clanId }
+        ?: channelCtl.linkedChannelDetail(cid)?.takeIf { clanId == 0L || it.clanId == clanId }
 }
 
 private fun resolveHashtagIcon(entity: ClanChannelEntity): MezonIcon {
@@ -775,38 +774,26 @@ private fun appendHashtagPill(
     segText: String,
     channelId: String?,
     clanId: String?,
-    channelPrivate: Int? = null,
-    parentId: String? = null,
     view: View?,
     linkColor: Int,
     mentionColors: MentionColors?,
     theme: ThemeColors,
     labelOverride: String?,
-    sentChannelType: Int? = null,
     preResolvedEntity: ClanChannelEntity?
 ) {
     val ctx = view?.context
     val entity = preResolvedEntity ?: ctx?.let { resolveChannelEntity(it, channelId, clanId) }
-    val resolvedLabel = entity?.channelLabel?.takeIf { it.isNotBlank() }
-        ?: labelOverride?.takeIf { it.isNotBlank() }
-    val hasSentDetails = !labelOverride.isNullOrBlank() && sentChannelType != null &&
-        !clanId.isNullOrBlank() && clanId != "0" && (channelPrivate ?: 0) == 0
-    if (entity == null && !hasSentDetails && ctx != null) {
+    val resolvedLabel = entity?.let {
+        it.channelLabel.takeIf { label -> label.isNotBlank() }
+            ?: labelOverride?.takeIf { label -> label.isNotBlank() }
+    }
+    if (entity == null && ctx != null) {
         channelId?.toLongOrNull()?.let { id ->
             obtainEntryPoint(ctx)?.channelController()?.requestLinkedChannel(id, clanId?.toLongOrNull() ?: 0L)
         }
     }
 
-    var isAccessible = hasSentDetails
-    if (entity != null) {
-        isAccessible = true
-    } else if (!hasSentDetails) {
-        val actualPriv = channelPrivate ?: 0
-        if (actualPriv == 0 && parentId != null) {
-            val parentEntity = ctx?.let { resolveChannelEntity(it, parentId, clanId) }
-            isAccessible = parentEntity != null
-        }
-    }
+    val isAccessible = entity != null
     
     val fgColor = if (isAccessible) (mentionColors?.userText ?: linkColor) else theme.textDisabled
     val bgColor = if (isAccessible) theme.midnightBlue else theme.tertiary
@@ -814,8 +801,6 @@ private fun appendHashtagPill(
     val iconDrawable = if (ctx != null) {
         if (entity != null) {
             resolveHashtagIcon(entity).getDrawable(ctx)
-        } else if (hasSentDetails) {
-            ChannelItemCell.resolveChannelIcon(sentChannelType!!, false, false).getDrawable(ctx)
         } else if (!isAccessible) {
             ChannelItemCell.resolveChannelIcon(
                 com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL, true, false

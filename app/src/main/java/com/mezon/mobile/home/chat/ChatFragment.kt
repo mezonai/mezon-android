@@ -8455,9 +8455,13 @@ open class ChatFragment : BaseFragment() {
         if (cid == 0L) return
         val targetClanId = targetClanIdStr?.toLongOrNull() ?: clanId
         if (targetClanId != 0L && clansController.clans.value.none { it.clanId == targetClanId }) return
-        val entity = (channelController.findChannelById(cid, targetClanId)
-            ?: searchController.findChannelById(cid)
-            ?: channelController.linkedChannelDetail(cid))
+        val entity = (if (channelController.requiresLinkedChannelValidation(cid)) {
+            channelController.linkedChannelDetail(cid)
+        } else {
+            channelController.findChannelById(cid, targetClanId)
+                ?: searchController.findChannelById(cid)
+                ?: channelController.linkedChannelDetail(cid)
+        })
             ?.takeIf { targetClanId == 0L || it.clanId == targetClanId }
         if (entity != null) {
             openChannelEntity(entity)
