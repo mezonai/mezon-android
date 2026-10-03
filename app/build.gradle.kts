@@ -59,7 +59,7 @@ android {
                 arguments += "-DONNXRUNTIME_ROOT=${layout.buildDirectory.get().asFile}/onnxruntime-native"
             }
         }
-        versionCode = 1199
+        versionCode = 1202
         versionName = "1.2.12"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -220,6 +220,9 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+        jniLibs {
+            excludes += "**/libonnxruntime4j_jni.so"
         }
     }
     externalNativeBuild {

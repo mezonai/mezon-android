@@ -957,7 +957,6 @@ class VoiceRoomFragment : BaseFragment() {
     private fun onSfuState(state: SfuConnectionState) {
         sfuConnected = state == SfuConnectionState.CONNECTED
         controlBar.setMicrophoneAvailable(sfuConnected)
-        // Header status animates in place; transport steps must not relayout the room.
         headerView.setReconnecting(!sfuConnected && state != SfuConnectionState.FAILED)
         when (state) {
             SfuConnectionState.CONNECTED -> {

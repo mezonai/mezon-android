@@ -338,7 +338,12 @@ class EmbedMessageRenderer(
             if (relX < 0f || relY < 0f || relY >= layout.height) continue
             val line = layout.getLineForVertical(relY.toInt())
             if (relX < layout.getLineLeft(line) || relX > layout.getLineRight(line)) continue
-            val offset = layout.getOffsetForHorizontal(line, relX)
+            var offset = layout.getOffsetForHorizontal(line, relX)
+            if (offset > layout.getLineStart(line) && !layout.isRtlCharAt(offset - 1) &&
+                (offset >= layout.getLineEnd(line) || relX < layout.getPrimaryHorizontal(offset))
+            ) {
+                offset--
+            }
             val spans = text.getSpans(offset, offset + 1, ClickableSpan::class.java)
             if (spans.isNotEmpty()) return spans[0]
         }
@@ -950,6 +955,9 @@ class EmbedMessageRenderer(
             bottom = drawActionRows(canvas, left, bottom)
         }
         trimInteractiveGeometries()
+        while (textHits.size > textHitCount) {
+            textHits.removeAt(textHits.lastIndex)
+        }
         onAfterDraw?.invoke()
         return bottom
     }
