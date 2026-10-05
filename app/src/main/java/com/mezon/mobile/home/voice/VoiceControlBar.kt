@@ -34,6 +34,8 @@ class VoiceControlBar(
         private val INNER_PADDING = LayoutHelper.dp(6)
         private val PILL_RADIUS = LayoutHelper.dp(80).toFloat()
         private val RAISE_HAND_ACTIVE = 0xFFEFBC39.toInt()
+        private val WEAK_DOT_SIZE = LayoutHelper.dp(14)
+        private val WEAK_DOT_BORDER = LayoutHelper.dp(2)
 
         private val PTT_LAYOUT_H_PADDING = LayoutHelper.dp(14)
         private val PTT_BIG_HEIGHT = LayoutHelper.dp(168)
@@ -75,6 +77,7 @@ class VoiceControlBar(
     private val row: LinearLayout
     private val cameraButton: VoiceStyleCircleButton
     private val micButton: VoiceStyleCircleButton
+    private val micWeakDot: View
     private val chatButton: VoiceStyleCircleButton
     private val raiseHandButton: VoiceStyleCircleButton
     private val endCallButton: VoiceStyleCircleButton
@@ -148,6 +151,16 @@ class VoiceControlBar(
             }
         }
         addButton(row, micButton, true)
+        micWeakDot = View(context).apply {
+            visibility = View.GONE
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(themeColors.connectingColor)
+                setStroke(WEAK_DOT_BORDER, themeColors.channelPanelBg)
+            }
+        }
+        micButton.addView(micWeakDot, LayoutParams(WEAK_DOT_SIZE, WEAK_DOT_SIZE, Gravity.TOP or Gravity.END))
 
         chatButton = VoiceStyleCircleButton(context, MezonIcon.notificationTabMessages, themeColors.tertiary, btnBorder, defaultTint).apply {
             setOnClickListener { onChatClick?.invoke() }
@@ -437,6 +450,12 @@ class VoiceControlBar(
             }
         }
     }
+
+    fun setNetworkWeak(weak: Boolean) {
+        micWeakDot.visibility = if (weak) View.VISIBLE else View.GONE
+    }
+
+    fun micAnchorView(): View = if (pushToTalkMode) pttMicPill else micButton
 
     fun setMicEnabled(enabled: Boolean) {
         if (micEnabled == enabled) return

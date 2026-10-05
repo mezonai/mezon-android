@@ -1744,4 +1744,5 @@
     <string name="voice_room_connection_failed_message">Không thể khôi phục kết nối thoại. Hãy kiểm tra kết nối và thử tham gia lại.</string>
     <string name="voice_room_connection_exit">Thoát</string>
     <string name="voice_room_connection_rejoin">Tham gia lại</string>
+    <string name="voice_room_network_warning">Kết nối mạng của bạn không ổn định.</string>
 </resources>

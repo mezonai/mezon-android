@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
@@ -15,6 +16,8 @@ import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
+import android.view.ViewTreeObserver
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.Toast
@@ -140,6 +143,7 @@ class VoiceRoomFragment : BaseFragment() {
     private lateinit var morePopup: VoiceMorePopup
     private lateinit var reactionHandler: VoiceReactionHandler
     private var audioManager: VoiceAudioManager? = null
+    private var joinSound: VoiceJoinSound? = null
     private var participantModerationSheet: UserProfileBottomSheet? = null
 
     private val participants = ArrayList<ParticipantInfo>()
@@ -149,6 +153,11 @@ class VoiceRoomFragment : BaseFragment() {
     private var isInPipMode = false
     private var isReconnecting = false
     private var connectionFailurePending = false
+    private var selfJoinSoundPending = false
+    private var networkWeak = false
+    private var networkWarningDismissed = false
+    private var networkWarningHint: VoiceNetworkWarningHintView? = null
+    private val networkWarningLayoutListener = ViewTreeObserver.OnGlobalLayoutListener { positionNetworkWarningHint() }
     private var connectionFailureDialog: AlertDialog? = null
     private var isRaiseHandActive = false
     private var lastSwitchCameraElapsedMs = 0L
@@ -602,6 +611,7 @@ class VoiceRoomFragment : BaseFragment() {
             it.onOutputChanged = { updateAudioOutputIcon() }
             it.start()
         }
+        if (joinSound == null) joinSound = VoiceJoinSound(context)
         if (joinRole == SfuRole.AUDIENCE) {
             controlBar.setPushToTalkMode(true)
         }
@@ -877,6 +887,7 @@ class VoiceRoomFragment : BaseFragment() {
     private fun connectToRoom() {
         connectionFailurePending = false
         sfuConnected = false
+        selfJoinSoundPending = true
         headerView.setReconnecting(true)
         applyVoiceLayoutForMode()
         controlBar.setMicrophoneAvailable(false)
@@ -909,9 +920,13 @@ class VoiceRoomFragment : BaseFragment() {
             if (!isActive || channelId != targetChannelId || clanId != targetClanId) return@launch
             sfuSession.onAudioRecovery = audioRecoveryCallback
             sfuSession.onConnectionState = { state -> onSfuState(state) }
+            sfuSession.onNetworkWeak = { weak -> applyNetworkWeak(weak) }
             sfuSession.onParticipants = { list ->
                 sfuRemote = list
                 scheduleUpdateParticipantList()
+            }
+            sfuSession.onPeerJoined = { userId ->
+                if (!VoiceAgent.isAgent(userId)) joinSound?.play()
             }
             sfuSession.onRoleChanged = { r ->
                 joinRole = r
@@ -965,6 +980,10 @@ class VoiceRoomFragment : BaseFragment() {
                 audioManager?.applyDefaultRouting()
                 doUpdateParticipantList()
                 updateMiniOverlayIfNeeded()
+                if (selfJoinSoundPending) {
+                    selfJoinSoundPending = false
+                    joinSound?.play()
+                }
             }
             SfuConnectionState.FAILED -> {
                 roomScope?.cancel()
@@ -1574,7 +1593,9 @@ class VoiceRoomFragment : BaseFragment() {
             sfuSession.onAudioRecovery = null
             sfuSession.tokenProvider = null
             sfuSession.onConnectionState = null
+            sfuSession.onNetworkWeak = null
             sfuSession.onParticipants = null
+            sfuSession.onPeerJoined = null
             sfuSession.onRoleChanged = null
             sfuSession.onError = null
             sfuSession.onLocalVideoTrack = null
@@ -1597,9 +1618,72 @@ class VoiceRoomFragment : BaseFragment() {
         participantModerationSheet = null
         audioManager?.release()
         audioManager = null
+        joinSound?.release()
+        joinSound = null
+        hideNetworkWarningHint()
         roomScope?.cancel()
         roomScope = null
         super.onFragmentDestroy()
+    }
+
+    private fun applyNetworkWeak(weak: Boolean) {
+        networkWeak = weak
+        if (!weak) networkWarningDismissed = false
+        controlBar.setNetworkWeak(weak)
+        refreshNetworkWarningHint()
+    }
+
+    private fun refreshNetworkWarningHint() {
+        val root = fragmentView as? FrameLayout
+        if (root == null || !networkWeak || networkWarningDismissed) {
+            hideNetworkWarningHint()
+            return
+        }
+        if (networkWarningHint != null) return
+        val message = getString(R.string.voice_room_network_warning)
+        val hint = VoiceNetworkWarningHintView(root.context, message).apply {
+            alpha = 0f
+            onDismiss = {
+                networkWarningDismissed = true
+                refreshNetworkWarningHint()
+            }
+        }
+        root.addView(hint, LayoutHelper.createFrame(
+            LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT,
+            Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL, 8f, 0f, 8f, 0f
+        ))
+        networkWarningHint = hint
+        root.viewTreeObserver.addOnGlobalLayoutListener(networkWarningLayoutListener)
+        positionNetworkWarningHint()
+        hint.animate().alpha(1f).setDuration(100L).start()
+        hint.announceForAccessibility(message)
+    }
+
+    private fun hideNetworkWarningHint() {
+        val hint = networkWarningHint ?: return
+        networkWarningHint = null
+        fragmentView?.viewTreeObserver?.takeIf { it.isAlive }?.removeOnGlobalLayoutListener(networkWarningLayoutListener)
+        hint.animate().cancel()
+        hint.animate().alpha(0f).setDuration(100L).withEndAction {
+            (hint.parent as? ViewGroup)?.removeView(hint)
+        }.start()
+    }
+
+    private fun positionNetworkWarningHint() {
+        val hint = networkWarningHint ?: return
+        val root = fragmentView as? ViewGroup ?: return
+        if (!::controlBar.isInitialized || controlBar.height == 0) return
+        val anchor = controlBar.micAnchorView()
+        val anchorRect = Rect()
+        anchor.getDrawingRect(anchorRect)
+        root.offsetDescendantRectToMyCoords(anchor, anchorRect)
+        hint.setArrowCenterX(anchorRect.exactCenterX())
+        val params = hint.layoutParams as? FrameLayout.LayoutParams ?: return
+        val bottomMargin = root.height - controlBar.top + LayoutHelper.dp(6)
+        if (params.bottomMargin != bottomMargin) {
+            params.bottomMargin = bottomMargin
+            hint.layoutParams = params
+        }
     }
 
     private fun resolveLocalSenderMeta(): VoiceReactionHandler.SenderMeta {

@@ -272,7 +272,9 @@ class MezonSfuSession @Inject constructor(
     @MainDispatcher private val mainDispatcher: CoroutineDispatcher,
 ) {
     var onConnectionState: ((SfuConnectionState) -> Unit)? = null
+    var onNetworkWeak: ((Boolean) -> Unit)? = null
     var onParticipants: ((List<SfuParticipant>) -> Unit)? = null
+    var onPeerJoined: ((String) -> Unit)? = null
     var onRoleChanged: ((SfuRole) -> Unit)? = null
     var onError: ((String, String?) -> Unit)? = null
     var onLocalVideoTrack: ((VideoTrack?) -> Unit)? = null
@@ -361,6 +363,8 @@ class MezonSfuSession @Inject constructor(
     private var retiringCloseJob: Job? = null
     private var admitted = false
     private var selfPeerId: String? = null
+    private var networkQuality = SfuNetworkQuality()
+    private var networkWeak = false
     private var moderatorMuteJob: Job? = null
     private val participantActionCallbacks = ArrayDeque<(Boolean, String?) -> Unit>()
 
@@ -590,7 +594,7 @@ class MezonSfuSession @Inject constructor(
         roomScope.launch {
             while (isActive) {
                 delay(5000L)
-                peerConnection?.let { checkAudioFlow(it) }
+                peerConnection?.let { checkMediaStats(it) }
             }
         }
         roomScope.launch {
@@ -636,8 +640,8 @@ class MezonSfuSession @Inject constructor(
         captureStallTicks = 0
     }
 
-    private fun checkAudioFlow(pc: PeerConnection) {
-        if (!active || !localTracksAdded || transportStatus.connection != PeerConnection.PeerConnectionState.CONNECTED) return
+    private fun checkMediaStats(pc: PeerConnection) {
+        if (!active || transportStatus.connection != PeerConnection.PeerConnectionState.CONNECTED) return
         val gen = connectionGen
         appScope.launch(webRtcDispatcher) {
             if (gen != connectionGen) return@launch
@@ -645,12 +649,25 @@ class MezonSfuSession @Inject constructor(
                 val packets = report.statsMap.values.filter {
                     it.type == "outbound-rtp" && (it.members["kind"] ?: it.members["mediaType"]) == "audio"
                 }.sumOf { (it.members["packetsSent"] as? Number)?.toLong() ?: 0L }
+                val lossSamples = SfuNetworkQuality.lossSamples(report)
                 appScope.launch(mainDispatcher) statsResult@{
                     if (!active || !isCurrentConnection(pc, gen)) return@statsResult
-                    evaluateAudioFlow(packets)
+                    if (localTracksAdded) evaluateAudioFlow(packets)
+                    updateNetworkQuality(lossSamples)
                 }
             }
         }
+    }
+
+    private fun updateNetworkQuality(samples: List<SfuNetworkQuality.LossSample>) {
+        if (connectionState != SfuConnectionState.CONNECTED) return
+        setNetworkWeak(networkQuality.update(samples))
+    }
+
+    private fun setNetworkWeak(weak: Boolean) {
+        if (networkWeak == weak) return
+        networkWeak = weak
+        onNetworkWeak?.invoke(weak)
     }
 
     private fun evaluateAudioFlow(packets: Long) {
@@ -805,6 +822,8 @@ class MezonSfuSession @Inject constructor(
         transportRecoveryJob = null
         active = false
         connectionState = SfuConnectionState.DISCONNECTED
+        networkQuality = SfuNetworkQuality()
+        setNetworkWeak(false)
         callIdentity = null
         resetAudioFlow()
         videoExposures.clear()
@@ -1200,8 +1219,10 @@ class MezonSfuSession @Inject constructor(
             }
             "peer_joined", "peer_updated" -> {
                 val peer = msg.optJSONObject("peer")
+                val newcomer = if (msg.optString("type") == "peer_joined") peer?.let { newcomerUserId(it) } else null
                 if (peer != null && applyPeers(org.json.JSONArray().put(peer)) && peerConnection != null) syncRemoteMedia()
                 emitParticipants()
+                newcomer?.let { onPeerJoined?.invoke(it) }
                 val selfPeer = selfPeerId
                 if (msg.optString("type") == "peer_updated" && peer != null && selfPeer != null &&
                     peer.opt("peer_id")?.toString() == selfPeer && peer.optBoolean("is_mute") && micEnabled
@@ -1427,7 +1448,15 @@ class MezonSfuSession @Inject constructor(
         audio.setEnabled(enabled)
         if (audio.enabled() != enabled) return false
         val tc = findTransceiver(MID_AUDIO, "audio") ?: return false
-        return tc.sender.setTrack(audio, false)
+        if (!tc.sender.setTrack(audio, false)) return false
+        return setAudioEncodingActive(tc.sender, enabled) || !enabled
+    }
+
+    private fun setAudioEncodingActive(sender: RtpSender, sending: Boolean): Boolean {
+        val parameters = sender.parameters
+        if (parameters.encodings.all { it.active == sending }) return true
+        parameters.encodings.forEach { it.active = sending }
+        return sender.setParameters(parameters)
     }
 
     private fun readTransceivers(pc: PeerConnection, gen: Int): List<RtpTransceiver> {
@@ -1457,7 +1486,8 @@ class MezonSfuSession @Inject constructor(
                         audio.enabled() != enabled -> LocalAudioOutcome.FAILED
                         !attach || gen != connectionGen -> LocalAudioOutcome.APPLIED
                         sender == null -> LocalAudioOutcome.FAILED
-                        sender.setTrack(audio, false) -> LocalAudioOutcome.APPLIED
+                        !sender.setTrack(audio, false) -> LocalAudioOutcome.FAILED
+                        setAudioEncodingActive(sender, enabled) || !enabled -> LocalAudioOutcome.APPLIED
                         else -> LocalAudioOutcome.FAILED
                     }
                 }
@@ -1498,6 +1528,7 @@ class MezonSfuSession @Inject constructor(
             audio?.setEnabled(true)
             if (tc != null && audio != null) {
                 tc.sender.setTrack(audio, false)
+                setAudioEncodingActive(tc.sender, true)
                 tc.direction = RtpTransceiver.RtpTransceiverDirection.SEND_ONLY
             }
             pttActive = true
@@ -1707,6 +1738,13 @@ class MezonSfuSession @Inject constructor(
             entry.screenActive = it
             if (started) entry.screen?.let { track -> VideoTrackLastFrameStore.observe(track) }
         }
+    }
+
+    private fun newcomerUserId(peer: JSONObject): String? {
+        if (!admitted) return null
+        val peerId = peer.opt("peer_id")?.toString() ?: return null
+        if (peerId == selfPeerId || peerId in memberByPeerId) return null
+        return peer.optString("user_id").takeIf { it.isNotEmpty() }
     }
 
     private fun handlePeerLeft(msg: JSONObject) {
@@ -2441,6 +2479,10 @@ class MezonSfuSession @Inject constructor(
     private fun emitState(state: SfuConnectionState) {
         if (connectionState == state) return
         connectionState = state
+        if (state != SfuConnectionState.CONNECTED) {
+            networkQuality = SfuNetworkQuality()
+            setNetworkWeak(false)
+        }
         onConnectionState?.invoke(state)
     }
 
