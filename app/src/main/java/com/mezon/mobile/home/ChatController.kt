@@ -166,6 +166,7 @@ class ChatController @Inject constructor(
     private val topicBadgeTracker: TopicBadgeTracker,
     private val forwardTargetUsageStore: ForwardTargetUsageStore,
     private val channelController: dagger.Lazy<com.mezon.mobile.home.clans.ChannelController>,
+    private val searchController: dagger.Lazy<com.mezon.mobile.search.SearchController>,
     private val userController: dagger.Lazy<UserController>,
     private val anonymousController: dagger.Lazy<AnonymousController>,
     private val userClanController: dagger.Lazy<UserClanController>,
@@ -965,10 +966,12 @@ class ChatController @Inject constructor(
         messageId: Long,
         timestampSeconds: Int,
         badgeCount: Int = 0,
-        applyLocal: Boolean = true
+        applyLocal: Boolean = true,
+        capturedBadgeCount: Int? = null
     ) {
         badgeCoordinator.scheduleLastSeenWrite(
-            channelId, clanId, channelType, messageId, timestampSeconds, badgeCount, applyLocal
+            channelId, clanId, channelType, messageId, timestampSeconds, badgeCount, applyLocal,
+            capturedBadgeCount = capturedBadgeCount
         )
     }
 
@@ -1338,6 +1341,13 @@ class ChatController @Inject constructor(
         }
     }
 
+    private fun withChannelLinkDetails(content: String): String =
+        com.mezon.mobile.util.addChannelLinkDetails(content) { id ->
+            channelController.get().findChannelById(id)
+                ?: searchController.get().findChannelById(id)
+                ?: channelController.get().linkedChannelDetail(id)
+        }
+
     fun sendMessage(
         channelId: Long,
         clanId: Long,
@@ -1356,8 +1366,8 @@ class ChatController @Inject constructor(
         val isPublic = !isChannelPrivate
         val cacheKey = messageCacheKey(channelId, topicId)
         val hasContentExtras = !emojiMarkers.isNullOrEmpty() || !markdownMarkers.isNullOrEmpty() || ogpMarker != null || !hashtags.isNullOrEmpty()
-        val content = if (!hasContentExtras) buildTextContent(text)
-            else buildTextContentWithEmojis(text, null, emojiMarkers, markdownMarkers, hashtags, ogpMarker)
+        val content = withChannelLinkDetails(if (!hasContentExtras) buildTextContent(text)
+            else buildTextContentWithEmojis(text, null, emojiMarkers, markdownMarkers, hashtags, ogpMarker))
         val mentionEveryone = mentions?.any { it.userId == ID_MENTION_HERE } == true
         val protoMentions = mentions?.map { m ->
             messageMention {
@@ -1995,11 +2005,11 @@ class ChatController @Inject constructor(
         val isPublic = !isChannelPrivate
         val cacheKey = messageCacheKey(channelId, topicId)
         val hasContentExtras = !hashtags.isNullOrEmpty() || !emojiMarkers.isNullOrEmpty() || ogpMarker != null || !markdownMarkers.isNullOrEmpty()
-        val wireBase = when {
+        val wireBase = withChannelLinkDetails(when {
             text.isBlank() -> PresignFinishContent.emptyOutgoingContent()
             hasContentExtras -> buildTextContentWithEmojis(text, null, emojiMarkers, markdownMarkers, hashtags, ogpMarker)
             else -> buildTextContent(text)
-        }
+        })
         val optimisticContent = PresignFinishContent.injectEmptyPresignFinish(
             mergePendingMentionsIntoContent(
                 mergeRefsIntoOptimisticContent(wireBase, references),
@@ -3260,6 +3270,7 @@ class ChatController @Inject constructor(
         val presignOnly = PresignFinishContent.isPresignFinishOnlyChange(mergedContent, base.content)
         val resolvedContent = when {
             forceContentReplace && incoming.content.isNotBlank() -> mergedContent
+            incoming.isPollMessage -> mergedContent
             else -> resolveEchoContent(mergedContent, base.content)
         }
         if (!preserveLocalAttachments) {
@@ -3362,11 +3373,11 @@ class ChatController @Inject constructor(
             ).ifEmpty { null }
         val hasExtras = !resolvedMentions.isNullOrEmpty() || !emojiMarkers.isNullOrEmpty() ||
             !markdownMarkers.isNullOrEmpty() || !hashtags.isNullOrEmpty()
-        val baseContent = if (hasExtras) {
+        val baseContent = withChannelLinkDetails(if (hasExtras) {
             buildTextContentWithEmojis(newText, resolvedMentions, emojiMarkers, markdownMarkers, hashtags)
         } else {
             buildTextContent(newText)
-        }
+        })
         var content = if (existingMessage != null && isShareContactMessage(existingMessage.code, existingMessage.content)) {
             mergeShareContactEmbedIntoContent(baseContent, existingMessage.content)
         } else {

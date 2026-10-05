@@ -1843,4 +1843,9 @@
     <string name="voice_channel_ongoing_title">Voice channel</string>
     <string name="voice_channel_ongoing_text">Connected to %1$s</string>
     <string name="voice_channel_ongoing_text_generic">Connected to a voice channel</string>
+    <string name="voice_room_connection_failed_title">Unable to connect to voice</string>
+    <string name="voice_room_connection_failed_message">The voice connection could not be restored. Check your connection and try joining again.</string>
+    <string name="voice_room_connection_exit">Exit</string>
+    <string name="voice_room_connection_rejoin">Rejoin</string>
+    <string name="voice_room_network_warning">Your internet connection is unstable.</string>
 </resources>

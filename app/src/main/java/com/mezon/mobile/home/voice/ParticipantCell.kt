@@ -12,6 +12,7 @@ import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.TextUtils
 import android.util.TypedValue
+import android.view.View
 import android.view.Gravity
 import android.widget.FrameLayout
 import android.widget.ImageView
@@ -32,6 +33,14 @@ class ParticipantCell(
     context: Context,
     private val themeColors: ThemeColors
 ) : FrameLayout(context) {
+
+    var onVideoWindowVisibilityChanged: (() -> Unit)? = null
+
+    override fun onWindowVisibilityChanged(visibility: Int) {
+        super.onWindowVisibilityChanged(visibility)
+        onVideoWindowVisibilityChanged?.invoke()
+        if (visibility == VISIBLE) frameReplay?.request() else frameReplay?.cancel()
+    }
 
     enum class ReactionBadgeType { NONE, SOUND_EFFECT, RAISE_HAND }
 
@@ -61,6 +70,7 @@ class ParticipantCell(
     private var surfaceRenderer: SurfaceViewRenderer? = null
     private var currentVideoTrack: VideoTrack? = null
     private var rendererInitialized = false
+    private var frameReplay: VideoSurfaceFrameReplay? = null
 
     private val borderDrawable: GradientDrawable
 
@@ -280,6 +290,18 @@ class ParticipantCell(
         avatarDisposable = null
     }
 
+    override fun onVisibilityChanged(changedView: View, visibility: Int) {
+        super.onVisibilityChanged(changedView, visibility)
+        if (visibility == VISIBLE && isShown) {
+            surfaceRenderer?.disableFpsReduction()
+            frameReplay?.request()
+        } else {
+            frameReplay?.cancel()
+            surfaceRenderer?.pauseVideo()
+        }
+        onVideoWindowVisibilityChanged?.invoke()
+    }
+
     fun attachVideoTrack(videoTrack: VideoTrack, mirror: Boolean) {
         if (currentVideoTrack == videoTrack && surfaceRenderer != null) {
             updateVideoMirror(mirror)
@@ -297,6 +319,7 @@ class ParticipantCell(
         if (!rendererInitialized) {
             renderer.init(EglBaseProvider.acquire(), null)
             rendererInitialized = true
+            frameReplay = VideoSurfaceFrameReplay(renderer) { currentVideoTrack }
         }
 
         try {
@@ -309,7 +332,6 @@ class ParticipantCell(
             return
         }
         currentVideoTrack = videoTrack
-        VideoTrackLastFrameStore.replayLastFrame(videoTrack, renderer)
         if (isScreenShare) {
             renderer.setScalingType(
                 RendererCommon.ScalingType.SCALE_ASPECT_FIT,
@@ -327,12 +349,15 @@ class ParticipantCell(
         renderer.requestLayout()
         renderer.invalidate()
         renderer.visibility = VISIBLE
+        if (isShown) renderer.disableFpsReduction() else renderer.pauseVideo()
+        frameReplay?.request()
         avatarView.visibility = GONE
         nameOverlay.visibility = VISIBLE
         updateNameOverlayContent()
     }
 
     fun detachVideoTrack() {
+        frameReplay?.cancel()
         val renderer = surfaceRenderer
         val track = currentVideoTrack
         if (track != null && renderer != null) {
@@ -340,6 +365,7 @@ class ParticipantCell(
         }
         currentVideoTrack = null
         mirrorVideo = false
+        surfaceRenderer?.clearImage()
         surfaceRenderer?.visibility = GONE
         nameOverlay.visibility = GONE
         avatarView.visibility = VISIBLE
@@ -354,6 +380,8 @@ class ParticipantCell(
         detachVideoTrack()
         avatarDisposable?.cancel()
         avatarDisposable = null
+        frameReplay?.release()
+        frameReplay = null
         surfaceRenderer?.let {
             removeView(it)
             it.release()

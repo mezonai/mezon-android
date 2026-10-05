@@ -808,6 +808,9 @@ class ClansFragment : BaseFragment() {
 
     override fun onResume() {
         super.onResume()
+        if (fragmentView != null && !listFrozen && clansController.clansLoaded) {
+            updateVisibleRows(NotificationCenter.UPDATE_MASK_BADGE)
+        }
         ensureVoiceMembersLoaded()
         updateMemberCount()
     }

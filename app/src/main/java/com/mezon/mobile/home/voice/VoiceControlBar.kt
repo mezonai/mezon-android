@@ -34,6 +34,8 @@ class VoiceControlBar(
         private val INNER_PADDING = LayoutHelper.dp(6)
         private val PILL_RADIUS = LayoutHelper.dp(80).toFloat()
         private val RAISE_HAND_ACTIVE = 0xFFEFBC39.toInt()
+        private val WEAK_DOT_SIZE = LayoutHelper.dp(14)
+        private val WEAK_DOT_BORDER = LayoutHelper.dp(2)
 
         private val PTT_LAYOUT_H_PADDING = LayoutHelper.dp(14)
         private val PTT_BIG_HEIGHT = LayoutHelper.dp(168)
@@ -75,6 +77,7 @@ class VoiceControlBar(
     private val row: LinearLayout
     private val cameraButton: VoiceStyleCircleButton
     private val micButton: VoiceStyleCircleButton
+    private val micWeakDot: View
     private val chatButton: VoiceStyleCircleButton
     private val raiseHandButton: VoiceStyleCircleButton
     private val endCallButton: VoiceStyleCircleButton
@@ -92,10 +95,12 @@ class VoiceControlBar(
     private val defaultMicTint = themeColors.tabLabelActive
     private val defaultMicIconSize = VoiceStyleCircleButton.defaultIconSizePx(context)
 
+    private var microphoneAvailable = true
     private var holdTriggered = false
     private var pulseAnimator: ValueAnimator? = null
     private var hintToast: Toast? = null
     private val holdRunnable = Runnable {
+        if (!microphoneAvailable) return@Runnable
         holdTriggered = true
         setPttPressed(true)
         startRecordingPulse()
@@ -146,6 +151,16 @@ class VoiceControlBar(
             }
         }
         addButton(row, micButton, true)
+        micWeakDot = View(context).apply {
+            visibility = View.GONE
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(themeColors.connectingColor)
+                setStroke(WEAK_DOT_BORDER, themeColors.channelPanelBg)
+            }
+        }
+        micButton.addView(micWeakDot, LayoutParams(WEAK_DOT_SIZE, WEAK_DOT_SIZE, Gravity.TOP or Gravity.END))
 
         chatButton = VoiceStyleCircleButton(context, MezonIcon.notificationTabMessages, themeColors.tertiary, btnBorder, defaultTint).apply {
             setOnClickListener { onChatClick?.invoke() }
@@ -204,6 +219,7 @@ class VoiceControlBar(
             isClickable = true
             addView(pttMicContent, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.CENTER))
             setOnTouchListener { v, event ->
+                if (!microphoneAvailable) return@setOnTouchListener true
                 when (event.actionMasked) {
                     MotionEvent.ACTION_DOWN -> {
                         holdTriggered = false
@@ -417,6 +433,29 @@ class VoiceControlBar(
         chatButton.visibility = vis
         raiseHandButton.visibility = vis
     }
+
+    fun setMicrophoneAvailable(available: Boolean) {
+        microphoneAvailable = available
+        micButton.isEnabled = available
+        micButton.alpha = if (available) 1f else 0.4f
+        pttMicPill.isEnabled = available
+        pttMicPill.alpha = if (available) 1f else 0.4f
+        if (!available) {
+            pttMicPill.removeCallbacks(holdRunnable)
+            if (holdTriggered) {
+                holdTriggered = false
+                setPttPressed(false)
+                stopRecordingPulse()
+                onMicPressEnd?.invoke()
+            }
+        }
+    }
+
+    fun setNetworkWeak(weak: Boolean) {
+        micWeakDot.visibility = if (weak) View.VISIBLE else View.GONE
+    }
+
+    fun micAnchorView(): View = if (pushToTalkMode) pttMicPill else micButton
 
     fun setMicEnabled(enabled: Boolean) {
         if (micEnabled == enabled) return

@@ -49,6 +49,7 @@ import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.messages.MessageActivitiesController
 import com.mezon.mobile.home.MainTabsActivity
 import com.mezon.mobile.home.chat.ChatFragment
+import com.mezon.mobile.home.chat.ImageClipboardCoordinator
 import com.mezon.mobile.home.chat.PendingCameraCapture
 import com.mezon.mobile.home.chat.PhotoViewer
 import com.mezon.mobile.home.chat.VideoPlayerDialog
@@ -70,6 +71,7 @@ import com.mezon.mobile.home.sharing.VideoShareRefinementContract
 import com.mezon.mobile.home.stream.StreamingRoomFragment
 import com.mezon.mobile.home.voice.VoiceOverlayManager
 import com.mezon.mobile.home.voice.VoiceRoomFragment
+import com.mezon.mobile.home.voice.sfu.MezonSfuSession
 import com.mezon.mobile.home.voice.sfu.SfuRole
 import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
 import com.mezon.mobile.network.CHANNEL_TYPE_DM
@@ -146,6 +148,7 @@ class MainActivity : BasePermissionsActivity(),
     @Inject lateinit var callManager: CallManager
     @Inject lateinit var networkMonitor: NetworkMonitor
     @Inject lateinit var deepLinkRouter: DeepLinkRouter
+    @Inject lateinit var mezonSfuSession: MezonSfuSession
 
     lateinit var actionBarLayout: ActionBarLayout
     lateinit var drawerLayoutContainer: DrawerLayoutContainer
@@ -221,6 +224,9 @@ class MainActivity : BasePermissionsActivity(),
 
         voiceOverlayManager = VoiceOverlayManager(drawerLayoutContainer, themeColors).also { manager ->
             manager.onExpandRequest = { expandVoiceRoom() }
+            manager.onVideoVisibilityChanged = { track, visible ->
+                mezonSfuSession.setVideoTrackVisible(track, visible, "mini-overlay", focused = true)
+            }
         }
         streamingOverlayManager = VoiceOverlayManager(drawerLayoutContainer, themeColors).also { manager ->
             manager.onExpandRequest = { expandStreamingRoom() }
@@ -275,6 +281,7 @@ class MainActivity : BasePermissionsActivity(),
         requestNotificationPermission()
         lifecycleScope.launch(Dispatchers.IO) {
             PendingCameraCapture.sweepOrphans(this@MainActivity)
+            ImageClipboardCoordinator.sweepStaleFiles(this@MainActivity)
         }
 
         NotificationCenter.getGlobalInstance().addObserver(this, NotificationCenter.themeChanged)
@@ -307,11 +314,22 @@ class MainActivity : BasePermissionsActivity(),
         return super.dispatchKeyEvent(event)
     }
 
+    override fun onStart() {
+        super.onStart()
+        mezonSfuSession.setAppVisible(true)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        mezonSfuSession.setAppVisible(false)
+    }
+
     override fun onResume() {
         super.onResume()
         isResumed = true
         applicationPaused = false
         actionBarLayout.onResume()
+        voiceRoomFragment?.onResume()
         if (StartupCache.hasSession) {
             connectionController.handleAppForeground()
             maybePromptFullScreenIntentForIncomingCalls()

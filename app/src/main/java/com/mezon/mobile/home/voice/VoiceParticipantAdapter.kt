@@ -30,7 +30,8 @@ class VoiceParticipantAdapter(
     private val onScreenShareClick: (ParticipantInfo) -> Unit,
     private val onParticipantLongPress: (ParticipantInfo) -> Unit,
     private val itemKeyProvider: (ParticipantInfo) -> String,
-    private val isCompactMode: () -> Boolean
+    private val isCompactMode: () -> Boolean,
+    private val onVideoVisibilityChanged: (VideoTrack, Boolean, String) -> Unit = { _, _, _ -> }
 ) : RecyclerView.Adapter<VoiceParticipantAdapter.ParticipantVH>() {
 
     private var items: List<ParticipantInfo> = ArrayList(getParticipants())
@@ -63,6 +64,7 @@ class VoiceParticipantAdapter(
             layoutParams = createLayoutParams(isCompactMode())
         }
         val holder = ParticipantVH(cell)
+        cell.onVideoWindowVisibilityChanged = { attachVisibleVideo(holder) }
         cell.setOnClickListener {
             val participant = holder.participant ?: return@setOnClickListener
             if (participant.isScreenShare && participant.videoTrack != null) {
@@ -97,15 +99,44 @@ class VoiceParticipantAdapter(
         )
         holder.cell.setReactionBadge(participant.reactionBadge)
 
-        if (participant.videoTrack != null) {
-            holder.cell.attachVideoTrack(participant.videoTrack, participant.mirrorVideo)
-        } else {
-            holder.cell.detachVideoTrack()
+        attachVisibleVideo(holder)
+    }
+
+    private fun detachVisibleVideo(holder: ParticipantVH) {
+        holder.visibleTrack?.let { onVideoVisibilityChanged(it, false, holder.videoSource) }
+        holder.visibleTrack = null
+        holder.cell.detachVideoTrack()
+    }
+
+    private fun attachVisibleVideo(holder: ParticipantVH) {
+        val track = holder.participant?.videoTrack
+        if (track == null || !holder.itemView.isAttachedToWindow || !holder.itemView.isShown) {
+            detachVisibleVideo(holder)
+            return
+        }
+        if (holder.visibleTrack !== track) detachVisibleVideo(holder)
+        holder.cell.attachVideoTrack(track, holder.participant?.mirrorVideo == true)
+        if (holder.visibleTrack !== track) {
+            holder.visibleTrack = track
+            onVideoVisibilityChanged(track, true, holder.videoSource)
         }
     }
 
+    override fun onViewAttachedToWindow(holder: ParticipantVH) {
+        super.onViewAttachedToWindow(holder)
+        attachVisibleVideo(holder)
+    }
+
+    override fun onViewDetachedFromWindow(holder: ParticipantVH) {
+        detachVisibleVideo(holder)
+        super.onViewDetachedFromWindow(holder)
+    }
+
     override fun onViewRecycled(holder: ParticipantVH) {
-        holder.cell.detachVideoTrack()
+        detachVisibleVideo(holder)
+        holder.cell.releaseRenderer()
+        holder.participant = null
+        super.onViewRecycled(holder)
     }
 
     private fun createLayoutParams(compactMode: Boolean): RecyclerView.LayoutParams {
@@ -121,5 +152,7 @@ class VoiceParticipantAdapter(
 
     class ParticipantVH(val cell: ParticipantCell) : RecyclerView.ViewHolder(cell) {
         var participant: ParticipantInfo? = null
+        var visibleTrack: VideoTrack? = null
+        val videoSource = "tile-${System.identityHashCode(this)}"
     }
 }

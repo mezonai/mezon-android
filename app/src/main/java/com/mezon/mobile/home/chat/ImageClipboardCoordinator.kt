@@ -204,9 +204,9 @@ class ImageClipboardCoordinator @Inject constructor(
         }
         val bytes = body.bytes()
         if (bytes.isEmpty()) return false
-        val dir = File(appContext.cacheDir, "clipboard_images").apply { mkdirs() }
+        val dir = File(appContext.cacheDir, CLIPBOARD_IMAGES_DIRECTORY).apply { mkdirs() }
         val ext = extensionForMime(mime, imageUrl.substringAfterLast('/'), Uri.parse(imageUrl))
-        val outFile = File(dir, "clipboard_${System.currentTimeMillis()}.$ext")
+        val outFile = File(dir, "$CLIPBOARD_FILE_PREFIX${System.currentTimeMillis()}.$ext")
         FileOutputStream(outFile).use { it.write(bytes) }
         val authority = "${appContext.packageName}.fileprovider"
         val contentUri = FileProvider.getUriForFile(appContext, authority, outFile)
@@ -224,6 +224,25 @@ class ImageClipboardCoordinator @Inject constructor(
             lower.contains(".webp") -> "image/webp"
             lower.endsWith(".gif") || lower.contains("tenor.com", ignoreCase = true) -> "image/gif"
             else -> "image/jpeg"
+        }
+    }
+
+    companion object {
+        private const val CLIPBOARD_IMAGES_DIRECTORY = "clipboard_images"
+        private const val CLIPBOARD_FILE_PREFIX = "clipboard_"
+        private const val STALE_FILE_AGE_MS = 24L * 60L * 60L * 1000L
+
+        fun sweepStaleFiles(context: Context) {
+            val files = File(context.cacheDir, CLIPBOARD_IMAGES_DIRECTORY).listFiles() ?: return
+            val latestClipboardFile = files
+                .filter { it.name.startsWith(CLIPBOARD_FILE_PREFIX) }
+                .maxByOrNull { it.lastModified() }
+            val staleBefore = System.currentTimeMillis() - STALE_FILE_AGE_MS
+            for (file in files) {
+                if (file == latestClipboardFile) continue
+                if (file.lastModified() >= staleBefore) continue
+                file.delete()
+            }
         }
     }
 }

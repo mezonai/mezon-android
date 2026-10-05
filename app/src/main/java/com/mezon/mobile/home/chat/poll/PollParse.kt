@@ -147,6 +147,7 @@ fun parsePollContent(raw: String): ParsedPoll? {
         val pollId = when {
             obj.has("poll_id") -> parseLongFlexible(obj.opt("poll_id"))
             obj.has("pollId") -> parseLongFlexible(obj.opt("pollId"))
+            obj.has("id") -> parseLongFlexible(obj.opt("id"))
             else -> 0L
         }
         val type = obj.optInt("type", 0)
@@ -192,10 +193,10 @@ fun mergePollFromGetResponse(base: ParsedPoll, resp: com.mezon.mezon.api.GetPoll
         question = resp.question.ifEmpty { base.question },
         answers = if (answers.isNotEmpty()) answers else base.answers,
         countsByIndex = if (counts.isNotEmpty()) counts else base.countsByIndex,
-        totalVotes = if (resp.totalVotes > 0) resp.totalVotes else base.totalVotes,
+        totalVotes = resp.totalVotes.coerceAtLeast(0),
         expireAtSeconds = if (resp.exp > 0) resp.exp else base.expireAtSeconds,
         isClosed = resp.isClosed || base.isClosed,
         isMultiple = resp.type == com.mezon.mezon.api.PollType.MULTIPLE || base.isMultiple,
-        voterDetails = if (voters.isNotEmpty()) voters else base.voterDetails
+        voterDetails = voters
     )
 }

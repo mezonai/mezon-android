@@ -112,7 +112,7 @@ class PollMessageLayout(private val context: Context) {
         val innerW = (cardWidth - pad * 2).coerceAtLeast(1)
 
         val nowSec = System.currentTimeMillis() / 1000L
-        val voted = resolvedVoted(parsed, currentUserId, state.optimisticMyIndices)
+        val voted = resolvedVoted(parsed, currentUserId, state.confirmedMyIndices)
         val hasVoted = voted.isNotEmpty()
         val expired = parsed.expireAtSeconds > 0 && parsed.expireAtSeconds < nowSec
         val showResults = parsed.isClosed || expired || hasVoted || state.showResultsPreview
@@ -388,12 +388,12 @@ class PollMessageLayout(private val context: Context) {
         }
 
         val nowSec = System.currentTimeMillis() / 1000L
-        val voted = resolvedVoted(parsed, currentUserId, state.optimisticMyIndices)
+        val voted = resolvedVoted(parsed, currentUserId, state.confirmedMyIndices)
         val hasVoted = voted.isNotEmpty()
         val expired = parsed.expireAtSeconds > 0 && parsed.expireAtSeconds < nowSec
         val showResults = parsed.isClosed || expired || hasVoted || state.showResultsPreview
         val innerW = cardWidth - pad * 2
-        val canPick = !parsed.isClosed && !expired && !hasVoted && !state.showResultsPreview
+        val canPick = !state.isVoting && !parsed.isClosed && !expired && !hasVoted && !state.showResultsPreview
 
         for (line in optionLines) {
             val highlight = canPick && state.selection.contains(line.answerIndex)
@@ -423,7 +423,9 @@ class PollMessageLayout(private val context: Context) {
         }
 
         if (actionLabel.isNotEmpty() && !actionButtonRect.isEmpty) {
+            buttonPaint.alpha = if (state.isVoting) 128 else 255
             canvas.drawRoundRect(actionButtonRect, BUTTON_RADIUS, BUTTON_RADIUS, buttonPaint)
+            buttonPaint.alpha = 255
             val fx = actionButtonRect.left + (actionButtonRect.width() - buttonTextPaint.measureText(actionLabel)) / 2f
             val fy = actionButtonRect.centerY() - (buttonTextPaint.ascent() + buttonTextPaint.descent()) / 2f
             canvas.drawText(actionLabel, fx, fy, buttonTextPaint)
@@ -545,7 +547,7 @@ class PollMessageLayout(private val context: Context) {
     }
 }
 
-private fun resolvedVoted(parsed: ParsedPoll, currentUserId: Long, optimistic: List<Int>?): List<Int> {
-    if (optimistic != null) return optimistic
+private fun resolvedVoted(parsed: ParsedPoll, currentUserId: Long, confirmed: List<Int>?): List<Int> {
+    if (confirmed != null) return confirmed
     return votedAnswerIndices(parsed, currentUserId)
 }

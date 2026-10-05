@@ -91,7 +91,8 @@ object InputSuggestionsController {
         val roles: List<ClanRole>,
         val includeHere: Boolean,
         val includeRoles: Boolean,
-        val membersPending: Boolean = false
+        val membersPending: Boolean = false,
+        val remoteMembers: List<ClanMember> = emptyList()
     )
 
     fun mentionDisplayName(member: ClanMember): String =
@@ -138,9 +139,19 @@ object InputSuggestionsController {
         }
 
         results.sortWith(compareByDescending<Scored> { it.score }.thenBy { it.length }.thenBy { it.label })
-        val items = results.map { it.item }
-        if (!ctx.membersPending) return items
-        return items + InputSuggestionItem.Loading
+        val items = ArrayList<InputSuggestionItem>(results.size + ctx.remoteMembers.size + 1)
+        val listedUserIds = HashSet<Long>()
+        for (scored in results) {
+            val item = scored.item
+            if (item is InputSuggestionItem.Member) listedUserIds.add(item.member.userId)
+            items.add(item)
+        }
+        for (member in ctx.remoteMembers) {
+            if (mentionDisplayName(member).isBlank() || !listedUserIds.add(member.userId)) continue
+            items.add(InputSuggestionItem.Member(member))
+        }
+        if (ctx.membersPending) items.add(InputSuggestionItem.Loading)
+        return items
     }
 
     fun buildChannelItems(

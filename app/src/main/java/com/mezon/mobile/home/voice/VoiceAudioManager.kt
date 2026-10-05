@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.AudioManager
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.home.call.MezonAudioSwitch
+import com.mezon.mobile.home.call.CallController
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.twilio.audioswitch.AudioDevice
 import com.twilio.audioswitch.AudioDeviceChangeListener
@@ -28,6 +29,7 @@ class VoiceAudioManager(context: Context) {
 
     var onOutputChanged: (() -> Unit)? = null
 
+    private var started = false
     private var userHasChosenOutput = false
     private var defaultRoutingApplied = false
 
@@ -37,9 +39,23 @@ class VoiceAudioManager(context: Context) {
 
     fun start() {
         audioSwitch.start()
+        started = true
+        recoverCommunicationAudio()
+    }
+
+    fun recoverCommunicationAudio() {
+        if (!started || CallController.instance?.isCallSessionActive() == true) return
+        val manager = appContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        if (manager.mode == AudioManager.MODE_IN_CALL) return
+        runCatching {
+            if (manager.mode != AudioManager.MODE_IN_COMMUNICATION) manager.mode = AudioManager.MODE_IN_COMMUNICATION
+            // User mute is enforced by the WebRTC track, not a stale global device mute.
+            if (manager.isMicrophoneMute) manager.isMicrophoneMute = false
+        }
     }
 
     fun release() {
+        started = false
         AndroidUtilities.cancelRunOnUIThread(outputChangedRunnable)
         audioSwitch.unregisterAudioDeviceChangeListener(deviceChangeListener)
         audioSwitch.stop()

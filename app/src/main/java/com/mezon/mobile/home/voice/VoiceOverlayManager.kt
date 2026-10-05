@@ -38,6 +38,8 @@ class VoiceOverlayManager(
     private var miniOverlay: VoiceOverlayView? = null
     private var currentAnimator: ValueAnimator? = null
 
+    var onVideoVisibilityChanged: ((VideoTrack, Boolean) -> Unit)? = null
+
     var onExpandRequest: (() -> Unit)? = null
 
     init {
@@ -75,6 +77,7 @@ class VoiceOverlayManager(
 
         val overlay = miniOverlay ?: VoiceOverlayView(rootContainer.context, themeColors).also {
             it.onTapExpand = { onExpandRequest?.invoke() }
+            it.onVideoVisibilityChanged = { track, visible -> onVideoVisibilityChanged?.invoke(track, visible) }
             miniOverlay = it
         }
         overlay.setContent(videoTrack, name, username, avatarUrl, isMuted, userId)
@@ -110,6 +113,7 @@ class VoiceOverlayManager(
 
         val overlay = miniOverlay ?: VoiceOverlayView(rootContainer.context, themeColors).also {
             it.onTapExpand = { onExpandRequest?.invoke() }
+            it.onVideoVisibilityChanged = { track, visible -> onVideoVisibilityChanged?.invoke(track, visible) }
             miniOverlay = it
         }
         overlay.setStreamContent(channelLabel, channelAvatarUrl)

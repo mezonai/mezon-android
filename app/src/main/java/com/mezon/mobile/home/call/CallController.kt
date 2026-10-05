@@ -35,6 +35,20 @@ import dagger.Lazy
 private const val TAG = "CallController"
 private const val CALL_TIMEOUT_MS = 30_000L
 private const val REMOTE_VIDEO_INITIAL_SUPPRESS_MS = 2000L
+private const val MAX_KNOWN_PEER_SESSIONS = 8
+
+internal fun offerSdpSendsVideo(sdp: String): Boolean {
+    var inVideoSection = false
+    for (line in sdp.lineSequence()) {
+        val trimmed = line.trim()
+        if (trimmed.startsWith("m=")) {
+            inVideoSection = trimmed.startsWith("m=video ") && !trimmed.startsWith("m=video 0 ")
+        } else if (inVideoSection && (trimmed == "a=sendrecv" || trimmed == "a=sendonly")) {
+            return true
+        }
+    }
+    return false
+}
 
 @Singleton
 class CallController @Inject constructor(
@@ -61,6 +75,8 @@ class CallController @Inject constructor(
     @Volatile private var inCallChannelId: Long = 0L
 
     fun isCallSessionActive(): Boolean = isInCall || callState !is CallState.Idle
+
+    fun isCallEstablished(): Boolean = callEstablished && callState is CallState.Connected
 
     fun shouldShowRemoteVideoForUi(): Boolean {
         val state = callState as? CallState.Connected ?: return false
@@ -93,6 +109,7 @@ class CallController @Inject constructor(
     private var timeoutJob: Job? = null
     private var localOffer: SessionDescription? = null
     private val pendingIceCandidates = mutableListOf<IceCandidate>()
+    private val knownPeerSessions = ArrayDeque<Pair<Long, String>>()
 
     private val incomingPrepareHandler = Handler(Looper.getMainLooper())
 
@@ -101,6 +118,8 @@ class CallController @Inject constructor(
     private var remoteVideoRevealRunnable: Runnable? = null
     @Volatile private var remoteCameraEverSignaled: Boolean = false
     @Volatile private var connectedCancelCallPushed = false
+    @Volatile private var callEstablished = false
+    @Volatile private var ringAnsweredElsewhere: Pair<Long, Long>? = null
 
     @Volatile private var activeCallLogMessageId: Long = 0L
     private var activeCallClanId: Long = 0L
@@ -145,6 +164,7 @@ class CallController @Inject constructor(
         activeCallIsPrivate = isChannelPrivate
         activeCallLogMessageId = 0L
         connectedCancelCallPushed = false
+        callEstablished = false
 
         val callInfo = CallInfo(
             peerId = peerId,
@@ -369,6 +389,7 @@ class CallController @Inject constructor(
             Log.d(TAG, "acceptCallFromFcm: caller=$callerName, sdpLen=${sdpString.length}")
             markInCall(callInfo)
             callState = CallState.Incoming(callInfo, sdp)
+            rememberPeerSession(callInfo.peerId, sdpString)
             synchronized(pendingIceCandidates) { pendingIceCandidates.clear() }
             acceptCall()
         } catch (e: Exception) {
@@ -386,6 +407,7 @@ class CallController @Inject constructor(
     ) {
         val peerIdLong = callerId.toLongOrNull() ?: 0L
         val channelIdLong = channelId.toLongOrNull() ?: 0L
+        if (isKnownPeerSession(peerIdLong, offerJson)) return
         if (isDuplicateIncomingOffer(peerIdLong, channelIdLong)) {
             Log.d(TAG, "handleIncomingOfferFromFcm: duplicate offer from same caller, ignoring")
             return
@@ -432,6 +454,7 @@ class CallController @Inject constructor(
 
             markInCall(callInfo)
             callState = CallState.Incoming(callInfo, sdp)
+            rememberPeerSession(peerIdLong, sdpString)
             synchronized(pendingIceCandidates) { pendingIceCandidates.clear() }
             prepareIncomingPeerConnection(sdp)
             incomingPrepareHandler.post {
@@ -564,13 +587,17 @@ class CallController @Inject constructor(
         rejectCallFromIncomingCallUi(null)
     }
 
-    fun rejectCallFromIncomingCallUi(rawOfferEnvelope: String?) {
+    fun rejectCallFromIncomingCallUi(rawOfferEnvelope: String?, automatic: Boolean = false) {
+        val state = callState
+        if (automatic && state !is CallState.Incoming && state !is CallState.Idle) return
+        val declineSignal = if (automatic) WebrtcSignalingType.SDP_TIMEOUT else WebrtcSignalingType.SDP_QUIT
+        val declineReason = if (automatic) CallEndReason.TIMEOUT else CallEndReason.LOCAL_REJECT
         cancelTimeout()
-        when (val state = callState) {
+        when (state) {
             is CallState.Incoming -> {
                 armSuppressDuplicateRejectedOffer(sessionOfferFingerprint(state.callInfo.peerId, state.callInfo.channelId, state.offer))
-                sendSignaling(state.callInfo.peerId, state.callInfo.channelId, WebrtcSignalingType.SDP_QUIT, "")
-                endCall(CallEndReason.LOCAL_REJECT)
+                sendSignaling(state.callInfo.peerId, state.callInfo.channelId, declineSignal, "")
+                endCall(declineReason)
             }
             is CallState.Connecting, is CallState.Connected -> hangup()
             else -> {
@@ -578,11 +605,11 @@ class CallController @Inject constructor(
                     ?: appContext.getSharedPreferences("call_data", Context.MODE_PRIVATE)
                         .getString("incoming_call", null)?.trim().orEmpty()
                 val ids = peerAndChannelFromIncomingOfferEnvelope(env)
-                if (ids != null) {
+                if (ids != null && !isRingAnsweredElsewhere(ids.first, ids.second)) {
                     armSuppressDuplicateRejectedOffer(signalingOfferFingerprint(ids.first, ids.second, env))
-                    sendSignaling(ids.first, ids.second, WebrtcSignalingType.SDP_QUIT, "")
+                    sendSignaling(ids.first, ids.second, declineSignal, "")
                 }
-                endCall(CallEndReason.LOCAL_REJECT)
+                endCall(declineReason)
             }
         }
     }
@@ -683,6 +710,9 @@ class CallController @Inject constructor(
         if (snapState is CallState.Outgoing && snapInfo != null) {
             pushCancelCallToCallee(snapInfo)
         }
+        if (reason == CallEndReason.CLEAR_CALL && snapState is CallState.Incoming) {
+            rememberRingAnsweredElsewhere(snapState.callInfo.peerId, snapState.callInfo.channelId)
+        }
         val logMessageId = activeCallLogMessageId
         val logClan = activeCallClanId
         val logChType = activeCallChannelType
@@ -712,6 +742,7 @@ class CallController @Inject constructor(
 
         val prevInfo = snapInfo
         connectedCancelCallPushed = false
+        callEstablished = false
 
         peerConnection?.dispose()
         peerConnection = null
@@ -787,12 +818,12 @@ class CallController @Inject constructor(
             WebrtcSignalingType.SDP_OFFER -> handleOffer(callerId, channelId, jsonData)
             WebrtcSignalingType.SDP_ANSWER -> handleAnswer(callerId, channelId, jsonData)
             WebrtcSignalingType.ICE_CANDIDATE -> handleIceCandidate(jsonData)
-            WebrtcSignalingType.SDP_QUIT -> handleRemoteQuit()
+            WebrtcSignalingType.SDP_QUIT -> handleRemoteQuit(callerId, channelId)
             WebrtcSignalingType.SDP_TIMEOUT -> handleRemoteTimeout()
             WebrtcSignalingType.SDP_JOINED_OTHER_CALL -> handleBusy()
             WebrtcSignalingType.STATUS_REMOTE_MEDIA -> handleRemoteMedia(jsonData)
             WebrtcSignalingType.CLEAR_CALL -> handleClearCall()
-            WebrtcSignalingType.SDP_INIT -> handleSdpInit()
+            WebrtcSignalingType.SDP_INIT -> handleSdpInit(callerId, channelId)
         }
     }
 
@@ -802,12 +833,13 @@ class CallController @Inject constructor(
             val currentCall = connectedState.callInfo
             if (currentCall.peerId == callerId && currentCall.channelId == channelId) {
                 handleRenegotiationOffer(callerId, channelId, jsonData)
-            } else {
+            } else if (!isKnownPeerSession(callerId, jsonData)) {
                 Log.d(TAG, "handleOffer: busy while connected, currentPeer=${currentCall.peerId}, incomingPeer=$callerId")
                 sendSignaling(callerId, channelId, WebrtcSignalingType.SDP_JOINED_OTHER_CALL, "")
             }
             return
         }
+        if (isKnownPeerSession(callerId, jsonData)) return
         if (isDuplicateIncomingOffer(callerId, channelId)) {
             Log.d(TAG, "handleOffer: duplicate offer from same caller, ignoring")
             return
@@ -857,6 +889,7 @@ class CallController @Inject constructor(
 
             markInCall(callInfo)
             callState = CallState.Incoming(callInfo, sdp)
+            rememberPeerSession(callerId, sdpString)
             synchronized(pendingIceCandidates) { pendingIceCandidates.clear() }
             prepareIncomingPeerConnection(sdp)
             callAudioManager = CallAudioManager(appContext).also {
@@ -882,6 +915,7 @@ class CallController @Inject constructor(
     }
 
     private fun handleAnswer(callerId: Long, channelId: Long, jsonData: String) {
+        rememberPeerSessionId(callerId, sessionIdFromSignaling(jsonData))
         val state = callState
         if (state !is CallState.Outgoing && state !is CallState.Connected) {
             Log.w(TAG, "handleAnswer: unexpected state, current=${callState::class.simpleName}")
@@ -910,7 +944,7 @@ class CallController @Inject constructor(
             val sdpString = SdpCompressor.sdpPlainTextFromNegotiationJson(parsed)
             if (sdpString.isNullOrEmpty()) {
                 Log.e(TAG, "handleAnswer: could not resolve SDP")
-                endCall(CallEndReason.ERROR)
+                if (!isCallEstablished()) endCall(CallEndReason.ERROR)
                 return
             }
             val sdp = SessionDescription(SessionDescription.Type.ANSWER, sdpString)
@@ -923,7 +957,7 @@ class CallController @Inject constructor(
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to handle answer", e)
-            endCall(CallEndReason.ERROR)
+            if (!isCallEstablished()) endCall(CallEndReason.ERROR)
         }
     }
 
@@ -962,22 +996,44 @@ class CallController @Inject constructor(
         }
     }
 
-    private fun handleRemoteQuit() {
+    private fun handleRemoteQuit(callerId: Long, channelId: Long) {
+        val info = currentCallInfo()
+        if (info != null && isCallEstablished() && !isFromCallPeer(info, callerId, channelId)) return
         endCall(CallEndReason.REMOTE_HANGUP)
     }
 
     private fun handleRemoteTimeout() {
+        if (isCallEstablished()) return
         endCall(CallEndReason.REMOTE_TIMEOUT)
     }
 
     private fun handleBusy() {
+        if (isCallEstablished()) return
         endCall(CallEndReason.BUSY)
+    }
+
+    private fun isFromCallPeer(info: CallInfo, callerId: Long, channelId: Long): Boolean =
+        callerId == info.peerId &&
+            (channelId == 0L || info.channelId == 0L || channelId == info.channelId)
+
+    private fun rememberRingAnsweredElsewhere(peerId: Long, channelId: Long) {
+        if (peerId == 0L) return
+        ringAnsweredElsewhere = peerId to channelId
+    }
+
+    private fun isRingAnsweredElsewhere(peerId: Long, channelId: Long): Boolean {
+        val ring = ringAnsweredElsewhere ?: return false
+        return ring.first == peerId &&
+            (ring.second == 0L || channelId == 0L || ring.second == channelId)
     }
 
     private fun markInCall(callInfo: CallInfo) {
         isInCall = true
         inCallPeerId = callInfo.peerId
         inCallChannelId = callInfo.channelId
+        if (ringAnsweredElsewhere == callInfo.peerId to callInfo.channelId) {
+            ringAnsweredElsewhere = null
+        }
     }
 
     private fun clearInCallMarker() {
@@ -1013,6 +1069,44 @@ class CallController @Inject constructor(
         return current.callInfo.peerId == callerId && current.callInfo.channelId == channelId
     }
 
+    private fun rememberPeerSession(peerId: Long, sdp: String) {
+        rememberPeerSessionId(peerId, sdpSessionId(sdp))
+    }
+
+    private fun rememberPeerSessionId(peerId: Long, sessionId: String?) {
+        if (peerId == 0L || sessionId == null) return
+        val key = peerId to sessionId
+        synchronized(knownPeerSessions) {
+            if (key in knownPeerSessions) return
+            if (knownPeerSessions.size >= MAX_KNOWN_PEER_SESSIONS) {
+                knownPeerSessions.removeFirst()
+            }
+            knownPeerSessions.addLast(key)
+        }
+    }
+
+    private fun isKnownPeerSession(peerId: Long, signalingJson: String): Boolean {
+        if (peerId == 0L) return false
+        val sessionId = sessionIdFromSignaling(signalingJson) ?: return false
+        return synchronized(knownPeerSessions) { (peerId to sessionId) in knownPeerSessions }
+    }
+
+    private fun sessionIdFromSignaling(signalingJson: String): String? =
+        try {
+            SdpCompressor.sdpPlainTextFromNegotiationJson(parseSignalingData(signalingJson))
+                ?.let { sdpSessionId(it) }
+        } catch (_: Exception) {
+            null
+        }
+
+    private fun sdpSessionId(sdp: String): String? =
+        sdp.lineSequence()
+            .firstOrNull { it.startsWith("o=") }
+            ?.removePrefix("o=")
+            ?.trim()
+            ?.split(Regex("\\s+"))
+            ?.getOrNull(1)
+
     private fun sendBusyToCaller(callerId: Long, channelId: Long) {
         if (callerId == 0L || channelId == 0L) return
         sendSignaling(callerId, channelId, WebrtcSignalingType.SDP_JOINED_OTHER_CALL, "")
@@ -1033,13 +1127,16 @@ class CallController @Inject constructor(
     }
 
     private fun handleClearCall() {
+        if (isCallEstablished()) return
         endCall(CallEndReason.CLEAR_CALL)
     }
 
-    private fun handleSdpInit() {
+    private fun handleSdpInit(callerId: Long, channelId: Long) {
         val state = callState
         if (state is CallState.Connecting) {
             transitionToConnected(state.callInfo)
+        } else if (state is CallState.Incoming && isFromCallPeer(state.callInfo, callerId, channelId)) {
+            endCall(CallEndReason.CLEAR_CALL)
         }
     }
 
@@ -1082,6 +1179,7 @@ class CallController @Inject constructor(
             transitionToConnected(callInfo)
             sendSignaling(callInfo.peerId, callInfo.channelId, WebrtcSignalingType.SDP_INIT, "")
         }
+        if (callState is CallState.Connected) callEstablished = true
     }
 
     private fun transitionToConnected(callInfo: CallInfo) {
@@ -1112,10 +1210,12 @@ class CallController @Inject constructor(
     }
 
     override fun onIceDisconnected() {
+        if (isCallEstablished()) return
         endCall(CallEndReason.ICE_FAILED)
     }
 
     override fun onIceFailed() {
+        if (isCallEstablished()) return
         endCall(CallEndReason.ICE_FAILED)
     }
 
@@ -1154,14 +1254,23 @@ class CallController @Inject constructor(
 
     fun getPeerConnection(): PeerConnectionWrapper? = peerConnection
 
-    fun shouldIgnoreCancelCallFcmAnsweredElsewhere(): Boolean {
+    fun shouldIgnoreCancelCallFcm(): Boolean {
         return when (callState) {
             is CallState.Connecting, is CallState.Connected -> true
             else -> false
         }
     }
 
-    fun clearIdleIncomingArtifactsAfterAnsweredElsewhere() {
+    fun isCancelCallFcmForCurrentCall(channelId: Long, callerId: Long): Boolean {
+        val info = currentCallInfo() ?: return true
+        if (info.isInitiator) return false
+        if (channelId != 0L && channelId != info.channelId) return false
+        if (callerId != 0L && callerId != info.peerId) return false
+        return channelId != 0L || callerId != 0L || callState is CallState.Incoming
+    }
+
+    fun clearIdleIncomingArtifactsAfterAnsweredElsewhere(callerId: Long, channelId: Long) {
+        rememberRingAnsweredElsewhere(callerId, channelId)
         StartupCache.suppressHomeListApiForIncomingCallWake = false
         try {
             CallForegroundService.stop(appContext)
@@ -1178,12 +1287,14 @@ class CallController @Inject constructor(
                 .edit().remove("incoming_call").apply()
         } catch (_: Exception) {
         }
+        notificationCenter.postNotificationOnMainThread(NotificationCenter.callEnded, CallEndReason.CLEAR_CALL, null)
     }
 
     private fun startTimeout() {
         cancelTimeout()
         timeoutJob = appScope.launch(Dispatchers.Main) {
             delay(CALL_TIMEOUT_MS)
+            if (isCallEstablished()) return@launch
             val callInfo = currentCallInfo() ?: return@launch
             sendSignaling(callInfo.peerId, callInfo.channelId, WebrtcSignalingType.SDP_TIMEOUT, "")
             endCall(CallEndReason.TIMEOUT)
@@ -1328,6 +1439,7 @@ class CallController @Inject constructor(
                 Log.w(TAG, "handleRenegotiationOffer: empty sdp")
                 return
             }
+            rememberPeerSession(callerId, sdpString)
             val sdp = SessionDescription(SessionDescription.Type.OFFER, sdpString)
             peerConnection?.handleRenegotiationRemoteOffer(sdp) { answer ->
                 val answerJson = JSONObject().apply {
@@ -1378,7 +1490,7 @@ class CallController @Inject constructor(
             parsed.has("isVideoCall") -> parsed.getBoolean("isVideoCall")
             parsed.has("is_video_call") -> parsed.getBoolean("is_video_call")
             parsed.has("isVideo") -> parsed.getBoolean("isVideo")
-            else -> sdpString.contains("m=video")
+            else -> offerSdpSendsVideo(sdpString)
         }
 
     companion object {

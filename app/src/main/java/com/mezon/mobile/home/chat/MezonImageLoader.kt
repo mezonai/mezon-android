@@ -111,10 +111,10 @@ class MezonImageLoader private constructor(context: Context) {
     }
 
     private val diskCacheDir: File = File(context.cacheDir, "img_cache").also { it.mkdirs() }
-    private val maxDiskCacheBytes = 512L * 1024 * 1024
+    private val maxDiskCacheBytes = 384L * 1024 * 1024
 
     private val avatarCacheDir: File = File(context.cacheDir, "avatar_cache").also { it.mkdirs() }
-    private val maxAvatarDiskBytes = 256L * 1024 * 1024
+    private val maxAvatarDiskBytes = 128L * 1024 * 1024
 
     private val inflightUrlCalls = ConcurrentHashMap<String, Call>()
     private val pendingDecodes = ConcurrentHashMap<String, MutableList<PendingDecode>>()
