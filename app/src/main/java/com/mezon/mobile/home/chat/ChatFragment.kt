@@ -130,6 +130,7 @@ import com.mezon.mobile.util.FileUtils
 import com.mezon.mobile.util.EmojiMarker
 import com.mezon.mobile.util.HashtagData
 import com.mezon.mobile.util.MarkdownMarker
+import com.mezon.mobile.util.buildMessageCopyText
 import com.mezon.mobile.util.buildTextContent
 import com.mezon.mobile.util.buildTextContentWithEmojis
 import com.mezon.mobile.util.MentionData
@@ -7422,7 +7423,7 @@ open class ChatFragment : BaseFragment() {
             }
             MessageActionBottomSheet.ActionType.CopyText -> {
                 val ctx = getContext() ?: return
-                val plainText = parseContentText(msg.content)
+                val plainText = buildMessageCopyText(msg.code, msg.content, themeColors)
                 val clipboard = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                 clipboard.setPrimaryClip(android.content.ClipData.newPlainText("message", plainText))
                 MezonToast.show(this, ToastOverlay.ToastType.INFO, getString(R.string.message_toast_copy_text))

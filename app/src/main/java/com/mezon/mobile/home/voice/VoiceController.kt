@@ -409,10 +409,6 @@ class VoiceController @Inject constructor(
     }
 
     private fun onVoiceJoined(event: VoiceJoinedEvent) {
-        if (com.mezon.mobile.BuildConfig.DEBUG) {
-            Log.d("VoiceJoin", "event=voiceJoined.received clan=${event.clanId} channel=${event.voiceChannelId} " +
-                "user=${event.userId} eventPeer=${event.peerId}")
-        }
         sfuSession.handleVoiceJoined(event.clanId, event.voiceChannelId, event.userId.toString(), event.peerId.toString())
         val clanId = event.clanId
         val channelId = event.voiceChannelId

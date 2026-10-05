@@ -112,8 +112,6 @@ private const val SPEAKING_POLL_MS = 300L
 private const val SPEAKING_POLL_LARGE_ROOM_MS = 1_000L
 private const val LARGE_ROOM_REMOTE_COUNT = 16
 private const val RECONNECT_POLL_MS = 3000L
-// Three retries after the first join attempt, for both initial join and reconnect.
-// Three connection attempts total: initial join + two automatic retries.
 private const val MAX_RECONNECT_ATTEMPTS = 2
 private const val HEALTHY_SESSION_MS = 30_000L
 private const val MAX_TOKEN_REFRESHES = 3
@@ -134,6 +132,16 @@ private const val FOREGROUND_VIDEO_GRACE_MS = 1_500L
 private const val KEYFRAME_ERROR_WINDOW_MS = 5_000L
 private val SCREEN_KEYFRAME_RETRY_DELAYS_MS = longArrayOf(3_000, 6_000, 12_000, 24_000)
 private val KEYFRAME_REQUEST_ERRORS = setOf("must_join_room_first", "session_not_found")
+private val KEYFRAME_REPLY_ERRORS = setOf("publisher_not_found", "recovery_queue_full", "invalid_kind", "invalid_publisher_id")
+private val SESSION_LOST_ERRORS = setOf(
+    "session_not_found",
+    "must_join_room_first",
+    "routing_registration_failed",
+    "invalid_answer_sdp",
+    "invalid_answer_ufrag",
+    "missing_offer_generation",
+)
+private val ROOM_UNAVAILABLE_ERRORS = setOf("room_capacity", "invalid_room", "room_creation_failed", "auth_not_configured")
 private const val SFU_CLOSE_KICKED = 4006
 private const val SFU_CLOSE_ALONE_TIMEOUT = 4011
 private const val SFU_CLOSE_DUPLICATE_SESSION = 4012
@@ -264,7 +272,9 @@ class MezonSfuSession @Inject constructor(
     @MainDispatcher private val mainDispatcher: CoroutineDispatcher,
 ) {
     var onConnectionState: ((SfuConnectionState) -> Unit)? = null
+    var onNetworkWeak: ((Boolean) -> Unit)? = null
     var onParticipants: ((List<SfuParticipant>) -> Unit)? = null
+    var onPeerJoined: ((String) -> Unit)? = null
     var onRoleChanged: ((SfuRole) -> Unit)? = null
     var onError: ((String, String?) -> Unit)? = null
     var onLocalVideoTrack: ((VideoTrack?) -> Unit)? = null
@@ -297,7 +307,6 @@ class MezonSfuSession @Inject constructor(
     private var transportWatchdogJob: Job? = null
     private var connectionDeadlineJob: Job? = null
     private var readiness = SfuConnectionReadiness()
-    private var lastReadinessTrace: String? = null
     private var hasReachedConnected = false
     var connectionState = SfuConnectionState.DISCONNECTED
         private set
@@ -354,6 +363,8 @@ class MezonSfuSession @Inject constructor(
     private var retiringCloseJob: Job? = null
     private var admitted = false
     private var selfPeerId: String? = null
+    private var networkQuality = SfuNetworkQuality()
+    private var networkWeak = false
     private var moderatorMuteJob: Job? = null
     private val participantActionCallbacks = ArrayDeque<(Boolean, String?) -> Unit>()
 
@@ -362,6 +373,8 @@ class MezonSfuSession @Inject constructor(
     private var offerReissueJob: Job? = null
 
     private var transceiverCache: List<RtpTransceiver> = emptyList()
+    private var transportStatus = TransportStatus()
+    @Volatile private var localAudioSenderRef: LocalAudioSender? = null
     private var remoteSnapshot: List<RemoteTransceiverSnapshot> = emptyList()
     private var negotiatedDirections: List<SdpMidDirection> = emptyList()
     private var remoteTracks = RemoteTrackRegistry()
@@ -402,8 +415,6 @@ class MezonSfuSession @Inject constructor(
         var cameraActive: Boolean = false
     }
 
-    // Lightweight arrival probe independent of the bounded thumbnail cache.
-    // A large room must not retain a full frame for every keyframe retry.
     private class ScreenKeyframeRequest(
         val track: VideoTrack,
         val activeSinceMs: Long,
@@ -474,6 +485,15 @@ class MezonSfuSession @Inject constructor(
         val byMid = ConcurrentHashMap<String, MediaStreamTrack>()
         val events = AtomicInteger()
     }
+
+    private class TransportStatus {
+        @Volatile var connection = PeerConnection.PeerConnectionState.NEW
+        @Volatile var ice = PeerConnection.IceConnectionState.NEW
+    }
+
+    private class LocalAudioSender(val gen: Int, val sender: RtpSender)
+
+    private enum class LocalAudioOutcome { APPLIED, TRACK_ENDED, FAILED }
 
     fun isInRoom(channelId: Long, clanId: Long): Boolean =
         active && callIdentity?.let { it.channelId == channelId && it.clanId == clanId } == true
@@ -574,7 +594,7 @@ class MezonSfuSession @Inject constructor(
         roomScope.launch {
             while (isActive) {
                 delay(5000L)
-                peerConnection?.let { checkAudioFlow(it) }
+                peerConnection?.let { checkMediaStats(it) }
             }
         }
         roomScope.launch {
@@ -601,9 +621,9 @@ class MezonSfuSession @Inject constructor(
             if (!isActive || gen != connectionGen) return@launch
             iceRecoveryJob = null
             if (!active || !networkMonitor.isOnline.value || connecting) return@launch
-            val pc = peerConnection
-            val ice = pc?.iceConnectionState()
-            if (socketOpen && pc?.connectionState() == PeerConnection.PeerConnectionState.CONNECTED &&
+            val status = if (peerConnection != null) transportStatus else null
+            val ice = status?.ice
+            if (socketOpen && status?.connection == PeerConnection.PeerConnectionState.CONNECTED &&
                 (ice == PeerConnection.IceConnectionState.CONNECTED || ice == PeerConnection.IceConnectionState.COMPLETED)
             ) return@launch
             recoverTransport(gen)
@@ -620,8 +640,8 @@ class MezonSfuSession @Inject constructor(
         captureStallTicks = 0
     }
 
-    private fun checkAudioFlow(pc: PeerConnection) {
-        if (!active || !localTracksAdded || pc.connectionState() != PeerConnection.PeerConnectionState.CONNECTED) return
+    private fun checkMediaStats(pc: PeerConnection) {
+        if (!active || transportStatus.connection != PeerConnection.PeerConnectionState.CONNECTED) return
         val gen = connectionGen
         appScope.launch(webRtcDispatcher) {
             if (gen != connectionGen) return@launch
@@ -629,12 +649,25 @@ class MezonSfuSession @Inject constructor(
                 val packets = report.statsMap.values.filter {
                     it.type == "outbound-rtp" && (it.members["kind"] ?: it.members["mediaType"]) == "audio"
                 }.sumOf { (it.members["packetsSent"] as? Number)?.toLong() ?: 0L }
+                val lossSamples = SfuNetworkQuality.lossSamples(report)
                 appScope.launch(mainDispatcher) statsResult@{
                     if (!active || !isCurrentConnection(pc, gen)) return@statsResult
-                    evaluateAudioFlow(packets)
+                    if (localTracksAdded) evaluateAudioFlow(packets)
+                    updateNetworkQuality(lossSamples)
                 }
             }
         }
+    }
+
+    private fun updateNetworkQuality(samples: List<SfuNetworkQuality.LossSample>) {
+        if (connectionState != SfuConnectionState.CONNECTED) return
+        setNetworkWeak(networkQuality.update(samples))
+    }
+
+    private fun setNetworkWeak(weak: Boolean) {
+        if (networkWeak == weak) return
+        networkWeak = weak
+        onNetworkWeak?.invoke(weak)
     }
 
     private fun evaluateAudioFlow(packets: Long) {
@@ -652,8 +685,6 @@ class MezonSfuSession @Inject constructor(
         captureStallTicks = 0
         audioRecoveryAttempts++
         restoreCommunicationAudio()
-        // A detached/ended track can be repaired locally. For persistent native
-        // capture stalls, closing the PC lets the audio device stop before rejoin.
         if (!synchronizeLocalAudioTrack() || audioRecoveryAttempts > 1) recoverTransport(connectionGen)
     }
 
@@ -714,6 +745,8 @@ class MezonSfuSession @Inject constructor(
         pendingOffer = null
         localTracksAdded = false
         transceiverCache = emptyList()
+        localAudioSenderRef = null
+        transportStatus = TransportStatus()
         remoteSnapshot = emptyList()
         negotiatedDirections = emptyList()
         emitState(if (initial) SfuConnectionState.CONNECTING else SfuConnectionState.DISCONNECTED)
@@ -730,16 +763,15 @@ class MezonSfuSession @Inject constructor(
         val tracks = RemoteTrackRegistry()
         remoteTracks = tracks
         snapshotTrackEvents = -1
-        val pc = createPeerConnection(gen, tracks)
+        val status = TransportStatus()
+        transportStatus = status
+        val pc = createPeerConnection(gen, tracks, status)
         if (pc == null) {
             leave()
             emitState(SfuConnectionState.FAILED)
             return
         }
         peerConnection = pc
-        traceVoiceJoin("connection.open") {
-            "initial=$initial requiresVoiceJoined=${readiness.requiresVoiceJoined}"
-        }
         emitState(if (initial) SfuConnectionState.CONNECTING else SfuConnectionState.DISCONNECTED)
         val request = Request.Builder().url(buildWsUrl(token)).build()
         webSocket = okHttpClient.newWebSocket(request, SfuSocketListener(gen, call))
@@ -790,6 +822,8 @@ class MezonSfuSession @Inject constructor(
         transportRecoveryJob = null
         active = false
         connectionState = SfuConnectionState.DISCONNECTED
+        networkQuality = SfuNetworkQuality()
+        setNetworkWeak(false)
         callIdentity = null
         resetAudioFlow()
         videoExposures.clear()
@@ -837,6 +871,7 @@ class MezonSfuSession @Inject constructor(
         localAudioTrack = null; audioSource = null
         if (oldScreenTrack != null) onLocalScreenTrack?.invoke(null)
         transceiverCache = emptyList()
+        localAudioSenderRef = null
         remoteSnapshot = emptyList()
         negotiatedDirections = emptyList()
         remoteTracks = RemoteTrackRegistry()
@@ -847,8 +882,6 @@ class MezonSfuSession @Inject constructor(
         disposePeerConnection(retiringPeerConnection)
         val retiredFactory = callFactory
         callFactory = null
-        // Runs after queued PC closes on the same serial dispatcher. Snapshot references
-        // so late cleanup cannot stop capture belonging to a new join.
         if (retiredFactory != null || retiredNoiseProcessor != null || oldCameraCapturer != null || oldScreenCapturer != null ||
             oldAudioTrack != null || oldAudioSource != null || oldCameraTrack != null || oldScreenTrack != null ||
             oldCameraSource != null || oldCameraHelper != null || oldScreenSource != null || oldScreenHelper != null) {
@@ -897,12 +930,8 @@ class MezonSfuSession @Inject constructor(
 
     private fun applyMicEnabled(on: Boolean) {
         micEnabled = on
-        val attached = synchronizeLocalAudioTrack()
+        applyLocalAudio()
         if (on) restoreCommunicationAudio()
-        if (localTracksAdded && !attached) {
-            recoverTransport(connectionGen)
-            return
-        }
         send(JSONObject().put("type", "mute").put("is_mute", !on))
     }
 
@@ -982,11 +1011,13 @@ class MezonSfuSession @Inject constructor(
 
     fun pttRelease() {
         if (role != SfuRole.AUDIENCE) return
+        val wasActive = pttActive
         pttRequested = false
         pttActive = false
-        localAudioTrack?.setEnabled(false)
+        applyLocalAudio()
         send(JSONObject().put("type", "push_to_talk").put("active", false))
         send(JSONObject().put("type", "mute").put("is_mute", true))
+        if (wasActive) onPushToTalkActive?.invoke(false)
     }
 
     fun sendParticipantAction(token: String, onResult: (Boolean, String?) -> Unit): Boolean {
@@ -1031,7 +1062,7 @@ class MezonSfuSession @Inject constructor(
         send(JSONObject().put("type", "visibility").put("visible", videoVisible))
     }
 
-    private fun createPeerConnection(gen: Int, tracks: RemoteTrackRegistry): PeerConnection? {
+    private fun createPeerConnection(gen: Int, tracks: RemoteTrackRegistry, status: TransportStatus): PeerConnection? {
         val iceServers = ArrayList<PeerConnection.IceServer>()
         iceServers.add(PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer())
         if (BuildConfig.MEZON_WEBRTC_ICESERVERS_URL.isNotEmpty()) {
@@ -1046,7 +1077,7 @@ class MezonSfuSession @Inject constructor(
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
             continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
         }
-        return factory.createPeerConnection(config, makePeerObserver(gen, tracks))
+        return factory.createPeerConnection(config, makePeerObserver(gen, tracks, status))
     }
 
     private fun createLocalAudioTrack() {
@@ -1119,8 +1150,6 @@ class MezonSfuSession @Inject constructor(
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
             appScope.launch(mainDispatcher) {
                 if (gen != connectionGen || !active) return@launch
-                // OkHttp reports a lost connection via onFailure, without a 1006 close frame.
-                // Preserve any server close code already received (especially terminal codes).
                 if (receivedCloseCode == null && response?.code in setOf(401, 403)) tokenRejected = true
                 handleSocketClosed(gen, receivedCloseCode ?: WS_ABNORMAL_CLOSURE, receivedCloseReason)
             }
@@ -1133,7 +1162,6 @@ class MezonSfuSession @Inject constructor(
 
     private fun handleSocketClosed(gen: Int, code: Int, reason: String) {
         if (gen != connectionGen || !active) return
-        traceVoiceJoin("socket.closed") { "code=$code" }
         val cause = removalCause(code)
         if (cause != null) {
             handleRemoved(gen, cause, reason)
@@ -1141,7 +1169,7 @@ class MezonSfuSession @Inject constructor(
         }
         when (code) {
             4003, 4004, 4005 -> tokenRejected = true
-            SFU_CLOSE_DTLS_FAILED -> Unit // Recovery fully discards the failed PeerConnection.
+            SFU_CLOSE_DTLS_FAILED -> Unit
         }
         recoverTransport(gen)
     }
@@ -1159,7 +1187,6 @@ class MezonSfuSession @Inject constructor(
             "ping" -> send(JSONObject().put("type", "pong"))
             "pong" -> {}
             "joined" -> {
-                traceVoiceJoin("sfu.joined") { "awaitingSnapshot=${!admitted}" }
                 if (connectionState == SfuConnectionState.CONNECTING || connectionState == SfuConnectionState.JOINING) {
                     emitState(SfuConnectionState.AWAITING_OFFER)
                 }
@@ -1172,16 +1199,11 @@ class MezonSfuSession @Inject constructor(
                 tokenRefreshes = 0
                 tokenRejected = false
                 if (!stateRestored) {
-                    traceVoiceJoin("sfu.room_snapshot") { "selfPeer=$selfPeerId" }
                     stateRestored = true
-                    val attached = synchronizeLocalAudioTrack()
-                    if (localTracksAdded && !attached) {
-                        recoverTransport(connectionGen)
-                        return
-                    }
+                    applyLocalAudio()
                     val resumePushToTalk = role == SfuRole.AUDIENCE && pttRequested
-                    val muted = if (role == SfuRole.SPEAKER) !micEnabled else !resumePushToTalk
-                    send(JSONObject().put("type", "mute").put("is_mute", muted))
+                    val unmuted = if (role == SfuRole.SPEAKER) micEnabled else resumePushToTalk
+                    if (unmuted) send(JSONObject().put("type", "mute").put("is_mute", false))
                     if (resumePushToTalk) {
                         send(JSONObject().put("type", "push_to_talk").put("active", true))
                     }
@@ -1191,14 +1213,16 @@ class MezonSfuSession @Inject constructor(
                     }
                     sendVisibility()
                 }
-                updateConnectionReadiness("room_snapshot")
+                updateConnectionReadiness()
                 emitParticipants()
                 requestMissingScreenKeyframes()
             }
             "peer_joined", "peer_updated" -> {
                 val peer = msg.optJSONObject("peer")
+                val newcomer = if (msg.optString("type") == "peer_joined") peer?.let { newcomerUserId(it) } else null
                 if (peer != null && applyPeers(org.json.JSONArray().put(peer)) && peerConnection != null) syncRemoteMedia()
                 emitParticipants()
+                newcomer?.let { onPeerJoined?.invoke(it) }
                 val selfPeer = selfPeerId
                 if (msg.optString("type") == "peer_updated" && peer != null && selfPeer != null &&
                     peer.opt("peer_id")?.toString() == selfPeer && peer.optBoolean("is_mute") && micEnabled
@@ -1214,11 +1238,7 @@ class MezonSfuSession @Inject constructor(
                 if (role != SfuRole.AUDIENCE) return
                 val granted = msg.optBoolean("active") && pttRequested
                 pttActive = granted
-                val attached = synchronizeLocalAudioTrack()
-                if (localTracksAdded && !attached) {
-                    recoverTransport(connectionGen)
-                    return
-                }
+                applyLocalAudio()
                 if (granted) restoreCommunicationAudio()
                 onPushToTalkActive?.invoke(granted)
             }
@@ -1247,7 +1267,7 @@ class MezonSfuSession @Inject constructor(
                     detail == "invalid_push_to_talk" || detail == "push_to_talk_rejected" -> {
                         pttActive = false
                         pttRequested = false
-                        localAudioTrack?.setEnabled(false)
+                        applyLocalAudio()
                         onPushToTalkActive?.invoke(false)
                     }
                     detail == "stale_offer_generation" || detail == "future_offer_generation" -> {
@@ -1260,15 +1280,25 @@ class MezonSfuSession @Inject constructor(
                         Log.w(TAG, "sfu rejected the participant action ($detail)")
                         participantActionCallbacks.removeFirstOrNull()?.invoke(false, detail)
                     }
+                    detail in KEYFRAME_REPLY_ERRORS -> {
+                        Log.w(TAG, "sfu rejected the keyframe request ($detail)")
+                    }
                     detail in KEYFRAME_REQUEST_ERRORS && lastKeyframeRequestMs?.let {
                         SystemClock.elapsedRealtime() - it < KEYFRAME_ERROR_WINDOW_MS
                     } == true -> {
                         Log.w(TAG, "sfu keyframe request deferred: $detail")
                     }
-                    else -> {
+                    detail in SESSION_LOST_ERRORS -> {
+                        Log.w(TAG, "sfu lost this session ($detail); reconnecting")
+                        recoverTransport(connectionGen)
+                    }
+                    detail in ROOM_UNAVAILABLE_ERRORS -> {
                         Log.e(TAG, "sfu error: $detail")
                         onError?.invoke(detail, msg.optString("message"))
                         handleRemoved(connectionGen, SfuRemovalCause.DISCONNECTED, detail)
+                    }
+                    else -> {
+                        Log.w(TAG, "sfu error ignored: $detail")
                     }
                 }
             }
@@ -1311,14 +1341,14 @@ class MezonSfuSession @Inject constructor(
 
     private fun armTransportWatchdog(gen: Int) {
         if (transportWatchdogJob?.isActive == true) return
-        val pc = peerConnection ?: return
-        if (pc.connectionState() == PeerConnection.PeerConnectionState.CONNECTED) return
+        if (peerConnection == null) return
+        if (transportStatus.connection == PeerConnection.PeerConnectionState.CONNECTED) return
         transportWatchdogJob = scope?.launch {
             delay(DTLS_CONNECT_DEADLINE_MS)
             transportWatchdogJob = null
             if (gen != connectionGen || !active) return@launch
-            val current = peerConnection ?: return@launch
-            if (current.connectionState() == PeerConnection.PeerConnectionState.CONNECTED) return@launch
+            if (peerConnection == null) return@launch
+            if (transportStatus.connection == PeerConnection.PeerConnectionState.CONNECTED) return@launch
             Log.w(TAG, "dtls never completed after ice connected; restarting the sfu session")
             recoverTransport(gen)
         }
@@ -1355,9 +1385,11 @@ class MezonSfuSession @Inject constructor(
                 if (!isCurrentConnection(pc, gen)) return
                 awaitSetRemote(pc, SessionDescription(SessionDescription.Type.OFFER, stableSdp))
                 if (!isCurrentConnection(pc, gen)) return
-                val offeredTransceivers = withContext(webRtcDispatcher) { pc.transceivers }
-                if (!isCurrentConnection(pc, gen)) return
-                transceiverCache = offeredTransceivers
+                if (transceiverCache.isEmpty()) {
+                    val offeredTransceivers = withContext(webRtcDispatcher) { readTransceivers(pc, gen) }
+                    if (!isCurrentConnection(pc, gen)) return
+                    transceiverCache = offeredTransceivers
+                }
                 attachLocalTracks(pc)
                 val answer = awaitCreateAnswer(pc)
                 if (!isCurrentConnection(pc, gen)) return
@@ -1377,7 +1409,7 @@ class MezonSfuSession @Inject constructor(
                 val untracked = untrackedReceiverMids(directions, tracks)
                 if (transceiverCache.isEmpty() || untracked.isNotEmpty()) {
                     val (transceivers, recovered) = withContext(webRtcDispatcher) {
-                        val read = pc.transceivers
+                        val read = readTransceivers(pc, gen)
                         read to recoverUntrackedReceivers(read, untracked, tracks)
                     }
                     if (!isCurrentConnection(pc, gen)) return
@@ -1413,12 +1445,64 @@ class MezonSfuSession @Inject constructor(
         val audio = localAudioTrack ?: return false
         if (audio.state() != MediaStreamTrack.State.LIVE) return false
         val enabled = shouldSendAudio
-        // setEnabled reports whether the value changed, not whether it succeeded.
-        // An already-muted/live track is valid and must still be attached.
         audio.setEnabled(enabled)
         if (audio.enabled() != enabled) return false
         val tc = findTransceiver(MID_AUDIO, "audio") ?: return false
-        return tc.sender.setTrack(audio, false)
+        if (!tc.sender.setTrack(audio, false)) return false
+        return setAudioEncodingActive(tc.sender, enabled) || !enabled
+    }
+
+    private fun setAudioEncodingActive(sender: RtpSender, sending: Boolean): Boolean {
+        val parameters = sender.parameters
+        if (parameters.encodings.all { it.active == sending }) return true
+        parameters.encodings.forEach { it.active = sending }
+        return sender.setParameters(parameters)
+    }
+
+    private fun readTransceivers(pc: PeerConnection, gen: Int): List<RtpTransceiver> {
+        val read = pc.transceivers
+        localAudioSenderRef = read.firstOrNull { it.mid == MID_AUDIO }?.let { LocalAudioSender(gen, it.sender) }
+        return read
+    }
+
+    private fun applyLocalAudio() {
+        if (!active) return
+        val audio = localAudioTrack
+        if (audio == null) {
+            repairLocalAudio()
+            return
+        }
+        val gen = connectionGen
+        val enabled = shouldSendAudio
+        val attach = localTracksAdded
+        appScope.launch(webRtcDispatcher) {
+            val outcome = runCatching {
+                if (audio.state() != MediaStreamTrack.State.LIVE) {
+                    LocalAudioOutcome.TRACK_ENDED
+                } else {
+                    audio.setEnabled(enabled)
+                    val sender = localAudioSenderRef?.takeIf { it.gen == gen }?.sender
+                    when {
+                        audio.enabled() != enabled -> LocalAudioOutcome.FAILED
+                        !attach || gen != connectionGen -> LocalAudioOutcome.APPLIED
+                        sender == null -> LocalAudioOutcome.FAILED
+                        !sender.setTrack(audio, false) -> LocalAudioOutcome.FAILED
+                        setAudioEncodingActive(sender, enabled) || !enabled -> LocalAudioOutcome.APPLIED
+                        else -> LocalAudioOutcome.FAILED
+                    }
+                }
+            }.getOrDefault(LocalAudioOutcome.FAILED)
+            if (outcome == LocalAudioOutcome.APPLIED) return@launch
+            appScope.launch(mainDispatcher) {
+                if (!active || gen != connectionGen || audio !== localAudioTrack) return@launch
+                repairLocalAudio()
+            }
+        }
+    }
+
+    private fun repairLocalAudio() {
+        val attached = synchronizeLocalAudioTrack()
+        if (localTracksAdded && !attached) recoverTransport(connectionGen)
     }
 
     private fun attachLocalTracks(pc: PeerConnection) {
@@ -1444,6 +1528,7 @@ class MezonSfuSession @Inject constructor(
             audio?.setEnabled(true)
             if (tc != null && audio != null) {
                 tc.sender.setTrack(audio, false)
+                setAudioEncodingActive(tc.sender, true)
                 tc.direction = RtpTransceiver.RtpTransceiverDirection.SEND_ONLY
             }
             pttActive = true
@@ -1615,7 +1700,9 @@ class MezonSfuSession @Inject constructor(
             if (peer.has("role")) state.role = SfuRole.fromWire(peer.optString("role"))
             if (peer.has("is_mute")) state.muted = peer.optBoolean("is_mute")
             if (peer.has("camera_active")) state.cameraActive = peer.optBoolean("camera_active")
-            if (peer.has("screen_active")) state.screenActive = peer.optBoolean("screen_active")
+            if (peer.has("screen_active")) {
+                state.screenActive = peer.optBoolean("screen_active") && peer.optBoolean("screen_requested", true)
+            }
             val mids = listOf(
                 peer.opt("mid_audio"), peer.opt("mid_video"), peer.opt("mid_screen")
             ).mapNotNull { it?.toString() }.filter { it.isNotEmpty() && it != "0" }
@@ -1646,9 +1733,18 @@ class MezonSfuSession @Inject constructor(
         state.muted?.let { entry.muted = it }
         state.cameraActive?.let { entry.cameraActive = it }
         state.screenActive?.let {
-            if (it && !entry.screenActive) entry.screenActiveSinceMs = SystemClock.elapsedRealtime()
+            val started = it && !entry.screenActive
+            if (started) entry.screenActiveSinceMs = SystemClock.elapsedRealtime()
             entry.screenActive = it
+            if (started) entry.screen?.let { track -> VideoTrackLastFrameStore.observe(track) }
         }
+    }
+
+    private fun newcomerUserId(peer: JSONObject): String? {
+        if (!admitted) return null
+        val peerId = peer.opt("peer_id")?.toString() ?: return null
+        if (peerId == selfPeerId || peerId in memberByPeerId) return null
+        return peer.optString("user_id").takeIf { it.isNotEmpty() }
     }
 
     private fun handlePeerLeft(msg: JSONObject) {
@@ -1721,11 +1817,9 @@ class MezonSfuSession @Inject constructor(
 
     private suspend fun awaitNativeCleanup(gen: Int): Boolean {
         val started = SystemClock.elapsedRealtime()
-        traceVoiceJoin("native_cleanup.wait") { "timeoutMs=$NATIVE_CLEANUP_TIMEOUT_MS" }
         val completed = nativeCleanup.awaitCompletion(NATIVE_CLEANUP_TIMEOUT_MS)
         if (!active || gen != connectionGen) return false
         val elapsed = SystemClock.elapsedRealtime() - started
-        traceVoiceJoin("native_cleanup.result") { "cleanupMs=$elapsed completed=$completed" }
         if (!completed) {
             Log.w(TAG, "native cleanup did not finish safely; cleanupMs=$elapsed")
             leave()
@@ -1748,9 +1842,6 @@ class MezonSfuSession @Inject constructor(
                 continue
             }
             val track = item.track ?: continue
-            if (kind == "screen" && track is VideoTrack) {
-                VideoTrackLastFrameStore.observe(track)
-            }
             val ownerUserId = userIdByMid[mid]
             val ownerPeerId = peerIdByMid[mid]
             if (ownerUserId == null && ownerPeerId == null) {
@@ -1766,6 +1857,7 @@ class MezonSfuSession @Inject constructor(
                 kind == "camera" && track is VideoTrack -> entry.video = track
                 kind == "screen" && track is VideoTrack -> {
                     entry.screen = track
+                    if (entry.screenActive) VideoTrackLastFrameStore.observe(track)
                 }
             }
             if (entry.audio == null && entry.video == null && entry.screen == null) {
@@ -1818,7 +1910,6 @@ class MezonSfuSession @Inject constructor(
         if (!active || gen != connectionGen || transportRecoveryJob != null || nativeStartupJob != null) return
         val roomScope = scope ?: return
         val call = callIdentity ?: return
-        traceVoiceJoin("recovery") { "maxRetries=$MAX_RECONNECT_ATTEMPTS exhausted=${reconnectAttempts >= MAX_RECONNECT_ATTEMPTS}" }
         discardFailedTransport()
         if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
             leave()
@@ -1832,7 +1923,7 @@ class MezonSfuSession @Inject constructor(
             if (!isActive || !active || retryGen != connectionGen) return@launch
             if (!networkMonitor.isOnline.value) {
                 transportRecoveryJob = null
-                return@launch // The path monitor/poller resumes when online; no attempt spent.
+                return@launch
             }
             if (tokenNeedsRefresh() && tokenRefreshes < MAX_TOKEN_REFRESHES) {
                 val fresh = runCatching { tokenProvider?.invoke(call.channelId, call.clanId) }.getOrNull()
@@ -1859,7 +1950,6 @@ class MezonSfuSession @Inject constructor(
     }
 
     private fun discardFailedTransport() {
-        // Invalidate old SDP, track, stats and socket callbacks before releasing transport.
         connectionGen++
         socketOpen = false
         connecting = false
@@ -1894,6 +1984,7 @@ class MezonSfuSession @Inject constructor(
         peerConnection = null
         retiringPeerConnection = null
         transceiverCache = emptyList()
+        localAudioSenderRef = null
         remoteSnapshot = emptyList()
         negotiatedDirections = emptyList()
         remoteTracks = RemoteTrackRegistry()
@@ -1904,8 +1995,6 @@ class MezonSfuSession @Inject constructor(
         memberByPeerId.clear()
         remote.clear()
         participantActionCallbacks.clear()
-        // Keep device tracks/capture and user intent for attachLocalTracks + room_snapshot.
-        // The old PC (including SDP, ICE credentials and candidates) has no media grace.
         localAudioTrack?.setEnabled(false)
         pttActive = false
         disposePeerConnection(failed)
@@ -1918,7 +2007,9 @@ class MezonSfuSession @Inject constructor(
             delay(HEALTHY_SESSION_MS)
             if (!isActive || gen != connectionGen) return@launch
             healthySessionResetJob = null
-            if (active && mediaConnected && socketOpen && peerConnection?.connectionState() == PeerConnection.PeerConnectionState.CONNECTED) {
+            if (active && mediaConnected && socketOpen && peerConnection != null &&
+                transportStatus.connection == PeerConnection.PeerConnectionState.CONNECTED
+            ) {
                 reconnectAttempts = 0
             }
         }
@@ -2212,7 +2303,6 @@ class MezonSfuSession @Inject constructor(
         if (now - last < KEYFRAME_MIN_INTERVAL_MS) return false
         val payload = JSONObject().put("type", "request_keyframe")
             .put("kind", kind).put("publisher_id", publisherId)
-        // Back off even if the websocket cannot enqueue, without consuming an attempt.
         lastVideoKeyframeRequests[key] = now
         if (!socket.send(payload.toString())) return false
         lastKeyframeRequestMs = now
@@ -2316,8 +2406,9 @@ class MezonSfuSession @Inject constructor(
         }
         val stale = screenKeyframeRequests.keys.filter { it !in sharingPeers }
         for (peer in stale) screenKeyframeRequests.remove(peer)?.detach()
-        VideoTrackLastFrameStore.retainTracks(remote.values.flatMap { listOfNotNull(it.video, it.screen) })
-        // The short-lived probe is no longer needed once a decoded frame arrives.
+        VideoTrackLastFrameStore.retainTracks(remote.values.flatMap { entry ->
+            listOfNotNull(entry.video?.takeIf { entry.cameraActive }, entry.screen?.takeIf { entry.screenActive })
+        })
         for (request in screenKeyframeRequests.values) if (request.satisfied) request.detach()
         lastVideoKeyframeRequests.keys.removeAll { key ->
             key.substringAfter('|') !in memberByPeerId
@@ -2387,9 +2478,11 @@ class MezonSfuSession @Inject constructor(
 
     private fun emitState(state: SfuConnectionState) {
         if (connectionState == state) return
-        val previous = connectionState
         connectionState = state
-        traceVoiceJoin("state") { "from=$previous to=$state micAvailable=${state == SfuConnectionState.CONNECTED}" }
+        if (state != SfuConnectionState.CONNECTED) {
+            networkQuality = SfuNetworkQuality()
+            setNetworkWeak(false)
+        }
         onConnectionState?.invoke(state)
     }
 
@@ -2397,64 +2490,26 @@ class MezonSfuSession @Inject constructor(
         val gen = connectionGen
         appScope.launch(mainDispatcher) {
             val call = callIdentity
-            val ignoredReason = when {
-                call == null -> "no_active_room"
-                !active -> "inactive"
-                gen != connectionGen -> "stale_generation"
-                !socketOpen -> "socket_not_open"
-                call.clanId != clanId -> "different_clan"
-                call.channelId != channelId -> "different_room"
-                call.userId != userId -> "different_user"
-                else -> null
-            }
-            if (ignoredReason != null) {
-                traceVoiceJoin("voiceJoined.ignored") {
-                    "reason=$ignoredReason eventGeneration=$gen eventClan=$clanId eventChannel=$channelId " +
-                        "eventUser=$userId eventPeer=$peerId"
-                }
+            if (call == null || !active || gen != connectionGen || !socketOpen ||
+                call.clanId != clanId || call.channelId != channelId || call.userId != userId
+            ) {
                 return@launch
             }
             readiness.confirmVoiceJoined(peerId)
-            traceVoiceJoin("voiceJoined.accepted") {
-                val match = when {
-                    peerId.isNullOrBlank() || peerId == "0" -> "legacy_peer"
-                    peerId == selfPeerId -> "current_peer"
-                    else -> "buffered_waiting_for_matching_snapshot"
-                }
-                "eventPeer=$peerId selfPeer=$selfPeerId match=$match requiresVoiceJoined=${readiness.requiresVoiceJoined}"
-            }
-            updateConnectionReadiness("voiceJoined")
+            updateConnectionReadiness()
         }
     }
 
-    private inline fun traceVoiceJoin(event: String, details: () -> String) {
-        if (!BuildConfig.DEBUG) return
-        val call = callIdentity
-        Log.d("VoiceJoin", "event=$event generation=$connectionGen retry=$reconnectAttempts " +
-            "clan=${call?.clanId} channel=${call?.channelId} user=${call?.userId} state=$connectionState ${details()}")
-    }
-
-    private fun updateConnectionReadiness(trigger: String) {
+    private fun updateConnectionReadiness() {
         if (!active || transportRecoveryJob != null) return
-        val pc = peerConnection ?: return
-        val ice = pc.iceConnectionState()
+        if (peerConnection == null) return
+        val status = transportStatus
+        val ice = status.ice
         readiness.iceConnected = ice == PeerConnection.IceConnectionState.CONNECTED ||
             ice == PeerConnection.IceConnectionState.COMPLETED
-        readiness.transportConnected = pc.connectionState() == PeerConnection.PeerConnectionState.CONNECTED
+        readiness.transportConnected = status.connection == PeerConnection.PeerConnectionState.CONNECTED
         readiness.roomConfirmed = admitted && stateRestored
         readiness.peerId = selfPeerId
-        if (BuildConfig.DEBUG) {
-            // Log gate changes only; repeated snapshots must not flood Logcat.
-            val details = "ice=${pc.iceConnectionState()} nativePeer=${pc.connectionState()} " +
-                "transportReady=${readiness.transportConnected} roomConfirmed=${readiness.roomConfirmed} " +
-                "selfPeer=$selfPeerId requiresVoiceJoined=${readiness.requiresVoiceJoined} " +
-                "voiceJoinedConfirmed=${readiness.voiceJoinedConfirmed} ready=${readiness.isReady}"
-            val key = "$connectionGen $details"
-            if (lastReadinessTrace != key) {
-                lastReadinessTrace = key
-                traceVoiceJoin("readiness") { "trigger=$trigger $details" }
-            }
-        }
         if (readiness.isReady) {
             val wasConnected = mediaConnected
             mediaConnected = true
@@ -2477,7 +2532,7 @@ class MezonSfuSession @Inject constructor(
             emitState(SfuConnectionState.AWAITING_CONFIRMATION)
         } else if (readiness.iceConnected) {
             mediaConnected = false
-            clearConnectionDeadline() // ICE completed; the DTLS watchdog now owns the deadline.
+            clearConnectionDeadline()
             if (connectionState != SfuConnectionState.DTLS_HANDSHAKE) emitState(SfuConnectionState.ICE_CONNECTED)
             emitState(SfuConnectionState.DTLS_HANDSHAKE)
             armTransportWatchdog(connectionGen)
@@ -2490,7 +2545,6 @@ class MezonSfuSession @Inject constructor(
             delay(timeoutMs)
             connectionDeadlineJob = null
             if (active && gen == connectionGen && connectionState != SfuConnectionState.CONNECTED) {
-                traceVoiceJoin("readiness.timeout") { "timeoutMs=$timeoutMs" }
                 recoverTransport(gen)
             }
         }
@@ -2539,18 +2593,18 @@ class MezonSfuSession @Inject constructor(
             }
         }
 
-    private fun makePeerObserver(gen: Int, tracks: RemoteTrackRegistry) = object : PeerConnection.Observer {
+    private fun makePeerObserver(gen: Int, tracks: RemoteTrackRegistry, status: TransportStatus) = object : PeerConnection.Observer {
         override fun onSignalingChange(state: PeerConnection.SignalingState?) {}
         override fun onConnectionChange(newState: PeerConnection.PeerConnectionState?) {
+            if (newState != null) status.connection = newState
             appScope.launch(mainDispatcher) {
                 if (gen != connectionGen) return@launch
-                traceVoiceJoin("peer.state") { "nativePeer=$newState" }
                 when (newState) {
                     PeerConnection.PeerConnectionState.CONNECTED -> {
-                        updateConnectionReadiness("peer.connected")
+                        updateConnectionReadiness()
                     }
                     PeerConnection.PeerConnectionState.FAILED -> {
-                        val ice = peerConnection?.iceConnectionState()
+                        val ice = status.ice
                         if (ice == PeerConnection.IceConnectionState.CONNECTED || ice == PeerConnection.IceConnectionState.COMPLETED) {
                             recoverTransport(gen)
                             return@launch
@@ -2578,15 +2632,15 @@ class MezonSfuSession @Inject constructor(
         }
         override fun onStandardizedIceConnectionChange(newState: PeerConnection.IceConnectionState?) {}
         override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) {
+            if (state != null) status.ice = state
             appScope.launch(mainDispatcher) {
                 if (gen != connectionGen) return@launch
-                traceVoiceJoin("ice.state") { "ice=$state" }
                 when (state) {
                     PeerConnection.IceConnectionState.CONNECTED,
                     PeerConnection.IceConnectionState.COMPLETED -> {
                         iceRecoveryJob?.cancel()
                         iceRecoveryJob = null
-                        updateConnectionReadiness("ice.connected")
+                        updateConnectionReadiness()
                     }
                     PeerConnection.IceConnectionState.FAILED -> {
                         iceRecoveryJob?.cancel()
@@ -2632,7 +2686,9 @@ class MezonSfuSession @Inject constructor(
             tracks.events.incrementAndGet()
             appScope.launch(mainDispatcher) {
                 if (gen != connectionGen) return@launch
-                if (track is VideoTrack && mid != null && isRemoteMid(mid) && remoteKind(mid) == "screen") {
+                if (track is VideoTrack && mid != null && isRemoteMid(mid) && remoteKind(mid) == "screen" &&
+                    remote[remoteParticipantId(mid)]?.screenActive == true
+                ) {
                     VideoTrackLastFrameStore.observe(track)
                 }
                 syncPendingRemoteTracks()

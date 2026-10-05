@@ -25,13 +25,11 @@ class VideoTrackFrameKeeper : VideoSink {
         val now = SystemClock.elapsedRealtime()
         synchronized(lock) {
             if (closed) return
-            // Arrival monitoring must not depend on the thumbnail copy interval.
             receivedAtMs = now
             if (captureInProgress || (this.frame != null && now - lastCaptureMs < FRAME_CAPTURE_INTERVAL_MS)) return
             captureInProgress = true
             lastCaptureMs = now
         }
-        // Keep CPU-backed snapshots; retaining a texture can exhaust the capture pool.
         try {
             val copy = frame.buffer.toI420()?.let { VideoFrame(it, frame.rotation, frame.timestampNs) } ?: return
             val previous = synchronized(lock) {

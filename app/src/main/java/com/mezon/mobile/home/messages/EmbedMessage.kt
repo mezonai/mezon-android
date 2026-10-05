@@ -9,6 +9,7 @@ import android.text.Spanned
 import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.TextUtils
+import android.text.style.ClickableSpan
 import android.text.style.ForegroundColorSpan
 import android.view.View
 import com.mezon.mobile.core.LayoutHelper
@@ -30,6 +31,7 @@ import com.mezon.mobile.util.EmbedRadioSpec
 import com.mezon.mobile.util.EmbedRowComponent
 import com.mezon.mobile.util.EmbedSelectSpec
 import com.mezon.mobile.util.createImgproxyUrl
+import com.mezon.mobile.util.embedFooterDisplayText
 import com.mezon.mobile.util.formatEmbedRichText
 import com.mezon.mobile.util.parseEmbedPayload
 import okhttp3.OkHttpClient
@@ -52,6 +54,21 @@ class EmbedButtonHit {
         buttonId = id
         url = link
         disabled = disabledValue
+    }
+}
+
+private class EmbedTextHit {
+    var layout: StaticLayout? = null
+        private set
+    var left = 0f
+        private set
+    var top = 0f
+        private set
+
+    fun set(textLayout: StaticLayout, x: Float, y: Float) {
+        layout = textLayout
+        left = x
+        top = y
     }
 }
 
@@ -186,6 +203,8 @@ class EmbedMessageRenderer(
     private val cardImageBundles = mutableListOf<EmbedCardImageBundle>()
     private val embedCardHitRects = mutableListOf<RectF>()
     private var embedCardHitRectCount = 0
+    private val textHits = mutableListOf<EmbedTextHit>()
+    private var textHitCount = 0
 
     val embedData: EmbedData? get() = laidOutCards.firstOrNull()?.data
     fun hasEmbedOrButtons(): Boolean = laidOutCards.isNotEmpty() || actionRows.isNotEmpty()
@@ -309,6 +328,28 @@ class EmbedMessageRenderer(
         return null
     }
 
+    fun hitTestClickableSpan(x: Float, y: Float): ClickableSpan? {
+        for (i in 0 until textHitCount) {
+            val hit = textHits[i]
+            val layout = hit.layout ?: continue
+            val text = layout.text as? Spanned ?: continue
+            val relX = x - hit.left
+            val relY = y - hit.top
+            if (relX < 0f || relY < 0f || relY >= layout.height) continue
+            val line = layout.getLineForVertical(relY.toInt())
+            if (relX < layout.getLineLeft(line) || relX > layout.getLineRight(line)) continue
+            var offset = layout.getOffsetForHorizontal(line, relX)
+            if (offset > layout.getLineStart(line) && !layout.isRtlCharAt(offset - 1) &&
+                (offset >= layout.getLineEnd(line) || relX < layout.getPrimaryHorizontal(offset))
+            ) {
+                offset--
+            }
+            val spans = text.getSpans(offset, offset + 1, ClickableSpan::class.java)
+            if (spans.isNotEmpty()) return spans[0]
+        }
+        return null
+    }
+
     fun hitTestButton(x: Float, y: Float): EmbedButtonHit? {
         for (i in 0 until buttonHitCount) {
             val h = buttonHits[i]
@@ -377,6 +418,8 @@ class EmbedMessageRenderer(
         embedInteractiveGeometries.clear()
         embedCardHitRectCount = 0
         embedCardHitRects.clear()
+        textHitCount = 0
+        textHits.clear()
     }
 
     fun onAttachedToWindow() {
@@ -421,6 +464,7 @@ class EmbedMessageRenderer(
     private fun resetDrawGeometry() {
         buttonHitCount = 0
         embedCardHitRectCount = 0
+        textHitCount = 0
         embedInteractiveGeometryCount = 0
     }
 
@@ -440,6 +484,20 @@ class EmbedMessageRenderer(
         val index = buttonHitCount++
         if (index < buttonHits.size) return buttonHits[index]
         return EmbedButtonHit().also { buttonHits.add(it) }
+    }
+
+    private fun nextTextHit(): EmbedTextHit {
+        val index = textHitCount++
+        if (index < textHits.size) return textHits[index]
+        return EmbedTextHit().also { textHits.add(it) }
+    }
+
+    private fun drawTextLayout(canvas: Canvas, layout: StaticLayout, x: Float, y: Float) {
+        canvas.save()
+        canvas.translate(x, y)
+        layout.draw(canvas)
+        canvas.restore()
+        nextTextHit().set(layout, x, y)
     }
 
     private fun putInputGeometry(
@@ -576,8 +634,6 @@ class EmbedMessageRenderer(
         val descLayout = if (d.description.isNotEmpty()) {
             val rich = formatEmbedRichText(d.description, th)
             CodeFenceSpan.buildRichStaticLayout(rich, DESC_PAINT, leftColumnW) {
-                setMaxLines(32)
-                setEllipsize(TextUtils.TruncateAt.END)
                 setLineSpacing(LayoutHelper.dpf(2f), 1f)
             }
         } else null
@@ -601,19 +657,7 @@ class EmbedMessageRenderer(
             nameLay to valLay
         }
 
-        val footerParts = mutableListOf<String>()
-        if (d.footerText.isNotEmpty()) footerParts.add(d.footerText)
-        if (d.timestamp.isNotEmpty()) {
-            try {
-                val parsed = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
-                    .parse(d.timestamp.replace("Z", "+0000").take(19))
-                if (parsed != null) {
-                    val fmt = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.US)
-                    footerParts.add(fmt.format(parsed))
-                }
-            } catch (_: Exception) {}
-        }
-        val footerStr = footerParts.joinToString(" • ")
+        val footerStr = embedFooterDisplayText(d)
         val hasFooterIcon = d.footerIconUrl.isNotEmpty()
         val footerTextW = if (hasFooterIcon) {
             (contentW - FOOTER_ICON - GAP).coerceAtLeast(1)
@@ -911,6 +955,9 @@ class EmbedMessageRenderer(
             bottom = drawActionRows(canvas, left, bottom)
         }
         trimInteractiveGeometries()
+        while (textHits.size > textHitCount) {
+            textHits.removeAt(textHits.lastIndex)
+        }
         onAfterDraw?.invoke()
         return bottom
     }
@@ -966,29 +1013,19 @@ class EmbedMessageRenderer(
                     imgs.authorIconImage.draw(canvas)
                 }
                 card.authorLayout?.let {
-                    val textY = y + (rowH - it.height) / 2f
-                    canvas.save()
-                    canvas.translate(authorTextX, textY)
-                    it.draw(canvas)
-                    canvas.restore()
+                    drawTextLayout(canvas, it, authorTextX, y + (rowH - it.height) / 2f)
                 }
                 y += rowH + GAP
             }
         }
 
         card.titleLayout?.let {
-            canvas.save()
-            canvas.translate(textLeft, y)
-            it.draw(canvas)
-            canvas.restore()
+            drawTextLayout(canvas, it, textLeft, y)
             y += it.height + GAP
         }
 
         card.descLayout?.let {
-            canvas.save()
-            canvas.translate(textLeft, y)
-            it.draw(canvas)
-            canvas.restore()
+            drawTextLayout(canvas, it, textLeft, y)
             y += it.height + GAP
         }
 
@@ -1000,17 +1037,11 @@ class EmbedMessageRenderer(
             val nameLay = layouts?.first
             val valLay = layouts?.second
             nameLay?.let {
-                canvas.save()
-                canvas.translate(textLeft, y)
-                it.draw(canvas)
-                canvas.restore()
+                drawTextLayout(canvas, it, textLeft, y)
                 y += it.height + FIELD_NAME_GAP
             }
             valLay?.let {
-                canvas.save()
-                canvas.translate(textLeft, y)
-                it.draw(canvas)
-                canvas.restore()
+                drawTextLayout(canvas, it, textLeft, y)
                 y += it.height + GAP
             }
             field.interactive?.let { iv ->
@@ -1100,10 +1131,7 @@ class EmbedMessageRenderer(
             }
             val textX = if (card.hasFooterIcon) textLeft + FOOTER_ICON + GAP else textLeft
             val textY = baseY + (rowH - lay.height) / 2f
-            canvas.save()
-            canvas.translate(textX, textY)
-            lay.draw(canvas)
-            canvas.restore()
+            drawTextLayout(canvas, lay, textX, textY)
             y += rowH + GAP
         }
 

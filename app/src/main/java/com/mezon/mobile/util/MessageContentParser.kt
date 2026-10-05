@@ -187,6 +187,7 @@ fun applyPlainTextWithHeadings(sb: SpannableStringBuilder, text: String, theme: 
 
 private fun stripMarkdownFenceLanguage(body: String): String {
     val trimmed = body.trim('\n')
+    if (body.startsWith("\n")) return trimmed
     val lines = trimmed.split("\n")
     if (lines.size >= 2) {
         val first = lines.first()
@@ -201,11 +202,18 @@ private val FENCE_LANGUAGE_REGEX = Regex("^[a-zA-Z0-9+#.-]{0,24}$")
 private val CODE_BLOCK_EDGE_REGEX = Regex("^\\n+|\\n+$")
 private val MULTILINE_FENCE_REGEX = Regex("```([\\s\\S]*?)```")
 private val EMBED_INLINE_CODE_REGEX = Regex("`([^`\n]+)`")
-private val EMBED_INLINE_BOLD_REGEX = Regex("\\*\\*([^*\n]+)\\*\\*")
-private val EMBED_INLINE_UNDERLINE_REGEX = Regex("__(?!_)([^_\n]+)__")
-private val EMBED_INLINE_STRIKE_REGEX = Regex("~~([^~\n]+)~~")
-private val EMBED_INLINE_ITALIC_ASTERISK_REGEX = Regex("(?<!\\*)\\*([^*\n]+)\\*(?!\\*)")
-private val EMBED_INLINE_ITALIC_UNDERSCORE_REGEX = Regex("(?<!_)_([^_\n]+)_(?!_)")
+private val EMBED_INLINE_BOLD_REGEX =
+    Regex("\\*\\*(?![\\s*\\x{FE0F}])([^*\n]+)(?<!\\s)\\*\\*(?!\\x{FE0F})")
+private val EMBED_INLINE_UNDERLINE_REGEX =
+    Regex("(?<![\\p{L}\\p{N}])__(?![_\\s])([^_\n]+)(?<!\\s)__(?![\\p{L}\\p{N}])")
+private val EMBED_INLINE_STRIKE_REGEX = Regex("~~(?!\\s)([^~\n]+)(?<!\\s)~~")
+private val EMBED_INLINE_ITALIC_ASTERISK_REGEX =
+    Regex("(?<![\\p{N}*])\\*(?![\\s*\\x{FE0F}])([^*\n]+)(?<!\\s)\\*(?![*\\x{FE0F}])")
+private val EMBED_INLINE_ITALIC_UNDERSCORE_REGEX =
+    Regex("(?<![\\p{L}\\p{N}_])_(?!\\s)([^_\n]+)(?<!\\s)_(?![\\p{L}\\p{N}_])")
+private val EMBED_URL_RUN_REGEX = Regex("https?://\\S+", RegexOption.IGNORE_CASE)
+private const val EMBED_URL_TAIL_CHARS = ".,;:!?)]}\\\">*_~`"
+private val EMBED_MASK_CHAR = 0xE000.toChar()
 
 private fun appendCodeFenceBlock(sb: SpannableStringBuilder, innerRaw: String, theme: ThemeColors) {
     val inner = stripMarkdownFenceLanguage(innerRaw)
@@ -286,41 +294,65 @@ private fun trimTrailingNewlines(sb: SpannableStringBuilder) {
     if (end < sb.length) sb.delete(end, sb.length)
 }
 
-private fun stripDelimiterAndSpan(
-    sb: SpannableStringBuilder,
+private fun maskUrlCores(working: CharArray) {
+    for (run in EMBED_URL_RUN_REGEX.findAll(String(working))) {
+        var coreEnd = run.range.last + 1
+        while (coreEnd > run.range.first && working[coreEnd - 1] in EMBED_URL_TAIL_CHARS) coreEnd--
+        working.fill(EMBED_MASK_CHAR, run.range.first, coreEnd)
+    }
+}
+
+private fun markDelimiters(
+    working: CharArray,
+    removals: MutableList<IntRange>,
     regex: Regex,
-    apply: (SpannableStringBuilder, Int, Int) -> Unit,
+    maskInner: Boolean = false,
+    apply: (Int, Int) -> Unit,
 ) {
-    for (m in regex.findAll(sb).toList().asReversed()) {
-        val inner = m.groupValues[1]
-        if (inner.isEmpty()) continue
+    for (m in regex.findAll(String(working))) {
+        val innerLength = m.groupValues[1].length
+        if (innerLength == 0) continue
         val start = m.range.first
         val endEx = m.range.last + 1
-        sb.replace(start, endEx, inner)
-        apply(sb, start, start + inner.length)
+        val delimiterLength = (endEx - start - innerLength) / 2
+        val innerStart = start + delimiterLength
+        val innerEnd = endEx - delimiterLength
+        apply(innerStart, innerEnd)
+        removals.add(start until innerStart)
+        removals.add(innerEnd until endEx)
+        working.fill(EMBED_MASK_CHAR, start, innerStart)
+        working.fill(EMBED_MASK_CHAR, innerEnd, endEx)
+        if (maskInner) working.fill(EMBED_MASK_CHAR, innerStart, innerEnd)
     }
 }
 
 private fun applyEmbedInlineMarkdown(sb: SpannableStringBuilder, theme: ThemeColors) {
-    stripDelimiterAndSpan(sb, EMBED_INLINE_CODE_REGEX) { b, a, e ->
-        b.setExclusiveSpan(TypefaceSpan("monospace"), a, e)
-        b.setExclusiveSpan(ForegroundColorSpan(theme.codeInlineText), a, e)
-        b.setExclusiveSpan(BackgroundColorSpan(theme.codeInlineBg), a, e)
+    if (sb.isEmpty()) return
+    val working = sb.toString().toCharArray()
+    maskUrlCores(working)
+    val removals = ArrayList<IntRange>()
+    markDelimiters(working, removals, EMBED_INLINE_CODE_REGEX, maskInner = true) { a, e ->
+        sb.setExclusiveSpan(TypefaceSpan("monospace"), a, e)
+        sb.setExclusiveSpan(ForegroundColorSpan(theme.codeInlineText), a, e)
+        sb.setExclusiveSpan(BackgroundColorSpan(theme.codeInlineBg), a, e)
     }
-    stripDelimiterAndSpan(sb, EMBED_INLINE_BOLD_REGEX) { b, a, e ->
-        b.setExclusiveSpan(StyleSpan(Typeface.BOLD), a, e)
+    markDelimiters(working, removals, EMBED_INLINE_BOLD_REGEX) { a, e ->
+        sb.setExclusiveSpan(StyleSpan(Typeface.BOLD), a, e)
     }
-    stripDelimiterAndSpan(sb, EMBED_INLINE_UNDERLINE_REGEX) { b, a, e ->
-        b.setExclusiveSpan(UnderlineSpan(), a, e)
+    markDelimiters(working, removals, EMBED_INLINE_UNDERLINE_REGEX) { a, e ->
+        sb.setExclusiveSpan(UnderlineSpan(), a, e)
     }
-    stripDelimiterAndSpan(sb, EMBED_INLINE_STRIKE_REGEX) { b, a, e ->
-        b.setExclusiveSpan(StrikethroughSpan(), a, e)
+    markDelimiters(working, removals, EMBED_INLINE_STRIKE_REGEX) { a, e ->
+        sb.setExclusiveSpan(StrikethroughSpan(), a, e)
     }
-    stripDelimiterAndSpan(sb, EMBED_INLINE_ITALIC_ASTERISK_REGEX) { b, a, e ->
-        b.setExclusiveSpan(StyleSpan(Typeface.ITALIC), a, e)
+    markDelimiters(working, removals, EMBED_INLINE_ITALIC_ASTERISK_REGEX) { a, e ->
+        sb.setExclusiveSpan(StyleSpan(Typeface.ITALIC), a, e)
     }
-    stripDelimiterAndSpan(sb, EMBED_INLINE_ITALIC_UNDERSCORE_REGEX) { b, a, e ->
-        b.setExclusiveSpan(StyleSpan(Typeface.ITALIC), a, e)
+    markDelimiters(working, removals, EMBED_INLINE_ITALIC_UNDERSCORE_REGEX) { a, e ->
+        sb.setExclusiveSpan(StyleSpan(Typeface.ITALIC), a, e)
+    }
+    for (range in removals.sortedByDescending { it.first }) {
+        sb.delete(range.first, range.last + 1)
     }
 }
 
@@ -586,7 +618,8 @@ fun parseContentToSpannable(
 
 private fun trimAutoLinkUrl(url: String): String {
     var u = url
-    while (u.isNotEmpty() && u.last() in ".,;:!?)]}\\\"") {
+    while (u.isNotEmpty() && u.last() in ".,;:!?)]}\\\">") {
+        if (u.last() == ')' && u.count { it == '(' } >= u.count { it == ')' }) break
         u = u.dropLast(1)
     }
     return u
@@ -1175,6 +1208,46 @@ fun parseEmbedDataList(content: String): List<EmbedData> =
     parseEmbedPayload(content).embeds
 
 fun parseEmbedData(content: String): EmbedData? = parseEmbedDataList(content).firstOrNull()
+
+fun embedFooterDisplayText(embed: EmbedData): String {
+    val parts = mutableListOf<String>()
+    if (embed.footerText.isNotEmpty()) parts.add(embed.footerText)
+    DateTimeUtil.parseIso8601(embed.timestamp)?.let { millis ->
+        parts.add(DateTimeUtil.format(millis, "dd/MM/yyyy", java.util.Locale.US))
+    }
+    return parts.joinToString(" • ")
+}
+
+private fun embedCopyText(embed: EmbedData, theme: ThemeColors): String {
+    val parts = ArrayList<String>()
+    fun appendPart(raw: String) {
+        val text = formatEmbedRichText(raw, theme).toString().trim()
+        if (text.isNotEmpty()) parts.add(text)
+    }
+    appendPart(embed.authorName)
+    appendPart(embed.title)
+    appendPart(embed.description)
+    for (field in embed.fields) {
+        appendPart(field.name)
+        appendPart(field.value)
+    }
+    appendPart(embedFooterDisplayText(embed))
+    return parts.joinToString("\n")
+}
+
+fun buildMessageCopyText(code: Int, content: String, theme: ThemeColors): String {
+    val text = parseContentText(content)
+    if (!isEmbedOrComponentsPayload(content) || parseShareContactData(content) != null) return text
+    val embeds = parseEmbedPayload(content).embeds
+    if (embeds.isEmpty()) return text
+    val parts = ArrayList<String>()
+    if (messageHasExplicitTextBody(content) && text.isNotBlank()) parts.add(text)
+    for (embed in embeds) {
+        val embedText = embedCopyText(embed, theme)
+        if (embedText.isNotEmpty()) parts.add(embedText)
+    }
+    return if (parts.isEmpty()) text else parts.joinToString("\n\n")
+}
 
 private fun JSONObject.optEmbedImageDimension(key: String): Int {
     val dimension = when (val value = opt(key)) {

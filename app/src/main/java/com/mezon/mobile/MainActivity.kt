@@ -49,6 +49,7 @@ import com.mezon.mobile.home.DialogsController
 import com.mezon.mobile.home.messages.MessageActivitiesController
 import com.mezon.mobile.home.MainTabsActivity
 import com.mezon.mobile.home.chat.ChatFragment
+import com.mezon.mobile.home.chat.ImageClipboardCoordinator
 import com.mezon.mobile.home.chat.PendingCameraCapture
 import com.mezon.mobile.home.chat.PhotoViewer
 import com.mezon.mobile.home.chat.VideoPlayerDialog
@@ -280,6 +281,7 @@ class MainActivity : BasePermissionsActivity(),
         requestNotificationPermission()
         lifecycleScope.launch(Dispatchers.IO) {
             PendingCameraCapture.sweepOrphans(this@MainActivity)
+            ImageClipboardCoordinator.sweepStaleFiles(this@MainActivity)
         }
 
         NotificationCenter.getGlobalInstance().addObserver(this, NotificationCenter.themeChanged)

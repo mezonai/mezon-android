@@ -2872,6 +2872,11 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                             return true
                         }
                     }
+                    embedMessage.hitTestClickableSpan(x, y)?.let { span ->
+                        pressedLink = span
+                        scheduleLongPress()
+                        return true
+                    }
                     if (embedMessage.containsTouch(x, y)) {
                         pressedOnEmbed = true
                         scheduleLongPress()
@@ -2994,6 +2999,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                     val slop = AndroidUtilities.touchSlop.toFloat()
                     if (dx * dx + dy * dy > slop * slop) {
                         cancelScheduledLongPress()
+                        pressedLink = null
                         if (pressedEmbedButtonHit != null) {
                             pressedEmbedButtonHit = null
                             embedMessage.setPressedButton(null)
@@ -3205,7 +3211,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
     fun onLinkClicked(url: String) {
         try {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url).normalizeScheme())
             context.startActivity(intent)
         } catch (_: Exception) {}
     }
