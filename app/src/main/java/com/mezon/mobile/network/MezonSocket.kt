@@ -346,7 +346,7 @@ class MezonSocket @Inject constructor(
         val deferred = CompletableDeferred<Envelope>()
         pendingRequests[cid] = deferred
 
-        val bytes = env.toByteArray()
+        val bytes = encodeEnvelopeCidLast(env)
         t.send(bytes) { error ->
             if (error != null) {
                 pendingRequests.remove(cid)?.completeExceptionally(
@@ -368,7 +368,7 @@ class MezonSocket @Inject constructor(
 
     fun sendFireAndForget(env: Envelope) {
         val t = transport ?: return
-        t.send(env.toByteArray()) { }
+        t.send(encodeEnvelopeCidLast(env)) { }
     }
 
     fun joinClanChat(clanId: Long) {
@@ -436,7 +436,7 @@ class MezonSocket @Inject constructor(
         val deferred = CompletableDeferred<ByteArray>()
         pendingApiRequests[cid] = deferred
 
-        t.send(env.toByteArray()) { error ->
+        t.send(encodeEnvelopeCidLast(env)) { error ->
             if (error != null) {
                 pendingApiRequests.remove(cid)?.completeExceptionally(
                     SocketConnectionLostException("Failed to send api_request_event '$apiName': ${error.message}", error)

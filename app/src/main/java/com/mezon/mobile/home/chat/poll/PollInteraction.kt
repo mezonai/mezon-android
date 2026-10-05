@@ -5,17 +5,17 @@ import com.mezon.mobile.home.chat.MessageEntity
 data class PollLocalState(
     val selection: Set<Int> = emptySet(),
     val showResultsPreview: Boolean = false,
-    val optimisticMyIndices: List<Int>? = null,
+    val confirmedMyIndices: List<Int>? = null,
     val optionsExpanded: Boolean = false,
-    val displayMergedPoll: ParsedPoll? = null,
+    val isVoting: Boolean = false,
 ) {
     fun fingerprint(): Int {
         var h = selection.size
         for (ix in selection.sorted()) h = h * 31 + ix
         h = h * 31 + showResultsPreview.hashCode()
-        h = h * 31 + (optimisticMyIndices?.hashCode() ?: 0)
+        h = h * 31 + (confirmedMyIndices?.hashCode() ?: 0)
         h = h * 31 + optionsExpanded.hashCode()
-        h = h * 31 + (displayMergedPoll.hashCode())
+        h = h * 31 + isVoting.hashCode()
         return h
     }
 }
@@ -45,7 +45,7 @@ fun resolvePollPrimaryIntent(
     hasVoted: Boolean,
     expired: Boolean,
 ): PollPrimaryIntent? {
-    if (parsed.isClosed || expired) return null
+    if (parsed.isClosed || expired || state.isVoting) return null
     return when {
         state.showResultsPreview && !hasVoted -> PollPrimaryIntent.BackToVote
         hasVoted -> PollPrimaryIntent.RemoveVote
@@ -61,5 +61,4 @@ interface ChatPollBridge {
     fun getLocalState(messageId: Long): PollLocalState
     fun stateFingerprint(messageId: Long): Int
     fun onPollTap(msg: MessageEntity, parsed: ParsedPoll, tap: PollTap)
-    fun pollForLayout(messageId: Long, contentParsed: ParsedPoll): ParsedPoll
 }

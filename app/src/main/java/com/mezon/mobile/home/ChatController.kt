@@ -3270,6 +3270,7 @@ class ChatController @Inject constructor(
         val presignOnly = PresignFinishContent.isPresignFinishOnlyChange(mergedContent, base.content)
         val resolvedContent = when {
             forceContentReplace && incoming.content.isNotBlank() -> mergedContent
+            incoming.isPollMessage -> mergedContent
             else -> resolveEchoContent(mergedContent, base.content)
         }
         if (!preserveLocalAttachments) {
