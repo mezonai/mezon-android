@@ -677,7 +677,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             audioWaveTimeMs = 0L
             audioLastFrameTimeMs = 0L
             drawForwardHeader = msg.isForwarded
-            drawEdited = msg.isEdited && !msg.hideEditted
+            drawEdited = msg.isEdited && !msg.hideEditted && !msg.isPollMessage
             drawEphemeral = msg.isEphemeral
             drawError = msg.isError && !msg.hasPartialAttachmentUploadFailure
             drawSending = msg.isSending
@@ -849,7 +849,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             timeText = formatRelativeTime(m.timestampSeconds)
             applyDisplaySnapshot(m, m.displayAttachmentSnapshot())
             drawForwardHeader = m.isForwarded
-            drawEdited = m.isEdited && !m.hideEditted
+            drawEdited = m.isEdited && !m.hideEditted && !m.isPollMessage
             drawEphemeral = m.isEphemeral
             drawError = m.isError && !m.hasPartialAttachmentUploadFailure
             drawSending = m.isSending
@@ -1783,7 +1783,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
         if (msg.isPollMessage && pollParsed != null) {
             val st = pollBridge?.getLocalState(msg.id) ?: PollLocalState()
-            val forLayout = pollBridge?.pollForLayout(msg.id, pollParsed!!) ?: pollParsed!!
+            val forLayout = pollParsed!!
             pollLayoutHelper.prepare(forLayout, st, currentUserId, theme, bubbleMaxW, this)
         }
 
@@ -3552,7 +3552,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
 
         if (pollParsed != null && msg.isPollMessage) {
-            val pl = pollBridge?.pollForLayout(msg.id, pollParsed!!) ?: pollParsed!!
+            val pl = pollParsed!!
             val st = pollBridge?.getLocalState(msg.id) ?: PollLocalState()
             val xCard = contentLeft.toFloat()
             pollCardDrawTopY = yOff
