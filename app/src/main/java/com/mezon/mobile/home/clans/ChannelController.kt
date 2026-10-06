@@ -200,6 +200,13 @@ class ChannelController @Inject constructor(
         scheduleChannelAccessRefresh(clanId)
     }
 
+    private fun refreshPrivateVoiceChannelAccess(channelId: Long) {
+        val channel = findChannelById(channelId) ?: return
+        if (channel.type == CHANNEL_TYPE_VOICE && channel.isPrivate) {
+            refreshChannelAccess(channel.clanId)
+        }
+    }
+
     @Synchronized
     private fun scheduleChannelAccessRefresh(clanId: Long) {
         if (channelAccessRefreshJobs.containsKey(clanId)) return
@@ -1488,10 +1495,6 @@ class ChannelController @Inject constructor(
 
     private fun mergeCache(clanId: Long, apiChannels: List<ClanChannelEntity>) {
         val existing = _channelsByClan.value[clanId] ?: emptyList()
-        if (apiChannels.isEmpty() && existing.isNotEmpty()) {
-            Log.w(TAG, "mergeCache: empty channel list for clan=$clanId with ${existing.size} cached — keeping cache")
-            return
-        }
         val existingMap = existing.associateBy { it.channelId }
         val merged = apiChannels.map { apiCh ->
             val apiNorm = withClanIdFromContext(clanId, apiCh)
@@ -2437,8 +2440,10 @@ class ChannelController @Inject constructor(
                     val previous = existing.firstOrNull { it.channelId == event.channelId }
                     val isVoice = event.channelType == CHANNEL_TYPE_VOICE || previous?.type == CHANNEL_TYPE_VOICE
                     var voiceAccess: Boolean? = !event.channelPrivate || previous != null
-                    if (isVoice && previous?.isPrivate != event.channelPrivate) {
-                        channelAccessRevisions.merge(clanId, 1L, Long::plus)
+                    if (isVoice && (event.channelPrivate || previous?.isPrivate != event.channelPrivate)) {
+                        // ACLs may change without changing privacy. Event lists may be partial,
+                        // so revalidate existing access using the server's channel list.
+                        refreshChannelAccess(clanId)
                     }
                     if (isVoice && event.channelPrivate && previous?.isPrivate != true) {
                         val policy = permissionPolicy.get()
@@ -2454,10 +2459,8 @@ class ChannelController @Inject constructor(
                                 removeChannelAccess(clanId, event.channelId, CHANNEL_TYPE_VOICE)
                                 return@collect
                             }
-                            null -> {
-                                removeChannelAccess(clanId, event.channelId, CHANNEL_TYPE_VOICE)
-                                return@collect
-                            }
+                            // Unknown access is resolved by the scheduled refresh, not treated as a denial.
+                            null -> Unit
                             true -> Unit
                         }
                     }
@@ -2510,7 +2513,10 @@ class ChannelController @Inject constructor(
         appScope.launch {
             dispatcher.permissionChangedEvents.collect { event ->
                 val userId = sessionManager.sessionFlow.first()?.userId?.toLongOrNull() ?: 0L
-                if (userId != 0L && event.userId == userId) invalidateLinkedChannel(event.channelId)
+                if (userId != 0L && event.userId == userId) {
+                    invalidateLinkedChannel(event.channelId)
+                    refreshPrivateVoiceChannelAccess(event.channelId)
+                }
             }
         }
 
@@ -2519,6 +2525,7 @@ class ChannelController @Inject constructor(
                 val userId = sessionManager.sessionFlow.first()?.userId?.toLongOrNull() ?: 0L
                 if (userId != 0L && (event.userId == userId || event.userId == 0L || event.roleId != 0L)) {
                     invalidateLinkedChannel(event.channelId)
+                    refreshPrivateVoiceChannelAccess(event.channelId)
                 }
             }
         }
