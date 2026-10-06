@@ -286,6 +286,14 @@ class MezonSfuSession @Inject constructor(
     var onMutedByModerator: (() -> Unit)? = null
     var onRemoved: ((SfuRemovalCause, String) -> Unit)? = null
     var onNoiseStateChanged: ((NoiseSuppressionState) -> Unit)? = null
+    var onAudioSendingChanged: ((Boolean) -> Unit)? = null
+    var isAudioSending = false
+        private set
+    private var audioSendProbeJob: Job? = null
+    private var audioSendProbeEpoch = 0
+    private var audioSendProbeInFlight = false
+    private var audioSendProbePackets: Long? = null
+    private var audioSendProbeFrames: Long? = null
     var noiseState = NoiseSuppressionState.OFF
         private set
     var noiseCaptureConfirmed = false
@@ -293,7 +301,6 @@ class MezonSfuSession @Inject constructor(
     private var noiseProcessor: MezonNsCaptureProcessor? = null
     private var noiseChangeJob: Job? = null
     private var noiseChangeGeneration = 0
-    private var micBeforeNoiseChange = false
     private var noiseRequestedEnabled = false
 
     @Volatile var role: SfuRole = SfuRole.SPEAKER
@@ -322,6 +329,7 @@ class MezonSfuSession @Inject constructor(
     }
     private val factory: PeerConnectionFactory get() = checkNotNull(callFactory)
     private var lastOutboundAudioPackets: Long? = null
+    private var lastCapturedAudioFrames: Long? = null
     private var captureStallTicks = 0
     private var audioRecoveryAttempts = 0
     private var token: String = ""
@@ -399,6 +407,8 @@ class MezonSfuSession @Inject constructor(
     private val roleByMid = HashMap<String, SfuRole>()
     private val memberByPeerId = HashMap<String, MemberState>()
     private val remote = LinkedHashMap<String, RemoteEntry>()
+    private var lastParticipants: List<SfuParticipant> = emptyList()
+    private var lastSpeakingIds: Set<String> = emptySet()
     private var cameraTierIndex = 0
     private var cameraTierJob: Job? = null
 
@@ -546,16 +556,12 @@ class MezonSfuSession @Inject constructor(
                 onFailure = {
                     appScope.launch(mainDispatcher) {
                         if (active && gen == connectionGen && noiseRequestedEnabled) {
-                            val wasApplying = noiseState == NoiseSuppressionState.APPLYING
                             noiseChangeGeneration++
                             noiseChangeJob?.cancel()
                             noiseChangeJob = null
                             noiseRequestedEnabled = false
                             noiseState = NoiseSuppressionState.ERROR
                             noiseProcessor?.cancelChange()
-                            if (wasApplying && micBeforeNoiseChange && role == SfuRole.SPEAKER && !micEnabled) {
-                                applyMicEnabled(true)
-                            }
                             onNoiseStateChanged?.invoke(noiseState)
                         }
                     }
@@ -637,6 +643,7 @@ class MezonSfuSession @Inject constructor(
 
     private fun resetAudioFlow() {
         lastOutboundAudioPackets = null
+        lastCapturedAudioFrames = null
         captureStallTicks = 0
     }
 
@@ -672,14 +679,20 @@ class MezonSfuSession @Inject constructor(
 
     private fun evaluateAudioFlow(packets: Long) {
         val previous = lastOutboundAudioPackets
+        val captured = noiseProcessor?.capturedFrameCount ?: 0L
+        val previousCaptured = lastCapturedAudioFrames
         lastOutboundAudioPackets = packets
-        if (!shouldSendAudio || previous == null || packets > previous ||
+        lastCapturedAudioFrames = captured
+        val captureProgress = previousCaptured == null || captured > previousCaptured
+        if (!shouldSendAudio || previous == null || (packets > previous && captureProgress) ||
             CallController.instance?.isCallSessionActive() == true ||
             ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED
         ) {
             captureStallTicks = 0
             return
         }
+        setAudioSending(false)
+        updateAudioSendProbe()
         captureStallTicks++
         if (captureStallTicks < 2 || audioRecoveryAttempts >= 3) return
         captureStallTicks = 0
@@ -801,13 +814,17 @@ class MezonSfuSession @Inject constructor(
                     }
                 }
                 appScope.launch(mainDispatcher) {
-                    if (active && gen == connectionGen && peerConnection === pc) onSpeaking?.invoke(speaking)
+                    if (active && gen == connectionGen && peerConnection === pc && speaking != lastSpeakingIds) {
+                        lastSpeakingIds = speaking
+                        onSpeaking?.invoke(speaking)
+                    }
                 }
             }
         }
     }
 
     fun leave() {
+        stopAudioSendProbe()
         noiseChangeGeneration++
         noiseChangeJob?.cancel()
         noiseChangeJob = null
@@ -917,14 +934,12 @@ class MezonSfuSession @Inject constructor(
         userIdByMid.clear(); peerIdByMid.clear(); roleByMid.clear()
         memberByPeerId.clear()
         remote.clear()
+        lastParticipants = emptyList()
+        lastSpeakingIds = emptySet()
     }
 
     fun setMicEnabled(on: Boolean) {
         if (!active || role != SfuRole.SPEAKER || (on && connectionState != SfuConnectionState.CONNECTED)) return
-        if (noiseState == NoiseSuppressionState.APPLYING) {
-            micBeforeNoiseChange = on
-            return
-        }
         applyMicEnabled(on)
     }
 
@@ -939,9 +954,6 @@ class MezonSfuSession @Inject constructor(
         if (!active || noiseState == NoiseSuppressionState.APPLYING) return
         val processor = noiseProcessor ?: return
         noiseRequestedEnabled = enabled
-        micBeforeNoiseChange = micEnabled
-        processor.beginChange()
-        if (micEnabled && role == SfuRole.SPEAKER) applyMicEnabled(false)
         noiseCaptureConfirmed = false
         noiseState = NoiseSuppressionState.APPLYING
         onNoiseStateChanged?.invoke(noiseState)
@@ -959,7 +971,6 @@ class MezonSfuSession @Inject constructor(
                 enabled -> NoiseSuppressionState.ON
                 else -> NoiseSuppressionState.OFF
             }
-            if (micBeforeNoiseChange && role == SfuRole.SPEAKER) applyMicEnabled(true)
             onNoiseStateChanged?.invoke(noiseState)
         }
     }
@@ -1004,7 +1015,10 @@ class MezonSfuSession @Inject constructor(
 
     fun pttPress() {
         if (!active || connectionState != SfuConnectionState.CONNECTED || role != SfuRole.AUDIENCE) return
+        if (pttRequested) return
         pttRequested = true
+        restoreCommunicationAudio()
+        applyLocalAudio()
         send(JSONObject().put("type", "mute").put("is_mute", false))
         send(JSONObject().put("type", "push_to_talk").put("active", true))
     }
@@ -1082,6 +1096,7 @@ class MezonSfuSession @Inject constructor(
 
     private fun createLocalAudioTrack() {
         if (localAudioTrack?.let { !it.isDisposed && it.state() == MediaStreamTrack.State.LIVE } == true) return
+        stopAudioSendProbe()
         val oldTrack = localAudioTrack
         val oldSource = audioSource
         if (oldTrack?.isDisposed == false) oldTrack.setEnabled(false)
@@ -1446,10 +1461,15 @@ class MezonSfuSession @Inject constructor(
         if (audio.state() != MediaStreamTrack.State.LIVE) return false
         val enabled = shouldSendAudio
         audio.setEnabled(enabled)
+        noiseProcessor?.setCaptureActive(enabled)
         if (audio.enabled() != enabled) return false
         val tc = findTransceiver(MID_AUDIO, "audio") ?: return false
-        if (!tc.sender.setTrack(audio, false)) return false
-        return setAudioEncodingActive(tc.sender, enabled) || !enabled
+        if (tc.sender.track() !== audio && !tc.sender.setTrack(audio, false)) return false
+        // A muted track sends silence; keeping its encoding active avoids ADM cold starts.
+        val warm = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        val applied = setAudioEncodingActive(tc.sender, enabled || warm)
+        updateAudioSendProbe()
+        return applied || !enabled
     }
 
     private fun setAudioEncodingActive(sender: RtpSender, sending: Boolean): Boolean {
@@ -1474,25 +1494,34 @@ class MezonSfuSession @Inject constructor(
         }
         val gen = connectionGen
         val enabled = shouldSendAudio
+        if (!enabled) stopAudioSendProbe()
         val attach = localTracksAdded
         appScope.launch(webRtcDispatcher) {
+            if (!active || gen != connectionGen || audio !== localAudioTrack || enabled != shouldSendAudio) return@launch
             val outcome = runCatching {
                 if (audio.state() != MediaStreamTrack.State.LIVE) {
                     LocalAudioOutcome.TRACK_ENDED
                 } else {
                     audio.setEnabled(enabled)
+                    noiseProcessor?.setCaptureActive(enabled)
                     val sender = localAudioSenderRef?.takeIf { it.gen == gen }?.sender
                     when {
                         audio.enabled() != enabled -> LocalAudioOutcome.FAILED
                         !attach || gen != connectionGen -> LocalAudioOutcome.APPLIED
                         sender == null -> LocalAudioOutcome.FAILED
-                        !sender.setTrack(audio, false) -> LocalAudioOutcome.FAILED
-                        setAudioEncodingActive(sender, enabled) || !enabled -> LocalAudioOutcome.APPLIED
+                        sender.track() !== audio && !sender.setTrack(audio, false) -> LocalAudioOutcome.FAILED
+                        setAudioEncodingActive(sender, enabled ||
+                            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) || !enabled -> LocalAudioOutcome.APPLIED
                         else -> LocalAudioOutcome.FAILED
                     }
                 }
             }.getOrDefault(LocalAudioOutcome.FAILED)
-            if (outcome == LocalAudioOutcome.APPLIED) return@launch
+            if (outcome == LocalAudioOutcome.APPLIED) {
+                appScope.launch(mainDispatcher) {
+                    if (active && gen == connectionGen && audio === localAudioTrack) updateAudioSendProbe()
+                }
+                return@launch
+            }
             appScope.launch(mainDispatcher) {
                 if (!active || gen != connectionGen || audio !== localAudioTrack) return@launch
                 repairLocalAudio()
@@ -1503,6 +1532,69 @@ class MezonSfuSession @Inject constructor(
     private fun repairLocalAudio() {
         val attached = synchronizeLocalAudioTrack()
         if (localTracksAdded && !attached) recoverTransport(connectionGen)
+    }
+
+    private fun setAudioSending(sending: Boolean) {
+        if (isAudioSending == sending) return
+        isAudioSending = sending
+        onAudioSendingChanged?.invoke(sending)
+    }
+
+    private fun stopAudioSendProbe() {
+        audioSendProbeEpoch++
+        audioSendProbeJob?.cancel()
+        audioSendProbeJob = null
+        audioSendProbeInFlight = false
+        audioSendProbePackets = null
+        audioSendProbeFrames = null
+        setAudioSending(false)
+    }
+
+    private fun updateAudioSendProbe() {
+        val pc = peerConnection
+        if (!active || connectionState != SfuConnectionState.CONNECTED || !shouldSendAudio || pc == null) {
+            stopAudioSendProbe()
+            return
+        }
+        if (isAudioSending || audioSendProbeJob != null) return
+        val epoch = ++audioSendProbeEpoch
+        val gen = connectionGen
+        audioSendProbeInFlight = false
+        audioSendProbePackets = null
+        audioSendProbeFrames = null
+        audioSendProbeJob = scope?.launch {
+            var attempt = 0
+            while (isActive) {
+                if (!isActive || !active || !shouldSendAudio || !isCurrentConnection(pc, gen) ||
+                    audioSendProbeEpoch != epoch || isAudioSending) break
+                if (!audioSendProbeInFlight) {
+                    audioSendProbeInFlight = true
+                    appScope.launch(webRtcDispatcher) statsRequest@{
+                        if (gen != connectionGen) return@statsRequest
+                        pc.getStats { report ->
+                            val packets = report.statsMap.values.filter {
+                                it.type == "outbound-rtp" && (it.members["kind"] ?: it.members["mediaType"]) == "audio" &&
+                                    (it.members["mid"] == null || it.members["mid"] == MID_AUDIO)
+                            }.sumOf { (it.members["packetsSent"] as? Number)?.toLong() ?: 0L }
+                            appScope.launch(mainDispatcher) statsResult@{
+                                if (!active || !shouldSendAudio || !isCurrentConnection(pc, gen) || audioSendProbeEpoch != epoch) return@statsResult
+                                audioSendProbeInFlight = false
+                                val before = audioSendProbePackets
+                                val captured = noiseProcessor?.capturedFrameCount ?: 0L
+                                val previousFrames = audioSendProbeFrames
+                                if (before != null && previousFrames != null && packets > before && captured > previousFrames) setAudioSending(true)
+                                audioSendProbePackets = packets
+                                audioSendProbeFrames = captured
+                            }
+                        }
+                    }
+                }
+                // Cold capture/permission/negotiation can exceed three seconds.
+                // Keep checking while the mic is requested; never infer readiness from a timer.
+                delay(if (attempt++ < 30) 100L else 250L)
+            }
+            if (audioSendProbeEpoch == epoch) audioSendProbeJob = null
+        }
     }
 
     private fun attachLocalTracks(pc: PeerConnection) {
@@ -1692,6 +1784,10 @@ class MezonSfuSession @Inject constructor(
     private fun applyPeers(members: org.json.JSONArray?): Boolean {
         members ?: return false
         var ownershipChanged = false
+        val participantIdByPeerId = HashMap<String, String>(remote.size)
+        for ((id, entry) in remote) {
+            entry.peerId?.let { participantIdByPeerId.putIfAbsent(it, id) }
+        }
         for (i in 0 until members.length()) {
             val peer = members.optJSONObject(i) ?: continue
             val peerId = peer.opt("peer_id")?.toString() ?: continue
@@ -1709,9 +1805,13 @@ class MezonSfuSession @Inject constructor(
             for (mid in mids) {
                 if (claimMid(mid, peerId)) ownershipChanged = true
             }
-            val existing = remote.entries.firstOrNull { it.value.peerId == peerId }?.key
+            val existing = participantIdByPeerId[peerId]
             val participantId = existing ?: mids.firstOrNull()?.let { remoteParticipantId(it) } ?: continue
-            applyMemberState(remote.getOrPut(participantId) { RemoteEntry(participantId) }, peerId)
+            val entry = remote.getOrPut(participantId) { RemoteEntry(participantId) }
+            entry.peerId?.takeIf { it != peerId && participantIdByPeerId[it] == participantId }
+                ?.let { participantIdByPeerId.remove(it) }
+            applyMemberState(entry, peerId)
+            participantIdByPeerId[peerId] = participantId
         }
         scheduleCameraTier()
         return ownershipChanged
@@ -1945,6 +2045,7 @@ class MezonSfuSession @Inject constructor(
         emitState(SfuConnectionState.DISCONNECTED)
         if (!active || retryGen != connectionGen) return
         emitParticipants()
+        lastSpeakingIds = emptySet()
         onSpeaking?.invoke(emptySet())
         onPushToTalkActive?.invoke(false)
     }
@@ -2068,6 +2169,8 @@ class MezonSfuSession @Inject constructor(
                 cameraActive = it.cameraActive,
             )
         }
+        if (list == lastParticipants) return
+        lastParticipants = list
         onParticipants?.invoke(list)
     }
 
@@ -2480,6 +2583,7 @@ class MezonSfuSession @Inject constructor(
         if (connectionState == state) return
         connectionState = state
         if (state != SfuConnectionState.CONNECTED) {
+            stopAudioSendProbe()
             networkQuality = SfuNetworkQuality()
             setNetworkWeak(false)
         }

@@ -15,10 +15,12 @@ import android.view.View
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.R
 import com.mezon.mobile.ui.cells.MezonIcon
 
 class VoiceControlBar(
@@ -56,7 +58,8 @@ class VoiceControlBar(
         private val PTT_BOTTOM_RADIUS = LayoutHelper.dp(28).toFloat()
         private val PTT_BOTTOM_GAP = LayoutHelper.dp(10)
         private val PTT_END_WEIGHT = 1f
-        private const val HOLD_START_DELAY_MS = 180L
+        private const val FIRST_PTT_PREPARATION_DELAY_MS = 1_000L
+        private const val PTT_LOADING_THRESHOLD_MS = 1_000L
     }
 
     var onCameraToggle: ((enabled: Boolean) -> Unit)? = null
@@ -85,6 +88,8 @@ class VoiceControlBar(
     private val pttLayout: LinearLayout
     private val pttMicPill: FrameLayout
     private val pttMicIcon: ImageView
+    private val pttMicIconSlot: FrameLayout
+    private val pttMicProgress: ProgressBar
     private val pttMicLabel: TextView
     private val pttMicContent: LinearLayout
     private val pttRaisePill: FrameLayout
@@ -97,14 +102,35 @@ class VoiceControlBar(
 
     private var microphoneAvailable = true
     private var holdTriggered = false
+    private var pttGranted = false
+    private var audioSending = false
+    private var firstPttPreparationComplete = false
+    private var firstPttPreparationScheduled = false
+    private var delayedPttLoadingVisible = false
+    private var delayedPttLoadingScheduled = false
+    private var pttReadyShown = false
     private var pulseAnimator: ValueAnimator? = null
     private var hintToast: Toast? = null
+    private val firstPttPreparationRunnable = Runnable {
+        firstPttPreparationScheduled = false
+        if (pushToTalkMode && microphoneAvailable && holdTriggered && pttGranted && audioSending) {
+            firstPttPreparationComplete = true
+        }
+        updatePttFeedback()
+    }
+    private val delayedPttLoadingRunnable = Runnable {
+        delayedPttLoadingScheduled = false
+        if (pushToTalkMode && microphoneAvailable && holdTriggered && !(pttGranted && audioSending)) {
+            delayedPttLoadingVisible = true
+        }
+        updatePttFeedback()
+    }
     private val holdRunnable = Runnable {
-        if (!microphoneAvailable) return@Runnable
+        if (!microphoneAvailable || holdTriggered) return@Runnable
         holdTriggered = true
-        setPttPressed(true)
-        startRecordingPulse()
-        vibrateLight()
+        pttGranted = false
+        audioSending = false
+        updatePttFeedback()
         onMicPressStart?.invoke()
     }
 
@@ -198,17 +224,31 @@ class VoiceControlBar(
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             setImageDrawable(tintedIcon(MezonIcon.microphoneSlashIcon, defaultMicTint))
         }
+        pttMicProgress = ProgressBar(context, null, android.R.attr.progressBarStyleSmall).apply {
+            visibility = View.GONE
+            isClickable = false
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            indeterminateDrawable.mutate().colorFilter = PorterDuffColorFilter(themeColors.connectingColor, PorterDuff.Mode.SRC_IN)
+        }
+        pttMicIconSlot = FrameLayout(context).apply {
+            addView(pttMicIcon, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+            addView(pttMicProgress, LayoutParams(LayoutHelper.dp(28), LayoutHelper.dp(28), Gravity.CENTER))
+        }
         pttMicLabel = TextView(context).apply {
-            text = "Push to Talk"
+            setText(R.string.voice_room_ptt_hold)
             setTextColor(defaultMicTint)
             textSize = PTT_LABEL_SIZE
             typeface = android.graphics.Typeface.DEFAULT_BOLD
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            gravity = Gravity.CENTER
         }
         pttMicContent = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             isClickable = false
-            addView(pttMicIcon, LinearLayout.LayoutParams(PTT_BIG_ICON, PTT_BIG_ICON))
+            setPadding(LayoutHelper.dp(12), 0, LayoutHelper.dp(12), 0)
+            addView(pttMicIconSlot, LinearLayout.LayoutParams(PTT_BIG_ICON, PTT_BIG_ICON))
             addView(pttMicLabel, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -217,22 +257,19 @@ class VoiceControlBar(
         pttMicPill = FrameLayout(context).apply {
             background = roundedBg(themeColors.tertiary, PTT_BIG_RADIUS)
             isClickable = true
-            addView(pttMicContent, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+            addView(pttMicContent, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
             setOnTouchListener { v, event ->
                 if (!microphoneAvailable) return@setOnTouchListener true
                 when (event.actionMasked) {
                     MotionEvent.ACTION_DOWN -> {
-                        holdTriggered = false
-                        v.postDelayed(holdRunnable, HOLD_START_DELAY_MS)
+                        holdRunnable.run()
                         true
                     }
                     MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                         v.removeCallbacks(holdRunnable)
                         if (holdTriggered) {
-                            holdTriggered = false
-                            setPttPressed(false)
-                            stopRecordingPulse()
-                            onMicPressEnd?.invoke()
+                            cancelPttHold()
                         } else {
                             showHoldHint()
                         }
@@ -293,6 +330,7 @@ class VoiceControlBar(
             lp.height = if (pttCompact) PTT_COMPACT_HEIGHT else pttBigHeight()
             pttMicPill.layoutParams = lp
         }
+        updatePttFeedback()
     }
 
     private fun addButton(row: LinearLayout, button: VoiceStyleCircleButton, addGap: Boolean) {
@@ -330,13 +368,68 @@ class VoiceControlBar(
         setColor(color)
     }
 
-    private fun setPttPressed(pressed: Boolean) {
-        pttMicPill.background = roundedBg(if (pressed) themeColors.blurple else themeColors.tertiary, PTT_BIG_RADIUS)
-        val tint = if (pressed) 0xFFFFFFFF.toInt() else defaultMicTint
+    private fun updatePttFeedback() {
+        val holding = pushToTalkMode && microphoneAvailable && holdTriggered
+        val locallyReady = holding && pttGranted && audioSending
+        // First PTT gets a UI buffer after local capture/RTP starts; this is not a receiver acknowledgement.
+        if (locallyReady && !firstPttPreparationComplete) {
+            if (!firstPttPreparationScheduled) {
+                firstPttPreparationScheduled = true
+                postDelayed(firstPttPreparationRunnable, FIRST_PTT_PREPARATION_DELAY_MS)
+            }
+        } else if (!locallyReady) {
+            removeCallbacks(firstPttPreparationRunnable)
+            firstPttPreparationScheduled = false
+        }
+        val ready = locallyReady && firstPttPreparationComplete
+        val waiting = holding && !ready
+        if (waiting && firstPttPreparationComplete) {
+            if (!delayedPttLoadingVisible && !delayedPttLoadingScheduled) {
+                delayedPttLoadingScheduled = true
+                postDelayed(delayedPttLoadingRunnable, PTT_LOADING_THRESHOLD_MS)
+            }
+        } else {
+            removeCallbacks(delayedPttLoadingRunnable)
+            delayedPttLoadingScheduled = false
+            delayedPttLoadingVisible = false
+        }
+        val showLoading = waiting && (!firstPttPreparationComplete || delayedPttLoadingVisible)
+        if (ready) {
+            if (!pttReadyShown) vibrateLight()
+            if (pulseAnimator?.isRunning != true) startRecordingPulse()
+        } else stopRecordingPulse()
+        pttReadyShown = ready
+        val tint = when {
+            ready -> 0xFFFFFFFF.toInt()
+            showLoading -> themeColors.connectingColor
+            else -> defaultMicTint
+        }
+        pttMicPill.background = roundedBg(if (ready) themeColors.blurple else themeColors.tertiary, PTT_BIG_RADIUS).apply {
+            if (showLoading) setStroke(LayoutHelper.dp(1), themeColors.connectingColor)
+        }
+        pttMicIcon.visibility = if (showLoading) View.INVISIBLE else View.VISIBLE
+        pttMicProgress.visibility = if (showLoading) View.VISIBLE else View.GONE
         pttMicIcon.setImageDrawable(
-            tintedIcon(if (pressed) MezonIcon.microphoneIcon else MezonIcon.microphoneSlashIcon, tint)
+            tintedIcon(if (ready) MezonIcon.microphoneIcon else MezonIcon.microphoneSlashIcon, tint)
         )
+        pttMicLabel.setText(when {
+            ready -> R.string.voice_room_ptt_ready
+            showLoading && pttGranted -> R.string.voice_room_ptt_preparing
+            showLoading -> R.string.voice_room_ptt_waiting
+            else -> R.string.voice_room_ptt_hold
+        })
         pttMicLabel.setTextColor(tint)
+        pttMicPill.contentDescription = pttMicLabel.text
+    }
+
+    private fun cancelPttHold() {
+        val wasHolding = holdTriggered
+        holdTriggered = false
+        pttGranted = false
+        audioSending = false
+        stopRecordingPulse()
+        updatePttFeedback()
+        if (wasHolding) onMicPressEnd?.invoke()
     }
 
     private fun startRecordingPulse() {
@@ -364,7 +457,7 @@ class VoiceControlBar(
 
     private fun showHoldHint() {
         hintToast?.cancel()
-        hintToast = Toast.makeText(context, "Please hold", Toast.LENGTH_SHORT).also { it.show() }
+        hintToast = Toast.makeText(context, R.string.voice_room_ptt_hold_hint, Toast.LENGTH_SHORT).also { it.show() }
     }
 
     private fun vibrateLight() {
@@ -381,13 +474,28 @@ class VoiceControlBar(
     }
 
     fun setPushToTalkMode(enabled: Boolean) {
+        if (pushToTalkMode != enabled) cancelPttHold()
         pushToTalkMode = enabled
         row.visibility = if (enabled) View.GONE else View.VISIBLE
         pttLayout.visibility = if (enabled) View.VISIBLE else View.GONE
-        if (enabled) setPttPressed(false)
+        updatePttFeedback()
     }
 
     fun isPttMode(): Boolean = pushToTalkMode
+
+    fun setAudioSending(sending: Boolean) {
+        audioSending = sending && (!pushToTalkMode || holdTriggered)
+        updatePttFeedback()
+    }
+
+    fun setPttActive(active: Boolean) {
+        pttGranted = active && holdTriggered
+        if (!pttGranted) {
+            audioSending = false
+            stopRecordingPulse()
+        }
+        updatePttFeedback()
+    }
 
     fun setPttCompact(compact: Boolean) {
         pttCompact = compact
@@ -404,17 +512,28 @@ class VoiceControlBar(
             pttMicPill.setPadding(0, 0, 0, 0)
         }
         pttMicContent.orientation = if (compact) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
-        (pttMicIcon.layoutParams as? LinearLayout.LayoutParams)?.let {
+        (pttMicContent.layoutParams as? LayoutParams)?.let {
+            it.width = if (compact) LayoutParams.WRAP_CONTENT else LayoutParams.MATCH_PARENT
+            pttMicContent.layoutParams = it
+        }
+        (pttMicIconSlot.layoutParams as? LinearLayout.LayoutParams)?.let {
             val size = if (compact) PTT_COMPACT_ICON else PTT_BIG_ICON
             it.width = size
             it.height = size
-            pttMicIcon.layoutParams = it
+            pttMicIconSlot.layoutParams = it
+        }
+        (pttMicProgress.layoutParams as? LayoutParams)?.let {
+            val size = LayoutHelper.dp(if (compact) 20 else 28)
+            it.width = size
+            it.height = size
+            pttMicProgress.layoutParams = it
         }
         (pttMicLabel.layoutParams as? LinearLayout.LayoutParams)?.let {
             it.topMargin = if (compact) 0 else PTT_LABEL_GAP
             it.marginStart = if (compact) PTT_LABEL_GAP_H else 0
             pttMicLabel.layoutParams = it
         }
+        updatePttFeedback()
     }
 
     fun pttContentHeightDp(): Float {
@@ -442,13 +561,16 @@ class VoiceControlBar(
         pttMicPill.alpha = if (available) 1f else 0.4f
         if (!available) {
             pttMicPill.removeCallbacks(holdRunnable)
-            if (holdTriggered) {
-                holdTriggered = false
-                setPttPressed(false)
-                stopRecordingPulse()
-                onMicPressEnd?.invoke()
-            }
+            firstPttPreparationComplete = false
+            cancelPttHold()
         }
+        updatePttFeedback()
+    }
+
+    override fun onDetachedFromWindow() {
+        cancelPttHold()
+        hintToast?.cancel()
+        super.onDetachedFromWindow()
     }
 
     fun setNetworkWeak(weak: Boolean) {

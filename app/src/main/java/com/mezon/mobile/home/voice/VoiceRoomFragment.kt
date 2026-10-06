@@ -36,6 +36,7 @@ import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.home.MemberResolver
 import com.mezon.mobile.home.UserClanController
+import com.mezon.mobile.home.ClanMember
 import com.mezon.mobile.home.chat.EmojiController
 import com.mezon.mobile.home.chat.UserProfileBottomSheet
 import com.mezon.mobile.home.friends.FriendController
@@ -120,6 +121,7 @@ class VoiceRoomFragment : BaseFragment() {
     private var joinRole: SfuRole = SfuRole.SPEAKER
     private var sfuRemote: List<SfuParticipant> = emptyList()
     private val memberResolveCache = HashMap<String, VoiceMemberIdentity>()
+    private var clanMemberIndex: Map<Long, ClanMember>? = null
     private var isGridScrolling = false
     private var pendingGridUpdate = false
     private var localMicOn = false
@@ -149,6 +151,8 @@ class VoiceRoomFragment : BaseFragment() {
     private val participants = ArrayList<ParticipantInfo>()
     private val reactionStates = HashMap<String, ParticipantCell.ReactionBadgeType>()
     private var pendingUpdateJob: kotlinx.coroutines.Job? = null
+    private var participantDiffJob: kotlinx.coroutines.Job? = null
+    private var participantListGeneration = 0
     private var raiseHandCooldownJob: kotlinx.coroutines.Job? = null
     private var isInPipMode = false
     private var isReconnecting = false
@@ -172,6 +176,7 @@ class VoiceRoomFragment : BaseFragment() {
     fun hasActiveSession(): Boolean = sfuConnected
 
     fun enterPipMode() {
+        cancelParticipantDiff()
         isInPipMode = true
         if (::focusedShareView.isInitialized) focusedShareView.setPipMode(true)
         if (::headerView.isInitialized) headerView.visibility = View.GONE
@@ -183,9 +188,11 @@ class VoiceRoomFragment : BaseFragment() {
         if (::participantAdapter.isInitialized) participantAdapter.notifyDataSetChanged()
         syncFocusedShareForPip()
         applyVoiceLayoutForMode()
+        scheduleUpdateParticipantList()
     }
 
     fun exitPipMode() {
+        cancelParticipantDiff()
         isInPipMode = false
         if (::focusedShareView.isInitialized) focusedShareView.setPipMode(false)
         if (::headerView.isInitialized) {
@@ -198,6 +205,7 @@ class VoiceRoomFragment : BaseFragment() {
         raiseHandOverlay?.visibility = View.VISIBLE
         if (::participantAdapter.isInitialized) participantAdapter.notifyDataSetChanged()
         applyVoiceLayoutForMode()
+        scheduleUpdateParticipantList()
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -374,6 +382,7 @@ class VoiceRoomFragment : BaseFragment() {
             val loadedClanId = args.firstOrNull() as? Long ?: return@observe
             if (loadedClanId == clanId && sfuConnected) {
                 memberResolveCache.clear()
+                clanMemberIndex = null
                 scheduleUpdateParticipantList()
             }
         }
@@ -382,6 +391,7 @@ class VoiceRoomFragment : BaseFragment() {
             if (fragmentView == null) return@observe
             if (sfuConnected) {
                 memberResolveCache.clear()
+                clanMemberIndex = null
                 scheduleUpdateParticipantList()
             }
         }
@@ -523,6 +533,8 @@ class VoiceRoomFragment : BaseFragment() {
             onParticipantLongPress = { openParticipantModerationSheet(it) },
             itemKeyProvider = { participantKey(it) },
             isCompactMode = { isInPipMode },
+            isSpeaking = { it in speakingIds },
+            reactionBadge = { reactionStates[it] ?: ParticipantCell.ReactionBadgeType.NONE },
             onVideoVisibilityChanged = { track, visible, source ->
                 sfuSession.setVideoTrackVisible(track, visible, source)
             }
@@ -956,7 +968,11 @@ class VoiceRoomFragment : BaseFragment() {
             }
             sfuSession.onPushToTalkActive = { active ->
                 localPttActive = active
+                if (::controlBar.isInitialized) controlBar.setPttActive(active)
                 doUpdateParticipantList()
+            }
+            sfuSession.onAudioSendingChanged = { sending ->
+                if (::controlBar.isInitialized) controlBar.setAudioSending(sending)
             }
             sfuSession.tokenProvider = { callChannelId, callClanId -> voiceController.refreshMeetToken(callChannelId, callClanId) }
             sfuSession.onMutedByModerator = { onMutedByModerator() }
@@ -1046,7 +1062,9 @@ class VoiceRoomFragment : BaseFragment() {
         memberResolveCache[identity]?.let { return it }
         val userId = identity.toLongOrNull()
             ?: return VoiceMemberIdentity(fallbackName, fallbackName, null)
-        val member = userClanController.getClanMembers(clanId).firstOrNull { it.userId == userId }
+        val index = clanMemberIndex ?: userClanController.getClanMembers(clanId)
+            .associateBy { it.userId }.also { clanMemberIndex = it }
+        val member = index[userId]
         val user = userClanController.getUserById(userId)
         val resolved = resolveVoiceMemberIdentity(userId, member, user, fallbackName)
         if (member != null || user != null || VoiceAgent.isAgent(userId)) {
@@ -1137,9 +1155,10 @@ class VoiceRoomFragment : BaseFragment() {
     }
 
     private fun scheduleUpdateParticipantList() {
-        pendingUpdateJob?.cancel()
+        if (pendingUpdateJob?.isActive == true) return
         pendingUpdateJob = roomScope?.launch {
             delay(100)
+            pendingUpdateJob = null
             doUpdateParticipantList()
         }
     }
@@ -1158,27 +1177,56 @@ class VoiceRoomFragment : BaseFragment() {
         return participants.firstOrNull { !it.isScreenShare && it.hasVideo } ?: participants.firstOrNull { !it.isScreenShare }
     }
 
+    private fun cancelParticipantDiff() {
+        participantListGeneration++
+        participantDiffJob?.cancel()
+        participantDiffJob = null
+    }
+
     private fun updateParticipants(next: List<ParticipantInfo>) {
+        cancelParticipantDiff()
+        if (next == participants) {
+            refreshParticipantDependentViews()
+            return
+        }
         if (isInPipMode) {
             participants.clear()
             participants.addAll(next)
             participantAdapter.notifyDataSetChanged()
+            refreshParticipantDependentViews()
             return
         }
         val previous = ArrayList(participants)
-        val diff = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
-            override fun getOldListSize(): Int = previous.size
-            override fun getNewListSize(): Int = next.size
-            override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean {
-                return participantKey(previous[oldItemPosition]) == participantKey(next[newItemPosition])
+        val generation = participantListGeneration
+        participantDiffJob = roomScope?.launch {
+            val diff = withContext(Dispatchers.Default) {
+                val oldKeys = previous.map(::participantKey)
+                val newKeys = next.map(::participantKey)
+                DiffUtil.calculateDiff(object : DiffUtil.Callback() {
+                    override fun getOldListSize(): Int = previous.size
+                    override fun getNewListSize(): Int = next.size
+                    override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean {
+                        return oldKeys[oldItemPosition] == newKeys[newItemPosition]
+                    }
+                    override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean {
+                        return previous[oldItemPosition] == next[newItemPosition]
+                    }
+                })
             }
-            override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean {
-                return previous[oldItemPosition] == next[newItemPosition]
-            }
-        })
-        participants.clear()
-        participants.addAll(next)
-        diff.dispatchUpdatesTo(participantAdapter)
+            if (generation != participantListGeneration || fragmentView == null || isInPipMode) return@launch
+            participantDiffJob = null
+            participants.clear()
+            // Reactions/speaking can change while the diff runs; read their
+            // current state both here and when recycled cells bind.
+            participants.addAll(next.map { it.copy(
+                isSpeaking = it.identity in speakingIds,
+                reactionBadge = reactionStates[it.identity] ?: ParticipantCell.ReactionBadgeType.NONE
+            ) })
+            participantAdapter.synchronizeItems()
+            diff.dispatchUpdatesTo(participantAdapter)
+            applySpeakingToCells()
+            refreshParticipantDependentViews()
+        }
     }
 
     private fun applySpeakingToCells() {
@@ -1226,6 +1274,9 @@ class VoiceRoomFragment : BaseFragment() {
             if (!p.isScreenShare) prioritized.add(p)
         }
         updateParticipants(prioritized)
+    }
+
+    private fun refreshParticipantDependentViews() {
         applyAgentHeaderUi()
         dismissFocusedShareIfStale()
         refreshFocusedShareTrack()
@@ -1585,6 +1636,8 @@ class VoiceRoomFragment : BaseFragment() {
         connectionFailureDialog?.dismiss()
         connectionFailureDialog = null
         pendingUpdateJob?.cancel()
+        pendingUpdateJob = null
+        cancelParticipantDiff()
         raiseHandCooldownJob?.cancel()
         raiseHandCooldownJob = null
         isRaiseHandActive = false
@@ -1609,6 +1662,7 @@ class VoiceRoomFragment : BaseFragment() {
             sfuSession.onLocalScreenTrack = null
             sfuSession.onSpeaking = null
             sfuSession.onPushToTalkActive = null
+            sfuSession.onAudioSendingChanged = null
             sfuSession.onMutedByModerator = null
             sfuSession.onRemoved = null
             sfuSession.onNoiseStateChanged = null

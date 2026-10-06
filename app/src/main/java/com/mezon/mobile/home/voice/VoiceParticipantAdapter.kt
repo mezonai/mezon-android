@@ -31,6 +31,8 @@ class VoiceParticipantAdapter(
     private val onParticipantLongPress: (ParticipantInfo) -> Unit,
     private val itemKeyProvider: (ParticipantInfo) -> String,
     private val isCompactMode: () -> Boolean,
+    private val isSpeaking: (String) -> Boolean,
+    private val reactionBadge: (String) -> ParticipantCell.ReactionBadgeType,
     private val onVideoVisibilityChanged: (VideoTrack, Boolean, String) -> Unit = { _, _, _ -> }
 ) : RecyclerView.Adapter<VoiceParticipantAdapter.ParticipantVH>() {
 
@@ -39,16 +41,13 @@ class VoiceParticipantAdapter(
     init {
         setHasStableIds(true)
         registerAdapterDataObserver(object : RecyclerView.AdapterDataObserver() {
-            override fun onChanged() = refreshItems()
-            override fun onItemRangeChanged(positionStart: Int, itemCount: Int) = refreshItems()
-            override fun onItemRangeChanged(positionStart: Int, itemCount: Int, payload: Any?) = refreshItems()
-            override fun onItemRangeInserted(positionStart: Int, itemCount: Int) = refreshItems()
-            override fun onItemRangeRemoved(positionStart: Int, itemCount: Int) = refreshItems()
-            override fun onItemRangeMoved(fromPosition: Int, toPosition: Int, itemCount: Int) = refreshItems()
+            override fun onChanged() = synchronizeItems()
         })
     }
 
-    private fun refreshItems() {
+    // Install one snapshot before dispatching a whole diff, rather than copying
+    // the room list again for every insert/remove/move notification.
+    fun synchronizeItems() {
         items = ArrayList(getParticipants())
     }
 
@@ -92,12 +91,12 @@ class VoiceParticipantAdapter(
             participant.username,
             participant.avatarUrl,
             participant.isMuted,
-            participant.isSpeaking,
+            isSpeaking(participant.identity),
             participant.hasVideo,
             participant.isScreenShare,
             participant.role == SfuRole.AUDIENCE
         )
-        holder.cell.setReactionBadge(participant.reactionBadge)
+        holder.cell.setReactionBadge(reactionBadge(participant.identity))
 
         attachVisibleVideo(holder)
     }

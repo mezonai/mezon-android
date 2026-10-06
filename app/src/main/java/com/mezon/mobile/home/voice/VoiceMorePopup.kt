@@ -17,6 +17,7 @@ import android.widget.TextView
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.ThemeColors
+import com.mezon.mobile.R
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.home.voice.sfu.NoiseSuppressionState
 
@@ -25,9 +26,11 @@ class VoiceMorePopup(private val themeColors: ThemeColors) {
     private var noiseStatus: TextView? = null
     private var noiseProgress: ProgressBar? = null
     private var noiseAction: View? = null
+    private var noiseIcon: ImageView? = null
 
     companion object {
         private const val RAISE_HAND_ACTIVE = 0xFFEFBC39.toInt()
+        private const val NOISE_OFF_COLOR = 0xFFE13542.toInt()
     }
 
     fun show(
@@ -111,12 +114,9 @@ class VoiceMorePopup(private val themeColors: ThemeColors) {
             applyVoiceButtonPressFeedback()
         }
         noiseAction = noiseRow
-        noiseRow.addView(ImageView(anchor.context).apply {
-            setImageDrawable(MezonIcon.activityIcon.getDrawable(anchor.context).apply {
-                colorFilter = PorterDuffColorFilter(themeColors.onSurface, PorterDuff.Mode.SRC_IN)
-            })
+        noiseIcon = ImageView(anchor.context).apply {
             scaleType = ImageView.ScaleType.CENTER_INSIDE
-        }, LinearLayout.LayoutParams(LayoutHelper.dp(16), LayoutHelper.dp(16)))
+        }.also { noiseRow.addView(it, LinearLayout.LayoutParams(LayoutHelper.dp(16), LayoutHelper.dp(16))) }
         noiseRow.addView(TextView(anchor.context).apply {
             text = "Noise suppression"
             textSize = 12f
@@ -197,10 +197,14 @@ class VoiceMorePopup(private val themeColors: ThemeColors) {
         noiseStatus = null
         noiseProgress = null
         noiseAction = null
+        noiseIcon = null
     }
 
     fun updateNoiseState(state: NoiseSuppressionState, captureConfirmed: Boolean, showApplied: Boolean = true) {
         val status = noiseStatus ?: return
+        val showWaveform = state == NoiseSuppressionState.ON || state == NoiseSuppressionState.APPLYING
+        noiseIcon?.setImageResource(if (showWaveform) R.drawable.ic_noise_suppression else R.drawable.ic_noise_suppression_off)
+        noiseIcon?.setColorFilter(if (showWaveform) themeColors.onSurface else NOISE_OFF_COLOR, PorterDuff.Mode.SRC_IN)
         noiseAction?.isEnabled = state != NoiseSuppressionState.APPLYING
         noiseProgress?.visibility = if (state == NoiseSuppressionState.APPLYING) View.VISIBLE else View.GONE
         status.text = when (state) {

@@ -6,6 +6,7 @@ import android.media.AudioFormat
 import android.util.Log
 import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import org.webrtc.audio.JavaAudioDeviceModule
 
 private const val TAG = "MezonNsCapture"
@@ -21,17 +22,25 @@ class MezonNsCaptureProcessor(
     private val firstFrame = AtomicBoolean(false)
     private val failureReported = AtomicBoolean(false)
     private var slowFrameStreak = 0
+    private val capturedFrames = AtomicLong(0)
+    val capturedFrameCount: Long get() = capturedFrames.get()
+    @Volatile private var captureActive = false
     @Volatile private var blocking = false
     @Volatile private var enabled = false
 
-    fun beginChange() {
-        blocking = true
+    fun setCaptureActive(active: Boolean) {
+        synchronized(lock) {
+            if (captureActive != active) {
+                captureActive = active
+                engine?.reset()
+            }
+        }
     }
 
     fun enable(): Boolean {
         val prepared = runCatching {
             val current = synchronized(lock) { engine }
-            current ?: MezonNS.createFromAsset(context)
+            current ?: MezonNS.createFromCache(context)
         }.onFailure { Log.e(TAG, "model initialization failed", it) }.getOrNull()
         if (prepared == null) {
             blocking = false
@@ -74,6 +83,13 @@ class MezonNsCaptureProcessor(
         bytesRead: Int,
         captureTimeNs: Long,
     ): Long {
+        if (!captureActive) {
+            silence(buffer, bytesRead)
+            return captureTimeNs
+        }
+        if (audioFormat == AudioFormat.ENCODING_PCM_16BIT && channelCount > 0 && bytesRead > 0 && bytesRead <= buffer.capacity()) {
+            capturedFrames.addAndGet(bytesRead.toLong() / (2 * channelCount))
+        }
         if (blocking) {
             silence(buffer, bytesRead)
             return captureTimeNs
@@ -85,7 +101,7 @@ class MezonNsCaptureProcessor(
         var changed = false
         var inferenceUs = 0L
         val processed = synchronized(lock) {
-            if (blocking || !enabled) {
+            if (blocking || !enabled || !captureActive) {
                 changed = true
                 false
             } else {
@@ -100,13 +116,12 @@ class MezonNsCaptureProcessor(
             }
         }
         if (changed) {
-            silence(buffer, bytesRead)
             return captureTimeNs
         }
         if (!processed) {
             silence(buffer, bytesRead)
             enabled = false
-            blocking = true
+            blocking = false
             if (failureReported.compareAndSet(false, true)) {
                 Log.e(TAG, "capture processing failed: format=$audioFormat channels=$channelCount rate=$sampleRate bytes=$bytesRead inferenceUs=$inferenceUs")
                 onFailure()
