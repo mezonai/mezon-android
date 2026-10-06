@@ -1399,6 +1399,11 @@
     <string name="voice_room_camera_permission_title">Camera permission required</string>
     <string name="voice_room_camera_permission_message">Mezon needs camera access to share your video. Please enable it in Settings.</string>
     <string name="voice_room_listen_only_hint">Joined in listen-only mode. Tap the microphone to enable voice.</string>
+    <string name="voice_room_ptt_hold">Hold to talk</string>
+    <string name="voice_room_ptt_waiting">Waiting to speak…</string>
+    <string name="voice_room_ptt_preparing">Preparing microphone…</string>
+    <string name="voice_room_ptt_ready">You can speak now</string>
+    <string name="voice_room_ptt_hold_hint">Please hold the button</string>
 
     <string name="discover_title">Discover</string>
     <string name="discover_community_on_mezon">Community on Mezon</string>
