@@ -110,7 +110,6 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
             offerJson != null
 
         if (!hasRealCall) {
-            Log.d(TAG, "onCreate: no real incoming call, finishing (stale TelecomManager connection)")
             CallTelecomBridge.from(this)?.endWithCause(DisconnectCause.CANCELED)
             finish()
             return
@@ -299,7 +298,6 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
     private fun handleStateChanged() {
         val controller = CallController.instance ?: return
         val state = controller.callState
-        Log.d(TAG, "handleStateChanged: state=${state::class.simpleName}")
         when (state) {
             is CallState.Idle -> finishCallActivity()
             is CallState.Incoming -> {
@@ -678,18 +676,12 @@ class IncomingCallActivity : Activity(), NotificationCenter.NotificationCenterDe
         val currentState = controller?.callState
         val json = offerJson
 
-        Log.d(TAG, "acceptCall: instance=${controller != null}, state=${currentState?.let { it::class.simpleName }}, offerJson=${json != null}")
-
         when {
             currentState is CallState.Incoming -> {
-                Log.d(TAG, "acceptCall: using WebSocket path (state=Incoming)")
                 controller?.acceptCall()
             }
-            currentState is CallState.Connecting || currentState is CallState.Connected -> {
-                Log.d(TAG, "acceptCall: already connecting/connected, no-op")
-            }
+            currentState is CallState.Connecting || currentState is CallState.Connected -> Unit
             json != null && controller != null -> {
-                Log.d(TAG, "acceptCall: using FCM path (offerJson from SharedPreferences)")
                 controller.acceptCallFromFcm(json)
             }
             else -> {

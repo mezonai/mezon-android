@@ -303,7 +303,6 @@ object AttachmentUploader {
             apiUrl, token, uploadFilename, attachmentTypeForUpload(mimeType), sizeBytes.toInt(), width, height,
         )
         val cdnUrl = "$cdnBaseUrl/${presign.filename}"
-        Log.d(TAG, "presign bytes file=$uploadFilename cdnUrl=$cdnUrl minioUrl=${presign.url}")
         return PresignedFileResult(
             serverFilename = presign.filename,
             cdnUrl = cdnUrl,
@@ -338,7 +337,6 @@ object AttachmentUploader {
             apiUrl, token, uploadFilename, attachmentTypeForUpload(mimeType), fileSize.toInt(), width, height,
         )
         val cdnUrl = "$cdnBaseUrl/${presign.filename}"
-        Log.d(TAG, "presign file=$uploadFilename cdnUrl=$cdnUrl minioUrl=${presign.url}")
         return PresignedFileResult(
             serverFilename = presign.filename,
             cdnUrl = cdnUrl,
@@ -357,7 +355,6 @@ object AttachmentUploader {
     ) {
         when (plan) {
             is UploadExecutionPlan.SinglePut -> {
-                Log.d(TAG, "minio PUT start url=${plan.presignedUrl}")
                 val total = bytes?.size?.toLong() ?: file?.length() ?: 0L
                 onProgress?.invoke(0, total)
                 when {
@@ -366,12 +363,9 @@ object AttachmentUploader {
                     else -> throw IllegalArgumentException("executeUploadPlan SinglePut requires bytes or file")
                 }
                 onProgress?.invoke(total, total)
-                Log.d(TAG, "minio PUT done url=${plan.presignedUrl}")
             }
             is UploadExecutionPlan.Multipart -> {
-                Log.d(TAG, "minio multipart PUT start uploadId=${plan.uploadId} cdnFile=${plan.serverFilename} parts=${plan.presignedUrls.size}")
                 executeMultipartPlan(api, apiUrl, token, plan, bytes, file, onProgress)
-                Log.d(TAG, "minio multipart PUT done uploadId=${plan.uploadId} cdnFile=${plan.serverFilename}")
             }
         }
     }
@@ -508,7 +502,6 @@ object AttachmentUploader {
         require(serverFilename.isNotEmpty()) { "multipart upload start returned an empty filename" }
         val cdnUrl = "$cdnBaseUrl/$serverFilename"
         if (urls.size == 1 && uploadId.isEmpty()) {
-            Log.d(TAG, "presign multipart→single file=$uploadFilename cdnUrl=$cdnUrl minioUrl=${urls[0]}")
             return PresignedFileResult(
                 serverFilename = serverFilename,
                 cdnUrl = cdnUrl,
@@ -518,7 +511,6 @@ object AttachmentUploader {
         if (urls.isEmpty() || uploadId.isEmpty()) {
             throw MultipartNotApplicable()
         }
-        Log.d(TAG, "presign multipart file=$uploadFilename cdnUrl=$cdnUrl uploadId=$uploadId parts=${urls.size}")
         return PresignedFileResult(
             serverFilename = serverFilename,
             cdnUrl = cdnUrl,
@@ -556,7 +548,6 @@ object AttachmentUploader {
         require(serverFilename.isNotEmpty()) { "multipart upload start returned an empty filename" }
         val cdnUrl = "$cdnBaseUrl/$serverFilename"
         if (urls.size == 1 && uploadId.isEmpty()) {
-            Log.d(TAG, "presign multipart→single bytes file=$uploadFilename cdnUrl=$cdnUrl minioUrl=${urls[0]}")
             return PresignedFileResult(
                 serverFilename = serverFilename,
                 cdnUrl = cdnUrl,
@@ -566,7 +557,6 @@ object AttachmentUploader {
         if (urls.isEmpty() || uploadId.isEmpty()) {
             throw MultipartNotApplicable()
         }
-        Log.d(TAG, "presign multipart bytes file=$uploadFilename cdnUrl=$cdnUrl uploadId=$uploadId parts=${urls.size}")
         return PresignedFileResult(
             serverFilename = serverFilename,
             cdnUrl = cdnUrl,

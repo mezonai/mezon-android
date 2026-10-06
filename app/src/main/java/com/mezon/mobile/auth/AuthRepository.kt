@@ -125,7 +125,7 @@ class AuthRepository @Inject constructor(
                     userId = userIdStr,
                     idToken = session.idToken.ifEmpty { current.idToken },
                     isRemember = current.isRemember,
-                    tcpUrl = current.tcpUrl,
+                    tcpUrl = session.tcpUrl.ifEmpty { current.tcpUrl },
                 )
                 walletCacheStore.clear()
                 StartupCache.needsUsernameSetup = false
@@ -162,7 +162,8 @@ class AuthRepository @Inject constructor(
                     wsUrl = response.wsUrl.ifBlank { currentSession.wsUrl },
                     userId = response.userId.ifBlank { currentSession.userId },
                     idToken = response.idToken.ifBlank { currentSession.idToken },
-                    isRemember = currentSession.isRemember
+                    isRemember = currentSession.isRemember,
+                    tcpUrl = response.tcpUrl.ifBlank { currentSession.tcpUrl }
                 )
                 val identityOrTokensChanged =
                     response.token.isNotBlank() ||

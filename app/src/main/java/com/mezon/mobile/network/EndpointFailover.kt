@@ -38,6 +38,7 @@ class EndpointFailover @Inject constructor(
         private const val TAG = "EndpointFailover"
         private const val RETRY_BASE_MS = 5_000L
         private const val RETRY_CAP_MS = 60_000L
+        private const val ASK_PACING_SETTLE_MS = 60_000L
     }
 
     private val enabled = BuildConfig.MEZON_ENDPOINT_FAILOVER
@@ -62,9 +63,12 @@ class EndpointFailover @Inject constructor(
         if (!enabled) return
         health.setEndpoint(endpoint)
         if (endpoint == null) return
-        health.recordConnected(SystemClock.elapsedRealtime())
-        retryMs = RETRY_BASE_MS
-        lastAskAtMs = 0L
+        val now = SystemClock.elapsedRealtime()
+        health.recordConnected(now)
+        if (lastAskAtMs == 0L || now - lastAskAtMs >= ASK_PACING_SETTLE_MS) {
+            retryMs = RETRY_BASE_MS
+            lastAskAtMs = 0L
+        }
     }
 
     fun onDisconnected() {
@@ -76,10 +80,25 @@ class EndpointFailover @Inject constructor(
         if (!enabled || !slowSwitchEnabled) return
         val endpoint = health.connectedEndpoint() ?: return
         if (!health.recordActiveProbe(rttMs, SystemClock.elapsedRealtime())) return
-        Log.i(
-            TAG,
-            "${endpoint.label()} has been slow for ${EndpointHealth.SLOW_STREAK_REQUIRED} heartbeats, asking the gateway"
-        )
+        reportWeak(endpoint, "slow_ping")
+    }
+
+    fun onApiTimeout() {
+        if (!enabled || !slowSwitchEnabled) return
+        val endpoint = health.connectedEndpoint() ?: return
+        if (!health.recordApiTimeout(SystemClock.elapsedRealtime())) return
+        reportWeak(endpoint, "api_timeout")
+    }
+
+    fun onHeartbeat(sinceLastPongMs: Long) {
+        if (!enabled || !slowSwitchEnabled) return
+        val endpoint = health.connectedEndpoint() ?: return
+        if (!health.recordHeartbeat(sinceLastPongMs, SystemClock.elapsedRealtime())) return
+        reportWeak(endpoint, "pong_overdue")
+    }
+
+    private fun reportWeak(endpoint: RealtimeEndpoint, signal: String) {
+        Log.i(TAG, "${endpoint.label()} looks weak ($signal), asking the gateway")
         requests.trySend(EndpointRefreshRequest(endpoint, HealthyEndpointReason.HIGH_LATENCY))
     }
 
@@ -133,7 +152,7 @@ class EndpointFailover @Inject constructor(
         }
 
         val waitMs = if (lastAskAtMs == 0L) {
-            RETRY_BASE_MS
+            if (request.reason == HealthyEndpointReason.HIGH_LATENCY) 0L else RETRY_BASE_MS
         } else {
             retryMs - (SystemClock.elapsedRealtime() - lastAskAtMs)
         }

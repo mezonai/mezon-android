@@ -1,6 +1,5 @@
 package com.mezon.mobile.network
 
-import android.util.Log
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -9,7 +8,6 @@ import javax.inject.Singleton
 class ApiCacheTracker @Inject constructor() {
 
     companion object {
-        private const val TAG = "ApiCacheTracker"
         const val DEFAULT_CACHE_TTL_MS = 20 * 60 * 1_000L // 20 minutes
         const val LIST_CACHE_TTL_MS = 5 * 60 * 1_000L
         private const val MAX_ENTRIES = 1_000
@@ -46,7 +44,6 @@ class ApiCacheTracker @Inject constructor() {
     }
 
     fun invalidateAll() {
-        Log.d(TAG, "Invalidating all cache entries (${entries.size} keys)")
         entries.clear()
     }
 

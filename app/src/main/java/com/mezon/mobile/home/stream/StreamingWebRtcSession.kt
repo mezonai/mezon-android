@@ -2,7 +2,6 @@ package com.mezon.mobile.home.stream
 
 import android.content.Context
 import android.os.Looper
-import android.util.Log
 import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.MainDispatcher
@@ -36,7 +35,6 @@ import org.webrtc.RtpTransceiver
 import org.webrtc.SdpObserver
 import org.webrtc.SessionDescription
 
-private const val TAG = "StreamingWebRTC"
 private const val MAX_RECONNECT_DELAY_MS = 15_000L
 private const val ICE_DISCONNECTED_GRACE_MS = 3_000L
 private const val OFFER_REISSUE_DEADLINE_MS = 8_000L
@@ -114,11 +112,9 @@ class StreamingWebRtcSession @Inject constructor(
     ) {
         checkOnMainThread()
         if (channelId == 0L || token.isBlank()) {
-            log("join ignored: missing channel or token")
             return
         }
         if (activeStreamChannelId == channelId && (webSocket != null || peerConnection != null)) {
-            log("join skipped: transport already exists channelId=$channelId")
             return
         }
 
@@ -158,13 +154,12 @@ class StreamingWebRtcSession @Inject constructor(
         val channelId = activeStreamChannelId ?: return
         val token = activeToken
         if (token.isBlank()) {
-            scheduleReconnectOnMain("missing token")
+            scheduleReconnectOnMain()
             return
         }
         val wsUrl = buildWebSocketUrl(token)
         if (wsUrl.isEmpty()) {
-            log("join failed: invalid MEZON_SFU_WS_URL")
-            scheduleReconnectOnMain("invalid websocket url")
+            scheduleReconnectOnMain()
             return
         }
 
@@ -175,7 +170,7 @@ class StreamingWebRtcSession @Inject constructor(
         negotiating = false
 
         val pc = createPeerConnection(transportGen) ?: run {
-            scheduleReconnectOnMain("peer connection creation failed")
+            scheduleReconnectOnMain()
             return
         }
         peerConnection = pc
@@ -214,8 +209,6 @@ class StreamingWebRtcSession @Inject constructor(
         }
         return runCatching {
             webRtcInfra.factory.createPeerConnection(config, createPeerObserver(transportGen))
-        }.onFailure { error ->
-            log("peer connection creation failed: ${error.javaClass.simpleName}")
         }.getOrNull()
     }
 
@@ -239,13 +232,13 @@ class StreamingWebRtcSession @Inject constructor(
                         iceDisconnectedJob = appScope.launch(mainDispatcher) {
                             delay(ICE_DISCONNECTED_GRACE_MS)
                             if (sessionGen == sessionGeneration && isCurrentTransport(transportGen)) {
-                                scheduleReconnectOnMain("ice disconnected")
+                                scheduleReconnectOnMain()
                             }
                         }
                     }
                     PeerConnection.IceConnectionState.FAILED,
                     PeerConnection.IceConnectionState.CLOSED -> {
-                        scheduleReconnectOnMain("ice state $state")
+                        scheduleReconnectOnMain()
                     }
                     else -> Unit
                 }
@@ -313,8 +306,7 @@ class StreamingWebRtcSession @Inject constructor(
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
             runOnMain {
                 if (isCurrent(sessionGen, transportGen, webSocket)) {
-                    log("SFU websocket failure: ${t.javaClass.simpleName}")
-                    scheduleReconnectOnMain("websocket failure")
+                    scheduleReconnectOnMain()
                 }
             }
         }
@@ -322,27 +314,21 @@ class StreamingWebRtcSession @Inject constructor(
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
             runOnMain {
                 if (isCurrent(sessionGen, transportGen, webSocket)) {
-                    log("SFU websocket closed code=$code")
-                    scheduleReconnectOnMain("websocket closed")
+                    scheduleReconnectOnMain()
                 }
             }
         }
     }
 
     private fun handleIncomingMessage(text: String, sessionGen: Long, transportGen: Long) {
-        val json = runCatching { JSONObject(text) }.getOrNull() ?: run {
-            log("SFU message parse failed")
-            return
-        }
+        val json = runCatching { JSONObject(text) }.getOrNull() ?: return
         when (json.optString("type")) {
             "ping" -> send(JSONObject().put("type", "pong"))
             "pong", "joined", "room_snapshot" -> Unit
             "offer" -> {
                 val generation = json.optLong("offer_generation", -1L)
                 val sdp = json.optString("sdp")
-                if (generation < 0L || sdp.isBlank()) {
-                    log("SFU offer missing generation or SDP")
-                } else {
+                if (generation >= 0L && sdp.isNotBlank()) {
                     offerReissueJob?.cancel()
                     offerReissueJob = null
                     negotiate(generation, sdp, sessionGen, transportGen)
@@ -350,11 +336,10 @@ class StreamingWebRtcSession @Inject constructor(
             }
             "error" -> {
                 val detail = json.optString("message")
-                log("SFU signaling error detail=$detail")
                 if (detail == "stale_offer_generation" || detail == "future_offer_generation") {
                     armOfferReissueDeadline(sessionGen, transportGen)
                 } else {
-                    scheduleReconnectOnMain("SFU signaling error")
+                    scheduleReconnectOnMain()
                 }
             }
         }
@@ -366,7 +351,7 @@ class StreamingWebRtcSession @Inject constructor(
             delay(OFFER_REISSUE_DEADLINE_MS)
             offerReissueJob = null
             if (sessionGen == sessionGeneration && isCurrentTransport(transportGen)) {
-                scheduleReconnectOnMain("SFU did not reissue offer")
+                scheduleReconnectOnMain()
             }
         }
     }
@@ -395,8 +380,7 @@ class StreamingWebRtcSession @Inject constructor(
                 }
             } catch (e: Exception) {
                 if (isCurrentTransport(transportGen) && sessionGen == sessionGeneration) {
-                    log("SFU negotiation failed: ${e.message}")
-                    scheduleReconnectOnMain("negotiation failed")
+                    scheduleReconnectOnMain()
                 }
             } finally {
                 negotiating = false
@@ -519,7 +503,7 @@ class StreamingWebRtcSession @Inject constructor(
         }
     }
 
-    private fun scheduleReconnectOnMain(reason: String) {
+    private fun scheduleReconnectOnMain() {
         checkOnMainThread()
         if (activeStreamChannelId == null || reconnectJob?.isActive == true) return
         setStreaming(false)
@@ -527,7 +511,6 @@ class StreamingWebRtcSession @Inject constructor(
         val sessionGen = sessionGeneration
         val delayMs = (1_000L shl reconnectAttempts.coerceAtMost(4)).coerceAtMost(MAX_RECONNECT_DELAY_MS)
         reconnectAttempts++
-        log("scheduling SFU reconnect reason=$reason delayMs=$delayMs")
         reconnectJob = appScope.launch(mainDispatcher) {
             delay(delayMs)
             reconnectJob = null
@@ -535,7 +518,7 @@ class StreamingWebRtcSession @Inject constructor(
             val provider = tokenProvider ?: return@launch
             val refreshedToken = runCatching { provider() }.getOrNull()
             if (refreshedToken.isNullOrBlank()) {
-                scheduleReconnectOnMain("token refresh failed")
+                scheduleReconnectOnMain()
                 return@launch
             }
             if (sessionGen != sessionGeneration || activeStreamChannelId == null) return@launch
@@ -627,9 +610,5 @@ class StreamingWebRtcSession @Inject constructor(
 
     private fun checkOnMainThread() {
         check(Looper.myLooper() == Looper.getMainLooper()) { "StreamingWebRtcSession must run on the main thread" }
-    }
-
-    private fun log(message: String) {
-        if (BuildConfig.DEBUG) Log.d(TAG, message)
     }
 }

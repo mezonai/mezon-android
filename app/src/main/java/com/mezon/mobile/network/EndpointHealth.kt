@@ -51,12 +51,20 @@ internal fun resolvePort(raw: String?): Int? {
     return s.substring(colon + 1).toIntOrNull()
 }
 
+private val nodeIdsByHost = mapOf(
+    "sock.mezon.ai" to 1,
+    "sock2.mezon.ai" to 2,
+    "sock3.mezon.ai" to 3
+)
+
+internal fun nodeIdOfHost(host: String): Int = nodeIdsByHost[host.lowercase()] ?: 0
+
 internal fun realtimeEndpointOf(tcpUrl: String?, wsUrl: String?): RealtimeEndpoint? {
     val host = resolveHost(tcpUrl)
         ?: if (BuildConfig.MEZON_ABRIDGED_FALLBACK) resolveHost(wsUrl) else null
     if (host.isNullOrBlank()) return null
     return RealtimeEndpoint(
-        id = 0,
+        id = nodeIdOfHost(host),
         host = host,
         port = resolvePort(tcpUrl) ?: BuildConfig.MEZON_TCP_PORT
     )
@@ -64,15 +72,20 @@ internal fun realtimeEndpointOf(tcpUrl: String?, wsUrl: String?): RealtimeEndpoi
 
 class EndpointHealth {
     companion object {
-        const val SLOW_RTT_MS = 800L
-        const val SLOW_STREAK_REQUIRED = 5
-        const val SLOW_SWITCH_COOLDOWN_MS = 120_000L
+        const val SLOW_RTT_MS = 500L
+        const val SLOW_STREAK_REQUIRED = 3
+        const val PROBE_WARMUP_MS = 15_000L
+        const val API_TIMEOUTS_REQUIRED = 2
+        const val API_TIMEOUT_WINDOW_MS = 30_000L
+        const val PONG_OVERDUE_AFTER_MS = 12_000L
+        const val WEAK_REPORT_SPACING_MS = 60_000L
     }
 
     private var endpoint: RealtimeEndpoint? = null
     private var connectedSinceMs: Long? = null
     private var slowStreak = 0
-    private var slowReportSuppressedUntilMs: Long? = null
+    private val apiTimeoutsAtMs = mutableListOf<Long>()
+    private var lastWeakReportAtMs: Long? = null
     private var slowReportsDisabled = false
 
     @Synchronized
@@ -83,7 +96,6 @@ class EndpointHealth {
         }
         endpoint = next
         forgetConnection()
-        slowReportSuppressedUntilMs = null
         slowReportsDisabled = false
     }
 
@@ -97,7 +109,7 @@ class EndpointHealth {
     fun recordConnected(nowMs: Long) {
         connectedSinceMs = nowMs
         slowStreak = 0
-        slowReportSuppressedUntilMs = null
+        apiTimeoutsAtMs.clear()
         slowReportsDisabled = false
     }
 
@@ -109,23 +121,42 @@ class EndpointHealth {
     @Synchronized
     fun recordActiveProbe(rttMs: Long, nowMs: Long): Boolean {
         val connectedSince = connectedSinceMs ?: return false
-        val suppressedUntil = slowReportSuppressedUntilMs
-        if (slowReportsDisabled || (suppressedUntil != null && suppressedUntil > nowMs)) {
-            slowStreak = 0
-            return false
-        }
-        val settledOnThisNode = nowMs - connectedSince >= SLOW_SWITCH_COOLDOWN_MS
-        if (settledOnThisNode && rttMs >= SLOW_RTT_MS) slowStreak++ else slowStreak = 0
+        if (nowMs - connectedSince < PROBE_WARMUP_MS) return false
+        slowStreak = if (rttMs >= SLOW_RTT_MS) slowStreak + 1 else 0
         if (slowStreak < SLOW_STREAK_REQUIRED) return false
-        slowStreak = 0
-        slowReportSuppressedUntilMs = nowMs + SLOW_SWITCH_COOLDOWN_MS
-        return true
+        return claimWeakReport(nowMs)
+    }
+
+    @Synchronized
+    fun recordApiTimeout(nowMs: Long): Boolean {
+        if (connectedSinceMs == null) return false
+        apiTimeoutsAtMs.removeAll { nowMs - it > API_TIMEOUT_WINDOW_MS }
+        apiTimeoutsAtMs.add(nowMs)
+        if (apiTimeoutsAtMs.size < API_TIMEOUTS_REQUIRED) return false
+        return claimWeakReport(nowMs)
+    }
+
+    @Synchronized
+    fun recordHeartbeat(sinceLastPongMs: Long, nowMs: Long): Boolean {
+        if (connectedSinceMs == null || sinceLastPongMs <= PONG_OVERDUE_AFTER_MS) return false
+        return claimWeakReport(nowMs)
     }
 
     @Synchronized
     fun disableSlowReports() {
         slowReportsDisabled = true
         slowStreak = 0
+        apiTimeoutsAtMs.clear()
+    }
+
+    private fun claimWeakReport(nowMs: Long): Boolean {
+        if (slowReportsDisabled) return false
+        val lastReportAt = lastWeakReportAtMs
+        if (lastReportAt != null && nowMs - lastReportAt < WEAK_REPORT_SPACING_MS) return false
+        lastWeakReportAtMs = nowMs
+        slowStreak = 0
+        apiTimeoutsAtMs.clear()
+        return true
     }
 
     private fun isOnSameNodeAs(other: RealtimeEndpoint?): Boolean {
@@ -140,5 +171,6 @@ class EndpointHealth {
     private fun forgetConnection() {
         connectedSinceMs = null
         slowStreak = 0
+        apiTimeoutsAtMs.clear()
     }
 }

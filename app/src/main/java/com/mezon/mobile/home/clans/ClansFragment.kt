@@ -3,7 +3,6 @@ package com.mezon.mobile.home.clans
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.util.Log
 import android.content.res.ColorStateList
 import android.graphics.Canvas
 import android.graphics.Outline
@@ -81,8 +80,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-
-private const val TAG_CHANNEL_OPEN = "ClansFragment"
 
 class ClansFragment : BaseFragment() {
 
@@ -1398,10 +1395,6 @@ class ClansFragment : BaseFragment() {
 
         if (clanIdForJoin != 0L && channel.isPrivate) {
             val selectedClan = clansController.selectedClanId.value
-            Log.d(
-                TAG_CHANNEL_OPEN,
-                "onChannelSelected private channelId=${channel.channelId} clanIdForJoin=$clanIdForJoin selectedClan=$selectedClan label=${channel.channelLabel}",
-            )
             if (selectedClan == clanIdForJoin) {
                 permissionPolicy.ensurePrivateChannelAccessPrefetch(clanIdForJoin, channel.channelId, channel.type)
             }
@@ -1449,10 +1442,6 @@ class ClansFragment : BaseFragment() {
         }
 
         onOpenChat?.invoke(channel.channelId, channel.channelLabel, clanIdForJoin, channel.type)
-        Log.d(
-            TAG_CHANNEL_OPEN,
-            "onChannelSelected openChat channelId=${channel.channelId} clanId=$clanIdForJoin type=${channel.type}",
-        )
     }
 
     private fun openThreadList(channel: ClanChannelEntity, clanId: Long) {

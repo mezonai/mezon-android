@@ -76,15 +76,10 @@ import javax.inject.Singleton
 import dagger.hilt.android.qualifiers.ApplicationContext
 
 private const val TAG = "DialogsController"
-private const val MUTE_LOG_TAG = "DialogsController:Mute"
 private const val MAX_TRANSCODE_SOURCE_BYTES = 32 * 1024 * 1024
 private const val DM_BADGES_SYNC_THROTTLE_MS = 10_000L
 private const val MAX_COUNTED_DM_MESSAGE_IDS = 512
 private const val UNKNOWN_DM_PUSH_REFRESH_MS = 5_000L
-
-private fun logMute(message: String) {
-    if (BuildConfig.DEBUG) Log.d(MUTE_LOG_TAG, message)
-}
 
 sealed class DmGroupAvatarUploadResult {
     data class Success(val url: String) : DmGroupAvatarUploadResult()
@@ -697,10 +692,6 @@ class DialogsController @Inject constructor(
                         }
                         .sortedByDescending { it.lastSentMessageTs }
 
-                    logMute(
-                        "loadDialogs full fetch mutedIds=${mutedIds.size} " +
-                            "mergedMuted=${merged.count { it.isMute }}",
-                    )
                     putDialogs(merged)
                     cacheTracker.markCalled(cacheKey)
                     syncDmMutedStateFromLocalCache()
@@ -1019,11 +1010,6 @@ class DialogsController @Inject constructor(
             patchMutedDmChannelId(channelId, isMuted)
             updateDialogMuteState(channelId, isMuted)
             getDialog(channelId)?.let { directMessageDao.upsert(it) }
-            val persisted = directMessageDao.getById(channelId)
-            logMute(
-                "setDialogMuted ch=$channelId muted=$isMuted " +
-                    "mem=${getDialog(channelId)?.isMute} db=${persisted?.isMute} set=${mutedDmChannelIds}",
-            )
             runCatching {
                 sessionManager.withAutoRefresh { session ->
                     api.setMuteChannel(
@@ -1549,7 +1535,6 @@ class DialogsController @Inject constructor(
         val mutedIds = mutedDmChannelIdsForMerge()
         var changed = false
         var snapshot: List<DirectMessage>? = null
-        val changes = StringBuilder()
         synchronized(this) {
             for (i in 0 until dialogsDict.size()) {
                 val channelId = dialogsDict.keyAt(i)
@@ -1557,16 +1542,12 @@ class DialogsController @Inject constructor(
                 val isMuted = resolveDmIsMuted(channelId, channelId in mutedIds, dm.isMute)
                 if (dm.isMute == isMuted) continue
                 changed = true
-                changes.append("$channelId:$isMuted ")
                 val updated = dm.copy(isMute = isMuted)
                 dialogsDict.put(channelId, updated)
                 val idx = dialogs.indexOfFirst { it.channelId == channelId }
                 if (idx >= 0) dialogs[idx] = updated
             }
             if (changed) snapshot = ArrayList(dialogs)
-        }
-        if (changed) {
-            logMute("syncDmMutedState changed=[$changes] localIds=$mutedIds")
         }
         if (changed && snapshot != null) {
             appScope.launch(ioDispatcher) { directMessageDao.upsertAll(snapshot) }
@@ -1616,11 +1597,6 @@ class DialogsController @Inject constructor(
                     }
                 }
                 seedMutedDmChannelIdsFromDialogs()
-                logMute(
-                    "dbHydrate dialogs=${cached.size} dbMuted=${cached.count { it.isMute }} " +
-                        "ids=${cached.filter { it.isMute }.map { it.channelId }} " +
-                        "mutedSet=$mutedDmChannelIds",
-                )
                 dialogsLoaded = true
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
             }
@@ -1715,10 +1691,6 @@ class DialogsController @Inject constructor(
             val channelId = noti.channelId
             if (channelId == 0L) return@collect
             applyDmNotificationSetting(channelId, noti)
-            logMute(
-                "notiUserChannel ch=$channelId muted=${isDmMutedFromNotificationSetting(noti)} " +
-                    "id=${noti.id} time=${noti.timeMuteSeconds} active=${noti.active}",
-            )
         }
     }
 

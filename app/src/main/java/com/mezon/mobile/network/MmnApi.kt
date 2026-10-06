@@ -39,16 +39,6 @@ class MmnApi @Inject constructor(
         return runCatching {
             client.getAccountByUserId(userId)
         }
-            .onSuccess { r ->
-                if (BuildConfig.DEBUG) {
-                    Log.d(
-                        MMN_LOG,
-                        "getWalletBalance ok " + hostPath + " balanceLen=${r.balance.length} " +
-                            "addressLen=${r.address.length} balanceHead=${r.balance.take(32)} " +
-                            "nonce=${r.nonce} decimals=${r.decimals} userIdEmpty=${userId.isEmpty()}"
-                    )
-                }
-            }
             .onFailure { e ->
                 Log.e(
                     MMN_LOG,

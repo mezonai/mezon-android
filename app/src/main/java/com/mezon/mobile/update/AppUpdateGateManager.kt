@@ -37,9 +37,6 @@ class AppUpdateGateManager @Inject constructor(
             withContext(mainDispatcher) {
                 if (isFinishingOrDestroyed(activity)) return@withContext
                 if (result == null) return@withContext
-                if (BuildConfig.DEBUG) {
-                    Log.d(TAG, "local=${result.local} remote=${result.remote} needsUpdate=${result.needsForceUpdate}")
-                }
                 if (!result.needsForceUpdate) return@withContext
                 if (hasPromptedInProcess) return@withContext
                 hasPromptedInProcess = true

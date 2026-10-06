@@ -703,13 +703,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             }
             if (drawPhotoImage) loadPhotoImage(msg) else clearPhotoReceivers()
             buildTopicButton(msg, width)
-            if (BuildConfig.DEBUG && drawPhotoImage) {
-                Log.d(
-                    TAG,
-                    "update mask=0 id=${msg.id} sendState=${msg.sendState} drawSending=$drawSending " +
-                        "drawPhotoImage=$drawPhotoImage mediaGridCount=$mediaGridCount"
-                )
-            }
             requestLayout()
             invalidate()
             schedulePresignExpireTick(msg)
@@ -740,12 +733,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
             val snapshot = msg.displayAttachmentSnapshot()
             applyDisplaySnapshot(msg, snapshot)
             syncSendingVisualTimer(msg)
-            if (BuildConfig.DEBUG) {
-                Log.d(
-                    TAG,
-                    "update SEND_STATE id=${msg.id} sendState=${msg.sendState} drawSending=$drawSending drawPhotoImage=$drawPhotoImage"
-                )
-            }
             if (drawError && !prevError) {
                 rebuildLayout = true
             } else {
@@ -4514,17 +4501,7 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
         val w = (rgt - l).coerceAtLeast(1)
         val h = (btm - t).coerceAtLeast(1)
-        if (BuildConfig.DEBUG && v is EditTextBoldCursor) {
-            val geomH = (r.bottom - r.top).toInt()
-            if (geomH != h) {
-                Log.d(
-                    EMBED_INPUT_TAG,
-                    "layoutEmbeddedChild geomH=$geomH fixedH=$h fixedSize=${v.getFixedSize()} " +
-                        "component=${v.tag}",
-                )
-            }
-        }
-        val ws = View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY)
+        val ws =View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY)
         val hs = View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY)
         v.measure(ws, hs)
         v.layout(l, t, rgt, btm)
@@ -5013,13 +4990,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
 
             val targetHeight = if (spec.textarea) EMBED_TEXTAREA_HEIGHT else EMBED_INPUT_HEIGHT
             edit.setFixedSize(targetHeight)
-            if (BuildConfig.DEBUG) {
-                Log.d(
-                    EMBED_INPUT_TAG,
-                    "bind component=$componentId textarea=${spec.textarea} targetH=$targetHeight " +
-                        "identityChanged=$identityChanged",
-                )
-            }
             if (spec.textarea) {
                 edit.gravity = Gravity.TOP or Gravity.START
                 edit.inputType = InputType.TYPE_CLASS_TEXT or
@@ -5064,18 +5034,11 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
                 if (spec.dateInput && !spec.disabled) {
                     edit.setOnClickListener { showDatePicker() }
                     edit.onFocusChangeListener = View.OnFocusChangeListener { _, hasFocus ->
-                        if (BuildConfig.DEBUG) {
-                            logEmbedInputFocus(componentId, hasFocus, targetHeight)
-                        }
                         if (hasFocus) showDatePicker()
                     }
                 } else {
                     edit.setOnClickListener(null)
-                    edit.onFocusChangeListener = View.OnFocusChangeListener { _, hasFocus ->
-                        if (BuildConfig.DEBUG) {
-                            logEmbedInputFocus(componentId, hasFocus, targetHeight)
-                        }
-                    }
+                    edit.onFocusChangeListener = null
                 }
             }
 
@@ -5131,14 +5094,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
         }
     }
 
-    private fun logEmbedInputFocus(componentId: String, hasFocus: Boolean, targetHeight: Int) {
-        Log.d(
-            EMBED_INPUT_TAG,
-            "focus component=$componentId hasFocus=$hasFocus targetH=$targetHeight " +
-                "measuredH=${focusedEmbedInputHeight()} layoutH=${focusedEmbedInputLayoutHeight()}",
-        )
-    }
-
     private fun focusedEmbedInputHeight(): Int {
         for (slot in embedInputSlots) {
             if (slot.edit.isFocused) return slot.edit.measuredHeight
@@ -5156,7 +5111,6 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     companion object {
         const val COMBINE_TIME_THRESHOLD = 2 * 60L
         private const val TAG = "ChatMessageCell"
-        private const val EMBED_INPUT_TAG = "EmbedFormInput"
         private const val SENDING_BRIGHT_GRACE_MS = 2_000L
         private val ANONYMOUS_USER_ID = BuildConfig.MEZON_ANONYMOUS_USER_ID.toLongOrNull() ?: 0L
         private val anonymousAvatarBitmaps = HashMap<Int, Bitmap>(2)

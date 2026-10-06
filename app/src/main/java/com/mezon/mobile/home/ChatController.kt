@@ -565,7 +565,6 @@ class ChatController @Inject constructor(
             CHANNEL_TYPE_VOICE
         )
         if (joinSocketTypes.none { it == effectiveType }) {
-            Log.d(TAG, "openChannel: skip ChannelJoin channelId=$channelId type=$effectiveType (argType=$channelType)")
             return
         }
         val threadLike = effectiveType == CHANNEL_TYPE_THREAD || effectiveParent != 0L
@@ -578,7 +577,6 @@ class ChatController @Inject constructor(
             }
         }
         mezonSocket.joinChat(effectiveClanId, channelId, effectiveType, isPublic)
-        Log.d(TAG, "Joined channel $channelId (clanId=$effectiveClanId type=$effectiveType isPublic=$isPublic)")
     }
 
     fun loadMessages(
@@ -689,10 +687,6 @@ class ChatController @Inject constructor(
         lateinit var job: Job
         job = appScope.launch(start = CoroutineStart.LAZY) {
             try {
-                Log.d(
-                    TAG,
-                    "Waiting for network before notification refresh channel=${refresh.channelId} clan=${refresh.clanId} topic=${refresh.topicId} anchor=${refresh.anchorMessageId}"
-                )
                 networkMonitor.isOnline.first { it }
                 if (!pendingOnlineMessageRefreshJobs.remove(refresh, job)) return@launch
                 if (refresh.anchorMessageId == 0L) {
@@ -763,17 +757,13 @@ class ChatController @Inject constructor(
                         if (anchorInDb) {
                             val lastKnown = synchronized(this@ChatController) { lastMessageByChannel.get(cacheKey, 0L) }
                             val hasMoreBottom = lastKnown > 0L && dbMaxId < lastKnown
-                            Log.d(TAG, "loadMessagesAround: DB hit anchor=$anchorMessageId range=$dbMinId..$dbMaxId hasMoreBottom=$hasMoreBottom count=${fromDb.size}")
                             notificationCenter.postNotificationOnMainThread(
                                 NotificationCenter.messagesDidLoad, cacheKey, ArrayList(fromDb), true, hasMoreBottom, true
                             )
-                        } else {
-                            Log.d(TAG, "loadMessagesAround: DB miss anchor=$anchorMessageId not in range=$dbMinId..$dbMaxId, waiting for API")
                         }
                     }
 
                     if (!anchorInDb && fromDb.isNotEmpty()) {
-                        Log.d(TAG, "Offline — anchor not in DB, showing latest cached as fallback")
                         val fallback = messageDao.getLatestByChannel(cacheKey, PAGE_SIZE * 4)
                         if (fallback.isNotEmpty()) {
                             notificationCenter.postNotificationOnMainThread(
@@ -781,7 +771,6 @@ class ChatController @Inject constructor(
                             )
                         }
                     } else if (fromDb.isEmpty()) {
-                        Log.d(TAG, "Offline — no cached messages for channel $cacheKey (around)")
                         notificationCenter.postNotificationOnMainThread(
                             NotificationCenter.messagesLoadError, cacheKey, "Offline"
                         )
@@ -834,7 +823,6 @@ class ChatController @Inject constructor(
                             response.lastSentMessage.canAdvanceServerTimeline()
                         ) response.lastSentMessage.id else 0L
                         updateLastMessageByChannel(cacheKey, msgs, serverLastSentId)
-                        Log.d(TAG, "loadMessagesAround: anchor=$anchorMessageId count=${msgs.size} hasMoreTop=$hasMoreTop topicId=$topicId hasLastSentMessage=${response.hasLastSentMessage()} serverLastSentId=$serverLastSentId")
                         val serverLastSeenId = if (response.hasLastSeenMessage()) response.lastSeenMessage.id else 0L
                         notificationCenter.postNotificationOnMainThread(
                             NotificationCenter.messagesDidLoad, cacheKey, ArrayList(msgs), hasMoreTop, true, false, serverLastSeenId
@@ -1003,12 +991,6 @@ class ChatController @Inject constructor(
                     findDeliveredChannelMessage(apiUrl, token, req, lookup)?.let { return it }
                     reconcileLookup = lookup
                 }
-            } else if (mezonSocket.connectionState.value == ConnectionState.CONNECTED) {
-                Log.d(
-                    TAG,
-                    "Channel message using HTTP until realtime is fresh and joined " +
-                        "channelId=${req.channelId} clanId=${req.clanId} gen=${mezonSocket.connectGen}"
-                )
             }
         }
         val ack = rememberAcknowledged(
@@ -1681,7 +1663,6 @@ class ChatController @Inject constructor(
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.pendingMessageSent, cacheKey, tempId, ack.messageId
                     )
-                    Log.d(TAG, "Direct attachment sent: channelId=$channelId url=${url.take(60)}")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to send direct attachment", e)
@@ -1744,7 +1725,6 @@ class ChatController @Inject constructor(
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
                     )
-                    Log.d(TAG, "Location sent: channelId=$channelId lat=$latitude lng=$longitude")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to send location", e)
@@ -1805,7 +1785,6 @@ class ChatController @Inject constructor(
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
                     )
-                    Log.d(TAG, "Share contact sent: channelId=$channelId userId=${data.userId}")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to send share contact", e)
@@ -2787,7 +2766,6 @@ class ChatController @Inject constructor(
             AttachmentUploader.executeUploadPlan(
                 api, apiUrl, token, presigned.plan, bytes = thumb.bytes,
             )
-            Log.d(TAG, "Video thumbnail uploaded cdnUrl=${presigned.cdnUrl} file=${item.filename}")
             presigned.cdnUrl
         } catch (e: Exception) {
             Log.w(TAG, "Video thumbnail upload failed for ${item.filename}", e)
@@ -2803,7 +2781,6 @@ class ChatController @Inject constructor(
     ): Boolean {
         val onProgress = attachmentUploadProgressCallback(slot.progressKey)
         try {
-            Log.d(TAG, "background upload start cdnUrl=${slot.attachment.url}")
             for (attempt in 1..maxRetries) {
                 try {
                     AttachmentUploader.executeUploadPlan(
@@ -2814,7 +2791,6 @@ class ChatController @Inject constructor(
                     notificationCenter.postNotificationOnMainThread(
                         NotificationCenter.attachmentUploadFinished, slot.progressKey,
                     )
-                    Log.d(TAG, "Background upload done: ${slot.attachment.filename} → ${slot.attachment.url}")
                     return true
                 } catch (e: Exception) {
                     Log.e(TAG, "Background upload attempt $attempt failed: ${slot.attachment.filename}", e)
@@ -3328,7 +3304,6 @@ class ChatController @Inject constructor(
         try {
             api.addChannelUsers(apiUrl, token, channelId, missing)
             userClanController.get().loadChannelMembers(clanId, channelId, channelType, noCache = true)
-            Log.d(TAG, "Added mentioned users to thread channelId=$channelId users=${missing.joinToString(",")}")
         } catch (e: Exception) {
             Log.e(TAG, "addChannelUsers failed channelId=$channelId users=${missing.joinToString(",")}", e)
         }
@@ -3413,7 +3388,6 @@ class ChatController @Inject constructor(
                     )
                 }
                 applyLocalEdit(cacheKey, messageId, content)
-                Log.d(TAG, "Message edited: channelId=$channelId messageId=$messageId")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to edit message", e)
             }
@@ -3475,7 +3449,6 @@ class ChatController @Inject constructor(
                     }
                 }
                 applyLocalDelete(cacheKey, messageId)
-                Log.d(TAG, "Message deleted: channelId=$channelId messageId=$messageId topicId=$topicId isPublic=$isPublic")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to delete message", e)
             }
@@ -3693,12 +3666,6 @@ class ChatController @Inject constructor(
                         return@collect
                     }
                     if (!entity.isRenderable) {
-                        if (BuildConfig.DEBUG) {
-                            Log.d(
-                                TAG,
-                                "drop CHANNEL_MESSAGE non-renderable id=${entity.id} channel=${entity.channelId} code=${entity.code}"
-                            )
-                        }
                         return@collect
                     }
                     appScope.launch(ioDispatcher) {
@@ -3712,13 +3679,6 @@ class ChatController @Inject constructor(
                                     lastMessageByChannel.put(merged.channelId, merged.id)
                                 }
                             }
-                        }
-                        if (BuildConfig.DEBUG) {
-                            Log.d(
-                                TAG,
-                                "post didReceiveNewMessages id=${merged.id} channel=${merged.channelId} " +
-                                    "code=${merged.code} isMe=${merged.isMe}"
-                            )
                         }
                         notificationCenter.postNotificationOnMainThread(
                             NotificationCenter.didReceiveNewMessages, merged.channelId, merged
@@ -4225,17 +4185,6 @@ class ChatController @Inject constructor(
                             )
                             val attProtos = attachmentsFromEntity(msg)
                             try {
-                                if (BuildConfig.DEBUG) {
-                                    Log.d(
-                                        TAG,
-                                        "forward try ch=${dest.channelId} clan=${dest.clanId} srcCh=$sourceChannelId " +
-                                            "msgId=${msg.id} msgCode=${msg.code} dstType=${dest.channelType} mode=$mode " +
-                                            "isPublic=$isPublic anon=$anon att=${attProtos.size} " +
-                                            "mentionEv=${
-                                                extractMentionEveryoneFromForwardContent(wire)
-                                            } contentHead=${wire.take(240)}"
-                                    )
-                                }
                                 val request = channelMessageSend {
                                     clanId = dest.clanId
                                     channelId = dest.channelId

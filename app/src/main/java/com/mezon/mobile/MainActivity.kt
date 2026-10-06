@@ -298,22 +298,6 @@ class MainActivity : BasePermissionsActivity(),
         notificationCenter.addObserver(this, NotificationCenter.voiceChannelAccessLost)
     }
 
-    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
-        when (event.keyCode) {
-            android.view.KeyEvent.KEYCODE_VOLUME_UP,
-            android.view.KeyEvent.KEYCODE_VOLUME_DOWN -> {
-                val key = if (event.keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP) "VOL_UP" else "VOL_DOWN"
-                val act = when (event.action) {
-                    android.view.KeyEvent.ACTION_DOWN -> "DOWN"
-                    android.view.KeyEvent.ACTION_UP -> "UP"
-                    else -> "action=${event.action}"
-                }
-                Log.d("VolumeKey", "$key $act repeat=${event.repeatCount}")
-            }
-        }
-        return super.dispatchKeyEvent(event)
-    }
-
     override fun onStart() {
         super.onStart()
         mezonSfuSession.setAppVisible(true)
@@ -615,7 +599,6 @@ class MainActivity : BasePermissionsActivity(),
 
     private fun showIncomingCallingOverlay(callInfo: CallInfo) {
         if (!StartupCache.hasSession) return
-        Log.d(TAG, "showIncomingCallingOverlay: caller=${callInfo.peerName}")
         requestIncomingCallPermissionsEagerly()
         var overlay = callingOverlay
         if (overlay == null) {
@@ -625,7 +608,6 @@ class MainActivity : BasePermissionsActivity(),
         overlay.setCallerInfo(callInfo.peerName, callInfo.peerUsername, callInfo.peerAvatar)
         overlay.delegate = object : CallingOverlay.Delegate {
             override fun onAcceptClicked() {
-                Log.d(TAG, "incoming overlay accept: state=${callController.callState::class.simpleName}")
                 dismissIncomingCallOverlay(removeView = false)
                 callController.acceptCall()
                 actionBarLayout.presentFragment(CallFragment())
@@ -1318,7 +1300,6 @@ class MainActivity : BasePermissionsActivity(),
         )
         if (clanId != 0L) {
             entryPoint.clansController().selectClan(clanId)
-            Log.d(TAG, "openChat preload selectClan clanId=$clanId")
         }
         entryPoint.chatController().openChannel(
             channelId = channelId,
@@ -1326,10 +1307,6 @@ class MainActivity : BasePermissionsActivity(),
             channelType = routeMeta.channelType,
             isChannelPrivate = routeMeta.isPrivate,
             parentId = routeMeta.parentId
-        )
-        Log.d(
-            TAG,
-            "openChat preload openChannel channelId=$channelId clanId=$clanId type=${routeMeta.channelType} private=${routeMeta.isPrivate} parent=${routeMeta.parentId}"
         )
         ensureThreadChannelRow(channelId, channelName, clanId, routeMeta.channelType)
     }
@@ -1378,11 +1355,9 @@ class MainActivity : BasePermissionsActivity(),
 
     private fun ensureThreadChannelRow(channelId: Long, channelName: String, clanId: Long, channelType: Int) {
         if (channelType != CHANNEL_TYPE_THREAD) {
-            Log.d(TAG, "ensureThreadChannelRow skip: non-thread type=$channelType")
             return
         }
         if (clanId == 0L || channelId == 0L) {
-            Log.d(TAG, "ensureThreadChannelRow skip: invalid ids clanId=$clanId channelId=$channelId")
             return
         }
         val entryPoint = EntryPointAccessors.fromApplication(
@@ -1394,7 +1369,6 @@ class MainActivity : BasePermissionsActivity(),
         val searchPrivate = searchEntity?.isPrivate == true
         val searchLabel = searchEntity?.channelLabel.orEmpty()
         channelController.loadChannelsForClan(clanId)
-        Log.d(TAG, "ensureThreadChannelRow warm loadChannelsForClan clanId=$clanId")
         val existing = channelController.findChannelById(channelId, clanId)
         if (existing != null) {
             val shouldPatchPrivacy = existing.type == CHANNEL_TYPE_THREAD && !existing.isPrivate && (existing.parentId == 0L || searchPrivate)
@@ -1410,13 +1384,8 @@ class MainActivity : BasePermissionsActivity(),
                     }
                 )
                 channelController.upsertChannel(patched)
-                Log.d(
-                    TAG,
-                    "ensureThreadChannelRow patched existing thread clanId=$clanId channelId=$channelId parentId=${patched.parentId} private=${patched.isPrivate}"
-                )
                 return
             }
-            Log.d(TAG, "ensureThreadChannelRow skip existing clanId=$clanId channelId=$channelId")
             return
         }
         val channel = ClanChannelEntity(
@@ -1437,10 +1406,6 @@ class MainActivity : BasePermissionsActivity(),
             categoryOrder = searchEntity?.categoryOrder ?: 0
         )
         channelController.upsertChannel(channel)
-        Log.d(
-            TAG,
-            "ensureThreadChannelRow upsert clanId=$clanId channelId=$channelId parentId=${channel.parentId} private=${channel.isPrivate}"
-        )
     }
 
     private fun clearStackAboveTabs(keep: BaseFragment? = null) {

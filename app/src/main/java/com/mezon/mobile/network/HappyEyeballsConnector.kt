@@ -23,7 +23,6 @@ object HappyEyeballsConnector {
     private const val TAG = "HappyEyeballs"
     private const val CONNECTION_ATTEMPT_DELAY_MS = 250L
     private const val TCP_FASTOPEN_CONNECT = 30
-    private const val DEFERRED_CONNECT_MS = 5L
 
     private val raceCounter = AtomicInteger()
 
@@ -49,12 +48,9 @@ object HappyEyeballsConnector {
 
     fun connectTls(host: String, port: Int, network: Network?, timeoutMs: Int): SSLSocket {
         val race = "[r${raceCounter.incrementAndGet()}]"
-        Log.d(TAG, "$race connect $host:$port network=${network ?: "default"} attemptTimeout=${timeoutMs}ms attemptDelay=${CONNECTION_ATTEMPT_DELAY_MS}ms")
 
         val addresses = interleaveFamilies(resolve(race, host, network))
         fun label(attempt: Int): String = "#${attempt + 1} ${describe(addresses[attempt])}"
-        fun labels(attempts: Iterable<Int>): String = attempts.joinToString { label(it) }.ifEmpty { "none" }
-        Log.d(TAG, "$race attempt order: ${labels(addresses.indices)}")
 
         val outcomes = LinkedBlockingQueue<AttemptOutcome>()
         val launched = ArrayList<Socket>(addresses.size)
@@ -68,31 +64,21 @@ object HappyEyeballsConnector {
             while (inFlight.isNotEmpty() || nextAttempt < addresses.size) {
                 val now = SystemClock.elapsedRealtime()
                 if (nextAttempt < addresses.size && (inFlight.isEmpty() || now >= nextLaunchAt)) {
-                    val reason = when {
-                        nextAttempt == 0 -> "first attempt"
-                        inFlight.isEmpty() -> "every earlier attempt failed"
-                        else -> "${CONNECTION_ATTEMPT_DELAY_MS}ms since previous start, still in flight: ${labels(inFlight)}"
-                    }
-                    Log.d(TAG, "$race ${label(nextAttempt)} start at +${now - raceStartedAt}ms ($reason)")
-                    launched += launchAttempt("$race ${label(nextAttempt)}", nextAttempt, addresses[nextAttempt], host, port, network, timeoutMs, outcomes)
+                    launched += launchAttempt(nextAttempt, addresses[nextAttempt], host, port, network, timeoutMs, outcomes)
                     inFlight += nextAttempt
                     nextAttempt++
                     nextLaunchAt = now + CONNECTION_ATTEMPT_DELAY_MS
                 }
                 val outcome: AttemptOutcome = if (nextAttempt < addresses.size) {
                     val waitMs = (nextLaunchAt - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
-                    Log.d(TAG, "$race waiting up to ${waitMs}ms for ${labels(inFlight)} before starting ${label(nextAttempt)}")
                     outcomes.poll(waitMs, TimeUnit.MILLISECONDS) ?: continue
                 } else {
-                    Log.d(TAG, "$race every address started, waiting for ${labels(inFlight)}")
                     outcomes.take()
                 }
                 inFlight -= outcome.attempt
                 val elapsedMs = SystemClock.elapsedRealtime() - raceStartedAt
                 when (outcome) {
                     is AttemptOutcome.Ready -> {
-                        Log.d(TAG, "$race ${label(outcome.attempt)} TCP+TLS ready in ${outcome.durationMs}ms at +${elapsedMs}ms, winner")
-                        Log.d(TAG, "$race cancelling ${labels(inFlight)}, never started ${labels(nextAttempt until addresses.size)}")
                         winner = outcome.socket
                         return outcome.tls
                     }
@@ -126,12 +112,10 @@ object HappyEyeballsConnector {
             Log.w(TAG, "$race getAllByName($host) failed in ${SystemClock.elapsedRealtime() - startedAt}ms: ${t.javaClass.simpleName}: ${t.message}")
             throw t
         }
-        Log.d(TAG, "$race getAllByName($host) = [${addresses.joinToString { describe(it) }}] in ${SystemClock.elapsedRealtime() - startedAt}ms")
         return addresses
     }
 
     private fun launchAttempt(
-        label: String,
         attempt: Int,
         address: InetAddress,
         host: String,
@@ -145,10 +129,8 @@ object HappyEyeballsConnector {
             val startedAt = SystemClock.elapsedRealtime()
             val outcome: AttemptOutcome = try {
                 socket.tcpNoDelay = true
-                val fastOpen = enableFastOpen(socket)
+                enableFastOpen(socket)
                 socket.connect(InetSocketAddress(address, port), timeoutMs)
-                val connectMs = SystemClock.elapsedRealtime() - startedAt
-                Log.d(TAG, "$label connect() returned in ${connectMs}ms, TFO=${fastOpenState(fastOpen, connectMs)}, starting TLS")
                 val tls = handshakeTls(socket, host, port, timeoutMs)
                 AttemptOutcome.Ready(attempt, socket, SystemClock.elapsedRealtime() - startedAt, tls)
             } catch (t: Throwable) {
@@ -160,22 +142,14 @@ object HappyEyeballsConnector {
         return socket
     }
 
-    private fun enableFastOpen(socket: Socket): String {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return "off, API ${Build.VERSION.SDK_INT} < 30"
-        return try {
+    private fun enableFastOpen(socket: Socket) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+        try {
             ParcelFileDescriptor.fromSocket(socket).use { duplicate ->
                 Os.setsockoptInt(duplicate.fileDescriptor, OsConstants.IPPROTO_TCP, TCP_FASTOPEN_CONNECT, 1)
             }
-            "on"
-        } catch (e: Exception) {
-            "off, ${e.javaClass.simpleName}: ${e.message}"
+        } catch (_: Exception) {
         }
-    }
-
-    private fun fastOpenState(fastOpen: String, connectMs: Long): String = when {
-        fastOpen != "on" -> fastOpen
-        connectMs <= DEFERRED_CONNECT_MS -> "cookie-used (server gave a cookie earlier, SYN carries the ClientHello)"
-        else -> "cookie-pending (plain handshake, server cookie expected in the SYN-ACK)"
     }
 
     private fun handshakeTls(socket: Socket, host: String, port: Int, timeoutMs: Int): SSLSocket {

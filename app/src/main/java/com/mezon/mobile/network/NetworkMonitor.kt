@@ -5,7 +5,6 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.os.Build
-import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -17,10 +16,6 @@ import javax.inject.Singleton
 class NetworkMonitor @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
-    companion object {
-        private const val TAG = "NetworkMonitor"
-    }
-
     private val connectivityManager =
         context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
@@ -57,7 +52,6 @@ class NetworkMonitor @Inject constructor(
         val nextNetwork = currentValidatedNetwork()
         val nextOnline = nextNetwork != null
         if (force || _isOnline.value != nextOnline) {
-            Log.d(TAG, "isOnline=$nextOnline")
             _isOnline.value = nextOnline
         }
         if (force || _activeNetwork.value != nextNetwork) {

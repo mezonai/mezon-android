@@ -27,7 +27,6 @@ class CallActionReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         val controller = ensureCallController(context)
-        Log.d(TAG, "onReceive: action=${intent.action}, instance=${controller != null}, state=${controller?.callState?.let { it::class.simpleName }}")
         when (intent.action) {
             ACTION_END -> {
                 controller?.hangup()

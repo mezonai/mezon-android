@@ -4,7 +4,6 @@ import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
-import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
@@ -40,10 +39,6 @@ class MediaTabHelper(
     private val getString: (Int) -> String,
     private val hostContext: () -> Context?,
 ) : TabHelper {
-
-    private companion object {
-        private const val DBG_TAG = "MediaTabGallery"
-    }
 
     private var cellSizePx = 100
     private var memberMap: Map<Long, ClanMember> = emptyMap()
@@ -269,35 +264,21 @@ class MediaTabHelper(
 
     private fun tryLoadOlder() {
         if (!galleryController.hasMoreBefore(channelId, selectedMediaType)) {
-            dbgTryLoadOlderSkip("hasMoreBefore_false")
             return
         }
         if (galleryController.isPagingLoading(channelId, selectedMediaType)) {
-            dbgTryLoadOlderSkip("paging_loading")
             return
         }
         if (galleryController.isInitialLoading(channelId, selectedMediaType)) {
-            dbgTryLoadOlderSkip("initial_loading")
             return
         }
         val now = android.os.SystemClock.uptimeMillis()
         if (now - lastOlderFetchMs < 320L) {
-            dbgTryLoadOlderSkip("throttle_${now - lastOlderFetchMs}ms")
             return
-        }
-
-        if (BuildConfig.DEBUG) {
-            Log.d(DBG_TAG, "tryLoadOlder fetch ch=$channelId clan=$clanId")
         }
 
         galleryController.fetchOlderIfNeeded(channelId, clanId, mediaType = selectedMediaType)
         lastOlderFetchMs = now
-    }
-
-    private fun dbgTryLoadOlderSkip(reason: String) {
-        if (BuildConfig.DEBUG) {
-            Log.d(DBG_TAG, "tryLoadOlder skip ch=$channelId $reason")
-        }
     }
 
     private fun buildDisplayRows(items: List<ChannelGalleryMediaItem>, showFooter: Boolean): List<MediaGalleryRow> {
