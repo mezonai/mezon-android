@@ -19,7 +19,7 @@ enum class MezonIcon(@DrawableRes val resId: Int) {
     voiceWaveIcon(R.drawable.ic_speaker_single_wave),
     voiceWaveDoubleIcon(R.drawable.ic_speaker_double_wave),
     channelVoice(R.drawable.ic_voice_icon),
-    channelVoiceLock(R.drawable.ic_voice_icon),
+    channelVoiceLock(R.drawable.ic_voice_lock),
     channelStream(R.drawable.ic_channel_stream),
     channelApp(R.drawable.ic_channel_app),
     calendarIcon(R.drawable.ic_calendar),

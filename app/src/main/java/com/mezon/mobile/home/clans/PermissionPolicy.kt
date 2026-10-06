@@ -128,6 +128,9 @@ class PermissionPolicy @Inject constructor(
     fun canDeleteChannelFromMenu(channel: ClanChannelEntity, clanId: Long): Boolean {
         if (clanId == 0L || channel.channelId == 0L) return false
         if (isWelcomeChannel(clanId, channel.channelId)) return false
+        if (channel.type == CHANNEL_TYPE_VOICE && channel.creatorId != 0L && channel.creatorId == userController.userId) {
+            return true
+        }
         return if (channel.isThread) {
             ensurePermissionChecker(
                 listOf(CLAN_OWNER, MANAGE_THREAD, ADMINISTRATOR, MANAGE_CHANNEL),
@@ -167,12 +170,15 @@ class PermissionPolicy @Inject constructor(
             checkPermission(MANAGE_CHANNEL, channelId, clanId)
     }
 
-    fun canOpenChannelSettings(channelId: Long, clanId: Long, channelType: Int, parentId: Long = 0L): Boolean {
+    fun canOpenChannelSettings(
+        channelId: Long, clanId: Long, channelType: Int, parentId: Long = 0L, creatorId: Long = 0L,
+    ): Boolean {
         if (channelId == 0L || clanId == 0L) return false
         val selected = clansController.selectedClanId.value
         if (selected == 0L || clanId != selected) return false
+        if (channelType == CHANNEL_TYPE_VOICE && creatorId != 0L && creatorId == userController.userId) return true
         val isThread = channelType == CHANNEL_TYPE_THREAD || parentId != 0L
-        val isChannel = channelType == CHANNEL_TYPE_CHANNEL && !isThread
+        val isChannel = (channelType == CHANNEL_TYPE_CHANNEL || channelType == CHANNEL_TYPE_VOICE) && !isThread
         if (isChannel) {
             ensurePermissionChecker(listOf(ADMINISTRATOR, MANAGE_CHANNEL), null, clanId)
             return checkPermission(ADMINISTRATOR, null, clanId) ||

@@ -457,8 +457,9 @@ class ChannelSettingsFragment : BaseFragment() {
         return cell
     }
 
-    private fun showChangeCategory(): Boolean = !isRestrictedChannelType()
-    private fun showPermissions(): Boolean = !isThread && !isRestrictedChannelType()
+    private fun showChangeCategory(): Boolean = channelType == CHANNEL_TYPE_VOICE || !isRestrictedChannelType()
+    private fun showPermissions(): Boolean = !isThread &&
+        ((channelType == CHANNEL_TYPE_VOICE && !isWelcomeChannel()) || !isRestrictedChannelType())
     private fun showQuickAction(): Boolean = !isThread && channelType != CHANNEL_TYPE_VOICE && channelType != CHANNEL_TYPE_STREAMING && channelType != CHANNEL_TYPE_APP
     private fun showBanList(): Boolean = !isThread && !isRestrictedChannelType()
     private fun showWebhooks(): Boolean = !isThread && channelType != CHANNEL_TYPE_VOICE && channelType != CHANNEL_TYPE_STREAMING
@@ -601,7 +602,7 @@ class ChannelSettingsFragment : BaseFragment() {
     private fun openChannelPermissions(context: Context) {
         if (clanId == 0L || channelId == 0L) return
         val parentId = currentChannel()?.parentId ?: 0L
-        if (!permissionPolicy.canOpenChannelSettings(channelId, clanId, channelType, parentId)) {
+        if (!permissionPolicy.canOpenChannelSettings(channelId, clanId, channelType, parentId, currentChannel()?.creatorId ?: 0L)) {
             permissionController.loadChannelPermissionData(clanId, channelId, channelType, force = true)
             MezonToast.show(this, ToastOverlay.ToastType.ERROR, getString(R.string.channel_permissions_no_access))
             return

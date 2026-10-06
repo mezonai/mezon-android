@@ -360,7 +360,7 @@ class CreateChannelFragment : BaseFragment() {
     }
 
     private fun refreshPrivateBlock() {
-        val show = selectedType == CHANNEL_TYPE_CHANNEL
+        val show = selectedType == CHANNEL_TYPE_CHANNEL || selectedType == CHANNEL_TYPE_VOICE
         privateSectionRoot.visibility = if (show) View.VISIBLE else View.GONE
     }
 
@@ -382,7 +382,7 @@ class CreateChannelFragment : BaseFragment() {
             return
         }
         val privateFlag = when (selectedType) {
-            CHANNEL_TYPE_CHANNEL -> if (privateSwitch.isChecked()) 1 else 0
+            CHANNEL_TYPE_CHANNEL, CHANNEL_TYPE_VOICE -> if (privateSwitch.isChecked()) 1 else 0
             else -> 0
         }
 

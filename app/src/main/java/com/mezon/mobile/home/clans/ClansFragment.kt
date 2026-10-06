@@ -398,6 +398,7 @@ class ClansFragment : BaseFragment() {
                     selClan,
                     channel.type,
                     channel.parentId,
+                    channel.creatorId,
                 )
                 val canDelete = permissionPolicy.canDeleteChannelFromMenu(channel, selClan)
                 val menuChannel = (channelController.findChannelById(channel.channelId, selClan) ?: channel)
@@ -1665,6 +1666,7 @@ class ClansFragment : BaseFragment() {
                 clanId,
                 channel.type,
                 channel.parentId,
+                channel.creatorId,
             )
         ) {
             return

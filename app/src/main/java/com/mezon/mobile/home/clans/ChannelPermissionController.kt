@@ -125,27 +125,27 @@ class ChannelPermissionController @Inject constructor(
         lastPermissionChangedAtMs.clear()
     }
 
-    fun loadChannelPermissionData(clanId: Long, channelId: Long, channelType: Int, force: Boolean = false) {
+    fun loadChannelPermissionData(clanId: Long, channelId: Long, channelType: Int, force: Boolean = false, refreshRoles: Boolean = false) {
         if (channelId == 0L) return
         roleController.loadPermissionCatalogIfNeeded()
         if (clanId != 0L) {
             userClanController.loadClanMembers(clanId, noCache = force)
             userClanController.loadDirectChannelMembers(clanId, channelId, noCache = force)
-            roleController.loadRolesForClan(clanId, force = force)
+            roleController.loadRolesForClan(clanId, force = force || refreshRoles)
             roleController.loadUserMaxPermissionForClan(clanId, force = force)
         }
         ensureUserPermissionsInChannel(clanId, channelId, force = force)
     }
 
-    fun getChannelRoles(clanId: Long, channelId: Long): List<ClanRole> {
+    fun getChannelRoles(clanId: Long, channelId: Long, channelType: Int): List<ClanRole> {
         return roleController.getRoles(clanId).filter { role ->
-            !role.isEveryoneRole() && role.isAssignedToChannel(channelId)
+            !role.isEveryoneRole() && role.isAssignedToChannel(channelId, channelType)
         }
     }
 
-    fun getAvailableRoles(clanId: Long, channelId: Long): List<ClanRole> {
+    fun getAvailableRoles(clanId: Long, channelId: Long, channelType: Int): List<ClanRole> {
         return roleController.getRoles(clanId).filter { role ->
-            !role.isEveryoneRole() && !role.isAssignedToChannel(channelId)
+            !role.isEveryoneRole() && !role.isAssignedToChannel(channelId, channelType)
         }
     }
 
@@ -169,14 +169,23 @@ class ChannelPermissionController @Inject constructor(
                     clanId,
                     channelId,
                     if (isPrivate) 0 else 1,
-                    listOfNotNull(userController.userId.takeIf { it != 0L }),
+                    listOfNotNull(
+                        channelController.findChannelById(channelId, clanId)?.creatorId
+                            ?.takeIf { channelType == CHANNEL_TYPE_VOICE && it != 0L }
+                            ?: userController.userId.takeIf { it != 0L },
+                    ),
                     emptyList(),
                 )
             }
             channelController.findChannelById(channelId, clanId)?.let { existing ->
                 channelController.upsertChannel(existing.copy(isPrivate = isPrivate))
             }
-            channelController.loadChannelsForClan(clanId, force = true)
+            if (channelType == CHANNEL_TYPE_VOICE) {
+                if (!isPrivate) clearVoiceChannelRoles(clanId, channelId)
+                channelController.refreshChannelAccess(clanId)
+            } else {
+                channelController.loadChannelsForClan(clanId, force = true)
+            }
             loadChannelPermissionData(clanId, channelId, channelType, force = true)
             notificationCenter.postNotificationOnMainThread(NotificationCenter.channelPermissionsDidLoad, channelId)
             Result.success(Unit)
@@ -209,6 +218,9 @@ class ChannelPermissionController @Inject constructor(
                     api.removeChannelUsers(session.apiUrl, session.token, channelId, listOf(userId))
                 }
                 userClanController.removeDirectChannelMembers(channelId, listOf(userId))
+                if (channelType == CHANNEL_TYPE_VOICE && userId != 0L && userId == userController.userId) {
+                    channelController.refreshChannelAccess(clanId)
+                }
                 userClanController.loadDirectChannelMembers(clanId, channelId, noCache = true)
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.channelPermissionsDidLoad, channelId)
                 Result.success(Unit)
@@ -241,6 +253,9 @@ class ChannelPermissionController @Inject constructor(
                     api.deleteRoleChannelDesc(session.apiUrl, session.token, clanId, channelId, role.roleId, role.title)
                 }
                 roleController.removeChannelFromRole(clanId, channelId, role.roleId)
+                if (channelController.findChannelById(channelId, clanId)?.type == CHANNEL_TYPE_VOICE) {
+                    channelController.refreshChannelAccess(clanId)
+                }
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.channelPermissionsDidLoad, channelId)
                 Result.success(Unit)
             } catch (e: Exception) {
@@ -376,12 +391,20 @@ class ChannelPermissionController @Inject constructor(
         permissionSetRefetchJobs[channelId] = job
     }
 
-    private fun ClanRole.isAssignedToChannel(channelId: Long): Boolean {
+    private fun ClanRole.isAssignedToChannel(channelId: Long, channelType: Int): Boolean {
         if (channelId == 0L) return false
+        if (channelType == CHANNEL_TYPE_VOICE) return roleChannelActive == 1 && channelId in channelIds
         return if (channelIds.isNotEmpty()) channelId in channelIds else roleChannelActive == 1
     }
 
     private fun observeRealtimeEvents() {
+        appScope.launch {
+            socketEventDispatcher.channelUpdatedEvents.collect { event ->
+                if (event.channelType == CHANNEL_TYPE_VOICE && !event.channelPrivate) {
+                    clearVoiceChannelRoles(event.clanId, event.channelId)
+                }
+            }
+        }
         appScope.launch {
             socketEventDispatcher.userChannelAddedEvents.collect { event ->
                 val channelId = event.channelDesc.channelId
@@ -446,6 +469,12 @@ class ChannelPermissionController @Inject constructor(
                 )
                 notificationCenter.postNotificationOnMainThread(NotificationCenter.channelPermissionsDidLoad, event.channelId)
             }
+        }
+    }
+
+    private fun clearVoiceChannelRoles(clanId: Long, channelId: Long) {
+        roleController.getRoles(clanId).filter { channelId in it.channelIds }.forEach { role ->
+            roleController.removeChannelFromRole(clanId, channelId, role.roleId)
         }
     }
 }

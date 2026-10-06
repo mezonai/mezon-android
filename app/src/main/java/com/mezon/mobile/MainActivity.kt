@@ -295,6 +295,7 @@ class MainActivity : BasePermissionsActivity(),
         notificationCenter.addObserver(this, NotificationCenter.incomingCall)
         notificationCenter.addObserver(this, NotificationCenter.callEnded)
         notificationCenter.addObserver(this, NotificationCenter.callStateChanged)
+        notificationCenter.addObserver(this, NotificationCenter.voiceChannelAccessLost)
     }
 
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
@@ -401,6 +402,7 @@ class MainActivity : BasePermissionsActivity(),
         notificationCenter.removeObserver(this, NotificationCenter.incomingCall)
         notificationCenter.removeObserver(this, NotificationCenter.callEnded)
         notificationCenter.removeObserver(this, NotificationCenter.callStateChanged)
+        notificationCenter.removeObserver(this, NotificationCenter.voiceChannelAccessLost)
 
         dismissIncomingCallOverlay(removeView = true)
         dismissOngoingCallBanner(removeView = true)
@@ -520,6 +522,11 @@ class MainActivity : BasePermissionsActivity(),
 
     override fun didReceivedNotification(id: Int, account: Int, vararg args: Any?) {
         when (id) {
+            NotificationCenter.voiceChannelAccessLost -> {
+                val channelId = args.firstOrNull() as? Long ?: return
+                val clanId = args.getOrNull(1) as? Long ?: 0L
+                closeRevokedVoiceChannelScreens(channelId, clanId)
+            }
             NotificationCenter.themeChanged -> {
                 val mode = args.firstOrNull() as? ThemeMode
                     ?: StartupCache.themeMode
@@ -787,6 +794,24 @@ class MainActivity : BasePermissionsActivity(),
     }
 
     // ── Navigation ──────────────────────────────────────────────────────────
+
+    private fun closeRevokedVoiceChannelScreens(channelId: Long, clanId: Long) {
+        if (channelId == 0L) return
+        val stack = actionBarLayout.getFragmentStack().toList()
+        val top = stack.lastOrNull() ?: return
+      
+        val matching = stack.drop(1).filter { it.arguments?.getLong(ChatFragment.ARG_CHANNEL_ID) == channelId }
+        if (matching.isEmpty()) return
+
+        if (top in matching) {
+            clearStackAboveTabs(keep = top)
+            actionBarLayout.closeLastFragment(animated = false, forceNoAnimation = true)
+            if (clanId != 0L) switchToTabForClan(clanId)
+            else notificationCenter.postNotificationOnMainThread(NotificationCenter.navigateToClansTab)
+        } else {
+            matching.forEach { actionBarLayout.removeFragmentFromStack(it) }
+        }
+    }
 
     fun rebuildAllFragments(last: Boolean) {
         actionBarLayout.rebuildAllFragmentViews(last, last)
