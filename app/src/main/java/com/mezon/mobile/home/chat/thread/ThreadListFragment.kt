@@ -462,7 +462,6 @@ class ThreadListFragment : BaseFragment() {
     }
 
     private fun fetchThreads(page: Int) {
-        Log.d(TAG, "fetchThreads page=$page channelId=$channelId clanId=$clanId")
         fetchJob?.cancel()
         val showBlockingLoad = allThreads.isEmpty() && !isSearchMode
         if (showBlockingLoad) {
@@ -479,15 +478,10 @@ class ThreadListFragment : BaseFragment() {
             try {
                 val response = withContext(ioDispatcher) {
                     sessionManager.withAutoRefresh { session ->
-                        Log.d(TAG, "calling API apiUrl=${session.apiUrl}")
                         api.listThreadDescs(session.apiUrl, session.token, channelId, clanId, page)
                     }
                 }
                 val rawList = response.channeldescList
-                Log.d(TAG, "API returned ${rawList.size} channels")
-                rawList.forEachIndexed { i, ch ->
-                    Log.d(TAG, "[$i] id=${ch.channelId} label=${ch.channelLabel} active=${ch.active} hasLastMsg=${ch.hasLastSentMessage()} ts=${if (ch.hasLastSentMessage()) ch.lastSentMessage.timestampSeconds else 0}")
-                }
                 val threads = mergeCachedThreads(rawList.map { it.toThreadInfo() })
                 allThreads.clear()
                 allThreads.addAll(threads)
@@ -596,11 +590,9 @@ class ThreadListFragment : BaseFragment() {
     }
 
     private fun searchThreads(label: String) {
-        Log.d(TAG, "searchThreads label=$label in ${allThreads.size} threads")
         val filtered = allThreads.filter {
             it.channelLabel.lowercase().contains(label)
         }
-        Log.d(TAG, "search matched ${filtered.size} results")
 
         if (filtered.isEmpty()) {
             emptyView?.visibility = View.VISIBLE
@@ -626,8 +618,6 @@ class ThreadListFragment : BaseFragment() {
             getString(R.string.thread_list_archived_threads),
             threads
         )
-        Log.d(TAG, "showThreadList threads=${threads.size} sections=${sections.size}")
-        sections.forEach { s -> Log.d(TAG, "section '${s.title}' count=${s.threads.size}") }
         if (sections.isEmpty()) {
             emptyView?.visibility = View.VISIBLE
             recyclerView?.visibility = View.GONE

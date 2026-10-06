@@ -19,9 +19,6 @@ class MezonCallConnectionService : ConnectionService() {
         connectionManagerPhoneAccount: PhoneAccountHandle?,
         request: ConnectionRequest?
     ): Connection {
-        val incomingCaller = request?.extras?.getString(CallManager.EXTRA_CALLER_NAME)
-        val hasOffer = !request?.extras?.getString(CallManager.EXTRA_OFFER_JSON).isNullOrBlank()
-        Log.d(TAG, "onCreateIncomingConnection: caller=$incomingCaller, hasOffer=$hasOffer, controllerState=${CallController.instance?.callState?.let { it::class.simpleName }}")
         val connection = MezonCallConnection(applicationContext)
 
         var isVideo = false

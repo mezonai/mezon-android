@@ -375,6 +375,9 @@ class MezonApi @Inject constructor(
         private val SERVER_KEY = BuildConfig.MEZON_API_KEY
         private const val DISCOVER_ITEMS_PER_PAGE = 6
         private const val SOCKET_WAIT_MS = 5_000L
+        private const val SOCKET_API_TIMEOUT_MS = 4_000L
+        private const val SOCKET_MESSAGE_FETCH_TIMEOUT_MS = 1_500L
+        private val MESSAGE_FETCH_API_NAMES = setOf("ListChannelMessages")
         private const val HEALTHY_ENDPOINT_TIMEOUT_MS = 5_000L
         private const val SOCKET_DEGRADED_COOLDOWN_MS = 12_000L
         private const val READ_SINGLE_FLIGHT_MAX_AGE_MS = 3_000L
@@ -654,6 +657,9 @@ class MezonApi @Inject constructor(
         return Base64.encodeToString(digest, Base64.NO_WRAP)
     }
 
+    private fun socketApiTimeoutMs(method: String): Long =
+        if (method in MESSAGE_FETCH_API_NAMES) SOCKET_MESSAGE_FETCH_TIMEOUT_MS else SOCKET_API_TIMEOUT_MS
+
     private suspend fun rpcOverSocket(method: String, body: ByteArray, token: String): ByteArray {
         val socket = mezonSocketLazy.get()
         if (!socket.awaitConnected(SOCKET_WAIT_MS)) {
@@ -674,7 +680,7 @@ class MezonApi @Inject constructor(
         }
         val started = System.currentTimeMillis()
         try {
-            val resp = socket.sendApiRequest(apiName = method, body = body)
+            val resp = socket.sendApiRequest(apiName = method, body = body, timeoutMs = socketApiTimeoutMs(method))
             markSocketHealthy()
             return resp
         } catch (e: Exception) {
@@ -2345,9 +2351,6 @@ class MezonApi @Inject constructor(
             this.removeUserIds.addAll(removeUserIds)
             this.activePermissionIds.addAll(activePermissionIds)
             this.removePermissionIds.addAll(removePermissionIds)
-        }
-        if (BuildConfig.DEBUG) {
-            Log.d("MezonApi", "UpdateRole payload bytes=${request.serializedSize} $request")
         }
         rpc(apiUrl, token, "UpdateRole", request.toByteArray())
     }

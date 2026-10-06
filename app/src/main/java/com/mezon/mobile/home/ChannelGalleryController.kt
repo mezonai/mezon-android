@@ -1,7 +1,6 @@
 package com.mezon.mobile.home
 
 import android.util.Log
-import com.mezon.mobile.BuildConfig
 import com.mezon.mezon.api.ChannelAttachment
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.data.db.MessageDao
@@ -343,16 +342,6 @@ class ChannelGalleryController @Inject constructor(
                             state.hasMoreBefore = batchSorted.any { cand -> cand.id !in idsBeforeMerge }
                         }
                     }
-                }
-
-                if (BuildConfig.DEBUG) {
-                    val hm = synchronized(state) { state.hasMoreBefore }
-                    Log.d(
-                        TAG,
-                        "loadMore ch=${key.channelId} initial=$isInitial before=$beforeSecs " +
-                            "raw=${raw.attachmentsList.size} batch=${batchSorted.size} " +
-                            "appended=$appendedCount hasMoreBefore=$hm"
-                    )
                 }
 
                 if (isInitial) {

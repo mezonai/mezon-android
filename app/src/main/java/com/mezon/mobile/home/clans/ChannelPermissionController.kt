@@ -410,10 +410,6 @@ class ChannelPermissionController @Inject constructor(
                 val channelId = event.channelDesc.channelId
                 val clanId = event.clanId.takeIf { it != 0L } ?: event.channelDesc.clanId
                 if (channelId == 0L || clanId == 0L) return@collect
-                Log.d(
-                    TAG,
-                    "userChannelAdded channelId=$channelId clanId=$clanId status=${event.status} refetchPerm=true",
-                )
                 invalidateAndRefetchUserPermissions(channelId, force = true)
                 if (event.status == ADD_ROLE_CHANNEL_STATUS) {
                     roleController.loadRolesForClan(clanId, force = true)
@@ -436,10 +432,6 @@ class ChannelPermissionController @Inject constructor(
                 if (event.channelId == 0L) return@collect
                 val updates = event.permissionUpdatesList.toChannelPermissionUpdates()
                 val shouldRefetchCurrentUser = event.roleId != 0L || event.userId == 0L || event.userId == userController.userId
-                Log.d(
-                    TAG,
-                    "permissionSet channelId=${event.channelId} roleId=${event.roleId} userId=${event.userId} updates=${updates.size} scheduleRefetch=$shouldRefetchCurrentUser",
-                )
                 if (shouldRefetchCurrentUser) {
                     schedulePermissionSetRefetch(event.channelId)
                 }
@@ -457,10 +449,6 @@ class ChannelPermissionController @Inject constructor(
                 if (event.channelId == 0L || event.userId != userController.userId) return@collect
                 lastPermissionChangedAtMs[event.channelId] = SystemClock.elapsedRealtime()
                 permissionSetRefetchJobs.remove(event.channelId)?.cancel()
-                Log.d(
-                    TAG,
-                    "permissionChanged channelId=${event.channelId} add=${event.addPermissionsCount} remove=${event.removePermissionsCount} default=${event.defaultPermissionsCount}",
-                )
                 applyPermissionChangedEventToCache(
                     event.channelId,
                     event.addPermissionsList,

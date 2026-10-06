@@ -5,7 +5,6 @@ import android.graphics.Color
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.Typeface
-import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
@@ -46,8 +45,6 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-
-private const val TAG = "MessagesFragment"
 
 class MessagesFragment : BaseFragment() {
 
@@ -113,7 +110,6 @@ class MessagesFragment : BaseFragment() {
             }
         }
         observe(NotificationCenter.dialogsNeedReload) { _, _, _ ->
-            Log.d(TAG, "dialogsNeedReload received: fragmentView=${fragmentView != null} isPaused=$isPaused frozen=$dialogsListFrozen")
             if (fragmentView == null || dialogsListFrozen || isPaused) return@observe
             updateDialogsList()
         }
@@ -493,7 +489,6 @@ class MessagesFragment : BaseFragment() {
             viewJustCreated = false
             return
         }
-        Log.d(TAG, "onBecomeFullyVisible isPaused=$isPaused")
         updateDialogsList()
     }
 
@@ -537,11 +532,10 @@ class MessagesFragment : BaseFragment() {
     private fun updateDialogsList() {
         val list = controller.getDialogs()
         val loaded = controller.dialogsLoaded
-        Log.d(TAG, "updateDialogsList: size=${list.size} dialogsLoaded=$loaded isPaused=$isPaused")
         when {
-            list.isNotEmpty() -> { Log.d(TAG, "→ showList(${list.size})"); showList(list) }
-            !loaded -> { Log.d(TAG, "→ showLoading (not loaded yet)"); showLoading() }
-            else -> { Log.d(TAG, "→ showEmpty (loaded=true but list empty)"); showEmpty() }
+            list.isNotEmpty() -> showList(list)
+            !loaded -> showLoading()
+            else -> showEmpty()
         }
     }
 
@@ -645,14 +639,7 @@ class MessagesFragment : BaseFragment() {
             showPin = true,
             isPinned = dmPinStorage.isPinned(dm.channelId),
             showMute = !isChatWithMyself,
-            isMuted = controller.isDmMuted(dm.channelId).also { muted ->
-                if (com.mezon.mobile.BuildConfig.DEBUG) {
-                    android.util.Log.d(
-                        "DialogsController:Mute",
-                        "menu ch=${dm.channelId} isMuted=$muted mem=${dm.isMute}",
-                    )
-                }
-            },
+            isMuted = controller.isDmMuted(dm.channelId),
         )
     }
 

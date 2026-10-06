@@ -1,7 +1,6 @@
 package com.mezon.mobile.home.friends
 
 import com.mezon.mezon.api.Friend
-import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.di.IoDispatcher
@@ -20,7 +19,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import android.os.SystemClock
-import android.util.Log
 import android.widget.Toast
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -29,7 +27,6 @@ import com.mezon.mobile.home.notifications.toNotificationEntity
 import javax.inject.Inject
 import javax.inject.Singleton
 
-private const val FRIEND_LOG = "FriendController"
 private const val FRIEND_RELATIONS_FOREGROUND_THROTTLE_MS = 30_000L
 private const val FRIEND_RELATIONS_NOTIFICATION_DEBOUNCE_MS = 5_000L
 private const val NOTIFICATION_CODE_FRIEND_ACCEPT = -3
@@ -113,11 +110,6 @@ class FriendController @Inject constructor(
                 if (shouldRefresh) {
                     loadFriendRelations(noCache = true)
                 }
-            } else if (BuildConfig.DEBUG) {
-                val subj = notification.subject
-                if (subj.isNotBlank() || content.isNotBlank()) {
-                    Log.d(FRIEND_LOG, "notification skip friend-refresh subj=${subj.take(80)}")
-                }
             }
         }
     }
@@ -167,9 +159,6 @@ class FriendController @Inject constructor(
     fun loadFriendRelations(noCache: Boolean = false) {
         appScope.launch {
             if (cacheTracker.shouldCall(listFriendsCombinedCacheKey, noCache = noCache) == ApiCacheTracker.ShouldCall.SKIP) {
-                if (BuildConfig.DEBUG) {
-                    Log.d(FRIEND_LOG, "loadFriendRelations skipped (cache TTL) noCache=$noCache")
-                }
                 return@launch
             }
 
@@ -181,14 +170,6 @@ class FriendController @Inject constructor(
                     publishAllFriendRelations()
                     notificationCenter.postNotificationOnMainThread(NotificationCenter.friendsLoaded)
                     notificationCenter.postNotificationOnMainThread(NotificationCenter.blockedUsersLoaded)
-                    if (BuildConfig.DEBUG) {
-                        val recv = _receivedFriendRequests.value
-                        val preview = recv.take(5).joinToString { "${it.user.id}:${it.state}" }
-                        Log.d(
-                            FRIEND_LOG,
-                            "listFriends combined total=${all.size} received=${recv.size} sample=[$preview]"
-                        )
-                    }
                 }
             } catch (_: Exception) {
             }

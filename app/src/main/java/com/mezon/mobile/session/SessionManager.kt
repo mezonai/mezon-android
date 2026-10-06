@@ -241,7 +241,7 @@ class SessionManager @Inject constructor(
                 userId = current.userId,
                 idToken = protoSession.getIdToken().ifEmpty { current.idToken },
                 isRemember = current.isRemember,
-                tcpUrl = current.tcpUrl,
+                tcpUrl = protoSession.getTcpUrl().ifEmpty { current.tcpUrl },
             )
 
             if (!persistSession(newSession, requiredEpoch = epochAtStart)) {
@@ -251,7 +251,6 @@ class SessionManager @Inject constructor(
             lastRefreshToken = newSession.refreshToken
             failCount = 0
             releaseRefreshThrottle()
-            Log.d(TAG, "Session refreshed successfully")
             return newSession
         } catch (e: SessionExpiredException) {
             throw e
@@ -346,7 +345,6 @@ class SessionManager @Inject constructor(
             block(session)
         } catch (_: com.mezon.mobile.network.UnauthorizedException) {
             if (!networkMonitor.isOnline.value) throw IOException("Offline, cannot refresh")
-            Log.d(TAG, "Got 401, refreshing and retrying...")
             val refreshed = refresh()
             block(refreshed)
         }

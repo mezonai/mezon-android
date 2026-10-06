@@ -161,7 +161,6 @@ import com.mezon.mobile.home.chat.poll.parsePollContent
 import com.mezon.mobile.home.chat.poll.votedAnswerIndices
 import com.mezon.mobile.home.call.CallManager
 import com.mezon.mobile.home.call.CallPermissionUi
-import com.mezon.mobile.home.call.parseCallLogMessage
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -597,7 +596,6 @@ open class ChatFragment : BaseFragment() {
             loadTopicRootHeaderMessage()
         }
         refreshPermissionGates()
-        Log.d(TAG, "onFragmentCreate: startLoadFromMessageId=$startLoadFromMessageId forceLatest=$forceLatest channelId=$channelId")
         observe(NotificationCenter.channelPermissionOverridesDidLoad) { _, _, args ->
             val changedChannelId = args.getOrNull(0) as? Long ?: return@observe
             if (changedChannelId == channelId) refreshPermissionGates()
@@ -644,7 +642,6 @@ open class ChatFragment : BaseFragment() {
             if (serverLastSeenId != 0L) {
                 val newSeen = maxOf(lastSeenMessageId, serverLastSeenId)
                 if (newSeen != lastSeenMessageId) {
-                    Log.d(TAG, "lastSeenMessageId Math.max: $lastSeenMessageId → $newSeen")
                     lastSeenMessageId = newSeen
                     if (firstLoad || dividerSeenMessageId == 0L) dividerSeenMessageId = newSeen
                 }
@@ -737,7 +734,6 @@ open class ChatFragment : BaseFragment() {
             initialLoadRetryAttempt = 0
 
             if (jumpingToPresent && isCache) {
-                Log.d(TAG, "jumpToPresent: skip cache response (waiting for API), loaded=${loadedMessages.size}")
                 return@observe
             }
 
@@ -796,7 +792,6 @@ open class ChatFragment : BaseFragment() {
                         }
                         pendingEchoTempIds.remove(pending.id)
                         messagesDict.delete(pending.id)
-                        Log.d(TAG, "messagesDidLoad reconciled pending tempId=${pending.id} → realId=${echo.id}")
                         false
                     }
 
@@ -844,7 +839,6 @@ open class ChatFragment : BaseFragment() {
                     && lastSeenMessageId < lastSentMessageId) {
                     hasUnread = true
                     if (dividerSeenMessageId == 0L) dividerSeenMessageId = lastSeenMessageId
-                    Log.d(TAG, "hasUnread re-evaluated to TRUE: lastSeen=$lastSeenMessageId < lastSent=$lastSentMessageId dividerSeen=$dividerSeenMessageId")
                 }
 
                 if (lastSentMessageId != 0L && newestReadableInList != 0L) {
@@ -891,16 +885,13 @@ open class ChatFragment : BaseFragment() {
                     jumpingToPresent = false
                     hasMoreBottom = false
                     isViewingOlder = false
-                    Log.d(TAG, "jumpToPresent: API done, msgs=${messages.size}, showing list + scrollToBottom")
                     showMessages()
                     forceScrollToBottom()
                     markAsRead()
                     updatePageDownVisibility()
                 } else {
-                    Log.d(TAG, "messagesDidLoad decision: wasFirstLoad=$wasFirstLoad hasUnread=$hasUnread isCache=$isCache firstLoad=$firstLoad msgs=${messages.size}")
 
                     if (rebuildUnchanged && !wasFirstLoad && pendingHighlightMessageId == 0L) {
-                        Log.d(TAG, "messagesDidLoad skip refresh: list unchanged")
                         if (!isViewingOlder) markAsRead()
                         return@observe
                     }
@@ -932,7 +923,6 @@ open class ChatFragment : BaseFragment() {
                         val highlightId = pendingHighlightMessageId
                         pendingHighlightMessageId = 0L
                         val hIdx = messages.indexOfFirst { it.id == highlightId }
-                        Log.d(TAG, "pendingHighlight: id=$highlightId idx=$hIdx msgsSize=${messages.size}")
                         if (hIdx >= 0) {
                             val newestInList = newestReadStateMessageId()
                             if (lastSentMessageId != 0L && newestInList < lastSentMessageId) {
@@ -954,14 +944,12 @@ open class ChatFragment : BaseFragment() {
                         forceScrollToBottom()
                         markAsRead()
                     } else if (wasFirstLoad) {
-                        Log.d(TAG, "scrollDecision: wasFirstLoad→forceScrollToBottom")
                         forceScrollToBottom()
                         markAsRead()
                     } else if (!isViewingOlder) {
                         forceScrollToBottom()
                         markAsRead()
                     } else if (anchorMsgId != 0L) {
-                        Log.d(TAG, "scrollDecision: anchorRestore anchorMsgId=$anchorMsgId offset=$anchorOffset")
                         val idx = messages.indexOfFirst { it.id == anchorMsgId }
                         if (idx >= 0) {
                             val lm = recyclerView.layoutManager as? LinearLayoutManager
@@ -986,38 +974,11 @@ open class ChatFragment : BaseFragment() {
             if (args.size < 2) return@observe
             val eventChannelId = args[0] as? Long ?: return@observe
             if (eventChannelId != messageListKey) {
-                if (BuildConfig.DEBUG) {
-                    Log.d(
-                        TAG,
-                        "didReceiveNewMessages skip channel mismatch current=$channelId event=$eventChannelId"
-                    )
-                }
                 return@observe
             }
             val entity = args[1] as? MessageEntity ?: return@observe
             if (entity.channelId != 0L && entity.channelId != messageListKey) {
-                if (BuildConfig.DEBUG) {
-                    Log.d(
-                        TAG,
-                        "didReceiveNewMessages skip entity channel mismatch id=${entity.id} " +
-                            "entityChannel=${entity.channelId} key=$messageListKey"
-                    )
-                }
                 return@observe
-            }
-            if (BuildConfig.DEBUG) {
-                val refId = debugReferencedMessageId(entity.content)
-                val refIdx = if (refId != 0L) messages.indexOfFirst { it.id == refId } else -1
-                val refMsg = if (refIdx >= 0) messages[refIdx] else if (refId != 0L) messagesDict.get(refId) else null
-                Log.d(
-                    TAG,
-                    "didReceiveNewMessages id=${entity.id} channel=${entity.channelId} code=${entity.code} " +
-                        "ts=${entity.timestampSeconds} ref=$refId refIdx=$refIdx refTs=${refMsg?.timestampSeconds ?: 0L} " +
-                        "dict=${messagesDict.get(entity.id) != null} isMe=${entity.isMe} isSending=${entity.isSending} " +
-                        "isViewingOlder=$isViewingOlder hasMoreBottom=$hasMoreBottom paused=$isPaused " +
-                        "first=${debugMessageAt(0)} last=${debugMessageAt(messages.lastIndex)} " +
-                        "content=${debugMessagePreview(entity.content)}"
-                )
             }
             if (entity.isSending) {
                 val insertIndex = insertSendingOptimisticMessage(entity)
@@ -1036,12 +997,6 @@ open class ChatFragment : BaseFragment() {
                     }
                 }
                 if (isViewingOlder || hasMoreBottom) {
-                    if (BuildConfig.DEBUG) {
-                        Log.d(
-                            TAG,
-                            "didReceiveNewMessages sending jumpToPresent id=${entity.id} index=$insertIndex"
-                        )
-                    }
                     jumpToPresent()
                 } else if (fragmentView != null) {
                     forceScrollToBottom()
@@ -1082,12 +1037,6 @@ open class ChatFragment : BaseFragment() {
             if (isViewingOlder) {
                 newUnreadCount++
                 hasMoreBottom = true
-                if (BuildConfig.DEBUG) {
-                    Log.d(
-                        TAG,
-                        "didReceiveNewMessages buffer because viewingOlder id=${entity.id} unread=$newUnreadCount"
-                    )
-                }
                 if (::pageDownButton.isInitialized) {
                     pageDownButton.setUnreadCount(newUnreadCount)
                     pageDownButton.show(true)
@@ -1096,13 +1045,6 @@ open class ChatFragment : BaseFragment() {
             }
             messagesDict.put(entity.id, entity)
             val insertIndex = insertIndexForMessage(entity)
-            if (referencedEmbedResponseInsertIndex(entity) >= 0 && BuildConfig.DEBUG) {
-                Log.d(
-                    TAG,
-                    "didReceiveNewMessages anchored embed response id=${entity.id} " +
-                        "ref=${referencedMessageId(entity.content)} index=$insertIndex"
-                )
-            }
             messages.add(insertIndex, entity)
             refreshThreadWelcomeCreator()
             val trimmed = trimViewportOldest()
@@ -1121,22 +1063,12 @@ open class ChatFragment : BaseFragment() {
                 }
                 if (entity.isMe) forceScrollToBottom() else scrollToBottom()
             }
-            if (BuildConfig.DEBUG) {
-                Log.d(
-                    TAG,
-                    "didReceiveNewMessages inserted id=${entity.id} ts=${entity.timestampSeconds} " +
-                        "ref=${debugReferencedMessageId(entity.content)} index=$insertIndex size=${messages.size} " +
-                        "prev=${debugMessageAt(insertIndex - 1)} self=${debugMessageAt(insertIndex)} " +
-                        "next=${debugMessageAt(insertIndex + 1)}"
-                )
-            }
             if (!isPaused) markAsRead()
         }
         observe(NotificationCenter.pendingMessageSent) { _, _, args ->
             if (args.size < 3 || args[0] != messageListKey) return@observe
             val tempId = args[1] as? Long ?: return@observe
             val apiRealId = args[2] as? Long ?: return@observe
-            Log.d(TAG, "pendingMessageSent tempId=$tempId apiRealId=$apiRealId")
             if (apiRealId != 0L) {
                 sentByApiRealIds.add(apiRealId)
                 applyRealId(tempId, apiRealId)
@@ -1427,7 +1359,6 @@ open class ChatFragment : BaseFragment() {
 
         observe(NotificationCenter.appDidReconnect) { _, _, _ ->
             if (isPaused) return@observe
-            Log.d(TAG, "appDidReconnect: reloading messages for channel $channelId")
             rejoinChannelOnSocket()
             chatController.loadMessages(channelId, clanId, forceRefresh = true, refreshWhenBackOnline = true, topicId = topicId)
         }
@@ -1506,7 +1437,6 @@ open class ChatFragment : BaseFragment() {
         }
 
         observe(NotificationCenter.dialogsNeedReload) { _, _, _ ->
-            Log.d("DmCallMenu", "dialogsNeedReload fired isPaused=$isPaused clanId=$clanId channelType=$channelType actionBar=${actionBar != null}")
             if (isPaused) return@observe
             if (clanId == 0L && channelType == CHANNEL_TYPE_GROUP) {
                 refreshPermissionGates()
@@ -2339,13 +2269,7 @@ open class ChatFragment : BaseFragment() {
                 return friendController.isUserBlocked(other.userId)
             }
             override fun didTapCallLogCallBack(cell: ChatMessageCell, msg: MessageEntity) {
-                val parsed = parseCallLogMessage(msg.content)
-                Log.d(
-                    TAG,
-                    "callLogCallback tap msgId=${msg.id} channelId=$channelId clanId=$clanId " +
-                        "senderId=${msg.senderId} isMe=${msg.isMe} parsedType=${parsed?.callLogType}"
-                )
-                val peer = resolveDmCallPeerForCallback(msg) ?: run {
+                val peer =resolveDmCallPeerForCallback(msg) ?: run {
                     if (channelType == CHANNEL_TYPE_DM && clanId == 0L) {
                         dialogsController.loadDmParticipants(channelId)
                         MezonToast.show(
@@ -2362,9 +2286,7 @@ open class ChatFragment : BaseFragment() {
                     }
                     return
                 }
-                Log.d(TAG, "callLogCallback resolved peerId=${peer.userId} msgId=${msg.id}")
                 requestCallPermissions(needsCamera = false, reason = "callLogCallback") {
-                    Log.d(TAG, "callLogCallback permissions ok startCall peerId=${peer.userId} msgId=${msg.id}")
                     runOutgoingCallAfterFullScreenIntentPrompt(
                         {
                             callController.startCall(
@@ -2419,12 +2341,6 @@ open class ChatFragment : BaseFragment() {
             override fun onOpenThread(threadChannelId: Long, threadTitle: String) {
                 val entity = channelController.findChannelById(threadChannelId, 0L)
                     ?: searchController.findChannelById(threadChannelId)
-                if (BuildConfig.DEBUG) {
-                    Log.d(
-                        TAG,
-                        "system_msg_open_thread id=$threadChannelId entity=${entity != null} clanId=$clanId"
-                    )
-                }
                 if (entity != null) {
                     openChannelEntity(entity)
                 } else {
@@ -2439,9 +2355,6 @@ open class ChatFragment : BaseFragment() {
             }
 
             override fun onSeeAllThreads() {
-                if (BuildConfig.DEBUG) {
-                    Log.d(TAG, "system_msg_see_all_threads channelId=$channelId clanId=$clanId")
-                }
                 presentFragment(ThreadListFragment.newInstance(channelId, channelName, clanId))
             }
 
@@ -3498,11 +3411,9 @@ open class ChatFragment : BaseFragment() {
         unreadDecoration.clear()
         recyclerView.invalidateItemDecorations()
         cancelPendingScroll()
-        Log.d(TAG, "forceScrollToBottom: itemCount=${adapter.itemCount} recyclerVisibility=${recyclerView.visibility}")
         val r = Runnable {
             val lm = recyclerView.layoutManager as? LinearLayoutManager ?: return@Runnable
             val position = adapter.messagesStartRow
-            Log.d(TAG, "forceScrollToBottom: scrollToPositionWithOffset($position, 0) executed")
             lm.scrollToPositionWithOffset(position, 0)
         }
         pendingBottomScroll = r
@@ -3583,7 +3494,6 @@ open class ChatFragment : BaseFragment() {
         val latestId = lastSentMessageId
         val alreadyLoaded = latestId != 0L && messagesDict.get(latestId) != null
         if (alreadyLoaded) {
-            Log.d(TAG, "jumpToPresent: latest msg $latestId already in list, scrollToBottom")
             adapter.showLoadingDown = false
             adapter.updateRowsSafe()
             forceScrollToBottom()
@@ -3591,7 +3501,6 @@ open class ChatFragment : BaseFragment() {
         } else {
             jumpingToPresent = true
             firstLoad = true
-            Log.d(TAG, "jumpToPresent: keeping current list until reload completes, loadMessages forceRefresh=true")
             chatController.loadMessages(channelId, clanId, forceRefresh = true, refreshWhenBackOnline = true, topicId = topicId)
         }
     }
@@ -4319,9 +4228,6 @@ open class ChatFragment : BaseFragment() {
             existing.extraAttachmentsJson == entity.extraAttachmentsJson &&
             existing.isError == entity.isError
         ) {
-            if (BuildConfig.DEBUG) {
-                Log.d(TAG, "didReceiveNewMessages exact duplicate id=${entity.id} code=${entity.code}")
-            }
             return true
         }
         val merged = if (entity.isMe) {
@@ -4351,14 +4257,6 @@ open class ChatFragment : BaseFragment() {
             if (mask == 0) mask = NotificationCenter.UPDATE_MASK_MESSAGE_TEXT
             updateVisibleRows(mask)
         }
-        if (BuildConfig.DEBUG) {
-            Log.d(
-                TAG,
-                "didReceiveNewMessages merged duplicate id=${entity.id} idx=$idx oldCode=${existing.code} " +
-                    "newCode=${entity.code} oldContent=${debugMessagePreview(existing.content)} " +
-                    "newContent=${debugMessagePreview(entity.content)}"
-            )
-        }
         return true
     }
 
@@ -4368,8 +4266,6 @@ open class ChatFragment : BaseFragment() {
     }
 
     private fun referencedMessageId(content: String): Long = firstReferenceMessageId(content)
-
-    private fun debugReferencedMessageId(content: String): Long = referencedMessageId(content)
 
     private fun referencedEmbedResponseInsertIndex(entity: MessageEntity): Int {
         val refId = referencedMessageId(entity.content)
@@ -4495,11 +4391,9 @@ open class ChatFragment : BaseFragment() {
         val o = parts.firstOrNull { it.userId != myId }
         if (o != null) {
             val name = o.displayName.ifBlank { o.username.ifBlank { "User" } }
-            Log.d(TAG, "resolveDmCallPeerForCallback peer=participants userId=${o.userId} msgId=${msg.id}")
             return CallPeer(o.userId, name, o.username, o.avatarUrl.ifBlank { null })
         }
         if (msg.senderId != myId) {
-            Log.d(TAG, "resolveDmCallPeerForCallback peer=senderId userId=${msg.senderId} msgId=${msg.id}")
             return CallPeer(
                 msg.senderId,
                 msg.senderName.ifBlank { "User" },
@@ -4510,10 +4404,6 @@ open class ChatFragment : BaseFragment() {
         val dm = dialogsController.getDialog(channelId)
         if (dm != null && dm.otherUserId != 0L && dm.otherUserId != myId) {
             val name = dm.displayName.ifBlank { dm.label.ifBlank { "User" } }
-            Log.d(
-                TAG,
-                "resolveDmCallPeerForCallback peer=dialog otherUserId=${dm.otherUserId} msgId=${msg.id}"
-            )
             return CallPeer(dm.otherUserId, name, dm.username, dm.avatarUrl.ifBlank { null })
         }
         Log.w(
@@ -4785,19 +4675,10 @@ open class ChatFragment : BaseFragment() {
 
     private fun setupDmHeaderCallMenu(chatActionBar: ActionBarView) {
         val participants = dialogsController.getParticipants(channelId)
-        val dmCached = dialogsController.getDialog(channelId)
-        Log.d(
-            "DmCallMenu",
-            "enter channelId=$channelId clanId=$clanId channelType=$channelType " +
-                "participants=${participants.size} dmCached=${dmCached != null} " +
-                "dmOtherUserId=${dmCached?.otherUserId} myId=${chatController.getCurrentUserId()}"
-        )
         if (clanId != 0L || channelType != CHANNEL_TYPE_DM) {
-            Log.d("DmCallMenu", "skip not-DM clanId=$clanId channelType=$channelType")
             return
         }
         if (isDmSelfOnlyChat()) {
-            Log.d("DmCallMenu", "skip self-only-chat channelId=$channelId")
             return
         }
         if (participants.isEmpty()) {
@@ -4805,10 +4686,8 @@ open class ChatFragment : BaseFragment() {
         }
         val otherId = dmHeaderCallOtherUserId()
         if (otherId != null && friendController.isUserBlocked(otherId)) {
-            Log.d("DmCallMenu", "skip peer-blocked otherId=$otherId")
             return
         }
-        Log.d("DmCallMenu", "proceed otherId=$otherId")
         chatActionBar.setMenuOnItemClick(object : ActionBarView.ActionBarMenuOnItemClick() {
             override fun onItemClick(id: Int) {
                 when (id) {
@@ -4851,11 +4730,9 @@ open class ChatFragment : BaseFragment() {
         })
         val menu = chatActionBar.createMenu()
         if (menu.getItem(MENU_DM_VOICE_CALL) != null) {
-            Log.d("DmCallMenu", "menu item already exists — only refresh color")
             chatActionBar.setItemsColor(themeColors.onSurface)
             return
         }
-        Log.d("DmCallMenu", "adding new MENU_DM_VOICE_CALL item iconRes=${MezonIcon.phoneCallIcon.resId}")
         val callMenuItem = menu.addItem(MENU_DM_VOICE_CALL, MezonIcon.phoneCallIcon.resId)
         callMenuItem.contentDescription = getString(R.string.user_profile_voice_call)
         val callItemLp = callMenuItem.layoutParams as LinearLayout.LayoutParams
@@ -4866,13 +4743,6 @@ open class ChatFragment : BaseFragment() {
         callMenuItem.iconView.scaleType = ImageView.ScaleType.FIT_CENTER
         callMenuItem.iconView.layoutParams = FrameLayout.LayoutParams(callIconPx, callIconPx, Gravity.CENTER)
         chatActionBar.setItemsColor(themeColors.onSurface)
-        Log.d(
-            "DmCallMenu",
-            "DONE menuChildCount=${menu.childCount} menuVis=${menu.visibility} " +
-                "callItemVis=${callMenuItem.visibility} actionBarParent=${chatActionBar.parent != null} " +
-                "actionBarW=${chatActionBar.width} actionBarH=${chatActionBar.height} " +
-                "themeOnSurface=${themeColors.onSurface}"
-        )
     }
 
     private fun resolveChannelPrivate(): Boolean {
@@ -5102,8 +4972,6 @@ open class ChatFragment : BaseFragment() {
             clearEditState()
             return
         }
-
-        Log.d(TAG, "sendMessage channelId=$channelId clanId=$clanId channelType=$channelType isPrivate=$isPrivate textLen=${cleanedText.length} attachments=${outgoingAttachments.size} hasReply=${references != null} mdMarkers=${filteredMdMarkers?.size ?: 0} ogp=${ogpMarker != null} hashtags=${hashtags?.size ?: 0}")
 
         if (exceedsMessageContentLimit(
                 outgoingContentFor(cleanedText, buildEmojiMarkers(cleanedText), filteredMdMarkers, hashtags, ogpMarker)
@@ -7642,7 +7510,6 @@ open class ChatFragment : BaseFragment() {
                     put("t", messageTextForDm)
                     put("mk", org.json.JSONArray())
                 }.toString()
-                Log.d(TAG, "handleGiveCoffee: sending DM to channelId=$dmChannelId code=${MessageEntity.CODE_SEND_TOKEN} content=$content")
                 val request = com.mezon.mezon.rtapi.channelMessageSend {
                     this.clanId = 0L
                     this.channelId = dmChannelId
@@ -7793,12 +7660,10 @@ open class ChatFragment : BaseFragment() {
         if (idx < 0) {
             pendingEchoTempIds.remove(tempId)
             if (messagesDict.get(realId) != null) return
-            Log.d(TAG, "applyRealId tempId=$tempId not found")
             return
         }
 
         if (messagesDict.get(realId) != null) {
-            Log.d(TAG, "applyRealId tempId=$tempId realId=$realId already present, dropping optimistic")
             if (::adapter.isInitialized) {
                 adapter.preserveOptimisticStableId(tempId, realId)
             }
@@ -7839,7 +7704,6 @@ open class ChatFragment : BaseFragment() {
         if (::adapter.isInitialized) {
             adapter.preserveOptimisticStableId(tempId, realId)
         }
-        Log.d(TAG, "applyRealId tempId=$tempId → realId=$realId")
         if (fragmentView == null) return
         val cellMask = when {
             pendingEntity != null || echoEntity != null ->
@@ -7961,7 +7825,6 @@ open class ChatFragment : BaseFragment() {
         if (idx >= 0) {
             scrollToAndHighlight(idx)
         } else {
-            Log.d(TAG, "Reply message $messageId not in list, calling loadMessagesAround")
             pendingHighlightMessageId = messageId
             chatController.loadMessagesAround(
                 channelId,
@@ -8576,11 +8439,9 @@ open class ChatFragment : BaseFragment() {
             needed.add(android.Manifest.permission.CAMERA)
         }
         if (needed.isEmpty()) {
-            Log.d(TAG, "requestCallPermissions already granted reason=$reason")
             pendingCallPermissionRequestIncludedCamera = false
             runOutgoingCallAfterFullScreenIntentPrompt(onGranted)
         } else {
-            Log.d(TAG, "requestCallPermissions prompting reason=$reason perms=$needed")
             pendingCallPermissionRequestIncludedCamera =
                 needed.contains(android.Manifest.permission.CAMERA)
             pendingCallPermissionCallback = { runOutgoingCallAfterFullScreenIntentPrompt(onGranted) }

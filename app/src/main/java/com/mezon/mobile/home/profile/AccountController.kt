@@ -101,7 +101,6 @@ class AccountController @Inject constructor(
         }
         appScope.launch {
             sessionManager.sessionFlow.collectLatest { session ->
-                Log.d(ACCOUNT_LOG, "sessionFlow emitted: session=${if (session != null) "non-null userId=${session.userId}" else "null"}")
                 if (session != null) loadAccountInternal()
             }
         }
@@ -222,25 +221,21 @@ class AccountController @Inject constructor(
     }
 
     private suspend fun loadAccountInternal(noCache: Boolean = false) {
-        Log.d(ACCOUNT_LOG, "loadAccountInternal called noCache=$noCache")
         try {
             sessionManager.withAutoRefresh { session ->
                 val cacheKey = apiCacheKey(ACCOUNT_CACHE_PREFIX, session.userId)
                 if (!noCache &&
                     cacheTracker.shouldCall(cacheKey, noCache = false) == ApiCacheTracker.ShouldCall.SKIP
                 ) {
-                    Log.d(ACCOUNT_LOG, "loadAccountInternal SKIP (cache valid) cacheKey=$cacheKey")
                     return@withAutoRefresh
                 }
                 coroutineScope {
-                    Log.d(ACCOUNT_LOG, "loadAccountInternal CALL getAccount + getWalletBalance userId=${session.userId}")
                     val accountDeferred = async(ioDispatcher) { api.getAccount(session.apiUrl, session.token) }
                     val walletDeferred = async(ioDispatcher) {
                         runCatching { mmnApi.getWalletBalance(session.userId) }.getOrNull()
                     }
                     val account = accountDeferred.await()
                     val walletData = walletDeferred.await()
-                    Log.d(ACCOUNT_LOG, "loadAccountInternal API done getAccount userId=${account.user.id} walletBalance=${walletData?.balance ?: "null"}")
                     val user = account.user
                     val current = _accountInfo.value
                     val canKeepCustomStatusDuration =

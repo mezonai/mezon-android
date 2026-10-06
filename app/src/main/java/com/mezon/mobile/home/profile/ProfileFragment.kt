@@ -14,6 +14,7 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.drawable.Drawable
+import android.os.SystemClock // FOR TEST ONLY: remove before release
 import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
@@ -25,21 +26,29 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import com.mezon.mobile.R
+import com.mezon.mobile.core.AlertDialog // FOR TEST ONLY: remove before release
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.FragmentEntryPoint
+import com.mezon.mobile.home.ConnectionController // FOR TEST ONLY: remove before release
 import com.mezon.mobile.home.friends.FriendController
 import com.mezon.mobile.home.friends.FriendsHomeFragment
 import com.mezon.mobile.home.friends.createFriendRequestBadgeView
 import com.mezon.mobile.home.friends.updateFriendRequestBadge
 import com.mezon.mobile.home.wallet.SendTokenFragment
+import com.mezon.mobile.network.HealthyEndpointReason // FOR TEST ONLY: remove before release
+import com.mezon.mobile.network.MezonApi // FOR TEST ONLY: remove before release
+import com.mezon.mobile.network.realtimeEndpointOf // FOR TEST ONLY: remove before release
+import com.mezon.mobile.session.SessionManager // FOR TEST ONLY: remove before release
 import com.mezon.mobile.ui.cells.AvatarView
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.wallet.history.HistoryTransactionFragment
 import com.mezon.mobile.wallet.WalletController
+import kotlinx.coroutines.CancellationException // FOR TEST ONLY: remove before release
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job // FOR TEST ONLY: remove before release
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
@@ -56,6 +65,10 @@ class ProfileFragment : BaseFragment() {
         )
         private val MILLION = java.math.BigDecimal(1000000)
         private val VI_LOCALE = Locale("vi", "VN")
+        private const val HEALTHY_CHECK_TITLE = "Check healthy API" // FOR TEST ONLY: remove before release
+        private const val HEALTHY_CHECKING_TITLE = "Checking…" // FOR TEST ONLY: remove before release
+        private const val SOCKET_SWITCH_TITLE = "Switch sock" // FOR TEST ONLY: remove before release
+        private val SOCKET_HOSTS = listOf("sock.mezon.ai", "sock2.mezon.ai", "sock3.mezon.ai") // FOR TEST ONLY: remove before release
         private const val PROFILE_AVATAR_SIZE_DP = 96
         private const val PROFILE_AVATAR_CORNER_RADIUS_DP = 22f
         private const val MAX_FRIENDS_DISPLAY = 5
@@ -89,6 +102,18 @@ class ProfileFragment : BaseFragment() {
     private lateinit var friendController: FriendController
     private lateinit var walletController: WalletController
 
+    // FOR TEST ONLY: socket/healthy debug, remove before release
+    private lateinit var connectionController: ConnectionController
+    private lateinit var mezonApi: MezonApi
+    private lateinit var sessionManager: SessionManager
+    private lateinit var socketDebugText: TextView
+    private lateinit var healthyCheckButton: TextView
+    private lateinit var healthyResultText: TextView
+    private var healthyCheckJob: Job? = null
+    private lateinit var socketSwitchButton: TextView
+    private var healthySuggestedHost: String? = null
+    // END FOR TEST ONLY
+
     var onLogout: (() -> Unit)? = null
 
     private lateinit var avatarView: AvatarView
@@ -113,6 +138,11 @@ class ProfileFragment : BaseFragment() {
         accountController = entryPoint.accountController()
         friendController = entryPoint.friendController()
         walletController = entryPoint.walletController()
+        // FOR TEST ONLY: socket/healthy debug, remove before release
+        connectionController = entryPoint.connectionController()
+        mezonApi = entryPoint.mezonApi()
+        sessionManager = entryPoint.sessionManager()
+        // END FOR TEST ONLY
     }
 
     override fun onFragmentCreate(): Boolean {
@@ -126,6 +156,17 @@ class ProfileFragment : BaseFragment() {
                 }
             }
         }
+
+        // FOR TEST ONLY: socket/healthy debug, remove before release
+        fragmentScope.launch {
+            connectionController.mezonSocket.connectionState.collect {
+                if (fragmentView == null) return@collect
+                withContext(Dispatchers.Main) {
+                    updateSocketDebugText()
+                }
+            }
+        }
+        // END FOR TEST ONLY
 
         observe(NotificationCenter.userDataLoaded) { _, _, _ ->
             if (fragmentView == null || isPaused) return@observe
@@ -375,6 +416,34 @@ class ProfileFragment : BaseFragment() {
         infoCol.addView(usernameText, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
         ).apply { topMargin = 0 })
+
+        // FOR TEST ONLY: socket/healthy debug, remove before release
+        val socketDebugColumn = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        infoCol.addView(socketDebugColumn, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = LayoutHelper.dp(6) })
+        socketDebugText = TextView(context).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+        }
+        socketDebugColumn.addView(socketDebugText)
+        val socketDebugButtons = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
+        socketDebugColumn.addView(socketDebugButtons, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = LayoutHelper.dp(6) })
+        healthyCheckButton = createSocketDebugButton(context, HEALTHY_CHECK_TITLE) { runHealthyCheck() }
+        socketDebugButtons.addView(healthyCheckButton)
+        socketSwitchButton = createSocketDebugButton(context, SOCKET_SWITCH_TITLE) { showSocketSwitchDialog() }
+        socketDebugButtons.addView(socketSwitchButton, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { leftMargin = LayoutHelper.dp(8) })
+        healthyResultText = TextView(context).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            visibility = View.GONE
+        }
+        socketDebugColumn.addView(healthyResultText, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = LayoutHelper.dp(6) })
+        // END FOR TEST ONLY
 
         scrollView = ScrollView(context).apply {
             isVerticalScrollBarEnabled = false
@@ -641,6 +710,7 @@ class ProfileFragment : BaseFragment() {
 
     private fun updateUI() {
         if (!::avatarView.isInitialized) return
+        updateSocketDebugText() // FOR TEST ONLY: remove before release
         val info = accountController.accountInfo.value
 
         val name = info.displayName.ifEmpty { info.username.ifEmpty { userController.displayName.ifEmpty { userController.username } } }
@@ -750,6 +820,115 @@ class ProfileFragment : BaseFragment() {
             getString(R.string.profile_copy_success)
         )
     }
+
+    // FOR TEST ONLY: socket/healthy debug, remove before release
+    private fun socketDebugSummary(): String {
+        val socket = connectionController.mezonSocket
+        return "${socket.targetEndpoint()?.label() ?: "-"} · ${socket.connectionState.value.name.lowercase()}"
+    }
+
+    private fun updateSocketDebugText() {
+        if (!::socketDebugText.isInitialized) return
+        socketDebugText.setTextColor(themeColors.onSurfaceVariant)
+        socketDebugText.text = "Socket: ${socketDebugSummary()}"
+        for (button in listOf(healthyCheckButton, socketSwitchButton)) {
+            button.setTextColor(themeColors.onSurface)
+            (button.background as? GradientDrawable)?.setColor(themeColors.surfaceVariant)
+        }
+        healthyResultText.setTextColor(themeColors.onSurface)
+    }
+
+    private fun createSocketDebugButton(context: Context, title: String, onClick: () -> Unit): TextView =
+        TextView(context).apply {
+            text = title
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(LayoutHelper.dp(12), LayoutHelper.dp(6), LayoutHelper.dp(12), LayoutHelper.dp(6))
+            background = GradientDrawable().apply { cornerRadius = LayoutHelper.dp(14).toFloat() }
+            setOnClickListener { onClick() }
+        }
+
+    private fun showSocketSwitchDialog() {
+        val currentHost = connectionController.mezonSocket.targetEndpoint()?.host
+        val labels = Array<CharSequence>(SOCKET_HOSTS.size) { index ->
+            val host = SOCKET_HOSTS[index]
+            buildString {
+                append(host)
+                if (host == currentHost) append(" (current)")
+                if (host == healthySuggestedHost) append(" (gateway)")
+            }
+        }
+        AlertDialog.Builder(requireContext())
+            .setTitle(SOCKET_SWITCH_TITLE)
+            .setItems(labels) { _, which -> switchSocket(SOCKET_HOSTS[which]) }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun switchSocket(host: String) {
+        healthyResultText.visibility = View.VISIBLE
+        healthyResultText.text = "Switching to $host…"
+        fragmentScope.launch {
+            val switched = try {
+                val session = sessionManager.requireValidSession()
+                sessionManager.updateEndpoints(session.apiUrl, host, host)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                false
+            }
+            if (switched) connectionController.mezonSocket.reconnectForEndpointChange("debug switch to $host")
+            withContext(Dispatchers.Main) {
+                if (fragmentView == null) return@withContext
+                healthyResultText.text = if (switched) "Switched to $host, reconnecting…" else "Switch failed"
+            }
+        }
+    }
+
+    private fun runHealthyCheck() {
+        if (healthyCheckJob?.isActive == true) return
+        healthyCheckButton.isEnabled = false
+        healthyCheckButton.text = HEALTHY_CHECKING_TITLE
+        healthyResultText.visibility = View.VISIBLE
+        healthyResultText.text = "Calling healthy API…"
+        healthyCheckJob = fragmentScope.launch {
+            val (result, suggestedHost) = healthyCheckResult()
+            withContext(Dispatchers.Main) {
+                if (fragmentView == null) return@withContext
+                healthySuggestedHost = suggestedHost
+                healthyCheckButton.isEnabled = true
+                healthyCheckButton.text = HEALTHY_CHECK_TITLE
+                healthyResultText.text = result
+                updateSocketDebugText()
+            }
+        }
+    }
+
+    private suspend fun healthyCheckResult(): Pair<String, String?> {
+        val current = connectionController.mezonSocket.targetEndpoint()
+        val currentEndpointId = current?.id ?: 0
+        val reason = HealthyEndpointReason.HIGH_LATENCY.code
+        return try {
+            val session = sessionManager.requireValidSession()
+            val started = SystemClock.elapsedRealtime()
+            val response = mezonApi.getHealthyEndpoint(session.token, currentEndpointId, reason)
+            val elapsedMs = SystemClock.elapsedRealtime() - started
+            val answered = realtimeEndpointOf(response.tcpUrl.ifBlank { session.tcpUrl }, response.wsUrl)
+            val verdict = when {
+                answered == null -> "no usable node"
+                current == null -> answered.label()
+                answered.isSameNode(current) -> "same node, keep"
+                else -> "move to ${answered.label()}"
+            }
+            val text = "Healthy (id=$currentEndpointId, reason=$reason, ${elapsedMs}ms): tcp=${response.tcpUrl} ws=${response.wsUrl}\n→ $verdict\nConnected: ${socketDebugSummary()}"
+            text to answered?.host
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            "Healthy API error: ${e.message ?: e.javaClass.simpleName}" to null
+        }
+    }
+    // END FOR TEST ONLY
 
     private fun navigateToProfileSetting() = presentFragment(EditProfileFragment())
 }

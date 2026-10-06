@@ -1,6 +1,5 @@
 package com.mezon.mobile.home.clans
 
-import android.util.Log
 import com.mezon.mobile.home.UserClanController
 import com.mezon.mobile.home.clans.settings.ClanSettingsPermissionState
 import com.mezon.mobile.home.profile.UserController
@@ -8,8 +7,6 @@ import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
 import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
 import javax.inject.Inject
 import javax.inject.Singleton
-
-private const val TAG_PRIVATE_CHANNEL = "PermissionPolicy"
 
 @Singleton
 class PermissionPolicy @Inject constructor(
@@ -199,10 +196,6 @@ class PermissionPolicy @Inject constructor(
 
     fun ensurePrivateChannelAccessPrefetch(clanId: Long, channelId: Long, channelType: Int) {
         if (clanId == 0L || channelId == 0L) return
-        Log.d(
-            TAG_PRIVATE_CHANNEL,
-            "ensurePrivateChannelAccessPrefetch clanId=$clanId channelId=$channelId channelType=$channelType",
-        )
         ensurePermissionChecker(listOf(VIEW_CHANNEL), null, clanId)
         channelPermissionController.ensureUserPermissionsInChannel(clanId, channelId, force = false)
         userClanController.loadDirectChannelMembers(clanId, channelId, noCache = false)

@@ -104,7 +104,6 @@ class KlipyApi @Inject constructor(
             }
             val body: KlipyCategoryResponse = response.body()
             val cats = body.data?.categories?.map { KlipyCategory(name = it.category, query = it.query ?: it.category, imageUrl = it.previewUrl) } ?: emptyList()
-            Log.d(TAG, "fetchCategories returned ${cats.size} items")
             cats
         } catch (e: Exception) {
             Log.e(TAG, "fetchCategories exception", e)
@@ -126,7 +125,6 @@ class KlipyApi @Inject constructor(
             }
             val body: KlipySearchResponse = response.body()
             val gifs = body.data?.data?.mapNotNull { it.toKlipyGif() } ?: emptyList()
-            Log.d(TAG, "searchGifs returned ${gifs.size} items")
             gifs
         } catch (e: Exception) {
             Log.e(TAG, "searchGifs exception", e)
@@ -147,7 +145,6 @@ class KlipyApi @Inject constructor(
             }
             val body: KlipySearchResponse = response.body()
             val gifs = body.data?.data?.mapNotNull { it.toKlipyGif() } ?: emptyList()
-            Log.d(TAG, "fetchTrending returned ${gifs.size} items")
             gifs
         } catch (e: Exception) {
             Log.e(TAG, "fetchTrending exception", e)

@@ -59,7 +59,7 @@ android {
                 arguments += "-DONNXRUNTIME_ROOT=${layout.buildDirectory.get().asFile}/onnxruntime-native"
             }
         }
-        versionCode = 1205
+        versionCode = 1206
         versionName = "1.2.14"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -117,7 +117,7 @@ android {
         buildIntOpt("MEZON_TCP_PORT", 443)
         buildBoolOpt("MEZON_ABRIDGED_FALLBACK", true)
         buildBoolOpt("MEZON_ENDPOINT_FAILOVER", true)
-        buildBoolOpt("MEZON_ENDPOINT_FAILOVER_SLOW", false)
+        buildBoolOpt("MEZON_ENDPOINT_FAILOVER_SLOW", true)
         buildStr("MEZON_API_KEY")
         buildStr("MEZON_API_CLIENT_KEY_CUSTOM")
         buildStr("MEZON_DOMAIN_URL")

@@ -4,14 +4,12 @@ import android.app.ActivityManager
 import android.content.Context
 import android.content.SharedPreferences
 import android.os.Build
-import android.util.Log
 import java.io.RandomAccessFile
 import java.util.Locale
 
 object SharedConfig {
 
     private const val PREFS_NAME = "mezon_shared_config"
-    private const val TAG = "SharedConfig"
 
     const val PERFORMANCE_CLASS_LOW = 0
     const val PERFORMANCE_CLASS_AVERAGE = 1
@@ -183,7 +181,6 @@ object SharedConfig {
             else -> PERFORMANCE_CLASS_HIGH
         }
 
-        Log.d(TAG, "device perf=$perfClass (cpu=$cpuCount freq=$maxCpuFreq mem=$memoryClass api=$androidVersion ram=$ram)")
         return perfClass
     }
 

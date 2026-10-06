@@ -77,7 +77,20 @@ class EndpointPacingTest {
         val endpoint = realtimeEndpointOf("sock.mezon.ai:7350", "wss://other.mezon.ai:443")
         assertEquals("sock.mezon.ai", endpoint?.host)
         assertEquals(7350, endpoint?.port)
-        assertEquals(0, endpoint?.id)
+        assertEquals(1, endpoint?.id)
+    }
+
+    @Test
+    fun `a known node host carries its endpoint id`() {
+        assertEquals(1, realtimeEndpointOf("sock.mezon.ai", null)?.id)
+        assertEquals(2, realtimeEndpointOf("sock2.mezon.ai", null)?.id)
+        assertEquals(3, realtimeEndpointOf("tcp://SOCK3.mezon.ai:443", null)?.id)
+    }
+
+    @Test
+    fun `an unknown host has no endpoint id`() {
+        assertEquals(0, realtimeEndpointOf("dev-mezon.nccsoft.vn:7349", null)?.id)
+        assertEquals(0, nodeIdOfHost("other.mezon.ai"))
     }
 
     @Test

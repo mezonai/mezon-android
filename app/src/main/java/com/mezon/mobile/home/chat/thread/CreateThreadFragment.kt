@@ -2352,7 +2352,6 @@ class CreateThreadFragment : BaseFragment() {
                     if (main == null) {
                         Log.w(LOG_TAG, "nav: MainActivity null after create channelId=$newChannelId")
                     } else {
-                        Log.d(LOG_TAG, "nav: openChat replaceLast channelId=$newChannelId")
                         main.openChat(
                             newChannelId,
                             newLabel,
@@ -2360,7 +2359,6 @@ class CreateThreadFragment : BaseFragment() {
                             CHANNEL_TYPE_THREAD,
                             replaceLastFragment = true
                         )
-                        Log.d(LOG_TAG, "nav: openChat executed channelId=$newChannelId")
                     }
                 }
             } catch (_: Exception) {
