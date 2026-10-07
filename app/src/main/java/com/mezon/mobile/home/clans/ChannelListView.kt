@@ -29,6 +29,7 @@ private const val ROW_VOICE_MEMBER = 3
 private const val ROW_VOICE_COLLAPSED = 4
 private const val ROW_CHANNEL_APPS = 5
 private const val DIFF_BG_THRESHOLD = 50
+private const val PAYLOAD_BUZZ = "buzz_badge"
 
 class ChannelListView(
     context: Context,
@@ -39,7 +40,14 @@ class ChannelListView(
     var onChannelClick: ((channel: ClanChannelEntity) -> Unit)? = null
     var onChannelLongClick: ((channel: ClanChannelEntity, anchorView: android.view.View) -> Unit)? = null
     var onSectionLongClick: ((categoryId: Long, categoryName: String, anchorView: android.view.View) -> Unit)? = null
+    var buzzChecker: ((Long) -> Boolean)? = null
     var activeChannelId: Long = 0L
+
+    fun refreshBuzz(channelIds: LongArray) {
+        val changed = channelIds.toSet()
+        if (currentSections.none { section -> section.channels.any { it.channelId in changed } }) return
+        submitRowsGated(buildRows(currentSections))
+    }
 
     private val recyclerView: RecyclerListView
     private val adapter = Adapter()
@@ -373,7 +381,7 @@ class ChannelListView(
                 for (ch in section.channels) {
                     if (ch.isThread) {
                         val isActive = ch.channelId == activeChannelId
-                        if (isActive || ch.hasUnread) {
+                        if (isActive || ch.hasUnread || buzzChecker?.invoke(ch.channelId) == true) {
                             val isFirst = ch.parentId != lastParentId
                             lastParentId = ch.parentId
                             visibleThreads.add(Triple(ch, isFirst, isActive))
@@ -393,8 +401,9 @@ class ChannelListView(
                             voiceMembersByChannel[ch.channelId]?.isNotEmpty() == true
                         val children = threadsByParent[ch.channelId]
                         val hasActiveChild = children?.any { it.channelId == activeChannelId } == true
-                        val hasUnreadChild = children?.any { it.hasUnread } == true
-                        val shouldShow = isActive || ch.hasUnread || voiceActive || hasActiveChild || hasUnreadChild
+                        val hasUnreadChild = children?.any { it.hasUnread || buzzChecker?.invoke(it.channelId) == true } == true
+                        val shouldShow = isActive || ch.hasUnread || voiceActive || hasActiveChild || hasUnreadChild ||
+                            buzzChecker?.invoke(ch.channelId) == true
                         if (shouldShow) {
                             rows.add(ChannelRow.Channel(ch, isActive, voiceActive = voiceActive))
                             if (isVoiceType(ch.type) && voiceActive) {
@@ -415,7 +424,13 @@ class ChannelListView(
                 }
             }
         }
-        return rows
+        return rows.map { row ->
+            when (row) {
+                is ChannelRow.Channel -> row.copy(hasBuzz = buzzChecker?.invoke(row.channel.channelId) == true)
+                is ChannelRow.Thread -> row.copy(hasBuzz = buzzChecker?.invoke(row.thread.channelId) == true)
+                else -> row
+            }
+        }
     }
 
     private fun onSectionToggle(categoryId: Long) {
@@ -562,10 +577,10 @@ class ChannelListView(
                     (holder as SectionVH).cell.bind(row.categoryName, row.isExpanded, row.isFavorite)
                 }
                 is ChannelRow.Channel -> {
-                    (holder as ChannelVH).cell.bind(row.channel, row.isActive, row.voiceActive)
+                    (holder as ChannelVH).cell.bind(row.channel, row.isActive, row.voiceActive, row.hasBuzz)
                 }
                 is ChannelRow.Thread -> {
-                    (holder as ThreadVH).cell.bind(row.thread, row.isFirst, row.isLast, row.isActive)
+                    (holder as ThreadVH).cell.bind(row.thread, row.isFirst, row.isLast, row.isActive, row.hasBuzz)
                 }
                 is ChannelRow.VoiceMember -> {
                     (holder as VoiceMemberVH).cell.setUser(
@@ -580,6 +595,16 @@ class ChannelListView(
                     (holder as VoiceCollapsedVH).cell.setMembers(row.members)
                 }
             }
+        }
+
+        override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int, payloads: MutableList<Any>) {
+            if (payloads.isNotEmpty() && payloads.all { it == PAYLOAD_BUZZ }) {
+                when (val row = rows[position]) {
+                    is ChannelRow.Channel -> (holder as ChannelVH).cell.applyBuzz(row.hasBuzz)
+                    is ChannelRow.Thread -> (holder as ThreadVH).cell.applyBuzz(row.hasBuzz)
+                    else -> onBindViewHolder(holder, position)
+                }
+            } else onBindViewHolder(holder, position)
         }
 
         inner class ChannelAppsVH(val cell: ChannelAppsStripView) : RecyclerView.ViewHolder(cell)
@@ -612,6 +637,15 @@ private class RowDiffCallback(
         return false
     }
     override fun areContentsTheSame(o: Int, n: Int) = old[o] == new[n]
+    override fun getChangePayload(o: Int, n: Int): Any? {
+        val a = old[o]
+        val b = new[n]
+        return when {
+            a is ChannelRow.Channel && b is ChannelRow.Channel && a.copy(hasBuzz = b.hasBuzz) == b -> PAYLOAD_BUZZ
+            a is ChannelRow.Thread && b is ChannelRow.Thread && a.copy(hasBuzz = b.hasBuzz) == b -> PAYLOAD_BUZZ
+            else -> null
+        }
+    }
 }
 
 data class VoiceMemberDisplay(
@@ -634,9 +668,10 @@ sealed class ChannelRow {
         val channel: ClanChannelEntity,
         val isActive: Boolean,
         val isFavorite: Boolean = false,
-        val voiceActive: Boolean = false
+        val voiceActive: Boolean = false,
+        val hasBuzz: Boolean = false
     ) : ChannelRow()
-    data class Thread(val thread: ClanChannelEntity, val isFirst: Boolean, val isLast: Boolean, val isActive: Boolean) : ChannelRow()
+    data class Thread(val thread: ClanChannelEntity, val isFirst: Boolean, val isLast: Boolean, val isActive: Boolean, val hasBuzz: Boolean = false) : ChannelRow()
     data class VoiceMember(
         val channelId: Long,
         val member: VoiceMemberDisplay,

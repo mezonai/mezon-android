@@ -117,7 +117,7 @@ class DmListAdapter(
             val child = recyclerView.getChildAt(i)
             if (child is DialogCell) {
                 val current = child.directMessage ?: continue
-                child.hasBuzz = buzzChecker?.invoke(current.channelId) == true
+                child.applyBuzz(buzzChecker?.invoke(current.channelId) == true)
                 val updated = dialogMap?.get(current.channelId)
                 if (child.update(mask, updated)) {
                     val messages = if (dialogs != null) {
@@ -128,6 +128,17 @@ class DmListAdapter(
                     setData(messagesToEntries(messages))
                     break
                 }
+            }
+        }
+    }
+
+    fun refreshBuzz(recyclerView: RecyclerView, channelIds: LongArray? = null) {
+        val changed = channelIds?.toSet()
+        for (i in 0 until recyclerView.childCount) {
+            val cell = recyclerView.getChildAt(i) as? DialogCell ?: continue
+            val channelId = cell.directMessage?.channelId ?: continue
+            if (changed == null || channelId in changed) {
+                cell.applyBuzz(buzzChecker?.invoke(channelId) == true)
             }
         }
     }

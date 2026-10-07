@@ -107,6 +107,7 @@ class DialogsController @Inject constructor(
     private val notificationHelper: NotificationHelper,
     private val badgeCoordinator: Lazy<BadgeCoordinator>,
     private val dmPinStorage: DmPinStorage,
+    private val buzzController: BuzzController,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     @ApplicationScope private val appScope: CoroutineScope
 ) {
@@ -124,8 +125,6 @@ class DialogsController @Inject constructor(
     @Volatile
     private var currentChannelId: Long? = null
 
-    private val buzzStates = HashMap<Long, Long>()
-    private val buzzHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private var mutedDmChannelIds: LinkedHashSet<Long>? = null
     private val dmNotificationSettings = LongSparseArray<NotificationUserChannel>()
     private val dbHydrateMutex = Mutex()
@@ -172,18 +171,7 @@ class DialogsController @Inject constructor(
         }
     }
 
-    fun setBuzzState(channelId: Long) {
-        synchronized(this) { buzzStates[channelId] = System.currentTimeMillis() }
-        notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
-        buzzHandler.postDelayed({
-            synchronized(this) { buzzStates.remove(channelId) }
-            notificationCenter.postNotificationOnMainThread(NotificationCenter.dialogsNeedReload)
-        }, 10_000)
-    }
-
-    fun isBuzzActive(channelId: Long): Boolean {
-        return synchronized(this) { buzzStates.containsKey(channelId) }
-    }
+    fun isBuzzActive(channelId: Long): Boolean = buzzController.hasBuzz(channelId)
 
     init {
         appScope.launch { ensureDialogsHydratedFromDb() }
@@ -200,17 +188,17 @@ class DialogsController @Inject constructor(
             dialogs.clear()
             dialogsDict.clear()
             participantsByChannel.clear()
-            buzzStates.clear()
             dialogsLoaded = false
             dmBadgesServerSynced = false
             dmListingRevision.value = 0L
             countedDmMessageIds.clear()
             currentChannelId = null
+            activeChannelTracker.clear()
             mutedDmChannelIds = null
             dmNotificationSettings.clear()
             dbHydrated = false
         }
-        buzzHandler.removeCallbacksAndMessages(null)
+        buzzController.cleanup()
     }
 
     @Synchronized
@@ -343,11 +331,12 @@ class DialogsController @Inject constructor(
         return Pair(next, changed)
     }
 
-    fun setCurrentChannel(channelId: Long) {
+    fun setCurrentChannel(channelId: Long, topicId: Long = 0L) {
         currentChannelId = channelId
-        activeChannelTracker.setActive(channelId)
+        activeChannelTracker.setActive(channelId, topicId)
+        buzzController.clearTarget(topicId.takeIf { it != 0L } ?: channelId)
         notificationHelper.cancelNotification(channelId.toInt())
-        markDialogAsRead(channelId)
+        if (topicId == 0L) markDialogAsRead(channelId)
     }
 
     fun clearCurrentChannel() {
@@ -953,6 +942,7 @@ class DialogsController @Inject constructor(
     }
 
     fun markDialogAsRead(channelId: Long, postEvent: Boolean = true, seenTimestampSeconds: Int = 0, seenMessageId: Long = 0L) {
+        buzzController.clearTarget(channelId)
         var changed = false
         var updated: DirectMessage? = null
         synchronized(this) {
@@ -1097,8 +1087,11 @@ class DialogsController @Inject constructor(
                 removed = true
             }
             participantsByChannel.remove(channelId)
-            buzzStates.remove(channelId)
-            if (currentChannelId == channelId) currentChannelId = null
+            buzzController.removeChannel(channelId)
+            if (currentChannelId == channelId) {
+                currentChannelId = null
+                activeChannelTracker.clear()
+            }
         }
         if (!removed) return
         appScope.launch(ioDispatcher) {

@@ -162,6 +162,7 @@ class ChatController @Inject constructor(
     private val networkMonitor: NetworkMonitor,
     private val cacheTracker: ApiCacheTracker,
     private val dialogsController: DialogsController,
+    private val buzzController: BuzzController,
     private val badgeCoordinator: BadgeCoordinator,
     private val topicBadgeTracker: TopicBadgeTracker,
     private val forwardTargetUsageStore: ForwardTargetUsageStore,
@@ -1821,32 +1822,37 @@ class ChatController @Inject constructor(
         clanId: Long,
         channelType: Int,
         isChannelPrivate: Boolean,
-        text: String
+        text: String,
+        topicId: Long = 0L
     ) {
+        if (isAnonymousSend(clanId)) return
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
+        val cacheKey = messageCacheKey(channelId, topicId)
         val content = buildTextContent(text.ifBlank { "Buzz!!" })
 
-        val tempId = generateTempId(channelId)
+        val tempId = generateTempId(cacheKey)
         val uc = userController.get()
-        val anon = isAnonymousSend(clanId)
-        val (optName, optAvatar) = optimisticSenderPresentation(uc, clanId, channelType, anon)
+        val (optName, optAvatar) = optimisticSenderPresentation(uc, clanId, channelType, false)
         val optimistic = MessageEntity(
             id = tempId,
-            channelId = channelId,
-            senderId = if (anon) ANONYMOUS_USER_ID else uc.userId,
+            channelId = cacheKey,
+            senderId = uc.userId,
             senderName = optName,
-            senderUsername = if (anon) "Anonymous" else uc.username,
+            senderUsername = uc.username,
             senderAvatar = optAvatar,
             content = content,
             timestampSeconds = System.currentTimeMillis() / 1000,
             code = MessageEntity.CODE_MESSAGE_BUZZ,
             isMe = true,
+            topicId = topicId,
             sendState = MessageEntity.SEND_STATE_SENDING
         )
         notificationCenter.postNotificationOnMainThread(
-            NotificationCenter.didReceiveNewMessages, channelId, optimistic
+            NotificationCenter.didReceiveNewMessages, cacheKey, optimistic
         )
+
+        buzzController.playSound()
 
         appScope.launch {
             try {
@@ -1859,18 +1865,18 @@ class ChatController @Inject constructor(
                         this.isPublic = isPublic
                         this.content = content
                         this.code = MessageEntity.CODE_MESSAGE_BUZZ
-                        if (anon) this.anonymousMessage = true
+                        if (topicId != 0L) this.topicId = topicId
                     }
                     val ack = channelSend(session.apiUrl, session.token, request)
                     markForwardTargetUsed(channelId, channelType)
                     notificationCenter.postNotificationOnMainThread(
-                        NotificationCenter.pendingMessageSent, channelId, tempId, ack.messageId
+                        NotificationCenter.pendingMessageSent, cacheKey, tempId, ack.messageId
                     )
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to send buzz message", e)
                 notificationCenter.postNotificationOnMainThread(
-                    NotificationCenter.pendingMessageError, channelId, tempId
+                    NotificationCenter.pendingMessageError, cacheKey, tempId
                 )
             }
         }
@@ -3601,6 +3607,7 @@ class ChatController @Inject constructor(
 
         socketEventDispatcher.channelMessages.collect { raw ->
             val msg = assignMissingMessageId(resolveEphemeralSender(raw, currentUserId))
+            buzzController.receive(msg, currentUserId)
             val entity = msg.toMessageEntity(currentUserId)
 
             when (msg.code) {
@@ -3726,12 +3733,6 @@ class ChatController @Inject constructor(
                         notificationCenter.postNotificationOnMainThread(
                             NotificationCenter.updateInterfaces, NotificationCenter.UPDATE_MASK_NEW_MESSAGE
                         )
-                        if (merged.code == MessageEntity.CODE_MESSAGE_BUZZ && !merged.isMe) {
-                            notificationCenter.postNotificationOnMainThread(
-                                NotificationCenter.buzzMessageReceived, merged.channelId
-                            )
-                            dialogsController.setBuzzState(merged.channelId)
-                        }
                     }
                 }
             }
