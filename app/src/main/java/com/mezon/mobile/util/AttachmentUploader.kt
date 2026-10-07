@@ -286,12 +286,13 @@ object AttachmentUploader {
         width: Int = 0,
         height: Int = 0,
         cdnBaseUrl: String,
+        channelId: Long = 0L,
     ): PresignedFileResult {
         if (willUseMultipart(sizeBytes)) {
             try {
                 return presignMultipartBytes(
                     api, apiUrl, token, uploadFilename, mimeType, sizeBytes.toInt(),
-                    width, height, cdnBaseUrl,
+                    width, height, cdnBaseUrl, channelId,
                 )
             } catch (_: MultipartNotApplicable) {
                 skipMultipartStartForSession = true
@@ -301,6 +302,7 @@ object AttachmentUploader {
         }
         val presign = api.uploadAttachmentFile(
             apiUrl, token, uploadFilename, attachmentTypeForUpload(mimeType), sizeBytes.toInt(), width, height,
+            channelId = channelId,
         )
         val cdnUrl = "$cdnBaseUrl/${presign.filename}"
         return PresignedFileResult(
@@ -320,12 +322,13 @@ object AttachmentUploader {
         width: Int = 0,
         height: Int = 0,
         cdnBaseUrl: String,
+        channelId: Long = 0L,
     ): PresignedFileResult {
         if (willUseMultipart(fileSize)) {
             try {
                 return presignMultipartFromFile(
                     api, apiUrl, token, uploadFilename, mimeType, fileSize.toInt(),
-                    width, height, cdnBaseUrl,
+                    width, height, cdnBaseUrl, channelId,
                 )
             } catch (_: MultipartNotApplicable) {
                 skipMultipartStartForSession = true
@@ -335,6 +338,7 @@ object AttachmentUploader {
         }
         val presign = api.uploadAttachmentFile(
             apiUrl, token, uploadFilename, attachmentTypeForUpload(mimeType), fileSize.toInt(), width, height,
+            channelId = channelId,
         )
         val cdnUrl = "$cdnBaseUrl/${presign.filename}"
         return PresignedFileResult(
@@ -488,11 +492,13 @@ object AttachmentUploader {
         width: Int,
         height: Int,
         cdnBaseUrl: String,
+        channelId: Long = 0L,
     ): PresignedFileResult {
         val requestedPartCount = multipartPartCount(sizeBytes.toLong())
         val start = api.multipartUploadAttachmentFileStart(
             apiUrl, token, uploadFilename, attachmentTypeForUpload(mimeType), sizeBytes, width, height,
             partCount = requestedPartCount,
+            channelId = channelId,
         )
         val urls = start.urlsList
         val uploadId = start.uploadId
@@ -534,11 +540,13 @@ object AttachmentUploader {
         width: Int,
         height: Int,
         cdnBaseUrl: String,
+        channelId: Long = 0L,
     ): PresignedFileResult {
         val requestedPartCount = multipartPartCount(sizeBytes.toLong())
         val start = api.multipartUploadAttachmentFileStart(
             apiUrl, token, uploadFilename, attachmentTypeForUpload(mimeType), sizeBytes, width, height,
             partCount = requestedPartCount,
+            channelId = channelId,
         )
         val urls = start.urlsList
         val uploadId = start.uploadId

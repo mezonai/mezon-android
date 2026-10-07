@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.chat
 
+import com.mezon.mobile.network.CdnSigner
 import android.media.MediaMetadataRetriever
 import android.util.LruCache
 import kotlinx.coroutines.CompletableDeferred
@@ -43,7 +44,7 @@ internal object AudioDurationResolver {
     private fun readDurationMs(url: String): Long {
         val retriever = MediaMetadataRetriever()
         return try {
-            retriever.setDataSource(url, emptyMap())
+            retriever.setDataSource(CdnSigner.requestUrlBlocking(url).url, emptyMap())
             retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                 ?.toLongOrNull()
                 ?.coerceAtLeast(0L)

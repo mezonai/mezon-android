@@ -26,6 +26,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.R
 import com.mezon.mobile.core.LayoutHelper
+import com.mezon.mobile.network.CdnSigner
 import com.mezon.mobile.core.RecyclerListView
 import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.home.ChannelFilesController
@@ -79,9 +80,11 @@ class FilesTabHelper(
         }
 
         override fun openUrl(url: String) {
-            try {
-                hostActivity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-            } catch (_: Exception) {
+            CdnSigner.requestUrlOnMain(url) { signed ->
+                try {
+                    hostActivity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(signed.url)))
+                } catch (_: Exception) {
+                }
             }
         }
     }

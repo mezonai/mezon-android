@@ -5,6 +5,7 @@ import com.mezon.mobile.home.chat.poll.PollVotePersistence
 import com.mezon.mobile.util.EmbedFormUtil
 import com.mezon.mobile.di.ApplicationScope
 import com.mezon.mobile.network.MezonApi
+import com.mezon.mobile.network.CdnSigner
 import com.mezon.mobile.network.NetworkMonitor
 import com.mezon.mobile.network.ThrottledException
 import com.mezon.mobile.network.doubledBackoffMs
@@ -64,6 +65,14 @@ class SessionManager @Inject constructor(
         private const val ENCRYPTED_PREFIX = "enc:v1:"
         private const val REFRESH_THROTTLED_BASE_MS = 60_000L
         private const val REFRESH_THROTTLED_CAP_MS = 300_000L
+    }
+
+    init {
+        CdnSigner.install { channelId ->
+            withAutoRefresh { session ->
+                api.generateCDNSignature(session.apiUrl, session.token, channelId).signature
+            }
+        }
     }
 
     @Volatile
@@ -366,6 +375,7 @@ class SessionManager @Inject constructor(
             StartupCache.clearAccountProfileScratch()
             PollVotePersistence.clearAll()
             EmbedFormUtil.clearAll()
+            CdnSigner.reset()
             lastRefreshToken = ""
             failCount = 0
             dataStore.edit { prefs -> prefs.removeAllSessionData() }
