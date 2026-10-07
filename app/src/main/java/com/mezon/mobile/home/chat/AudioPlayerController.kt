@@ -6,6 +6,8 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import com.mezon.mobile.core.NotificationCenter
+import com.mezon.mobile.network.CdnRequestUrl
+import com.mezon.mobile.network.CdnSigner
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -99,7 +101,14 @@ class AudioPlayerController @Inject constructor(
         durationMs = (fallbackDurationSec * 1000L).coerceAtLeast(0L)
         isPrepared = false
         broadcastState(messageId, false, true, 0L, durationMs)
+        CdnSigner.requestUrlOnMain(url) { request ->
+            if (currentMessageId == messageId && currentUrl == url && player == null) {
+                preparePlayer(messageId, url, request, retriedSignature = false)
+            }
+        }
+    }
 
+    private fun preparePlayer(messageId: Long, url: String, request: CdnRequestUrl, retriedSignature: Boolean) {
         val mp = MediaPlayer()
         player = mp
         try {
@@ -109,7 +118,7 @@ class AudioPlayerController @Inject constructor(
                     .setUsage(AudioAttributes.USAGE_MEDIA)
                     .build()
             )
-            mp.setDataSource(url)
+            mp.setDataSource(request.url)
             mp.setOnPreparedListener { prepared ->
                 if (player !== prepared) return@setOnPreparedListener
                 isPrepared = true
@@ -129,8 +138,12 @@ class AudioPlayerController @Inject constructor(
                 Log.e(TAG, "MediaPlayer error what=$what extra=$extra")
                 if (player === erred) {
                     mainHandler.removeCallbacks(tickRunnable)
-                    broadcastState(messageId, false, false, 0L, durationMs)
-                    stopInternal()
+                    if (!retriedSignature && !isPrepared && CdnSigner.invalidate(request)) {
+                        retryWithFreshSignature(messageId, url, request)
+                    } else {
+                        broadcastState(messageId, false, false, 0L, durationMs)
+                        stopInternal()
+                    }
                 }
                 true
             }
@@ -147,6 +160,24 @@ class AudioPlayerController @Inject constructor(
         stopInternal()
         if (id != 0L) {
             broadcastState(id, false, false, 0L, 0L)
+        }
+    }
+
+    private fun retryWithFreshSignature(messageId: Long, url: String, request: CdnRequestUrl) {
+        val failed = player
+        player = null
+        if (failed != null) {
+            try { failed.reset() } catch (_: Exception) {}
+            try { failed.release() } catch (_: Exception) {}
+        }
+        CdnSigner.freshRequestUrlOnMain(request, url) { fresh ->
+            if (currentMessageId != messageId || currentUrl != url || player != null) return@freshRequestUrlOnMain
+            if (fresh == null) {
+                broadcastState(messageId, false, false, 0L, durationMs)
+                stopInternal()
+                return@freshRequestUrlOnMain
+            }
+            preparePlayer(messageId, url, fresh, retriedSignature = true)
         }
     }
 

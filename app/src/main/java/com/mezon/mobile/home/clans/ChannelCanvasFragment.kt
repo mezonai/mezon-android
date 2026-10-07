@@ -8,6 +8,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -19,6 +20,7 @@ import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.FragmentEntryPoint
+import com.mezon.mobile.network.CdnSigner
 import com.mezon.mobile.ui.cells.ActionBarView
 import com.mezon.mobile.util.CanvasBodyContent
 import com.mezon.mobile.util.CanvasContentHtml
@@ -27,6 +29,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
+import okhttp3.OkHttpClient
+import okhttp3.Request
 
 class ChannelCanvasFragment : BaseFragment() {
 
@@ -64,6 +68,7 @@ class ChannelCanvasFragment : BaseFragment() {
     private lateinit var channelCanvasController: ChannelCanvasController
 
     private var webView: WebView? = null
+    @Volatile private var okHttpClient: OkHttpClient? = null
     private var loadingView: ProgressBar? = null
     private var errorView: TextView? = null
     private var loadedCanvas: ChannelCanvasData? = null
@@ -100,6 +105,35 @@ class ChannelCanvasFragment : BaseFragment() {
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
         channelCanvasController = entryPoint.channelCanvasController()
+        okHttpClient = entryPoint.okHttpClient()
+    }
+
+    private fun fetchSignedResource(url: String): WebResourceResponse? {
+        val client = okHttpClient ?: return null
+        val response = try {
+            client.newCall(Request.Builder().url(url).build()).execute()
+        } catch (_: Exception) {
+            return null
+        }
+        val body = response.body
+        if (body == null || response.code in 300..399) {
+            response.close()
+            return null
+        }
+        val contentType = body.contentType()
+        return runCatching {
+            WebResourceResponse(
+                contentType?.let { "${it.type}/${it.subtype}" } ?: "application/octet-stream",
+                contentType?.charset()?.name(),
+                response.code,
+                response.message.ifEmpty { if (response.isSuccessful) "OK" else "Error" },
+                response.headers.toMultimap().mapValues { it.value.joinToString(", ") },
+                body.byteStream(),
+            )
+        }.getOrElse {
+            response.close()
+            null
+        }
     }
 
     override fun createView(context: Context): View {
@@ -139,6 +173,13 @@ class ChannelCanvasFragment : BaseFragment() {
                         }
                     }
                     return true
+                }
+
+                override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
+                    val resourceRequest = request ?: return null
+                    val url = resourceRequest.url?.toString() ?: return null
+                    if (resourceRequest.method != "GET" || !CdnSigner.wants(url)) return null
+                    return fetchSignedResource(url)
                 }
 
                 override fun onPageFinished(view: WebView?, url: String?) {

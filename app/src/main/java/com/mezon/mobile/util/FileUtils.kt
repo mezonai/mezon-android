@@ -18,7 +18,7 @@ object FileUtils {
             downloadsDir.mkdirs()
             val destFile = java.io.File(downloadsDir, filename)
             
-            val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+            val conn = java.net.URL(com.mezon.mobile.network.CdnSigner.requestUrl(url).url).openConnection() as java.net.HttpURLConnection
             conn.connect()
             if (conn.responseCode !in 200..299) {
                 return@withContext false

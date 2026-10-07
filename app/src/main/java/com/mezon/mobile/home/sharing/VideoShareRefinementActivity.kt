@@ -1,5 +1,6 @@
 package com.mezon.mobile.home.sharing
 
+import com.mezon.mobile.network.CdnSigner
 import android.content.ClipData
 import android.content.ComponentName
 import android.content.Context
@@ -285,7 +286,7 @@ class VideoShareRefinementActivity : ComponentActivity() {
 
         val source = URL(attachment.url)
         require(source.protocol == "https" || source.protocol == "http") { "Unsupported video URL" }
-        val connection = (source.openConnection() as HttpURLConnection).apply {
+        val connection = (URL(CdnSigner.requestUrl(attachment.url).url).openConnection() as HttpURLConnection).apply {
             connectTimeout = CONNECT_TIMEOUT_MS
             readTimeout = READ_TIMEOUT_MS
         }

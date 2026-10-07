@@ -9,6 +9,10 @@ private const val IMGPROXY_KEY = BuildConfig.MEZON_IMGPROXY_KEY
 private const val MAX_BYTES = 2_097_152
 private const val MAX_PROXY_DIM = 1200
 private val SKIP_PROXY_EXTENSIONS = setOf("gif", "webp")
+private val CONFIGURED_MEDIA_BASE = BuildConfig.MEZON_BASE_IMG_URL.trim().trimEnd('/')
+
+fun isConfiguredMediaUrl(url: String): Boolean =
+    CONFIGURED_MEDIA_BASE.isNotEmpty() && url.startsWith("$CONFIGURED_MEDIA_BASE/")
 
 private fun sourceExtension(url: String): String {
     if (url.isEmpty()) return ""
@@ -32,7 +36,7 @@ fun createImgproxyUrl(
     maxEdgePx: Int = MAX_PROXY_DIM
 ): String {
     if (sourceUrl.isEmpty()) return sourceUrl
-    if (!sourceUrl.startsWith("https://cdn.mezon") && !sourceUrl.startsWith("https://cdn.komu") && !sourceUrl.startsWith("https://profile.mezon")) {
+    if (!sourceUrl.startsWith("https://cdn.mezon") && !sourceUrl.startsWith("https://cdn.komu") && !sourceUrl.startsWith("https://profile.mezon") && !isConfiguredMediaUrl(sourceUrl)) {
         return sourceUrl
     }
     val cap = maxEdgePx.coerceAtLeast(1).coerceAtMost(4096)

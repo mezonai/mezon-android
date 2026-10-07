@@ -24,6 +24,7 @@ import android.text.Spanned
 import android.text.TextWatcher
 import android.text.style.ImageSpan
 import com.mezon.mobile.network.NetworkMonitor
+import com.mezon.mobile.network.CdnSigner
 import android.view.TouchDelegate
 import android.util.Log
 import android.util.LongSparseArray
@@ -2182,33 +2183,36 @@ open class ChatFragment : BaseFragment() {
             override fun didClickFile(cell: ChatMessageCell, msg: MessageEntity) {
                 val url = msg.attachmentUrl
                 if (url.isEmpty()) return
-                try {
-                    val mime = when {
-                        msg.attachmentFiletype.isNotEmpty() -> msg.attachmentFiletype
-                        else -> "*/*"
-                    }
-                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW)
-                    intent.setDataAndType(android.net.Uri.parse(url), mime)
-                    intent.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    context.startActivity(intent)
-                } catch (_: Exception) {
+                CdnSigner.requestUrlOnMain(url) { signed ->
+                    if (isFinished) return@requestUrlOnMain
                     try {
-                        val filename = msg.attachmentFilename.ifEmpty { url.substringAfterLast('/') }
-                        val request = android.app.DownloadManager.Request(android.net.Uri.parse(url))
-                            .setTitle(filename)
-                            .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                            .setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, filename)
-                        val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
-                        dm.enqueue(request)
-                        MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.INFO, "Downloading $filename")
+                        val mime = when {
+                            msg.attachmentFiletype.isNotEmpty() -> msg.attachmentFiletype
+                            else -> "*/*"
+                        }
+                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW)
+                        intent.setDataAndType(android.net.Uri.parse(signed.url), mime)
+                        intent.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        context.startActivity(intent)
                     } catch (_: Exception) {
-                        runCatching {
-                            context.startActivity(
-                                android.content.Intent(
-                                    android.content.Intent.ACTION_VIEW,
-                                    android.net.Uri.parse(url)
+                        try {
+                            val filename = msg.attachmentFilename.ifEmpty { url.substringAfterLast('/') }
+                            val request = android.app.DownloadManager.Request(android.net.Uri.parse(signed.url))
+                                .setTitle(filename)
+                                .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                                .setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, filename)
+                            val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
+                            dm.enqueue(request)
+                            MezonToast.show(this@ChatFragment, ToastOverlay.ToastType.INFO, "Downloading $filename")
+                        } catch (_: Exception) {
+                            runCatching {
+                                context.startActivity(
+                                    android.content.Intent(
+                                        android.content.Intent.ACTION_VIEW,
+                                        android.net.Uri.parse(signed.url)
+                                    )
                                 )
-                            )
+                            }
                         }
                     }
                 }

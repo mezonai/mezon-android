@@ -20,6 +20,7 @@ import com.mezon.mobile.home.chat.isImageAttachmentType
 import com.mezon.mobile.home.chat.isVideoAttachmentType
 import com.mezon.mobile.home.chat.toMessageEntity
 import com.mezon.mobile.network.ApiCacheTracker
+import com.mezon.mobile.network.CdnSigner
 import com.mezon.mobile.network.CODE_CHAT_REMOVE
 import com.mezon.mobile.network.CODE_CHAT_UPDATE
 import com.mezon.mobile.network.HttpRpcStatusException
@@ -619,6 +620,7 @@ class ChatController @Inject constructor(
                     return@launch
                 }
 
+                CdnSigner.prefetch(channelId)
                 sessionManager.withAutoRefresh { session ->
                     val currentUserId = session.userId.toLongOrNull() ?: 0L
                     val response = api.listChannelMessages(
@@ -781,6 +783,7 @@ class ChatController @Inject constructor(
                     return@launch
                 }
 
+                CdnSigner.prefetch(channelId)
                 sessionManager.withAutoRefresh { session ->
                     val currentUserId = session.userId.toLongOrNull() ?: 0L
                     val response = api.listChannelMessages(
@@ -2357,12 +2360,12 @@ class ChatController @Inject constructor(
                         val slot = when {
                             item.size > LARGE_ATTACHMENT_BYTES -> largeUploadSlots.withPermit {
                                 prepareAndPresignAttachment(
-                                    index, item, contentResolver, apiUrl, token, cdnBaseUrl, params.maxRetriesPerFile,
+                                    index, item, contentResolver, apiUrl, token, cdnBaseUrl, params.channelId, params.maxRetriesPerFile,
                                 )
                             }
                             else -> uploadSlots.withPermit {
                                 prepareAndPresignAttachment(
-                                    index, item, contentResolver, apiUrl, token, cdnBaseUrl, params.maxRetriesPerFile,
+                                    index, item, contentResolver, apiUrl, token, cdnBaseUrl, params.channelId, params.maxRetriesPerFile,
                                 )
                             }
                         }
@@ -2626,6 +2629,7 @@ class ChatController @Inject constructor(
         apiUrl: String,
         token: String,
         cdnBaseUrl: String,
+        channelId: Long,
         maxRetries: Int,
     ): PreparedAttachmentSlot? {
         try {
@@ -2646,7 +2650,7 @@ class ChatController @Inject constructor(
                                 size = compressed.bytes.size.toLong(),
                             )
                             return presignCachedAttachment(
-                                index, uploadItem, compressed.bytes, apiUrl, token, cdnBaseUrl,
+                                index, uploadItem, compressed.bytes, apiUrl, token, cdnBaseUrl, channelId,
                             )
                         }
                     }
@@ -2655,7 +2659,7 @@ class ChatController @Inject constructor(
                         contentResolver, item.uri, item.mimeType, appContext.cacheDir,
                     ) ?: return null
                     return try {
-                        presignStreamedAttachment(index, item, tmpFile, apiUrl, token, cdnBaseUrl)
+                        presignStreamedAttachment(index, item, tmpFile, apiUrl, token, cdnBaseUrl, channelId)
                     } catch (e: Exception) {
                         runCatching { tmpFile.delete() }
                         throw e
@@ -2678,13 +2682,14 @@ class ChatController @Inject constructor(
         apiUrl: String,
         token: String,
         cdnBaseUrl: String,
+        channelId: Long,
     ): PreparedAttachmentSlot {
         val timestamp = System.currentTimeMillis() / 1000
         val sanitizedName = item.filename.replace(FILENAME_SANITIZE_REGEX, "_")
         val uploadFilename = "${timestamp}_$sanitizedName"
         val presigned = AttachmentUploader.presignAttachmentBytes(
             api, apiUrl, token, uploadFilename, item.mimeType, item.size,
-            item.width, item.height, cdnBaseUrl,
+            item.width, item.height, cdnBaseUrl, channelId,
         )
         val attachment = messageAttachment {
             this.filename = item.filename
@@ -2711,17 +2716,18 @@ class ChatController @Inject constructor(
         apiUrl: String,
         token: String,
         cdnBaseUrl: String,
+        channelId: Long,
     ): PreparedAttachmentSlot {
         val fileSize = file.length()
         val timestamp = System.currentTimeMillis() / 1000
         val sanitizedName = item.filename.replace(FILENAME_SANITIZE_REGEX, "_")
         val uploadFilename = "${timestamp}_$sanitizedName"
         val thumbCdnUrl = uploadVideoThumbnailIfNeeded(
-            item, file, apiUrl, token, cdnBaseUrl, timestamp, sanitizedName,
+            item, file, apiUrl, token, cdnBaseUrl, channelId, timestamp, sanitizedName,
         )
         val presigned = AttachmentUploader.presignAttachmentFromFile(
             api, apiUrl, token, uploadFilename, item.mimeType, fileSize,
-            item.width, item.height, cdnBaseUrl,
+            item.width, item.height, cdnBaseUrl, channelId,
         )
         val attachment = messageAttachment {
             this.filename = item.filename
@@ -2748,6 +2754,7 @@ class ChatController @Inject constructor(
         apiUrl: String,
         token: String,
         cdnBaseUrl: String,
+        channelId: Long,
         timestamp: Long,
         sanitizedName: String,
     ): String? {
@@ -2761,7 +2768,7 @@ class ChatController @Inject constructor(
         return try {
             val presigned = AttachmentUploader.presignAttachmentBytes(
                 api, apiUrl, token, thumbFilename, thumb.mimeType, thumb.bytes.size.toLong(),
-                thumb.width, thumb.height, cdnBaseUrl,
+                thumb.width, thumb.height, cdnBaseUrl, channelId,
             )
             AttachmentUploader.executeUploadPlan(
                 api, apiUrl, token, presigned.plan, bytes = thumb.bytes,

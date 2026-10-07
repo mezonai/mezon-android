@@ -70,6 +70,7 @@ import com.mezon.mobile.home.messages.EmbedInteractiveGeometry
 import com.mezon.mobile.home.messages.EmbedMessageRenderer
 import com.mezon.mobile.home.messages.EmbedSelectOptionSheet
 import com.mezon.mobile.home.messages.EphemeralMessageUi
+import com.mezon.mobile.network.CdnSigner
 import com.mezon.mobile.network.CHANNEL_TYPE_CHANNEL
 import com.mezon.mobile.network.CHANNEL_TYPE_GROUP
 import com.mezon.mobile.network.CHANNEL_TYPE_THREAD
@@ -3197,10 +3198,12 @@ class ChatMessageCell(context: Context, private val theme: ThemeColors) : BaseCe
     }
 
     fun onLinkClicked(url: String) {
-        try {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url).normalizeScheme())
-            context.startActivity(intent)
-        } catch (_: Exception) {}
+        CdnSigner.requestUrlOnMain(url) { signed ->
+            try {
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(signed.url).normalizeScheme())
+                context.startActivity(intent)
+            } catch (_: Exception) {}
+        }
     }
 
     var visibleOnScreen = true
