@@ -834,6 +834,18 @@ fun applyReactionEvent(
     return arr.toString()
 }
 
+fun reactionCountOf(currentJson: String, emojiId: Long, senderId: Long): Int {
+    if (currentJson.isEmpty()) return 0
+    val arr = try { JSONArray(currentJson) } catch (_: Exception) { return 0 }
+    for (i in 0 until arr.length()) {
+        val obj = arr.optJSONObject(i) ?: continue
+        if (obj.optLong("emoji_id") == emojiId && obj.optLong("sender_id") == senderId) {
+            return obj.optInt("count", 0)
+        }
+    }
+    return 0
+}
+
 fun MessageEntity.isCallLogMessage(): Boolean = parseCallLogMessage(content) != null
 
 fun MessageEntity.canEditMessage(currentUserId: Long): Boolean {

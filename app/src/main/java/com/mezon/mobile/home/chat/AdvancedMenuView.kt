@@ -38,6 +38,7 @@ class AdvancedMenuView(
         fun onAnonymousToggled()
         fun onCreatePollRequested() {}
         fun onShareContactSelected() {}
+        fun onEphemeralSelected() {}
         fun onDragY(dy: Float) {}
         fun onAnimateExpand(expand: Boolean) {}
     }
@@ -136,6 +137,7 @@ class AdvancedMenuView(
             }
             "poll" -> del?.onCreatePollRequested()
             "share_contact" -> del?.onShareContactSelected()
+            "ephemeral" -> del?.onEphemeralSelected()
             else -> {
                 android.widget.Toast.makeText(context, R.string.feature_coming_soon, android.widget.Toast.LENGTH_SHORT).show()
                 dismiss = false

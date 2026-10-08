@@ -173,7 +173,14 @@ object InputSuggestionsController {
         }
     }
 
-    fun buildSlashCommandItems(keyword: String, commands: List<SlashCommand>): List<InputSuggestionItem> {
+    const val EPHEMERAL_COMMAND_NAME = "ephemeral"
+
+    fun buildSlashCommandItems(
+        keyword: String,
+        commands: List<SlashCommand>,
+        includeEphemeral: Boolean = false,
+        botNameFor: (Long) -> String = { "" },
+    ): List<InputSuggestionItem> {
         val sLower = keyword.trim().lowercase()
         val named = commands.filter { it.name.isNotBlank() }
         val filtered = if (sLower.isEmpty()) {
@@ -181,7 +188,12 @@ object InputSuggestionsController {
         } else {
             named.filter { it.name.lowercase().contains(sLower) }
         }
-        return filtered.take(20).map { InputSuggestionItem.SlashCommand(it) }
+        val flashItems = filtered.take(20).map { command ->
+            val botName = if (command.botId != 0L) botNameFor(command.botId) else ""
+            InputSuggestionItem.SlashCommand(command, botName)
+        }
+        if (!includeEphemeral || !EPHEMERAL_COMMAND_NAME.contains(sLower)) return flashItems
+        return listOf(InputSuggestionItem.EphemeralCommand) + flashItems
     }
 
     fun buildEmojiItems(keyword: String, emojis: List<EmojiItem>): List<InputSuggestionItem> {

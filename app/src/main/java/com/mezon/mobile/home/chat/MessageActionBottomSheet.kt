@@ -40,6 +40,7 @@ class MessageActionBottomSheet(
     private val showTopicDiscussion: Boolean = false,
     private val showPinActions: Boolean = true,
     private val showResend: Boolean = false,
+    private val showQuickMenu: Boolean = false,
     private val listener: MessageActionListener
 ) : BottomSheet(context) {
 
@@ -63,7 +64,8 @@ class MessageActionBottomSheet(
         CopyImage,
         ShareImage,
         Report,
-        GiveACoffee
+        GiveACoffee,
+        QuickMenu
     }
 
     interface MessageActionListener {
@@ -398,6 +400,14 @@ class MessageActionBottomSheet(
                 ActionType.AddToInbox,
                 context.getString(R.string.action_add_to_inbox),
                 MezonIcon.inbox.resId
+            ))
+        }
+
+        if (showQuickMenu) {
+            actions.add(ActionItem(
+                ActionType.QuickMenu,
+                context.getString(R.string.action_quick_menu),
+                MezonIcon.quickAction.resId
             ))
         }
 

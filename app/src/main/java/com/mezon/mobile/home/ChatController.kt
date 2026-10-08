@@ -14,6 +14,7 @@ import com.mezon.mobile.home.chat.MessageEntity
 import com.mezon.mobile.home.chat.canEditMessage
 import com.mezon.mobile.home.chat.ForwardDestination
 import com.mezon.mobile.home.chat.applyReactionEvent
+import com.mezon.mobile.home.chat.reactionCountOf
 import com.mezon.mobile.home.chat.mergeChannelContentMentionsAndRefs
 import com.mezon.mobile.home.chat.isGifAttachment
 import com.mezon.mobile.home.chat.isImageAttachmentType
@@ -86,6 +87,8 @@ import com.mezon.mezon.api.MessageMention
 import com.mezon.mezon.api.Message2InboxRequest
 import com.mezon.mezon.api.messageAttachment
 import com.mezon.mezon.api.messageMention
+import com.mezon.mezon.api.MessageReaction
+import com.mezon.mezon.api.messageReaction
 import org.json.JSONObject
 import com.mezon.mezon.rtapi.ChannelMessageSend
 import com.mezon.mobile.home.chat.withTopicCreated
@@ -1443,6 +1446,50 @@ class ChatController @Inject constructor(
         }
     }
 
+    fun buildEphemeralMessage(
+        channelId: Long,
+        clanId: Long,
+        channelType: Int,
+        isChannelPrivate: Boolean,
+        text: String,
+        references: List<com.mezon.mezon.api.MessageRef>?,
+        mentions: List<MentionData>?,
+        emojiMarkers: List<EmojiMarker>?,
+        markdownMarkers: List<MarkdownMarker>?,
+        ogpMarker: OgpMarker?,
+        hashtags: List<com.mezon.mobile.util.HashtagData>?,
+        topicId: Long,
+        assignClientId: Boolean,
+    ): ChannelMessageSend {
+        val hasContentExtras = !emojiMarkers.isNullOrEmpty() || !markdownMarkers.isNullOrEmpty() || ogpMarker != null || !hashtags.isNullOrEmpty()
+        val content = withChannelLinkDetails(if (!hasContentExtras) buildTextContent(text)
+            else buildTextContentWithEmojis(text, null, emojiMarkers, markdownMarkers, hashtags, ogpMarker))
+        val protoMentions = mentions.orEmpty().map { m ->
+            messageMention {
+                if (m.userId.isNotBlank()) userId = m.userId.toLongOrNull() ?: 0L
+                if (m.roleId.isNotBlank()) roleId = m.roleId.toLongOrNull() ?: 0L
+                if (m.display.isNotBlank()) username = m.display
+                s = m.startOffset
+                e = m.endOffset
+            }
+        }
+        val (_, avatarUrl) = optimisticSenderPresentation(userController.get(), clanId, channelType, false)
+        return channelMessageSend {
+            if (assignClientId) this.id = MezonSnowflake.generate()
+            this.clanId = clanId
+            this.channelId = channelId
+            this.mode = channelTypeToStreamMode(channelType)
+            this.isPublic = !isChannelPrivate
+            this.content = content
+            if (protoMentions.isNotEmpty()) this.mentions.addAll(protoMentions)
+            references?.takeIf { it.isNotEmpty() }?.let { this.references.addAll(it) }
+            this.mentionEveryone = mentions?.any { it.userId == ID_MENTION_HERE } == true
+            this.avatar = avatarUrl
+            this.code = MessageEntity.CODE_EPHEMERAL
+            if (topicId != 0L) this.topicId = topicId
+        }
+    }
+
     fun resendFailedMessage(
         channelId: Long,
         clanId: Long,
@@ -1881,6 +1928,8 @@ class ChatController @Inject constructor(
         private const val PENDING_API_REACTION_DEDUP_MS = 5000L
         private const val REACTION_IN_FLIGHT = Long.MAX_VALUE
         private const val CHANNEL_MESSAGE_ACK_TIMEOUT_MS = 20_000L
+        private const val REACTION_SOCKET_TIMEOUT_MS = 5_000L
+        private val REACTION_HTTP_RETRY_DELAYS_MS = longArrayOf(1_000L, 3_000L)
         private const val DELIVERY_LOOKUP_INITIAL_DELAY_MS = 1_500L
         private const val DELIVERY_LOOKUP_RETRY_DELAY_MS = 2_000L
         private const val DELIVERY_LOOKUP_WINDOW_MS = 20_000L
@@ -4015,7 +4064,7 @@ class ChatController @Inject constructor(
         messageSenderId: Long,
         topicId: Long = 0L,
         httpOnly: Boolean = false,
-        retryDelaysMs: LongArray = longArrayOf()
+        retryDelaysMs: LongArray = REACTION_HTTP_RETRY_DELAYS_MS
     ): Boolean {
         val mode = channelTypeToStreamMode(channelType)
         val isPublic = !isChannelPrivate
@@ -4028,8 +4077,31 @@ class ChatController @Inject constructor(
         pendingKey?.let { registerPendingApiReaction(it) }
         val anon = isAnonymousSend(clanId)
         val (reactionSenderName, _) = optimisticSenderPresentation(uc, clanId, channelType, anon)
+        var revertOnFailure = false
         return try {
-            sessionManager.withAutoRefresh { session ->
+            if (selfIdForDedup != 0L) {
+                val ownCountBefore = messageDao.getById(cacheKey, messageId)
+                    ?.let { reactionCountOf(it.reactionsJson, emojiId, selfIdForDedup) } ?: 0
+                publishReactionUiAndPersist(cacheKey, messageId, emojiId, emoji, selfIdForDedup, count, actionDelete, source = "api")
+                revertOnFailure = !actionDelete && ownCountBefore == 0
+            }
+            val socketOutcome = if (httpOnly) ReactionSocketOutcome.NOT_APPLIED else sendReactionViaSocket(
+                messageReaction {
+                    this.clanId = clanId
+                    this.channelId = channelId
+                    this.mode = mode
+                    this.isPublic = isPublic
+                    this.messageId = messageId
+                    this.emojiId = emojiId
+                    this.emoji = emoji
+                    this.count = count
+                    this.messageSenderId = messageSenderId
+                    this.action = actionDelete
+                    this.topicId = topicId
+                    this.senderName = reactionSenderName
+                }
+            )
+            if (socketOutcome == ReactionSocketOutcome.NOT_APPLIED) sessionManager.withAutoRefresh { session ->
                 retryOnTransientSendFailure(retryDelaysMs) {
                     api.channelMessageReact(
                         session.apiUrl,
@@ -4047,12 +4119,12 @@ class ChatController @Inject constructor(
                         topicId = topicId,
                         emojiRecentId = 0L,
                         senderName = reactionSenderName,
-                        httpOnly = httpOnly
+                        httpOnly = true
                     )
                 }
                 val selfId = session.userId.toLongOrNull() ?: 0L
                 if (selfId != 0L) {
-                    publishReactionUiAndPersist(
+                    if (selfIdForDedup == 0L) publishReactionUiAndPersist(
                         cacheKey,
                         messageId,
                         emojiId,
@@ -4064,15 +4136,44 @@ class ChatController @Inject constructor(
                     )
                     pendingKey?.let { resolvePendingApiReaction(it) }
                 }
+            } else {
+                pendingKey?.let { resolvePendingApiReaction(it) }
             }
             true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to send reaction", e)
+            if (revertOnFailure) {
+                publishReactionUiAndPersist(cacheKey, messageId, emojiId, emoji, selfIdForDedup, count, true, source = "api")
+            }
             false
         } finally {
             pendingKey?.let { key ->
                 if (pendingApiReactions[key] == REACTION_IN_FLIGHT) clearPendingApiReaction(key)
             }
+        }
+    }
+
+    private enum class ReactionSocketOutcome { APPLIED, MAYBE_APPLIED, NOT_APPLIED }
+
+    private suspend fun sendReactionViaSocket(request: MessageReaction): ReactionSocketOutcome {
+        if (!mezonSocket.canSendChannelMessageRealtime(request.clanId, request.channelId)) {
+            return ReactionSocketOutcome.NOT_APPLIED
+        }
+        return try {
+            val reply = mezonSocket.send(timeoutMs = REACTION_SOCKET_TIMEOUT_MS) { messageReactionEvent = request }
+            if (reply.messageCase == Envelope.MessageCase.MESSAGE_REACTION_EVENT) {
+                ReactionSocketOutcome.APPLIED
+            } else {
+                ReactionSocketOutcome.MAYBE_APPLIED
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: SocketRequestNotSentException) {
+            ReactionSocketOutcome.NOT_APPLIED
+        } catch (e: SocketRpcServerException) {
+            ReactionSocketOutcome.NOT_APPLIED
+        } catch (e: Exception) {
+            ReactionSocketOutcome.MAYBE_APPLIED
         }
     }
 
@@ -4305,6 +4406,87 @@ class ChatController @Inject constructor(
                     if (rid != 0L) roleId = rid
                     val un = m.optString("username", "")
                     if (un.isNotEmpty()) username = un
+                })
+            }
+            list
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    suspend fun executeQuickMenu(
+        menuName: String,
+        message: MessageEntity,
+        clanId: Long,
+        channelId: Long,
+        channelType: Int,
+        isChannelPrivate: Boolean,
+        topicId: Long,
+    ) {
+        require(message.id > 0L) { "Quick menu needs a sent message" }
+        val (_, avatarUrl) = optimisticSenderPresentation(userController.get(), clanId, channelType, false)
+        val raw = message.content
+        val mentionList = mentionsFromForwardContent(raw)
+        val attachmentList = attachmentsFromEntity(message)
+        val referenceList = referencesFromContent(raw)
+        val request = channelMessageSend {
+            this.clanId = clanId
+            this.channelId = channelId
+            this.mode = channelTypeToStreamMode(channelType)
+            this.isPublic = !isChannelPrivate
+            this.content = contentWithoutMergedKeys(raw)
+            if (mentionList.isNotEmpty()) this.mentions.addAll(mentionList)
+            if (attachmentList.isNotEmpty()) this.attachments.addAll(attachmentList)
+            if (referenceList.isNotEmpty()) this.references.addAll(referenceList)
+            this.mentionEveryone = extractMentionEveryoneFromForwardContent(raw)
+            this.avatar = avatarUrl
+            this.code = message.code
+            if (topicId != 0L) this.topicId = topicId
+            this.id = message.id
+        }
+        mezonSocket.sendQuickMenuEvent(menuName, request, message.senderId)
+    }
+
+    suspend fun sendEphemeralMessage(request: ChannelMessageSend, receiverId: Long) {
+        mezonSocket.sendEphemeralMessage(request, listOf(receiverId))
+    }
+
+    suspend fun sendEphemeralMessageToBot(request: ChannelMessageSend): com.mezon.mezon.rtapi.ChannelMessageAck =
+        sessionManager.withAutoRefresh { session ->
+            withContext(ioDispatcher) {
+                api.sendEphemeralMessageToBot(session.apiUrl, session.token, request)
+            }
+        }
+
+    private fun contentWithoutMergedKeys(content: String): String {
+        if (!content.contains("\"mentions\"") && !content.contains("\"references\"")) return content
+        return try {
+            val o = JSONObject(content)
+            o.remove("mentions")
+            o.remove("references")
+            o.toString()
+        } catch (_: Exception) {
+            content
+        }
+    }
+
+    private fun referencesFromContent(content: String): List<com.mezon.mezon.api.MessageRef> {
+        return try {
+            val arr = JSONObject(content).optJSONArray("references") ?: return emptyList()
+            val list = ArrayList<com.mezon.mezon.api.MessageRef>(arr.length())
+            for (i in 0 until arr.length()) {
+                val r = arr.optJSONObject(i) ?: continue
+                val refId = r.optString("message_ref_id").toLongOrNull() ?: continue
+                list.add(com.mezon.mezon.api.messageRef {
+                    messageRefId = refId
+                    refType = r.optInt("ref_type")
+                    messageSenderId = r.optString("message_sender_id").toLongOrNull() ?: 0L
+                    messageSenderUsername = r.optString("message_sender_username")
+                    messageSenderAvatar = r.optString("message_sender_avatar")
+                    messageSenderClanNick = r.optString("message_sender_clan_nick")
+                    messageSenderDisplayName = r.optString("message_sender_display_name")
+                    this.content = r.optString("content")
+                    hasAttachment = r.optBoolean("has_attachment")
                 })
             }
             list

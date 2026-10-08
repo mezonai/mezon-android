@@ -1,6 +1,7 @@
 package com.mezon.mobile.search
 
 import android.util.Log
+import com.mezon.mezon.api.SearchCtrlKResponse
 import com.mezon.mezon.api.SearchMessageDocument
 import com.mezon.mobile.core.NotificationCenter
 import com.mezon.mobile.di.ApplicationScope
@@ -19,8 +20,11 @@ import com.mezon.mobile.network.MezonApi
 import com.mezon.mobile.network.apiCacheKey
 import com.mezon.mobile.session.SessionManager
 import com.mezon.mobile.network.SocketEventDispatcher
+import com.mezon.mobile.network.UnauthorizedException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.Normalizer
 import javax.inject.Inject
@@ -33,6 +37,7 @@ const val RECENT_INIT_LIMIT = 20
 private const val CTRL_K_TYPE_ALL = 0
 private const val CTRL_K_TYPE_USERS = 1
 private const val CTRL_K_TYPE_CHANNELS = 2
+private const val CTRL_K_RETRY_DELAY_MS = 350L
 
 data class SearchMember(
     val id: Long,
@@ -233,7 +238,7 @@ class SearchController @Inject constructor(
         appScope.launch(ioDispatcher) {
             try {
                 sessionManager.withAutoRefresh { session ->
-                    val response = api.searchCtrlK(session.apiUrl, session.token, text, type)
+                    val response = searchCtrlKRetrying(session.apiUrl, session.token, text, type, generation)
 
                     val members = ArrayList<SearchMember>()
                     val channels = ArrayList<ClanChannelEntity>()
@@ -296,6 +301,22 @@ class SearchController @Inject constructor(
         }
         return true
     }
+
+    private suspend fun searchCtrlKRetrying(
+        apiUrl: String,
+        token: String,
+        text: String,
+        type: Int,
+        generation: Long
+    ): SearchCtrlKResponse =
+        try {
+            api.searchCtrlK(apiUrl, token, text, type)
+        } catch (e: Exception) {
+            if (e is CancellationException || e is UnauthorizedException) throw e
+            delay(CTRL_K_RETRY_DELAY_MS)
+            if (synchronized(this) { generation != ctrlKGeneration }) throw e
+            api.searchCtrlK(apiUrl, token, text, type)
+        }
 
     @Synchronized
     fun ctrlKMembersSnapshot(): List<SearchMember> = ArrayList(ctrlKMembers)
