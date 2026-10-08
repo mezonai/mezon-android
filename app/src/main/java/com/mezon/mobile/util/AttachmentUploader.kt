@@ -9,6 +9,7 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.util.Log
+import com.mezon.mobile.BuildConfig
 import com.mezon.mobile.home.chat.AttachmentPickerItem
 import com.mezon.mobile.network.MezonApi
 import java.io.ByteArrayOutputStream
@@ -31,6 +32,15 @@ object AttachmentUploader {
     private const val MULTIPART_PART_SIZE = 10 * 1024 * 1024
     private const val MULTIPART_MIN_FILE_SIZE = 50L * 1024 * 1024
     private const val MULTIPART_UPLOAD_ENABLED = true
+
+    private fun cdnUrlForView(typeCdn: Int, fallback: String, filename: String): String {
+        val baseUrl = when (typeCdn) {
+            1 -> BuildConfig.MEZON_BASE_MEZON_IMG_URL
+            2 -> BuildConfig.MEZON_BASE_IMG_URL
+            else -> fallback
+        }
+        return "$baseUrl/$filename"
+    }
 
     internal fun attachmentTypeForUpload(filetype: String): String {
         val normalized = filetype.lowercase()
@@ -304,7 +314,7 @@ object AttachmentUploader {
             apiUrl, token, uploadFilename, attachmentTypeForUpload(mimeType), sizeBytes.toInt(), width, height,
             channelId = channelId,
         )
-        val cdnUrl = "$cdnBaseUrl/${presign.filename}"
+        val cdnUrl = cdnUrlForView(presign.typeCdn, cdnBaseUrl, presign.filename)
         return PresignedFileResult(
             serverFilename = presign.filename,
             cdnUrl = cdnUrl,
@@ -340,7 +350,7 @@ object AttachmentUploader {
             apiUrl, token, uploadFilename, attachmentTypeForUpload(mimeType), fileSize.toInt(), width, height,
             channelId = channelId,
         )
-        val cdnUrl = "$cdnBaseUrl/${presign.filename}"
+        val cdnUrl = cdnUrlForView(presign.typeCdn, cdnBaseUrl, presign.filename)
         return PresignedFileResult(
             serverFilename = presign.filename,
             cdnUrl = cdnUrl,
@@ -506,7 +516,7 @@ object AttachmentUploader {
         // silently builds a CDN url that points at nothing.
         val serverFilename = start.filename
         require(serverFilename.isNotEmpty()) { "multipart upload start returned an empty filename" }
-        val cdnUrl = "$cdnBaseUrl/$serverFilename"
+        val cdnUrl = cdnUrlForView(start.typeCdn, cdnBaseUrl, serverFilename)
         if (urls.size == 1 && uploadId.isEmpty()) {
             return PresignedFileResult(
                 serverFilename = serverFilename,
@@ -554,7 +564,7 @@ object AttachmentUploader {
         // silently builds a CDN url that points at nothing.
         val serverFilename = start.filename
         require(serverFilename.isNotEmpty()) { "multipart upload start returned an empty filename" }
-        val cdnUrl = "$cdnBaseUrl/$serverFilename"
+        val cdnUrl = cdnUrlForView(start.typeCdn, cdnBaseUrl, serverFilename)
         if (urls.size == 1 && uploadId.isEmpty()) {
             return PresignedFileResult(
                 serverFilename = serverFilename,
