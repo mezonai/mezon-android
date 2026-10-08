@@ -211,7 +211,7 @@ class ProfileFragment : BaseFragment() {
             orientation = LinearLayout.VERTICAL
             clipChildren = false
             clipToPadding = false
-            setPadding(LayoutHelper.dp(18), LayoutHelper.dp(83), LayoutHelper.dp(18), LayoutHelper.dp(12))
+            setPadding(LayoutHelper.dp(18), LayoutHelper.dp(83), LayoutHelper.dp(18), 0)
         }
         headerContainer.addView(infoCol, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT

@@ -59,7 +59,7 @@ class IncomingCallFcmHandler @Inject constructor(
             return
         }
         if (innerOffer == "CANCEL_CALL") {
-            handleCancelCallFcm(parsed)
+            mainHandler.post { handleCancelCallFcm(parsed) }
             return
         }
         if (callController.callState !is CallState.Idle) return
@@ -92,7 +92,8 @@ class IncomingCallFcmHandler @Inject constructor(
         val ctrl = CallController.instance
         val channelId = parsed.optString("channelId").toLongOrNull() ?: 0L
         val callerId = parsed.optString("callerId").toLongOrNull() ?: 0L
-        if (ctrl?.isCancelCallFcmForCurrentCall(channelId, callerId) == false) {
+        val sessionId = parsed.optString("callSessionId").takeIf { it.isNotEmpty() && it != "null" }
+        if (ctrl?.isCancelCallFcmForCurrentCall(channelId, callerId, sessionId) == false) {
             return
         }
         CallNotificationManager(appContext).dismissIncomingNotification()
