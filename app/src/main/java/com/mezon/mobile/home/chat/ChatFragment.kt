@@ -35,6 +35,7 @@ import android.view.Menu
 import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewConfiguration
 import android.view.inputmethod.EditorInfo
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -402,11 +403,18 @@ open class ChatFragment : BaseFragment() {
     private var pendingBottomScroll: Runnable? = null
     private var chatAdjustPanHelper: com.mezon.mobile.core.AdjustPanLayoutHelper? = null
     private var waitingForKeyboardOpen = false
+    private var keyboardOpenAttemptsRemaining = 0
     private var lastResumeTime = 0L
     private val openKeyboardRunnable = object : Runnable {
         override fun run() {
             if (!waitingForKeyboardOpen || isPaused) return
-            AndroidUtilities.showKeyboard(inputField)
+            if (!inputField.isAttachedToWindow || !inputField.hasFocus() ||
+                keyboardOpenAttemptsRemaining-- <= 0
+            ) {
+                waitingForKeyboardOpen = false
+                return
+            }
+            if (inputField.hasWindowFocus()) AndroidUtilities.showKeyboard(inputField)
             AndroidUtilities.runOnUIThread(this, 100)
         }
     }
@@ -1568,7 +1576,52 @@ open class ChatFragment : BaseFragment() {
     }
 
     override fun createView(context: Context): View {
-        sizeNotifierRoot = SizeNotifierFrameLayout(context, parentLayout)
+        sizeNotifierRoot = object : SizeNotifierFrameLayout(context, parentLayout) {
+            private val touchBounds = Rect()
+            private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
+            private var dismissKeyboardOnTap = false
+            private var touchDownX = 0f
+            private var touchDownY = 0f
+
+            override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        touchDownX = event.rawX
+                        touchDownY = event.rawY
+                        dismissKeyboardOnTap = ::inputBar.isInitialized &&
+                            !isTouchInside(inputBar, event) &&
+                            !isTouchInside(suggestionsPopup, event) &&
+                            !isTouchInside(emojiView, event) &&
+                            !isTouchInside(advancedMenuView, event)
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        val dx = event.rawX - touchDownX
+                        val dy = event.rawY - touchDownY
+                        if (dx * dx + dy * dy > touchSlop * touchSlop) {
+                            dismissKeyboardOnTap = false
+                        }
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        if (dismissKeyboardOnTap) dismissKeyboardForMessageInteraction()
+                        dismissKeyboardOnTap = false
+                    }
+                    MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_DOWN -> {
+                        dismissKeyboardOnTap = false
+                    }
+                }
+                // Observe the touch without consuming message clicks, long presses or swipes.
+                return super.dispatchTouchEvent(event)
+            }
+
+            private fun isTouchInside(view: View?, event: MotionEvent): Boolean {
+                return view != null && view.isShown && view.getGlobalVisibleRect(touchBounds) &&
+                    touchBounds.contains(event.rawX.toInt(), event.rawY.toInt())
+            }
+        }.apply {
+            isFocusableInTouchMode = true
+            // Keep receiving the release event when tapping empty conversation space.
+            isClickable = true
+        }
         sizeNotifierRoot.setBackgroundColor(themeColors.chatBackground)
         rootView = sizeNotifierRoot
 
@@ -2540,6 +2593,9 @@ open class ChatFragment : BaseFragment() {
 
         recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrollStateChanged(rv: RecyclerView, newState: Int) {
+                if (newState == RecyclerView.SCROLL_STATE_DRAGGING) {
+                    dismissKeyboardForMessageInteraction()
+                }
                 when (newState) {
                     RecyclerView.SCROLL_STATE_DRAGGING, RecyclerView.SCROLL_STATE_SETTLING -> {
                         scrollingManually = true
@@ -2601,7 +2657,9 @@ open class ChatFragment : BaseFragment() {
             }
         })
 
-        chatAdjustPanHelper = object : com.mezon.mobile.core.AdjustPanLayoutHelper(rootView) {
+        chatAdjustPanHelper = object : com.mezon.mobile.core.AdjustPanLayoutHelper(
+            rootView, useInsetsAnimator = true
+        ) {
             override fun heightAnimationEnabled(): Boolean {
                 val layout = parentLayout
                 if (layout == null) return false
@@ -2610,14 +2668,11 @@ open class ChatFragment : BaseFragment() {
                 return true
             }
             override fun onTransitionStart(keyboardVisible: Boolean, contentHeight: Int) {
-                if (!keyboardVisible) recyclerView.stopScroll()
+                if (!keyboardVisible && !scrollingManually) recyclerView.stopScroll()
             }
             override fun onPanTranslationUpdate(y: Float, progress: Float, keyboardVisible: Boolean) {
                 actionBar?.translationY = y
-                inputBar.translationY = y
-                if (keyboardVisible && progress > 0f && !recyclerView.canScrollVertically(1)) {
-                    recyclerView.scrollBy(0, -y.toInt())
-                }
+                // The composer follows the root's IME animation; only the header stays fixed.
             }
         }
 
@@ -2830,6 +2885,17 @@ open class ChatFragment : BaseFragment() {
         return super.onBackPressed()
     }
 
+    private fun dismissKeyboardForMessageInteraction() {
+        if (!::inputField.isInitialized) return
+        waitingForKeyboardOpen = false
+        AndroidUtilities.cancelRunOnUIThread(openKeyboardRunnable)
+        AndroidUtilities.cancelRunOnUIThread(showKeyboardFromEmojiRunnable)
+        if (!inputField.hasFocus()) return
+        AndroidUtilities.hideKeyboard(inputField)
+        rootView.requestFocus()
+        hideSuggestionsPopup()
+    }
+
     private fun showEmojiView() {
         dismissPasteImagePopup()
         if (emojiView == null) createEmojiView()
@@ -2864,12 +2930,17 @@ open class ChatFragment : BaseFragment() {
         updateEmojiButtonIcon(showingEmoji = true)
     }
 
-    private val showKeyboardFromEmojiRunnable = Runnable {
+    private fun focusInputAndOpenKeyboard() {
+        if (isPaused || !inputField.isAttachedToWindow) return
         inputField.requestFocus()
         waitingForKeyboardOpen = true
+        keyboardOpenAttemptsRemaining = 10
         AndroidUtilities.cancelRunOnUIThread(openKeyboardRunnable)
-        AndroidUtilities.showKeyboard(inputField)
-        AndroidUtilities.runOnUIThread(openKeyboardRunnable, 100)
+        openKeyboardRunnable.run()
+    }
+
+    private val showKeyboardFromEmojiRunnable = Runnable {
+        focusInputAndOpenKeyboard()
     }
 
     private fun openKeyboardFromEmoji() {
@@ -7011,6 +7082,7 @@ open class ChatFragment : BaseFragment() {
         val ctx = getContext() ?: return
         val activity = getParentActivity() ?: return
         if (activity.isFinishing || activity.isDestroyed) return
+        dismissKeyboardForMessageInteraction()
         val userId = chatController.getCurrentUserId()
         val isMyMessage = msg.senderId == userId
         val showEditMessage = msg.canEditMessage(userId)
@@ -7854,8 +7926,7 @@ open class ChatFragment : BaseFragment() {
         val label = "${getString(R.string.message_chatbox_replying_to)} ${msg.senderName}"
         replyNameView?.text = label
         replyBar?.visibility = View.VISIBLE
-        inputField.requestFocus()
-        AndroidUtilities.showKeyboard(inputField)
+        focusInputAndOpenKeyboard()
     }
 
     private fun clearReplyState() {
@@ -7886,8 +7957,7 @@ open class ChatFragment : BaseFragment() {
             suppressInputTrackerMutation = false
         }
         inputField.setSelection(inputField.text?.length ?: 0)
-        inputField.requestFocus()
-        AndroidUtilities.showKeyboard(inputField)
+        focusInputAndOpenKeyboard()
     }
 
     private fun applyEditHighlightSpans(restored: com.mezon.mobile.util.RestoredInputContent) {

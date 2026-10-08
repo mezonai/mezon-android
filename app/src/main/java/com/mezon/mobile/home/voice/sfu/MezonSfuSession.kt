@@ -27,6 +27,7 @@ import javax.inject.Singleton
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.random.Random
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -40,6 +41,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.Dispatchers
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -115,6 +117,8 @@ private const val RECONNECT_POLL_MS = 3000L
 private const val MAX_RECONNECT_ATTEMPTS = 2
 private const val HEALTHY_SESSION_MS = 30_000L
 private const val MAX_TOKEN_REFRESHES = 3
+private const val RECOVERY_DEADLINE_MS = 30_000L
+private const val TOKEN_REFRESH_TIMEOUT_MS = 10_000L
 internal const val TOKEN_EXPIRY_MARGIN_SECONDS = 60L
 private const val MIN_SESSION_RESTART_SPACING_MS = 5_000L
 private const val RETIRING_PEER_CONNECTION_GRACE_MS = 10_000L
@@ -317,6 +321,7 @@ class MezonSfuSession @Inject constructor(
     private var lastSocketMessageAtMs = 0L
     private var transportWatchdogJob: Job? = null
     private var connectionDeadlineJob: Job? = null
+    private val recoveryDeadline = SfuRecoveryDeadline(RECOVERY_DEADLINE_MS)
     private var readiness = SfuConnectionReadiness()
     private var hasReachedConnected = false
     var connectionState = SfuConnectionState.DISCONNECTED
@@ -852,6 +857,7 @@ class MezonSfuSession @Inject constructor(
     }
 
     fun leave() {
+        recoveryDeadline.cancel()
         stopAudioSendProbe()
         noiseChangeGeneration++
         noiseChangeJob?.cancel()
@@ -2057,7 +2063,16 @@ class MezonSfuSession @Inject constructor(
                 return@launch
             }
             if (tokenNeedsRefresh() && tokenRefreshes < MAX_TOKEN_REFRESHES) {
-                val fresh = runCatching { tokenProvider?.invoke(call.channelId, call.clanId) }.getOrNull()
+                val fresh = withTimeoutOrNull(TOKEN_REFRESH_TIMEOUT_MS) {
+                    try {
+                        tokenProvider?.invoke(call.channelId, call.clanId)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.w(TAG, "sfu recovery token refresh failed", e)
+                        null
+                    }
+                }
                 if (!isActive || !active || retryGen != connectionGen) return@launch
                 tokenRefreshes++
                 if (!fresh.isNullOrEmpty()) {
@@ -2612,6 +2627,22 @@ class MezonSfuSession @Inject constructor(
     }
 
     private fun emitState(state: SfuConnectionState) {
+        if (state == SfuConnectionState.CONNECTED || state == SfuConnectionState.FAILED) {
+            recoveryDeadline.cancel()
+        } else if (active) {
+            scope?.let { roomScope ->
+                // Covers offline waits, token refresh and all transport retries. A new
+                // connectionGen must not extend the deadline for the same recovery.
+                recoveryDeadline.arm(roomScope) {
+                    if (active && scope === roomScope && connectionState != SfuConnectionState.CONNECTED) {
+                        Log.w(TAG, "sfu join/recovery exceeded ${RECOVERY_DEADLINE_MS}ms " +
+                            "in state=$connectionState online=${networkMonitor.isOnline.value}")
+                        leave()
+                        emitState(SfuConnectionState.FAILED)
+                    }
+                }
+            }
+        }
         if (connectionState == state) return
         connectionState = state
         if (state != SfuConnectionState.CONNECTED) {
