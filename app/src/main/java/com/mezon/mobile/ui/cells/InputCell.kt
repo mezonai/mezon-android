@@ -254,6 +254,10 @@ class InputCell(context: Context, private val theme: ThemeColors) : LinearLayout
         bgDrawable.setStroke(LayoutHelper.dp(1), color)
     }
 
+    fun setInputPadding(padding: Int) {
+        inputContainer.setPadding(padding, padding, padding, padding)
+    }
+
     fun setLightInputAppearance(
         fill: Int = 0xFFFFFFFF.toInt(),
         stroke: Int = 0xFFD1D5DB.toInt(),

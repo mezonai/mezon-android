@@ -13,6 +13,7 @@ import com.mezon.mezon.api.MessageMention
 import com.mezon.mezon.api.MessageRef
 import com.mezon.mezon.rtapi.EnvelopeKt
 import com.mezon.mezon.rtapi.Envelope
+import com.mezon.mezon.rtapi.ChannelMessageSend
 import com.mezon.mezon.rtapi.apiRequestEvent
 import com.mezon.mezon.rtapi.channelJoin
 import com.mezon.mezon.rtapi.channelLeave
@@ -22,12 +23,14 @@ import com.mezon.mezon.rtapi.checkNameExistedEvent
 import com.mezon.mezon.rtapi.clanJoin
 import com.mezon.mezon.rtapi.customStatusEvent
 import com.mezon.mezon.rtapi.envelope
+import com.mezon.mezon.rtapi.ephemeralMessageSend
 import com.mezon.mezon.rtapi.incomingCallPush
 import com.mezon.mezon.rtapi.lastPinMessageEvent
 import com.mezon.mezon.rtapi.lastSeenMessageEvent
 import com.mezon.mezon.rtapi.markAsRead
 import com.mezon.mezon.rtapi.messageTypingEvent
 import com.mezon.mezon.rtapi.pong
+import com.mezon.mezon.rtapi.quickMenuDataEvent
 import com.mezon.mezon.rtapi.statusFollow
 import com.mezon.mezon.rtapi.statusUnfollow
 import com.mezon.mezon.rtapi.statusUpdate
@@ -66,6 +69,7 @@ class MezonSocket @Inject constructor(
     private val networkMonitor: NetworkMonitor,
     private val sentryReporter: SentryReporter,
     private val endpointFailoverLazy: dagger.Lazy<EndpointFailover>,
+    private val realtimeServerStore: RealtimeServerStore,
     @ApplicationScope private val scope: CoroutineScope
 ) {
     companion object {
@@ -494,6 +498,25 @@ class MezonSocket @Inject constructor(
         }
     }
 
+    suspend fun sendQuickMenuEvent(menuName: String, message: ChannelMessageSend, messageSenderId: Long) {
+        send {
+            this.quickMenuEvent = quickMenuDataEvent {
+                this.menuName = menuName
+                this.message = message
+                if (messageSenderId != 0L) this.messageSenderId = messageSenderId
+            }
+        }
+    }
+
+    suspend fun sendEphemeralMessage(message: ChannelMessageSend, receiverIds: List<Long>) {
+        send {
+            this.ephemeralMessageSend = ephemeralMessageSend {
+                this.message = message
+                this.receiverIds.addAll(receiverIds)
+            }
+        }
+    }
+
     suspend fun leaveChat(
         clanId: Long,
         channelId: Long,
@@ -769,7 +792,9 @@ class MezonSocket @Inject constructor(
             joinedChannelGenerations.clear()
             transport?.close()
             transport = null
-            val serverHost = resolveHost(tcpUrl)
+            val realtimeUrl = realtimeServerStore.choice.host ?: tcpUrl
+            currentTcpUrl = realtimeUrl
+            val serverHost = resolveHost(realtimeUrl)
             val host = serverHost
                 ?: if (BuildConfig.MEZON_ABRIDGED_FALLBACK) resolveHost(wsUrl) else null
             if (host.isNullOrBlank()) {
@@ -785,7 +810,7 @@ class MezonSocket @Inject constructor(
             connectGen++
             socketTokenFingerprint = tokenFp(token)
 
-            val port = resolvePort(tcpUrl) ?: BuildConfig.MEZON_TCP_PORT
+            val port = resolvePort(realtimeUrl) ?: BuildConfig.MEZON_TCP_PORT
             val credential = token
 
             val network = currentNetwork ?: networkMonitor.activeNetwork.value

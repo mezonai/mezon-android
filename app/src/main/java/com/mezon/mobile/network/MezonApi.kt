@@ -1813,6 +1813,19 @@ class MezonApi @Inject constructor(
         return com.mezon.mezon.rtapi.ChannelMessageAck.parseFrom(bytes)
     }
 
+    suspend fun sendEphemeralMessageToBot(
+        apiUrl: String,
+        token: String,
+        message: com.mezon.mezon.rtapi.ChannelMessageSend
+    ): com.mezon.mezon.rtapi.ChannelMessageAck {
+        val body = com.mezon.mezon.rtapi.EphemeralMessageSend.newBuilder()
+            .setMessage(message)
+            .build()
+            .toByteArray()
+        val bytes = rpc(apiUrl, token, "SendEphemeralMessageToBot", body, httpOnly = true)
+        return com.mezon.mezon.rtapi.ChannelMessageAck.parseFrom(bytes)
+    }
+
     suspend fun updateChannelMessage(
         apiUrl: String,
         token: String,

@@ -70,6 +70,24 @@ internal fun realtimeEndpointOf(tcpUrl: String?, wsUrl: String?): RealtimeEndpoi
     )
 }
 
+enum class RealtimeServerChoice(val host: String?, val regionName: String?) {
+    AUTO(null, null),
+    VN1("sock.mezon.ai", "VN1"),
+    VN2("sock3.mezon.ai", "VN2"),
+    US("sock2.mezon.ai", "US");
+
+    companion object {
+        private const val PROD_GATEWAY_HOST = "gw.mezon.ai"
+
+        val isAvailable: Boolean = resolveHost(BuildConfig.MEZON_GATEWAY_URL) == PROD_GATEWAY_HOST
+
+        fun regionNameOfHost(host: String): String {
+            val normalized = host.lowercase()
+            return entries.firstOrNull { it.host == normalized }?.regionName ?: host
+        }
+    }
+}
+
 class EndpointHealth {
     companion object {
         const val SLOW_RTT_MS = 500L
