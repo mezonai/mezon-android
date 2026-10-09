@@ -27,6 +27,7 @@ import javax.inject.Singleton
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.random.Random
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -40,6 +41,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.Dispatchers
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -115,6 +117,8 @@ private const val RECONNECT_POLL_MS = 3000L
 private const val MAX_RECONNECT_ATTEMPTS = 2
 private const val HEALTHY_SESSION_MS = 30_000L
 private const val MAX_TOKEN_REFRESHES = 3
+private const val RECOVERY_DEADLINE_MS = 30_000L
+private const val TOKEN_REFRESH_TIMEOUT_MS = 10_000L
 internal const val TOKEN_EXPIRY_MARGIN_SECONDS = 60L
 private const val MIN_SESSION_RESTART_SPACING_MS = 5_000L
 private const val RETIRING_PEER_CONNECTION_GRACE_MS = 10_000L
@@ -123,6 +127,8 @@ private const val DTLS_CONNECT_DEADLINE_MS = 15_000L
 private const val NATIVE_CLEANUP_TIMEOUT_MS = 5_000L
 private const val SPEAKING_THRESHOLD = 0.02
 private const val ICE_RECOVERY_GRACE_MS = 4000L
+private const val SOCKET_PROBE_DEADLINE_MS = 5_000L
+private const val SOCKET_SILENCE_PROBE_MS = 12_000L
 private const val MODERATOR_MUTE_WINDOW_MS = 300L
 private const val HIDDEN_VIDEO_PAUSE_DELAY_MS = 5_000L
 private const val KEYFRAME_MIN_INTERVAL_MS = 1_500L
@@ -311,8 +317,11 @@ class MezonSfuSession @Inject constructor(
     private var peerConnection: PeerConnection? = null
     private var retiringPeerConnection: PeerConnection? = null
     private var iceRecoveryJob: Job? = null
+    private var socketProbeJob: Job? = null
+    private var lastSocketMessageAtMs = 0L
     private var transportWatchdogJob: Job? = null
     private var connectionDeadlineJob: Job? = null
+    private val recoveryDeadline = SfuRecoveryDeadline(RECOVERY_DEADLINE_MS)
     private var readiness = SfuConnectionReadiness()
     private var hasReachedConnected = false
     var connectionState = SfuConnectionState.DISCONNECTED
@@ -592,6 +601,9 @@ class MezonSfuSession @Inject constructor(
         roomScope.launch {
             while (isActive) {
                 delay(RECONNECT_POLL_MS)
+                if (socketOpen && SystemClock.elapsedRealtime() - lastSocketMessageAtMs >= SOCKET_SILENCE_PROBE_MS) {
+                    probeSocket()
+                }
                 if (active && !socketOpen && !connecting && transportRecoveryJob == null && networkMonitor.isOnline.value) {
                     recoverTransport(connectionGen)
                 }
@@ -613,7 +625,10 @@ class MezonSfuSession @Inject constructor(
                     val changed = wasOffline || network != lastNetwork
                     lastNetwork = network
                     wasOffline = false
-                    if (changed) scheduleIceRecovery()
+                    if (changed) {
+                        scheduleIceRecovery()
+                        probeSocket()
+                    }
                 }
             }
         }
@@ -634,6 +649,23 @@ class MezonSfuSession @Inject constructor(
             ) return@launch
             recoverTransport(gen)
         }
+    }
+
+    private fun probeSocket() {
+        if (!active || !socketOpen || transportRecoveryJob != null || socketProbeJob != null) return
+        val gen = connectionGen
+        send(JSONObject().put("type", "ping"))
+        socketProbeJob = scope?.launch {
+            delay(SOCKET_PROBE_DEADLINE_MS)
+            if (!isActive || gen != connectionGen) return@launch
+            socketProbeJob = null
+            recoverTransport(gen)
+        }
+    }
+
+    private fun clearSocketProbe() {
+        socketProbeJob?.cancel()
+        socketProbeJob = null
     }
 
     private fun restoreCommunicationAudio() {
@@ -726,6 +758,7 @@ class MezonSfuSession @Inject constructor(
         participantActionCallbacks.clear()
         clearOfferReissueDeadline()
         clearTransportWatchdog()
+        clearSocketProbe()
         clearConnectionDeadline()
         clearModeratorMuteCheck()
         clearDeferredRestart()
@@ -824,6 +857,7 @@ class MezonSfuSession @Inject constructor(
     }
 
     fun leave() {
+        recoveryDeadline.cancel()
         stopAudioSendProbe()
         noiseChangeGeneration++
         noiseChangeJob?.cancel()
@@ -861,6 +895,7 @@ class MezonSfuSession @Inject constructor(
         pttRequested = false
         clearOfferReissueDeadline()
         clearTransportWatchdog()
+        clearSocketProbe()
         clearConnectionDeadline()
         clearModeratorMuteCheck()
         clearDeferredRestart()
@@ -1135,6 +1170,7 @@ class MezonSfuSession @Inject constructor(
                     return@launch
                 }
                 socketOpen = true
+                lastSocketMessageAtMs = SystemClock.elapsedRealtime()
                 connecting = false
                 emitState(SfuConnectionState.JOINING)
                 send(
@@ -1151,6 +1187,7 @@ class MezonSfuSession @Inject constructor(
             val message = parseSignalingMessage(text) ?: return
             appScope.launch(mainDispatcher) {
                 if (gen != connectionGen) return@launch
+                lastSocketMessageAtMs = SystemClock.elapsedRealtime()
                 handleMessage(message)
             }
         }
@@ -1200,7 +1237,7 @@ class MezonSfuSession @Inject constructor(
         val msg = message.json
         when (msg.optString("type")) {
             "ping" -> send(JSONObject().put("type", "pong"))
-            "pong" -> {}
+            "pong" -> clearSocketProbe()
             "joined" -> {
                 if (connectionState == SfuConnectionState.CONNECTING || connectionState == SfuConnectionState.JOINING) {
                     emitState(SfuConnectionState.AWAITING_OFFER)
@@ -2026,7 +2063,16 @@ class MezonSfuSession @Inject constructor(
                 return@launch
             }
             if (tokenNeedsRefresh() && tokenRefreshes < MAX_TOKEN_REFRESHES) {
-                val fresh = runCatching { tokenProvider?.invoke(call.channelId, call.clanId) }.getOrNull()
+                val fresh = withTimeoutOrNull(TOKEN_REFRESH_TIMEOUT_MS) {
+                    try {
+                        tokenProvider?.invoke(call.channelId, call.clanId)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.w(TAG, "sfu recovery token refresh failed", e)
+                        null
+                    }
+                }
                 if (!isActive || !active || retryGen != connectionGen) return@launch
                 tokenRefreshes++
                 if (!fresh.isNullOrEmpty()) {
@@ -2067,6 +2113,7 @@ class MezonSfuSession @Inject constructor(
         webSocket = null
         clearOfferReissueDeadline()
         clearTransportWatchdog()
+        clearSocketProbe()
         clearConnectionDeadline()
         clearModeratorMuteCheck()
         clearDeferredRestart()
@@ -2580,6 +2627,22 @@ class MezonSfuSession @Inject constructor(
     }
 
     private fun emitState(state: SfuConnectionState) {
+        if (state == SfuConnectionState.CONNECTED || state == SfuConnectionState.FAILED) {
+            recoveryDeadline.cancel()
+        } else if (active) {
+            scope?.let { roomScope ->
+                // Covers offline waits, token refresh and all transport retries. A new
+                // connectionGen must not extend the deadline for the same recovery.
+                recoveryDeadline.arm(roomScope) {
+                    if (active && scope === roomScope && connectionState != SfuConnectionState.CONNECTED) {
+                        Log.w(TAG, "sfu join/recovery exceeded ${RECOVERY_DEADLINE_MS}ms " +
+                            "in state=$connectionState online=${networkMonitor.isOnline.value}")
+                        leave()
+                        emitState(SfuConnectionState.FAILED)
+                    }
+                }
+            }
+        }
         if (connectionState == state) return
         connectionState = state
         if (state != SfuConnectionState.CONNECTED) {

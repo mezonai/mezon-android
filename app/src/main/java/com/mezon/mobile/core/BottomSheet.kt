@@ -164,6 +164,7 @@ open class BottomSheet(
     private var skipDismissAnimation = false
 
     private var snapPoints: FloatArray = floatArrayOf()
+    private var fitToContents = false
     private var initialSnapIndex: Int = 0
     var currentSnapIndex: Int = 0
         private set
@@ -304,6 +305,11 @@ open class BottomSheet(
 
     fun transitionFromRight(value: Boolean) { transitionFromRight = value }
 
+    fun setFitToContents(value: Boolean) {
+        fitToContents = value
+        if (::container.isInitialized) container.requestLayout()
+    }
+
     fun setSnapPoints(vararg fractions: Float, initialIndex: Int = 0) {
         val cleaned = fractions
             .map { it.coerceIn(0.05f, 1f) }
@@ -323,8 +329,8 @@ open class BottomSheet(
         val cv = containerView ?: return
         if (animated) {
             ObjectAnimator.ofFloat(cv, View.TRANSLATION_Y, target).apply {
-                duration = 250
-                interpolator = CubicBezierInterpolator.DEFAULT
+                duration = snapAnimationDuration(cv.translationY, target)
+                interpolator = CubicBezierInterpolator.EASE_OUT_QUINT
                 addUpdateListener { onContainerViewTranslation() }
                 start()
             }
@@ -338,10 +344,21 @@ open class BottomSheet(
         if (snapPoints.isEmpty() || availableSheetHeight <= 0) return 0f
         val maxSnap = snapPoints.last()
         val f = snapPoints[index.coerceIn(0, snapPoints.size - 1)]
+        if (fitToContents) {
+            val measuredHeight = containerView?.measuredHeight ?: 0
+            return (measuredHeight - f * availableSheetHeight).coerceAtLeast(0f)
+        }
         return ((maxSnap - f) * availableSheetHeight)
     }
 
     fun hasSnapPoints(): Boolean = snapPoints.isNotEmpty()
+
+    private fun snapAnimationDuration(from: Float, to: Float): Long {
+        val snapRange = (snapTranslationY(0) - snapTranslationY(snapPoints.lastIndex))
+            .coerceAtLeast(1f)
+        val remainingDistance = Math.abs(to - from)
+        return (180f * remainingDistance / snapRange).toLong().coerceIn(100L, 180L)
+    }
 
     // ─── Lifecycle ──────────────────────────────────────────────────────────
 
@@ -841,7 +858,8 @@ open class BottomSheet(
 
     protected open fun isTouchOutside(x: Float, y: Float): Boolean {
         val cv = containerView ?: return false
-        return y < cv.top || x < cv.left || x > cv.right
+        val visibleTop = cv.top + if (snapPoints.isNotEmpty()) cv.translationY else 0f
+        return y < visibleTop || x < cv.left || x > cv.right
     }
 
     protected open fun onDismissWithTouchOutside() { dismiss() }
@@ -882,21 +900,37 @@ open class BottomSheet(
             return (nestedScrollChild == null || child == nestedScrollChild) &&
                     !dismissed && allowNestedScroll &&
                     (axes and ViewCompat.SCROLL_AXIS_VERTICAL) != 0 &&
-                    !canDismissWithSwipe()
+                    (snapPoints.isNotEmpty() || !canDismissWithSwipe())
         }
 
         override fun onNestedScrollAccepted(child: View, target: View, axes: Int, type: Int) {
             nestedHelper.onNestedScrollAccepted(child, target, axes, type)
             if (dismissed || !allowNestedScroll) return
             cancelCurrentAnimation()
+            if (snapPoints.isNotEmpty()) {
+                maybeStartTracking = false
+                startedTracking = false
+                startedTrackingPointerId = -1
+                velocityTracker?.recycle()
+                velocityTracker = null
+            }
         }
 
         override fun onNestedPreScroll(target: View, dx: Int, dy: Int, consumed: IntArray, type: Int) {
             if (dismissed || !allowNestedScroll) return
+            if (snapPoints.isNotEmpty() && type != ViewCompat.TYPE_TOUCH) return
             cancelCurrentAnimation()
             val cv = containerView ?: return
             val currentTranslation = cv.translationY
             if (currentTranslation > 0 && dy > 0) {
+                if (snapPoints.isNotEmpty()) {
+                    val distance = minOf(dy, kotlin.math.ceil(currentTranslation).toInt())
+                    cv.translationY = (currentTranslation - distance).coerceAtLeast(0f)
+                    consumed[1] += distance
+                    onContainerViewTranslation()
+                    this@ContainerView.invalidate()
+                    return
+                }
                 var newTy = currentTranslation - dy
                 consumed[1] = dy
                 if (newTy < 0) newTy = 0f
@@ -911,9 +945,21 @@ open class BottomSheet(
             dxUnconsumed: Int, dyUnconsumed: Int, type: Int, consumed: IntArray
         ) {
             if (dismissed || !allowNestedScroll) return
+            // A fling in the options list must not pull the sheet down or dismiss it.
+            if (snapPoints.isNotEmpty() && type != ViewCompat.TYPE_TOUCH) return
             cancelCurrentAnimation()
             val cv = containerView ?: return
             if (dyUnconsumed != 0) {
+                if (snapPoints.isNotEmpty()) {
+                    val oldTranslation = cv.translationY
+                    val maxTranslation = snapTranslationY(0) +
+                        AndroidUtilities.getPixelsInCM(1.5f, false)
+                    cv.translationY = (oldTranslation - dyUnconsumed).coerceIn(0f, maxTranslation)
+                    consumed[1] += (oldTranslation - cv.translationY).toInt()
+                    onContainerViewTranslation()
+                    this@ContainerView.invalidate()
+                    return
+                }
                 var currentTranslation = cv.translationY
                 currentTranslation -= dyUnconsumed
                 if (currentTranslation < 0) currentTranslation = 0f
@@ -933,10 +979,20 @@ open class BottomSheet(
         override fun onStopNestedScroll(target: View, type: Int) {
             nestedHelper.onStopNestedScroll(target, type)
             if (dismissed || !allowNestedScroll) return
+            if (snapPoints.isNotEmpty() &&
+                (type != ViewCompat.TYPE_TOUCH || currentAnimation != null)
+            ) return
             checkDismiss(0f, 0f)
         }
 
-        override fun onNestedPreFling(target: View, velocityX: Float, velocityY: Float): Boolean = false
+        override fun onNestedPreFling(target: View, velocityX: Float, velocityY: Float): Boolean {
+            if (dismissed || !allowNestedScroll) return false
+            if (snapPoints.isNotEmpty() && (containerView?.translationY ?: 0f) > 0f) {
+                checkDismiss(velocityX, -velocityY)
+                return true
+            }
+            return false
+        }
 
         override fun onNestedFling(target: View, velocityX: Float, velocityY: Float, consumed: Boolean): Boolean = false
 
@@ -1001,8 +1057,8 @@ open class BottomSheet(
                         ObjectAnimator.ofFloat(cv, "translationY", targetTy),
                         invalidator
                     )
-                    duration = 250
-                    interpolator = CubicBezierInterpolator.DEFAULT
+                    duration = snapAnimationDuration(translationY, targetTy)
+                    interpolator = CubicBezierInterpolator.EASE_OUT_QUINT
                     addListener(object : AnimatorListenerAdapter() {
                         override fun onAnimationEnd(animation: Animator) {
                             if (currentAnimation?.equals(animation) == true) {
@@ -1158,6 +1214,9 @@ open class BottomSheet(
         }
 
         override fun onInterceptTouchEvent(event: MotionEvent): Boolean {
+            if (snapPoints.isNotEmpty() && nestedHelper.nestedScrollAxes != ViewCompat.SCROLL_AXIS_NONE) {
+                return super.onInterceptTouchEvent(event)
+            }
             if (canDismissWithSwipe() || canSwipeToBack(event)) {
                 return processTouchEvent(event, true)
             }
@@ -1219,7 +1278,11 @@ open class BottomSheet(
             }
             isPortrait = width < height
 
-            availableSheetHeight = height
+            availableSheetHeight = if (snapPoints.isNotEmpty()) {
+                (height - statusBarHeight).coerceAtLeast(0)
+            } else {
+                height
+            }
             containerView?.let { cv ->
                 val widthSpec = if (!useFullWidth) {
                     val sheetWidth = getBottomSheetWidth(isPortrait, width, height)
@@ -1228,7 +1291,10 @@ open class BottomSheet(
                     MeasureSpec.makeMeasureSpec(width + backgroundPaddingLeft * 2, MeasureSpec.EXACTLY)
                 }
                 val heightSpec = if (snapPoints.isNotEmpty()) {
-                    MeasureSpec.makeMeasureSpec((height * snapPoints.last()).toInt(), MeasureSpec.EXACTLY)
+                    MeasureSpec.makeMeasureSpec(
+                        (availableSheetHeight * snapPoints.last()).toInt(),
+                        if (fitToContents) MeasureSpec.AT_MOST else MeasureSpec.EXACTLY
+                    )
                 } else {
                     MeasureSpec.makeMeasureSpec(height, MeasureSpec.AT_MOST)
                 }

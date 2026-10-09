@@ -1788,6 +1788,7 @@ class CreateThreadFragment : BaseFragment() {
         when (item) {
             is InputSuggestionItem.Loading -> return
             is InputSuggestionItem.SlashCommand -> return
+            is InputSuggestionItem.EphemeralCommand -> return
             is InputSuggestionItem.Here ->
                 insertMentionToken(editable, triggerPos, replaceEnd, "@here", ChatController.ID_MENTION_HERE, "", themeColors.textLink)
             is InputSuggestionItem.Member -> {

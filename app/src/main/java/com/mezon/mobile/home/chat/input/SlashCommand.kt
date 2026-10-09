@@ -6,9 +6,10 @@ data class SlashCommand(
     val id: Long,
     val name: String,
     val actionMsg: String,
+    val botId: Long = 0L,
 ) {
     companion object {
         fun fromProto(proto: QuickMenuAccess): SlashCommand =
-            SlashCommand(id = proto.id, name = proto.menuName, actionMsg = proto.actionMsg)
+            SlashCommand(id = proto.id, name = proto.menuName, actionMsg = proto.actionMsg, botId = proto.botId)
     }
 }

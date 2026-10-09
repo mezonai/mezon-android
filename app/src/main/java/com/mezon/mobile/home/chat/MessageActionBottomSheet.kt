@@ -11,9 +11,9 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.widget.NestedScrollView
 import com.mezon.mobile.R
 import com.mezon.mobile.core.AndroidUtilities
 import com.mezon.mobile.core.BottomSheet
@@ -40,6 +40,7 @@ class MessageActionBottomSheet(
     private val showTopicDiscussion: Boolean = false,
     private val showPinActions: Boolean = true,
     private val showResend: Boolean = false,
+    private val showQuickMenu: Boolean = false,
     private val listener: MessageActionListener
 ) : BottomSheet(context) {
 
@@ -63,7 +64,8 @@ class MessageActionBottomSheet(
         CopyImage,
         ShareImage,
         Report,
-        GiveACoffee
+        GiveACoffee,
+        QuickMenu
     }
 
     interface MessageActionListener {
@@ -73,6 +75,16 @@ class MessageActionBottomSheet(
     }
 
     private val theme: ThemeColors = ThemeColors.instance
+    private var selectedAction: ActionType? = null
+
+    init {
+        setOnDismissListener {
+            val action = selectedAction ?: return@setOnDismissListener
+            selectedAction = null
+            // The chat window must regain focus before an action can open its keyboard.
+            listener.onActionSelected(action, message)
+        }
+    }
 
     private val secondaryColor: Int
         get() = when (theme.resolvedMode) {
@@ -90,14 +102,19 @@ class MessageActionBottomSheet(
         }
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
-        val scrollView = ScrollView(context).apply {
+        setSnapPoints(0.5f, 1f, initialIndex = 0)
+        setFitToContents(true)
+        val scrollView = NestedScrollView(context).apply {
             isVerticalScrollBarEnabled = false
             overScrollMode = View.OVER_SCROLL_NEVER
         }
 
         val rootLayout = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(0, LayoutHelper.dp(20), 0, LayoutHelper.dp(20))
+            setPadding(
+                0, LayoutHelper.dp(20), 0,
+                LayoutHelper.dp(20) + AndroidUtilities.navigationBarHeight
+            )
         }
 
         rootLayout.addView(
@@ -401,6 +418,14 @@ class MessageActionBottomSheet(
             ))
         }
 
+        if (showQuickMenu) {
+            actions.add(ActionItem(
+                ActionType.QuickMenu,
+                context.getString(R.string.action_quick_menu),
+                MezonIcon.quickAction.resId
+            ))
+        }
+
         return actions
     }
 
@@ -567,8 +592,8 @@ class MessageActionBottomSheet(
         )
 
         row.setOnClickListener {
+            selectedAction = item.type
             dismiss()
-            listener.onActionSelected(item.type, message)
         }
 
         return row

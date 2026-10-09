@@ -8,13 +8,13 @@ import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.LayerDrawable
 import android.graphics.Canvas
 import android.graphics.ColorFilter
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.drawable.Drawable
-import android.os.SystemClock // FOR TEST ONLY: remove before release
 import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
@@ -25,30 +25,28 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.core.graphics.ColorUtils
 import com.mezon.mobile.R
-import com.mezon.mobile.core.AlertDialog // FOR TEST ONLY: remove before release
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
 import com.mezon.mobile.core.NotificationCenter
+import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.di.FragmentEntryPoint
-import com.mezon.mobile.home.ConnectionController // FOR TEST ONLY: remove before release
+import com.mezon.mobile.home.ConnectionController
 import com.mezon.mobile.home.friends.FriendController
 import com.mezon.mobile.home.friends.FriendsHomeFragment
 import com.mezon.mobile.home.friends.createFriendRequestBadgeView
 import com.mezon.mobile.home.friends.updateFriendRequestBadge
 import com.mezon.mobile.home.wallet.SendTokenFragment
-import com.mezon.mobile.network.HealthyEndpointReason // FOR TEST ONLY: remove before release
-import com.mezon.mobile.network.MezonApi // FOR TEST ONLY: remove before release
-import com.mezon.mobile.network.realtimeEndpointOf // FOR TEST ONLY: remove before release
-import com.mezon.mobile.session.SessionManager // FOR TEST ONLY: remove before release
+import com.mezon.mobile.network.ConnectionState
+import com.mezon.mobile.network.EndpointFailover
+import com.mezon.mobile.network.RealtimeServerChoice
 import com.mezon.mobile.ui.cells.AvatarView
 import com.mezon.mobile.ui.cells.MezonIcon
 import com.mezon.mobile.ui.cells.ToastOverlay
 import com.mezon.mobile.wallet.history.HistoryTransactionFragment
 import com.mezon.mobile.wallet.WalletController
-import kotlinx.coroutines.CancellationException // FOR TEST ONLY: remove before release
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job // FOR TEST ONLY: remove before release
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
@@ -65,10 +63,6 @@ class ProfileFragment : BaseFragment() {
         )
         private val MILLION = java.math.BigDecimal(1000000)
         private val VI_LOCALE = Locale("vi", "VN")
-        private const val HEALTHY_CHECK_TITLE = "Check healthy API" // FOR TEST ONLY: remove before release
-        private const val HEALTHY_CHECKING_TITLE = "Checking…" // FOR TEST ONLY: remove before release
-        private const val SOCKET_SWITCH_TITLE = "Switch sock" // FOR TEST ONLY: remove before release
-        private val SOCKET_HOSTS = listOf("sock.mezon.ai", "sock2.mezon.ai", "sock3.mezon.ai") // FOR TEST ONLY: remove before release
         private const val PROFILE_AVATAR_SIZE_DP = 96
         private const val PROFILE_AVATAR_CORNER_RADIUS_DP = 22f
         private const val MAX_FRIENDS_DISPLAY = 5
@@ -102,17 +96,8 @@ class ProfileFragment : BaseFragment() {
     private lateinit var friendController: FriendController
     private lateinit var walletController: WalletController
 
-    // FOR TEST ONLY: socket/healthy debug, remove before release
     private lateinit var connectionController: ConnectionController
-    private lateinit var mezonApi: MezonApi
-    private lateinit var sessionManager: SessionManager
-    private lateinit var socketDebugText: TextView
-    private lateinit var healthyCheckButton: TextView
-    private lateinit var healthyResultText: TextView
-    private var healthyCheckJob: Job? = null
-    private lateinit var socketSwitchButton: TextView
-    private var healthySuggestedHost: String? = null
-    // END FOR TEST ONLY
+    private lateinit var endpointFailover: EndpointFailover
 
     var onLogout: (() -> Unit)? = null
 
@@ -132,17 +117,20 @@ class ProfileFragment : BaseFragment() {
     private lateinit var friendsRequestBadgeText: TextView
     private lateinit var settingGeneralIconView: ImageView
     private lateinit var scrollView: ScrollView
+    private lateinit var serverChip: LinearLayout
+    private lateinit var serverStatusHalo: GradientDrawable
+    private lateinit var serverStatusDot: GradientDrawable
+    private lateinit var serverLabel: TextView
+    private lateinit var serverBadge: TextView
+    private lateinit var serverChevron: ImageView
 
     override fun onInject(entryPoint: FragmentEntryPoint) {
         userController = entryPoint.userController()
         accountController = entryPoint.accountController()
         friendController = entryPoint.friendController()
         walletController = entryPoint.walletController()
-        // FOR TEST ONLY: socket/healthy debug, remove before release
         connectionController = entryPoint.connectionController()
-        mezonApi = entryPoint.mezonApi()
-        sessionManager = entryPoint.sessionManager()
-        // END FOR TEST ONLY
+        endpointFailover = entryPoint.endpointFailover()
     }
 
     override fun onFragmentCreate(): Boolean {
@@ -157,16 +145,14 @@ class ProfileFragment : BaseFragment() {
             }
         }
 
-        // FOR TEST ONLY: socket/healthy debug, remove before release
         fragmentScope.launch {
             connectionController.mezonSocket.connectionState.collect {
                 if (fragmentView == null) return@collect
                 withContext(Dispatchers.Main) {
-                    updateSocketDebugText()
+                    updateServerChip()
                 }
             }
         }
-        // END FOR TEST ONLY
 
         observe(NotificationCenter.userDataLoaded) { _, _, _ ->
             if (fragmentView == null || isPaused) return@observe
@@ -224,6 +210,7 @@ class ProfileFragment : BaseFragment() {
         val infoCol = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             clipChildren = false
+            clipToPadding = false
             setPadding(LayoutHelper.dp(18), LayoutHelper.dp(83), LayoutHelper.dp(18), 0)
         }
         headerContainer.addView(infoCol, FrameLayout.LayoutParams(
@@ -297,7 +284,7 @@ class ProfileFragment : BaseFragment() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             background = object : Drawable() {
-                private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = themeColors.surfaceVariant }
+                private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = themeColors.getColor(ThemeColors.key_sheetItemBackground) }
                 private val path = Path()
                 private var lastWidth = 0f
                 private var lastHeight = 0f
@@ -417,33 +404,10 @@ class ProfileFragment : BaseFragment() {
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
         ).apply { topMargin = 0 })
 
-        // FOR TEST ONLY: socket/healthy debug, remove before release
-        val socketDebugColumn = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
-        infoCol.addView(socketDebugColumn, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        serverChip = createServerChip(context)
+        infoCol.addView(serverChip, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LayoutHelper.dp(30)
         ).apply { topMargin = LayoutHelper.dp(6) })
-        socketDebugText = TextView(context).apply {
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-        }
-        socketDebugColumn.addView(socketDebugText)
-        val socketDebugButtons = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
-        socketDebugColumn.addView(socketDebugButtons, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { topMargin = LayoutHelper.dp(6) })
-        healthyCheckButton = createSocketDebugButton(context, HEALTHY_CHECK_TITLE) { runHealthyCheck() }
-        socketDebugButtons.addView(healthyCheckButton)
-        socketSwitchButton = createSocketDebugButton(context, SOCKET_SWITCH_TITLE) { showSocketSwitchDialog() }
-        socketDebugButtons.addView(socketSwitchButton, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { leftMargin = LayoutHelper.dp(8) })
-        healthyResultText = TextView(context).apply {
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-            visibility = View.GONE
-        }
-        socketDebugColumn.addView(healthyResultText, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { topMargin = LayoutHelper.dp(6) })
-        // END FOR TEST ONLY
 
         scrollView = ScrollView(context).apply {
             isVerticalScrollBarEnabled = false
@@ -462,8 +426,10 @@ class ProfileFragment : BaseFragment() {
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT
         ))
 
-        walletSection = createCardSection(context)
-        contentColumn.addView(walletSection, createCardMarginParams().apply { topMargin = LayoutHelper.dp(24) })
+        walletSection = createCardSection(context).apply {
+            setPadding(paddingLeft, LayoutHelper.dp(8), paddingRight, paddingBottom)
+        }
+        contentColumn.addView(walletSection, createCardMarginParams())
 
         val balanceRow = createIconTextRow(context, MezonIcon.balanceIcon, "", null) {
         }
@@ -480,8 +446,8 @@ class ProfileFragment : BaseFragment() {
 
         val editProfileBtn = createEditProfileButton(context)
         walletSection.addView(editProfileBtn, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LayoutHelper.dp(48)
-        ).apply { topMargin = LayoutHelper.dp(10) })
+            LinearLayout.LayoutParams.MATCH_PARENT, LayoutHelper.dp(44)
+        ).apply { topMargin = LayoutHelper.dp(8) })
 
         val aboutSection = createCardSection(context)
         contentColumn.addView(aboutSection, createCardMarginParams())
@@ -568,7 +534,7 @@ class ProfileFragment : BaseFragment() {
                 .apply { leftMargin = LayoutHelper.dp(12) }
         )
 
-        val friendAvatarBgColor = themeColors.surfaceVariant
+        val friendAvatarBgColor = themeColors.getColor(ThemeColors.key_sheetItemBackground)
         val friendSlotSize = LayoutHelper.dp(32)
         val friendAvatarSize = LayoutHelper.dp(28)
         val friendSlotOverlap = -LayoutHelper.dp(10)
@@ -637,7 +603,7 @@ class ProfileFragment : BaseFragment() {
     private fun createCircleIconButton(context: Context, icon: MezonIcon, onClick: () -> Unit): FrameLayout {
         val size = LayoutHelper.dp(36)
         val container = FrameLayout(context).apply {
-            val bg = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(themeColors.surfaceVariant) }
+            val bg = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(themeColors.getColor(ThemeColors.key_sheetItemBackground)) }
             background = bg
             isClickable = true; isFocusable = true; setOnClickListener { onClick() }
         }
@@ -653,10 +619,10 @@ class ProfileFragment : BaseFragment() {
     private fun createCardSection(context: Context): LinearLayout {
         return LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            val pad = LayoutHelper.dp(20)
-            setPadding(pad, LayoutHelper.dp(16), pad, LayoutHelper.dp(16))
+            val pad = LayoutHelper.dp(16)
+            setPadding(pad, LayoutHelper.dp(14), pad, LayoutHelper.dp(14))
             val bg = GradientDrawable().apply {
-                cornerRadius = LayoutHelper.dp(20f).toFloat(); setColor(themeColors.surfaceVariant)
+                cornerRadius = LayoutHelper.dp(20f).toFloat(); setColor(themeColors.getColor(ThemeColors.key_sheetItemBackground))
             }
             background = bg
         }
@@ -681,7 +647,7 @@ class ProfileFragment : BaseFragment() {
         row.addView(iconView, LinearLayout.LayoutParams(LayoutHelper.dp(24), LayoutHelper.dp(24)))
         val label = TextView(context).apply {
             this.text = text; setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f); setTextColor(themeColors.onSurfaceVariant)
-            setPadding(LayoutHelper.dp(16), LayoutHelper.dp(10), 0, LayoutHelper.dp(10))
+            setPadding(LayoutHelper.dp(16), LayoutHelper.dp(8), 0, LayoutHelper.dp(8))
         }
         row.addView(label, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         row.setOnClickListener { onClick?.invoke(row) }
@@ -710,7 +676,7 @@ class ProfileFragment : BaseFragment() {
 
     private fun updateUI() {
         if (!::avatarView.isInitialized) return
-        updateSocketDebugText() // FOR TEST ONLY: remove before release
+        updateServerChip()
         val info = accountController.accountInfo.value
 
         val name = info.displayName.ifEmpty { info.username.ifEmpty { userController.displayName.ifEmpty { userController.username } } }
@@ -765,7 +731,7 @@ class ProfileFragment : BaseFragment() {
             aboutMeContainer.visibility = View.GONE
         }
         val memberLp = memberSinceContainer.layoutParams as LinearLayout.LayoutParams
-        val memberTop = if (hasAboutMe) LayoutHelper.dp(18) else 0
+        val memberTop = if (hasAboutMe) LayoutHelper.dp(12) else 0
         if (memberLp.topMargin != memberTop) {
             memberLp.topMargin = memberTop
             memberSinceContainer.layoutParams = memberLp
@@ -821,114 +787,99 @@ class ProfileFragment : BaseFragment() {
         )
     }
 
-    // FOR TEST ONLY: socket/healthy debug, remove before release
-    private fun socketDebugSummary(): String {
-        val socket = connectionController.mezonSocket
-        return "${socket.targetEndpoint()?.label() ?: "-"} · ${socket.connectionState.value.name.lowercase()}"
-    }
-
-    private fun updateSocketDebugText() {
-        if (!::socketDebugText.isInitialized) return
-        socketDebugText.setTextColor(themeColors.onSurfaceVariant)
-        socketDebugText.text = "Socket: ${socketDebugSummary()}"
-        for (button in listOf(healthyCheckButton, socketSwitchButton)) {
-            button.setTextColor(themeColors.onSurface)
-            (button.background as? GradientDrawable)?.setColor(themeColors.surfaceVariant)
+    private fun createServerChip(context: Context): LinearLayout {
+        val chip = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(LayoutHelper.dp(13), 0, LayoutHelper.dp(10), 0)
+            background = GradientDrawable().apply { cornerRadius = LayoutHelper.dp(10f).toFloat() }
+            foreground = androidx.core.content.ContextCompat.getDrawable(context, selectableItemBgResId(context))
+            clipToOutline = true
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { showServerSheet() }
         }
-        healthyResultText.setTextColor(themeColors.onSurface)
-    }
 
-    private fun createSocketDebugButton(context: Context, title: String, onClick: () -> Unit): TextView =
-        TextView(context).apply {
-            text = title
+        serverStatusHalo = GradientDrawable().apply { shape = GradientDrawable.OVAL }
+        serverStatusDot = GradientDrawable().apply { shape = GradientDrawable.OVAL }
+        val dotInset = LayoutHelper.dp(3)
+        val statusView = View(context).apply {
+            background = LayerDrawable(arrayOf(serverStatusHalo, serverStatusDot)).apply {
+                setLayerInset(1, dotInset, dotInset, dotInset, dotInset)
+            }
+        }
+        chip.addView(statusView, LinearLayout.LayoutParams(LayoutHelper.dp(14), LayoutHelper.dp(14)))
+
+        serverLabel = TextView(context).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        }
+        chip.addView(serverLabel, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { leftMargin = LayoutHelper.dp(6) })
+
+        serverBadge = TextView(context).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
             typeface = Typeface.DEFAULT_BOLD
-            setPadding(LayoutHelper.dp(12), LayoutHelper.dp(6), LayoutHelper.dp(12), LayoutHelper.dp(6))
-            background = GradientDrawable().apply { cornerRadius = LayoutHelper.dp(14).toFloat() }
-            setOnClickListener { onClick() }
+            gravity = Gravity.CENTER
+            minWidth = LayoutHelper.dp(18)
+            setPadding(LayoutHelper.dp(7), 0, LayoutHelper.dp(7), 0)
+            background = GradientDrawable().apply { cornerRadius = LayoutHelper.dp(4f).toFloat() }
         }
+        chip.addView(serverBadge, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LayoutHelper.dp(18)
+        ).apply { leftMargin = LayoutHelper.dp(6) })
 
-    private fun showSocketSwitchDialog() {
-        val currentHost = connectionController.mezonSocket.targetEndpoint()?.host
-        val labels = Array<CharSequence>(SOCKET_HOSTS.size) { index ->
-            val host = SOCKET_HOSTS[index]
-            buildString {
-                append(host)
-                if (host == currentHost) append(" (current)")
-                if (host == healthySuggestedHost) append(" (gateway)")
-            }
+        serverChevron = ImageView(context).apply {
+            setImageResource(MezonIcon.chevronDownSmallIcon.resId)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
         }
-        AlertDialog.Builder(requireContext())
-            .setTitle(SOCKET_SWITCH_TITLE)
-            .setItems(labels) { _, which -> switchSocket(SOCKET_HOSTS[which]) }
-            .setNegativeButton("Cancel", null)
-            .show()
+        chip.addView(serverChevron, LinearLayout.LayoutParams(
+            LayoutHelper.dp(16), LayoutHelper.dp(16)
+        ).apply { leftMargin = LayoutHelper.dp(3) })
+        return chip
     }
 
-    private fun switchSocket(host: String) {
-        healthyResultText.visibility = View.VISIBLE
-        healthyResultText.text = "Switching to $host…"
-        fragmentScope.launch {
-            val switched = try {
-                val session = sessionManager.requireValidSession()
-                sessionManager.updateEndpoints(session.apiUrl, host, host)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                false
-            }
-            if (switched) connectionController.mezonSocket.reconnectForEndpointChange("debug switch to $host")
-            withContext(Dispatchers.Main) {
-                if (fragmentView == null) return@withContext
-                healthyResultText.text = if (switched) "Switched to $host, reconnecting…" else "Switch failed"
-            }
+    private fun updateServerChip() {
+        if (!::serverChip.isInitialized) return
+        if (!RealtimeServerChoice.isAvailable) {
+            serverChip.visibility = View.GONE
+            return
         }
+        serverChip.visibility = View.VISIBLE
+        val connected = connectionController.mezonSocket.connectionState.value == ConnectionState.CONNECTED
+        val statusColor = if (connected) themeColors.connectedColor else themeColors.connectingColor
+        (serverChip.background as? GradientDrawable)?.setColor(themeColors.getColor(ThemeColors.key_sheetItemBackground))
+        serverStatusHalo.setColor(ColorUtils.setAlphaComponent(statusColor, 77))
+        serverStatusDot.setColor(statusColor)
+        serverLabel.setTextColor(themeColors.onSurface)
+        serverBadge.setTextColor(themeColors.onPrimary)
+        (serverBadge.background as? GradientDrawable)?.setColor(themeColors.primary)
+        serverChevron.colorFilter = PorterDuffColorFilter(themeColors.onSurfaceVariant, PorterDuff.Mode.SRC_IN)
+
+        val choice = endpointFailover.serverChoice
+        val region = choice.regionName ?: serverRegionInUse()
+        serverLabel.text = if (choice == RealtimeServerChoice.AUTO) {
+            "${getString(R.string.profile_server)} · ${getString(R.string.profile_server_auto)}"
+        } else {
+            getString(R.string.profile_server)
+        }
+        serverBadge.text = region
+        serverBadge.visibility = if (region == null) View.GONE else View.VISIBLE
+        serverChip.contentDescription = listOfNotNull(serverLabel.text, region).joinToString(", ")
     }
 
-    private fun runHealthyCheck() {
-        if (healthyCheckJob?.isActive == true) return
-        healthyCheckButton.isEnabled = false
-        healthyCheckButton.text = HEALTHY_CHECKING_TITLE
-        healthyResultText.visibility = View.VISIBLE
-        healthyResultText.text = "Calling healthy API…"
-        healthyCheckJob = fragmentScope.launch {
-            val (result, suggestedHost) = healthyCheckResult()
-            withContext(Dispatchers.Main) {
-                if (fragmentView == null) return@withContext
-                healthySuggestedHost = suggestedHost
-                healthyCheckButton.isEnabled = true
-                healthyCheckButton.text = HEALTHY_CHECK_TITLE
-                healthyResultText.text = result
-                updateSocketDebugText()
-            }
-        }
-    }
+    private fun serverRegionInUse(): String? =
+        connectionController.mezonSocket.targetEndpoint()?.let { RealtimeServerChoice.regionNameOfHost(it.host) }
 
-    private suspend fun healthyCheckResult(): Pair<String, String?> {
-        val current = connectionController.mezonSocket.targetEndpoint()
-        val currentEndpointId = current?.id ?: 0
-        val reason = HealthyEndpointReason.HIGH_LATENCY.code
-        return try {
-            val session = sessionManager.requireValidSession()
-            val started = SystemClock.elapsedRealtime()
-            val response = mezonApi.getHealthyEndpoint(session.token, currentEndpointId, reason)
-            val elapsedMs = SystemClock.elapsedRealtime() - started
-            val answered = realtimeEndpointOf(response.tcpUrl.ifBlank { session.tcpUrl }, response.wsUrl)
-            val verdict = when {
-                answered == null -> "no usable node"
-                current == null -> answered.label()
-                answered.isSameNode(current) -> "same node, keep"
-                else -> "move to ${answered.label()}"
-            }
-            val text = "Healthy (id=$currentEndpointId, reason=$reason, ${elapsedMs}ms): tcp=${response.tcpUrl} ws=${response.wsUrl}\n→ $verdict\nConnected: ${socketDebugSummary()}"
-            text to answered?.host
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            "Healthy API error: ${e.message ?: e.javaClass.simpleName}" to null
-        }
+    private fun showServerSheet() {
+        ServerChoiceBottomSheet(requireContext(), endpointFailover.serverChoice, serverRegionInUse()) { choice ->
+            endpointFailover.select(choice)
+            updateServerChip()
+        }.show()
     }
-    // END FOR TEST ONLY
 
     private fun navigateToProfileSetting() = presentFragment(EditProfileFragment())
 }

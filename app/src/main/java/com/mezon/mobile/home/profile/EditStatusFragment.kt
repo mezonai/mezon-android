@@ -11,6 +11,7 @@ import android.widget.TextView
 import com.mezon.mobile.R
 import com.mezon.mobile.core.BaseFragment
 import com.mezon.mobile.core.LayoutHelper
+import com.mezon.mobile.core.ThemeColors
 import com.mezon.mobile.di.FragmentEntryPoint
 import com.mezon.mobile.ui.cells.InputCell
 import com.mezon.mobile.ui.cells.ToastOverlay
@@ -89,28 +90,29 @@ class EditStatusFragment : BaseFragment() {
         }
 
         val inputCardBg = GradientDrawable().apply {
-            setColor(themeColors.surfaceVariant)
+            setColor(themeColors.getColor(ThemeColors.key_sheetItemBackground))
             cornerRadius = LayoutHelper.dpf(12f)
         }
         val inputCard = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             background = inputCardBg
-            val pad = LayoutHelper.dp(12)
+            val pad = LayoutHelper.dp(16)
             setPadding(pad, pad, pad, pad)
         }
 
         statusInput = InputCell(context, themeColors).apply {
             setHint(context.getString(R.string.status_hint))
             setTextarea(true, 128)
-            setCellBackgroundColor(themeColors.surfaceVariant)
+            setCellBackgroundColor(themeColors.getColor(ThemeColors.key_sheetItemBackground))
             setCellStrokeColor(0x00000000)
+            setInputPadding(0)
             editText.gravity = Gravity.TOP or Gravity.START
             val currentStatus = accountInfo.userStatus
             if (currentStatus.isNotEmpty()) {
                 setText(currentStatus)
             }
         }
-        inputCard.addView(statusInput, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 120, 0f, 0, 0f, 0f, 0f, 0f))
+        inputCard.addView(statusInput, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, 0, 0f, 0f, 0f, 0f))
         content.addView(inputCard, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, 0, 0f, 0f, 0f, 24f))
 
         val durationTitle = TextView(context).apply {
@@ -122,7 +124,7 @@ class EditStatusFragment : BaseFragment() {
         content.addView(durationTitle, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0f, 0, 0f, 0f, 0f, 12f))
 
         val optionsBg = GradientDrawable().apply {
-            setColor(themeColors.surfaceVariant)
+            setColor(themeColors.getColor(ThemeColors.key_sheetItemBackground))
             cornerRadius = LayoutHelper.dpf(12f)
         }
         optionsContainer = LinearLayout(context).apply {
@@ -150,8 +152,8 @@ class EditStatusFragment : BaseFragment() {
             val row = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                val padH = LayoutHelper.dp(20)
-                val padV = LayoutHelper.dp(20)
+                val padH = LayoutHelper.dp(16)
+                val padV = LayoutHelper.dp(16)
                 setPadding(padH, padV, padH, padV)
                 setOnClickListener {
                     com.mezon.mobile.core.AndroidUtilities.hideKeyboard(fragmentView ?: return@setOnClickListener)
@@ -163,7 +165,7 @@ class EditStatusFragment : BaseFragment() {
             val labelText = TextView(context).apply {
                 text = title
                 setTextColor(themeColors.onSurface)
-                textSize = 17f
+                textSize = 15f
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
             }
             row.addView(labelText, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, Gravity.CENTER_VERTICAL, 0f, 0f, 0f, 0f))

@@ -73,6 +73,9 @@ import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -154,7 +157,11 @@ class SharingFragment(
 
     private var selectedTarget: SharingTarget? = null
     private var searchQuery = ""
+    private var didAutoFocusSearch = false
     private var awaitingSearchResults = false
+    private var deviceQueryPending = false
+    private var targetRankingJob: Job? = null
+    private var targetRankingGeneration = 0L
     private var displayLimit = LOCAL_PAGE_SIZE
     private var isSending = false
     private var pendingDeviceShareKey: Pair<Long, Long>? = null
@@ -292,6 +299,7 @@ class SharingFragment(
     }
 
     override fun onFragmentDestroy() {
+        invalidateTargetRanking()
         fragmentView?.removeCallbacks(rebuildForwardDebounced)
         super.onFragmentDestroy()
         debounceRunnable?.let { debounceHandler.removeCallbacks(it) }
@@ -310,6 +318,20 @@ class SharingFragment(
         val content = buildContent(context)
         val title = if (isForwardMode) R.string.forward_screen_title else R.string.sharing_title
         return wrapWithActionBar(getString(title), content)
+    }
+
+    override fun onBecomeFullyVisible() {
+        super.onBecomeFullyVisible()
+        if (didAutoFocusSearch || !::searchEditText.isInitialized) return
+        searchEditText.post {
+            if (didAutoFocusSearch || isPaused || isFinished || fragmentView?.isShown != true ||
+                selectedTarget != null || searchEditText.visibility != View.VISIBLE
+            ) return@post
+            if (searchEditText.requestFocus()) {
+                didAutoFocusSearch = true
+                AndroidUtilities.showKeyboard(searchEditText)
+            }
+        }
     }
 
     private fun buildContent(context: Context): View {
@@ -458,6 +480,12 @@ class SharingFragment(
                 override fun afterTextChanged(s: Editable?) {
                     debounceRunnable?.let { debounceHandler.removeCallbacks(it) }
                     val query = s?.toString() ?: ""
+                    invalidateTargetRanking()
+                    if (!isForwardMode) {
+                        deviceQueryPending = true
+                        // Reject old API responses immediately, including the debounce window.
+                        searchController.cancelCtrlKSearch()
+                    }
                     debounceRunnable = Runnable {
                         if (isForwardMode) applyForwardFilter(query) else onDeviceQueryChanged(query)
                     }
@@ -825,6 +853,7 @@ class SharingFragment(
     }
 
     private fun onDeviceQueryChanged(query: String) {
+        deviceQueryPending = false
         searchQuery = query.trim()
         displayLimit = LOCAL_PAGE_SIZE
         awaitingSearchResults = searchQuery.isNotEmpty() && searchController.fetchCtrlKResults(searchQuery)
@@ -833,24 +862,72 @@ class SharingFragment(
     }
 
     private fun onSearchResultsLoaded() {
+        if (deviceQueryPending || searchQuery.isEmpty()) return
         awaitingSearchResults = false
         renderDeviceTargets()
     }
 
     private fun renderDeviceTargets() {
-        filteredTargets.clear()
         val searching = searchQuery.isNotEmpty()
-        if (searching) {
-            filteredTargets.addAll(buildSearchResultTargets())
-        } else {
-            filteredTargets.addAll(allTargets)
-        }
         suggestionsLabel.visibility = if (searching) View.GONE else View.VISIBLE
+        if (deviceQueryPending) return
+        if (searching) {
+            rankTargets(buildSearchResultTargets(), searchQuery.removeSearchTypePrefix(), includeUnmatched = true) { ranked ->
+                filteredTargets.clear()
+                filteredTargets.addAll(ranked)
+                updateDeviceResultsUi()
+            }
+        } else {
+            invalidateTargetRanking()
+            filteredTargets.clear()
+            filteredTargets.addAll(allTargets)
+            updateDeviceResultsUi()
+        }
+    }
+
+    private fun updateDeviceResultsUi() {
         val showEmpty = filteredTargets.isEmpty() && !awaitingSearchResults
         emptyView.visibility = if (showEmpty) View.VISIBLE else View.GONE
         recyclerView.visibility = if (showEmpty) View.GONE else View.VISIBLE
         adapter.setData(filteredTargets.take(displayLimit), false, emptySet())
     }
+
+    private fun invalidateTargetRanking() {
+        targetRankingGeneration++
+        targetRankingJob?.cancel()
+        targetRankingJob = null
+    }
+
+    private fun rankTargets(
+        targets: List<SharingTarget>,
+        query: String,
+        includeUnmatched: Boolean,
+        usernameOnly: Boolean = false,
+        onRanked: (List<SharingTarget>) -> Unit,
+    ) {
+        invalidateTargetRanking()
+        val generation = targetRankingGeneration
+        targetRankingJob = fragmentScope.launch(mainDispatcher) {
+            val ranked = withContext(Dispatchers.Default) {
+                val candidates = targets.map { target ->
+                    SharingSearchRanking.Candidate(
+                        target,
+                        displayName = if (usernameOnly) "" else target.channelLabel,
+                        username = target.username,
+                        clanName = if (usernameOnly) "" else target.clanName,
+                    )
+                }
+                SharingSearchRanking.rank(candidates, query, includeUnmatched) {
+                    coroutineContext.ensureActive()
+                }
+            }
+            if (generation != targetRankingGeneration || fragmentView == null) return@launch
+            onRanked(ranked)
+        }
+    }
+
+    private fun String.removeSearchTypePrefix(): String =
+        if (startsWith("@") || startsWith("#")) drop(1).trim() else this
 
     private fun buildSearchResultTargets(): List<SharingTarget> {
         val dmChannelByUserId = HashMap<Long, Long>()
@@ -935,24 +1012,31 @@ class SharingFragment(
     }
 
     private fun applyForwardFilter(query: String) {
-        filteredTargets.clear()
-        val qTrim = query.trim()
-        when {
-            qTrim.isEmpty() -> filteredTargets.addAll(allTargets)
-            qTrim.startsWith("#") -> {
-                val needle = qTrim.drop(1).trim().lowercase()
-                for (t in allTargets) {
-                    if (t.channelType != CHANNEL_TYPE_CHANNEL && t.channelType != CHANNEL_TYPE_THREAD) continue
-                    if (t.matchesForwardQuery(needle)) filteredTargets.add(t)
-                }
-            }
-            else -> {
-                val needle = qTrim.lowercase()
-                for (t in allTargets) {
-                    if (t.matchesForwardQuery(needle)) filteredTargets.add(t)
-                }
-            }
+        val trimmed = query.trim()
+        if (trimmed.isEmpty()) {
+            invalidateTargetRanking()
+            filteredTargets.clear()
+            filteredTargets.addAll(allTargets)
+            updateForwardResultsUi()
+            return
         }
+        val targets = when {
+            trimmed.startsWith("#") -> allTargets.filter {
+                it.channelType == CHANNEL_TYPE_CHANNEL || it.channelType == CHANNEL_TYPE_THREAD
+            }
+            else -> allTargets.toList()
+        }
+        rankTargets(
+            targets, trimmed.removeSearchTypePrefix(), includeUnmatched = false,
+            usernameOnly = trimmed.startsWith("@"),
+        ) { ranked ->
+            filteredTargets.clear()
+            filteredTargets.addAll(ranked)
+            updateForwardResultsUi()
+        }
+    }
+
+    private fun updateForwardResultsUi() {
         val empty = filteredTargets.isEmpty()
         emptyView.visibility = if (empty) View.VISIBLE else View.GONE
         recyclerView.visibility = if (empty) View.GONE else View.VISIBLE
@@ -963,13 +1047,6 @@ class SharingFragment(
         if (!isForwardMode) return
         chatArea.visibility = View.VISIBLE
         refreshSendButtonEnabled()
-    }
-
-    private fun SharingTarget.matchesForwardQuery(needle: String): Boolean {
-        val cleanNeedle = needle.removePrefix("@")
-        return channelLabel.lowercase().contains(needle) ||
-            clanName.lowercase().contains(needle) ||
-            username.lowercase().contains(cleanNeedle)
     }
 
     private fun refreshSendButtonEnabled() {
