@@ -60,7 +60,7 @@ class PeerConnectionWrapper(
     private val answerLock = Any()
     private var pendingAnswerCallback: ((SessionDescription) -> Unit)? = null
     private var iceReconnectRunnable: Runnable? = null
-    private var disposed = false
+    @Volatile private var disposed = false
     private val attachedLocalSinks = mutableSetOf<SurfaceViewRenderer>()
     private val attachedRemoteSinks = mutableSetOf<SurfaceViewRenderer>()
     private var captureStarted = false
@@ -163,6 +163,7 @@ class PeerConnectionWrapper(
     }
 
     fun createOffer(isVideo: Boolean, callback: (SessionDescription) -> Unit) {
+        if (disposed) return
         createPeerConnection()
         holdLocalCandidates = true 
         addLocalMedia(isVideo)
@@ -171,10 +172,11 @@ class PeerConnectionWrapper(
 
         peerConnection?.createOffer(object : SimpleSdpObserver() {
             override fun onCreateSuccess(sdp: SessionDescription?) {
+                if (disposed) return
                 sdp?.let { offer ->
                     val preferredSdp = preferVp8Codec(offer)
                     peerConnection?.setLocalDescription(SimpleSdpObserver(), preferredSdp)
-                    mainHandler.post { callback(preferredSdp) }
+                    mainHandler.post { if (!disposed) callback(preferredSdp) }
                 }
             }
         }, constraints)
@@ -195,10 +197,11 @@ class PeerConnectionWrapper(
 
                 peerConnection?.createAnswer(object : SimpleSdpObserver() {
                     override fun onCreateSuccess(answer: SessionDescription?) {
+                        if (disposed) return
                         answer?.let {
                             val preferredAnswer = preferVp8Codec(it)
                             peerConnection?.setLocalDescription(SimpleSdpObserver(), preferredAnswer)
-                            mainHandler.post { callback(preferredAnswer) }
+                            mainHandler.post { if (!disposed) callback(preferredAnswer) }
                         }
                     }
                 }, MediaConstraints())
@@ -206,9 +209,7 @@ class PeerConnectionWrapper(
 
             override fun onSetFailure(error: String?) {
                 android.util.Log.e(TAG, "handleRemoteOffer: setRemoteDescription FAILED: $error")
-                mainHandler.post {
-                    listener.onInboundSignalingSetupFailed(error ?: "setRemoteDescription failed")
-                }
+                reportInboundSignalingSetupFailure(error ?: "setRemoteDescription failed")
             }
         }, sdp)
     }
@@ -220,9 +221,7 @@ class PeerConnectionWrapper(
         createPeerConnection()
         if (peerConnection == null) {
             android.util.Log.e(TAG, "handleRemoteOfferEager: createPeerConnection returned null")
-            mainHandler.post {
-                listener.onInboundSignalingSetupFailed("createPeerConnection returned null")
-            }
+            reportInboundSignalingSetupFailure("createPeerConnection returned null")
             return
         }
         holdLocalCandidates = true
@@ -240,9 +239,7 @@ class PeerConnectionWrapper(
                 synchronized(answerLock) {
                     pendingAnswerCallback = null
                 }
-                mainHandler.post {
-                    listener.onInboundSignalingSetupFailed(error ?: "eager setRemoteDescription failed")
-                }
+                reportInboundSignalingSetupFailure(error ?: "eager setRemoteDescription failed")
             }
         }, sdp)
     }
@@ -288,15 +285,15 @@ class PeerConnectionWrapper(
         }
         pc.createAnswer(object : SimpleSdpObserver() {
             override fun onCreateSuccess(answer: SessionDescription?) {
+                if (disposed) return
                 if (answer == null) {
-                    mainHandler.post {
-                        listener.onInboundSignalingSetupFailed("createAnswer returned null sdp")
-                    }
+                    reportInboundSignalingSetupFailure("createAnswer returned null sdp")
                     return
                 }
                 val preferredAnswer = preferVp8Codec(answer)
                 pc.setLocalDescription(SimpleSdpObserver(), preferredAnswer)
                 mainHandler.post {
+                    if (disposed) return@post
                     callback(preferredAnswer)
                     flushPendingLocalIce()
                 }
@@ -304,11 +301,15 @@ class PeerConnectionWrapper(
 
             override fun onCreateFailure(error: String?) {
                 android.util.Log.e(TAG, "createAnswerAndFlush: onCreateFailure: $error")
-                mainHandler.post {
-                    listener.onInboundSignalingSetupFailed(error ?: "createAnswer failed")
-                }
+                reportInboundSignalingSetupFailure(error ?: "createAnswer failed")
             }
         }, MediaConstraints())
+    }
+
+    private fun reportInboundSignalingSetupFailure(error: String) {
+        mainHandler.post {
+            if (!disposed) listener.onInboundSignalingSetupFailed(error)
+        }
     }
 
     private fun flushPendingLocalIce() {
@@ -336,7 +337,7 @@ class PeerConnectionWrapper(
                         answer?.let {
                             val preferredAnswer = preferVp8Codec(it)
                             pc.setLocalDescription(SimpleSdpObserver(), preferredAnswer)
-                            mainHandler.post { callback(preferredAnswer) }
+                            mainHandler.post { if (!disposed) callback(preferredAnswer) }
                         }
                     }
                 }, MediaConstraints())
@@ -355,7 +356,7 @@ class PeerConnectionWrapper(
                 sdp?.let { offer ->
                     val preferredSdp = preferVp8Codec(offer)
                     peerConnection?.setLocalDescription(SimpleSdpObserver(), preferredSdp)
-                    mainHandler.post { callback(preferredSdp) }
+                    mainHandler.post { if (!disposed) callback(preferredSdp) }
                 }
             }
         }, constraints)

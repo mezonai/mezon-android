@@ -556,6 +556,7 @@ open class ChatFragment : BaseFragment() {
 
     fun getChannelId(): Long = channelId
     fun getClanId(): Long = clanId
+    fun getTopicId(): Long = topicId
 
     override fun onFragmentCreate(): Boolean {
         super.onFragmentCreate()

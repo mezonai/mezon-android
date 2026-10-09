@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.telecom.Connection
 import android.telecom.ConnectionRequest
 import android.telecom.ConnectionService
+import android.telecom.DisconnectCause
 import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
 import android.telecom.VideoProfile
@@ -14,12 +15,21 @@ import android.util.Log
 private const val TAG = "MezonCallConnService"
 
 class MezonCallConnectionService : ConnectionService() {
+    private val ownedConnections = mutableSetOf<MezonCallConnection>()
+
+    private fun ownsCall(extras: Bundle?): String? {
+        val id = extras?.getString(CallManager.EXTRA_LOCAL_CALL_ID) ?: return null
+        return id.takeIf { CallController.instance?.currentCallInfo()?.localCallId == it }
+    }
 
     override fun onCreateIncomingConnection(
         connectionManagerPhoneAccount: PhoneAccountHandle?,
         request: ConnectionRequest?
     ): Connection {
-        val connection = MezonCallConnection(applicationContext)
+        val localCallId = ownsCall(request?.extras)
+            ?: return Connection.createFailedConnection(DisconnectCause(DisconnectCause.CANCELED))
+        val connection = MezonCallConnection(applicationContext, localCallId)
+        ownedConnections.add(connection)
 
         var isVideo = false
         request?.extras?.let { extras ->
@@ -48,9 +58,11 @@ class MezonCallConnectionService : ConnectionService() {
         connectionManagerPhoneAccount: PhoneAccountHandle?,
         request: ConnectionRequest?
     ): Connection {
-        val connection = MezonCallConnection(applicationContext)
-
         val outgoingExtras = request?.extras?.getBundle(TelecomManager.EXTRA_OUTGOING_CALL_EXTRAS)
+        val localCallId = ownsCall(outgoingExtras)
+            ?: return Connection.createFailedConnection(DisconnectCause(DisconnectCause.CANCELED))
+        val connection = MezonCallConnection(applicationContext, localCallId)
+        ownedConnections.add(connection)
         var isVideo = false
         outgoingExtras?.let { extras ->
             val peerName = extras.getString(CallManager.EXTRA_CALLER_NAME, "Unknown")
@@ -81,6 +93,7 @@ class MezonCallConnectionService : ConnectionService() {
         connectionManagerPhoneAccount: PhoneAccountHandle?,
         request: ConnectionRequest?
     ) {
+        if (ownsCall(request?.extras) == null) return
         Log.w(
             TAG,
             "onCreateIncomingConnectionFailed account=$connectionManagerPhoneAccount keys=${request?.extras?.keySet()}"
@@ -119,6 +132,15 @@ class MezonCallConnectionService : ConnectionService() {
                 Connection.CAPABILITY_SUPPORTS_VT_REMOTE_BIDIRECTIONAL
         }
         return capabilities
+    }
+
+    override fun onDestroy() {
+        for (connection in ownedConnections.toList()) {
+            CallController.instance?.takeIf { it.currentCallInfo()?.localCallId == connection.localCallId }?.hangup()
+            CallTelecomBridge.instance?.endOwnedConnection(connection, DisconnectCause.ERROR)
+        }
+        ownedConnections.clear()
+        super.onDestroy()
     }
 
     private fun silenceSystemIncomingRingtone(connection: Connection) {

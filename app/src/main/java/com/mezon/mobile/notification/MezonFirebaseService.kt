@@ -194,7 +194,9 @@ class MezonFirebaseService : FirebaseMessagingService() {
                         title,
                         body,
                         channelId = channelId,
-                        clanId = clanId
+                        clanId = clanId,
+                        topicId = topicId,
+                        messageId = messageId
                     )
                 } else {
                     notificationHelper.showMessageNotification(

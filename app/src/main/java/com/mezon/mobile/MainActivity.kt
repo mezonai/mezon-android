@@ -52,6 +52,7 @@ import com.mezon.mobile.home.chat.ChatFragment
 import com.mezon.mobile.home.chat.ImageClipboardCoordinator
 import com.mezon.mobile.home.chat.PendingCameraCapture
 import com.mezon.mobile.home.chat.PhotoViewer
+import com.mezon.mobile.home.chat.TopicFragment
 import com.mezon.mobile.home.chat.VideoPlayerDialog
 import com.mezon.mobile.home.call.CallController
 import com.mezon.mobile.home.call.CallFragment
@@ -1210,6 +1211,7 @@ class MainActivity : BasePermissionsActivity(),
         val resolvedChannelName = resolveChatDisplayName(channelId, channelName, clanId, routeMeta.channelType)
         val lastFragment = actionBarLayout.getLastFragment()
         if (lastFragment is ChatFragment &&
+            lastFragment !is TopicFragment &&
             lastFragment.getChannelId() == channelId &&
             lastFragment.getClanId() == clanId &&
             !forceRejoin
@@ -1272,6 +1274,47 @@ class MainActivity : BasePermissionsActivity(),
             .setNoAnimation(noAnimation)
             .setRemoveLast(replaceLastFragment)
         actionBarLayout.presentFragment(params)
+    }
+
+    fun openTopicFromNotification(
+        topicId: Long,
+        messageId: Long,
+        channelId: Long,
+        channelName: String,
+        clanId: Long,
+        channelType: Int
+    ) {
+        val lastFragment = actionBarLayout.getLastFragment()
+        if (lastFragment is TopicFragment && lastFragment.getTopicId() == topicId) return
+        openChat(channelId, channelName, clanId, channelType, noAnimation = true, fromNotification = true)
+        val routeMeta = resolveChatRouteMeta(channelId, clanId, channelType)
+        val topicController = EntryPointAccessors.fromApplication(
+            applicationContext, FragmentEntryPoint::class.java
+        ).topicController()
+        lifecycleScope.launch {
+            val topic = withContext(Dispatchers.IO) {
+                topicController.findTopic(topicId) ?: topicController.fetchTopicDetail(topicId)
+            }
+            val rootMessageId = topic?.messageId?.takeIf { it != 0L } ?: messageId
+            val parentChat = actionBarLayout.getLastFragment()
+            if (rootMessageId == 0L ||
+                parentChat !is ChatFragment ||
+                parentChat is TopicFragment ||
+                parentChat.getChannelId() != channelId
+            ) return@launch
+            val topicFragment = TopicFragment.newInstance(
+                topicId = topicId,
+                rootMessageId = rootMessageId,
+                clanId = clanId,
+                parentChannelId = channelId,
+                channelType = routeMeta.channelType,
+                isChannelPrivate = routeMeta.isPrivate,
+                openedFromNotification = true
+            )
+            actionBarLayout.presentFragment(
+                INavigationLayout.NavigationParams(topicFragment).setNoAnimation(true)
+            )
+        }
     }
 
     private fun resolveChatDisplayName(
@@ -1582,8 +1625,14 @@ class MainActivity : BasePermissionsActivity(),
 
         if (clanId != 0L && channelId != 0L) {
             val channelType = extras.getInt(NotificationHelper.EXTRA_CHANNEL_TYPE, CHANNEL_TYPE_CHANNEL)
+            val topicId = extras.getLong(NotificationHelper.EXTRA_TOPIC_ID, 0L)
             if (StartupCache.hasSession) {
-                openChat(channelId, channelName, clanId, channelType, noAnimation = isFromNotification, fromNotification = true)
+                if (topicId != 0L) {
+                    val topicMessageId = extras.getLong(NotificationHelper.EXTRA_MESSAGE_ID, 0L)
+                    openTopicFromNotification(topicId, topicMessageId, channelId, channelName, clanId, channelType)
+                } else {
+                    openChat(channelId, channelName, clanId, channelType, noAnimation = isFromNotification, fromNotification = true)
+                }
             }
             notificationHelper.cancelNotification(channelId.toInt())
             intent.removeExtra(NotificationHelper.EXTRA_CHANNEL_ID)

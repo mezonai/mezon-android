@@ -1,6 +1,7 @@
 package com.mezon.mobile.home.call
 
 import org.webrtc.SessionDescription
+import java.util.UUID
 
 sealed class CallState {
     object Idle : CallState()
@@ -17,7 +18,8 @@ data class CallInfo(
     val peerAvatar: String?,
     val channelId: Long,
     val isVideo: Boolean,
-    val isInitiator: Boolean
+    val isInitiator: Boolean,
+    val localCallId: String = UUID.randomUUID().toString()
 )
 
 enum class CallEndReason {

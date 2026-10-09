@@ -38,6 +38,14 @@ class CallTelecomBridge @Inject constructor(
             teardown(previous, DisconnectCause.CANCELED)
         }
         connection = newConnection
+        mainHandler.post {
+            val controller = CallController.instance
+            val state = controller?.callState
+            if (connection === newConnection && controller?.currentCallInfo()?.localCallId == newConnection.localCallId &&
+                (state is CallState.Connecting || state is CallState.Connected)) {
+                newConnection.setCallActive()
+            }
+        }
         pendingAudioRoute?.let { route ->
             mainHandler.post {
                 if (connection === newConnection) {
@@ -81,7 +89,8 @@ class CallTelecomBridge @Inject constructor(
                 callerName = callInfo.peerName,
                 peerId = callInfo.peerId.toString(),
                 channelId = callInfo.channelId.toString(),
-                isVideoCall = callInfo.isVideo
+                isVideoCall = callInfo.isVideo,
+                localCallId = callInfo.localCallId
             )
         } catch (e: Exception) {
             Log.w(TAG, "placeOutgoingCall failed, continuing without Telecom", e)
@@ -96,7 +105,8 @@ class CallTelecomBridge @Inject constructor(
                 callInfo.peerId.toString(),
                 callInfo.channelId.toString(),
                 offerJson,
-                callInfo.isVideo
+                callInfo.isVideo,
+                callInfo.localCallId
             )
         } catch (e: Exception) {
             Log.w(TAG, "showIncomingCall failed, continuing without Telecom", e)
@@ -131,10 +141,32 @@ class CallTelecomBridge @Inject constructor(
     private fun teardown(target: MezonCallConnection, cause: Int) {
         try {
             target.setDisconnected(DisconnectCause(cause))
-            target.destroy()
         } catch (e: Exception) {
             Log.w(TAG, "Telecom teardown failed", e)
+        } finally {
+            try {
+                target.destroy()
+            } catch (e: Exception) {
+                Log.w(TAG, "Telecom destroy failed", e)
+            }
         }
+    }
+
+    fun endOwnedConnection(target: MezonCallConnection, cause: Int) {
+        if (connection === target) {
+            connection = null
+            pendingAudioRoute = null
+        }
+        teardown(target, cause)
+    }
+
+    fun endIfOwned(localCallId: String, cause: Int) {
+        val target = connection ?: return
+        if (target.localCallId == localCallId) endOwnedConnection(target, cause)
+    }
+
+    fun endOrphanedConnection(cause: Int) {
+        if (CallController.instance?.currentCallInfo() == null) end(cause)
     }
 
     companion object {
