@@ -146,6 +146,7 @@ android {
         buildStr("MEZON_WEBRTC_ICESERVERS_USERNAME")
         buildStr("MEZON_WEBRTC_ICESERVERS_CREDENTIAL")
         buildStr("MEZON_BASE_IMG_URL")
+        buildStr("MEZON_BASE_MEZON_IMG_URL")
         buildStr("MEZON_LOGO_URL")
         buildStr("MEZON_IMGPROXY_BASE_URL")
         buildStr("MEZON_IMGPROXY_KEY")
