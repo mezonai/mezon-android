@@ -27,7 +27,7 @@ class AdvancedMenuView(
     context: Context,
     private val theme: ThemeColors,
     private val clanId: Long = 0L,
-    private val isAnonymousMode: Boolean = false,
+    private var isAnonymousMode: Boolean = false,
     private val showCreatePoll: Boolean = false
 ) : FrameLayout(context) {
 
@@ -58,14 +58,15 @@ class AdvancedMenuView(
         val icon: MezonIcon
     )
 
-    private val functions: List<FunctionItem> = buildFunctions()
+    private val functions = ArrayList(buildFunctions())
+    private val functionGridAdapter = FunctionGridAdapter()
 
     init {
         setBackgroundColor(theme.getColor(ThemeColors.key_sheetBackground))
 
         val gridView = RecyclerView(context).apply {
             layoutManager = GridLayoutManager(context, ITEMS_PER_ROW)
-            adapter = FunctionGridAdapter()
+            adapter = functionGridAdapter
             overScrollMode = View.OVER_SCROLL_NEVER
             clipToPadding = false
             setPadding(LayoutHelper.dp(12f), LayoutHelper.dp(16f), LayoutHelper.dp(12f), LayoutHelper.dp(16f))
@@ -85,7 +86,9 @@ class AdvancedMenuView(
             val anonLabel = if (isAnonymousMode) R.string.advanced_anonymous_off else R.string.advanced_anonymous
             list.add(FunctionItem("anonymous", anonLabel, MezonIcon.anonymousIconGray))
         }
-        list.add(FunctionItem("buzz", R.string.advanced_buzz, MezonIcon.buzzAdvancedIcon))
+        if (!isAnonymousMode) {
+            list.add(FunctionItem("buzz", R.string.advanced_buzz, MezonIcon.buzzAdvancedIcon))
+        }
         if (clanId != 0L) {
             list.add(FunctionItem("ephemeral", R.string.advanced_ephemeral, MezonIcon.ephemeralIconGray))
         }
@@ -97,6 +100,14 @@ class AdvancedMenuView(
             list.add(FunctionItem("share_contact", R.string.advanced_share_contact, MezonIcon.shareContactIconGray))
         }
         return list
+    }
+
+    fun updateAnonymousMode(enabled: Boolean) {
+        if (isAnonymousMode == enabled) return
+        isAnonymousMode = enabled
+        functions.clear()
+        functions.addAll(buildFunctions())
+        functionGridAdapter.notifyDataSetChanged()
     }
 
     private inner class FunctionGridAdapter : RecyclerView.Adapter<FunctionGridAdapter.Holder>() {

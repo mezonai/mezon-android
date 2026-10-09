@@ -173,6 +173,7 @@ class ChannelController @Inject constructor(
     private val messageDao: MessageDao,
     private val dispatcher: SocketEventDispatcher,
     private val notificationCenter: NotificationCenter,
+    private val buzzController: com.mezon.mobile.home.BuzzController,
     private val cacheTracker: ApiCacheTracker,
     private val clansController: dagger.Lazy<ClansController>,
     private val badgeCoordinator: dagger.Lazy<com.mezon.mobile.home.BadgeCoordinator>,
@@ -1926,6 +1927,11 @@ class ChannelController @Inject constructor(
     }
 
     fun markChannelAsRead(channelId: Long, seenTimestampSeconds: Int = 0, seenMessageId: Long = 0L) {
+        buzzController.clearTarget(channelId)
+        applyChannelRead(channelId, seenTimestampSeconds, seenMessageId)
+    }
+
+    private fun applyChannelRead(channelId: Long, seenTimestampSeconds: Int = 0, seenMessageId: Long = 0L) {
         var topicClanId = 0L
         var topicOldUnread = 0
         val wasTopic = sdTopicChannelsById.computeIfPresent(channelId) { _, ch ->
@@ -2006,6 +2012,7 @@ class ChannelController @Inject constructor(
     }
 
     fun updateLastSeen(channelId: Long, messageId: Long, timestampSeconds: Int = 0) {
+        buzzController.clearSeen(channelId, messageId)
         var topicClanId = 0L
         var topicOldUnread = 0
         val wasTopic = sdTopicChannelsById.computeIfPresent(channelId) { _, ch ->
@@ -2188,7 +2195,8 @@ class ChannelController @Inject constructor(
     }
 
     private fun markTargetsAsRead(ids: List<Long>) {
-        ids.forEach(::markChannelAsRead)
+        buzzController.removeChannels(ids)
+        ids.forEach { applyChannelRead(it) }
     }
 
     private fun observeSocketEvents() {
