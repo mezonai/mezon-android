@@ -86,6 +86,15 @@ mezon/app/google-services.json
 
 Copy `mezon/mezon.secrets.properties.example` to `mezon/mezon.secrets.properties` and fill in values (the real file is not committed; obtain from your team or internal secret store). Gradle fails early if this file is missing.
 
+Both attachment CDN keys are required, with no trailing slash:
+
+| Key | Used when the server returns |
+| --- | --- |
+| `MEZON_BASE_IMG_URL` | `type_cdn = 2` |
+| `MEZON_BASE_MEZON_IMG_URL` | `type_cdn = 1` |
+
+For existing setups, add `MEZON_BASE_MEZON_IMG_URL` to your `mezon.secrets.properties` and obtain the values for both CDN keys from your team or internal secret store. Gradle rejects missing or empty values during configuration. These origins are used to construct attachment URLs for viewing; uploads continue to use the presigned URL returned by the server.
+
 ---
 
 ## Build and test
